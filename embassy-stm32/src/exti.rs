@@ -134,7 +134,7 @@ impl<'d> ExtiInput<'d> {
     /// Asynchronously wait until the pin is high.
     ///
     /// This returns immediately if the pin is already high.
-    pub async fn wait_for_high(&mut self) {
+    pub async fn wait_for_high(&self) {
         let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false);
         if self.is_high() {
             return;
@@ -145,7 +145,7 @@ impl<'d> ExtiInput<'d> {
     /// Asynchronously wait until the pin is low.
     ///
     /// This returns immediately if the pin is already low.
-    pub async fn wait_for_low(&mut self) {
+    pub async fn wait_for_low(&self) {
         let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true);
         if self.is_low() {
             return;
@@ -156,19 +156,19 @@ impl<'d> ExtiInput<'d> {
     /// Asynchronously wait until the pin sees a rising edge.
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
-    pub async fn wait_for_rising_edge(&mut self) {
+    pub async fn wait_for_rising_edge(&self) {
         ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false).await
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
-    pub async fn wait_for_falling_edge(&mut self) {
+    pub async fn wait_for_falling_edge(&self) {
         ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true).await
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
-    pub async fn wait_for_any_edge(&mut self) {
+    pub async fn wait_for_any_edge(&self) {
         ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true).await
     }
 }
@@ -199,32 +199,32 @@ impl<'d> embedded_hal_1::digital::InputPin for ExtiInput<'d> {
     }
 }
 
-impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
-    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
-        self.wait_for_high().await;
-        Ok(())
-    }
+// impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
+//     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+//         self.wait_for_high().await;
+//         Ok(())
+//     }
 
-    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
-        self.wait_for_low().await;
-        Ok(())
-    }
+//     async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+//         self.wait_for_low().await;
+//         Ok(())
+//     }
 
-    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
-        self.wait_for_rising_edge().await;
-        Ok(())
-    }
+//     async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+//         self.wait_for_rising_edge().await;
+//         Ok(())
+//     }
 
-    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
-        self.wait_for_falling_edge().await;
-        Ok(())
-    }
+//     async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+//         self.wait_for_falling_edge().await;
+//         Ok(())
+//     }
 
-    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-        self.wait_for_any_edge().await;
-        Ok(())
-    }
-}
+//     async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+//         self.wait_for_any_edge().await;
+//         Ok(())
+//     }
+// }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct ExtiInputFuture<'a> {
