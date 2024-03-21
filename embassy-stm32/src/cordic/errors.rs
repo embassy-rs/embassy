@@ -46,6 +46,7 @@ impl defmt::Format for CordicError {
 }
 
 /// Error dring parsing [Cordic::Config](super::Config)
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ConfigError {
     pub(super) func: Function,
@@ -71,6 +72,7 @@ impl defmt::Format for ConfigError {
 }
 
 /// Error on checking input arguments
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ArgError {
     pub(super) func: Function,
