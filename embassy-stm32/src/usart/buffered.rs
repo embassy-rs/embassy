@@ -52,7 +52,7 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
                 // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
             }
 
-            if state.rx_buf.is_full() {
+            if !state.rx_buf.is_empty() {
                 state.rx_waker.wake();
             }
         }
