@@ -4,13 +4,15 @@
 
 // Only test on STM32H563ZI, STM32U585AI and STM32U5a5JI.
 // STM32G491RE is not tested, since it memory.x has less memory size than it actually has,
-// and the test seems use much memory than memory.x suggest.
+// and the test seems use more memory than memory.x suggest.
 // see https://github.com/embassy-rs/stm32-data/issues/301#issuecomment-1925412561
 
 #![no_std]
 #![no_main]
 
-use defmt::*;
+#[path = "../common.rs"]
+mod common;
+use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{bind_interrupts, cordic, peripherals, rng};
 use num_traits::Float;
@@ -25,12 +27,12 @@ bind_interrupts!(struct Irqs {
 const ARG1_LENGTH: usize = 9;
 const ARG2_LENGTH: usize = 4; // this might not be the exact length of ARG2, since ARG2 need to be inside [0, 1]
 
-const INPUT_Q1_31_LENGHT: usize = ARG1_LENGTH + ARG2_LENGTH;
-const INPUT_U8_LENGTH: usize = 4 * INPUT_Q1_31_LENGHT;
+const INPUT_Q1_31_LENGTH: usize = ARG1_LENGTH + ARG2_LENGTH;
+const INPUT_U8_LENGTH: usize = 4 * INPUT_Q1_31_LENGTH;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let dp = embassy_stm32::init(Default::default());
+    let dp = embassy_stm32::init(config());
 
     //
     // use RNG generate random Q1.31 value
@@ -41,12 +43,12 @@ async fn main(_spawner: Spawner) {
     let mut rng = rng::Rng::new(dp.RNG, Irqs);
 
     let mut input_buf_u8 = [0u8; INPUT_U8_LENGTH];
-    unwrap!(rng.async_fill_bytes(&mut input_buf_u8).await);
+    defmt::unwrap!(rng.async_fill_bytes(&mut input_buf_u8).await);
 
     // convert every [u8; 4] to a u32, for a Q1.31 value
-    let input_q1_31 = unsafe { core::mem::transmute::<[u8; INPUT_U8_LENGTH], [u32; INPUT_Q1_31_LENGHT]>(input_buf_u8) };
+    let input_q1_31 = unsafe { core::mem::transmute::<[u8; INPUT_U8_LENGTH], [u32; INPUT_Q1_31_LENGTH]>(input_buf_u8) };
 
-    let mut input_f64_buf = [0f64; INPUT_Q1_31_LENGHT];
+    let mut input_f64_buf = [0f64; INPUT_Q1_31_LENGTH];
 
     let mut cordic_output_f64_buf = [0f64; ARG1_LENGTH * 2];
 
@@ -66,13 +68,13 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    // the actal value feed to CORDIC
+    // the actual value feed to CORDIC
     let arg1_f64_ls = &input_f64_buf[..ARG1_LENGTH];
     let arg2_f64_ls = &arg2_f64_buf[..arg2_f64_len];
 
     let mut cordic = cordic::Cordic::new(
         dp.CORDIC,
-        unwrap!(cordic::Config::new(
+        defmt::unwrap!(cordic::Config::new(
             cordic::Function::Sin,
             Default::default(),
             Default::default(),
@@ -138,9 +140,9 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    // This comparsion is just for fun. Since it not a equal compare:
+    // This comparison is just for fun. Since it not a equal compare:
     // software use 64-bit floating point, but CORDIC use 32-bit fixed point.
-    trace!(
+    defmt::trace!(
         "calculate count: {}, Cordic time: {} us, software time: {} us",
         ARG1_LENGTH,
         (cordic_end_point - cordic_start_point).as_micros(),
