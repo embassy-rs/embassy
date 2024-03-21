@@ -31,13 +31,27 @@ use crate::{interrupt, peripherals};
 // available after reserving CC1 for regular time keeping. For example, TIM2 has four CC registers:
 // CC1, CC2, CC3, and CC4, so it can provide ALARM_COUNT = 3.
 
-cfg_if::cfg_if! {
-    if #[cfg(any(time_driver_tim9, time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22))] {
-        const ALARM_COUNT: usize = 1;
-    } else {
-        const ALARM_COUNT: usize = 3;
-    }
-}
+// Additional note, for the stm32wb55, TIM16/TIM17 have two CC registers
+
+#[cfg(not(any(
+    time_driver_tim12,
+    time_driver_tim15,
+    time_driver_tim16,
+    time_driver_tim17,
+    time_driver_tim21,
+    time_driver_tim22
+)))]
+const ALARM_COUNT: usize = 3;
+
+#[cfg(any(
+    time_driver_tim12,
+    time_driver_tim15,
+    time_driver_tim16,
+    time_driver_tim17,
+    time_driver_tim21,
+    time_driver_tim22
+))]
+const ALARM_COUNT: usize = 1;
 
 #[cfg(time_driver_tim1)]
 type T = peripherals::TIM1;
@@ -57,6 +71,10 @@ type T = peripherals::TIM9;
 type T = peripherals::TIM12;
 #[cfg(time_driver_tim15)]
 type T = peripherals::TIM15;
+#[cfg(time_driver_tim16)]
+type T = peripherals::TIM16;
+#[cfg(time_driver_tim17)]
+type T = peripherals::TIM17;
 #[cfg(time_driver_tim20)]
 type T = peripherals::TIM20;
 #[cfg(time_driver_tim21)]
@@ -157,6 +175,22 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
+    (TIM16, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim16)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM17, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim17)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
     (TIM20, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim20)]
         #[cfg(feature = "rt")]
@@ -224,8 +258,9 @@ foreach_interrupt! {
 // corresponds to the next period.
 //
 // `period` is a 32bit integer, so It overflows on 2^32 * 2^15 / 32768 seconds of uptime, which is 136 years.
-fn calc_now(period: u32, counter: u16) -> u64 {
-    ((period as u64) << 15) + ((counter as u32 ^ ((period & 1) << 15)) as u64)
+fn calc_now(period: u32, counter: u16, overflow: bool) -> u64 {
+    let period = period + if overflow { 1 } else {0};
+    ((period as u64) << 16) + (counter as u32  as u64)
 }
 
 struct AlarmState {
@@ -293,14 +328,11 @@ impl RtcDriver {
         r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTERONLY));
         r.egr().write(|w| w.set_ug(true));
         r.cr1().modify(|w| w.set_urs(vals::Urs::ANYEVENT));
+        r.cr1().modify(|w| w.set_uifremap(true));
 
-        // Mid-way point
-        r.ccr(0).write(|w| w.set_ccr(0x8000));
-
-        // Enable overflow and half-overflow interrupts
+        // Enable overflow interrupts
         r.dier().write(|w| {
             w.set_uie(true);
-            w.set_ccie(0, true);
         });
 
         <T as CoreInstance>::Interrupt::unpend();
@@ -341,7 +373,7 @@ impl RtcDriver {
             }
 
             for n in 0..ALARM_COUNT {
-                if sr.ccif(n + 1) && dier.ccie(n + 1) {
+                if sr.ccif(n) && dier.ccie(n) {
                     self.trigger_alarm(n, cs);
                 }
             }
@@ -354,7 +386,7 @@ impl RtcDriver {
         // We only modify the period from the timer interrupt, so we know this can't race.
         let period = self.period.load(Ordering::Relaxed) + 1;
         self.period.store(period, Ordering::Relaxed);
-        let t = (period as u64) << 15;
+        let t = (period as u64) << 16;
 
         critical_section::with(move |cs| {
             r.dier().modify(move |w| {
@@ -362,9 +394,9 @@ impl RtcDriver {
                     let alarm = &self.alarms.borrow(cs)[n];
                     let at = alarm.timestamp.get();
 
-                    if at < t + 0xc000 {
+                    if at < t + 0xFFFF {
                         // just enable it. `set_alarm` has already set the correct CCR val.
-                        w.set_ccie(n + 1, true);
+                        w.set_ccie(n, true);
                     }
                 }
             })
@@ -526,15 +558,15 @@ impl Driver for RtcDriver {
 
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
-        let counter = r.cnt().read().cnt();
-        calc_now(period, counter)
+        let cnt = r.cnt().read();
+        calc_now(period, cnt.cnt(), cnt.uifcpy())
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
         critical_section::with(|_| {
             let id = self.alarm_count.load(Ordering::Relaxed);
             if id < ALARM_COUNT as u8 {
-                self.alarm_count.store(id + 1, Ordering::Relaxed);
+                self.alarm_count.store(id, Ordering::Relaxed);
                 Some(AlarmHandle::new(id))
             } else {
                 None
@@ -563,7 +595,7 @@ impl Driver for RtcDriver {
             if timestamp <= t {
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                r.dier().modify(|w| w.set_ccie(n + 1, false));
+                r.dier().modify(|w| w.set_ccie(n , false));
 
                 alarm.timestamp.set(u64::MAX);
 
@@ -572,11 +604,11 @@ impl Driver for RtcDriver {
 
             // Write the CCR value regardless of whether we're going to enable it now or not.
             // This way, when we enable it later, the right value is already set.
-            r.ccr(n + 1).write(|w| w.set_ccr(timestamp as u16));
+            r.ccr(n).write(|w| w.set_ccr(timestamp as u16));
 
             // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
             let diff = timestamp - t;
-            r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000));
+            r.dier().modify(|w| w.set_ccie(n, diff < 0xFFFF));
 
             // Reevaluate if the alarm timestamp is still in the future
             let t = self.now();
@@ -585,7 +617,7 @@ impl Driver for RtcDriver {
                 // the alarm may or may not have fired.
                 // Disarm the alarm and return `false` to indicate that.
                 // It is the caller's responsibility to handle this ambiguity.
-                r.dier().modify(|w| w.set_ccie(n + 1, false));
+                r.dier().modify(|w| w.set_ccie(n, false));
 
                 alarm.timestamp.set(u64::MAX);
 

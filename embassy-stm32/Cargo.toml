@@ -1,6 +1,6 @@
 [package]
 name = "embassy-stm32"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for ST STM32 series microcontrollers"
@@ -148,6 +148,10 @@ time-driver-tim9 = ["_time-driver"]
 time-driver-tim12 = ["_time-driver"]
 ## Use TIM15 as time driver
 time-driver-tim15 = ["_time-driver"]
+## Use TIM16 as time driver
+time-driver-tim16 = ["_time-driver"]
+## Use TIM17 as time driver
+time-driver-tim17 = ["_time-driver"]
 ## Use TIM20 as time driver
 time-driver-tim20 = ["_time-driver"]
 ## Use TIM21 as time driver

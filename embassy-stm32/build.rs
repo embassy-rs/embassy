@@ -193,6 +193,8 @@ fn main() {
         Some("tim9") => "TIM9",
         Some("tim12") => "TIM12",
         Some("tim15") => "TIM15",
+        Some("tim16") => "TIM16",
+        Some("tim17") => "TIM17",
         Some("tim20") => "TIM20",
         Some("tim21") => "TIM21",
         Some("tim22") => "TIM22",
