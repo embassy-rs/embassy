@@ -190,10 +190,10 @@ impl Ticker {
         self.expires_at = Instant::now() + self.duration;
     }
 
-    /// Reset the ticker to fire for the next time on the deadline.
+    /// Reset the ticker at the deadline.
     /// If the deadline is in the past, the ticker will fire instantly.
     pub fn reset_at(&mut self, deadline: Instant) {
-        self.expires_at = deadline;
+        self.expires_at = deadline + self.duration;
     }
 
     /// Resets the ticker, after the specified duration has passed.
