@@ -6,8 +6,9 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::low_level::AFType;
 use embassy_stm32::gpio::Speed;
 use embassy_stm32::time::{khz, Hertz};
-use embassy_stm32::timer::*;
-use embassy_stm32::{into_ref, Config, Peripheral, PeripheralRef};
+use embassy_stm32::timer::low_level::{OutputCompareMode, Timer as LLTimer};
+use embassy_stm32::timer::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance32bit4Channel};
+use embassy_stm32::{into_ref, Config, Peripheral};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -56,11 +57,11 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(300).await;
     }
 }
-pub struct SimplePwm32<'d, T: CaptureCompare32bitInstance> {
-    inner: PeripheralRef<'d, T>,
+pub struct SimplePwm32<'d, T: GeneralInstance32bit4Channel> {
+    tim: LLTimer<'d, T>,
 }
 
-impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
+impl<'d, T: GeneralInstance32bit4Channel> SimplePwm32<'d, T> {
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
@@ -69,9 +70,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
         ch4: impl Peripheral<P = impl Channel4Pin<T>> + 'd,
         freq: Hertz,
     ) -> Self {
-        into_ref!(tim, ch1, ch2, ch3, ch4);
-
-        T::enable_and_reset();
+        into_ref!(ch1, ch2, ch3, ch4);
 
         ch1.set_speed(Speed::VeryHigh);
         ch1.set_as_af(ch1.af_num(), AFType::OutputPushPull);
@@ -82,12 +81,12 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
         ch4.set_speed(Speed::VeryHigh);
         ch4.set_as_af(ch1.af_num(), AFType::OutputPushPull);
 
-        let mut this = Self { inner: tim };
+        let mut this = Self { tim: LLTimer::new(tim) };
 
         this.set_frequency(freq);
-        this.inner.start();
+        this.tim.start();
 
-        let r = T::regs_gp32();
+        let r = this.tim.regs_gp32();
         r.ccmr_output(0)
             .modify(|w| w.set_ocm(0, OutputCompareMode::PwmMode1.into()));
         r.ccmr_output(0)
@@ -101,23 +100,26 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
     }
 
     pub fn enable(&mut self, channel: Channel) {
-        T::regs_gp32().ccer().modify(|w| w.set_cce(channel.index(), true));
+        self.tim.regs_gp32().ccer().modify(|w| w.set_cce(channel.index(), true));
     }
 
     pub fn disable(&mut self, channel: Channel) {
-        T::regs_gp32().ccer().modify(|w| w.set_cce(channel.index(), false));
+        self.tim
+            .regs_gp32()
+            .ccer()
+            .modify(|w| w.set_cce(channel.index(), false));
     }
 
     pub fn set_frequency(&mut self, freq: Hertz) {
-        <T as embassy_stm32::timer::low_level::GeneralPurpose32bitInstance>::set_frequency(&mut self.inner, freq);
+        self.tim.set_frequency(freq);
     }
 
     pub fn get_max_duty(&self) -> u32 {
-        T::regs_gp32().arr().read()
+        self.tim.regs_gp32().arr().read()
     }
 
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         defmt::assert!(duty < self.get_max_duty());
-        T::regs_gp32().ccr(channel.index()).write_value(duty)
+        self.tim.regs_gp32().ccr(channel.index()).write_value(duty)
     }
 }
