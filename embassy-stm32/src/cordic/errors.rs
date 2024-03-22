@@ -5,12 +5,14 @@ use super::{Function, Scale};
 pub enum CordicError {
     /// Config error
     ConfigError(ConfigError),
-    /// Argument error
-    ArgError(ArgError),
-    /// Output buffer length error
-    OutputLengthNotEnough,
+    /// Argument length is incorrect
+    ArgumentLengthIncorrect,
+    /// Result buffer length error
+    ResultLengthNotEnough,
     /// Input value is out of range for Q1.x format
     NumberOutOfRange(NumberOutOfRange),
+    /// Argument error
+    ArgError(ArgError),
 }
 
 impl From<ConfigError> for CordicError {
@@ -19,15 +21,15 @@ impl From<ConfigError> for CordicError {
     }
 }
 
-impl From<ArgError> for CordicError {
-    fn from(value: ArgError) -> Self {
-        Self::ArgError(value)
-    }
-}
-
 impl From<NumberOutOfRange> for CordicError {
     fn from(value: NumberOutOfRange) -> Self {
         Self::NumberOutOfRange(value)
+    }
+}
+
+impl From<ArgError> for CordicError {
+    fn from(value: ArgError) -> Self {
+        Self::ArgError(value)
     }
 }
 
@@ -38,9 +40,10 @@ impl defmt::Format for CordicError {
 
         match self {
             ConfigError(e) => defmt::write!(fmt, "{}", e),
-            ArgError(e) => defmt::write!(fmt, "{}", e),
+            ResultLengthNotEnough => defmt::write!(fmt, "Output buffer length is not long enough"),
+            ArgumentLengthIncorrect => defmt::write!(fmt, "Argument length incorrect"),
             NumberOutOfRange(e) => defmt::write!(fmt, "{}", e),
-            OutputLengthNotEnough => defmt::write!(fmt, "Output buffer length is not long enough"),
+            ArgError(e) => defmt::write!(fmt, "{}", e),
         }
     }
 }
@@ -67,6 +70,26 @@ impl defmt::Format for ConfigError {
                 self.scale_range[0],
                 self.scale_range[1]
             )
+        }
+    }
+}
+
+/// Input value is out of range for Q1.x format
+#[allow(missing_docs)]
+#[derive(Debug)]
+pub enum NumberOutOfRange {
+    BelowLowerBound,
+    AboveUpperBound,
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for NumberOutOfRange {
+    fn format(&self, fmt: defmt::Formatter) {
+        use NumberOutOfRange::*;
+
+        match self {
+            BelowLowerBound => defmt::write!(fmt, "input value should be equal or greater than -1"),
+            AboveUpperBound => defmt::write!(fmt, "input value should be equal or less than 1"),
         }
     }
 }
@@ -118,24 +141,4 @@ impl defmt::Format for ArgError {
 pub(super) enum ArgType {
     Arg1,
     Arg2,
-}
-
-/// Input value is out of range for Q1.x format
-#[allow(missing_docs)]
-#[derive(Debug)]
-pub enum NumberOutOfRange {
-    BelowLowerBound,
-    AboveUpperBound,
-}
-
-#[cfg(feature = "defmt")]
-impl defmt::Format for NumberOutOfRange {
-    fn format(&self, fmt: defmt::Formatter) {
-        use NumberOutOfRange::*;
-
-        match self {
-            BelowLowerBound => defmt::write!(fmt, "input value should be equal or greater than -1"),
-            AboveUpperBound => defmt::write!(fmt, "input value should be equal or less than 1"),
-        }
-    }
 }

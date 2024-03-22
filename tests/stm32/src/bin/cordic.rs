@@ -14,6 +14,7 @@
 mod common;
 use common::*;
 use embassy_executor::Spawner;
+use embassy_stm32::cordic::utils;
 use embassy_stm32::{bind_interrupts, cordic, peripherals, rng};
 use num_traits::Float;
 use {defmt_rtt as _, panic_probe as _};
@@ -24,11 +25,12 @@ bind_interrupts!(struct Irqs {
 
 /* input value control, can be changed */
 
-const ARG1_LENGTH: usize = 9;
-const ARG2_LENGTH: usize = 4; // this might not be the exact length of ARG2, since ARG2 need to be inside [0, 1]
+const INPUT_U32_COUNT: usize = 9;
+const INPUT_U8_COUNT: usize = 4 * INPUT_U32_COUNT;
 
-const INPUT_Q1_31_LENGTH: usize = ARG1_LENGTH + ARG2_LENGTH;
-const INPUT_U8_LENGTH: usize = 4 * INPUT_Q1_31_LENGTH;
+// Assume first calculation needs 2 arguments, the reset needs 1 argument.
+// And all calculation generate 2 results.
+const OUTPUT_LENGTH: usize = (INPUT_U32_COUNT - 1) * 2;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -42,43 +44,28 @@ async fn main(_spawner: Spawner) {
 
     let mut rng = rng::Rng::new(dp.RNG, Irqs);
 
-    let mut input_buf_u8 = [0u8; INPUT_U8_LENGTH];
+    let mut input_buf_u8 = [0u8; INPUT_U8_COUNT];
     defmt::unwrap!(rng.async_fill_bytes(&mut input_buf_u8).await);
 
     // convert every [u8; 4] to a u32, for a Q1.31 value
-    let input_q1_31 = unsafe { core::mem::transmute::<[u8; INPUT_U8_LENGTH], [u32; INPUT_Q1_31_LENGTH]>(input_buf_u8) };
+    let mut input_q1_31 = unsafe { core::mem::transmute::<[u8; INPUT_U8_COUNT], [u32; INPUT_U32_COUNT]>(input_buf_u8) };
 
-    let mut input_f64_buf = [0f64; INPUT_Q1_31_LENGTH];
+    // ARG2 for Sin function should be inside [0, 1], set MSB to 0 of a Q1.31 value, will make sure it's no less than 0.
+    input_q1_31[1] &= !(1u32 << 31);
 
-    let mut cordic_output_f64_buf = [0f64; ARG1_LENGTH * 2];
+    //
+    // CORDIC calculation
+    //
 
-    // convert Q1.31 value back to f64, for software calculation verify
-    for (val_u32, val_f64) in input_q1_31.iter().zip(input_f64_buf.iter_mut()) {
-        *val_f64 = cordic::utils::q1_31_to_f64(*val_u32);
-    }
+    let mut output_q1_31 = [0u32; OUTPUT_LENGTH];
 
-    let mut arg2_f64_buf = [0f64; ARG2_LENGTH];
-    let mut arg2_f64_len = 0;
-
-    // check if ARG2 is in range [0, 1] (limited by CORDIC peripheral with Sin mode)
-    for &arg2 in &input_f64_buf[ARG1_LENGTH..] {
-        if arg2 >= 0.0 {
-            arg2_f64_buf[arg2_f64_len] = arg2;
-            arg2_f64_len += 1;
-        }
-    }
-
-    // the actual value feed to CORDIC
-    let arg1_f64_ls = &input_f64_buf[..ARG1_LENGTH];
-    let arg2_f64_ls = &arg2_f64_buf[..arg2_f64_len];
-
+    // setup Cordic driver
     let mut cordic = cordic::Cordic::new(
         dp.CORDIC,
         defmt::unwrap!(cordic::Config::new(
             cordic::Function::Sin,
             Default::default(),
             Default::default(),
-            false,
         )),
     );
 
@@ -88,66 +75,65 @@ async fn main(_spawner: Spawner) {
     #[cfg(any(feature = "stm32h563zi", feature = "stm32u585ai", feature = "stm32u5a5zj"))]
     let (mut write_dma, mut read_dma) = (dp.GPDMA1_CH4, dp.GPDMA1_CH5);
 
-    let cordic_start_point = embassy_time::Instant::now();
+    // calculate first result using blocking mode
+    let cnt0 = defmt::unwrap!(cordic.blocking_calc_32bit(&input_q1_31[..2], &mut output_q1_31, false, false));
 
-    let cnt = unwrap!(
+    // calculate rest results using async mode
+    let cnt1 = defmt::unwrap!(
         cordic
             .async_calc_32bit(
                 &mut write_dma,
                 &mut read_dma,
-                arg1_f64_ls,
-                Some(arg2_f64_ls),
-                &mut cordic_output_f64_buf,
+                &input_q1_31[2..],
+                &mut output_q1_31[cnt0..],
+                true,
+                false,
             )
             .await
     );
 
-    let cordic_end_point = embassy_time::Instant::now();
+    // all output value length should be the same as our output buffer size
+    defmt::assert_eq!(cnt0 + cnt1, output_q1_31.len());
 
-    // since we get 2 output for 1 calculation, the output length should be ARG1_LENGTH * 2
-    defmt::assert!(cnt == ARG1_LENGTH * 2);
+    let mut cordic_result_f64 = [0.0f64; OUTPUT_LENGTH];
 
-    let mut software_output_f64_buf = [0f64; ARG1_LENGTH * 2];
+    for (f64_val, u32_val) in cordic_result_f64.iter_mut().zip(output_q1_31) {
+        *f64_val = utils::q1_31_to_f64(u32_val);
+    }
 
-    // for software calc, if there is no ARG2 value, insert a 1.0 as value (the reset value for ARG2 in CORDIC)
-    let arg2_f64_ls = if arg2_f64_len == 0 { &[1.0] } else { arg2_f64_ls };
+    //
+    // software calculation
+    //
 
-    let software_inputs = arg1_f64_ls
+    let mut software_result_f64 = [0.0f64; OUTPUT_LENGTH];
+
+    let arg2 = utils::q1_31_to_f64(input_q1_31[1]);
+
+    for (&arg1, res) in input_q1_31
         .iter()
-        .zip(
-            arg2_f64_ls
-                .iter()
-                .chain(core::iter::repeat(&arg2_f64_ls[arg2_f64_ls.len() - 1])),
-        )
-        .zip(software_output_f64_buf.chunks_mut(2));
+        .enumerate()
+        .filter_map(|(idx, val)| if idx != 1 { Some(val) } else { None })
+        .zip(software_result_f64.chunks_mut(2))
+    {
+        let arg1 = utils::q1_31_to_f64(arg1);
 
-    let software_start_point = embassy_time::Instant::now();
-
-    for ((arg1, arg2), res) in software_inputs {
         let (raw_res1, raw_res2) = (arg1 * core::f64::consts::PI).sin_cos();
-
         (res[0], res[1]) = (raw_res1 * arg2, raw_res2 * arg2);
     }
 
-    let software_end_point = embassy_time::Instant::now();
+    //
+    // check result are the same
+    //
 
-    for (cordic_res, software_res) in cordic_output_f64_buf[..cnt]
+    for (cordic_res, software_res) in cordic_result_f64[..cnt0 + cnt1]
         .chunks(2)
-        .zip(software_output_f64_buf.chunks(2))
+        .zip(software_result_f64.chunks(2))
     {
         for (cord_res, soft_res) in cordic_res.iter().zip(software_res.iter()) {
+            // 2.0.powi(-19) is the max residual error for Sin function, in q1.31 format, with 24 iterations (aka PRECISION = 6)
             defmt::assert!((cord_res - soft_res).abs() <= 2.0.powi(-19));
         }
     }
-
-    // This comparison is just for fun. Since it not a equal compare:
-    // software use 64-bit floating point, but CORDIC use 32-bit fixed point.
-    defmt::trace!(
-        "calculate count: {}, Cordic time: {} us, software time: {} us",
-        ARG1_LENGTH,
-        (cordic_end_point - cordic_start_point).as_micros(),
-        (software_end_point - software_start_point).as_micros()
-    );
 
     info!("Test OK");
     cortex_m::asm::bkpt();
