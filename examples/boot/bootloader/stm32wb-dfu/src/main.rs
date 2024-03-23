@@ -49,7 +49,6 @@ fn main() -> ! {
         let mut buffer = AlignedBuffer([0; WRITE_SIZE]);
         let updater = BlockingFirmwareUpdater::new(fw_config, &mut buffer.0[..]);
 
-        let mut device_descriptor = [0; 256];
         let mut config_descriptor = [0; 256];
         let mut bos_descriptor = [0; 256];
         let mut control_buf = [0; 4096];
@@ -57,7 +56,6 @@ fn main() -> ! {
         let mut builder = Builder::new(
             driver,
             config,
-            &mut device_descriptor,
             &mut config_descriptor,
             &mut bos_descriptor,
             &mut [],
