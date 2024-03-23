@@ -34,7 +34,6 @@ pub struct Adc<'d, T: Instance> {
     adc: crate::PeripheralRef<'d, T>,
     #[cfg(not(any(adc_f3_v2, adc_f3_v1_1)))]
     sample_time: SampleTime,
-    calibrated_vdda: u32,
 }
 
 pub(crate) mod sealed {
