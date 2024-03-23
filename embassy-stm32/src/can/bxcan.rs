@@ -17,7 +17,6 @@ use crate::rcc::RccPeripheral;
 use crate::{interrupt, peripherals, Peripheral};
 
 pub mod enums;
-use enums::*;
 pub mod frame;
 pub mod util;
 
@@ -49,8 +48,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::TXInterrupt> for TxInterruptH
             v.set_rqcp(1, true);
             v.set_rqcp(2, true);
         });
-
-        T::state().tx_waker.wake();
+        T::state().tx_mode.on_interrupt::<T>();
     }
 }
 
@@ -258,7 +256,7 @@ impl<'d, T: Instance> CanTx<'d, T> {
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
     pub async fn write(&mut self, frame: &Frame) -> crate::can::bx::TransmitStatus {
         poll_fn(|cx| {
-            T::state().tx_waker.register(cx.waker());
+            T::state().tx_mode.register(cx.waker());
             if let Ok(status) = self.tx.transmit(frame) {
                 return Poll::Ready(status);
             }
@@ -277,7 +275,7 @@ impl<'d, T: Instance> CanTx<'d, T> {
 
     async fn flush_inner(mb: crate::can::bx::Mailbox) {
         poll_fn(|cx| {
-            T::state().tx_waker.register(cx.waker());
+            T::state().tx_mode.register(cx.waker());
             if T::regs().tsr().read().tme(mb.index()) {
                 return Poll::Ready(());
             }
@@ -294,7 +292,7 @@ impl<'d, T: Instance> CanTx<'d, T> {
 
     async fn flush_any_inner() {
         poll_fn(|cx| {
-            T::state().tx_waker.register(cx.waker());
+            T::state().tx_mode.register(cx.waker());
 
             let tsr = T::regs().tsr().read();
             if tsr.tme(crate::can::bx::Mailbox::Mailbox0.index())
@@ -316,7 +314,7 @@ impl<'d, T: Instance> CanTx<'d, T> {
 
     async fn flush_all_inner() {
         poll_fn(|cx| {
-            T::state().tx_waker.register(cx.waker());
+            T::state().tx_mode.register(cx.waker());
 
             let tsr = T::regs().tsr().read();
             if tsr.tme(crate::can::bx::Mailbox::Mailbox0.index())
@@ -334,6 +332,62 @@ impl<'d, T: Instance> CanTx<'d, T> {
     /// Waits until all of the transmit mailboxes become empty
     pub async fn flush_all(&self) {
         Self::flush_all_inner().await
+    }
+
+    /// Return a buffered instance of driver. User must supply Buffers
+    pub fn buffered<const TX_BUF_SIZE: usize>(
+        self,
+        txb: &'static mut TxBuf<TX_BUF_SIZE>,
+    ) -> BufferedCanTx<'d, T, TX_BUF_SIZE> {
+        BufferedCanTx::new(self.tx, txb)
+    }
+}
+
+/// User supplied buffer for TX buffering
+pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, BUF_SIZE>;
+
+/// CAN driver, transmit half.
+pub struct BufferedCanTx<'d, T: Instance, const TX_BUF_SIZE: usize> {
+    _tx: crate::can::bx::Tx<BxcanInstance<'d, T>>,
+    tx_buf: &'static TxBuf<TX_BUF_SIZE>,
+}
+
+impl<'d, T: Instance, const TX_BUF_SIZE: usize> BufferedCanTx<'d, T, TX_BUF_SIZE> {
+    fn new(_tx: crate::can::bx::Tx<BxcanInstance<'d, T>>, tx_buf: &'static TxBuf<TX_BUF_SIZE>) -> Self {
+        Self { _tx, tx_buf }.setup()
+    }
+
+    fn setup(self) -> Self {
+        // We don't want interrupts being processed while we change modes.
+        critical_section::with(|_| unsafe {
+            let tx_inner = self::common::ClassicBufferedTxInner {
+                tx_receiver: self.tx_buf.receiver().into(),
+            };
+            T::mut_state().tx_mode = TxMode::Buffered(tx_inner);
+        });
+        self
+    }
+
+    /// Async write frame to TX buffer.
+    pub async fn write(&mut self, frame: &Frame) {
+        self.tx_buf.send(*frame).await;
+        T::TXInterrupt::pend(); // Wake for Tx
+    }
+
+    /// Returns a sender that can be used for sending CAN frames.
+    pub fn writer(&self) -> BufferedCanSender {
+        BufferedCanSender {
+            tx_buf: self.tx_buf.sender().into(),
+            waker: T::TXInterrupt::pend,
+        }
+    }
+}
+
+impl<'d, T: Instance, const TX_BUF_SIZE: usize> Drop for BufferedCanTx<'d, T, TX_BUF_SIZE> {
+    fn drop(&mut self) {
+        critical_section::with(|_| unsafe {
+            T::mut_state().tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+        });
     }
 }
 
@@ -365,7 +419,7 @@ impl<'d, T: Instance> CanRx<'d, T> {
         T::state().rx_mode.wait_not_empty::<T>().await
     }
 
-    /// Return a buffered instance of driver without CAN FD support. User must supply Buffers
+    /// Return a buffered instance of driver. User must supply Buffers
     pub fn buffered<const RX_BUF_SIZE: usize>(
         self,
         rxb: &'static mut RxBuf<RX_BUF_SIZE>,
@@ -439,6 +493,14 @@ impl<'d, T: Instance, const RX_BUF_SIZE: usize> BufferedCanRx<'d, T, RX_BUF_SIZE
     /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
     pub fn reader(&self) -> BufferedCanReceiver {
         self.rx_buf.receiver().into()
+    }
+}
+
+impl<'d, T: Instance, const RX_BUF_SIZE: usize> Drop for BufferedCanRx<'d, T, RX_BUF_SIZE> {
+    fn drop(&mut self) {
+        critical_section::with(|_| unsafe {
+            T::mut_state().rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+        });
     }
 }
 
@@ -568,18 +630,62 @@ impl RxMode {
         }
     }
 }
+
+enum TxMode {
+    NonBuffered(AtomicWaker),
+    Buffered(self::common::ClassicBufferedTxInner),
+}
+
+impl TxMode {
+    pub fn buffer_free<T: Instance>(&self) -> bool {
+        let tsr = T::regs().tsr().read();
+        tsr.tme(crate::can::bx::Mailbox::Mailbox0.index())
+            || tsr.tme(crate::can::bx::Mailbox::Mailbox1.index())
+            || tsr.tme(crate::can::bx::Mailbox::Mailbox2.index())
+    }
+    pub fn on_interrupt<T: Instance>(&self) {
+        match &T::state().tx_mode {
+            TxMode::NonBuffered(waker) => waker.wake(),
+            TxMode::Buffered(buf) => {
+                while self.buffer_free::<T>() {
+                    match buf.tx_receiver.try_receive() {
+                        Ok(frame) => {
+                            let mut registers = crate::can::bx::Registers { canregs: T::regs() };
+                            _ = registers.transmit(&frame);
+                        }
+                        Err(_) => {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn register(&self, arg: &core::task::Waker) {
+        match self {
+            TxMode::NonBuffered(waker) => {
+                waker.register(arg);
+            }
+            _ => {
+                panic!("Bad mode");
+            }
+        }
+    }
+}
+
 struct State {
-    pub tx_waker: AtomicWaker,
-    pub err_waker: AtomicWaker,
     pub(crate) rx_mode: RxMode,
+    pub(crate) tx_mode: TxMode,
+    pub err_waker: AtomicWaker,
 }
 
 impl State {
     pub const fn new() -> Self {
         Self {
-            tx_waker: AtomicWaker::new(),
-            err_waker: AtomicWaker::new(),
             rx_mode: RxMode::NonBuffered(AtomicWaker::new()),
+            tx_mode: TxMode::NonBuffered(AtomicWaker::new()),
+            err_waker: AtomicWaker::new(),
         }
     }
 }

@@ -507,7 +507,7 @@ pub struct BufferedCanFd<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF
 /// Sender that can be used for sending CAN frames.
 #[derive(Copy, Clone)]
 pub struct BufferedFdCanSender {
-    tx_buf: embassy_sync::channel::DynamicSender<'static, FdFrame>,
+    tx_buf: DynamicSender<'static, FdFrame>,
     waker: fn(),
 }
 
@@ -532,8 +532,7 @@ impl BufferedFdCanSender {
 }
 
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
-pub type BufferedFdCanReceiver =
-    embassy_sync::channel::DynamicReceiver<'static, Result<(FdFrame, Timestamp), BusError>>;
+pub type BufferedFdCanReceiver = DynamicReceiver<'static, Result<(FdFrame, Timestamp), BusError>>;
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
