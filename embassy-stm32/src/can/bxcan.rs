@@ -10,7 +10,6 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::FutureExt;
 
 use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt;
@@ -21,6 +20,9 @@ pub mod enums;
 use enums::*;
 pub mod frame;
 pub mod util;
+
+mod common;
+pub use self::common::{BufferedCanReceiver, BufferedCanSender, Timestamp};
 
 /// Contains CAN frame and additional metadata.
 ///
@@ -59,8 +61,7 @@ pub struct Rx0InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::RX0Interrupt> for Rx0InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        // info!("rx0 irq");
-        Can::<T>::receive_fifo(RxFifo::Fifo0);
+        T::state().rx_mode.on_interrupt::<T>(RxFifo::Fifo0);
     }
 }
 
@@ -71,8 +72,7 @@ pub struct Rx1InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::RX1Interrupt> for Rx1InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        // info!("rx1 irq");
-        Can::<T>::receive_fifo(RxFifo::Fifo1);
+        T::state().rx_mode.on_interrupt::<T>(RxFifo::Fifo1);
     }
 }
 
@@ -97,16 +97,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterrup
 /// CAN driver
 pub struct Can<'d, T: Instance> {
     can: crate::can::bx::Can<BxcanInstance<'d, T>>,
-}
-
-/// Error returned by `try_read`
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum TryReadError {
-    /// Bus error
-    BusError(BusError),
-    /// Receive buffer is empty
-    Empty,
 }
 
 /// Error returned by `try_write`
@@ -226,34 +216,19 @@ impl<'d, T: Instance> Can<'d, T> {
     ///
     /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        self.split().1.read().await
+        T::state().rx_mode.read::<T>().await
     }
 
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
     pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
-        self.split().1.try_read()
+        T::state().rx_mode.try_read::<T>()
     }
 
     /// Waits while receive queue is empty.
     pub async fn wait_not_empty(&mut self) {
-        self.split().1.wait_not_empty().await
-    }
-
-    unsafe fn receive_fifo(fifo: RxFifo) {
-        let state = T::state();
-        let regsisters = crate::can::bx::Registers { canregs: T::regs() };
-
-        loop {
-            match regsisters.receive_fifo(fifo) {
-                Some(envelope) => {
-                    // NOTE: consensus was reached that if rx_queue is full, packets should be dropped
-                    let _ = state.rx_queue.try_send(envelope);
-                }
-                None => return,
-            };
-        }
+        T::state().rx_mode.wait_not_empty::<T>().await
     }
 
     /// Split the CAN driver into transmit and receive halves.
@@ -375,51 +350,95 @@ impl<'d, T: Instance> CanRx<'d, T> {
     ///
     /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        poll_fn(|cx| {
-            T::state().err_waker.register(cx.waker());
-            if let Poll::Ready(envelope) = T::state().rx_queue.receive().poll_unpin(cx) {
-                return Poll::Ready(Ok(envelope));
-            } else if let Some(err) = self.curr_error() {
-                return Poll::Ready(Err(err));
-            }
-
-            Poll::Pending
-        })
-        .await
+        T::state().rx_mode.read::<T>().await
     }
 
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
     pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
-        if let Ok(envelope) = T::state().rx_queue.try_receive() {
-            return Ok(envelope);
-        }
-
-        if let Some(err) = self.curr_error() {
-            return Err(TryReadError::BusError(err));
-        }
-
-        Err(TryReadError::Empty)
+        T::state().rx_mode.try_read::<T>()
     }
 
     /// Waits while receive queue is empty.
     pub async fn wait_not_empty(&mut self) {
-        poll_fn(|cx| T::state().rx_queue.poll_ready_to_receive(cx)).await
+        T::state().rx_mode.wait_not_empty::<T>().await
     }
 
-    fn curr_error(&self) -> Option<BusError> {
-        let err = { T::regs().esr().read() };
-        if err.boff() {
-            return Some(BusError::BusOff);
-        } else if err.epvf() {
-            return Some(BusError::BusPassive);
-        } else if err.ewgf() {
-            return Some(BusError::BusWarning);
-        } else if let Some(err) = err.lec().into_bus_err() {
-            return Some(err);
+    /// Return a buffered instance of driver without CAN FD support. User must supply Buffers
+    pub fn buffered<const RX_BUF_SIZE: usize>(
+        self,
+        rxb: &'static mut RxBuf<RX_BUF_SIZE>,
+    ) -> BufferedCanRx<'d, T, RX_BUF_SIZE> {
+        BufferedCanRx::new(self.rx, rxb)
+    }
+}
+
+/// User supplied buffer for RX Buffering
+pub type RxBuf<const BUF_SIZE: usize> =
+    Channel<CriticalSectionRawMutex, Result<(Frame, Timestamp), BusError>, BUF_SIZE>;
+
+/// CAN driver, receive half in Buffered mode.
+pub struct BufferedCanRx<'d, T: Instance, const RX_BUF_SIZE: usize> {
+    _rx: crate::can::bx::Rx<BxcanInstance<'d, T>>,
+    rx_buf: &'static RxBuf<RX_BUF_SIZE>,
+}
+
+impl<'d, T: Instance, const RX_BUF_SIZE: usize> BufferedCanRx<'d, T, RX_BUF_SIZE> {
+    fn new(_rx: crate::can::bx::Rx<BxcanInstance<'d, T>>, rx_buf: &'static RxBuf<RX_BUF_SIZE>) -> Self {
+        BufferedCanRx { _rx, rx_buf }.setup()
+    }
+
+    fn setup(self) -> Self {
+        // We don't want interrupts being processed while we change modes.
+        critical_section::with(|_| unsafe {
+            let rx_inner = self::common::ClassicBufferedRxInner {
+                rx_sender: self.rx_buf.sender().into(),
+            };
+            T::mut_state().rx_mode = RxMode::Buffered(rx_inner);
+        });
+        self
+    }
+
+    /// Async read frame from RX buffer.
+    pub async fn read(&mut self) -> Result<(Frame, Timestamp), BusError> {
+        self.rx_buf.receive().await
+    }
+
+    /// Attempts to read a CAN frame without blocking.
+    ///
+    /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
+    pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
+        match &T::state().rx_mode {
+            RxMode::Buffered(_) => {
+                if let Ok(result) = self.rx_buf.try_receive() {
+                    match result {
+                        Ok((frame, ts)) => Ok(Envelope { ts, frame }),
+                        Err(e) => Err(TryReadError::BusError(e)),
+                    }
+                } else {
+                    let registers = crate::can::bx::Registers { canregs: T::regs() };
+                    if let Some(err) = registers.curr_error() {
+                        return Err(TryReadError::BusError(err));
+                    } else {
+                        Err(TryReadError::Empty)
+                    }
+                }
+            }
+            _ => {
+                panic!("Bad Mode")
+            }
         }
-        None
+    }
+
+    /// Waits while receive queue is empty.
+    pub async fn wait_not_empty(&mut self) {
+        poll_fn(|cx| self.rx_buf.poll_ready_to_receive(cx)).await
+    }
+
+    /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+    pub fn reader(&self) -> BufferedCanReceiver {
+        self.rx_buf.receiver().into()
     }
 }
 
@@ -448,10 +467,111 @@ impl<'d, T: Instance> DerefMut for Can<'d, T> {
     }
 }
 
+use crate::can::enums::{BusError, TryReadError};
+
+pub(crate) enum RxMode {
+    NonBuffered(AtomicWaker),
+    Buffered(crate::can::_version::common::ClassicBufferedRxInner),
+}
+
+impl RxMode {
+    pub fn on_interrupt<T: Instance>(&self, fifo: crate::can::_version::bx::RxFifo) {
+        match self {
+            Self::NonBuffered(waker) => {
+                // Disable interrupts until read
+                let fifo_idx = match fifo {
+                    crate::can::_version::bx::RxFifo::Fifo0 => 0usize,
+                    crate::can::_version::bx::RxFifo::Fifo1 => 1usize,
+                };
+                T::regs().ier().write(|w| {
+                    w.set_fmpie(fifo_idx, false);
+                });
+                waker.wake();
+            }
+            Self::Buffered(buf) => {
+                let regsisters = crate::can::bx::Registers { canregs: T::regs() };
+
+                loop {
+                    match regsisters.receive_fifo(fifo) {
+                        Some(envelope) => {
+                            // NOTE: consensus was reached that if rx_queue is full, packets should be dropped
+                            let _ = buf.rx_sender.try_send(Ok((envelope.frame, envelope.ts)));
+                        }
+                        None => return,
+                    };
+                }
+            }
+        }
+    }
+
+    pub async fn read<T: Instance>(&self) -> Result<Envelope, BusError> {
+        match self {
+            Self::NonBuffered(waker) => {
+                poll_fn(|cx| {
+                    T::state().err_waker.register(cx.waker());
+                    waker.register(cx.waker());
+                    match self.try_read::<T>() {
+                        Ok(result) => Poll::Ready(Ok(result)),
+                        Err(TryReadError::Empty) => Poll::Pending,
+                        Err(TryReadError::BusError(be)) => Poll::Ready(Err(be)),
+                    }
+                })
+                .await
+            }
+            _ => {
+                panic!("Bad Mode")
+            }
+        }
+    }
+    pub fn try_read<T: Instance>(&self) -> Result<Envelope, TryReadError> {
+        match self {
+            Self::NonBuffered(_) => {
+                let registers = crate::can::bx::Registers { canregs: T::regs() };
+                if let Some(msg) = registers.receive_fifo(super::bx::RxFifo::Fifo0) {
+                    T::regs().ier().write(|w| {
+                        w.set_fmpie(0, true);
+                    });
+                    Ok(msg)
+                } else if let Some(msg) = registers.receive_fifo(super::bx::RxFifo::Fifo1) {
+                    T::regs().ier().write(|w| {
+                        w.set_fmpie(1, true);
+                    });
+                    Ok(msg)
+                } else if let Some(err) = registers.curr_error() {
+                    Err(TryReadError::BusError(err))
+                } else {
+                    Err(TryReadError::Empty)
+                }
+            }
+            _ => {
+                panic!("Bad Mode")
+            }
+        }
+    }
+    pub async fn wait_not_empty<T: Instance>(&self) {
+        match &T::state().rx_mode {
+            Self::NonBuffered(waker) => {
+                poll_fn(|cx| {
+                    waker.register(cx.waker());
+                    let registers = crate::can::bx::Registers { canregs: T::regs() };
+                    if registers.receive_frame_available() {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await
+            }
+            _ => {
+                panic!("Bad Mode")
+            }
+        }
+    }
+}
 struct State {
     pub tx_waker: AtomicWaker,
     pub err_waker: AtomicWaker,
-    pub rx_queue: Channel<CriticalSectionRawMutex, Envelope, 32>,
+    pub(crate) rx_mode: RxMode,
 }
 
 impl State {
@@ -459,7 +579,7 @@ impl State {
         Self {
             tx_waker: AtomicWaker::new(),
             err_waker: AtomicWaker::new(),
-            rx_queue: Channel::new(),
+            rx_mode: RxMode::NonBuffered(AtomicWaker::new()),
         }
     }
 }
@@ -467,6 +587,7 @@ impl State {
 trait SealedInstance {
     fn regs() -> crate::pac::can::Can;
     fn state() -> &'static State;
+    unsafe fn mut_state() -> &'static mut State;
 }
 
 /// CAN instance trait.
@@ -495,9 +616,12 @@ foreach_peripheral!(
                 crate::pac::$inst
             }
 
+            unsafe fn mut_state() -> & 'static mut State {
+                static mut STATE: State = State::new();
+                &mut *core::ptr::addr_of_mut!(STATE)
+            }
             fn state() -> &'static State {
-                static STATE: State = State::new();
-                &STATE
+                unsafe { peripherals::$inst::mut_state() }
             }
         }
 
@@ -561,5 +685,3 @@ impl Index for crate::can::bx::Mailbox {
         }
     }
 }
-
-

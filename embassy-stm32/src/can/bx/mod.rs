@@ -406,7 +406,7 @@ impl Registers {
             }
         }
     }
-    
+
     pub fn curr_error(&self) -> Option<BusError> {
         let err = { self.canregs.esr().read() };
         if err.boff() {
@@ -583,6 +583,16 @@ impl Registers {
             reg.set_rqcp(1, true);
             reg.set_rqcp(2, true);
         });
+    }
+
+    pub fn receive_frame_available(&self) -> bool {
+        if self.canregs.rfr(0).read().fmp() != 0 {
+            true
+        } else if self.canregs.rfr(1).read().fmp() != 0 {
+            true
+        } else {
+            false
+        }
     }
 
     pub fn receive_fifo(&self, fifo: crate::can::_version::bx::RxFifo) -> Option<Envelope> {

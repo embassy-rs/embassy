@@ -18,9 +18,13 @@ pub(crate) struct ClassicBufferedTxInner {
     pub tx_receiver: DynamicReceiver<'static, ClassicFrame>,
 }
 
+#[cfg(any(can_fdcan_v1, can_fdcan_h7))]
+
 pub(crate) struct FdBufferedRxInner {
     pub rx_sender: DynamicSender<'static, Result<(FdFrame, Timestamp), BusError>>,
 }
+
+#[cfg(any(can_fdcan_v1, can_fdcan_h7))]
 pub(crate) struct FdBufferedTxInner {
     pub tx_receiver: DynamicReceiver<'static, FdFrame>,
 }
