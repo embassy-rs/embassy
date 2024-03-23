@@ -1,16 +1,13 @@
 use core::borrow::Borrow;
-use core::marker::PhantomData;
 
 use embassy_futures::yield_now;
 use embassy_hal_internal::{into_ref, Peripheral};
-use embassy_time::Instant;
 use embedded_hal_02::blocking::delay::DelayUs;
+use futures::FutureExt;
 use stm32_metapac::adc::{self, vals};
 
-// use super::sealed::AdcPin;
 use super::{AdcPin, RxDma};
 use crate::adc::{Adc, Instance, Resolution, SampleTime};
-use crate::dma::ringbuffer::DmaCtrl;
 use crate::dma::{dma, Transfer};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
@@ -128,8 +125,8 @@ impl<T: Instance> Vref<T> {
         ADC_MAX as u16
     }
 
-    pub async fn calibrate<RXDMA: RxDma<T>>(&mut self, adc: &mut Adc<'_, T, RXDMA>) -> Calibration {
-        let vref_val = Adc::read(adc, self);
+    pub async fn calibrate(&mut self, adc: &mut Adc<'static, T>) -> Calibration {
+        let vref_val = Adc::read(adc, self).await;
         Calibration {
             vref_cal: self.calibrated_value(),
             vref_val,
@@ -241,18 +238,9 @@ impl Prescaler {
     }
 }
 /* : crate::dma::Channel + crate::adc::RxDma<T>>*/
-impl<'d, T: Instance, RXDMA> Adc<'d, T, RXDMA>
-where
-    RXDMA: RxDma<T> + Peripheral<P = RXDMA>,
-{
-    pub fn new(
-        _adc: impl Peripheral<P = T> + 'd,
-        rxdma: impl Peripheral<P = RXDMA> + 'd,
-        data: &'static mut [u16],
-        delay: &mut impl DelayUs<u32>,
-    ) -> Self {
+impl<'d, T: Instance> Adc<'d, T> {
+    pub fn new(_adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         into_ref!(_adc);
-        into_ref!(rxdma);
 
         T::enable_and_reset();
 
@@ -260,12 +248,9 @@ where
         delay.delay_us((1_000_000 * 2) / Self::freq().0 + 1);
 
         Self {
+            adc: _adc,
             sample_time: SampleTime::Cycles480,
             calibrated_vdda: VDDA_CALIB_MV,
-            phantom: PhantomData,
-            transfer: None,
-            rxdma: rxdma,
-            data,
         }
     }
 
@@ -301,14 +286,11 @@ where
         T::regs().cr2().modify(|w| w.set_adon(true));
         //defmt::trace!("Waiting for ADC to turn on");
 
-        let mut t = Instant::now();
-
         while !T::regs().cr2().read().adon() {
             yield_now().await;
-            if t.elapsed() > embassy_time::Duration::from_millis(1000) {
-                t = Instant::now();
-                defmt::trace!("ADC still not on");
-            }
+            // if t.elapsed() > Duration::from_millis(1000) {
+            // t = Instant::now();
+            // defmt::trace!("ADC still not on");
         }
 
         // defmt::trace!("ADC on");
@@ -338,8 +320,8 @@ where
         }
     }
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        self.set_channel_sample_sequence(&[pin.channel()]);
+    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+        self.set_channel_sample_sequence(&[pin.channel()]).await;
         self.convert()
     }
 
@@ -569,10 +551,11 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub fn start_read_continuous(&mut self)
-    where
-        RXDMA: RxDma<T>,
-    {
+    pub fn start_read_continuous(
+        &mut self,
+        rxdma: impl RxDma<T>,
+        data: &mut [u16],
+    ) -> Transfer<'static, impl dma::Channel> {
         use crate::dma::{Burst, FlowControl, TransferOptions};
         let rx_src = T::regs().dr().as_ptr() as *mut u16;
         let options = TransferOptions {
@@ -581,31 +564,14 @@ where
             flow_ctrl: FlowControl::Dma,
             fifo_threshold: None,
             circular: true,
-            half_transfer_ir: true,
-            complete_transfer_ir: false,
+            half_transfer_ir: false,
+            complete_transfer_ir: true,
         };
 
-        match self.transfer.take() {
-            Some(mut transfer) => {
-                info!("Transfer already exists");
-                transfer.request_stop();
-                transfer.blocking_wait();
-                let req = self.rxdma.request();
-                let mut transfer = unsafe {
-                    dma::Transfer::new_read_raw(self.rxdma.clone_unchecked(), req, rx_src, self.data, options)
-                };
+        let req = rxdma.request();
+        let transfer = unsafe { dma::Transfer::new_read_raw(rxdma, req, rx_src, data, options) };
 
-                while !transfer.is_running() {}
-                self.transfer = Some(transfer);
-            }
-            None => {
-                info!("Transfer does not exist");
-                let req = self.rxdma.request();
-                self.transfer = Some(unsafe {
-                    Transfer::new_read_raw(self.rxdma.clone_unchecked(), req, rx_src, self.data, options)
-                });
-            }
-        };
+        // while !transfer.is_running() {}
 
         //Enable ADC
         let was_on = Self::is_on();
@@ -634,20 +600,74 @@ where
             reg.set_adon(true);
             reg.set_swstart(true);
         });
+
+        info!("ADC started");
+        return transfer;
     }
 
-    pub fn get_dma_buf<const N: usize>(&self, buf: &mut [u16; N]) {
-        if self.borrow().transfer.as_ref().unwrap().get_remaining_transfers() < N as u16 {
-            buf.copy_from_slice(self.data[0..N].borrow());
-        } else {
-            buf.copy_from_slice(self.data[N..(2 * N)].borrow());
+    pub fn get_dma_buf<const N: usize>(
+        &self,
+        data: &mut [u16; N],
+        transfer: &mut Transfer<'static, impl dma::Channel>,
+    ) -> [u16; N] {
+        // info!("Getting DMA buffer");
+        // Stop DMA
+
+        // info!("DMA stopped");
+        // info!("Remaining transfers: {:?}", transfer.get_remaining_transfers());
+        // Stop ADC conversions
+        T::regs().cr2().modify(|reg| {
+            reg.set_swstart(false);
+            // reg.set_dma(false);
+        });
+        // info!(
+        //     "{}/{}",
+        //     transfer.get_complete_count(),
+        //     transfer.get_remaining_transfers()
+        // );
+
+        // info!("DMA requested stop");
+        // Wait for DMA to stop
+
+        // info!("Copying data {:#?}", data);
+        let mut buf: [u16; N] = [0; N];
+        // info!("Copying data2 {:#?}", data);
+        buf.copy_from_slice(&data[..]);
+
+        if !transfer.is_running() {
+            //     transfer.reset_complete_count();
+            transfer.request_restart();
         }
+        //
+
+        // return buf;
+        // }
+        // while !transfer.is_running() {}
+        // info!("ADC stopped");
+
+        // if transfer.get_remaining_transfers() < N as u16 {
+
+        // buf.copy_from_slice(&mut data[..]);
+
+        // transfer.request_restart();
+        // Restart ADC conversions
+
+        // transfer.request_restart();
+        // transfer.reset_complete_count();
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+            reg.set_swstart(true);
+            // reg.set_dma(true);
+        });
+
+        // while !transfer.is_running() {
+        //     info!("Waiting for DMA to restart");
+        // }
+
+        return buf;
     }
 
-    pub async fn stop_continuous_conversion(&mut self)
-    where
-        RXDMA: RxDma<T>,
-    {
+    pub async fn stop_continuous_conversion(&mut self) {
         T::regs().cr2().write(|reg| reg.set_adon(false));
         T::regs().cr2().modify(|reg| {
             reg.set_swstart(false);
@@ -661,7 +681,7 @@ where
     }
 }
 
-impl<'d, T: Instance, RXDMA: dma::Channel> Drop for Adc<'d, T, RXDMA> {
+impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
         T::regs().cr2().modify(|reg| {
             reg.set_adon(false);

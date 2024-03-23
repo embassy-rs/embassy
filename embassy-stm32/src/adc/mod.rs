@@ -18,29 +18,23 @@ dma_trait!(RxDma, Instance);
 mod resolution;
 mod sample_time;
 
-use core::marker::PhantomData;
-
 #[allow(unused)]
 #[cfg(not(adc_f3_v2))]
 pub use _version::*;
-use embassy_hal_internal::PeripheralRef;
 #[cfg(not(any(adc_f1, adc_f3, adc_f3_v2)))]
 pub use resolution::Resolution;
 #[cfg(not(adc_f3_v2))]
 pub use sample_time::SampleTime;
 
-use crate::{dma, peripherals};
+use crate::peripherals;
 
 /// Analog to Digital driver.
-pub struct Adc<'d, T: Instance, RXDMA: dma::Channel> {
+pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
+    adc: crate::PeripheralRef<'d, T>,
     #[cfg(not(any(adc_f3_v2, adc_f3_v1_1)))]
     sample_time: SampleTime,
     calibrated_vdda: u32,
-    rxdma: PeripheralRef<'d, RXDMA>,
-    pub data: &'static mut [u16],
-    transfer: Option<crate::dma::Transfer<'d, RXDMA>>,
-    phantom: PhantomData<&'d mut T>,
 }
 
 pub(crate) mod sealed {
