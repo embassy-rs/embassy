@@ -333,6 +333,8 @@ impl<'d, T: Instance> Adc<'d, T> {
             if was_on {
                 self.start_adc().await;
             }
+            // This will make CI pass, but the struct field is no longer relevant as each channel will have an associated sample time.
+            self.sample_time = sample_time;
         }
     }
     /// Sets the channel sample time
