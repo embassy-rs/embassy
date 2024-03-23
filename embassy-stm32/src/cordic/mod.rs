@@ -11,15 +11,10 @@ pub use enums::*;
 mod errors;
 pub use errors::*;
 
+mod sealed;
+use self::sealed::SealedInstance;
+
 pub mod utils;
-
-pub(crate) mod sealed;
-
-/// Low-level CORDIC access.
-#[cfg(feature = "unstable-pac")]
-pub mod low_level {
-    pub use super::sealed::*;
-}
 
 /// CORDIC driver
 pub struct Cordic<'d, T: Instance> {
@@ -28,7 +23,8 @@ pub struct Cordic<'d, T: Instance> {
 }
 
 /// CORDIC instance trait
-pub trait Instance: sealed::Instance + Peripheral<P = Self> + crate::rcc::RccPeripheral {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral {}
 
 /// CORDIC configuration
 #[derive(Debug)]
@@ -609,7 +605,7 @@ foreach_interrupt!(
         impl Instance for peripherals::$inst {
         }
 
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> crate::pac::cordic::Cordic {
                 crate::pac::$inst
             }

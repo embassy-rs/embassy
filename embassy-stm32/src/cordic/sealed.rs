@@ -2,7 +2,7 @@ use super::*;
 use crate::pac::cordic::vals;
 
 /// Cordic instance
-pub trait Instance {
+pub(super) trait SealedInstance {
     /// Get access to CORDIC registers
     fn regs() -> crate::pac::cordic::Cordic;
 
