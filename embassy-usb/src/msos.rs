@@ -255,7 +255,7 @@ use sealed::*;
 unsafe fn transmute_write_to<T: Sized>(t: &T, buf: &mut [u8]) {
     let bytes = core::slice::from_raw_parts((t as *const T) as *const u8, size_of::<T>());
     assert!(buf.len() >= bytes.len(), "MS OS descriptor buffer full");
-    (&mut buf[..bytes.len()]).copy_from_slice(bytes);
+    buf[..bytes.len()].copy_from_slice(bytes);
 }
 
 /// Table 9. Microsoft OS 2.0 descriptor wDescriptorType values.
@@ -444,9 +444,9 @@ impl CompatibleIdFeatureDescriptor {
     pub fn new(compatible_id: &str, sub_compatible_id: &str) -> Self {
         assert!(compatible_id.len() <= 8 && sub_compatible_id.len() <= 8);
         let mut cid = [0u8; 8];
-        (&mut cid[..compatible_id.len()]).copy_from_slice(compatible_id.as_bytes());
+        cid[..compatible_id.len()].copy_from_slice(compatible_id.as_bytes());
         let mut scid = [0u8; 8];
-        (&mut scid[..sub_compatible_id.len()]).copy_from_slice(sub_compatible_id.as_bytes());
+        scid[..sub_compatible_id.len()].copy_from_slice(sub_compatible_id.as_bytes());
         Self::new_raw(cid, scid)
     }
 
