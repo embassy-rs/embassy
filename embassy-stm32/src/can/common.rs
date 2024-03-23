@@ -1,8 +1,15 @@
 use embassy_sync::channel::{DynamicReceiver, DynamicSender};
 
-use crate::can::_version::frame::*;
-use crate::can::_version::Timestamp;
 use crate::can::_version::enums::*;
+use crate::can::_version::frame::*;
+
+/// Timestamp for incoming packets. Use Embassy time when enabled.
+#[cfg(feature = "time")]
+pub type Timestamp = embassy_time::Instant;
+
+/// Timestamp for incoming packets.
+#[cfg(not(feature = "time"))]
+pub type Timestamp = u16;
 
 pub(crate) struct ClassicBufferedRxInner {
     pub rx_sender: DynamicSender<'static, Result<(ClassicFrame, Timestamp), BusError>>,
@@ -48,4 +55,3 @@ impl BufferedCanSender {
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
 pub type BufferedCanReceiver =
     embassy_sync::channel::DynamicReceiver<'static, Result<(ClassicFrame, Timestamp), BusError>>;
-

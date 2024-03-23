@@ -43,7 +43,35 @@ pub type Data = crate::can::frame::ClassicData;
 /// CAN Frame
 pub type Frame = crate::can::frame::ClassicFrame;
 
+use crate::can::_version::Envelope;
 use crate::can::bx::filter::MasterFilters;
+use crate::can::enums::BusError;
+use crate::pac::can::vals::Lec;
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub(crate) enum RxFifo {
+    Fifo0,
+    Fifo1,
+}
+
+trait IntoBusError {
+    fn into_bus_err(self) -> Option<BusError>;
+}
+
+impl IntoBusError for Lec {
+    fn into_bus_err(self) -> Option<BusError> {
+        match self {
+            Lec::STUFF => Some(BusError::Stuff),
+            Lec::FORM => Some(BusError::Form),
+            Lec::ACK => Some(BusError::Acknowledge),
+            Lec::BITRECESSIVE => Some(BusError::BitRecessive),
+            Lec::BITDOMINANT => Some(BusError::BitDominant),
+            Lec::CRC => Some(BusError::Crc),
+            Lec::CUSTOM => Some(BusError::Software),
+            _ => None,
+        }
+    }
+}
 
 /// A bxCAN peripheral instance.
 ///
@@ -233,229 +261,36 @@ impl PartialOrd for IdReg {
     }
 }
 
-/// Configuration proxy returned by [`Can::modify_config`].
-#[must_use = "`CanConfig` leaves the peripheral in uninitialized state, call `CanConfig::enable` or explicitly drop the value"]
-pub struct CanConfig<'a, I: Instance> {
-    can: &'a mut Can<I>,
+pub(crate) struct Registers {
+    pub canregs: crate::pac::can::Can,
 }
 
-impl<I: Instance> CanConfig<'_, I> {
-    /// Configures the bit timings.
-    ///
-    /// You can use <http://www.bittiming.can-wiki.info/> to calculate the `btr` parameter. Enter
-    /// parameters as follows:
-    ///
-    /// - *Clock Rate*: The input clock speed to the CAN peripheral (*not* the CPU clock speed).
-    ///   This is the clock rate of the peripheral bus the CAN peripheral is attached to (eg. APB1).
-    /// - *Sample Point*: Should normally be left at the default value of 87.5%.
-    /// - *SJW*: Should normally be left at the default value of 1.
-    ///
-    /// Then copy the `CAN_BUS_TIME` register value from the table and pass it as the `btr`
-    /// parameter to this method.
-    pub fn set_bit_timing(self, bt: crate::can::util::NominalBitTiming) -> Self {
-        self.can.set_bit_timing(bt);
-        self
-    }
-
-    /// Enables or disables loopback mode: Internally connects the TX and RX
-    /// signals together.
-    pub fn set_loopback(self, enabled: bool) -> Self {
-        self.can.canregs.btr().modify(|reg| reg.set_lbkm(enabled));
-        self
-    }
-
-    /// Enables or disables silent mode: Disconnects the TX signal from the pin.
-    pub fn set_silent(self, enabled: bool) -> Self {
-        let mode = match enabled {
-            false => stm32_metapac::can::vals::Silm::NORMAL,
-            true => stm32_metapac::can::vals::Silm::SILENT,
-        };
-        self.can.canregs.btr().modify(|reg| reg.set_silm(mode));
-        self
-    }
-
-    /// Enables or disables automatic retransmission of messages.
-    ///
-    /// If this is enabled, the CAN peripheral will automatically try to retransmit each frame
-    /// until it can be sent. Otherwise, it will try only once to send each frame.
-    ///
-    /// Automatic retransmission is enabled by default.
-    pub fn set_automatic_retransmit(self, enabled: bool) -> Self {
-        self.can.canregs.mcr().modify(|reg| reg.set_nart(enabled));
-        self
-    }
-
-    /// Leaves initialization mode and enables the peripheral.
-    ///
-    /// To sync with the CAN bus, this will block until 11 consecutive recessive bits are detected
-    /// on the bus.
-    ///
-    /// If you want to finish configuration without enabling the peripheral, you can call
-    /// [`CanConfig::leave_disabled`] or [`drop`] the [`CanConfig`] instead.
-    pub fn enable(mut self) {
-        self.leave_init_mode();
-
-        match nb::block!(self.can.enable_non_blocking()) {
-            Ok(()) => {}
-            Err(void) => match void {},
-        }
-
-        // Don't run the destructor.
-        mem::forget(self);
-    }
-
-    /// Leaves initialization mode, but keeps the peripheral in sleep mode.
-    ///
-    /// Before the [`Can`] instance can be used, you have to enable it by calling
-    /// [`Can::enable_non_blocking`].
-    pub fn leave_disabled(mut self) {
-        self.leave_init_mode();
-    }
-
-    /// Leaves initialization mode, enters sleep mode.
-    fn leave_init_mode(&mut self) {
-        self.can.canregs.mcr().modify(|reg| {
-            reg.set_sleep(true);
-            reg.set_inrq(false);
-        });
-        loop {
-            let msr = self.can.canregs.msr().read();
-            if msr.slak() && !msr.inak() {
-                break;
-            }
-        }
-    }
-}
-
-impl<I: Instance> Drop for CanConfig<'_, I> {
-    #[inline]
-    fn drop(&mut self) {
-        self.leave_init_mode();
-    }
-}
-
-/// Builder returned by [`Can::builder`].
-#[must_use = "`CanBuilder` leaves the peripheral in uninitialized state, call `CanBuilder::enable` or `CanBuilder::leave_disabled`"]
-pub struct CanBuilder<I: Instance> {
-    can: Can<I>,
-}
-
-impl<I: Instance> CanBuilder<I> {
-    /// Configures the bit timings.
-    ///
-    /// You can use <http://www.bittiming.can-wiki.info/> to calculate the `btr` parameter. Enter
-    /// parameters as follows:
-    ///
-    /// - *Clock Rate*: The input clock speed to the CAN peripheral (*not* the CPU clock speed).
-    ///   This is the clock rate of the peripheral bus the CAN peripheral is attached to (eg. APB1).
-    /// - *Sample Point*: Should normally be left at the default value of 87.5%.
-    /// - *SJW*: Should normally be left at the default value of 1.
-    ///
-    /// Then copy the `CAN_BUS_TIME` register value from the table and pass it as the `btr`
-    /// parameter to this method.
-    pub fn set_bit_timing(mut self, bt: crate::can::util::NominalBitTiming) -> Self {
-        self.can.set_bit_timing(bt);
-        self
-    }
-    /// Enables or disables loopback mode: Internally connects the TX and RX
-    /// signals together.
-    pub fn set_loopback(self, enabled: bool) -> Self {
-        self.can.canregs.btr().modify(|reg| reg.set_lbkm(enabled));
-        self
-    }
-
-    /// Enables or disables silent mode: Disconnects the TX signal from the pin.
-    pub fn set_silent(self, enabled: bool) -> Self {
-        let mode = match enabled {
-            false => stm32_metapac::can::vals::Silm::NORMAL,
-            true => stm32_metapac::can::vals::Silm::SILENT,
-        };
-        self.can.canregs.btr().modify(|reg| reg.set_silm(mode));
-        self
-    }
-
-    /// Enables or disables automatic retransmission of messages.
-    ///
-    /// If this is enabled, the CAN peripheral will automatically try to retransmit each frame
-    /// until it can be sent. Otherwise, it will try only once to send each frame.
-    ///
-    /// Automatic retransmission is enabled by default.
-    pub fn set_automatic_retransmit(self, enabled: bool) -> Self {
-        self.can.canregs.mcr().modify(|reg| reg.set_nart(enabled));
-        self
-    }
-
-    /// Leaves initialization mode and enables the peripheral.
-    ///
-    /// To sync with the CAN bus, this will block until 11 consecutive recessive bits are detected
-    /// on the bus.
-    ///
-    /// If you want to finish configuration without enabling the peripheral, you can call
-    /// [`CanBuilder::leave_disabled`] instead.
-    pub fn enable(mut self) -> Can<I> {
-        self.leave_init_mode();
-
-        match nb::block!(self.can.enable_non_blocking()) {
-            Ok(()) => self.can,
-            Err(void) => match void {},
-        }
-    }
-
-    /// Returns the [`Can`] interface without enabling it.
-    ///
-    /// This leaves initialization mode, but keeps the peripheral in sleep mode instead of enabling
-    /// it.
-    ///
-    /// Before the [`Can`] instance can be used, you have to enable it by calling
-    /// [`Can::enable_non_blocking`].
-    pub fn leave_disabled(mut self) -> Can<I> {
-        self.leave_init_mode();
-        self.can
-    }
-
-    /// Leaves initialization mode, enters sleep mode.
-    fn leave_init_mode(&mut self) {
-        self.can.canregs.mcr().modify(|reg| {
-            reg.set_sleep(true);
-            reg.set_inrq(false);
-        });
-        loop {
-            let msr = self.can.canregs.msr().read();
-            if msr.slak() && !msr.inak() {
-                break;
-            }
-        }
-    }
-}
-
-/// Interface to a bxCAN peripheral.
-pub struct Can<I: Instance> {
-    instance: I,
-    canregs: crate::pac::can::Can,
-}
-
-impl<I> Can<I>
-where
-    I: Instance,
-{
-    /// Creates a [`CanBuilder`] for constructing a CAN interface.
-    pub fn builder(instance: I, canregs: crate::pac::can::Can) -> CanBuilder<I> {
-        let can_builder = CanBuilder {
-            can: Can { instance, canregs },
-        };
-
-        canregs.mcr().modify(|reg| {
+impl Registers {
+    fn enter_init_mode(&mut self) {
+        self.canregs.mcr().modify(|reg| {
             reg.set_sleep(false);
             reg.set_inrq(true);
         });
         loop {
-            let msr = canregs.msr().read();
+            let msr = self.canregs.msr().read();
             if !msr.slak() && msr.inak() {
                 break;
             }
         }
+    }
 
-        can_builder
+    // Leaves initialization mode, enters sleep mode.
+    fn leave_init_mode(&mut self) {
+        self.canregs.mcr().modify(|reg| {
+            reg.set_sleep(true);
+            reg.set_inrq(false);
+        });
+        loop {
+            let msr = self.canregs.msr().read();
+            if msr.slak() && !msr.inak() {
+                break;
+            }
+        }
     }
 
     fn set_bit_timing(&mut self, bt: crate::can::util::NominalBitTiming) {
@@ -471,38 +306,29 @@ where
         });
     }
 
-    /// Returns a reference to the peripheral instance.
-    ///
-    /// This allows accessing HAL-specific data stored in the instance type.
-    pub fn instance(&mut self) -> &mut I {
-        &mut self.instance
+    /// Enables or disables silent mode: Disconnects the TX signal from the pin.
+    pub fn set_silent(&self, enabled: bool) {
+        let mode = match enabled {
+            false => stm32_metapac::can::vals::Silm::NORMAL,
+            true => stm32_metapac::can::vals::Silm::SILENT,
+        };
+        self.canregs.btr().modify(|reg| reg.set_silm(mode));
     }
 
-    /// Disables the CAN interface and returns back the raw peripheral it was created from.
+    /// Enables or disables automatic retransmission of messages.
     ///
-    /// The peripheral is disabled by setting `RESET` in `CAN_MCR`, which causes the peripheral to
-    /// enter sleep mode.
-    pub fn free(self) -> I {
-        self.canregs.mcr().write(|reg| reg.set_reset(true));
-        self.instance
+    /// If this is enabled, the CAN peripheral will automatically try to retransmit each frame
+    /// until it can be sent. Otherwise, it will try only once to send each frame.
+    ///
+    /// Automatic retransmission is enabled by default.
+    pub fn set_automatic_retransmit(&self, enabled: bool) {
+        self.canregs.mcr().modify(|reg| reg.set_nart(enabled));
     }
 
-    /// Configure bit timings and silent/loop-back mode.
-    ///
-    /// Calling this method will enter initialization mode.
-    pub fn modify_config(&mut self) -> CanConfig<'_, I> {
-        self.canregs.mcr().modify(|reg| {
-            reg.set_sleep(false);
-            reg.set_inrq(true);
-        });
-        loop {
-            let msr = self.canregs.msr().read();
-            if !msr.slak() && msr.inak() {
-                break;
-            }
-        }
-
-        CanConfig { can: self }
+    /// Enables or disables loopback mode: Internally connects the TX and RX
+    /// signals together.
+    pub fn set_loopback(&self, enabled: bool) {
+        self.canregs.btr().modify(|reg| reg.set_lbkm(enabled));
     }
 
     /// Configures the automatic wake-up feature.
@@ -512,6 +338,7 @@ where
     /// When turned on, an incoming frame will cause the peripheral to wake up from sleep and
     /// receive the frame. If enabled, [`Interrupt::Wakeup`] will also be triggered by the incoming
     /// frame.
+    #[allow(dead_code)]
     pub fn set_automatic_wakeup(&mut self, enabled: bool) {
         self.canregs.mcr().modify(|reg| reg.set_awum(enabled));
     }
@@ -540,6 +367,7 @@ where
     /// Puts the peripheral in a sleep mode to save power.
     ///
     /// While in sleep mode, an incoming CAN frame will trigger [`Interrupt::Wakeup`] if enabled.
+    #[allow(dead_code)]
     pub fn sleep(&mut self) {
         self.canregs.mcr().modify(|reg| {
             reg.set_sleep(true);
@@ -553,10 +381,19 @@ where
         }
     }
 
+    /// Disables the CAN interface.
+    ///
+    /// The peripheral is disabled by setting `RESET` in `CAN_MCR`, which causes the peripheral to
+    /// enter sleep mode.
+    pub fn reset(&self) {
+        self.canregs.mcr().write(|reg| reg.set_reset(true));
+    }
+
     /// Wakes up from sleep mode.
     ///
     /// Note that this will not trigger [`Interrupt::Wakeup`], only reception of an incoming CAN
     /// frame will cause that interrupt.
+    #[allow(dead_code)]
     pub fn wakeup(&mut self) {
         self.canregs.mcr().modify(|reg| {
             reg.set_sleep(false);
@@ -569,74 +406,19 @@ where
             }
         }
     }
-
-    /// Puts a CAN frame in a free transmit mailbox for transmission on the bus.
-    ///
-    /// Frames are transmitted to the bus based on their priority (see [`FramePriority`]).
-    /// Transmit order is preserved for frames with identical priority.
-    ///
-    /// If all transmit mailboxes are full, and `frame` has a higher priority than the
-    /// lowest-priority message in the transmit mailboxes, transmission of the enqueued frame is
-    /// cancelled and `frame` is enqueued instead. The frame that was replaced is returned as
-    /// [`TransmitStatus::dequeued_frame`].
-    pub fn transmit(&mut self, frame: &Frame) -> nb::Result<TransmitStatus, Infallible> {
-        // Safety: We have a `&mut self` and have unique access to the peripheral.
-        unsafe { Tx::<I>::conjure(self.canregs).transmit(frame) }
-    }
-
-    /// Returns `true` if no frame is pending for transmission.
-    pub fn is_transmitter_idle(&self) -> bool {
-        // Safety: Read-only operation.
-        unsafe { Tx::<I>::conjure(self.canregs).is_idle() }
-    }
-
-    /// Attempts to abort the sending of a frame that is pending in a mailbox.
-    ///
-    /// If there is no frame in the provided mailbox, or its transmission succeeds before it can be
-    /// aborted, this function has no effect and returns `false`.
-    ///
-    /// If there is a frame in the provided mailbox, and it is canceled successfully, this function
-    /// returns `true`.
-    pub fn abort(&mut self, mailbox: Mailbox) -> bool {
-        // Safety: We have a `&mut self` and have unique access to the peripheral.
-        unsafe { Tx::<I>::conjure(self.canregs).abort(mailbox) }
-    }
-
-
-    pub(crate) fn split_by_ref(&mut self) -> (Tx<I>, Rx<I>) {
-        // Safety: We take `&mut self` and the return value lifetimes are tied to `self`'s lifetime.
-        let tx = unsafe { Tx::conjure(self.canregs) };
-        let rx0 = unsafe { Rx::conjure() };
-        (tx, rx0)
-    }
-
-}
-
-impl<I: FilterOwner> Can<I> {
-    /// Accesses the filter banks owned by this CAN peripheral.
-    ///
-    /// To modify filters of a slave peripheral, `modify_filters` has to be called on the master
-    /// peripheral instead.
-    pub fn modify_filters(&mut self) -> MasterFilters<'_, I> {
-        unsafe { MasterFilters::new(self.canregs) }
-    }
-}
-
-/// Marker for Tx half
-pub struct Tx<I> {
-    _can: PhantomData<I>,
-    canregs: crate::pac::can::Can,
-}
-
-impl<I> Tx<I>
-where
-    I: Instance,
-{
-    unsafe fn conjure(canregs: crate::pac::can::Can) -> Self {
-        Self {
-            _can: PhantomData,
-            canregs,
+    
+    pub fn curr_error(&self) -> Option<BusError> {
+        let err = { self.canregs.esr().read() };
+        if err.boff() {
+            return Some(BusError::BusOff);
+        } else if err.epvf() {
+            return Some(BusError::BusPassive);
+        } else if err.ewgf() {
+            return Some(BusError::BusWarning);
+        } else if let Some(err) = err.lec().into_bus_err() {
+            return Some(err);
         }
+        None
     }
 
     /// Puts a CAN frame in a transmit mailbox for transmission on the bus.
@@ -802,6 +584,361 @@ where
             reg.set_rqcp(2, true);
         });
     }
+
+    pub fn receive_fifo(&self, fifo: crate::can::_version::bx::RxFifo) -> Option<Envelope> {
+        // Generate timestamp as early as possible
+        #[cfg(feature = "time")]
+        let ts = embassy_time::Instant::now();
+
+        use crate::pac::can::vals::Ide;
+
+        let fifo_idx = match fifo {
+            crate::can::_version::bx::RxFifo::Fifo0 => 0usize,
+            crate::can::_version::bx::RxFifo::Fifo1 => 1usize,
+        };
+        let rfr = self.canregs.rfr(fifo_idx);
+        let fifo = self.canregs.rx(fifo_idx);
+
+        // If there are no pending messages, there is nothing to do
+        if rfr.read().fmp() == 0 {
+            return None;
+        }
+
+        let rir = fifo.rir().read();
+        let id: embedded_can::Id = if rir.ide() == Ide::STANDARD {
+            embedded_can::StandardId::new(rir.stid()).unwrap().into()
+        } else {
+            let stid = (rir.stid() & 0x7FF) as u32;
+            let exid = rir.exid() & 0x3FFFF;
+            let id = (stid << 18) | (exid);
+            embedded_can::ExtendedId::new(id).unwrap().into()
+        };
+        let data_len = fifo.rdtr().read().dlc();
+        let mut data: [u8; 8] = [0; 8];
+        data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
+        data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
+
+        let frame = Frame::new(Header::new(id, data_len, false), &data).unwrap();
+        let envelope = Envelope {
+            #[cfg(feature = "time")]
+            ts,
+            frame,
+        };
+
+        rfr.modify(|v| v.set_rfom(true));
+
+        Some(envelope)
+    }
+}
+
+/// Configuration proxy returned by [`Can::modify_config`].
+#[must_use = "`CanConfig` leaves the peripheral in uninitialized state, call `CanConfig::enable` or explicitly drop the value"]
+pub struct CanConfig<'a, I: Instance> {
+    can: &'a mut Can<I>,
+}
+
+impl<I: Instance> CanConfig<'_, I> {
+    /// Configures the bit timings.
+    ///
+    /// You can use <http://www.bittiming.can-wiki.info/> to calculate the `btr` parameter. Enter
+    /// parameters as follows:
+    ///
+    /// - *Clock Rate*: The input clock speed to the CAN peripheral (*not* the CPU clock speed).
+    ///   This is the clock rate of the peripheral bus the CAN peripheral is attached to (eg. APB1).
+    /// - *Sample Point*: Should normally be left at the default value of 87.5%.
+    /// - *SJW*: Should normally be left at the default value of 1.
+    ///
+    /// Then copy the `CAN_BUS_TIME` register value from the table and pass it as the `btr`
+    /// parameter to this method.
+    pub fn set_bit_timing(self, bt: crate::can::util::NominalBitTiming) -> Self {
+        self.can.registers.set_bit_timing(bt);
+        self
+    }
+
+    /// Enables or disables loopback mode: Internally connects the TX and RX
+    /// signals together.
+    pub fn set_loopback(self, enabled: bool) -> Self {
+        self.can.registers.set_loopback(enabled);
+        self
+    }
+
+    /// Enables or disables silent mode: Disconnects the TX signal from the pin.
+    pub fn set_silent(self, enabled: bool) -> Self {
+        self.can.registers.set_silent(enabled);
+        self
+    }
+
+    /// Enables or disables automatic retransmission of messages.
+    ///
+    /// If this is enabled, the CAN peripheral will automatically try to retransmit each frame
+    /// until it can be sent. Otherwise, it will try only once to send each frame.
+    ///
+    /// Automatic retransmission is enabled by default.
+    pub fn set_automatic_retransmit(self, enabled: bool) -> Self {
+        self.can.registers.set_automatic_retransmit(enabled);
+        self
+    }
+
+    /// Leaves initialization mode and enables the peripheral.
+    ///
+    /// To sync with the CAN bus, this will block until 11 consecutive recessive bits are detected
+    /// on the bus.
+    ///
+    /// If you want to finish configuration without enabling the peripheral, you can call
+    /// [`CanConfig::leave_disabled`] or [`drop`] the [`CanConfig`] instead.
+    pub fn enable(self) {
+        self.can.registers.leave_init_mode();
+
+        match nb::block!(self.can.registers.enable_non_blocking()) {
+            Ok(()) => {}
+            Err(void) => match void {},
+        }
+
+        // Don't run the destructor.
+        mem::forget(self);
+    }
+
+    /// Leaves initialization mode, but keeps the peripheral in sleep mode.
+    ///
+    /// Before the [`Can`] instance can be used, you have to enable it by calling
+    /// [`Can::enable_non_blocking`].
+    pub fn leave_disabled(self) {
+        self.can.registers.leave_init_mode();
+    }
+}
+
+impl<I: Instance> Drop for CanConfig<'_, I> {
+    #[inline]
+    fn drop(&mut self) {
+        self.can.registers.leave_init_mode();
+    }
+}
+
+/// Builder returned by [`Can::builder`].
+#[must_use = "`CanBuilder` leaves the peripheral in uninitialized state, call `CanBuilder::enable` or `CanBuilder::leave_disabled`"]
+pub struct CanBuilder<I: Instance> {
+    can: Can<I>,
+}
+
+impl<I: Instance> CanBuilder<I> {
+    /// Configures the bit timings.
+    ///
+    /// You can use <http://www.bittiming.can-wiki.info/> to calculate the `btr` parameter. Enter
+    /// parameters as follows:
+    ///
+    /// - *Clock Rate*: The input clock speed to the CAN peripheral (*not* the CPU clock speed).
+    ///   This is the clock rate of the peripheral bus the CAN peripheral is attached to (eg. APB1).
+    /// - *Sample Point*: Should normally be left at the default value of 87.5%.
+    /// - *SJW*: Should normally be left at the default value of 1.
+    ///
+    /// Then copy the `CAN_BUS_TIME` register value from the table and pass it as the `btr`
+    /// parameter to this method.
+    pub fn set_bit_timing(mut self, bt: crate::can::util::NominalBitTiming) -> Self {
+        self.can.registers.set_bit_timing(bt);
+        self
+    }
+    /// Enables or disables loopback mode: Internally connects the TX and RX
+    /// signals together.
+    pub fn set_loopback(self, enabled: bool) -> Self {
+        self.can.registers.set_loopback(enabled);
+        self
+    }
+
+    /// Enables or disables silent mode: Disconnects the TX signal from the pin.
+    pub fn set_silent(self, enabled: bool) -> Self {
+        self.can.registers.set_silent(enabled);
+        self
+    }
+
+    /// Enables or disables automatic retransmission of messages.
+    ///
+    /// If this is enabled, the CAN peripheral will automatically try to retransmit each frame
+    /// until it can be sent. Otherwise, it will try only once to send each frame.
+    ///
+    /// Automatic retransmission is enabled by default.
+    pub fn set_automatic_retransmit(self, enabled: bool) -> Self {
+        self.can.registers.set_automatic_retransmit(enabled);
+        self
+    }
+
+    /// Leaves initialization mode and enables the peripheral.
+    ///
+    /// To sync with the CAN bus, this will block until 11 consecutive recessive bits are detected
+    /// on the bus.
+    ///
+    /// If you want to finish configuration without enabling the peripheral, you can call
+    /// [`CanBuilder::leave_disabled`] instead.
+    pub fn enable(mut self) -> Can<I> {
+        self.leave_init_mode();
+
+        match nb::block!(self.can.registers.enable_non_blocking()) {
+            Ok(()) => self.can,
+            Err(void) => match void {},
+        }
+    }
+
+    /// Returns the [`Can`] interface without enabling it.
+    ///
+    /// This leaves initialization mode, but keeps the peripheral in sleep mode instead of enabling
+    /// it.
+    ///
+    /// Before the [`Can`] instance can be used, you have to enable it by calling
+    /// [`Can::enable_non_blocking`].
+    pub fn leave_disabled(mut self) -> Can<I> {
+        self.leave_init_mode();
+        self.can
+    }
+
+    /// Leaves initialization mode, enters sleep mode.
+    fn leave_init_mode(&mut self) {
+        self.can.registers.leave_init_mode();
+    }
+}
+
+/// Interface to a bxCAN peripheral.
+pub struct Can<I: Instance> {
+    instance: I,
+    canregs: crate::pac::can::Can,
+    pub(crate) registers: Registers,
+}
+
+impl<I> Can<I>
+where
+    I: Instance,
+{
+    /// Creates a [`CanBuilder`] for constructing a CAN interface.
+    pub fn builder(instance: I, canregs: crate::pac::can::Can) -> CanBuilder<I> {
+        let mut can_builder = CanBuilder {
+            can: Can {
+                instance,
+                canregs,
+                registers: Registers { canregs },
+            },
+        };
+
+        can_builder.can.registers.enter_init_mode();
+
+        can_builder
+    }
+
+    /// Disables the CAN interface and returns back the raw peripheral it was created from.
+    ///
+    /// The peripheral is disabled by setting `RESET` in `CAN_MCR`, which causes the peripheral to
+    /// enter sleep mode.
+    pub fn free(self) -> I {
+        self.registers.reset();
+        self.instance
+    }
+
+    /// Configure bit timings and silent/loop-back mode.
+    ///
+    /// Calling this method will enter initialization mode.
+    pub fn modify_config(&mut self) -> CanConfig<'_, I> {
+        self.registers.enter_init_mode();
+
+        CanConfig { can: self }
+    }
+
+    /// Puts a CAN frame in a free transmit mailbox for transmission on the bus.
+    ///
+    /// Frames are transmitted to the bus based on their priority (see [`FramePriority`]).
+    /// Transmit order is preserved for frames with identical priority.
+    ///
+    /// If all transmit mailboxes are full, and `frame` has a higher priority than the
+    /// lowest-priority message in the transmit mailboxes, transmission of the enqueued frame is
+    /// cancelled and `frame` is enqueued instead. The frame that was replaced is returned as
+    /// [`TransmitStatus::dequeued_frame`].
+    pub fn transmit(&mut self, frame: &Frame) -> nb::Result<TransmitStatus, Infallible> {
+        // Safety: We have a `&mut self` and have unique access to the peripheral.
+        unsafe { Tx::<I>::conjure(self.canregs).transmit(frame) }
+    }
+
+    /// Returns `true` if no frame is pending for transmission.
+    pub fn is_transmitter_idle(&self) -> bool {
+        // Safety: Read-only operation.
+        unsafe { Tx::<I>::conjure(self.canregs).is_idle() }
+    }
+
+    /// Attempts to abort the sending of a frame that is pending in a mailbox.
+    ///
+    /// If there is no frame in the provided mailbox, or its transmission succeeds before it can be
+    /// aborted, this function has no effect and returns `false`.
+    ///
+    /// If there is a frame in the provided mailbox, and it is canceled successfully, this function
+    /// returns `true`.
+    pub fn abort(&mut self, mailbox: Mailbox) -> bool {
+        // Safety: We have a `&mut self` and have unique access to the peripheral.
+        unsafe { Tx::<I>::conjure(self.canregs).abort(mailbox) }
+    }
+
+    pub(crate) fn split_by_ref(&mut self) -> (Tx<I>, Rx<I>) {
+        // Safety: We take `&mut self` and the return value lifetimes are tied to `self`'s lifetime.
+        let tx = unsafe { Tx::conjure(self.canregs) };
+        let rx0 = unsafe { Rx::conjure() };
+        (tx, rx0)
+    }
+}
+
+impl<I: FilterOwner> Can<I> {
+    /// Accesses the filter banks owned by this CAN peripheral.
+    ///
+    /// To modify filters of a slave peripheral, `modify_filters` has to be called on the master
+    /// peripheral instead.
+    pub fn modify_filters(&mut self) -> MasterFilters<'_, I> {
+        unsafe { MasterFilters::new(self.canregs) }
+    }
+}
+
+/// Marker for Tx half
+pub struct Tx<I> {
+    _can: PhantomData<I>,
+    pub(crate) registers: Registers,
+}
+
+impl<I> Tx<I>
+where
+    I: Instance,
+{
+    unsafe fn conjure(canregs: crate::pac::can::Can) -> Self {
+        Self {
+            _can: PhantomData,
+            registers: Registers { canregs }, //canregs,
+        }
+    }
+
+    /// Puts a CAN frame in a transmit mailbox for transmission on the bus.
+    ///
+    /// Frames are transmitted to the bus based on their priority (see [`FramePriority`]).
+    /// Transmit order is preserved for frames with identical priority.
+    ///
+    /// If all transmit mailboxes are full, and `frame` has a higher priority than the
+    /// lowest-priority message in the transmit mailboxes, transmission of the enqueued frame is
+    /// cancelled and `frame` is enqueued instead. The frame that was replaced is returned as
+    /// [`TransmitStatus::dequeued_frame`].
+    pub fn transmit(&mut self, frame: &Frame) -> nb::Result<TransmitStatus, Infallible> {
+        self.registers.transmit(frame)
+    }
+
+    /// Attempts to abort the sending of a frame that is pending in a mailbox.
+    ///
+    /// If there is no frame in the provided mailbox, or its transmission succeeds before it can be
+    /// aborted, this function has no effect and returns `false`.
+    ///
+    /// If there is a frame in the provided mailbox, and it is canceled successfully, this function
+    /// returns `true`.
+    pub fn abort(&mut self, mailbox: Mailbox) -> bool {
+        self.registers.abort(mailbox)
+    }
+
+    /// Returns `true` if no frame is pending for transmission.
+    pub fn is_idle(&self) -> bool {
+        self.registers.is_idle()
+    }
+
+    /// Clears the request complete flag for all mailboxes.
+    pub fn clear_interrupt_flags(&mut self) {
+        self.registers.clear_interrupt_flags()
+    }
 }
 
 /// Marker for Rx half
@@ -814,9 +951,7 @@ where
     I: Instance,
 {
     unsafe fn conjure() -> Self {
-        Self {
-            _can: PhantomData,
-        }
+        Self { _can: PhantomData }
     }
 }
 

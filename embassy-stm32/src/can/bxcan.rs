@@ -14,7 +14,6 @@ use futures::FutureExt;
 
 use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::can::vals::{Ide, Lec};
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, peripherals, Peripheral};
 
@@ -185,7 +184,7 @@ impl<'d, T: Instance> Can<'d, T> {
     /// This will wait for 11 consecutive recessive bits (bus idle state).
     /// Contrary to enable method from bxcan library, this will not freeze the executor while waiting.
     pub async fn enable(&mut self) {
-        while self.enable_non_blocking().is_err() {
+        while self.registers.enable_non_blocking().is_err() {
             // SCE interrupt is only generated for entering sleep mode, but not leaving.
             // Yield to allow other tasks to execute while can bus is initializing.
             embassy_futures::yield_now().await;
@@ -243,52 +242,17 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     unsafe fn receive_fifo(fifo: RxFifo) {
-        // Generate timestamp as early as possible
-        #[cfg(feature = "time")]
-        let ts = embassy_time::Instant::now();
-
         let state = T::state();
-        let regs = T::regs();
-        let fifo_idx = match fifo {
-            RxFifo::Fifo0 => 0usize,
-            RxFifo::Fifo1 => 1usize,
-        };
-        let rfr = regs.rfr(fifo_idx);
-        let fifo = regs.rx(fifo_idx);
+        let regsisters = crate::can::bx::Registers { canregs: T::regs() };
 
         loop {
-            // If there are no pending messages, there is nothing to do
-            if rfr.read().fmp() == 0 {
-                return;
-            }
-
-            let rir = fifo.rir().read();
-            let id: embedded_can::Id = if rir.ide() == Ide::STANDARD {
-                embedded_can::StandardId::new(rir.stid()).unwrap().into()
-            } else {
-                let stid = (rir.stid() & 0x7FF) as u32;
-                let exid = rir.exid() & 0x3FFFF;
-                let id = (stid << 18) | (exid);
-                embedded_can::ExtendedId::new(id).unwrap().into()
+            match regsisters.receive_fifo(fifo) {
+                Some(envelope) => {
+                    // NOTE: consensus was reached that if rx_queue is full, packets should be dropped
+                    let _ = state.rx_queue.try_send(envelope);
+                }
+                None => return,
             };
-            let data_len = fifo.rdtr().read().dlc();
-            let mut data: [u8; 8] = [0; 8];
-            data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
-            data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
-
-            let frame = Frame::new(Header::new(id, data_len, false), &data).unwrap();
-            let envelope = Envelope {
-                #[cfg(feature = "time")]
-                ts,
-                frame,
-            };
-
-            rfr.modify(|v| v.set_rfom(true));
-
-            /*
-                NOTE: consensus was reached that if rx_queue is full, packets should be dropped
-            */
-            let _ = state.rx_queue.try_send(envelope);
         }
     }
 
@@ -297,7 +261,7 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Useful for doing separate transmit/receive tasks.
     pub fn split<'c>(&'c mut self) -> (CanTx<'d, T>, CanRx<'d, T>) {
         let (tx, rx) = self.can.split_by_ref();
-        (CanTx { tx }, CanRx { rx})
+        (CanTx { tx }, CanRx { rx })
     }
 }
 
@@ -459,10 +423,7 @@ impl<'d, T: Instance> CanRx<'d, T> {
     }
 }
 
-enum RxFifo {
-    Fifo0,
-    Fifo1,
-}
+use crate::can::bx::RxFifo;
 
 impl<'d, T: Instance> Drop for Can<'d, T> {
     fn drop(&mut self) {
@@ -601,21 +562,4 @@ impl Index for crate::can::bx::Mailbox {
     }
 }
 
-trait IntoBusError {
-    fn into_bus_err(self) -> Option<BusError>;
-}
 
-impl IntoBusError for Lec {
-    fn into_bus_err(self) -> Option<BusError> {
-        match self {
-            Lec::STUFF => Some(BusError::Stuff),
-            Lec::FORM => Some(BusError::Form),
-            Lec::ACK => Some(BusError::Acknowledge),
-            Lec::BITRECESSIVE => Some(BusError::BitRecessive),
-            Lec::BITDOMINANT => Some(BusError::BitDominant),
-            Lec::CRC => Some(BusError::Crc),
-            Lec::CUSTOM => Some(BusError::Software),
-            _ => None,
-        }
-    }
-}

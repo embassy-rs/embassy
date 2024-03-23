@@ -25,7 +25,8 @@ use fd::config::*;
 use fd::filter::*;
 pub use fd::{config, filter};
 use frame::*;
-pub use self::common::{BufferedCanSender, BufferedCanReceiver};
+
+pub use self::common::{BufferedCanReceiver, BufferedCanSender};
 
 /// Timestamp for incoming packets. Use Embassy time when enabled.
 #[cfg(feature = "time")]
@@ -415,7 +416,6 @@ pub struct BufferedCan<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_S
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
 }
-
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
