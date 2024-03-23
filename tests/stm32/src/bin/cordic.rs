@@ -2,11 +2,6 @@
 
 // Test Cordic driver, with Q1.31 format, Sin function, at 24 iterations (aka PRECISION = 6), using DMA transfer
 
-// Only test on STM32H563ZI, STM32U585AI and STM32U5a5JI.
-// STM32G491RE is not tested, since it memory.x has less memory size than it actually has,
-// and the test seems use more memory than memory.x suggest.
-// see https://github.com/embassy-rs/stm32-data/issues/301#issuecomment-1925412561
-
 #![no_std]
 #![no_main]
 
@@ -69,11 +64,11 @@ async fn main(_spawner: Spawner) {
         )),
     );
 
-    //#[cfg(feature = "stm32g491re")]
-    //let (mut write_dma, mut read_dma) = (dp.DMA1_CH4, dp.DMA1_CH5);
+    #[cfg(feature = "stm32g491re")]
+    let (mut write_dma, mut read_dma) = (dp.DMA1_CH4, dp.DMA1_CH5);
 
     #[cfg(any(feature = "stm32h563zi", feature = "stm32u585ai", feature = "stm32u5a5zj"))]
-    let (mut write_dma, mut read_dma) = (dp.GPDMA1_CH4, dp.GPDMA1_CH5);
+    let (mut write_dma, mut read_dma) = (dp.GPDMA1_CH0, dp.GPDMA1_CH1);
 
     // calculate first result using blocking mode
     let cnt0 = defmt::unwrap!(cordic.blocking_calc_32bit(&input_q1_31[..2], &mut output_q1_31, false, false));
