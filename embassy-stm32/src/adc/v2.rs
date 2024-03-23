@@ -3,8 +3,7 @@ use embassy_hal_internal::{into_ref, Peripheral};
 use embedded_hal_02::blocking::delay::DelayUs;
 use stm32_metapac::adc::vals;
 
-use super::{AdcPin, RxDma};
-use crate::adc::{Adc, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, Instance, AdcPin, RxDma, Resolution, SampleTime};
 use crate::dma::{dma, Transfer};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
@@ -194,15 +193,13 @@ pub enum SamplerState {
     Stopped,
 }
 
-// pub struct Vbat;
-// impl<AdcPin<ADC1>> Vbat<T> {}
-// impl AdcPin<ADC1> for Vbat {
-//     fn channel(&self) -> u8 {
-//         18
-//     }
-
-//     fn set_as_analog(&mut self) {}
-// }
+pub struct Vbat;
+impl AdcPin<ADC1> for Vbat {}
+impl super::sealed::AdcPin<ADC1> for Vbat {
+    fn channel(&self) -> u8 {
+        18
+    }
+}
 
 
 impl<'d, T: Instance> Adc<'d, T> {
@@ -216,8 +213,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             adc: _adc,
-            sample_time: SampleTime::Cycles480,
-            calibrated_vdda: VDDA_CALIB_MV,
+            sample_time: SampleTime::Cycles480
         }
     }
 
