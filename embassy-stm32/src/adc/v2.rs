@@ -3,7 +3,7 @@ use embassy_hal_internal::{into_ref, Peripheral};
 use embedded_hal_02::blocking::delay::DelayUs;
 use stm32_metapac::adc::vals;
 
-use crate::adc::{Adc, Instance, AdcPin, RxDma, Resolution, SampleTime};
+use crate::adc::{Adc, AdcPin, Instance, Resolution, RxDma, SampleTime};
 use crate::dma::{dma, Transfer};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
@@ -201,7 +201,6 @@ impl super::sealed::AdcPin<ADC1> for Vbat {
     }
 }
 
-
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(_adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         into_ref!(_adc);
@@ -213,7 +212,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             adc: _adc,
-            sample_time: SampleTime::Cycles480
+            sample_time: SampleTime::Cycles480,
         }
     }
 

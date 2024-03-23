@@ -89,6 +89,7 @@ pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc:
 
 /// ADC pin.
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}
+
 /// ADC internal channel.
 pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
 
