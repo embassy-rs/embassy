@@ -7,8 +7,7 @@ use stm32_metapac::timer::vals;
 
 use super::low_level::Timer;
 use super::{Channel1Pin, Channel2Pin, GeneralInstance4Channel};
-use crate::gpio::sealed::AFType;
-use crate::gpio::AnyPin;
+use crate::gpio::{AFType, AnyPin};
 use crate::Peripheral;
 
 /// Counting direction

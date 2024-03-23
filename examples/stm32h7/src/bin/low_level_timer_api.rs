@@ -3,8 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::low_level::AFType;
-use embassy_stm32::gpio::Speed;
+use embassy_stm32::gpio::{AFType, Flex, Pull, Speed};
 use embassy_stm32::time::{khz, Hertz};
 use embassy_stm32::timer::low_level::{OutputCompareMode, Timer as LLTimer};
 use embassy_stm32::timer::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance32bit4Channel};
@@ -59,6 +58,10 @@ async fn main(_spawner: Spawner) {
 }
 pub struct SimplePwm32<'d, T: GeneralInstance32bit4Channel> {
     tim: LLTimer<'d, T>,
+    _ch1: Flex<'d>,
+    _ch2: Flex<'d>,
+    _ch3: Flex<'d>,
+    _ch4: Flex<'d>,
 }
 
 impl<'d, T: GeneralInstance32bit4Channel> SimplePwm32<'d, T> {
@@ -72,16 +75,26 @@ impl<'d, T: GeneralInstance32bit4Channel> SimplePwm32<'d, T> {
     ) -> Self {
         into_ref!(ch1, ch2, ch3, ch4);
 
-        ch1.set_speed(Speed::VeryHigh);
-        ch1.set_as_af(ch1.af_num(), AFType::OutputPushPull);
-        ch2.set_speed(Speed::VeryHigh);
-        ch2.set_as_af(ch1.af_num(), AFType::OutputPushPull);
-        ch3.set_speed(Speed::VeryHigh);
-        ch3.set_as_af(ch1.af_num(), AFType::OutputPushPull);
-        ch4.set_speed(Speed::VeryHigh);
-        ch4.set_as_af(ch1.af_num(), AFType::OutputPushPull);
+        let af1 = ch1.af_num();
+        let af2 = ch2.af_num();
+        let af3 = ch3.af_num();
+        let af4 = ch4.af_num();
+        let mut ch1 = Flex::new(ch1);
+        let mut ch2 = Flex::new(ch2);
+        let mut ch3 = Flex::new(ch3);
+        let mut ch4 = Flex::new(ch4);
+        ch1.set_as_af_unchecked(af1, AFType::OutputPushPull, Pull::None, Speed::VeryHigh);
+        ch2.set_as_af_unchecked(af2, AFType::OutputPushPull, Pull::None, Speed::VeryHigh);
+        ch3.set_as_af_unchecked(af3, AFType::OutputPushPull, Pull::None, Speed::VeryHigh);
+        ch4.set_as_af_unchecked(af4, AFType::OutputPushPull, Pull::None, Speed::VeryHigh);
 
-        let mut this = Self { tim: LLTimer::new(tim) };
+        let mut this = Self {
+            tim: LLTimer::new(tim),
+            _ch1: ch1,
+            _ch2: ch2,
+            _ch3: ch3,
+            _ch4: ch4,
+        };
 
         this.set_frequency(freq);
         this.tim.start();

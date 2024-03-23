@@ -1,9 +1,8 @@
 use stm32_metapac::rtc::vals::{Osel, Pol};
 
-use super::sealed;
+use super::SealedInstance;
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
-use crate::rtc::sealed::Instance;
 
 #[allow(dead_code)]
 impl super::Rtc {
@@ -126,7 +125,7 @@ impl super::Rtc {
     }
 }
 
-impl sealed::Instance for crate::peripherals::RTC {
+impl SealedInstance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 20;
 
     #[cfg(all(feature = "low-power", stm32f4))]

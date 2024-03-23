@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::dac::{DacCh1, DacCh2, ValueArray};
 use embassy_stm32::pac::timer::vals::Mms;
 use embassy_stm32::peripherals::{DAC1, DMA1_CH3, DMA1_CH4, TIM6, TIM7};
-use embassy_stm32::rcc::low_level::RccPeripheral;
+use embassy_stm32::rcc::frequency;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::Timer;
 use micromath::F32Ext;
@@ -30,11 +30,11 @@ async fn main(spawner: Spawner) {
 async fn dac_task1(tim: TIM6, mut dac: DacCh1<'static, DAC1, DMA1_CH3>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
-    info!("TIM6 frequency is {}", TIM6::frequency());
+    info!("TIM6 frequency is {}", frequency::<TIM6>());
     const FREQUENCY: Hertz = Hertz::hz(200);
 
     // Compute the reload value such that we obtain the FREQUENCY for the sine
-    let reload: u32 = (TIM6::frequency().0 / FREQUENCY.0) / data.len() as u32;
+    let reload: u32 = (frequency::<TIM6>().0 / FREQUENCY.0) / data.len() as u32;
 
     // Depends on your clock and on the specific chip used, you may need higher or lower values here
     if reload < 10 {
@@ -55,7 +55,7 @@ async fn dac_task1(tim: TIM6, mut dac: DacCh1<'static, DAC1, DMA1_CH3>) {
 
     debug!(
         "TIM6 Frequency {}, Target Frequency {}, Reload {}, Reload as u16 {}, Samples {}",
-        TIM6::frequency(),
+        frequency::<TIM6>(),
         FREQUENCY,
         reload,
         reload as u16,
@@ -73,10 +73,10 @@ async fn dac_task1(tim: TIM6, mut dac: DacCh1<'static, DAC1, DMA1_CH3>) {
 async fn dac_task2(tim: TIM7, mut dac: DacCh2<'static, DAC1, DMA1_CH4>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
-    info!("TIM7 frequency is {}", TIM7::frequency());
+    info!("TIM7 frequency is {}", frequency::<TIM7>());
 
     const FREQUENCY: Hertz = Hertz::hz(600);
-    let reload: u32 = (TIM7::frequency().0 / FREQUENCY.0) / data.len() as u32;
+    let reload: u32 = (frequency::<TIM7>().0 / FREQUENCY.0) / data.len() as u32;
 
     if reload < 10 {
         error!("Reload value {} below threshold!", reload);
@@ -96,7 +96,7 @@ async fn dac_task2(tim: TIM7, mut dac: DacCh2<'static, DAC1, DMA1_CH4>) {
 
     debug!(
         "TIM7 Frequency {}, Target Frequency {}, Reload {}, Reload as u16 {}, Samples {}",
-        TIM7::frequency(),
+        frequency::<TIM7>(),
         FREQUENCY,
         reload,
         reload as u16,

@@ -325,17 +325,6 @@ impl Registers {
         */
     }
 
-    /// Disables the CAN interface and returns back the raw peripheral it was created from.
-    #[inline]
-    pub fn free(mut self) {
-        //self.disable_interrupts(Interrupts::all());
-
-        //TODO check this!
-        self.enter_init_mode();
-        self.set_power_down_mode(true);
-        //self.control.instance
-    }
-
     /// Applies the settings of a new FdCanConfig See [`FdCanConfig`]
     #[inline]
     pub fn apply_config(&mut self, config: FdCanConfig) {
@@ -416,55 +405,6 @@ impl Registers {
             crate::can::FdcanOperatingMode::RestrictedOperationMode => self.set_restricted_operations(true),
             crate::can::FdcanOperatingMode::BusMonitoringMode => self.set_bus_monitoring_mode(true),
         }
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into InternalLoopbackMode
-    #[inline]
-    pub fn into_internal_loopback(mut self, config: FdCanConfig) {
-        self.set_loopback_mode(LoopbackMode::Internal);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into ExternalLoopbackMode
-    #[inline]
-    pub fn into_external_loopback(mut self, config: FdCanConfig) {
-        self.set_loopback_mode(LoopbackMode::External);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into RestrictedOperationMode
-    #[inline]
-    pub fn into_restricted(mut self, config: FdCanConfig) {
-        self.set_restricted_operations(true);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into NormalOperationMode
-    #[inline]
-    pub fn into_normal(mut self, config: FdCanConfig) {
-        self.set_normal_operations(true);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into BusMonitoringMode
-    #[inline]
-    pub fn into_bus_monitoring(mut self, config: FdCanConfig) {
-        self.set_bus_monitoring_mode(true);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into Testmode
-    #[inline]
-    pub fn into_test_mode(mut self, config: FdCanConfig) {
-        self.set_test_mode(true);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into PoweredDownmode
-    #[inline]
-    pub fn into_powered_down(mut self, config: FdCanConfig) {
-        self.set_power_down_mode(true);
         self.leave_init_mode(config);
     }
 
@@ -565,6 +505,7 @@ impl Registers {
 
     /// Configures and resets the timestamp counter
     #[inline]
+    #[allow(unused)]
     pub fn set_timestamp_counter_source(&mut self, select: TimestampSource) {
         #[cfg(stm32h7)]
         let (tcp, tss) = match select {

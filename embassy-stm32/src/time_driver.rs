@@ -12,7 +12,7 @@ use stm32_metapac::timer::{regs, TimGp16};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
 #[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
@@ -277,7 +277,7 @@ impl RtcDriver {
     fn init(&'static self, cs: critical_section::CriticalSection) {
         let r = regs_gp16();
 
-        <T as RccPeripheral>::enable_and_reset_with_cs(cs);
+        <T as SealedRccPeripheral>::enable_and_reset_with_cs(cs);
 
         let timer_freq = T::frequency();
 
