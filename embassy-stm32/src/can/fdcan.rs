@@ -14,6 +14,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, peripherals, Peripheral};
 
+mod common;
 pub mod enums;
 pub(crate) mod fd;
 pub mod frame;
@@ -24,6 +25,7 @@ use fd::config::*;
 use fd::filter::*;
 pub use fd::{config, filter};
 use frame::*;
+pub use self::common::{BufferedCanSender, BufferedCanReceiver};
 
 /// Timestamp for incoming packets. Use Embassy time when enabled.
 #[cfg(feature = "time")]
@@ -414,36 +416,6 @@ pub struct BufferedCan<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_S
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
 }
 
-/// Sender that can be used for sending CAN frames.
-#[derive(Copy, Clone)]
-pub struct BufferedCanSender {
-    tx_buf: embassy_sync::channel::DynamicSender<'static, ClassicFrame>,
-    waker: fn(),
-}
-
-impl BufferedCanSender {
-    /// Async write frame to TX buffer.
-    pub fn try_write(&mut self, frame: ClassicFrame) -> Result<(), embassy_sync::channel::TrySendError<ClassicFrame>> {
-        self.tx_buf.try_send(frame)?;
-        (self.waker)();
-        Ok(())
-    }
-
-    /// Async write frame to TX buffer.
-    pub async fn write(&mut self, frame: ClassicFrame) {
-        self.tx_buf.send(frame).await;
-        (self.waker)();
-    }
-
-    /// Allows a poll_fn to poll until the channel is ready to write
-    pub fn poll_ready_to_send(&self, cx: &mut core::task::Context<'_>) -> core::task::Poll<()> {
-        self.tx_buf.poll_ready_to_send(cx)
-    }
-}
-
-/// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
-pub type BufferedCanReceiver =
-    embassy_sync::channel::DynamicReceiver<'static, Result<(ClassicFrame, Timestamp), BusError>>;
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
@@ -468,10 +440,10 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
         critical_section::with(|_| unsafe {
-            let rx_inner = ClassicBufferedRxInner {
+            let rx_inner = self::common::ClassicBufferedRxInner {
                 rx_sender: self.rx_buf.sender().into(),
             };
-            let tx_inner = ClassicBufferedTxInner {
+            let tx_inner = self::common::ClassicBufferedTxInner {
                 tx_receiver: self.tx_buf.receiver().into(),
             };
             T::mut_state().rx_mode = RxMode::ClassicBuffered(rx_inner);
@@ -586,10 +558,10 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
         critical_section::with(|_| unsafe {
-            let rx_inner = FdBufferedRxInner {
+            let rx_inner = self::common::FdBufferedRxInner {
                 rx_sender: self.rx_buf.sender().into(),
             };
-            let tx_inner = FdBufferedTxInner {
+            let tx_inner = self::common::FdBufferedTxInner {
                 tx_receiver: self.tx_buf.receiver().into(),
             };
             T::mut_state().rx_mode = RxMode::FdBuffered(rx_inner);
@@ -678,24 +650,10 @@ impl<'c, 'd, T: Instance> FdcanRx<'d, T> {
     }
 }
 
-struct ClassicBufferedRxInner {
-    rx_sender: DynamicSender<'static, Result<(ClassicFrame, Timestamp), BusError>>,
-}
-struct ClassicBufferedTxInner {
-    tx_receiver: DynamicReceiver<'static, ClassicFrame>,
-}
-
-struct FdBufferedRxInner {
-    rx_sender: DynamicSender<'static, Result<(FdFrame, Timestamp), BusError>>,
-}
-struct FdBufferedTxInner {
-    tx_receiver: DynamicReceiver<'static, FdFrame>,
-}
-
 enum RxMode {
     NonBuffered(AtomicWaker),
-    ClassicBuffered(ClassicBufferedRxInner),
-    FdBuffered(FdBufferedRxInner),
+    ClassicBuffered(self::common::ClassicBufferedRxInner),
+    FdBuffered(self::common::FdBufferedRxInner),
 }
 
 impl RxMode {
@@ -765,8 +723,8 @@ impl RxMode {
 
 enum TxMode {
     NonBuffered(AtomicWaker),
-    ClassicBuffered(ClassicBufferedTxInner),
-    FdBuffered(FdBufferedTxInner),
+    ClassicBuffered(self::common::ClassicBufferedTxInner),
+    FdBuffered(self::common::FdBufferedTxInner),
 }
 
 impl TxMode {
