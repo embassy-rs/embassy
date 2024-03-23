@@ -325,13 +325,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.convert()
     }
 
-    async fn wait_sample_ready(&self) {
-        // trace!("Waiting for sample channel to be ready");
-        while T::regs().sr().read().strt() == adc::vals::Strt::STARTED {
-            yield_now().await;
-        }
-    }
-
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
     /// [Adc::read_internal()] to perform conversion.
     pub fn enable_vref(&self) -> Vref<T> {
