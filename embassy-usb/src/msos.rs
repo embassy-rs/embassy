@@ -226,27 +226,21 @@ pub mod windows_version {
     pub const WIN10: u32 = 0x0A000000;
 }
 
-mod sealed {
-    use core::mem::size_of;
+/// A trait for descriptors
+trait Descriptor: Sized {
+    const TYPE: DescriptorType;
 
-    /// A trait for descriptors
-    pub trait Descriptor: Sized {
-        const TYPE: super::DescriptorType;
-
-        /// The size of the descriptor's header.
-        fn size(&self) -> usize {
-            size_of::<Self>()
-        }
-
-        fn write_to(&self, buf: &mut [u8]);
+    /// The size of the descriptor's header.
+    fn size(&self) -> usize {
+        size_of::<Self>()
     }
 
-    pub trait DescriptorSet: Descriptor {
-        const LENGTH_OFFSET: usize;
-    }
+    fn write_to(&self, buf: &mut [u8]);
 }
 
-use sealed::*;
+trait DescriptorSet: Descriptor {
+    const LENGTH_OFFSET: usize;
+}
 
 /// Copies the data of `t` into `buf`.
 ///
@@ -412,9 +406,11 @@ impl DescriptorSet for FunctionSubsetHeader {
 // Feature Descriptors
 
 /// A marker trait for feature descriptors that are valid at the device level.
+#[allow(private_bounds)]
 pub trait DeviceLevelDescriptor: Descriptor {}
 
 /// A marker trait for feature descriptors that are valid at the function level.
+#[allow(private_bounds)]
 pub trait FunctionLevelDescriptor: Descriptor {}
 
 /// Table 13. Microsoft OS 2.0 compatible ID descriptor.
