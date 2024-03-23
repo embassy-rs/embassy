@@ -16,7 +16,7 @@ pub const ADC_POWERUP_TIME_US: u32 = 3;
 
 pub struct VrefInt;
 impl AdcPin<ADC1> for VrefInt {}
-impl super::sealed::AdcPin<ADC1> for VrefInt {
+impl super::SealedAdcPin<ADC1> for VrefInt {
     fn channel(&self) -> u8 {
         17
     }
@@ -31,7 +31,7 @@ impl VrefInt {
 
 pub struct Temperature;
 impl AdcPin<ADC1> for Temperature {}
-impl super::sealed::AdcPin<ADC1> for Temperature {
+impl super::SealedAdcPin<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         cfg_if::cfg_if! {
             if #[cfg(any(stm32f2, stm32f40, stm32f41))] {
@@ -52,7 +52,7 @@ impl Temperature {
 
 pub struct Vbat;
 impl AdcPin<ADC1> for Vbat {}
-impl super::sealed::AdcPin<ADC1> for Vbat {
+impl super::SealedAdcPin<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
     }

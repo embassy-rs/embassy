@@ -127,7 +127,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = DMA> + 'd,
-        pin: impl Peripheral<P = impl DacPin<T, N> + crate::gpio::sealed::Pin> + 'd,
+        pin: impl Peripheral<P = impl DacPin<T, N> + crate::gpio::Pin> + 'd,
     ) -> Self {
         into_ref!(dma, pin);
         pin.set_as_analog();
@@ -392,8 +392,8 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
         _peri: impl Peripheral<P = T> + 'd,
         dma_ch1: impl Peripheral<P = DMACh1> + 'd,
         dma_ch2: impl Peripheral<P = DMACh2> + 'd,
-        pin_ch1: impl Peripheral<P = impl DacPin<T, 1> + crate::gpio::sealed::Pin> + 'd,
-        pin_ch2: impl Peripheral<P = impl DacPin<T, 2> + crate::gpio::sealed::Pin> + 'd,
+        pin_ch1: impl Peripheral<P = impl DacPin<T, 1> + crate::gpio::Pin> + 'd,
+        pin_ch2: impl Peripheral<P = impl DacPin<T, 2> + crate::gpio::Pin> + 'd,
     ) -> Self {
         into_ref!(dma_ch1, dma_ch2, pin_ch1, pin_ch2);
         pin_ch1.set_as_analog();
@@ -488,14 +488,13 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
     }
 }
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> &'static crate::pac::dac::Dac;
-    }
+trait SealedInstance {
+    fn regs() -> &'static crate::pac::dac::Dac;
 }
 
 /// DAC instance.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {}
 dma_trait!(DacDma1, Instance);
 dma_trait!(DacDma2, Instance);
 
@@ -504,7 +503,7 @@ pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
 foreach_peripheral!(
     (dac, $inst:ident) => {
-        impl crate::dac::sealed::Instance for peripherals::$inst {
+        impl crate::dac::SealedInstance for peripherals::$inst {
             fn regs() -> &'static crate::pac::dac::Dac {
                 &crate::pac::$inst
             }

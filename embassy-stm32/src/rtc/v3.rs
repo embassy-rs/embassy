@@ -1,9 +1,9 @@
 use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Key, Osel, Pol, TampalrmType};
 
-use super::{sealed, RtcCalibrationCyclePeriod};
+use super::RtcCalibrationCyclePeriod;
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
-use crate::rtc::sealed::Instance;
+use crate::rtc::SealedInstance;
 
 impl super::Rtc {
     /// Applies the RTC config
@@ -126,7 +126,7 @@ impl super::Rtc {
     }
 }
 
-impl sealed::Instance for crate::peripherals::RTC {
+impl SealedInstance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 32;
 
     #[cfg(all(feature = "low-power", stm32g4))]

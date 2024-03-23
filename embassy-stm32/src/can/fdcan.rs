@@ -5,10 +5,11 @@ use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::channel::{Channel, DynamicReceiver, DynamicSender};
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::can::fd::peripheral::Registers;
-use crate::gpio::sealed::AFType;
+use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, peripherals, Peripheral};
@@ -53,8 +54,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
             }
 
             match &T::state().tx_mode {
-                sealed::TxMode::NonBuffered(waker) => waker.wake(),
-                sealed::TxMode::ClassicBuffered(buf) => {
+                TxMode::NonBuffered(waker) => waker.wake(),
+                TxMode::ClassicBuffered(buf) => {
                     if !T::registers().tx_queue_is_full() {
                         match buf.tx_receiver.try_receive() {
                             Ok(frame) => {
@@ -64,7 +65,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
                         }
                     }
                 }
-                sealed::TxMode::FdBuffered(buf) => {
+                TxMode::FdBuffered(buf) => {
                     if !T::registers().tx_queue_is_full() {
                         match buf.tx_receiver.try_receive() {
                             Ok(frame) => {
@@ -467,14 +468,14 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
         critical_section::with(|_| unsafe {
-            let rx_inner = sealed::ClassicBufferedRxInner {
+            let rx_inner = ClassicBufferedRxInner {
                 rx_sender: self.rx_buf.sender().into(),
             };
-            let tx_inner = sealed::ClassicBufferedTxInner {
+            let tx_inner = ClassicBufferedTxInner {
                 tx_receiver: self.tx_buf.receiver().into(),
             };
-            T::mut_state().rx_mode = sealed::RxMode::ClassicBuffered(rx_inner);
-            T::mut_state().tx_mode = sealed::TxMode::ClassicBuffered(tx_inner);
+            T::mut_state().rx_mode = RxMode::ClassicBuffered(rx_inner);
+            T::mut_state().tx_mode = TxMode::ClassicBuffered(tx_inner);
         });
         self
     }
@@ -509,8 +510,8 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Dr
 {
     fn drop(&mut self) {
         critical_section::with(|_| unsafe {
-            T::mut_state().rx_mode = sealed::RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
-            T::mut_state().tx_mode = sealed::TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+            T::mut_state().rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+            T::mut_state().tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
         });
     }
 }
@@ -585,14 +586,14 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
         critical_section::with(|_| unsafe {
-            let rx_inner = sealed::FdBufferedRxInner {
+            let rx_inner = FdBufferedRxInner {
                 rx_sender: self.rx_buf.sender().into(),
             };
-            let tx_inner = sealed::FdBufferedTxInner {
+            let tx_inner = FdBufferedTxInner {
                 tx_receiver: self.tx_buf.receiver().into(),
             };
-            T::mut_state().rx_mode = sealed::RxMode::FdBuffered(rx_inner);
-            T::mut_state().tx_mode = sealed::TxMode::FdBuffered(tx_inner);
+            T::mut_state().rx_mode = RxMode::FdBuffered(rx_inner);
+            T::mut_state().tx_mode = TxMode::FdBuffered(tx_inner);
         });
         self
     }
@@ -627,8 +628,8 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Dr
 {
     fn drop(&mut self) {
         critical_section::with(|_| unsafe {
-            T::mut_state().rx_mode = sealed::RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
-            T::mut_state().tx_mode = sealed::TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+            T::mut_state().rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+            T::mut_state().tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
         });
     }
 }
@@ -677,192 +678,180 @@ impl<'c, 'd, T: Instance> FdcanRx<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use core::future::poll_fn;
-    use core::task::Poll;
+struct ClassicBufferedRxInner {
+    rx_sender: DynamicSender<'static, Result<(ClassicFrame, Timestamp), BusError>>,
+}
+struct ClassicBufferedTxInner {
+    tx_receiver: DynamicReceiver<'static, ClassicFrame>,
+}
 
-    use embassy_sync::channel::{DynamicReceiver, DynamicSender};
-    use embassy_sync::waitqueue::AtomicWaker;
+struct FdBufferedRxInner {
+    rx_sender: DynamicSender<'static, Result<(FdFrame, Timestamp), BusError>>,
+}
+struct FdBufferedTxInner {
+    tx_receiver: DynamicReceiver<'static, FdFrame>,
+}
 
-    use super::CanHeader;
-    use crate::can::_version::{BusError, Timestamp};
-    use crate::can::frame::{ClassicFrame, FdFrame};
+enum RxMode {
+    NonBuffered(AtomicWaker),
+    ClassicBuffered(ClassicBufferedRxInner),
+    FdBuffered(FdBufferedRxInner),
+}
 
-    pub struct ClassicBufferedRxInner {
-        pub rx_sender: DynamicSender<'static, Result<(ClassicFrame, Timestamp), BusError>>,
-    }
-    pub struct ClassicBufferedTxInner {
-        pub tx_receiver: DynamicReceiver<'static, ClassicFrame>,
-    }
-
-    pub struct FdBufferedRxInner {
-        pub rx_sender: DynamicSender<'static, Result<(FdFrame, Timestamp), BusError>>,
-    }
-    pub struct FdBufferedTxInner {
-        pub tx_receiver: DynamicReceiver<'static, FdFrame>,
-    }
-
-    pub enum RxMode {
-        NonBuffered(AtomicWaker),
-        ClassicBuffered(ClassicBufferedRxInner),
-        FdBuffered(FdBufferedRxInner),
-    }
-
-    impl RxMode {
-        pub fn register(&self, arg: &core::task::Waker) {
-            match self {
-                RxMode::NonBuffered(waker) => waker.register(arg),
-                _ => {
-                    panic!("Bad Mode")
-                }
-            }
-        }
-
-        pub fn on_interrupt<T: Instance>(&self, fifonr: usize) {
-            T::regs().ir().write(|w| w.set_rfn(fifonr, true));
-            match self {
-                RxMode::NonBuffered(waker) => {
-                    waker.wake();
-                }
-                RxMode::ClassicBuffered(buf) => {
-                    if let Some(result) = self.read::<T, _>() {
-                        let _ = buf.rx_sender.try_send(result);
-                    }
-                }
-                RxMode::FdBuffered(buf) => {
-                    if let Some(result) = self.read::<T, _>() {
-                        let _ = buf.rx_sender.try_send(result);
-                    }
-                }
-            }
-        }
-
-        fn read<T: Instance, F: CanHeader>(&self) -> Option<Result<(F, Timestamp), BusError>> {
-            if let Some((msg, ts)) = T::registers().read(0) {
-                let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-                Some(Ok((msg, ts)))
-            } else if let Some((msg, ts)) = T::registers().read(1) {
-                let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-                Some(Ok((msg, ts)))
-            } else if let Some(err) = T::registers().curr_error() {
-                // TODO: this is probably wrong
-                Some(Err(err))
-            } else {
-                None
-            }
-        }
-
-        async fn read_async<T: Instance, F: CanHeader>(&self) -> Result<(F, Timestamp), BusError> {
-            poll_fn(|cx| {
-                T::state().err_waker.register(cx.waker());
-                self.register(cx.waker());
-                match self.read::<T, _>() {
-                    Some(result) => Poll::Ready(result),
-                    None => Poll::Pending,
-                }
-            })
-            .await
-        }
-
-        pub async fn read_classic<T: Instance>(&self) -> Result<(ClassicFrame, Timestamp), BusError> {
-            self.read_async::<T, _>().await
-        }
-
-        pub async fn read_fd<T: Instance>(&self) -> Result<(FdFrame, Timestamp), BusError> {
-            self.read_async::<T, _>().await
-        }
-    }
-
-    pub enum TxMode {
-        NonBuffered(AtomicWaker),
-        ClassicBuffered(ClassicBufferedTxInner),
-        FdBuffered(FdBufferedTxInner),
-    }
-
-    impl TxMode {
-        pub fn register(&self, arg: &core::task::Waker) {
-            match self {
-                TxMode::NonBuffered(waker) => {
-                    waker.register(arg);
-                }
-                _ => {
-                    panic!("Bad mode");
-                }
-            }
-        }
-
-        /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-        /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-        /// can be replaced, this call asynchronously waits for a frame to be successfully
-        /// transmitted, then tries again.
-        async fn write_generic<T: Instance, F: embedded_can::Frame + CanHeader>(&self, frame: &F) -> Option<F> {
-            poll_fn(|cx| {
-                self.register(cx.waker());
-
-                if let Ok(dropped) = T::registers().write(frame) {
-                    return Poll::Ready(dropped);
-                }
-
-                // Couldn't replace any lower priority frames.  Need to wait for some mailboxes
-                // to clear.
-                Poll::Pending
-            })
-            .await
-        }
-
-        /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-        /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-        /// can be replaced, this call asynchronously waits for a frame to be successfully
-        /// transmitted, then tries again.
-        pub async fn write<T: Instance>(&self, frame: &ClassicFrame) -> Option<ClassicFrame> {
-            self.write_generic::<T, _>(frame).await
-        }
-
-        /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-        /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-        /// can be replaced, this call asynchronously waits for a frame to be successfully
-        /// transmitted, then tries again.
-        pub async fn write_fd<T: Instance>(&self, frame: &FdFrame) -> Option<FdFrame> {
-            self.write_generic::<T, _>(frame).await
-        }
-    }
-
-    pub struct State {
-        pub rx_mode: RxMode,
-        pub tx_mode: TxMode,
-        pub ns_per_timer_tick: u64,
-
-        pub err_waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                rx_mode: RxMode::NonBuffered(AtomicWaker::new()),
-                tx_mode: TxMode::NonBuffered(AtomicWaker::new()),
-                ns_per_timer_tick: 0,
-                err_waker: AtomicWaker::new(),
+impl RxMode {
+    fn register(&self, arg: &core::task::Waker) {
+        match self {
+            RxMode::NonBuffered(waker) => waker.register(arg),
+            _ => {
+                panic!("Bad Mode")
             }
         }
     }
 
-    pub trait Instance {
-        const MSG_RAM_OFFSET: usize;
+    fn on_interrupt<T: Instance>(&self, fifonr: usize) {
+        T::regs().ir().write(|w| w.set_rfn(fifonr, true));
+        match self {
+            RxMode::NonBuffered(waker) => {
+                waker.wake();
+            }
+            RxMode::ClassicBuffered(buf) => {
+                if let Some(result) = self.read::<T, _>() {
+                    let _ = buf.rx_sender.try_send(result);
+                }
+            }
+            RxMode::FdBuffered(buf) => {
+                if let Some(result) = self.read::<T, _>() {
+                    let _ = buf.rx_sender.try_send(result);
+                }
+            }
+        }
+    }
 
-        fn regs() -> &'static crate::pac::can::Fdcan;
-        fn registers() -> crate::can::fd::peripheral::Registers;
-        fn ram() -> &'static crate::pac::fdcanram::Fdcanram;
-        fn state() -> &'static State;
-        unsafe fn mut_state() -> &'static mut State;
-        fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp;
+    fn read<T: Instance, F: CanHeader>(&self) -> Option<Result<(F, Timestamp), BusError>> {
+        if let Some((msg, ts)) = T::registers().read(0) {
+            let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
+            Some(Ok((msg, ts)))
+        } else if let Some((msg, ts)) = T::registers().read(1) {
+            let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
+            Some(Ok((msg, ts)))
+        } else if let Some(err) = T::registers().curr_error() {
+            // TODO: this is probably wrong
+            Some(Err(err))
+        } else {
+            None
+        }
+    }
+
+    async fn read_async<T: Instance, F: CanHeader>(&self) -> Result<(F, Timestamp), BusError> {
+        poll_fn(|cx| {
+            T::state().err_waker.register(cx.waker());
+            self.register(cx.waker());
+            match self.read::<T, _>() {
+                Some(result) => Poll::Ready(result),
+                None => Poll::Pending,
+            }
+        })
+        .await
+    }
+
+    async fn read_classic<T: Instance>(&self) -> Result<(ClassicFrame, Timestamp), BusError> {
+        self.read_async::<T, _>().await
+    }
+
+    async fn read_fd<T: Instance>(&self) -> Result<(FdFrame, Timestamp), BusError> {
+        self.read_async::<T, _>().await
     }
 }
 
+enum TxMode {
+    NonBuffered(AtomicWaker),
+    ClassicBuffered(ClassicBufferedTxInner),
+    FdBuffered(FdBufferedTxInner),
+}
+
+impl TxMode {
+    fn register(&self, arg: &core::task::Waker) {
+        match self {
+            TxMode::NonBuffered(waker) => {
+                waker.register(arg);
+            }
+            _ => {
+                panic!("Bad mode");
+            }
+        }
+    }
+
+    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+    /// can be replaced, this call asynchronously waits for a frame to be successfully
+    /// transmitted, then tries again.
+    async fn write_generic<T: Instance, F: embedded_can::Frame + CanHeader>(&self, frame: &F) -> Option<F> {
+        poll_fn(|cx| {
+            self.register(cx.waker());
+
+            if let Ok(dropped) = T::registers().write(frame) {
+                return Poll::Ready(dropped);
+            }
+
+            // Couldn't replace any lower priority frames.  Need to wait for some mailboxes
+            // to clear.
+            Poll::Pending
+        })
+        .await
+    }
+
+    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+    /// can be replaced, this call asynchronously waits for a frame to be successfully
+    /// transmitted, then tries again.
+    async fn write<T: Instance>(&self, frame: &ClassicFrame) -> Option<ClassicFrame> {
+        self.write_generic::<T, _>(frame).await
+    }
+
+    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+    /// can be replaced, this call asynchronously waits for a frame to be successfully
+    /// transmitted, then tries again.
+    async fn write_fd<T: Instance>(&self, frame: &FdFrame) -> Option<FdFrame> {
+        self.write_generic::<T, _>(frame).await
+    }
+}
+
+struct State {
+    pub rx_mode: RxMode,
+    pub tx_mode: TxMode,
+    pub ns_per_timer_tick: u64,
+
+    pub err_waker: AtomicWaker,
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            rx_mode: RxMode::NonBuffered(AtomicWaker::new()),
+            tx_mode: TxMode::NonBuffered(AtomicWaker::new()),
+            ns_per_timer_tick: 0,
+            err_waker: AtomicWaker::new(),
+        }
+    }
+}
+
+trait SealedInstance {
+    const MSG_RAM_OFFSET: usize;
+
+    fn regs() -> &'static crate::pac::can::Fdcan;
+    fn registers() -> crate::can::fd::peripheral::Registers;
+    fn state() -> &'static State;
+    unsafe fn mut_state() -> &'static mut State;
+    fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp;
+}
+
 /// Instance trait
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
     /// Interrupt 0
     type IT0Interrupt: crate::interrupt::typelevel::Interrupt;
-    /// Interrupt 0
+    /// Interrupt 1
     type IT1Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
@@ -871,7 +860,7 @@ pub struct FdcanInstance<'a, T>(PeripheralRef<'a, T>);
 
 macro_rules! impl_fdcan {
     ($inst:ident, $msg_ram_inst:ident, $msg_ram_offset:literal) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             const MSG_RAM_OFFSET: usize = $msg_ram_offset;
 
             fn regs() -> &'static crate::pac::can::Fdcan {
@@ -880,14 +869,11 @@ macro_rules! impl_fdcan {
             fn registers() -> Registers {
                 Registers{regs: &crate::pac::$inst, msgram: &crate::pac::$msg_ram_inst, msg_ram_offset: Self::MSG_RAM_OFFSET}
             }
-            fn ram() -> &'static crate::pac::fdcanram::Fdcanram {
-                &crate::pac::$msg_ram_inst
-            }
-            unsafe fn mut_state() -> &'static mut sealed::State {
-                static mut STATE: sealed::State = sealed::State::new();
+            unsafe fn mut_state() -> &'static mut State {
+                static mut STATE: State = State::new();
                 &mut *core::ptr::addr_of_mut!(STATE)
             }
-            fn state() -> &'static sealed::State {
+            fn state() -> &'static State {
                 unsafe { peripherals::$inst::mut_state() }
             }
 

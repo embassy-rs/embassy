@@ -177,16 +177,15 @@ pub unsafe trait PHY {
     fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool;
 }
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::eth::Eth;
-    }
+trait SealedInstance {
+    fn regs() -> crate::pac::eth::Eth;
 }
 
 /// Ethernet instance.
-pub trait Instance: sealed::Instance + RccPeripheral + Send + 'static {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + Send + 'static {}
 
-impl sealed::Instance for crate::peripherals::ETH {
+impl SealedInstance for crate::peripherals::ETH {
     fn regs() -> crate::pac::eth::Eth {
         crate::pac::ETH
     }

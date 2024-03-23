@@ -11,11 +11,11 @@ use embassy_usb_driver::{
 };
 use futures::future::poll_fn;
 
-use crate::gpio::sealed::AFType;
+use crate::gpio::AFType;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::otg::{regs, vals};
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::{RccPeripheral, SealedRccPeripheral};
 use crate::time::Hertz;
 
 /// Interrupt handler.
@@ -809,7 +809,7 @@ impl<'d, T: Instance> Bus<'d, T> {
     fn disable(&mut self) {
         T::Interrupt::disable();
 
-        <T as RccPeripheral>::disable();
+        <T as SealedRccPeripheral>::disable();
 
         #[cfg(stm32l4)]
         crate::pac::PWR.cr2().modify(|w| w.set_usv(false));
@@ -1436,19 +1436,18 @@ fn quirk_setup_late_cnak(r: crate::pac::otg::Otg) -> bool {
 // Using Instance::ENDPOINT_COUNT requires feature(const_generic_expr) so just define maximum eps
 const MAX_EP_COUNT: usize = 9;
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        const HIGH_SPEED: bool;
-        const FIFO_DEPTH_WORDS: u16;
-        const ENDPOINT_COUNT: usize;
+trait SealedInstance {
+    const HIGH_SPEED: bool;
+    const FIFO_DEPTH_WORDS: u16;
+    const ENDPOINT_COUNT: usize;
 
-        fn regs() -> crate::pac::otg::Otg;
-        fn state() -> &'static super::State<{ super::MAX_EP_COUNT }>;
-    }
+    fn regs() -> crate::pac::otg::Otg;
+    fn state() -> &'static super::State<{ MAX_EP_COUNT }>;
 }
 
 /// USB instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
     /// Interrupt for this USB instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -1473,7 +1472,7 @@ pin_trait!(UlpiD7Pin, Instance);
 
 foreach_interrupt!(
     (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
-        impl sealed::Instance for crate::peripherals::USB_OTG_FS {
+        impl SealedInstance for crate::peripherals::USB_OTG_FS {
             const HIGH_SPEED: bool = false;
 
             cfg_if::cfg_if! {
@@ -1538,7 +1537,7 @@ foreach_interrupt!(
     };
 
     (USB_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
-        impl sealed::Instance for crate::peripherals::USB_OTG_HS {
+        impl SealedInstance for crate::peripherals::USB_OTG_HS {
             const HIGH_SPEED: bool = true;
 
             cfg_if::cfg_if! {

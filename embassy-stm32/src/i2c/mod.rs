@@ -14,8 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant};
 
 use crate::dma::NoDma;
-use crate::gpio::sealed::AFType;
-use crate::gpio::Pull;
+use crate::gpio::{AFType, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
 use crate::{interrupt, peripherals};
@@ -175,30 +174,27 @@ impl Timeout {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+struct State {
+    #[allow(unused)]
+    waker: AtomicWaker,
+}
 
-    pub struct State {
-        #[allow(unused)]
-        pub waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-            }
+impl State {
+    const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait Instance: crate::rcc::RccPeripheral {
-        fn regs() -> crate::pac::i2c::I2c;
-        fn state() -> &'static State;
     }
 }
 
+trait SealedInstance: crate::rcc::RccPeripheral {
+    fn regs() -> crate::pac::i2c::I2c;
+    fn state() -> &'static State;
+}
+
 /// I2C peripheral instance
-pub trait Instance: sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + 'static {
     /// Event interrupt for this instance
     type EventInterrupt: interrupt::typelevel::Interrupt;
     /// Error interrupt for this instance
@@ -234,13 +230,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::ErrorInterrupt> for ErrorInte
 
 foreach_peripheral!(
     (i2c, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> crate::pac::i2c::I2c {
                 crate::pac::$inst
             }
 
-            fn state() -> &'static sealed::State {
-                static STATE: sealed::State = sealed::State::new();
+            fn state() -> &'static State {
+                static STATE: State = State::new();
                 &STATE
             }
         }

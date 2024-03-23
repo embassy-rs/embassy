@@ -31,7 +31,6 @@ pub use _version::*;
 use embassy_hal_internal::Peripheral;
 
 use crate::peripherals::RTC;
-use crate::rtc::sealed::Instance;
 
 #[allow(dead_code)]
 #[repr(u8)]
@@ -212,7 +211,7 @@ impl Rtc {
     /// Create a new RTC instance.
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
-        <RTC as crate::rcc::sealed::RccPeripheral>::enable_and_reset();
+        <RTC as crate::rcc::SealedRccPeripheral>::enable_and_reset();
 
         let mut this = Self {
             #[cfg(feature = "low-power")]
@@ -437,7 +436,7 @@ impl Rtc {
                     .fpr(0)
                     .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
 
-                <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
+                <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
             });
         }
 
@@ -449,8 +448,8 @@ impl Rtc {
         use crate::interrupt::typelevel::Interrupt;
         use crate::pac::EXTI;
 
-        <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
-        unsafe { <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::enable() };
+        <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
+        unsafe { <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::enable() };
 
         EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
         EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
@@ -477,34 +476,30 @@ pub(crate) fn bcd2_to_byte(bcd: (u8, u8)) -> u8 {
     tmp + (value & 0x0F)
 }
 
-pub(crate) mod sealed {
-    use crate::pac::rtc::Rtc;
+trait SealedInstance {
+    const BACKUP_REGISTER_COUNT: usize;
 
-    pub trait Instance {
-        const BACKUP_REGISTER_COUNT: usize;
+    #[cfg(feature = "low-power")]
+    const EXTI_WAKEUP_LINE: usize;
 
-        #[cfg(feature = "low-power")]
-        const EXTI_WAKEUP_LINE: usize;
+    #[cfg(feature = "low-power")]
+    type WakeupInterrupt: crate::interrupt::typelevel::Interrupt;
 
-        #[cfg(feature = "low-power")]
-        type WakeupInterrupt: crate::interrupt::typelevel::Interrupt;
-
-        fn regs() -> Rtc {
-            crate::pac::RTC
-        }
-
-        /// Read content of the backup register.
-        ///
-        /// The registers retain their values during wakes from standby mode or system resets. They also
-        /// retain their value when Vdd is switched off as long as V_BAT is powered.
-        fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32>;
-
-        /// Set content of the backup register.
-        ///
-        /// The registers retain their values during wakes from standby mode or system resets. They also
-        /// retain their value when Vdd is switched off as long as V_BAT is powered.
-        fn write_backup_register(rtc: &Rtc, register: usize, value: u32);
-
-        // fn apply_config(&mut self, rtc_config: RtcConfig);
+    fn regs() -> crate::pac::rtc::Rtc {
+        crate::pac::RTC
     }
+
+    /// Read content of the backup register.
+    ///
+    /// The registers retain their values during wakes from standby mode or system resets. They also
+    /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    fn read_backup_register(rtc: &crate::pac::rtc::Rtc, register: usize) -> Option<u32>;
+
+    /// Set content of the backup register.
+    ///
+    /// The registers retain their values during wakes from standby mode or system resets. They also
+    /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    fn write_backup_register(rtc: &crate::pac::rtc::Rtc, register: usize, value: u32);
+
+    // fn apply_config(&mut self, rtc_config: RtcConfig);
 }

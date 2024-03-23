@@ -1,8 +1,7 @@
 //! Inter-IC Sound (I2S)
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::AnyPin;
+use crate::gpio::{AFType, AnyPin, SealedPin};
 use crate::pac::spi::vals;
 use crate::spi::{Config as SpiConfig, *};
 use crate::time::Hertz;

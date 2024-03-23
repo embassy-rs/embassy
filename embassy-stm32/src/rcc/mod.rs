@@ -10,6 +10,7 @@ pub use bd::*;
 
 #[cfg(any(mco, mco1, mco2))]
 mod mco;
+use critical_section::CriticalSection;
 #[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
@@ -32,6 +33,7 @@ mod _version;
 pub use _version::*;
 
 pub use crate::_generated::{mux, Clocks};
+use crate::time::Hertz;
 
 #[cfg(feature = "low-power")]
 /// Must be written within a critical section
@@ -63,29 +65,21 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
     CLOCK_FREQS.assume_init_ref()
 }
 
-#[cfg(feature = "unstable-pac")]
-pub mod low_level {
-    pub use super::sealed::*;
-}
+pub(crate) trait SealedRccPeripheral {
+    fn frequency() -> crate::time::Hertz;
+    fn enable_and_reset_with_cs(cs: CriticalSection);
+    fn disable_with_cs(cs: CriticalSection);
 
-pub(crate) mod sealed {
-    use critical_section::CriticalSection;
-
-    pub trait RccPeripheral {
-        fn frequency() -> crate::time::Hertz;
-        fn enable_and_reset_with_cs(cs: CriticalSection);
-        fn disable_with_cs(cs: CriticalSection);
-
-        fn enable_and_reset() {
-            critical_section::with(|cs| Self::enable_and_reset_with_cs(cs))
-        }
-        fn disable() {
-            critical_section::with(|cs| Self::disable_with_cs(cs))
-        }
+    fn enable_and_reset() {
+        critical_section::with(|cs| Self::enable_and_reset_with_cs(cs))
+    }
+    fn disable() {
+        critical_section::with(|cs| Self::disable_with_cs(cs))
     }
 }
 
-pub trait RccPeripheral: sealed::RccPeripheral + 'static {}
+#[allow(private_bounds)]
+pub trait RccPeripheral: SealedRccPeripheral + 'static {}
 
 #[allow(unused)]
 mod util {
@@ -115,4 +109,13 @@ mod util {
         }
         Ok(Some(x))
     }
+}
+
+/// Get the kernel clocok frequency of the peripheral `T`.
+///
+/// # Panics
+///
+/// Panics if the clock is not active.
+pub fn frequency<T: RccPeripheral>() -> Hertz {
+    T::frequency()
 }

@@ -584,7 +584,7 @@ fn main() {
             };
 
             g.extend(quote! {
-                impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
+                impl crate::rcc::SealedRccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
                     }
@@ -1486,7 +1486,7 @@ fn main() {
                 #[crate::interrupt]
                 unsafe fn #irq () {
                     #(
-                        <crate::peripherals::#channels as crate::dma::sealed::ChannelInterrupt>::on_irq();
+                        <crate::peripherals::#channels as crate::dma::ChannelInterrupt>::on_irq();
                     )*
                 }
             }

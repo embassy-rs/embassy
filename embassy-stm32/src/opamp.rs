@@ -81,8 +81,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// [`OpAmpOutput`] is dropped.
     pub fn buffer_ext(
         &'d mut self,
-        in_pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::sealed::Pin>,
-        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::sealed::Pin> + 'd,
+        in_pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::Pin>,
+        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin> + 'd,
         gain: OpAmpGain,
     ) -> OpAmpOutput<'d, T> {
         into_ref!(in_pin);
@@ -122,7 +122,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     #[cfg(opamp_g4)]
     pub fn buffer_int(
         &'d mut self,
-        pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::sealed::Pin>,
+        pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
     ) -> OpAmpInternalOutput<'d, T> {
         into_ref!(pin);
@@ -166,37 +166,39 @@ impl<'d, T: Instance> Drop for OpAmpInternalOutput<'d, T> {
     }
 }
 
-/// Opamp instance trait.
-pub trait Instance: sealed::Instance + 'static {}
-
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::opamp::Opamp;
-    }
-
-    pub trait NonInvertingPin<T: Instance> {
-        fn channel(&self) -> u8;
-    }
-
-    pub trait InvertingPin<T: Instance> {
-        fn channel(&self) -> u8;
-    }
-
-    pub trait OutputPin<T: Instance> {}
+pub(crate) trait SealedInstance {
+    fn regs() -> crate::pac::opamp::Opamp;
 }
 
+pub(crate) trait SealedNonInvertingPin<T: Instance> {
+    fn channel(&self) -> u8;
+}
+
+pub(crate) trait SealedInvertingPin<T: Instance> {
+    #[allow(unused)]
+    fn channel(&self) -> u8;
+}
+
+pub(crate) trait SealedOutputPin<T: Instance> {}
+
+/// Opamp instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + 'static {}
 /// Non-inverting pin trait.
-pub trait NonInvertingPin<T: Instance>: sealed::NonInvertingPin<T> {}
+#[allow(private_bounds)]
+pub trait NonInvertingPin<T: Instance>: SealedNonInvertingPin<T> {}
 /// Inverting pin trait.
-pub trait InvertingPin<T: Instance>: sealed::InvertingPin<T> {}
+#[allow(private_bounds)]
+pub trait InvertingPin<T: Instance>: SealedInvertingPin<T> {}
 /// Output pin trait.
-pub trait OutputPin<T: Instance>: sealed::OutputPin<T> {}
+#[allow(private_bounds)]
+pub trait OutputPin<T: Instance>: SealedOutputPin<T> {}
 
 macro_rules! impl_opamp_external_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
         foreach_adc!(
             ($adc, $common_inst:ident, $adc_clock:ident) => {
-                impl<'d> crate::adc::sealed::AdcPin<crate::peripherals::$adc>
+                impl<'d> crate::adc::SealedAdcPin<crate::peripherals::$adc>
                     for OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                     fn channel(&self) -> u8 {
@@ -242,7 +244,7 @@ macro_rules! impl_opamp_internal_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
         foreach_adc!(
             ($adc, $common_inst:ident, $adc_clock:ident) => {
-                impl<'d> crate::adc::sealed::AdcPin<crate::peripherals::$adc>
+                impl<'d> crate::adc::SealedAdcPin<crate::peripherals::$adc>
                     for OpAmpInternalOutput<'d, crate::peripherals::$inst>
                 {
                     fn channel(&self) -> u8 {
@@ -291,7 +293,7 @@ foreach_peripheral!(
 
 foreach_peripheral! {
     (opamp, $inst:ident) => {
-        impl sealed::Instance for crate::peripherals::$inst {
+        impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::opamp::Opamp {
                 crate::pac::$inst
             }
@@ -306,7 +308,7 @@ foreach_peripheral! {
 macro_rules! impl_opamp_vp_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
         impl crate::opamp::NonInvertingPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::sealed::NonInvertingPin<peripherals::$inst> for crate::peripherals::$pin {
+        impl crate::opamp::SealedNonInvertingPin<peripherals::$inst> for crate::peripherals::$pin {
             fn channel(&self) -> u8 {
                 $ch
             }
@@ -318,6 +320,6 @@ macro_rules! impl_opamp_vp_pin {
 macro_rules! impl_opamp_vout_pin {
     ($inst:ident, $pin:ident) => {
         impl crate::opamp::OutputPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::opamp::sealed::OutputPin<peripherals::$inst> for crate::peripherals::$pin {}
+        impl crate::opamp::SealedOutputPin<peripherals::$inst> for crate::peripherals::$pin {}
     };
 }

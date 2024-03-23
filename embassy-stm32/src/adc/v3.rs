@@ -12,7 +12,7 @@ pub const VREF_CALIB_MV: u32 = 3000;
 
 pub struct VrefInt;
 impl<T: Instance> AdcPin<T> for VrefInt {}
-impl<T: Instance> super::sealed::AdcPin<T> for VrefInt {
+impl<T: Instance> super::SealedAdcPin<T> for VrefInt {
     fn channel(&self) -> u8 {
         cfg_if! {
             if #[cfg(adc_g0)] {
@@ -29,7 +29,7 @@ impl<T: Instance> super::sealed::AdcPin<T> for VrefInt {
 
 pub struct Temperature;
 impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
+impl<T: Instance> super::SealedAdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
         cfg_if! {
             if #[cfg(adc_g0)] {
@@ -46,7 +46,7 @@ impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
 
 pub struct Vbat;
 impl<T: Instance> AdcPin<T> for Vbat {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
+impl<T: Instance> super::SealedAdcPin<T> for Vbat {
     fn channel(&self) -> u8 {
         cfg_if! {
             if #[cfg(adc_g0)] {
@@ -65,7 +65,7 @@ cfg_if! {
     if #[cfg(adc_h5)] {
         pub struct VddCore;
         impl<T: Instance> AdcPin<T> for VddCore {}
-        impl<T: Instance> super::sealed::AdcPin<T> for VddCore {
+        impl<T: Instance> super::SealedAdcPin<T> for VddCore {
             fn channel(&self) -> u8 {
                 6
             }

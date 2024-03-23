@@ -7,9 +7,12 @@ pub mod bx;
 
 pub use bx::{filter, Data, ExtendedId, Fifo, Frame, Header, Id, StandardId};
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::waitqueue::AtomicWaker;
 use futures::FutureExt;
 
-use crate::gpio::sealed::AFType;
+use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::can::vals::{Ide, Lec};
 use crate::rcc::RccPeripheral;
@@ -485,37 +488,30 @@ impl<'d, T: Instance> DerefMut for Can<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-    use embassy_sync::channel::Channel;
-    use embassy_sync::waitqueue::AtomicWaker;
+struct State {
+    pub tx_waker: AtomicWaker,
+    pub err_waker: AtomicWaker,
+    pub rx_queue: Channel<CriticalSectionRawMutex, Envelope, 32>,
+}
 
-    use super::Envelope;
-
-    pub struct State {
-        pub tx_waker: AtomicWaker,
-        pub err_waker: AtomicWaker,
-        pub rx_queue: Channel<CriticalSectionRawMutex, Envelope, 32>,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                tx_waker: AtomicWaker::new(),
-                err_waker: AtomicWaker::new(),
-                rx_queue: Channel::new(),
-            }
+impl State {
+    pub const fn new() -> Self {
+        Self {
+            tx_waker: AtomicWaker::new(),
+            err_waker: AtomicWaker::new(),
+            rx_queue: Channel::new(),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> crate::pac::can::Can;
-        fn state() -> &'static State;
     }
 }
 
+trait SealedInstance {
+    fn regs() -> crate::pac::can::Can;
+    fn state() -> &'static State;
+}
+
 /// CAN instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
     /// TX interrupt for this instance.
     type TXInterrupt: crate::interrupt::typelevel::Interrupt;
     /// RX0 interrupt for this instance.
@@ -533,14 +529,14 @@ unsafe impl<'d, T: Instance> crate::can::bx::Instance for BxcanInstance<'d, T> {
 
 foreach_peripheral!(
     (can, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
 
             fn regs() -> crate::pac::can::Can {
                 crate::pac::$inst
             }
 
-            fn state() -> &'static sealed::State {
-                static STATE: sealed::State = sealed::State::new();
+            fn state() -> &'static State {
+                static STATE: State = State::new();
                 &STATE
             }
         }

@@ -1885,16 +1885,13 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        fn regs() -> pac::cryp::Cryp;
-    }
+trait SealedInstance {
+    fn regs() -> pac::cryp::Cryp;
 }
 
 /// CRYP instance trait.
-pub trait Instance: sealed::Instance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
     /// Interrupt for this CRYP instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -1905,7 +1902,7 @@ foreach_interrupt!(
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
 
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> crate::pac::cryp::Cryp {
                 crate::pac::$inst
             }
