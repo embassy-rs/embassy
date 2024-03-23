@@ -583,6 +583,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         //     transfer.get_remaining_transfers()
         // );
 
+        //TODO: consider a little loop here checking the remaining transfers after stopping the adc.
+
         // info!("DMA requested stop");
         // Wait for DMA to stop
 
