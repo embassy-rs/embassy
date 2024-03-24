@@ -236,12 +236,65 @@ impl<'d, T: Instance> Can<'d, T> {
         let (tx, rx) = self.can.split_by_ref();
         (CanTx { tx }, CanRx { rx })
     }
+
+    /// Return a buffered instance of driver. User must supply Buffers
+    pub fn buffered<'c, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
+        &'c mut self,
+        txb: &'static mut TxBuf<TX_BUF_SIZE>,
+        rxb: &'static mut RxBuf<RX_BUF_SIZE>,
+    ) -> BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE> {
+        let (tx, rx) = self.split();
+        BufferedCan {
+            tx: tx.buffered(txb),
+            rx: rx.buffered(rxb),
+        }
+    }
 }
 
 impl<'d, T: Instance> AsMut<crate::can::bx::Can<BxcanInstance<'d, T>>> for Can<'d, T> {
     /// Get mutable access to the lower-level driver from the `bxcan` crate.
     fn as_mut(&mut self) -> &mut crate::can::bx::Can<BxcanInstance<'d, T>> {
         &mut self.can
+    }
+}
+
+/// Buffered CAN driver.
+pub struct BufferedCan<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+    tx: BufferedCanTx<'d, T, TX_BUF_SIZE>,
+    rx: BufferedCanRx<'d, T, RX_BUF_SIZE>,
+}
+
+impl<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE> {
+    /// Async write frame to TX buffer.
+    pub async fn write(&mut self, frame: &Frame) {
+        self.tx.write(frame).await
+    }
+
+    /// Returns a sender that can be used for sending CAN frames.
+    pub fn writer(&self) -> BufferedCanSender {
+        self.tx.writer()
+    }
+
+    /// Async read frame from RX buffer.
+    pub async fn read(&mut self) -> Result<(Frame, Timestamp), BusError> {
+        self.rx.read().await
+    }
+
+    /// Attempts to read a CAN frame without blocking.
+    ///
+    /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
+    pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
+        self.rx.try_read()
+    }
+
+    /// Waits while receive queue is empty.
+    pub async fn wait_not_empty(&mut self) {
+        self.rx.wait_not_empty().await
+    }
+
+    /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+    pub fn reader(&self) -> BufferedCanReceiver {
+        self.rx.reader()
     }
 }
 
@@ -346,7 +399,7 @@ impl<'d, T: Instance> CanTx<'d, T> {
 /// User supplied buffer for TX buffering
 pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, BUF_SIZE>;
 
-/// CAN driver, transmit half.
+/// Buffered CAN driver, transmit half.
 pub struct BufferedCanTx<'d, T: Instance, const TX_BUF_SIZE: usize> {
     _tx: crate::can::bx::Tx<BxcanInstance<'d, T>>,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
