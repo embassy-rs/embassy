@@ -183,29 +183,29 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|------------|--------|--------|--------|--------|
     /// |    Active |          0 |      1 |      2 |      3 |      - |
-    /// |       DFU |          0 |      3 |      2 |      1 |      X |
+    /// |       DFU |          0 |      4 |      5 |      6 |      X |
     ///
     /// The algorithm starts by copying 'backwards', and after the first step, the layout is
     /// as follows:
     ///
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|------------|--------|--------|--------|--------|
-    /// |    Active |          1 |      1 |      2 |      1 |      - |
-    /// |       DFU |          1 |      3 |      2 |      1 |      3 |
+    /// |    Active |          1 |      1 |      2 |      6 |      - |
+    /// |       DFU |          1 |      4 |      5 |      6 |      3 |
     ///
     /// The next iteration performs the same steps
     ///
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|------------|--------|--------|--------|--------|
-    /// |    Active |          2 |      1 |      2 |      1 |      - |
-    /// |       DFU |          2 |      3 |      2 |      2 |      3 |
+    /// |    Active |          2 |      1 |      5 |      6 |      - |
+    /// |       DFU |          2 |      4 |      5 |      2 |      3 |
     ///
     /// And again until we're done
     ///
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|------------|--------|--------|--------|--------|
-    /// |    Active |          3 |      3 |      2 |      1 |      - |
-    /// |       DFU |          3 |      3 |      1 |      2 |      3 |
+    /// |    Active |          3 |      4 |      5 |      6 |      - |
+    /// |       DFU |          3 |      4 |      1 |      2 |      3 |
     ///
     /// ## REVERTING
     ///
@@ -220,19 +220,19 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     ///
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|--------------|--------|--------|--------|--------|
-    /// |    Active |            3 |      1 |      2 |      1 |      - |
-    /// |       DFU |            3 |      3 |      1 |      2 |      3 |
+    /// |    Active |            3 |      1 |      5 |      6 |      - |
+    /// |       DFU |            3 |      4 |      1 |      2 |      3 |
     ///
     ///
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|--------------|--------|--------|--------|--------|
-    /// |    Active |            3 |      1 |      2 |      1 |      - |
-    /// |       DFU |            3 |      3 |      2 |      2 |      3 |
+    /// |    Active |            3 |      1 |      2 |      6 |      - |
+    /// |       DFU |            3 |      4 |      5 |      2 |      3 |
     ///
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|--------------|--------|--------|--------|--------|
     /// |    Active |            3 |      1 |      2 |      3 |      - |
-    /// |       DFU |            3 |      3 |      2 |      1 |      3 |
+    /// |       DFU |            3 |      4 |      5 |      6 |      3 |
     ///
     pub fn prepare_boot(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
         // Ensure we have enough progress pages to store copy progress
