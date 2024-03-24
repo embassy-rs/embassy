@@ -19,22 +19,10 @@ use crate::{interrupt, peripherals, Peripheral};
 pub mod enums;
 pub mod frame;
 pub mod util;
+pub use frame::Envelope;
 
 mod common;
-pub use self::common::{BufferedCanReceiver, BufferedCanSender, Timestamp};
-
-/// Contains CAN frame and additional metadata.
-///
-/// Timestamp is available if `time` feature is enabled.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Envelope {
-    /// Reception time.
-    #[cfg(feature = "time")]
-    pub ts: embassy_time::Instant,
-    /// The actual CAN frame.
-    pub frame: Frame,
-}
+pub use self::common::{BufferedCanReceiver, BufferedCanSender};
 
 /// Interrupt handler.
 pub struct TxInterruptHandler<T: Instance> {
@@ -276,7 +264,7 @@ impl<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Buffer
     }
 
     /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Result<(Frame, Timestamp), BusError> {
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.rx.read().await
     }
 
@@ -482,8 +470,7 @@ impl<'d, T: Instance> CanRx<'d, T> {
 }
 
 /// User supplied buffer for RX Buffering
-pub type RxBuf<const BUF_SIZE: usize> =
-    Channel<CriticalSectionRawMutex, Result<(Frame, Timestamp), BusError>, BUF_SIZE>;
+pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Result<Envelope, BusError>, BUF_SIZE>;
 
 /// CAN driver, receive half in Buffered mode.
 pub struct BufferedCanRx<'d, T: Instance, const RX_BUF_SIZE: usize> {
@@ -508,7 +495,7 @@ impl<'d, T: Instance, const RX_BUF_SIZE: usize> BufferedCanRx<'d, T, RX_BUF_SIZE
     }
 
     /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Result<(Frame, Timestamp), BusError> {
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.rx_buf.receive().await
     }
 
@@ -520,7 +507,7 @@ impl<'d, T: Instance, const RX_BUF_SIZE: usize> BufferedCanRx<'d, T, RX_BUF_SIZE
             RxMode::Buffered(_) => {
                 if let Ok(result) = self.rx_buf.try_receive() {
                     match result {
-                        Ok((frame, ts)) => Ok(Envelope { ts, frame }),
+                        Ok(envelope) => Ok(envelope),
                         Err(e) => Err(TryReadError::BusError(e)),
                     }
                 } else {
@@ -610,7 +597,7 @@ impl RxMode {
                     match regsisters.receive_fifo(fifo) {
                         Some(envelope) => {
                             // NOTE: consensus was reached that if rx_queue is full, packets should be dropped
-                            let _ = buf.rx_sender.try_send(Ok((envelope.frame, envelope.ts)));
+                            let _ = buf.rx_sender.try_send(Ok(envelope));
                         }
                         None => return,
                     };

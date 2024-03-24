@@ -40,12 +40,11 @@ pub type Header = crate::can::frame::Header;
 /// Data for a CAN Frame
 pub type Data = crate::can::frame::ClassicData;
 
-/// CAN Frame
-pub type Frame = crate::can::frame::ClassicFrame;
-
 use crate::can::_version::Envelope;
 use crate::can::bx::filter::MasterFilters;
 use crate::can::enums::BusError;
+/// CAN Frame
+pub use crate::can::frame::Frame;
 use crate::pac::can::vals::Lec;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

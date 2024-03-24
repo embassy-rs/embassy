@@ -3,25 +3,17 @@ use embassy_sync::channel::{DynamicReceiver, DynamicSender};
 use crate::can::_version::enums::*;
 use crate::can::_version::frame::*;
 
-/// Timestamp for incoming packets. Use Embassy time when enabled.
-#[cfg(feature = "time")]
-pub type Timestamp = embassy_time::Instant;
-
-/// Timestamp for incoming packets.
-#[cfg(not(feature = "time"))]
-pub type Timestamp = u16;
-
 pub(crate) struct ClassicBufferedRxInner {
-    pub rx_sender: DynamicSender<'static, Result<(ClassicFrame, Timestamp), BusError>>,
+    pub rx_sender: DynamicSender<'static, Result<Envelope, BusError>>,
 }
 pub(crate) struct ClassicBufferedTxInner {
-    pub tx_receiver: DynamicReceiver<'static, ClassicFrame>,
+    pub tx_receiver: DynamicReceiver<'static, Frame>,
 }
 
 #[cfg(any(can_fdcan_v1, can_fdcan_h7))]
 
 pub(crate) struct FdBufferedRxInner {
-    pub rx_sender: DynamicSender<'static, Result<(FdFrame, Timestamp), BusError>>,
+    pub rx_sender: DynamicSender<'static, Result<FdEnvelope, BusError>>,
 }
 
 #[cfg(any(can_fdcan_v1, can_fdcan_h7))]
@@ -32,20 +24,20 @@ pub(crate) struct FdBufferedTxInner {
 /// Sender that can be used for sending CAN frames.
 #[derive(Copy, Clone)]
 pub struct BufferedCanSender {
-    pub(crate) tx_buf: embassy_sync::channel::DynamicSender<'static, ClassicFrame>,
+    pub(crate) tx_buf: embassy_sync::channel::DynamicSender<'static, Frame>,
     pub(crate) waker: fn(),
 }
 
 impl BufferedCanSender {
     /// Async write frame to TX buffer.
-    pub fn try_write(&mut self, frame: ClassicFrame) -> Result<(), embassy_sync::channel::TrySendError<ClassicFrame>> {
+    pub fn try_write(&mut self, frame: Frame) -> Result<(), embassy_sync::channel::TrySendError<Frame>> {
         self.tx_buf.try_send(frame)?;
         (self.waker)();
         Ok(())
     }
 
     /// Async write frame to TX buffer.
-    pub async fn write(&mut self, frame: ClassicFrame) {
+    pub async fn write(&mut self, frame: Frame) {
         self.tx_buf.send(frame).await;
         (self.waker)();
     }
@@ -57,5 +49,4 @@ impl BufferedCanSender {
 }
 
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
-pub type BufferedCanReceiver =
-    embassy_sync::channel::DynamicReceiver<'static, Result<(ClassicFrame, Timestamp), BusError>>;
+pub type BufferedCanReceiver = embassy_sync::channel::DynamicReceiver<'static, Result<Envelope, BusError>>;

@@ -79,8 +79,8 @@ async fn main(_spawner: Spawner) {
     let options = options();
     let peripherals = embassy_stm32::init(options.config);
 
-    let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PB8, peripherals.PB9, Irqs1);
-    let mut can2 = can::FdcanConfigurator::new(peripherals.FDCAN2, peripherals.PB12, peripherals.PB13, Irqs2);
+    let mut can = can::CanConfigurator::new(peripherals.FDCAN1, peripherals.PB8, peripherals.PB9, Irqs1);
+    let mut can2 = can::CanConfigurator::new(peripherals.FDCAN2, peripherals.PB12, peripherals.PB13, Irqs2);
 
     // 250k bps
     can.set_bitrate(250_000);
@@ -102,13 +102,13 @@ async fn main(_spawner: Spawner) {
 
     let mut i: u8 = 0;
     loop {
-        let tx_frame = can::frame::ClassicFrame::new_standard(0x123, &[i; 1]).unwrap();
+        let tx_frame = can::frame::Frame::new_standard(0x123, &[i; 1]).unwrap();
 
         info!("Transmitting frame...");
         let tx_ts = Instant::now();
         can.write(&tx_frame).await;
 
-        let (frame, timestamp) = can.read().await.unwrap();
+        let (frame, timestamp) = can.read().await.unwrap().parts();
         info!("Frame received!");
 
         // Check data.
@@ -139,13 +139,13 @@ async fn main(_spawner: Spawner) {
 
     let mut i: u8 = 0;
     loop {
-        let tx_frame = can::frame::ClassicFrame::new_standard(0x123, &[i; 1]).unwrap();
+        let tx_frame = can::frame::Frame::new_standard(0x123, &[i; 1]).unwrap();
 
         info!("Transmitting frame...");
         let tx_ts = Instant::now();
         can2.write(&tx_frame).await;
 
-        let (frame, timestamp) = can2.read().await.unwrap();
+        let (frame, timestamp) = can2.read().await.unwrap().parts();
         info!("Frame received!");
 
         //print_regs().await;
@@ -182,20 +182,20 @@ async fn main(_spawner: Spawner) {
     // in each FIFO so make sure we write enough to fill them both up before reading.
     for i in 0..3 {
         // Try filling up the RX FIFO0 buffers with standard packets
-        let tx_frame = can::frame::ClassicFrame::new_standard(0x123, &[i; 1]).unwrap();
+        let tx_frame = can::frame::Frame::new_standard(0x123, &[i; 1]).unwrap();
         info!("Transmitting frame {}", i);
         can.write(&tx_frame).await;
     }
     for i in 3..max_buffered {
         // Try filling up the RX FIFO0 buffers with extended packets
-        let tx_frame = can::frame::ClassicFrame::new_extended(0x1232344, &[i; 1]).unwrap();
+        let tx_frame = can::frame::Frame::new_extended(0x1232344, &[i; 1]).unwrap();
         info!("Transmitting frame {}", i);
         can.write(&tx_frame).await;
     }
 
     // Try and receive all 6 packets
     for i in 0..max_buffered {
-        let (frame, _ts) = can.read().await.unwrap();
+        let (frame, _ts) = can.read().await.unwrap().parts();
         match frame.id() {
             embedded_can::Id::Extended(id) => {
                 info!("Extended received! {:x} {} {}", id.as_raw(), frame.data()[0], i);
@@ -210,20 +210,20 @@ async fn main(_spawner: Spawner) {
     let (mut tx, mut rx) = can.split();
     for i in 0..3 {
         // Try filling up the RX FIFO0 buffers with standard packets
-        let tx_frame = can::frame::ClassicFrame::new_standard(0x123, &[i; 1]).unwrap();
+        let tx_frame = can::frame::Frame::new_standard(0x123, &[i; 1]).unwrap();
         info!("Transmitting frame {}", i);
         tx.write(&tx_frame).await;
     }
     for i in 3..max_buffered {
         // Try filling up the RX FIFO0 buffers with extended packets
-        let tx_frame = can::frame::ClassicFrame::new_extended(0x1232344, &[i; 1]).unwrap();
+        let tx_frame = can::frame::Frame::new_extended(0x1232344, &[i; 1]).unwrap();
         info!("Transmitting frame {}", i);
         tx.write(&tx_frame).await;
     }
 
     // Try and receive all 6 packets
     for i in 0..max_buffered {
-        let (frame, _ts) = rx.read().await.unwrap();
+        let (frame, _ts) = rx.read().await.unwrap().parts();
         match frame.id() {
             embedded_can::Id::Extended(id) => {
                 info!("Extended received! {:x} {} {}", id.as_raw(), frame.data()[0], i);
