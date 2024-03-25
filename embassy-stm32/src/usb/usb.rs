@@ -131,7 +131,7 @@ fn convert_type(t: EndpointType) -> EpType {
         EndpointType::Bulk => EpType::BULK,
         EndpointType::Control => EpType::CONTROL,
         EndpointType::Interrupt => EpType::INTERRUPT,
-        EndpointType::Isochronous => EpType::ISO,
+        EndpointType::Isochronous(_) => EpType::ISO,
     }
 }
 

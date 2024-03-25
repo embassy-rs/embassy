@@ -1152,7 +1152,7 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointOut for Endpoint<'d, T, Out> {
                         w.set_pktcnt(1);
                     });
 
-                    if matches!(self.info.ep_type, EndpointType::Isochronous) {
+                    if matches!(self.info.ep_type, EndpointType::Isochronous(_)) {
                         // Isochronous endpoints must set the correct even/odd frame bit to
                         // correspond with the next frame's number.
                         let frame_number = T::regs().dsts().read().fnsof();
@@ -1380,7 +1380,7 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
 fn to_eptyp(ep_type: EndpointType) -> vals::Eptyp {
     match ep_type {
         EndpointType::Control => vals::Eptyp::CONTROL,
-        EndpointType::Isochronous => vals::Eptyp::ISOCHRONOUS,
+        EndpointType::Isochronous(_) => vals::Eptyp::ISOCHRONOUS,
         EndpointType::Bulk => vals::Eptyp::BULK,
         EndpointType::Interrupt => vals::Eptyp::INTERRUPT,
     }
