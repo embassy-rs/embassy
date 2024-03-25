@@ -18,21 +18,72 @@ pub enum Direction {
     In,
 }
 
+/// Isochronous transfers employ one of three synchronization schemes. See USB 2.0 spec 5.12.4.1.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum IsochronousSynchronizationType {
+    /// Synchronization is not implemented for this endpoint.
+    NoSynchronization,
+    /// Source and Sink sample clocks are free running.
+    Asynchronous,
+    /// Source sample clock is locked to Sink, Sink sample clock is locked to data flow.
+    Adaptive,
+    /// Source and Sink sample clocks are locked to USB SOF.
+    Synchronous,
+}
+
+/// Intended use of an isochronous endpoint, see USB 2.0 spec sections 5.12 and 9.6.6.
+/// Associations between data and feedback endpoints are described in section 9.6.6.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum IsochronousUsageType {
+    /// Endpoint is used for isochronous data.
+    Data,
+    /// Feedback for synchronization.
+    Feedback,
+    /// Endpoint is data and provides implicit feedback for synchronization.
+    ImplicitFeedbackData,
+}
+
 /// USB endpoint transfer type. The values of this enum can be directly cast into `u8` to get the
 /// transfer bmAttributes transfer type bits.
-#[repr(u8)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EndpointType {
     /// Control endpoint. Used for device management. Only the host can initiate requests. Usually
     /// used only endpoint 0.
-    Control = 0b00,
+    Control,
     /// Isochronous endpoint. Used for time-critical unreliable data. Not implemented yet.
-    Isochronous = 0b01,
+    Isochronous((IsochronousSynchronizationType, IsochronousUsageType)),
     /// Bulk endpoint. Used for large amounts of best-effort reliable data.
-    Bulk = 0b10,
+    Bulk,
     /// Interrupt endpoint. Used for small amounts of time-critical reliable data.
-    Interrupt = 0b11,
+    Interrupt,
+}
+
+impl EndpointType {
+    /// Format EndpointType for use in bmAttributes transfer type field USB 2.0 spec section 9.6.6
+    pub fn to_bm_attributes(&self) -> u8 {
+        match self {
+            EndpointType::Control => 0b00,
+            EndpointType::Isochronous((sync_type, usage_type)) => {
+                let sync_bits = match sync_type {
+                    IsochronousSynchronizationType::NoSynchronization => 0b00,
+                    IsochronousSynchronizationType::Asynchronous => 0b01,
+                    IsochronousSynchronizationType::Adaptive => 0b10,
+                    IsochronousSynchronizationType::Synchronous => 0b11,
+                };
+                let usage_bits = match usage_type {
+                    IsochronousUsageType::Data => 0b00,
+                    IsochronousUsageType::Feedback => 0b01,
+                    IsochronousUsageType::ImplicitFeedbackData => 0b10,
+                };
+                (usage_bits << 4) | (sync_bits << 2) | 0b01
+            }
+            EndpointType::Bulk => 0b10,
+            EndpointType::Interrupt => 0b11,
+        }
+    }
 }
 
 /// Type-safe endpoint address.
