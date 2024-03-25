@@ -1,3 +1,4 @@
+use embassy_usb_driver::{IsochronousSynchronizationType, IsochronousUsageType};
 use heapless::Vec;
 
 use crate::config::MAX_HANDLER_COUNT;
@@ -473,12 +474,24 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
-    pub fn endpoint_isochronous_in(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
-        self.endpoint_in(EndpointType::Isochronous, max_packet_size, interval_ms)
+    pub fn endpoint_isochronous_in(
+        &mut self,
+        max_packet_size: u16,
+        interval_ms: u8,
+        sync: IsochronousSynchronizationType,
+        usage: IsochronousUsageType,
+    ) -> D::EndpointIn {
+        self.endpoint_in(EndpointType::Isochronous((sync, usage)), max_packet_size, interval_ms)
     }
 
     /// Allocate a ISOCHRONOUS OUT endpoint and write its descriptor.
-    pub fn endpoint_isochronous_out(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointOut {
-        self.endpoint_out(EndpointType::Isochronous, max_packet_size, interval_ms)
+    pub fn endpoint_isochronous_out(
+        &mut self,
+        max_packet_size: u16,
+        interval_ms: u8,
+        sync: IsochronousSynchronizationType,
+        usage: IsochronousUsageType,
+    ) -> D::EndpointOut {
+        self.endpoint_out(EndpointType::Isochronous((sync, usage)), max_packet_size, interval_ms)
     }
 }

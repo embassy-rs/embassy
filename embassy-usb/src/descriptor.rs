@@ -211,8 +211,8 @@ impl<'a> DescriptorWriter<'a> {
         self.write(
             descriptor_type::ENDPOINT,
             &[
-                endpoint.addr.into(),   // bEndpointAddress
-                endpoint.ep_type as u8, // bmAttributes
+                endpoint.addr.into(),                // bEndpointAddress
+                endpoint.ep_type.to_bm_attributes(), // bmAttributes
                 endpoint.max_packet_size as u8,
                 (endpoint.max_packet_size >> 8) as u8, // wMaxPacketSize
                 endpoint.interval_ms,                  // bInterval
