@@ -771,7 +771,7 @@ impl Allocator {
         // Endpoint directions are allocated individually.
 
         let alloc_index = match ep_type {
-            EndpointType::Isochronous => 8,
+            EndpointType::Isochronous(_) => 8,
             EndpointType::Control => return Err(driver::EndpointAllocError),
             EndpointType::Interrupt | EndpointType::Bulk => {
                 // Find rightmost zero bit in 1..=7
