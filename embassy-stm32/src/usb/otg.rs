@@ -33,7 +33,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
             // Mask interrupts and notify `Bus` to process them
             r.gintmsk().write(|_| {});
-            T::state().bus_waker.wake();
+            state.bus_waker.wake();
         }
 
         // Handle RX
@@ -1151,6 +1151,23 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointOut for Endpoint<'d, T, Out> {
                         w.set_xfrsiz(self.info.max_packet_size as _);
                         w.set_pktcnt(1);
                     });
+
+                    if matches!(self.info.ep_type, EndpointType::Isochronous) {
+                        // Isochronous endpoints must set the correct even/odd frame bit to
+                        // correspond with the next frame's number.
+                        let frame_number = T::regs().dsts().read().fnsof();
+
+                        T::regs().doepctl(index).modify(|r| {
+                            if frame_number & 0x01 == 1 {
+                                r.set_sd0pid_sevnfrm(true);
+                            } else {
+                                #[cfg(USB_OTG_HS)]
+                                r.set_soddfrm_sd1pid(true);
+                                #[cfg(not(USB_OTG_FS))]
+                                r.set_soddfrm(true);
+                            }
+                        });
+                    }
 
                     // Clear NAK to indicate we are ready to receive more data
                     T::regs().doepctl(index).modify(|w| {
