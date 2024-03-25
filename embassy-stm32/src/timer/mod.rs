@@ -47,8 +47,8 @@ pub enum TimerBits {
 
 /// Core timer instance.
 pub trait CoreInstance: RccPeripheral + 'static {
-    /// Interrupt for this timer.
-    type Interrupt: interrupt::typelevel::Interrupt;
+    /// Update Interrupt for this timer.
+    type UpdateInterrupt: interrupt::typelevel::Interrupt;
 
     /// Amount of bits this timer has.
     const BITS: TimerBits;
@@ -64,10 +64,16 @@ pub trait BasicNoCr2Instance: CoreInstance {}
 pub trait BasicInstance: BasicNoCr2Instance {}
 
 /// General-purpose 16-bit timer with 1 channel instance.
-pub trait GeneralInstance1Channel: CoreInstance {}
+pub trait GeneralInstance1Channel: CoreInstance {
+    /// Capture compare interrupt for this timer.
+    type CaptureCompareInterrupt: interrupt::typelevel::Interrupt;
+}
 
 /// General-purpose 16-bit timer with 2 channels instance.
-pub trait GeneralInstance2Channel: GeneralInstance1Channel {}
+pub trait GeneralInstance2Channel: GeneralInstance1Channel {
+    /// Trigger event interrupt for this timer.
+    type TriggerInterrupt: interrupt::typelevel::Interrupt;
+}
 
 // This trait add *extra* methods to GeneralInstance4Channel,
 // that GeneralInstance4Channel doesn't use, but the "AdvancedInstance"s need.
@@ -93,16 +99,18 @@ pub trait GeneralInstance4Channel: BasicInstance + GeneralInstance2Channel + Gen
 pub trait GeneralInstance32bit4Channel: GeneralInstance4Channel {}
 
 /// Advanced 16-bit timer with 1 channel instance.
-pub trait AdvancedInstance1Channel: BasicNoCr2Instance + GeneralInstance1Channel {}
+pub trait AdvancedInstance1Channel: BasicNoCr2Instance + GeneralInstance1Channel {
+    /// Communication interrupt for this timer.
+    type CommunicationInterrupt: interrupt::typelevel::Interrupt;
+    /// Break input interrupt for this timer.
+    type BreakInputInterrupt: interrupt::typelevel::Interrupt;
+}
 /// Advanced 16-bit timer with 2 channels instance.
 
 pub trait AdvancedInstance2Channel: BasicInstance + GeneralInstance2Channel + AdvancedInstance1Channel {}
 
 /// Advanced 16-bit timer with 4 channels instance.
-pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {
-    /// Capture compare interrupt for this timer.
-    type CaptureCompareInterrupt: interrupt::typelevel::Interrupt;
-}
+pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {}
 
 pin_trait!(Channel1Pin, GeneralInstance4Channel);
 pin_trait!(Channel2Pin, GeneralInstance4Channel);
@@ -136,13 +144,41 @@ dma_trait!(Ch4Dma, GeneralInstance4Channel);
 macro_rules! impl_core_timer {
     ($inst:ident, $bits:expr) => {
         impl CoreInstance for crate::peripherals::$inst {
-            type Interrupt = crate::_generated::peripheral_interrupts::$inst::UP;
+            type UpdateInterrupt = crate::_generated::peripheral_interrupts::$inst::UP;
 
             const BITS: TimerBits = $bits;
 
             fn regs() -> *mut () {
                 crate::pac::$inst.as_ptr()
             }
+        }
+    };
+}
+
+#[allow(unused)]
+macro_rules! impl_general_1ch {
+    ($inst:ident) => {
+        impl GeneralInstance1Channel for crate::peripherals::$inst {
+            type CaptureCompareInterrupt = crate::_generated::peripheral_interrupts::$inst::CC;
+        }
+    };
+}
+
+#[allow(unused)]
+macro_rules! impl_general_2ch {
+    ($inst:ident) => {
+        impl GeneralInstance2Channel for crate::peripherals::$inst {
+            type TriggerInterrupt = crate::_generated::peripheral_interrupts::$inst::TRG;
+        }
+    };
+}
+
+#[allow(unused)]
+macro_rules! impl_advanced_1ch {
+    ($inst:ident) => {
+        impl AdvancedInstance1Channel for crate::peripherals::$inst {
+            type CommunicationInterrupt = crate::_generated::peripheral_interrupts::$inst::COM;
+            type BreakInputInterrupt = crate::_generated::peripheral_interrupts::$inst::BRK;
         }
     };
 }
@@ -162,15 +198,6 @@ macro_rules! impl_general_4ch_blank_sealed {
     };
 }
 
-#[allow(unused)]
-macro_rules! impl_adv_4ch {
-    ($inst:ident) => {
-        impl AdvancedInstance4Channel for crate::peripherals::$inst {
-            type CaptureCompareInterrupt = crate::_generated::peripheral_interrupts::$inst::CC;
-        }
-    };
-}
-
 foreach_interrupt! {
     ($inst:ident, timer, TIM_BASIC, UP, $irq:ident) => {
         impl_core_timer!($inst, TimerBits::Bits16);
@@ -182,8 +209,8 @@ foreach_interrupt! {
         impl_core_timer!($inst, TimerBits::Bits16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
-        impl GeneralInstance1Channel for crate::peripherals::$inst {}
-        impl GeneralInstance2Channel for crate::peripherals::$inst {}
+        impl_general_1ch!($inst);
+        impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
@@ -192,8 +219,8 @@ foreach_interrupt! {
         impl_core_timer!($inst, TimerBits::Bits16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
-        impl GeneralInstance1Channel for crate::peripherals::$inst {}
-        impl GeneralInstance2Channel for crate::peripherals::$inst {}
+        impl_general_1ch!($inst);
+        impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
@@ -202,8 +229,8 @@ foreach_interrupt! {
         impl_core_timer!($inst, TimerBits::Bits16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
-        impl GeneralInstance1Channel for crate::peripherals::$inst {}
-        impl GeneralInstance2Channel for crate::peripherals::$inst {}
+        impl_general_1ch!($inst);
+        impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
@@ -212,8 +239,8 @@ foreach_interrupt! {
         impl_core_timer!($inst, TimerBits::Bits32);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
-        impl GeneralInstance1Channel for crate::peripherals::$inst {}
-        impl GeneralInstance2Channel for crate::peripherals::$inst {}
+        impl_general_1ch!($inst);
+        impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
         impl GeneralInstance32bit4Channel for crate::peripherals::$inst {}
         impl General4ChBlankSealed for crate::peripherals::$inst {}
@@ -223,38 +250,38 @@ foreach_interrupt! {
         impl_core_timer!($inst, TimerBits::Bits16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
-        impl GeneralInstance1Channel for crate::peripherals::$inst {}
-        impl GeneralInstance2Channel for crate::peripherals::$inst {}
+        impl_general_1ch!($inst);
+        impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
         impl_general_4ch_blank_sealed!($inst);
-        impl AdvancedInstance1Channel for crate::peripherals::$inst {}
+        impl_advanced_1ch!($inst);
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
-        impl_adv_4ch!($inst);
+        impl AdvancedInstance4Channel for crate::peripherals::$inst {}
     };
 
     ($inst:ident, timer, TIM_2CH_CMP, UP, $irq:ident) => {
         impl_core_timer!($inst, TimerBits::Bits16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
-        impl GeneralInstance1Channel for crate::peripherals::$inst {}
-        impl GeneralInstance2Channel for crate::peripherals::$inst {}
+        impl_general_1ch!($inst);
+        impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
         impl_general_4ch_blank_sealed!($inst);
-        impl AdvancedInstance1Channel for crate::peripherals::$inst {}
+        impl_advanced_1ch!($inst);
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
-        impl_adv_4ch!($inst);
+        impl AdvancedInstance4Channel for crate::peripherals::$inst {}
     };
 
     ($inst:ident, timer, TIM_ADV, UP, $irq:ident) => {
         impl_core_timer!($inst, TimerBits::Bits16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
-        impl GeneralInstance1Channel for crate::peripherals::$inst {}
-        impl GeneralInstance2Channel for crate::peripherals::$inst {}
+        impl_general_1ch!($inst);
+        impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
         impl_general_4ch_blank_sealed!($inst);
-        impl AdvancedInstance1Channel for crate::peripherals::$inst {}
+        impl_advanced_1ch!($inst);
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
-        impl_adv_4ch!($inst);
+        impl AdvancedInstance4Channel for crate::peripherals::$inst {}
     };
 }
