@@ -182,7 +182,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         // as per datasheet, the maximum buffer size is 64, except for isochronous
         // endpoints, which are allowed to be up to 1023 bytes.
-        if (ep_type != EndpointType::Isochronous && max_packet_size > 64) || max_packet_size > 1023 {
+        if (!matches!(ep_type, EndpointType::Isochronous(_)) && max_packet_size > 64) || max_packet_size > 1023 {
             warn!("max_packet_size too high: {}", max_packet_size);
             return Err(EndpointAllocError);
         }
@@ -214,7 +214,7 @@ impl<'d, T: Instance> Driver<'d, T> {
             EndpointType::Bulk => pac::usb_dpram::vals::EpControlEndpointType::BULK,
             EndpointType::Control => pac::usb_dpram::vals::EpControlEndpointType::CONTROL,
             EndpointType::Interrupt => pac::usb_dpram::vals::EpControlEndpointType::INTERRUPT,
-            EndpointType::Isochronous => pac::usb_dpram::vals::EpControlEndpointType::ISOCHRONOUS,
+            EndpointType::Isochronous(_) => pac::usb_dpram::vals::EpControlEndpointType::ISOCHRONOUS,
         };
 
         match D::dir() {
