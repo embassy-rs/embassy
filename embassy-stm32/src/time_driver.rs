@@ -15,8 +15,6 @@ use crate::pac::timer::vals;
 use crate::rcc::SealedRccPeripheral;
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
-#[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
-use crate::timer::AdvancedInstance1Channel;
 use crate::timer::CoreInstance;
 use crate::{interrupt, peripherals};
 
@@ -263,6 +261,7 @@ pub(crate) struct RtcDriver {
     rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
 }
 
+#[allow(clippy::declare_interior_mutable_const)]
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
@@ -312,9 +311,10 @@ impl RtcDriver {
 
         #[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
         {
-            <T as AdvancedInstance1Channel>::CaptureCompareInterrupt::unpend();
+            use crate::timer::AdvancedInstance4Channel;
+            <T as AdvancedInstance4Channel>::CaptureCompareInterrupt::unpend();
             unsafe {
-                <T as AdvancedInstance1Channel>::CaptureCompareInterrupt::enable();
+                <T as AdvancedInstance4Channel>::CaptureCompareInterrupt::enable();
             }
         }
 
