@@ -306,15 +306,15 @@ impl RtcDriver {
             w.set_ccie(0, true);
         });
 
-        <T as CoreInstance>::Interrupt::unpend();
-        unsafe { <T as CoreInstance>::Interrupt::enable() };
+        <T as CoreInstance>::UpdateInterrupt::unpend();
+        unsafe { <T as CoreInstance>::UpdateInterrupt::enable() };
 
         #[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
         {
-            use crate::timer::AdvancedInstance4Channel;
-            <T as AdvancedInstance4Channel>::CaptureCompareInterrupt::unpend();
+            use crate::timer::GeneralInstance1Channel;
+            <T as GeneralInstance1Channel>::CaptureCompareInterrupt::unpend();
             unsafe {
-                <T as AdvancedInstance4Channel>::CaptureCompareInterrupt::enable();
+                <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable();
             }
         }
 
