@@ -114,8 +114,8 @@ impl<'d, T: Channel> Pwm<'d, T> {
         }
         Self {
             inner,
-            pin_a: a.into(),
-            pin_b: b.into(),
+            pin_a: a,
+            pin_b: b,
         }
     }
 
@@ -190,7 +190,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
     }
 
     fn configure(p: pac::pwm::Channel, config: &Config) {
-        if config.divider > FixedU16::<fixed::types::extra::U4>::from_bits(0xFF_F) {
+        if config.divider > FixedU16::<fixed::types::extra::U4>::from_bits(0xFFF) {
             panic!("Requested divider is too large");
         }
 

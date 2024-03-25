@@ -737,7 +737,7 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> u32 {
     assert!(config.refdiv >= 1 && config.refdiv <= 63);
     assert!(ref_freq >= 5_000_000 && ref_freq <= 800_000_000);
     let vco_freq = ref_freq.saturating_mul(config.fbdiv as u32);
-    assert!(vco_freq >= 750_000_000 && vco_freq <= 1800_000_000);
+    assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000);
 
     // Load VCO-related dividers before starting VCO
     p.cs().write(|w| w.set_refdiv(config.refdiv as _));
