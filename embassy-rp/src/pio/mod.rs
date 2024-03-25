@@ -749,7 +749,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                     w.set_set_count(1);
                 });
                 // SET PINDIRS, (dir)
-                unsafe { sm.exec_instr(0b1110_0000_1000_0000 | dir as u16) };
+                unsafe { sm.exec_instr(0b111_00000_100_00000 | dir as u16) };
             }
         });
     }
@@ -764,7 +764,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                     w.set_set_count(1);
                 });
                 // SET PINS, (dir)
-                unsafe { sm.exec_instr(0b1110_0000_0000_0000 | level as u16) };
+                unsafe { sm.exec_instr(0b11100_000_000_00000 | level as u16) };
             }
         });
     }

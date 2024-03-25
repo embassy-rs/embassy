@@ -1,4 +1,5 @@
 //! Clock configuration for the RP2040
+use core::arch::asm;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 
@@ -7,6 +8,7 @@ use pac::clocks::vals::*;
 
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
+use crate::pac::common::{Reg, RW};
 use crate::{pac, reset, Peripheral};
 
 // NOTE: all gpin handling is commented out for future reference.
