@@ -976,8 +976,6 @@ impl_pin!(PIN_QSPI_SD3, Bank::Qspi, 5);
 // ====================
 
 mod eh02 {
-    use core::convert::Infallible;
-
     use super::*;
 
     impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {

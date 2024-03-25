@@ -4,7 +4,6 @@
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::rcc::*;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -19,17 +18,22 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.hsi = true;
-    config.rcc.sys = Sysclk::PLL1_R;
-    config.rcc.pll = Some(Pll {
-        // 80Mhz clock (16 / 1 * 10 / 2)
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL10,
-        divp: None,
-        divq: None,
-        divr: Some(PllRDiv::DIV2),
-    });
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = true;
+        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.pll = Some(Pll {
+            // 80Mhz clock (16 / 1 * 10 / 2)
+            source: PllSource::HSI,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL10,
+            divp: None,
+            divq: None,
+            divr: Some(PllRDiv::DIV2),
+        });
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+        config.rcc.mux.clk48sel = mux::Clk48sel::HSI48;
+    }
     let p = embassy_stm32::init(config);
 
     info!("Hello World!");
@@ -43,7 +47,6 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 7];
@@ -53,7 +56,6 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut [], // no msos descriptors

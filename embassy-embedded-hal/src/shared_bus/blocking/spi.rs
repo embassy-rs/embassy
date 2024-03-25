@@ -147,6 +147,11 @@ impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiDeviceWithConfig<'a, M, BUS, CS> {
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: BUS::Config) -> Self {
         Self { bus, cs, config }
     }
+
+    /// Change the device's config at runtime
+    pub fn set_config(&mut self, config: BUS::Config) {
+        self.config = config;
+    }
 }
 
 impl<'a, M, BUS, CS> spi::ErrorType for SpiDeviceWithConfig<'a, M, BUS, CS>

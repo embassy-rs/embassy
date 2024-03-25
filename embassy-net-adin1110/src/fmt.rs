@@ -1,5 +1,5 @@
 #![macro_use]
-#![allow(unused_macros)]
+#![allow(unused)]
 
 use core::fmt::{Debug, Display, LowerHex};
 
@@ -83,14 +83,17 @@ macro_rules! todo {
     };
 }
 
+#[cfg(not(feature = "defmt"))]
 macro_rules! unreachable {
     ($($x:tt)*) => {
-        {
-            #[cfg(not(feature = "defmt"))]
-            ::core::unreachable!($($x)*);
-            #[cfg(feature = "defmt")]
-            ::defmt::unreachable!($($x)*);
-        }
+        ::core::unreachable!($($x)*)
+    };
+}
+
+#[cfg(feature = "defmt")]
+macro_rules! unreachable {
+    ($($x:tt)*) => {
+        ::defmt::unreachable!($($x)*)
     };
 }
 
@@ -113,7 +116,7 @@ macro_rules! trace {
             #[cfg(feature = "defmt")]
             ::defmt::trace!($s $(, $x)*);
             #[cfg(not(any(feature = "log", feature="defmt")))]
-            let _ignored = ($( & $x ),*);
+            let _ = ($( & $x ),*);
         }
     };
 }
@@ -126,7 +129,7 @@ macro_rules! debug {
             #[cfg(feature = "defmt")]
             ::defmt::debug!($s $(, $x)*);
             #[cfg(not(any(feature = "log", feature="defmt")))]
-            let _ignored = ($( & $x ),*);
+            let _ = ($( & $x ),*);
         }
     };
 }
@@ -139,7 +142,7 @@ macro_rules! info {
             #[cfg(feature = "defmt")]
             ::defmt::info!($s $(, $x)*);
             #[cfg(not(any(feature = "log", feature="defmt")))]
-            let _ignored = ($( & $x ),*);
+            let _ = ($( & $x ),*);
         }
     };
 }
@@ -152,7 +155,7 @@ macro_rules! warn {
             #[cfg(feature = "defmt")]
             ::defmt::warn!($s $(, $x)*);
             #[cfg(not(any(feature = "log", feature="defmt")))]
-            let _ignored = ($( & $x ),*);
+            let _ = ($( & $x ),*);
         }
     };
 }
@@ -165,7 +168,7 @@ macro_rules! error {
             #[cfg(feature = "defmt")]
             ::defmt::error!($s $(, $x)*);
             #[cfg(not(any(feature = "log", feature="defmt")))]
-            let _ignored = ($( & $x ),*);
+            let _ = ($( & $x ),*);
         }
     };
 }
@@ -226,7 +229,7 @@ impl<T, E> Try for Result<T, E> {
     }
 }
 
-pub struct Bytes<'a>(pub &'a [u8]);
+pub(crate) struct Bytes<'a>(pub &'a [u8]);
 
 impl<'a> Debug for Bytes<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

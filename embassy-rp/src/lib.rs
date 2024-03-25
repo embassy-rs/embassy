@@ -274,7 +274,7 @@ pub fn install_core0_stack_guard() -> Result<(), ()> {
     extern "C" {
         static mut _stack_end: usize;
     }
-    unsafe { install_stack_guard(&mut _stack_end as *mut usize) }
+    unsafe { install_stack_guard(core::ptr::addr_of_mut!(_stack_end)) }
 }
 
 #[inline(always)]
@@ -354,6 +354,7 @@ pub fn init(config: config::Config) -> Peripherals {
 
 /// Extension trait for PAC regs, adding atomic xor/bitset/bitclear writes.
 trait RegExt<T: Copy> {
+    #[allow(unused)]
     fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;

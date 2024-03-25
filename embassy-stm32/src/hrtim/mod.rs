@@ -7,9 +7,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use traits::Instance;
 
-#[allow(unused_imports)]
-use crate::gpio::sealed::{AFType, Pin};
-use crate::gpio::AnyPin;
+use crate::gpio::{AFType, AnyPin};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -54,16 +52,13 @@ pub struct ChF<T: Instance> {
     phantom: PhantomData<T>,
 }
 
-mod sealed {
-    use super::Instance;
-
-    pub trait AdvancedChannel<T: Instance> {
-        fn raw() -> usize;
-    }
+trait SealedAdvancedChannel<T: Instance> {
+    fn raw() -> usize;
 }
 
 /// Advanced channel instance trait.
-pub trait AdvancedChannel<T: Instance>: sealed::AdvancedChannel<T> {}
+#[allow(private_bounds)]
+pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {}
 
 /// HRTIM PWM pin.
 pub struct PwmPin<'d, T, C> {
@@ -113,7 +108,7 @@ macro_rules! advanced_channel_impl {
             }
         }
 
-        impl<T: Instance> sealed::AdvancedChannel<T> for $channel<T> {
+        impl<T: Instance> SealedAdvancedChannel<T> for $channel<T> {
             fn raw() -> usize {
                 $ch_num
             }

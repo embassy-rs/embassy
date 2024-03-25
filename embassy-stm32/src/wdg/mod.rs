@@ -80,18 +80,17 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
     }
 }
 
-mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::iwdg::Iwdg;
-    }
+trait SealedInstance {
+    fn regs() -> crate::pac::iwdg::Iwdg;
 }
 
 /// IWDG instance trait.
-pub trait Instance: sealed::Instance {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {}
 
 foreach_peripheral!(
     (iwdg, $inst:ident) => {
-        impl sealed::Instance for crate::peripherals::$inst {
+        impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::iwdg::Iwdg {
                 crate::pac::$inst
             }

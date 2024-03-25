@@ -222,16 +222,13 @@ impl<'d, T: Instance> RngCore for Rng<'d, T> {
 
 impl<'d, T: Instance> CryptoRng for Rng<'d, T> {}
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        fn regs() -> pac::rng::Rng;
-    }
+trait SealedInstance {
+    fn regs() -> pac::rng::Rng;
 }
 
 /// RNG instance trait.
-pub trait Instance: sealed::Instance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
     /// Interrupt for this RNG instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -242,7 +239,7 @@ foreach_interrupt!(
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
 
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> crate::pac::rng::Rng {
                 crate::pac::$inst
             }

@@ -1,5 +1,3 @@
-use core::iter::Iterator;
-
 use pio::{Program, SideSet, Wrap};
 
 pub struct CodeIterator<'a, I>

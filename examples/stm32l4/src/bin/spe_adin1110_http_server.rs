@@ -42,7 +42,7 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-use embassy_net_adin1110::{self, Device, Runner, ADIN1110};
+use embassy_net_adin1110::{Device, Runner, ADIN1110};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hal::gpio::Pull;
 use hal::i2c::Config as I2C_Config;

@@ -584,7 +584,7 @@ fn main() {
             };
 
             g.extend(quote! {
-                impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
+                impl crate::rcc::SealedRccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
                     }
@@ -826,20 +826,20 @@ fn main() {
         (("dcmi", "PIXCLK"), quote!(crate::dcmi::PixClkPin)),
         (("usb", "DP"), quote!(crate::usb::DpPin)),
         (("usb", "DM"), quote!(crate::usb::DmPin)),
-        (("otg", "DP"), quote!(crate::usb_otg::DpPin)),
-        (("otg", "DM"), quote!(crate::usb_otg::DmPin)),
-        (("otg", "ULPI_CK"), quote!(crate::usb_otg::UlpiClkPin)),
-        (("otg", "ULPI_DIR"), quote!(crate::usb_otg::UlpiDirPin)),
-        (("otg", "ULPI_NXT"), quote!(crate::usb_otg::UlpiNxtPin)),
-        (("otg", "ULPI_STP"), quote!(crate::usb_otg::UlpiStpPin)),
-        (("otg", "ULPI_D0"), quote!(crate::usb_otg::UlpiD0Pin)),
-        (("otg", "ULPI_D1"), quote!(crate::usb_otg::UlpiD1Pin)),
-        (("otg", "ULPI_D2"), quote!(crate::usb_otg::UlpiD2Pin)),
-        (("otg", "ULPI_D3"), quote!(crate::usb_otg::UlpiD3Pin)),
-        (("otg", "ULPI_D4"), quote!(crate::usb_otg::UlpiD4Pin)),
-        (("otg", "ULPI_D5"), quote!(crate::usb_otg::UlpiD5Pin)),
-        (("otg", "ULPI_D6"), quote!(crate::usb_otg::UlpiD6Pin)),
-        (("otg", "ULPI_D7"), quote!(crate::usb_otg::UlpiD7Pin)),
+        (("otg", "DP"), quote!(crate::usb::DpPin)),
+        (("otg", "DM"), quote!(crate::usb::DmPin)),
+        (("otg", "ULPI_CK"), quote!(crate::usb::UlpiClkPin)),
+        (("otg", "ULPI_DIR"), quote!(crate::usb::UlpiDirPin)),
+        (("otg", "ULPI_NXT"), quote!(crate::usb::UlpiNxtPin)),
+        (("otg", "ULPI_STP"), quote!(crate::usb::UlpiStpPin)),
+        (("otg", "ULPI_D0"), quote!(crate::usb::UlpiD0Pin)),
+        (("otg", "ULPI_D1"), quote!(crate::usb::UlpiD1Pin)),
+        (("otg", "ULPI_D2"), quote!(crate::usb::UlpiD2Pin)),
+        (("otg", "ULPI_D3"), quote!(crate::usb::UlpiD3Pin)),
+        (("otg", "ULPI_D4"), quote!(crate::usb::UlpiD4Pin)),
+        (("otg", "ULPI_D5"), quote!(crate::usb::UlpiD5Pin)),
+        (("otg", "ULPI_D6"), quote!(crate::usb::UlpiD6Pin)),
+        (("otg", "ULPI_D7"), quote!(crate::usb::UlpiD7Pin)),
         (("can", "TX"), quote!(crate::can::TxPin)),
         (("can", "RX"), quote!(crate::can::RxPin)),
         (("eth", "REF_CLK"), quote!(crate::eth::RefClkPin)),
@@ -1486,7 +1486,7 @@ fn main() {
                 #[crate::interrupt]
                 unsafe fn #irq () {
                     #(
-                        <crate::peripherals::#channels as crate::dma::sealed::ChannelInterrupt>::on_irq();
+                        <crate::peripherals::#channels as crate::dma::ChannelInterrupt>::on_irq();
                     )*
                 }
             }

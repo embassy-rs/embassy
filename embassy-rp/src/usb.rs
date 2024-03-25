@@ -465,7 +465,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
 trait Dir {
     fn dir() -> Direction;
-    fn waker(i: usize) -> &'static AtomicWaker;
 }
 
 /// Type for In direction.
@@ -474,11 +473,6 @@ impl Dir for In {
     fn dir() -> Direction {
         Direction::In
     }
-
-    #[inline]
-    fn waker(i: usize) -> &'static AtomicWaker {
-        &EP_IN_WAKERS[i]
-    }
 }
 
 /// Type for Out direction.
@@ -486,11 +480,6 @@ pub enum Out {}
 impl Dir for Out {
     fn dir() -> Direction {
         Direction::Out
-    }
-
-    #[inline]
-    fn waker(i: usize) -> &'static AtomicWaker {
-        &EP_OUT_WAKERS[i]
     }
 }
 

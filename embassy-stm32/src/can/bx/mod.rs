@@ -28,7 +28,7 @@ pub mod filter;
 
 #[allow(clippy::all)] // generated code
 use core::cmp::{Ord, Ordering};
-use core::convert::{Infallible, Into, TryInto};
+use core::convert::Infallible;
 use core::marker::PhantomData;
 use core::mem;
 

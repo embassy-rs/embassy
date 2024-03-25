@@ -1,5 +1,4 @@
 use core::fmt::Write as _;
-use std::default::Default;
 
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};

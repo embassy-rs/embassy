@@ -10,10 +10,11 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use futures::future::{select, Either};
 
 use crate::dma::{NoDma, Transfer};
-use crate::gpio::sealed::AFType;
+use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt;
 #[allow(unused_imports)]
 #[cfg(not(any(usart_v1, usart_v2)))]
@@ -1326,8 +1327,6 @@ mod ringbuffered;
 #[cfg(not(gpdma))]
 pub use ringbuffered::RingBufferedUartRx;
 
-use self::sealed::Kind;
-
 #[cfg(any(usart_v1, usart_v2))]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {
     r.dr().as_ptr() as _
@@ -1370,52 +1369,50 @@ fn clear_interrupt_flags(r: Regs, sr: regs::Isr) {
     r.icr().write(|w| *w = regs::Icr(sr.0));
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Uart,
+    #[cfg(any(usart_v3, usart_v4))]
+    #[allow(unused)]
+    Lpuart,
+}
 
-    use super::*;
+struct State {
+    rx_waker: AtomicWaker,
+}
 
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub enum Kind {
-        Uart,
-        #[cfg(any(usart_v3, usart_v4))]
-        Lpuart,
-    }
-
-    pub struct State {
-        pub rx_waker: AtomicWaker,
-        pub tx_waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                rx_waker: AtomicWaker::new(),
-                tx_waker: AtomicWaker::new(),
-            }
+impl State {
+    const fn new() -> Self {
+        Self {
+            rx_waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait BasicInstance: crate::rcc::RccPeripheral {
-        const KIND: Kind;
-        type Interrupt: interrupt::typelevel::Interrupt;
-
-        fn regs() -> Regs;
-        fn state() -> &'static State;
-
-        fn buffered_state() -> &'static buffered::State;
-    }
-
-    pub trait FullInstance: BasicInstance {
-        fn regs_uart() -> crate::pac::usart::Usart;
     }
 }
 
+trait SealedBasicInstance: crate::rcc::RccPeripheral {
+    const KIND: Kind;
+
+    fn regs() -> Regs;
+    fn state() -> &'static State;
+
+    fn buffered_state() -> &'static buffered::State;
+}
+
+trait SealedFullInstance: SealedBasicInstance {
+    #[allow(unused)]
+    fn regs_uart() -> crate::pac::usart::Usart;
+}
+
 /// Basic UART driver instance
-pub trait BasicInstance: Peripheral<P = Self> + sealed::BasicInstance + 'static + Send {}
+#[allow(private_bounds)]
+pub trait BasicInstance: Peripheral<P = Self> + SealedBasicInstance + 'static + Send {
+    /// Interrupt for this instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 /// Full UART driver instance
-pub trait FullInstance: sealed::FullInstance {}
+#[allow(private_bounds)]
+pub trait FullInstance: SealedFullInstance {}
 
 pin_trait!(RxPin, BasicInstance);
 pin_trait!(TxPin, BasicInstance);
@@ -1429,16 +1426,15 @@ dma_trait!(RxDma, BasicInstance);
 
 macro_rules! impl_usart {
     ($inst:ident, $irq:ident, $kind:expr) => {
-        impl sealed::BasicInstance for crate::peripherals::$inst {
+        impl SealedBasicInstance for crate::peripherals::$inst {
             const KIND: Kind = $kind;
-            type Interrupt = crate::interrupt::typelevel::$irq;
 
             fn regs() -> Regs {
                 unsafe { Regs::from_ptr(crate::pac::$inst.as_ptr()) }
             }
 
-            fn state() -> &'static crate::usart::sealed::State {
-                static STATE: crate::usart::sealed::State = crate::usart::sealed::State::new();
+            fn state() -> &'static crate::usart::State {
+                static STATE: crate::usart::State = crate::usart::State::new();
                 &STATE
             }
 
@@ -1448,7 +1444,9 @@ macro_rules! impl_usart {
             }
         }
 
-        impl BasicInstance for peripherals::$inst {}
+        impl BasicInstance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
     };
 }
 
@@ -1460,7 +1458,7 @@ foreach_interrupt!(
     ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
         impl_usart!($inst, $irq, Kind::Uart);
 
-        impl sealed::FullInstance for peripherals::$inst {
+        impl SealedFullInstance for peripherals::$inst {
             fn regs_uart() -> crate::pac::usart::Usart {
                 crate::pac::$inst
             }

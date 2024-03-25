@@ -4,8 +4,8 @@
 use defmt::{panic, *};
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
-use embassy_stm32::usb_otg::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
+use embassy_stm32::usb::{Driver, Instance};
+use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
@@ -13,7 +13,7 @@ use futures::future::join;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
-    OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
+    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
 
 #[embassy_executor::main]
@@ -35,13 +35,14 @@ async fn main(_spawner: Spawner) {
         config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.voltage_range = VoltageScale::RANGE1;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+        config.rcc.mux.iclksel = mux::Iclksel::HSI48; // USB uses ICLK
     }
 
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
-    let mut config = embassy_stm32::usb_otg::Config::default();
+    let mut config = embassy_stm32::usb::Config::default();
     config.vbus_detection = false;
     let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
 
@@ -60,7 +61,6 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
@@ -70,7 +70,6 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut [], // no msos descriptors
