@@ -489,7 +489,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         if frame.send_start() {
             // Send a START condition
-            Self::enable_interrupts();
             T::regs().cr1().modify(|reg| {
                 reg.set_start(true);
             });
@@ -504,8 +503,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                         if sr1.start() {
                             Poll::Ready(Ok(()))
                         } else {
-                            // If we need to go around, then re-enable the interrupts, otherwise nothing
-                            // can wake us up and we'll hang.
+                            // When pending, (re-)enable interrupts to wake us up.
                             Self::enable_interrupts();
                             Poll::Pending
                         }
@@ -520,7 +518,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             }
 
             // Set up current address, we're trying to talk to
-            Self::enable_interrupts();
             T::regs().dr().write(|reg| reg.set_dr(address << 1));
 
             // Wait for the address to be acknowledged
@@ -533,8 +530,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                         if sr1.addr() {
                             Poll::Ready(Ok(()))
                         } else {
-                            // If we need to go around, then re-enable the interrupts, otherwise nothing
-                            // can wake us up and we'll hang.
+                            // When pending, (re-)enable interrupts to wake us up.
                             Self::enable_interrupts();
                             Poll::Pending
                         }
@@ -548,7 +544,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
 
         // Wait for bytes to be sent, or an error to occur.
-        Self::enable_interrupts();
         let poll_error = poll_fn(|cx| {
             state.waker.register(cx.waker());
 
@@ -557,8 +552,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 // identical poll_fn check_and_clear matches.
                 Err(e) => Poll::Ready(Err::<T, Error>(e)),
                 Ok(_) => {
-                    // If we need to go around, then re-enable the interrupts, otherwise nothing
-                    // can wake us up and we'll hang.
+                    // When pending, (re-)enable interrupts to wake us up.
                     Self::enable_interrupts();
                     Poll::Pending
                 }
@@ -580,7 +574,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
             // 18.3.8 “Master transmitter: In the interrupt routine after the EOT interrupt, disable DMA
             // requests then wait for a BTF event before programming the Stop condition.”
-            Self::enable_interrupts();
             poll_fn(|cx| {
                 state.waker.register(cx.waker());
 
@@ -590,8 +583,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                         if sr1.btf() {
                             Poll::Ready(Ok(()))
                         } else {
-                            // If we need to go around, then re-enable the interrupts, otherwise nothing
-                            // can wake us up and we'll hang.
+                            // When pending, (re-)enable interrupts to wake us up.
                             Self::enable_interrupts();
                             Poll::Pending
                         }
@@ -672,7 +664,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         if frame.send_start() {
             // Send a START condition and set ACK bit
-            Self::enable_interrupts();
             T::regs().cr1().modify(|reg| {
                 reg.set_start(true);
                 reg.set_ack(true);
@@ -688,8 +679,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                         if sr1.start() {
                             Poll::Ready(Ok(()))
                         } else {
-                            // If we need to go around, then re-enable the interrupts, otherwise nothing
-                            // can wake us up and we'll hang.
+                            // When pending, (re-)enable interrupts to wake us up.
                             Self::enable_interrupts();
                             Poll::Pending
                         }
@@ -704,7 +694,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             }
 
             // Set up current address, we're trying to talk to
-            Self::enable_interrupts();
             T::regs().dr().write(|reg| reg.set_dr((address << 1) + 1));
 
             // Wait for the address to be acknowledged
@@ -717,8 +706,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                         if sr1.addr() {
                             Poll::Ready(Ok(()))
                         } else {
-                            // If we need to go around, then re-enable the interrupts, otherwise nothing
-                            // can wake us up and we'll hang.
+                            // When pending, (re-)enable interrupts to wake us up.
                             Self::enable_interrupts();
                             Poll::Pending
                         }
@@ -753,15 +741,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
 
         // Wait for bytes to be received, or an error to occur.
-        Self::enable_interrupts();
         let poll_error = poll_fn(|cx| {
             state.waker.register(cx.waker());
 
             match Self::check_and_clear_error_flags() {
                 Err(e) => Poll::Ready(Err::<T, Error>(e)),
                 _ => {
-                    // If we need to go around, then re-enable the interrupts, otherwise nothing
-                    // can wake us up and we'll hang.
+                    // When pending, (re-)enable interrupts to wake us up.
                     Self::enable_interrupts();
                     Poll::Pending
                 }
