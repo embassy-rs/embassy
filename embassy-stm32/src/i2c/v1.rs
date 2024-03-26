@@ -296,10 +296,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         if frame.send_stop() {
             // Send a STOP condition
             T::regs().cr1().modify(|reg| reg.set_stop(true));
-            // Wait for STOP condition to transmit.
-            while T::regs().cr1().read().stop() {
-                timeout.check()?;
-            }
         }
 
         // Fallthrough is success
@@ -404,13 +400,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         // Receive last byte
         *last = self.recv_byte(timeout)?;
-
-        if frame.send_stop() {
-            // Wait for the STOP to be sent.
-            while T::regs().cr1().read().stop() {
-                timeout.check()?;
-            }
-        }
 
         // Fallthrough is success
         Ok(())
