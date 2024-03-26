@@ -1260,7 +1260,6 @@ where
 impl<T, TxDma, RxDma> embedded_io::Write for Uart<'_, T, TxDma, RxDma>
 where
     T: BasicInstance,
-    TxDma: crate::usart::TxDma<T>,
 {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)?;
@@ -1275,7 +1274,6 @@ where
 impl<T, TxDma> embedded_io::Write for UartTx<'_, T, TxDma>
 where
     T: BasicInstance,
-    TxDma: crate::usart::TxDma<T>,
 {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)?;
