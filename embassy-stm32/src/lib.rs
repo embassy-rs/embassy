@@ -286,7 +286,8 @@ pub fn init(config: Config) -> Peripherals {
         {
             crate::pac::PWR.cr2().modify(|w| {
                 // The official documentation states that we should ideally enable VDDIO2
-                // through the PVME2 bit, but it looks like this bit
+                // through the PVME2 bit, but it looks like this isn't required,
+                // and CubeMX itself skips this step.
                 w.set_iosv(config.enable_independent_io_supply);
             });
         }
