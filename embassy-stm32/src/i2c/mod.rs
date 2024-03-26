@@ -6,6 +6,7 @@
 mod _version;
 
 use core::future::Future;
+use core::iter;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
@@ -334,4 +335,133 @@ impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c:
     ) -> Result<(), Self::Error> {
         self.transaction(address, operations).await
     }
+}
+
+/// Frame type in I2C transaction.
+///
+/// This tells each method what kind of framing to use, to generate a (repeated) start condition (ST
+/// or SR), and/or a stop condition (SP). For read operations, this also controls whether to send an
+/// ACK or NACK after the last byte received.
+///
+/// For write operations, the following options are identical because they differ only in the (N)ACK
+/// treatment relevant for read operations:
+///
+/// - `FirstFrame` and `FirstAndNextFrame`
+/// - `NextFrame` and `LastFrameNoStop`
+///
+/// Abbreviations used below:
+///
+/// - `ST` = start condition
+/// - `SR` = repeated start condition
+/// - `SP` = stop condition
+/// - `ACK`/`NACK` = last byte in read operation
+#[derive(Copy, Clone)]
+enum FrameOptions {
+    /// `[ST/SR]+[NACK]+[SP]` First frame (of this type) in transaction and also last frame overall.
+    FirstAndLastFrame,
+    /// `[ST/SR]+[NACK]` First frame of this type in transaction, last frame in a read operation but
+    /// not the last frame overall.
+    FirstFrame,
+    /// `[ST/SR]+[ACK]` First frame of this type in transaction, neither last frame overall nor last
+    /// frame in a read operation.
+    FirstAndNextFrame,
+    /// `[ACK]` Middle frame in a read operation (neither first nor last).
+    NextFrame,
+    /// `[NACK]+[SP]` Last frame overall in this transaction but not the first frame.
+    LastFrame,
+    /// `[NACK]` Last frame in a read operation but not last frame overall in this transaction.
+    LastFrameNoStop,
+}
+
+impl FrameOptions {
+    /// Sends start or repeated start condition before transfer.
+    fn send_start(self) -> bool {
+        match self {
+            Self::FirstAndLastFrame | Self::FirstFrame | Self::FirstAndNextFrame => true,
+            Self::NextFrame | Self::LastFrame | Self::LastFrameNoStop => false,
+        }
+    }
+
+    /// Sends stop condition after transfer.
+    fn send_stop(self) -> bool {
+        match self {
+            Self::FirstAndLastFrame | Self::LastFrame => true,
+            Self::FirstFrame | Self::FirstAndNextFrame | Self::NextFrame | Self::LastFrameNoStop => false,
+        }
+    }
+
+    /// Sends NACK after last byte received, indicating end of read operation.
+    fn send_nack(self) -> bool {
+        match self {
+            Self::FirstAndLastFrame | Self::FirstFrame | Self::LastFrame | Self::LastFrameNoStop => true,
+            Self::FirstAndNextFrame | Self::NextFrame => false,
+        }
+    }
+}
+
+/// Iterates over operations in transaction.
+///
+/// Returns necessary frame options for each operation to uphold the [transaction contract] and have
+/// the right start/stop/(N)ACK conditions on the wire.
+///
+/// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+fn operation_frames<'a, 'b: 'a>(
+    operations: &'a mut [embedded_hal_1::i2c::Operation<'b>],
+) -> Result<impl IntoIterator<Item = (&'a mut embedded_hal_1::i2c::Operation<'b>, FrameOptions)>, Error> {
+    use embedded_hal_1::i2c::Operation;
+
+    // Check empty read buffer before starting transaction. Otherwise, we would risk halting with an
+    // error in the middle of the transaction.
+    if operations.iter().any(|op| match op {
+        Operation::Read(read) => read.is_empty(),
+        Operation::Write(_) => false,
+    }) {
+        return Err(Error::Overrun);
+    }
+
+    let mut operations = operations.iter_mut().peekable();
+
+    let mut next_first_frame = true;
+
+    Ok(iter::from_fn(move || {
+        let Some(op) = operations.next() else {
+            return None;
+        };
+
+        // Is `op` first frame of its type?
+        let first_frame = next_first_frame;
+        let next_op = operations.peek();
+
+        // Get appropriate frame options as combination of the following properties:
+        //
+        // - For each first operation of its type, generate a (repeated) start condition.
+        // - For the last operation overall in the entire transaction, generate a stop condition.
+        // - For read operations, check the next operation: if it is also a read operation, we merge
+        //   these and send ACK for all bytes in the current operation; send NACK only for the final
+        //   read operation's last byte (before write or end of entire transaction) to indicate last
+        //   byte read and release the bus for transmission of the bus master's next byte (or stop).
+        //
+        // We check the third property unconditionally, i.e. even for write opeartions. This is okay
+        // because the resulting frame options are identical for write operations.
+        let frame = match (first_frame, next_op) {
+            (true, None) => FrameOptions::FirstAndLastFrame,
+            (true, Some(Operation::Read(_))) => FrameOptions::FirstAndNextFrame,
+            (true, Some(Operation::Write(_))) => FrameOptions::FirstFrame,
+            //
+            (false, None) => FrameOptions::LastFrame,
+            (false, Some(Operation::Read(_))) => FrameOptions::NextFrame,
+            (false, Some(Operation::Write(_))) => FrameOptions::LastFrameNoStop,
+        };
+
+        // Pre-calculate if `next_op` is the first operation of its type. We do this here and not at
+        // the beginning of the loop because we hand out `op` as iterator value and cannot access it
+        // anymore in the next iteration.
+        next_first_frame = match (&op, next_op) {
+            (_, None) => false,
+            (Operation::Read(_), Some(Operation::Write(_))) | (Operation::Write(_), Some(Operation::Read(_))) => true,
+            (Operation::Read(_), Some(Operation::Read(_))) | (Operation::Write(_), Some(Operation::Write(_))) => false,
+        };
+
+        Some((op, frame))
+    }))
 }
