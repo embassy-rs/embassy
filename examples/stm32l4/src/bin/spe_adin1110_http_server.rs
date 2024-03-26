@@ -93,12 +93,6 @@ async fn main(spawner: Spawner) {
 
     let dp = embassy_stm32::init(config);
 
-    // RM0432rev9, 5.1.2: Independent I/O supply rail
-    // After reset, the I/Os supplied by VDDIO2 are logically and electrically isolated and
-    // therefore are not available. The isolation must be removed before using any I/O from
-    // PG[15:2], by setting the IOSV bit in the PWR_CR2 register, once the VDDIO2 supply is present
-    pac::PWR.cr2().modify(|w| w.set_iosv(true));
-
     let reset_status = pac::RCC.bdcr().read().0;
     defmt::println!("bdcr before: 0x{:X}", reset_status);
 
