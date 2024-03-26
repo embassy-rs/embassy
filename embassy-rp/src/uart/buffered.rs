@@ -1,17 +1,11 @@
 //! Buffered UART driver.
-use core::future::{poll_fn, Future};
+use core::future::Future;
 use core::slice;
-use core::task::Poll;
 
-use atomic_polyfill::{AtomicU8, Ordering};
+use atomic_polyfill::AtomicU8;
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
-use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::Timer;
 
 use super::*;
-use crate::clocks::clk_peri_freq;
-use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, RegExt};
 
 pub struct State {
     tx_waker: AtomicWaker,
@@ -467,7 +461,7 @@ impl<'d, T: Instance> Drop for BufferedUartRx<'d, T> {
 
         // TX is inactive if the the buffer is not available.
         // We can now unregister the interrupt handler
-        if state.tx_buf.len() == 0 {
+        if state.tx_buf.is_empty() {
             T::Interrupt::disable();
         }
     }
@@ -480,7 +474,7 @@ impl<'d, T: Instance> Drop for BufferedUartTx<'d, T> {
 
         // RX is inactive if the the buffer is not available.
         // We can now unregister the interrupt handler
-        if state.rx_buf.len() == 0 {
+        if state.rx_buf.is_empty() {
             T::Interrupt::disable();
         }
     }

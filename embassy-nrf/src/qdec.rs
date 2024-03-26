@@ -172,18 +172,17 @@ impl<'d, T: Instance> Qdec<'d, T> {
         t.intenset.write(|w| w.reportrdy().set());
         unsafe { t.tasks_readclracc.write(|w| w.bits(1)) };
 
-        let value = poll_fn(|cx| {
+        poll_fn(|cx| {
             T::state().waker.register(cx.waker());
             if t.events_reportrdy.read().bits() == 0 {
-                return Poll::Pending;
+                Poll::Pending
             } else {
                 t.events_reportrdy.reset();
                 let acc = t.accread.read().bits();
                 Poll::Ready(acc as i16)
             }
         })
-        .await;
-        value
+        .await
     }
 }
 

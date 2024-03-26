@@ -1,10 +1,8 @@
 //! Inter-IC Sound (I2S)
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::AnyPin;
+use crate::gpio::{AFType, AnyPin, SealedPin};
 use crate::pac::spi::vals;
-use crate::rcc::get_freqs;
 use crate::spi::{Config as SpiConfig, *};
 use crate::time::Hertz;
 use crate::{Peripheral, PeripheralRef};
@@ -80,20 +78,20 @@ impl Format {
     #[cfg(any(spi_v1, spi_f1))]
     const fn datlen(&self) -> vals::Datlen {
         match self {
-            Format::Data16Channel16 => vals::Datlen::SIXTEENBIT,
-            Format::Data16Channel32 => vals::Datlen::SIXTEENBIT,
-            Format::Data24Channel32 => vals::Datlen::TWENTYFOURBIT,
-            Format::Data32Channel32 => vals::Datlen::THIRTYTWOBIT,
+            Format::Data16Channel16 => vals::Datlen::BITS16,
+            Format::Data16Channel32 => vals::Datlen::BITS16,
+            Format::Data24Channel32 => vals::Datlen::BITS24,
+            Format::Data32Channel32 => vals::Datlen::BITS32,
         }
     }
 
     #[cfg(any(spi_v1, spi_f1))]
     const fn chlen(&self) -> vals::Chlen {
         match self {
-            Format::Data16Channel16 => vals::Chlen::SIXTEENBIT,
-            Format::Data16Channel32 => vals::Chlen::THIRTYTWOBIT,
-            Format::Data24Channel32 => vals::Chlen::THIRTYTWOBIT,
-            Format::Data32Channel32 => vals::Chlen::THIRTYTWOBIT,
+            Format::Data16Channel16 => vals::Chlen::BITS16,
+            Format::Data16Channel32 => vals::Chlen::BITS32,
+            Format::Data24Channel32 => vals::Chlen::BITS32,
+            Format::Data32Channel32 => vals::Chlen::BITS32,
         }
     }
 }
@@ -193,10 +191,10 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         spi_cfg.frequency = freq;
         let spi = Spi::new_internal(peri, txdma, rxdma, spi_cfg);
 
-        #[cfg(all(rcc_f4, not(stm32f410)))]
-        let pclk = unsafe { get_freqs() }.plli2s1_q.unwrap();
-
-        #[cfg(stm32f410)]
+        // TODO move i2s to the new mux infra.
+        //#[cfg(all(rcc_f4, not(stm32f410)))]
+        //let pclk = unsafe { get_freqs() }.plli2s1_q.unwrap();
+        //#[cfg(stm32f410)]
         let pclk = T::frequency();
 
         let (odd, div) = compute_baud_rate(pclk, freq, config.master_clock, config.format);

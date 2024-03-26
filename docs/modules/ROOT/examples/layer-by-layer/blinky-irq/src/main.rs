@@ -6,13 +6,12 @@ use core::cell::RefCell;
 use cortex_m::interrupt::Mutex;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
-use embassy_stm32::gpio::{Input, Level, Output, Pin, Pull, Speed};
-use embassy_stm32::peripherals::{PB14, PC13};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{interrupt, pac};
 use {defmt_rtt as _, panic_probe as _};
 
-static BUTTON: Mutex<RefCell<Option<Input<'static, PC13>>>> = Mutex::new(RefCell::new(None));
-static LED: Mutex<RefCell<Option<Output<'static, PB14>>>> = Mutex::new(RefCell::new(None));
+static BUTTON: Mutex<RefCell<Option<Input<'static>>>> = Mutex::new(RefCell::new(None));
+static LED: Mutex<RefCell<Option<Output<'static>>>> = Mutex::new(RefCell::new(None));
 
 #[entry]
 fn main() -> ! {
@@ -62,14 +61,14 @@ fn EXTI15_10() {
 
 const PORT: u8 = 2;
 const PIN: usize = 13;
-fn check_interrupt<P: Pin>(_pin: &mut Input<'static, P>) -> bool {
+fn check_interrupt(_pin: &mut Input<'static>) -> bool {
     let exti = pac::EXTI;
     let pin = PIN;
     let lines = exti.pr(0).read();
     lines.line(pin)
 }
 
-fn clear_interrupt<P: Pin>(_pin: &mut Input<'static, P>) {
+fn clear_interrupt(_pin: &mut Input<'static>) {
     let exti = pac::EXTI;
     let pin = PIN;
     let mut lines = exti.pr(0).read();
@@ -77,7 +76,7 @@ fn clear_interrupt<P: Pin>(_pin: &mut Input<'static, P>) {
     exti.pr(0).write_value(lines);
 }
 
-fn enable_interrupt<P: Pin>(_pin: &mut Input<'static, P>) {
+fn enable_interrupt(_pin: &mut Input<'static>) {
     cortex_m::interrupt::free(|_| {
         let rcc = pac::RCC;
         rcc.apb2enr().modify(|w| w.set_syscfgen(true));

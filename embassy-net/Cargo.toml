@@ -1,10 +1,11 @@
 [package]
 name = "embassy-net"
-version = "0.2.1"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Async TCP/IP network stack for embedded systems"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-net"
 categories = [
     "embedded",
     "no-std",
@@ -15,11 +16,11 @@ categories = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp"]
+features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp"]
+features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
 
 [features]
 default = []
@@ -27,6 +28,9 @@ std = []
 
 ## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03"]
+
+## Trace all raw received and transmitted packets using defmt or log.
+packet-trace = []
 
 #! Many of the following feature flags are re-exports of smoltcp feature flags. See 
 #! the [smoltcp feature flag documentation](https://github.com/smoltcp-rs/smoltcp#feature-flags)
@@ -66,7 +70,7 @@ smoltcp = { version = "0.11.0", default-features = false, features = [
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.2", path = "../embassy-time" }
+embassy-time = { version = "0.3.0", path = "../embassy-time" }
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
 embedded-io-async = { version = "0.6.1" }
 

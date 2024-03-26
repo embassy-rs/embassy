@@ -4,9 +4,10 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
-use embassy_stm32::can::bxcan::filter::Mask32;
-use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
-use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
+use embassy_stm32::can::filter::Mask32;
+use embassy_stm32::can::{
+    Can, Fifo, Frame, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, StandardId, TxInterruptHandler,
+};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
 use embassy_time::Instant;
@@ -50,7 +51,7 @@ async fn main(_spawner: Spawner) {
 
     let mut i: u8 = 0;
     loop {
-        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i]);
+        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i]).unwrap();
         let tx_ts = Instant::now();
         can.write(&tx_frame).await;
 
@@ -64,7 +65,7 @@ async fn main(_spawner: Spawner) {
 
         info!(
             "loopback frame {=u8}, latency: {} us",
-            unwrap!(envelope.frame.data())[0],
+            envelope.frame.data()[0],
             latency.as_micros()
         );
         i += 1;

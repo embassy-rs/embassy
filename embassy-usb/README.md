@@ -1,6 +1,28 @@
 # embassy-usb
 
-TODO crate description
+Async USB device stack for embedded devices in Rust.
+
+## Features
+
+- Native async.
+- Fully lock-free: endpoints are separate objects that can be used independently without needing a central mutex. If the driver supports it, they can even be used from different priority levels.
+- Suspend/resume, remote wakeup.
+- USB composite devices.
+- Ergonomic descriptor builder.
+- Ready-to-use implementations for a few USB classes (note you can still implement any class yourself outside the crate).
+    - Serial ports (CDC ACM)
+    - Ethernet (CDC NCM)
+    - Human Interface Devices (HID)
+    - MIDI
+
+## Adding support for new hardware
+
+To add `embassy-usb` support for new hardware (i.e. a new MCU chip), you have to write a driver that implements
+the [`embassy-usb-driver`](https://crates.io/crates/embassy-usb-driver) traits.
+
+Driver crates should depend only on `embassy-usb-driver`, not on the main `embassy-usb` crate.
+This allows existing drivers to continue working for newer `embassy-usb` major versions, without needing an update, if the driver
+trait has not had breaking changes.
 
 ## Configuration
 
@@ -23,22 +45,6 @@ with different values, compilation fails.
 
 Max amount of interfaces that can be created in one device. Default: 4.
 
-
 ## Interoperability
 
 This crate can run on any executor.
-
-## Minimum supported Rust version (MSRV)
-
-This crate requires nightly Rust, due to using "async fn in trait" support.
-
-## License
-
-This work is licensed under either of
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
-  <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
-
-at your option.
-

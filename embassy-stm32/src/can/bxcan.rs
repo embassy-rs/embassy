@@ -1,32 +1,39 @@
-use core::convert::AsMut;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 
-pub use bxcan;
-use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
+pub mod bx;
+
+pub use bx::{filter, Data, ExtendedId, Fifo, Frame, Header, Id, StandardId};
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::waitqueue::AtomicWaker;
 use futures::FutureExt;
 
-use crate::gpio::sealed::AFType;
+use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::can::vals::{Ide, Lec};
 use crate::rcc::RccPeripheral;
-use crate::time::Hertz;
 use crate::{interrupt, peripherals, Peripheral};
+
+pub mod enums;
+use enums::*;
+pub mod frame;
+pub mod util;
 
 /// Contains CAN frame and additional metadata.
 ///
 /// Timestamp is available if `time` feature is enabled.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Envelope {
     /// Reception time.
     #[cfg(feature = "time")]
     pub ts: embassy_time::Instant,
     /// The actual CAN frame.
-    pub frame: bxcan::Frame,
+    pub frame: Frame,
 }
 
 /// Interrupt handler.
@@ -90,24 +97,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterrup
 
 /// CAN driver
 pub struct Can<'d, T: Instance> {
-    can: bxcan::Can<BxcanInstance<'d, T>>,
-}
-
-/// CAN bus error
-#[allow(missing_docs)]
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum BusError {
-    Stuff,
-    Form,
-    Acknowledge,
-    BitRecessive,
-    BitDominant,
-    Crc,
-    Software,
-    BusOff,
-    BusPassive,
-    BusWarning,
+    can: crate::can::bx::Can<BxcanInstance<'d, T>>,
 }
 
 /// Error returned by `try_read`
@@ -180,13 +170,13 @@ impl<'d, T: Instance> Can<'d, T> {
         rx.set_as_af(rx.af_num(), AFType::Input);
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        let can = bxcan::Can::builder(BxcanInstance(peri)).leave_disabled();
+        let can = crate::can::bx::Can::builder(BxcanInstance(peri), T::regs()).leave_disabled();
         Self { can }
     }
 
     /// Set CAN bit rate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
-        let bit_timing = Self::calc_bxcan_timings(T::frequency(), bitrate).unwrap();
+        let bit_timing = util::calc_can_timings(T::frequency(), bitrate).unwrap();
         self.can.modify_config().set_bit_timing(bit_timing).leave_disabled();
     }
 
@@ -205,19 +195,19 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Queues the message to be sent.
     ///
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
-    pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
+    pub async fn write(&mut self, frame: &Frame) -> crate::can::bx::TransmitStatus {
         self.split().0.write(frame).await
     }
 
     /// Attempts to transmit a frame without blocking.
     ///
     /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
-    pub fn try_write(&mut self, frame: &Frame) -> Result<bxcan::TransmitStatus, TryWriteError> {
+    pub fn try_write(&mut self, frame: &Frame) -> Result<crate::can::bx::TransmitStatus, TryWriteError> {
         self.split().0.try_write(frame)
     }
 
     /// Waits for a specific transmit mailbox to become empty
-    pub async fn flush(&self, mb: bxcan::Mailbox) {
+    pub async fn flush(&self, mb: crate::can::bx::Mailbox) {
         CanTx::<T>::flush_inner(mb).await
     }
 
@@ -273,20 +263,20 @@ impl<'d, T: Instance> Can<'d, T> {
             }
 
             let rir = fifo.rir().read();
-            let id = if rir.ide() == Ide::STANDARD {
-                Id::from(StandardId::new_unchecked(rir.stid()))
+            let id: embedded_can::Id = if rir.ide() == Ide::STANDARD {
+                embedded_can::StandardId::new(rir.stid()).unwrap().into()
             } else {
                 let stid = (rir.stid() & 0x7FF) as u32;
                 let exid = rir.exid() & 0x3FFFF;
                 let id = (stid << 18) | (exid);
-                Id::from(ExtendedId::new_unchecked(id))
+                embedded_can::ExtendedId::new(id).unwrap().into()
             };
-            let data_len = fifo.rdtr().read().dlc() as usize;
+            let data_len = fifo.rdtr().read().dlc();
             let mut data: [u8; 8] = [0; 8];
             data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-            let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
+            let frame = Frame::new(Header::new(id, data_len, false), &data).unwrap();
             let envelope = Envelope {
                 #[cfg(feature = "time")]
                 ts,
@@ -302,123 +292,32 @@ impl<'d, T: Instance> Can<'d, T> {
         }
     }
 
-    const fn calc_bxcan_timings(periph_clock: Hertz, can_bitrate: u32) -> Option<u32> {
-        const BS1_MAX: u8 = 16;
-        const BS2_MAX: u8 = 8;
-        const MAX_SAMPLE_POINT_PERMILL: u16 = 900;
-
-        let periph_clock = periph_clock.0;
-
-        if can_bitrate < 1000 {
-            return None;
-        }
-
-        // Ref. "Automatic Baudrate Detection in CANopen Networks", U. Koppe, MicroControl GmbH & Co. KG
-        //      CAN in Automation, 2003
-        //
-        // According to the source, optimal quanta per bit are:
-        //   Bitrate        Optimal Maximum
-        //   1000 kbps      8       10
-        //   500  kbps      16      17
-        //   250  kbps      16      17
-        //   125  kbps      16      17
-        let max_quanta_per_bit: u8 = if can_bitrate >= 1_000_000 { 10 } else { 17 };
-
-        // Computing (prescaler * BS):
-        //   BITRATE = 1 / (PRESCALER * (1 / PCLK) * (1 + BS1 + BS2))       -- See the Reference Manual
-        //   BITRATE = PCLK / (PRESCALER * (1 + BS1 + BS2))                 -- Simplified
-        // let:
-        //   BS = 1 + BS1 + BS2                                             -- Number of time quanta per bit
-        //   PRESCALER_BS = PRESCALER * BS
-        // ==>
-        //   PRESCALER_BS = PCLK / BITRATE
-        let prescaler_bs = periph_clock / can_bitrate;
-
-        // Searching for such prescaler value so that the number of quanta per bit is highest.
-        let mut bs1_bs2_sum = max_quanta_per_bit - 1;
-        while (prescaler_bs % (1 + bs1_bs2_sum) as u32) != 0 {
-            if bs1_bs2_sum <= 2 {
-                return None; // No solution
-            }
-            bs1_bs2_sum -= 1;
-        }
-
-        let prescaler = prescaler_bs / (1 + bs1_bs2_sum) as u32;
-        if (prescaler < 1) || (prescaler > 1024) {
-            return None; // No solution
-        }
-
-        // Now we have a constraint: (BS1 + BS2) == bs1_bs2_sum.
-        // We need to find such values so that the sample point is as close as possible to the optimal value,
-        // which is 87.5%, which is 7/8.
-        //
-        //   Solve[(1 + bs1)/(1 + bs1 + bs2) == 7/8, bs2]  (* Where 7/8 is 0.875, the recommended sample point location *)
-        //   {{bs2 -> (1 + bs1)/7}}
-        //
-        // Hence:
-        //   bs2 = (1 + bs1) / 7
-        //   bs1 = (7 * bs1_bs2_sum - 1) / 8
-        //
-        // Sample point location can be computed as follows:
-        //   Sample point location = (1 + bs1) / (1 + bs1 + bs2)
-        //
-        // Since the optimal solution is so close to the maximum, we prepare two solutions, and then pick the best one:
-        //   - With rounding to nearest
-        //   - With rounding to zero
-        let mut bs1 = ((7 * bs1_bs2_sum - 1) + 4) / 8; // Trying rounding to nearest first
-        let mut bs2 = bs1_bs2_sum - bs1;
-        core::assert!(bs1_bs2_sum > bs1);
-
-        let sample_point_permill = 1000 * ((1 + bs1) / (1 + bs1 + bs2)) as u16;
-        if sample_point_permill > MAX_SAMPLE_POINT_PERMILL {
-            // Nope, too far; now rounding to zero
-            bs1 = (7 * bs1_bs2_sum - 1) / 8;
-            bs2 = bs1_bs2_sum - bs1;
-        }
-
-        // Check is BS1 and BS2 are in range
-        if (bs1 < 1) || (bs1 > BS1_MAX) || (bs2 < 1) || (bs2 > BS2_MAX) {
-            return None;
-        }
-
-        // Check if final bitrate matches the requested
-        if can_bitrate != (periph_clock / (prescaler * (1 + bs1 + bs2) as u32)) {
-            return None;
-        }
-
-        // One is recommended by DS-015, CANOpen, and DeviceNet
-        let sjw = 1;
-
-        // Pack into BTR register values
-        Some((sjw - 1) << 24 | (bs1 as u32 - 1) << 16 | (bs2 as u32 - 1) << 20 | (prescaler - 1))
-    }
-
     /// Split the CAN driver into transmit and receive halves.
     ///
     /// Useful for doing separate transmit/receive tasks.
-    pub fn split<'c>(&'c mut self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
+    pub fn split<'c>(&'c mut self) -> (CanTx<'d, T>, CanRx<'d, T>) {
         let (tx, rx0, rx1) = self.can.split_by_ref();
         (CanTx { tx }, CanRx { rx0, rx1 })
     }
 }
 
-impl<'d, T: Instance> AsMut<bxcan::Can<BxcanInstance<'d, T>>> for Can<'d, T> {
+impl<'d, T: Instance> AsMut<crate::can::bx::Can<BxcanInstance<'d, T>>> for Can<'d, T> {
     /// Get mutable access to the lower-level driver from the `bxcan` crate.
-    fn as_mut(&mut self) -> &mut bxcan::Can<BxcanInstance<'d, T>> {
+    fn as_mut(&mut self) -> &mut crate::can::bx::Can<BxcanInstance<'d, T>> {
         &mut self.can
     }
 }
 
 /// CAN driver, transmit half.
-pub struct CanTx<'c, 'd, T: Instance> {
-    tx: &'c mut bxcan::Tx<BxcanInstance<'d, T>>,
+pub struct CanTx<'d, T: Instance> {
+    tx: crate::can::bx::Tx<BxcanInstance<'d, T>>,
 }
 
-impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
+impl<'d, T: Instance> CanTx<'d, T> {
     /// Queues the message to be sent.
     ///
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
-    pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
+    pub async fn write(&mut self, frame: &Frame) -> crate::can::bx::TransmitStatus {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
             if let Ok(status) = self.tx.transmit(frame) {
@@ -433,11 +332,11 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
     /// Attempts to transmit a frame without blocking.
     ///
     /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
-    pub fn try_write(&mut self, frame: &Frame) -> Result<bxcan::TransmitStatus, TryWriteError> {
+    pub fn try_write(&mut self, frame: &Frame) -> Result<crate::can::bx::TransmitStatus, TryWriteError> {
         self.tx.transmit(frame).map_err(|_| TryWriteError::Full)
     }
 
-    async fn flush_inner(mb: bxcan::Mailbox) {
+    async fn flush_inner(mb: crate::can::bx::Mailbox) {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
             if T::regs().tsr().read().tme(mb.index()) {
@@ -450,7 +349,7 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
     }
 
     /// Waits for a specific transmit mailbox to become empty
-    pub async fn flush(&self, mb: bxcan::Mailbox) {
+    pub async fn flush(&self, mb: crate::can::bx::Mailbox) {
         Self::flush_inner(mb).await
     }
 
@@ -459,9 +358,9 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
             T::state().tx_waker.register(cx.waker());
 
             let tsr = T::regs().tsr().read();
-            if tsr.tme(bxcan::Mailbox::Mailbox0.index())
-                || tsr.tme(bxcan::Mailbox::Mailbox1.index())
-                || tsr.tme(bxcan::Mailbox::Mailbox2.index())
+            if tsr.tme(crate::can::bx::Mailbox::Mailbox0.index())
+                || tsr.tme(crate::can::bx::Mailbox::Mailbox1.index())
+                || tsr.tme(crate::can::bx::Mailbox::Mailbox2.index())
             {
                 return Poll::Ready(());
             }
@@ -481,9 +380,9 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
             T::state().tx_waker.register(cx.waker());
 
             let tsr = T::regs().tsr().read();
-            if tsr.tme(bxcan::Mailbox::Mailbox0.index())
-                && tsr.tme(bxcan::Mailbox::Mailbox1.index())
-                && tsr.tme(bxcan::Mailbox::Mailbox2.index())
+            if tsr.tme(crate::can::bx::Mailbox::Mailbox0.index())
+                && tsr.tme(crate::can::bx::Mailbox::Mailbox1.index())
+                && tsr.tme(crate::can::bx::Mailbox::Mailbox2.index())
             {
                 return Poll::Ready(());
             }
@@ -501,12 +400,12 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
 
 /// CAN driver, receive half.
 #[allow(dead_code)]
-pub struct CanRx<'c, 'd, T: Instance> {
-    rx0: &'c mut bxcan::Rx0<BxcanInstance<'d, T>>,
-    rx1: &'c mut bxcan::Rx1<BxcanInstance<'d, T>>,
+pub struct CanRx<'d, T: Instance> {
+    rx0: crate::can::bx::Rx0<BxcanInstance<'d, T>>,
+    rx1: crate::can::bx::Rx1<BxcanInstance<'d, T>>,
 }
 
-impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
+impl<'d, T: Instance> CanRx<'d, T> {
     /// Read a CAN frame.
     ///
     /// If no CAN frame is in the RX buffer, this will wait until there is one.
@@ -576,7 +475,7 @@ impl<'d, T: Instance> Drop for Can<'d, T> {
 }
 
 impl<'d, T: Instance> Deref for Can<'d, T> {
-    type Target = bxcan::Can<BxcanInstance<'d, T>>;
+    type Target = crate::can::bx::Can<BxcanInstance<'d, T>>;
 
     fn deref(&self) -> &Self::Target {
         &self.can
@@ -589,39 +488,30 @@ impl<'d, T: Instance> DerefMut for Can<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-    use embassy_sync::channel::Channel;
-    use embassy_sync::waitqueue::AtomicWaker;
+struct State {
+    pub tx_waker: AtomicWaker,
+    pub err_waker: AtomicWaker,
+    pub rx_queue: Channel<CriticalSectionRawMutex, Envelope, 32>,
+}
 
-    use super::Envelope;
-
-    pub struct State {
-        pub tx_waker: AtomicWaker,
-        pub err_waker: AtomicWaker,
-        pub rx_queue: Channel<CriticalSectionRawMutex, Envelope, 32>,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                tx_waker: AtomicWaker::new(),
-                err_waker: AtomicWaker::new(),
-                rx_queue: Channel::new(),
-            }
+impl State {
+    pub const fn new() -> Self {
+        Self {
+            tx_waker: AtomicWaker::new(),
+            err_waker: AtomicWaker::new(),
+            rx_queue: Channel::new(),
         }
-    }
-
-    pub trait Instance {
-        const REGISTERS: *mut bxcan::RegisterBlock;
-
-        fn regs() -> crate::pac::can::Can;
-        fn state() -> &'static State;
     }
 }
 
+trait SealedInstance {
+    fn regs() -> crate::pac::can::Can;
+    fn state() -> &'static State;
+}
+
 /// CAN instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
     /// TX interrupt for this instance.
     type TXInterrupt: crate::interrupt::typelevel::Interrupt;
     /// RX0 interrupt for this instance.
@@ -635,21 +525,18 @@ pub trait Instance: sealed::Instance + RccPeripheral + 'static {
 /// BXCAN instance newtype.
 pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
 
-unsafe impl<'d, T: Instance> bxcan::Instance for BxcanInstance<'d, T> {
-    const REGISTERS: *mut bxcan::RegisterBlock = T::REGISTERS;
-}
+unsafe impl<'d, T: Instance> crate::can::bx::Instance for BxcanInstance<'d, T> {}
 
 foreach_peripheral!(
     (can, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
-            const REGISTERS: *mut bxcan::RegisterBlock = crate::pac::$inst.as_ptr() as *mut _;
+        impl SealedInstance for peripherals::$inst {
 
             fn regs() -> crate::pac::can::Can {
                 crate::pac::$inst
             }
 
-            fn state() -> &'static sealed::State {
-                static STATE: sealed::State = sealed::State::new();
+            fn state() -> &'static State {
+                static STATE: State = State::new();
                 &STATE
             }
         }
@@ -665,7 +552,7 @@ foreach_peripheral!(
 
 foreach_peripheral!(
     (can, CAN) => {
-        unsafe impl<'d> bxcan::FilterOwner for BxcanInstance<'d, peripherals::CAN> {
+        unsafe impl<'d> crate::can::bx::FilterOwner for BxcanInstance<'d, peripherals::CAN> {
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
@@ -680,19 +567,19 @@ foreach_peripheral!(
             ))] {
                 // Most L4 devices and some F7 devices use the name "CAN1"
                 // even if there is no "CAN2" peripheral.
-                unsafe impl<'d> bxcan::FilterOwner for BxcanInstance<'d, peripherals::CAN1> {
+                unsafe impl<'d> crate::can::bx::FilterOwner for BxcanInstance<'d, peripherals::CAN1> {
                     const NUM_FILTER_BANKS: u8 = 14;
                 }
             } else {
-                unsafe impl<'d> bxcan::FilterOwner for BxcanInstance<'d, peripherals::CAN1> {
+                unsafe impl<'d> crate::can::bx::FilterOwner for BxcanInstance<'d, peripherals::CAN1> {
                     const NUM_FILTER_BANKS: u8 = 28;
                 }
-                unsafe impl<'d> bxcan::MasterInstance for BxcanInstance<'d, peripherals::CAN1> {}
+                unsafe impl<'d> crate::can::bx::MasterInstance for BxcanInstance<'d, peripherals::CAN1> {}
             }
         }
     };
     (can, CAN3) => {
-        unsafe impl<'d> bxcan::FilterOwner for BxcanInstance<'d, peripherals::CAN3> {
+        unsafe impl<'d> crate::can::bx::FilterOwner for BxcanInstance<'d, peripherals::CAN3> {
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
@@ -705,12 +592,12 @@ trait Index {
     fn index(&self) -> usize;
 }
 
-impl Index for bxcan::Mailbox {
+impl Index for crate::can::bx::Mailbox {
     fn index(&self) -> usize {
         match self {
-            bxcan::Mailbox::Mailbox0 => 0,
-            bxcan::Mailbox::Mailbox1 => 1,
-            bxcan::Mailbox::Mailbox2 => 2,
+            crate::can::bx::Mailbox::Mailbox0 => 0,
+            crate::can::bx::Mailbox::Mailbox1 => 1,
+            crate::can::bx::Mailbox::Mailbox2 => 2,
         }
     }
 }

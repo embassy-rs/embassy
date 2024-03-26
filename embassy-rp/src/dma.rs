@@ -96,7 +96,7 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
-        &mut DUMMY as *const u32,
+        core::ptr::addr_of_mut!(DUMMY) as *const u32,
         to as *mut u32,
         len,
         W::size(),

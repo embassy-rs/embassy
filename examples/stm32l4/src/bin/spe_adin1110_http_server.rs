@@ -42,7 +42,7 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-use embassy_net_adin1110::{self, Device, Runner, ADIN1110};
+use embassy_net_adin1110::{Device, Runner, ADIN1110};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hal::gpio::Pull;
 use hal::i2c::Config as I2C_Config;
@@ -58,9 +58,9 @@ const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address([192, 168, 1, 5]), 24);
 const HTTP_LISTEN_PORT: u16 = 80;
 
 pub type SpeSpi = Spi<'static, peripherals::SPI2, peripherals::DMA1_CH1, peripherals::DMA1_CH2>;
-pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static, peripherals::PB12>, Delay>;
-pub type SpeInt = exti::ExtiInput<'static, peripherals::PB11>;
-pub type SpeRst = Output<'static, peripherals::PC7>;
+pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
+pub type SpeInt = exti::ExtiInput<'static>;
+pub type SpeRst = Output<'static>;
 pub type Adin1110T = ADIN1110<SpeSpiCs>;
 pub type TempSensI2c = I2c<'static, peripherals::I2C3, peripherals::DMA1_CH6, peripherals::DMA1_CH7>;
 
@@ -75,7 +75,7 @@ async fn main(spawner: Spawner) {
         use embassy_stm32::rcc::*;
         // 80Mhz clock (Source: 8 / SrcDiv: 1 * PllMul 20 / ClkDiv 2)
         // 80MHz highest frequency for flash 0 wait.
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.hse = Some(Hse {
             freq: Hertz::mhz(8),
             mode: HseMode::Oscillator,
@@ -111,8 +111,8 @@ async fn main(spawner: Spawner) {
     let led_uc4_blue = Output::new(dp.PG15, Level::High, Speed::Low);
 
     // Read the uc_cfg switches
-    let mut uc_cfg0 = Input::new(dp.PB2, Pull::None);
-    let mut uc_cfg1 = Input::new(dp.PF11, Pull::None);
+    let uc_cfg0 = Input::new(dp.PB2, Pull::None);
+    let uc_cfg1 = Input::new(dp.PF11, Pull::None);
     let _uc_cfg2 = Input::new(dp.PG6, Pull::None);
     let _uc_cfg3 = Input::new(dp.PG11, Pull::None);
 
@@ -130,12 +130,11 @@ async fn main(spawner: Spawner) {
 
     // Setup IO and SPI for the SPE chip
     let spe_reset_n = Output::new(dp.PC7, Level::Low, Speed::Low);
-    let mut spe_cfg0 = Input::new(dp.PC8, Pull::None);
-    let mut spe_cfg1 = Input::new(dp.PC9, Pull::None);
+    let spe_cfg0 = Input::new(dp.PC8, Pull::None);
+    let spe_cfg1 = Input::new(dp.PC9, Pull::None);
     let _spe_ts_capt = Output::new(dp.PC6, Level::Low, Speed::Low);
 
-    let spe_int = Input::new(dp.PB11, Pull::None);
-    let spe_int = exti::ExtiInput::new(spe_int, dp.EXTI11);
+    let spe_int = exti::ExtiInput::new(dp.PB11, dp.EXTI11, Pull::None);
 
     let spe_spi_cs_n = Output::new(dp.PB12, Level::High, Speed::High);
     let spe_spi_sclk = dp.PB13;
@@ -298,7 +297,7 @@ async fn wait_for_config(stack: &'static Stack<Device<'static>>) -> embassy_net:
 }
 
 #[embassy_executor::task]
-async fn heartbeat_led(mut led: Output<'static, peripherals::PE6>) {
+async fn heartbeat_led(mut led: Output<'static>) {
     let mut tmr = Ticker::every(Duration::from_hz(3));
     loop {
         led.toggle();
@@ -308,7 +307,7 @@ async fn heartbeat_led(mut led: Output<'static, peripherals::PE6>) {
 
 // ADT7422
 #[embassy_executor::task]
-async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static, peripherals::PG15>) -> ! {
+async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static>) -> ! {
     let mut tmr = Ticker::every(Duration::from_hz(1));
     let mut temp_sens = ADT7422::new(temp_dev_i2c, 0x48).unwrap();
 

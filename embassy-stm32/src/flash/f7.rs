@@ -1,4 +1,3 @@
-use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
@@ -20,8 +19,8 @@ pub(crate) unsafe fn lock() {
 
 pub(crate) unsafe fn unlock() {
     if pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write(|w| w.set_key(0x4567_0123));
-        pac::FLASH.keyr().write(|w| w.set_key(0xCDEF_89AB));
+        pac::FLASH.keyr().write_value(0x4567_0123);
+        pac::FLASH.keyr().write_value(0xCDEF_89AB);
     }
 }
 

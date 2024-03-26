@@ -21,95 +21,9 @@ pub const VREF_CALIB_MV: u32 = 3300;
 /// ADC turn-on time
 pub const ADC_POWERUP_TIME_US: u32 = 3;
 
-/// Contains types related to ADC configuration
-pub mod config {
-    /// The place in the sequence a given channel should be captured
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-    #[repr(u8)]
-    pub enum Sequence {
-        /// 1
-        One = 0,
-        /// 2
-        Two = 1,
-        /// 3
-        Three = 2,
-        /// 4
-        Four = 3,
-        /// 5
-        Five = 4,
-        /// 6
-        Six = 5,
-        /// 7
-        Seven = 6,
-        /// 8
-        Eight = 7,
-        /// 9
-        Nine = 8,
-        /// 10
-        Ten = 9,
-        /// 11
-        Eleven = 10,
-        /// 12
-        Twelve = 11,
-        /// 13
-        Thirteen = 12,
-        /// 14
-        Fourteen = 13,
-        /// 15
-        Fifteen = 14,
-        /// 16
-        Sixteen = 15,
-    }
-
-    impl From<Sequence> for u8 {
-        fn from(s: Sequence) -> u8 {
-            s as _
-        }
-    }
-
-    impl From<u8> for Sequence {
-        fn from(bits: u8) -> Self {
-            match bits {
-                0 => Sequence::One,
-                1 => Sequence::Two,
-                2 => Sequence::Three,
-                3 => Sequence::Four,
-                4 => Sequence::Five,
-                5 => Sequence::Six,
-                6 => Sequence::Seven,
-                7 => Sequence::Eight,
-                8 => Sequence::Nine,
-                9 => Sequence::Ten,
-                10 => Sequence::Eleven,
-                11 => Sequence::Twelve,
-                12 => Sequence::Thirteen,
-                13 => Sequence::Fourteen,
-                14 => Sequence::Fifteen,
-                15 => Sequence::Sixteen,
-                _ => unimplemented!(),
-            }
-        }
-    }
-}
-
-fn update_vref<T: Instance>(op: i8) {
-    static VREF_STATUS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-
-    if op > 0 {
-        if VREF_STATUS.fetch_add(1, core::sync::atomic::Ordering::SeqCst) == 0 {
-            T::common_regs().ccr().modify(|w| w.set_tsvrefe(true));
-        }
-    } else {
-        if VREF_STATUS.fetch_sub(1, core::sync::atomic::Ordering::SeqCst) == 1 {
-            T::common_regs().ccr().modify(|w| w.set_tsvrefe(false));
-        }
-    }
-}
-
-pub struct Vref<T: Instance>(core::marker::PhantomData<T>);
-impl<T: Instance> AdcPin<T> for Vref<T> {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vref<T> {
+pub struct VrefInt;
+impl AdcPin<ADC1> for VrefInt {}
+impl super::SealedAdcPin<ADC1> for VrefInt {
     fn channel(&self) -> u8 {
         17
     }
@@ -165,12 +79,13 @@ impl<T: Instance> Drop for Vref<T> {
         update_vref::<T>(-1)
     }
 }
-pub struct Temperature<T: Instance>(core::marker::PhantomData<T>);
-impl<T: Instance> AdcPin<ADC1> for Temperature<T> {}
-impl<T: Instance> super::sealed::AdcPin<ADC1> for Temperature<T> {
+
+pub struct Temperature;
+impl AdcPin<ADC1> for Temperature {}
+impl super::SealedAdcPin<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         cfg_if::cfg_if! {
-            if #[cfg(any(stm32f40, stm32f41))] {
+            if #[cfg(any(stm32f2, stm32f40, stm32f41))] {
                 16
             } else {
                 18
@@ -195,37 +110,34 @@ pub enum SamplerState {
 
 pub struct Vbat;
 impl AdcPin<ADC1> for Vbat {}
-impl super::sealed::AdcPin<ADC1> for Vbat {
+impl super::SealedAdcPin<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(_adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
-        into_ref!(_adc);
+enum Prescaler {
+    Div2,
+    Div4,
+    Div6,
+    Div8,
+}
 
-        T::enable_and_reset();
-
-        T::regs().cr2().modify(|reg| reg.set_adon(true));
-        delay.delay_us((1_000_000 * 2) / Self::freq().0 + 1);
-
-        Self {
-            adc: _adc,
-            sample_time: SampleTime::Cycles480,
-        }
-    }
-
-    pub async fn set_resolution(&mut self, resolution: Resolution) {
-        let was_on = Self::is_on();
-        if was_on {
-            self.stop_adc().await;
-        }
-
-        T::regs().cr1().modify(|w| w.set_res(resolution.into()));
-
-        if was_on {
-            self.start_adc().await;
+impl Prescaler {
+    fn from_pclk2(freq: Hertz) -> Self {
+        // Datasheet for F2 specifies min frequency 0.6 MHz, and max 30 MHz (with VDDA 2.4-3.6V).
+        #[cfg(stm32f2)]
+        const MAX_FREQUENCY: Hertz = Hertz(30_000_000);
+        // Datasheet for both F4 and F7 specifies min frequency 0.6 MHz, typ freq. 30 MHz and max 36 MHz.
+        #[cfg(not(stm32f2))]
+        const MAX_FREQUENCY: Hertz = Hertz(36_000_000);
+        let raw_div = freq.0 / MAX_FREQUENCY.0;
+        match raw_div {
+            0..=1 => Self::Div2,
+            2..=3 => Self::Div4,
+            4..=5 => Self::Div6,
+            6..=7 => Self::Div8,
+            _ => panic!("Selected PCLK2 frequency is too high for ADC with largest possible prescaler."),
         }
     }
 
@@ -237,49 +149,32 @@ impl<'d, T: Instance> Adc<'d, T> {
             crate::pac::adc::vals::Res::SIXBIT => Resolution::SixBit,
         }
     }
+}
 
-    #[inline(always)]
-    fn is_on() -> bool {
-        T::regs().cr2().read().adon()
+impl<'d, T> Adc<'d, T>
+where
+    T: Instance,
+{
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+        into_ref!(adc);
+        T::enable_and_reset();
+
+        let presc = Prescaler::from_pclk2(T::frequency());
+        T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+        });
+
+        delay.delay_us(ADC_POWERUP_TIME_US);
+
+        Self {
+            adc,
+            sample_time: SampleTime::from_bits(0),
+        }
     }
 
-    pub async fn start_adc(&self) {
-        // defmt::trace!("Turn ADC on");
-        T::regs().cr2().modify(|w| w.set_adon(true));
-        //defmt::trace!("Waiting for ADC to turn on");
-
-        while !T::regs().cr2().read().adon() {
-            yield_now().await;
-            // if t.elapsed() > Duration::from_millis(1000) {
-            // t = Instant::now();
-            // defmt::trace!("ADC still not on");
-        }
-
-        // defmt::trace!("ADC on");
-    }
-
-    fn freq() -> Hertz {
-        let div: u8 = T::common_regs().ccr().read().adcpre() as u8 + 1;
-        ADC_FREQ / div as u32
-    }
-
-    pub async fn stop_adc(&self) {
-        if T::regs().cr2().read().adon() {
-            //   defmt::trace!("ADC should be on, wait for it to start");
-            while !T::regs().cr2().read().adon() {
-                yield_now().await;
-            }
-        }
-
-        // defmt::trace!("Turn ADC off");
-
-        T::regs().cr2().modify(|w| w.set_adon(false));
-
-        // defmt::trace!("Waiting for ADC to turn off");
-
-        while T::regs().cr2().read().adon() {
-            yield_now().await;
-        }
+    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
+        self.sample_time = sample_time;
     }
 
     pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
@@ -498,12 +393,23 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Perform a single conversion.
     fn convert(&mut self) -> u16 {
+        // clear end of conversion flag
+        T::regs().sr().modify(|reg| {
+            reg.set_eoc(false);
+        });
+
+        // Start conversion
         T::regs().cr2().modify(|reg| {
             reg.set_adon(true);
             reg.set_swstart(true);
         });
-        while T::regs().sr().read().strt() == vals::Strt::NOTSTARTED {}
-        while T::regs().sr().read().eoc() == vals::Eoc::NOTCOMPLETE {}
+
+        while T::regs().sr().read().strt() == false {
+            // spin //wait for actual start
+        }
+        while T::regs().sr().read().eoc() == false {
+            // spin //wait for finish
+        }
 
         T::regs().dr().read().0 as u16
     }

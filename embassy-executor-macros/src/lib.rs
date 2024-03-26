@@ -62,6 +62,13 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
     task::run(&args.meta, f).unwrap_or_else(|x| x).into()
 }
 
+#[proc_macro_attribute]
+pub fn main_avr(args: TokenStream, item: TokenStream) -> TokenStream {
+    let args = syn::parse_macro_input!(args as Args);
+    let f = syn::parse_macro_input!(item as syn::ItemFn);
+    main::run(&args.meta, f, main::avr()).unwrap_or_else(|x| x).into()
+}
+
 /// Creates a new `executor` instance and declares an application entry point for Cortex-M spawning the corresponding function body as an async task.
 ///
 /// The following restrictions apply:

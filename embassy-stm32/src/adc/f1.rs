@@ -6,7 +6,6 @@ use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
-use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::{interrupt, Peripheral};
 
@@ -34,7 +33,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vref {
+impl<T: Instance> super::SealedAdcPin<T> for Vref {
     fn channel(&self) -> u8 {
         17
     }
@@ -42,7 +41,7 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vref {
 
 pub struct Temperature;
 impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
+impl<T: Instance> super::SealedAdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
@@ -75,24 +74,24 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         }
     }
 
     fn freq() -> Hertz {
-        unsafe { get_freqs() }.adc.unwrap()
+        T::frequency()
     }
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
         match us * Self::freq().0 / 1_000_000 {
-            0..=1 => SampleTime::Cycles1_5,
-            2..=7 => SampleTime::Cycles7_5,
-            8..=13 => SampleTime::Cycles13_5,
-            14..=28 => SampleTime::Cycles28_5,
-            29..=41 => SampleTime::Cycles41_5,
-            42..=55 => SampleTime::Cycles55_5,
-            56..=71 => SampleTime::Cycles71_5,
-            _ => SampleTime::Cycles239_5,
+            0..=1 => SampleTime::CYCLES1_5,
+            2..=7 => SampleTime::CYCLES7_5,
+            8..=13 => SampleTime::CYCLES13_5,
+            14..=28 => SampleTime::CYCLES28_5,
+            29..=41 => SampleTime::CYCLES41_5,
+            42..=55 => SampleTime::CYCLES55_5,
+            56..=71 => SampleTime::CYCLES71_5,
+            _ => SampleTime::CYCLES239_5,
         }
     }
 

@@ -10,10 +10,11 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use futures::future::{select, Either};
 
 use crate::dma::{NoDma, Transfer};
-use crate::gpio::sealed::AFType;
+use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt;
 #[allow(unused_imports)]
 #[cfg(not(any(usart_v1, usart_v2)))]
@@ -743,7 +744,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         T::enable_and_reset();
         T::enable_and_reset();
 
-        Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
+        Self::new_inner_configure(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
@@ -770,7 +771,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
             w.set_rtse(true);
             w.set_ctse(true);
         });
-        Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
+        Self::new_inner_configure(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
     #[cfg(not(any(usart_v1, usart_v2)))]
@@ -795,10 +796,76 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         T::regs().cr3().write(|w| {
             w.set_dem(true);
         });
-        Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
+        Self::new_inner_configure(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
-    fn new_inner(
+    /// Create a single-wire half-duplex Uart transceiver on a single Tx pin.
+    ///
+    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin.
+    /// There is no functional difference between these methods, as both allow bidirectional communication.
+    ///
+    /// The pin is always released when no data is transmitted. Thus, it acts as a standard
+    /// I/O in idle or in reception.
+    /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
+    /// on the line must be managed by software (for instance by using a centralized arbiter).
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    #[doc(alias("HDSEL"))]
+    pub fn new_half_duplex(
+        peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        mut config: Config,
+    ) -> Result<Self, ConfigError> {
+        // UartRx and UartTx have one refcount ea.
+        T::enable_and_reset();
+        T::enable_and_reset();
+
+        config.swap_rx_tx = false;
+
+        into_ref!(peri, tx, tx_dma, rx_dma);
+
+        T::regs().cr3().write(|w| w.set_hdsel(true));
+        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+
+        Self::new_inner(peri, tx_dma, rx_dma, config)
+    }
+
+    /// Create a single-wire half-duplex Uart transceiver on a single Rx pin.
+    ///
+    /// See [`new_half_duplex`][`Self::new_half_duplex`] if you would prefer to use an Tx pin.
+    /// There is no functional difference between these methods, as both allow bidirectional communication.
+    ///
+    /// The pin is always released when no data is transmitted. Thus, it acts as a standard
+    /// I/O in idle or in reception.
+    /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
+    /// on the line must be managed by software (for instance by using a centralized arbiter).
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    #[doc(alias("HDSEL"))]
+    pub fn new_half_duplex_on_rx(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        mut config: Config,
+    ) -> Result<Self, ConfigError> {
+        // UartRx and UartTx have one refcount ea.
+        T::enable_and_reset();
+        T::enable_and_reset();
+
+        config.swap_rx_tx = true;
+
+        into_ref!(peri, rx, tx_dma, rx_dma);
+
+        T::regs().cr3().write(|w| w.set_hdsel(true));
+        rx.set_as_af(rx.af_num(), AFType::OutputPushPull);
+
+        Self::new_inner(peri, tx_dma, rx_dma, config)
+    }
+
+    fn new_inner_configure(
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
@@ -807,8 +874,6 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         into_ref!(peri, rx, tx, tx_dma, rx_dma);
-
-        let r = T::regs();
 
         // Some chips do not have swap_rx_tx bit
         cfg_if::cfg_if! {
@@ -826,6 +891,17 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
             }
         }
+
+        Self::new_inner(peri, tx_dma, rx_dma, config)
+    }
+
+    fn new_inner(
+        peri: PeripheralRef<'d, T>,
+        tx_dma: PeripheralRef<'d, TxDma>,
+        rx_dma: PeripheralRef<'d, RxDma>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        let r = T::regs();
 
         configure(r, &config, T::frequency(), T::KIND, true, true)?;
 
@@ -1251,8 +1327,6 @@ mod ringbuffered;
 #[cfg(not(gpdma))]
 pub use ringbuffered::RingBufferedUartRx;
 
-use self::sealed::Kind;
-
 #[cfg(any(usart_v1, usart_v2))]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {
     r.dr().as_ptr() as _
@@ -1295,52 +1369,50 @@ fn clear_interrupt_flags(r: Regs, sr: regs::Isr) {
     r.icr().write(|w| *w = regs::Icr(sr.0));
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Uart,
+    #[cfg(any(usart_v3, usart_v4))]
+    #[allow(unused)]
+    Lpuart,
+}
 
-    use super::*;
+struct State {
+    rx_waker: AtomicWaker,
+}
 
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub enum Kind {
-        Uart,
-        #[cfg(any(usart_v3, usart_v4))]
-        Lpuart,
-    }
-
-    pub struct State {
-        pub rx_waker: AtomicWaker,
-        pub tx_waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                rx_waker: AtomicWaker::new(),
-                tx_waker: AtomicWaker::new(),
-            }
+impl State {
+    const fn new() -> Self {
+        Self {
+            rx_waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait BasicInstance: crate::rcc::RccPeripheral {
-        const KIND: Kind;
-        type Interrupt: interrupt::typelevel::Interrupt;
-
-        fn regs() -> Regs;
-        fn state() -> &'static State;
-
-        fn buffered_state() -> &'static buffered::State;
-    }
-
-    pub trait FullInstance: BasicInstance {
-        fn regs_uart() -> crate::pac::usart::Usart;
     }
 }
 
+trait SealedBasicInstance: crate::rcc::RccPeripheral {
+    const KIND: Kind;
+
+    fn regs() -> Regs;
+    fn state() -> &'static State;
+
+    fn buffered_state() -> &'static buffered::State;
+}
+
+trait SealedFullInstance: SealedBasicInstance {
+    #[allow(unused)]
+    fn regs_uart() -> crate::pac::usart::Usart;
+}
+
 /// Basic UART driver instance
-pub trait BasicInstance: Peripheral<P = Self> + sealed::BasicInstance + 'static + Send {}
+#[allow(private_bounds)]
+pub trait BasicInstance: Peripheral<P = Self> + SealedBasicInstance + 'static + Send {
+    /// Interrupt for this instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 /// Full UART driver instance
-pub trait FullInstance: sealed::FullInstance {}
+#[allow(private_bounds)]
+pub trait FullInstance: SealedFullInstance {}
 
 pin_trait!(RxPin, BasicInstance);
 pin_trait!(TxPin, BasicInstance);
@@ -1354,16 +1426,15 @@ dma_trait!(RxDma, BasicInstance);
 
 macro_rules! impl_usart {
     ($inst:ident, $irq:ident, $kind:expr) => {
-        impl sealed::BasicInstance for crate::peripherals::$inst {
+        impl SealedBasicInstance for crate::peripherals::$inst {
             const KIND: Kind = $kind;
-            type Interrupt = crate::interrupt::typelevel::$irq;
 
             fn regs() -> Regs {
                 unsafe { Regs::from_ptr(crate::pac::$inst.as_ptr()) }
             }
 
-            fn state() -> &'static crate::usart::sealed::State {
-                static STATE: crate::usart::sealed::State = crate::usart::sealed::State::new();
+            fn state() -> &'static crate::usart::State {
+                static STATE: crate::usart::State = crate::usart::State::new();
                 &STATE
             }
 
@@ -1373,7 +1444,9 @@ macro_rules! impl_usart {
             }
         }
 
-        impl BasicInstance for peripherals::$inst {}
+        impl BasicInstance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
     };
 }
 
@@ -1385,7 +1458,7 @@ foreach_interrupt!(
     ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
         impl_usart!($inst, $irq, Kind::Uart);
 
-        impl sealed::FullInstance for peripherals::$inst {
+        impl SealedFullInstance for peripherals::$inst {
             fn regs_uart() -> crate::pac::usart::Usart {
                 crate::pac::$inst
             }

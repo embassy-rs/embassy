@@ -201,12 +201,19 @@ impl LsConfig {
             bdcr().modify(|w| w.set_bdrst(true));
             bdcr().modify(|w| w.set_bdrst(false));
         }
-        #[cfg(any(stm32h5))]
-        {
-            bdcr().modify(|w| w.set_vswrst(true));
-            bdcr().modify(|w| w.set_vswrst(false));
-        }
-        #[cfg(any(stm32c0))]
+        // H5 has a terrible, terrible errata: 'SRAM2 is erased when the backup domain is reset'
+        // pending a more sane sane way to handle this, just don't reset BD for now.
+        // This means the RTCSEL write below will have no effect, only if it has already been written
+        // after last power-on. Since it's uncommon to dynamically change RTCSEL, this is better than
+        // letting half our RAM go magically *poof*.
+        // STM32H503CB/EB/KB/RB device errata - 2.2.8 SRAM2 unduly erased upon a backup domain reset
+        // STM32H562xx/563xx/573xx device errata - 2.2.14 SRAM2 is erased when the backup domain is reset
+        //#[cfg(any(stm32h5))]
+        //{
+        //    bdcr().modify(|w| w.set_vswrst(true));
+        //    bdcr().modify(|w| w.set_vswrst(false));
+        //}
+        #[cfg(any(stm32c0, stm32l0))]
         {
             bdcr().modify(|w| w.set_rtcrst(true));
             bdcr().modify(|w| w.set_rtcrst(false));

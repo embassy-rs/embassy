@@ -1,9 +1,9 @@
 use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Key, Osel, Pol, TampalrmType};
 
-use super::{sealed, RtcCalibrationCyclePeriod};
+use super::RtcCalibrationCyclePeriod;
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
-use crate::rtc::sealed::Instance;
+use crate::rtc::SealedInstance;
 
 impl super::Rtc {
     /// Applies the RTC config
@@ -126,14 +126,26 @@ impl super::Rtc {
     }
 }
 
-impl sealed::Instance for crate::peripherals::RTC {
+impl SealedInstance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 32;
 
     #[cfg(all(feature = "low-power", stm32g4))]
     const EXTI_WAKEUP_LINE: usize = 20;
 
+    #[cfg(all(feature = "low-power", stm32g0))]
+    const EXTI_WAKEUP_LINE: usize = 19;
+
+    #[cfg(all(feature = "low-power", stm32g0))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
+
     #[cfg(all(feature = "low-power", stm32g4))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+
+    #[cfg(all(feature = "low-power", stm32l5))]
+    const EXTI_WAKEUP_LINE: usize = 17;
+
+    #[cfg(all(feature = "low-power", stm32l5))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
 
     fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]

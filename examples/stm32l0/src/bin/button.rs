@@ -11,7 +11,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut button = Input::new(p.PB2, Pull::Up);
+    let button = Input::new(p.PB2, Pull::Up);
     let mut led1 = Output::new(p.PA5, Level::High, Speed::Low);
     let mut led2 = Output::new(p.PB5, Level::High, Speed::Low);
 

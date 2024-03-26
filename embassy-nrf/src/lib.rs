@@ -1,5 +1,9 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![cfg_attr(
+    docsrs,
+    doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-nrf'>browse the `embassy-nrf` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (nRF52840 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
+)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -36,10 +40,16 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
+#[cfg(not(feature = "nrf51"))]
 pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
+
+// TODO: tested on other chips
+#[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340-app")))]
+pub mod radio;
+
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
 pub mod nvmc;
@@ -54,7 +64,12 @@ pub mod nvmc;
 ))]
 pub mod pdm;
 pub mod ppi;
-#[cfg(not(any(feature = "nrf52805", feature = "nrf52820", feature = "_nrf5340-net")))]
+#[cfg(not(any(
+    feature = "nrf51",
+    feature = "nrf52805",
+    feature = "nrf52820",
+    feature = "_nrf5340-net"
+)))]
 pub mod pwm;
 #[cfg(not(any(feature = "nrf51", feature = "_nrf9160", feature = "_nrf5340-net")))]
 pub mod qdec;
@@ -62,15 +77,20 @@ pub mod qdec;
 pub mod qspi;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf9160")))]
 pub mod rng;
-#[cfg(not(any(feature = "nrf52820", feature = "_nrf5340-net")))]
+#[cfg(not(any(feature = "nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
+#[cfg(not(feature = "nrf51"))]
 pub mod spim;
+#[cfg(not(feature = "nrf51"))]
 pub mod spis;
 #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
 pub mod temp;
 pub mod timer;
+#[cfg(not(feature = "nrf51"))]
 pub mod twim;
+#[cfg(not(feature = "nrf51"))]
 pub mod twis;
+#[cfg(not(feature = "nrf51"))]
 pub mod uarte;
 #[cfg(any(
     feature = "_nrf5340-app",
@@ -83,6 +103,7 @@ pub mod usb;
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
+#[cfg_attr(feature = "nrf51", path = "chips/nrf51.rs")]
 #[cfg_attr(feature = "nrf52805", path = "chips/nrf52805.rs")]
 #[cfg_attr(feature = "nrf52810", path = "chips/nrf52810.rs")]
 #[cfg_attr(feature = "nrf52811", path = "chips/nrf52811.rs")]
@@ -204,8 +225,29 @@ pub mod config {
         /// Config for the first stage DCDC (VDDH -> VDD), if disabled LDO will be used.
         #[cfg(feature = "nrf52840")]
         pub reg0: bool,
+        /// Configure the voltage of the first stage DCDC. It is stored in non-volatile memory (UICR.REGOUT0 register); pass None to not touch it.
+        #[cfg(feature = "nrf52840")]
+        pub reg0_voltage: Option<Reg0Voltage>,
         /// Config for the second stage DCDC (VDD -> DEC4), if disabled LDO will be used.
         pub reg1: bool,
+    }
+
+    ///  Output voltage setting for REG0 regulator stage.
+    #[cfg(feature = "nrf52840")]
+    pub enum Reg0Voltage {
+        /// 1.8 V
+        _1V8 = 0,
+        /// 2.1 V
+        _2V1 = 1,
+        /// 2.4 V
+        _2V4 = 2,
+        /// 2.7 V
+        _2V7 = 3,
+        /// 3.0 V
+        _3V0 = 4,
+        /// 3.3 V
+        _3v3 = 5,
+        //ERASED = 7, means 1.8V
     }
 
     /// Settings for enabling the built in DCDC converters.
@@ -258,6 +300,8 @@ pub mod config {
                 dcdc: DcdcConfig {
                     #[cfg(feature = "nrf52840")]
                     reg0: false,
+                    #[cfg(feature = "nrf52840")]
+                    reg0_voltage: None,
                     reg1: false,
                 },
                 #[cfg(feature = "_nrf5340-app")]
@@ -316,10 +360,12 @@ mod consts {
     pub const UICR_PSELRESET2: *mut u32 = 0x10001204 as *mut u32;
     pub const UICR_NFCPINS: *mut u32 = 0x1000120C as *mut u32;
     pub const UICR_APPROTECT: *mut u32 = 0x10001208 as *mut u32;
+    pub const UICR_REGOUT0: *mut u32 = 0x10001304 as *mut u32;
     pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
     pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
 }
 
+#[cfg(not(feature = "nrf51"))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum WriteResult {
@@ -331,10 +377,12 @@ enum WriteResult {
     Failed,
 }
 
+#[cfg(not(feature = "nrf51"))]
 unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
     uicr_write_masked(address, value, 0xFFFF_FFFF)
 }
 
+#[cfg(not(feature = "nrf51"))]
 unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
     let curr_val = address.read_volatile();
     if curr_val & mask == value & mask {
@@ -367,9 +415,11 @@ pub fn init(config: config::Config) -> Peripherals {
     // before doing anything important.
     let peripherals = Peripherals::take();
 
+    #[allow(unused_mut)]
     let mut needs_reset = false;
 
     // Setup debug protection.
+    #[cfg(not(feature = "nrf51"))]
     match config.debug {
         config::Debug::Allowed => {
             #[cfg(feature = "_nrf52")]
@@ -467,6 +517,21 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
+    #[cfg(feature = "nrf52840")]
+    unsafe {
+        if let Some(value) = config.dcdc.reg0_voltage {
+            let value = value as u32;
+            let res = uicr_write_masked(consts::UICR_REGOUT0, value, 0b00000000_00000000_00000000_00000111);
+            needs_reset |= res == WriteResult::Written;
+            if res == WriteResult::Failed {
+                warn!(
+                    "Failed to set regulator voltage, as UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                    To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+                );
+            }
+        }
+    }
+
     if needs_reset {
         cortex_m::peripheral::SCB::sys_reset();
     }
@@ -485,7 +550,7 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Configure LFCLK.
-    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+    #[cfg(not(any(feature = "nrf51", feature = "_nrf5340", feature = "_nrf9160")))]
     match config.lfclk_source {
         config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().rc()),
         config::LfclkSource::Synthesized => r.lfclksrc.write(|w| w.src().synth()),

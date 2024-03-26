@@ -9,7 +9,7 @@ use {defmt_rtt as _, panic_probe as _};
 fn main() -> ! {
     let p = embassy_stm32::init(Default::default());
     let mut led = Output::new(p.PB14, Level::High, Speed::VeryHigh);
-    let mut button = Input::new(p.PC13, Pull::Up);
+    let button = Input::new(p.PC13, Pull::Up);
 
     loop {
         if button.is_low() {

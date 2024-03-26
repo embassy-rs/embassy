@@ -8,8 +8,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::*;
 
 use crate::dma::Transfer;
-use crate::gpio::sealed::AFType;
-use crate::gpio::{AnyPin, Pull};
+use crate::gpio::{AFType, AnyPin, Pull};
 use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
@@ -381,16 +380,13 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        const REGS: Regs;
-    }
+trait SealedInstance {
+    const REGS: Regs;
 }
 
 /// QSPI instance trait.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(BK1D0Pin, Instance);
@@ -409,7 +405,7 @@ dma_trait!(QuadDma, Instance);
 
 foreach_peripheral!(
     (quadspi, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
         }
 

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.0 - 2024-01-11
+
+- Update `embedded-hal-async` to `1.0.0`
+- Update `embedded-hal v1` to `1.0.0`
+- Split the time driver to a separate `embassy-time-driver` crate.
+
 ## 0.2.0 - 2023-12-04
 
 - Added tick rates in multiples of 10 kHz
@@ -24,8 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.1.3 - 2023-08-28
 
-- Update `embedded-hal-async` to `1.0.0-rc.3`
-- Update `embedded-hal v1` to `1.0.0-rc.3`
+- Update `embedded-hal-async` to `1.0.0-rc.2`
+- Update `embedded-hal v1` to `1.0.0-rc.2`
 
 ## 0.1.2 - 2023-07-05
 

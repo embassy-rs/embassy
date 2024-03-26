@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
     loop {
         let now: NaiveDateTime = rtc.now().unwrap().into();
 
-        info!("{}", now.timestamp());
+        info!("{}", now.and_utc().timestamp());
 
         Timer::after_millis(1000).await;
     }

@@ -2,26 +2,27 @@
 name = "embassy-net-adin1110"
 version = "0.2.0"
 description = "embassy-net driver for the ADIN1110 ethernet chip"
-keywords = ["embedded", "ADIN1110", "embassy-net", "embedded-hal-async", "ethernet", "async"]
-categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
+keywords = ["embedded", "ADIN1110", "embassy-net", "embedded-hal-async", "ethernet"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-net-adin1110"
 
 [dependencies]
 heapless = "0.8"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4", default-features = false, optional = true }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
-embedded-hal-async = { version = "=1.0.0-rc.3" }
-embedded-hal-bus = { version = "=0.1.0-rc.3", features = ["async"] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-bus = { version = "0.1", features = ["async"] }
 embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel" }
-embassy-time = { version = "0.2", path = "../embassy-time" }
+embassy-time = { version = "0.3.0", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 bitfield = "0.14.0"
 
 [dev-dependencies]
-embedded-hal-mock = { version = "0.10.0-rc.4", features = ["embedded-hal-async", "eh1"] }
+embedded-hal-mock = { version = "0.10.0", features = ["embedded-hal-async", "eh1"] }
 crc = "3.0.1"
 env_logger = "0.10"
 critical-section = { version = "1.1.2", features = ["std"] }
@@ -36,4 +37,7 @@ log = ["dep:log"]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-adin1110-v$VERSION/embassy-net-adin1110/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-adin1110/src/"
 target = "thumbv7em-none-eabi"
+features = ["defmt"]
+
+[package.metadata.docs.rs]
 features = ["defmt"]

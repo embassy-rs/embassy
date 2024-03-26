@@ -128,7 +128,6 @@ pub struct Builder<'d, D: Driver<'d>> {
     driver: D,
     next_string_index: u8,
 
-    device_descriptor: DescriptorWriter<'d>,
     config_descriptor: DescriptorWriter<'d>,
     bos_descriptor: BosWriter<'d>,
 
@@ -144,7 +143,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     pub fn new(
         driver: D,
         config: Config<'d>,
-        device_descriptor_buf: &'d mut [u8],
         config_descriptor_buf: &'d mut [u8],
         bos_descriptor_buf: &'d mut [u8],
         msos_descriptor_buf: &'d mut [u8],
@@ -167,11 +165,9 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             _ => panic!("invalid max_packet_size_0, the allowed values are 8, 16, 32 or 64"),
         }
 
-        let mut device_descriptor = DescriptorWriter::new(device_descriptor_buf);
         let mut config_descriptor = DescriptorWriter::new(config_descriptor_buf);
         let mut bos_descriptor = BosWriter::new(DescriptorWriter::new(bos_descriptor_buf));
 
-        device_descriptor.device(&config);
         config_descriptor.configuration(&config);
         bos_descriptor.bos();
 
@@ -183,7 +179,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             control_buf,
             next_string_index: STRING_INDEX_CUSTOM_START,
 
-            device_descriptor,
             config_descriptor,
             bos_descriptor,
 
@@ -199,7 +194,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         self.bos_descriptor.end_bos();
 
         // Log the number of allocator bytes actually used in descriptor buffers
-        info!("USB: device_descriptor used: {}", self.device_descriptor.position());
         info!("USB: config_descriptor used: {}", self.config_descriptor.position());
         info!("USB: bos_descriptor used: {}", self.bos_descriptor.writer.position());
         info!("USB: msos_descriptor used: {}", msos_descriptor.len());
@@ -209,7 +203,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             self.driver,
             self.config,
             self.handlers,
-            self.device_descriptor.into_buf(),
             self.config_descriptor.into_buf(),
             self.bos_descriptor.writer.into_buf(),
             msos_descriptor,

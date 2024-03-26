@@ -7,7 +7,7 @@ use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_net::{Config, Stack, StackResources};
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0};
+use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, rom_data};
 use static_cell::StaticCell;
@@ -24,9 +24,7 @@ const WIFI_NETWORK: &str = "EmbassyTest";
 const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 
 #[embassy_executor::task]
-async fn wifi_task(
-    runner: cyw43::Runner<'static, Output<'static, PIN_23>, PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>>,
-) -> ! {
+async fn wifi_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
     runner.run().await
 }
 

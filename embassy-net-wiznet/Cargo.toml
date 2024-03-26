@@ -2,17 +2,18 @@
 name = "embassy-net-wiznet"
 version = "0.1.0"
 description = "embassy-net driver for WIZnet SPI Ethernet chips"
-keywords = ["embedded", "wiznet", "embassy-net", "embedded-hal-async", "ethernet", "async"]
-categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
+keywords = ["embedded", "embassy-net", "embedded-hal-async", "ethernet", "async"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-net-wiznet"
 
 [dependencies]
-embedded-hal = { version = "1.0.0-rc.3" }
-embedded-hal-async = { version = "=1.0.0-rc.3" }
+embedded-hal = { version = "1.0" }
+embedded-hal-async = { version = "1.0" }
 embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel" }
-embassy-time = { version = "0.2", path = "../embassy-time" }
+embassy-time = { version = "0.3.0", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 defmt = { version = "0.3", optional = true }
 
@@ -20,4 +21,7 @@ defmt = { version = "0.3", optional = true }
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-wiznet-v$VERSION/embassy-net-wiznet/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-wiznet/src/"
 target = "thumbv7em-none-eabi"
+features = ["defmt"]
+
+[package.metadata.docs.rs]
 features = ["defmt"]

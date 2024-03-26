@@ -1,16 +1,18 @@
 #![no_std]
 #![no_main]
 
+use core::num::{NonZeroU16, NonZeroU8};
+
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
-use embassy_stm32::can::bxcan::filter::Mask32;
-use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
+use embassy_stm32::can::filter::Mask32;
 use embassy_stm32::can::{
-    Can, CanTx, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler,
+    Can, CanTx, Fifo, Frame, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, StandardId,
+    TxInterruptHandler,
 };
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN3;
+use embassy_stm32::{bind_interrupts, can};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -22,9 +24,9 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-pub async fn send_can_message(tx: &'static mut CanTx<'static, 'static, CAN3>) {
+pub async fn send_can_message(tx: &'static mut CanTx<'static, CAN3>) {
     loop {
-        let frame = Frame::new_data(unwrap!(StandardId::new(0 as _)), [0]);
+        let frame = Frame::new_data(unwrap!(StandardId::new(0 as _)), &[0]).unwrap();
         tx.write(&frame).await;
         embassy_time::Timer::after_secs(1).await;
     }
@@ -51,13 +53,18 @@ async fn main(spawner: Spawner) {
 
     can.as_mut()
         .modify_config()
-        .set_bit_timing(0x001c0001) // http://www.bittiming.can-wiki.info/
+        .set_bit_timing(can::util::NominalBitTiming {
+            prescaler: NonZeroU16::new(2).unwrap(),
+            seg1: NonZeroU8::new(13).unwrap(),
+            seg2: NonZeroU8::new(2).unwrap(),
+            sync_jump_width: NonZeroU8::new(1).unwrap(),
+        }) // http://www.bittiming.can-wiki.info/
         .set_loopback(true)
         .enable();
 
     let (tx, mut rx) = can.split();
 
-    static CAN_TX: StaticCell<CanTx<'static, 'static, CAN3>> = StaticCell::new();
+    static CAN_TX: StaticCell<CanTx<'static, CAN3>> = StaticCell::new();
     let tx = CAN_TX.init(tx);
     spawner.spawn(send_can_message(tx)).unwrap();
 

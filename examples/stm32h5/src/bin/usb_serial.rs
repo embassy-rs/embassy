@@ -5,7 +5,7 @@ use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, pac, peripherals, usb, Config};
+use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
@@ -41,14 +41,11 @@ async fn main(_spawner: Spawner) {
         config.rcc.apb3_pre = APBPrescaler::DIV4;
         config.rcc.sys = Sysclk::PLL1_P;
         config.rcc.voltage_scale = VoltageScale::Scale0;
+        config.rcc.mux.usbsel = mux::Usbsel::HSI48;
     }
     let p = embassy_stm32::init(config);
 
     info!("Hello World!");
-
-    pac::RCC.ccipr4().write(|w| {
-        w.set_usbsel(pac::rcc::vals::Usbsel::HSI48);
-    });
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
@@ -68,7 +65,6 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
@@ -78,7 +74,6 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut [], // no msos descriptors

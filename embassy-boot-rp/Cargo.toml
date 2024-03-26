@@ -1,0 +1,80 @@
+[package]
+edition = "2021"
+name = "embassy-boot-rp"
+version = "0.2.0"
+description = "Bootloader lib for RP2040 chips"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-boot-rp"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-rp-v$VERSION/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot-rp/src/"
+target = "thumbv6m-none-eabi"
+
+[lib]
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.4", optional = true }
+log = { version = "0.4", optional = true }
+
+embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-rp = { version = "0.1.0", path = "../embassy-rp", default-features = false }
+embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
+embassy-time = { version = "0.3.0", path = "../embassy-time" }
+
+cortex-m = { version = "0.7.6" }
+cortex-m-rt = { version = "0.7" }
+embedded-storage = "0.3.1"
+embedded-storage-async = { version = "0.4.1" }
+cfg-if = "1.0.0"
+
+[features]
+defmt = [
+    "dep:defmt",
+    "embassy-boot/defmt",
+    "embassy-rp/defmt",
+]
+log = [
+    "dep:log",
+    "embassy-boot/log",
+    "embassy-rp/log",
+]
+debug = ["defmt-rtt"]
+
+[profile.dev]
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = 'z'
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 'z'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false

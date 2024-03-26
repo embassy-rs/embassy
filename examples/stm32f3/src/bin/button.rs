@@ -12,7 +12,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(Default::default());
 
-    let mut button = Input::new(p.PA0, Pull::Down);
+    let button = Input::new(p.PA0, Pull::Down);
     let mut led1 = Output::new(p.PE9, Level::High, Speed::Low);
     let mut led2 = Output::new(p.PE15, Level::High, Speed::Low);
 

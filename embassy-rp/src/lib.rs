@@ -30,7 +30,7 @@ pub mod rom_data;
 pub mod rtc;
 pub mod spi;
 #[cfg(feature = "time-driver")]
-pub mod timer;
+pub mod time_driver;
 pub mod uart;
 pub mod usb;
 pub mod watchdog;
@@ -238,8 +238,8 @@ select_bootloader! {
 }
 
 /// Installs a stack guard for the CORE0 stack in MPU region 0.
-/// Will fail if the MPU is already confgigured. This function requires
-/// a `_stack_end` symbol to be defined by the linker script, and expexcts
+/// Will fail if the MPU is already configured. This function requires
+/// a `_stack_end` symbol to be defined by the linker script, and expects
 /// `_stack_end` to be located at the lowest address (largest depth) of
 /// the stack.
 ///
@@ -274,7 +274,7 @@ pub fn install_core0_stack_guard() -> Result<(), ()> {
     extern "C" {
         static mut _stack_end: usize;
     }
-    unsafe { install_stack_guard(&mut _stack_end as *mut usize) }
+    unsafe { install_stack_guard(core::ptr::addr_of_mut!(_stack_end)) }
 }
 
 #[inline(always)]
@@ -344,7 +344,7 @@ pub fn init(config: config::Config) -> Peripherals {
     unsafe {
         clocks::init(config.clocks);
         #[cfg(feature = "time-driver")]
-        timer::init();
+        time_driver::init();
         dma::init();
         gpio::init();
     }
@@ -354,6 +354,7 @@ pub fn init(config: config::Config) -> Peripherals {
 
 /// Extension trait for PAC regs, adding atomic xor/bitset/bitclear writes.
 trait RegExt<T: Copy> {
+    #[allow(unused)]
     fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;

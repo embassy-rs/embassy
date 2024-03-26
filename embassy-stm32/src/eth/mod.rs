@@ -13,6 +13,7 @@ use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
+use crate::rcc::RccPeripheral;
 
 #[allow(unused)]
 const MTU: usize = 1514;
@@ -176,28 +177,34 @@ pub unsafe trait PHY {
     fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool;
 }
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::eth::Eth;
-    }
+trait SealedInstance {
+    fn regs() -> crate::pac::eth::Eth;
 }
 
 /// Ethernet instance.
-pub trait Instance: sealed::Instance + Send + 'static {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + Send + 'static {}
 
-impl sealed::Instance for crate::peripherals::ETH {
+impl SealedInstance for crate::peripherals::ETH {
     fn regs() -> crate::pac::eth::Eth {
         crate::pac::ETH
     }
 }
 impl Instance for crate::peripherals::ETH {}
 
+pin_trait!(RXClkPin, Instance);
+pin_trait!(TXClkPin, Instance);
 pin_trait!(RefClkPin, Instance);
 pin_trait!(MDIOPin, Instance);
 pin_trait!(MDCPin, Instance);
+pin_trait!(RXDVPin, Instance);
 pin_trait!(CRSPin, Instance);
 pin_trait!(RXD0Pin, Instance);
 pin_trait!(RXD1Pin, Instance);
+pin_trait!(RXD2Pin, Instance);
+pin_trait!(RXD3Pin, Instance);
 pin_trait!(TXD0Pin, Instance);
 pin_trait!(TXD1Pin, Instance);
+pin_trait!(TXD2Pin, Instance);
+pin_trait!(TXD3Pin, Instance);
 pin_trait!(TXEnPin, Instance);

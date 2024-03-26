@@ -2,22 +2,26 @@
 
 HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed.
 
-The Embassy RP HAL targets the Raspberry Pi 2040 family of hardware. The HAL implements both blocking and async APIs
+The embassy-rp HAL targets the Raspberry Pi RP2040 microcontroller. The HAL implements both blocking and async APIs
 for many peripherals. The benefit of using the async APIs is that the HAL takes care of waiting for peripherals to
-complete operations in low power mod and handling interrupts, so that applications can focus on more important matters.
+complete operations in low power mode and handling interrupts, so that applications can focus on more important matters.
 
-NOTE: The Embassy HALs can be used both for non-async and async operations. For async, you can choose which runtime you want to use.
+* [embassy-rp on crates.io](https://crates.io/crates/embassy-rp)
+* [Documentation](https://docs.embassy.dev/embassy-rp/)
+* [Source](https://github.com/embassy-rs/embassy/tree/main/embassy-rp)
+* [Examples](https://github.com/embassy-rs/embassy/tree/main/examples/rp/src/bin)
 
-## Minimum supported Rust version (MSRV)
+## `embassy-time` time driver
 
-Embassy is guaranteed to compile on the latest stable Rust version at the time of release. It might compile with older versions but that may change in any new patch release.
+If the `time-driver` feature is enabled, the HAL uses the TIMER peripheral as a global time driver for [embassy-time](https://crates.io/crates/embassy-time), with a tick rate of 1MHz.
 
-## License
+## Embedded-hal
 
-This work is licensed under either of
+The `embassy-rp` HAL implements the traits from [embedded-hal](https://crates.io/crates/embedded-hal) (v0.2 and 1.0) and [embedded-hal-async](https://crates.io/crates/embedded-hal-async), as well as [embedded-io](https://crates.io/crates/embedded-io) and [embedded-io-async](https://crates.io/crates/embedded-io-async).
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
-  <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+## Interoperability
 
-at your option.
+This crate can run on any executor.
+
+Optionally, some features requiring [`embassy-time`](https://crates.io/crates/embassy-time) can be activated with the `time` feature. If you enable it,
+you must link an `embassy-time` driver in your project.

@@ -43,6 +43,18 @@ pub enum Error {
     AddressReserved(u16),
 }
 
+/// I2C Config error
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ConfigError {
+    /// Max i2c speed is 1MHz
+    FrequencyTooHigh,
+    /// The sys clock is too slow to support given frequency
+    ClockTooSlow,
+    /// The sys clock is too fast to support given frequency
+    ClockTooFast,
+}
+
 /// I2C config.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -340,7 +352,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-pub(crate) fn set_up_i2c_pin<'d, P, T>(pin: &P)
+pub(crate) fn set_up_i2c_pin<P, T>(pin: &P)
 where
     P: core::ops::Deref<Target = T>,
     T: crate::gpio::Pin,
@@ -365,36 +377,31 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     ) -> Self {
         into_ref!(_peri);
 
-        assert!(config.frequency <= 1_000_000);
-        assert!(config.frequency > 0);
-
-        let p = T::regs();
-
         let reset = T::reset();
         crate::reset::reset(reset);
         crate::reset::unreset_wait(reset);
 
-        p.ic_enable().write(|w| w.set_enable(false));
-
-        // Select controller mode & speed
-        p.ic_con().modify(|w| {
-            // Always use "fast" mode (<= 400 kHz, works fine for standard
-            // mode too)
-            w.set_speed(i2c::vals::Speed::FAST);
-            w.set_master_mode(true);
-            w.set_ic_slave_disable(true);
-            w.set_ic_restart_en(true);
-            w.set_tx_empty_ctrl(true);
-        });
-
-        // Set FIFO watermarks to 1 to make things simpler. This is encoded
-        // by a register value of 0.
-        p.ic_tx_tl().write(|w| w.set_tx_tl(0));
-        p.ic_rx_tl().write(|w| w.set_rx_tl(0));
-
         // Configure SCL & SDA pins
         set_up_i2c_pin(&scl);
         set_up_i2c_pin(&sda);
+
+        let mut me = Self { phantom: PhantomData };
+
+        if let Err(e) = me.set_config_inner(&config) {
+            panic!("Error configuring i2c: {:?}", e);
+        }
+
+        me
+    }
+
+    fn set_config_inner(&mut self, config: &Config) -> Result<(), ConfigError> {
+        if config.frequency > 1_000_000 {
+            return Err(ConfigError::FrequencyTooHigh);
+        }
+
+        let p = T::regs();
+
+        p.ic_enable().write(|w| w.set_enable(false));
 
         // Configure baudrate
 
@@ -408,10 +415,12 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         let hcnt = period - lcnt; // and 2/5 (40%) of the period high
 
         // Check for out-of-range divisors:
-        assert!(hcnt <= 0xffff);
-        assert!(lcnt <= 0xffff);
-        assert!(hcnt >= 8);
-        assert!(lcnt >= 8);
+        if hcnt > 0xffff || lcnt > 0xffff {
+            return Err(ConfigError::ClockTooFast);
+        }
+        if hcnt < 8 || lcnt < 8 {
+            return Err(ConfigError::ClockTooSlow);
+        }
 
         // Per I2C-bus specification a device in standard or fast mode must
         // internally provide a hold time of at least 300ns for the SDA
@@ -424,14 +433,19 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             ((clk_base * 3) / 10_000_000) + 1
         } else {
             // fast mode plus requires a clk_base > 32MHz
-            assert!(clk_base >= 32_000_000);
+            if clk_base <= 32_000_000 {
+                return Err(ConfigError::ClockTooSlow);
+            }
 
             // sda_tx_hold_count = clk_base [cycles/s] * 120ns * (1s /
             // 1e9ns) Reduce 120/1e9 to 3/25e6 to avoid numbers that don't
             // fit in uint. Add 1 to avoid division truncation.
             ((clk_base * 3) / 25_000_000) + 1
         };
-        assert!(sda_tx_hold_count <= lcnt - 2);
+
+        if sda_tx_hold_count > lcnt - 2 {
+            return Err(ConfigError::ClockTooSlow);
+        }
 
         p.ic_fs_scl_hcnt().write(|w| w.set_ic_fs_scl_hcnt(hcnt as u16));
         p.ic_fs_scl_lcnt().write(|w| w.set_ic_fs_scl_lcnt(lcnt as u16));
@@ -440,10 +454,9 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         p.ic_sda_hold()
             .modify(|w| w.set_ic_sda_tx_hold(sda_tx_hold_count as u16));
 
-        // Enable I2C block
         p.ic_enable().write(|w| w.set_enable(true));
 
-        Self { phantom: PhantomData }
+        Ok(())
     }
 
     fn setup(addr: u16) -> Result<(), Error> {
@@ -736,7 +749,7 @@ where
 
         let addr: u16 = address.into();
 
-        if operations.len() > 0 {
+        if !operations.is_empty() {
             Self::setup(addr)?;
         }
         let mut iterator = operations.iter_mut();
@@ -749,11 +762,20 @@ where
                     self.read_async_internal(buffer, false, last).await?;
                 }
                 Operation::Write(buffer) => {
-                    self.write_async_internal(buffer.into_iter().cloned(), last).await?;
+                    self.write_async_internal(buffer.iter().cloned(), last).await?;
                 }
             }
         }
         Ok(())
+    }
+}
+
+impl<'d, T: Instance, M: Mode> embassy_embedded_hal::SetConfig for I2c<'d, T, M> {
+    type Config = Config;
+    type ConfigError = ConfigError;
+
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config_inner(config)
     }
 }
 

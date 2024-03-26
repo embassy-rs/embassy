@@ -7,8 +7,8 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usb_otg::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
+use embassy_stm32::usb::Driver;
+use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
@@ -36,7 +36,7 @@ async fn net_task(stack: &'static Stack<Device<'static, MTU>>) -> ! {
 }
 
 bind_interrupts!(struct Irqs {
-    OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
+    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
@@ -63,13 +63,14 @@ async fn main(spawner: Spawner) {
         config.rcc.apb1_pre = APBPrescaler::DIV4;
         config.rcc.apb2_pre = APBPrescaler::DIV2;
         config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
     }
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
     static OUTPUT_BUFFER: StaticCell<[u8; 256]> = StaticCell::new();
     let ep_out_buffer = &mut OUTPUT_BUFFER.init([0; 256])[..];
-    let mut config = embassy_stm32::usb_otg::Config::default();
+    let mut config = embassy_stm32::usb::Config::default();
     config.vbus_detection = true;
     let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, ep_out_buffer, config);
 
@@ -88,14 +89,12 @@ async fn main(spawner: Spawner) {
     config.device_protocol = 0x01;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
-    static DEVICE_DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static CONFIG_DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static BOS_DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static CONTROL_BUF: StaticCell<[u8; 128]> = StaticCell::new();
     let mut builder = Builder::new(
         driver,
         config,
-        &mut DEVICE_DESC.init([0; 256])[..],
         &mut CONFIG_DESC.init([0; 256])[..],
         &mut BOS_DESC.init([0; 256])[..],
         &mut [], // no msos descriptors

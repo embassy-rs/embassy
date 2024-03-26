@@ -1,0 +1,26 @@
+[package]
+name = "embassy-time-queue-driver"
+version = "0.1.0"
+edition = "2021"
+description = "Timer queue driver trait for embassy-time"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-time-queue-driver"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+categories = [
+    "embedded",
+    "no-std",
+    "concurrency",
+    "asynchronous",
+]
+
+# Prevent multiple copies of this crate in the same binary.
+# Needed because different copies might get different tick rates, causing
+# wrong delays if the time driver is using one copy and user code is using another.
+# This is especially common when mixing crates from crates.io and git.
+links = "embassy-time-queue"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-queue-driver-v$VERSION/embassy-time-queue-driver/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time-queue-driver/src/"
+target = "x86_64-unknown-linux-gnu"

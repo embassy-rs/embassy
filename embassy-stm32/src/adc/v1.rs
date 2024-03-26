@@ -4,6 +4,8 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
+#[cfg(adc_l0)]
+use stm32_metapac::adc::vals::Ckmode;
 
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
@@ -30,9 +32,14 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
+#[cfg(not(adc_l0))]
 pub struct Vbat;
+
+#[cfg(not(adc_l0))]
 impl AdcPin<ADC> for Vbat {}
-impl super::sealed::AdcPin<ADC> for Vbat {
+
+#[cfg(not(adc_l0))]
+impl super::SealedAdcPin<ADC> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
@@ -40,7 +47,7 @@ impl super::sealed::AdcPin<ADC> for Vbat {
 
 pub struct Vref;
 impl AdcPin<ADC> for Vref {}
-impl super::sealed::AdcPin<ADC> for Vref {
+impl super::SealedAdcPin<ADC> for Vref {
     fn channel(&self) -> u8 {
         17
     }
@@ -48,7 +55,7 @@ impl super::sealed::AdcPin<ADC> for Vref {
 
 pub struct Temperature;
 impl AdcPin<ADC> for Temperature {}
-impl super::sealed::AdcPin<ADC> for Temperature {
+impl super::SealedAdcPin<ADC> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
@@ -69,9 +76,18 @@ impl<'d, T: Instance> Adc<'d, T> {
         // tstab = 14 * 1/fadc
         delay.delay_us(1);
 
+        // set default PCKL/2 on L0s because HSI is disabled in the default clock config
+        #[cfg(adc_l0)]
+        T::regs().cfgr2().modify(|reg| reg.set_ckmode(Ckmode::PCLK_DIV2));
+
         // A.7.1 ADC calibration code example
         T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));
         T::regs().cr().modify(|reg| reg.set_adcal(true));
+
+        #[cfg(adc_l0)]
+        while !T::regs().isr().read().eocal() {}
+
+        #[cfg(not(adc_l0))]
         while T::regs().cr().read().adcal() {}
 
         // A.7.2 ADC enable sequence code example
@@ -93,10 +109,11 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         }
     }
 
+    #[cfg(not(adc_l0))]
     pub fn enable_vbat(&self, _delay: &mut impl DelayUs<u32>) -> Vbat {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
@@ -131,6 +148,12 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
+    }
+
+    #[cfg(adc_l0)]
+    pub fn set_ckmode(&mut self, ckmode: Ckmode) {
+        // set ADC clock mode
+        T::regs().cfgr2().modify(|reg| reg.set_ckmode(ckmode));
     }
 
     pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
