@@ -264,14 +264,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 timeout.check()?;
             }
 
-            // Also wait until signalled we're master and everything is waiting for us
-            while {
-                Self::check_and_clear_error_flags()?;
-
-                let sr2 = T::regs().sr2().read();
-                !sr2.msl() && !sr2.busy()
-            } {
-                timeout.check()?;
+            // Check if we were the ones to generate START
+            if T::regs().cr1().read().start() || !T::regs().sr2().read().msl() {
+                return Err(Error::Arbitration);
             }
 
             // Set up current address, we're trying to talk to
@@ -362,12 +357,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 timeout.check()?;
             }
 
-            // Also wait until signalled we're master and everything is waiting for us
-            while {
-                let sr2 = T::regs().sr2().read();
-                !sr2.msl() && !sr2.busy()
-            } {
-                timeout.check()?;
+            // Check if we were the ones to generate START
+            if T::regs().cr1().read().start() || !T::regs().sr2().read().msl() {
+                return Err(Error::Arbitration);
             }
 
             // Set up current address, we're trying to talk to
@@ -522,27 +514,10 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             })
             .await?;
 
-            // Also wait until signalled we're master and everything is waiting for us
-            Self::enable_interrupts();
-            poll_fn(|cx| {
-                state.waker.register(cx.waker());
-
-                match Self::check_and_clear_error_flags() {
-                    Err(e) => Poll::Ready(Err(e)),
-                    Ok(_) => {
-                        let sr2 = T::regs().sr2().read();
-                        if !sr2.msl() && !sr2.busy() {
-                            // If we need to go around, then re-enable the interrupts, otherwise nothing
-                            // can wake us up and we'll hang.
-                            Self::enable_interrupts();
-                            Poll::Pending
-                        } else {
-                            Poll::Ready(Ok(()))
-                        }
-                    }
-                }
-            })
-            .await?;
+            // Check if we were the ones to generate START
+            if T::regs().cr1().read().start() || !T::regs().sr2().read().msl() {
+                return Err(Error::Arbitration);
+            }
 
             // Set up current address, we're trying to talk to
             Self::enable_interrupts();
@@ -723,29 +698,10 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             })
             .await?;
 
-            // Also wait until signalled we're master and everything is waiting for us
-            Self::enable_interrupts();
-            poll_fn(|cx| {
-                state.waker.register(cx.waker());
-
-                // blocking read didn’t have a check_and_clear call here, but blocking write did so
-                // I’m adding it here in case that was an oversight.
-                match Self::check_and_clear_error_flags() {
-                    Err(e) => Poll::Ready(Err(e)),
-                    Ok(_) => {
-                        let sr2 = T::regs().sr2().read();
-                        if !sr2.msl() && !sr2.busy() {
-                            // If we need to go around, then re-enable the interrupts, otherwise nothing
-                            // can wake us up and we'll hang.
-                            Self::enable_interrupts();
-                            Poll::Pending
-                        } else {
-                            Poll::Ready(Ok(()))
-                        }
-                    }
-                }
-            })
-            .await?;
+            // Check if we were the ones to generate START
+            if T::regs().cr1().read().start() || !T::regs().sr2().read().msl() {
+                return Err(Error::Arbitration);
+            }
 
             // Set up current address, we're trying to talk to
             Self::enable_interrupts();
