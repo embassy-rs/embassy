@@ -776,13 +776,13 @@ where
 
             let mb = self.canregs.tx(idx);
 
-            let id = IdReg(mb.tir().read().0).id();
+            let id = IdReg(mb.tir().read().0);
             let mut data = [0xff; 8];
             data[0..4].copy_from_slice(&mb.tdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&mb.tdhr().read().0.to_ne_bytes());
             let len = mb.tdtr().read().dlc();
 
-            Some(Frame::new(Header::new(id, len, false), &data).unwrap())
+            Some(Frame::new(Header::new(id.id(), len, id.rtr()), &data).unwrap())
         } else {
             // Abort request failed because the frame was already sent (or being sent) on
             // the bus. All mailboxes are now free. This can happen for small prescaler
@@ -915,7 +915,7 @@ fn receive_fifo(canregs: crate::pac::can::Can, fifo_nr: usize) -> nb::Result<Fra
     }
 
     // Read the frame.
-    let id = IdReg(rx.rir().read().0).id();
+    let id = IdReg(rx.rir().read().0);
     let mut data = [0xff; 8];
     data[0..4].copy_from_slice(&rx.rdlr().read().0.to_ne_bytes());
     data[4..8].copy_from_slice(&rx.rdhr().read().0.to_ne_bytes());
@@ -924,7 +924,7 @@ fn receive_fifo(canregs: crate::pac::can::Can, fifo_nr: usize) -> nb::Result<Fra
     // Release the mailbox.
     rfr.write(|w| w.set_rfom(true));
 
-    Ok(Frame::new(Header::new(id, len, false), &data).unwrap())
+    Ok(Frame::new(Header::new(id.id(), len, id.rtr()), &data).unwrap())
 }
 
 /// Identifies one of the two receive FIFOs.
