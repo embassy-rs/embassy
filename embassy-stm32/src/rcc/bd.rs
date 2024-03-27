@@ -24,6 +24,7 @@ pub struct LseConfig {
 #[allow(dead_code)]
 #[derive(Default, Clone, Copy)]
 pub enum LseDrive {
+    #[cfg(not(stm32h5))] // ES0565: LSE Low drive mode is not functional
     Low = 0,
     MediumLow = 0x01,
     #[default]
@@ -38,6 +39,7 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
         use crate::pac::rcc::vals::Lsedrv;
 
         match value {
+            #[cfg(not(stm32h5))] // ES0565: LSE Low drive mode is not functional
             LseDrive::Low => Lsedrv::LOW,
             LseDrive::MediumLow => Lsedrv::MEDIUMLOW,
             LseDrive::MediumHigh => Lsedrv::MEDIUMHIGH,

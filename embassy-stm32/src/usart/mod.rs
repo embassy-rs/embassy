@@ -209,7 +209,14 @@ enum ReadCompletionEvent {
     Idle(usize),
 }
 
-/// Bidirectional UART Driver
+/// Bidirectional UART Driver, which acts as a combination of [`UartTx`] and [`UartRx`].
+///
+/// ### Notes on [`embedded_io::Read`]
+///
+/// `embedded_io::Read` requires guarantees that the base [`UartRx`] cannot provide.
+///
+/// See [`UartRx`] for more details, and see [`BufferedUart`] and [`RingBufferedUartRx`]
+/// as alternatives that do provide the necessary guarantees for `embedded_io::Read`.
 pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
     tx: UartTx<'d, T, TxDma>,
     rx: UartRx<'d, T, RxDma>,
@@ -225,7 +232,10 @@ impl<'d, T: BasicInstance, TxDma, RxDma> SetConfig for Uart<'d, T, TxDma, RxDma>
     }
 }
 
-/// Tx-only UART Driver
+/// Tx-only UART Driver.
+///
+/// Can be obtained from [`Uart::split`], or can be constructed independently,
+/// if you do not need the receiving half of the driver.
 pub struct UartTx<'d, T: BasicInstance, TxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
     tx_dma: PeripheralRef<'d, TxDma>,
@@ -240,7 +250,35 @@ impl<'d, T: BasicInstance, TxDma> SetConfig for UartTx<'d, T, TxDma> {
     }
 }
 
-/// Rx-only UART Driver
+/// Rx-only UART Driver.
+///
+/// Can be obtained from [`Uart::split`], or can be constructed independently,
+/// if you do not need the transmitting half of the driver.
+///
+/// ### Notes on [`embedded_io::Read`]
+///
+/// `embedded_io::Read` requires guarantees that this struct cannot provide:
+///
+/// - Any data received between calls to [`UartRx::read`] or [`UartRx::blocking_read`]
+/// will be thrown away, as `UartRx` is unbuffered.
+/// Users of `embedded_io::Read` are likely to not expect this behavior
+/// (for instance if they read multiple small chunks in a row).
+/// - [`UartRx::read`] and [`UartRx::blocking_read`] only return once the entire buffer has been
+/// filled, whereas `embedded_io::Read` requires us to fill the buffer with what we already
+/// received, and only block/wait until the first byte arrived.
+/// <br />
+/// While [`UartRx::read_until_idle`] does return early, it will still eagerly wait for data until
+/// the buffer is full or no data has been transmitted in a while,
+/// which may not be what users of `embedded_io::Read` expect.
+///
+/// [`UartRx::into_ring_buffered`] can be called to equip `UartRx` with a buffer,
+/// that it can then use to store data received between calls to `read`,
+/// provided you are using DMA already.
+///
+/// Alternatively, you can use [`BufferedUartRx`], which is interrupt-based and which can also
+/// store data received between calls.
+///
+/// Also see [this github comment](https://github.com/embassy-rs/embassy/pull/2185#issuecomment-1810047043).
 pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
     _peri: PeripheralRef<'d, T>,
     rx_dma: PeripheralRef<'d, RxDma>,
@@ -1260,7 +1298,6 @@ where
 impl<T, TxDma, RxDma> embedded_io::Write for Uart<'_, T, TxDma, RxDma>
 where
     T: BasicInstance,
-    TxDma: crate::usart::TxDma<T>,
 {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)?;
@@ -1275,7 +1312,6 @@ where
 impl<T, TxDma> embedded_io::Write for UartTx<'_, T, TxDma>
 where
     T: BasicInstance,
-    TxDma: crate::usart::TxDma<T>,
 {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)?;
