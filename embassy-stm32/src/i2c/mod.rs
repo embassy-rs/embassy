@@ -415,6 +415,10 @@ fn operation_frames<'a, 'b: 'a>(
 
     // Check empty read buffer before starting transaction. Otherwise, we would risk halting with an
     // error in the middle of the transaction.
+    //
+    // In principle, we could allow empty read frames within consecutive read operations, as long as
+    // at least one byte remains in the final (merged) read operation, but that makes the logic more
+    // complicated and error-prone.
     if operations.iter().any(|op| match op {
         Operation::Read(read) => read.is_empty(),
         Operation::Write(_) => false,

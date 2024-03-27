@@ -669,6 +669,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         RXDMA: crate::i2c::RxDma<T>,
         TXDMA: crate::i2c::TxDma<T>,
     {
+        // Check empty read buffer before starting transaction. Otherwise, we would not generate the
+        // stop condition below.
+        if read.is_empty() {
+            return Err(Error::Overrun);
+        }
+
         self.write_frame(address, write, FrameOptions::FirstFrame).await?;
         self.read_frame(address, read, FrameOptions::FirstAndLastFrame).await
     }
