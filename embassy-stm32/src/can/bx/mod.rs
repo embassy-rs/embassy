@@ -624,6 +624,7 @@ impl Registers {
         };
         let rdtr = fifo.rdtr().read();
         let data_len = rdtr.dlc();
+        let rtr = rir.rtr() == stm32_metapac::can::vals::Rtr::REMOTE;
 
         #[cfg(not(feature = "time"))]
         let ts = rdtr.time();
@@ -632,7 +633,7 @@ impl Registers {
         data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
         data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-        let frame = Frame::new(Header::new(id, data_len, false), &data).unwrap();
+        let frame = Frame::new(Header::new(id, data_len, rtr), &data).unwrap();
         let envelope = Envelope { ts, frame };
 
         rfr.modify(|v| v.set_rfom(true));
