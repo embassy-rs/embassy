@@ -356,6 +356,7 @@ impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c:
 /// - `SP` = stop condition
 /// - `ACK`/`NACK` = last byte in read operation
 #[derive(Copy, Clone)]
+#[allow(dead_code)]
 enum FrameOptions {
     /// `[ST/SR]+[NACK]+[SP]` First frame (of this type) in transaction and also last frame overall.
     FirstAndLastFrame,
@@ -373,6 +374,7 @@ enum FrameOptions {
     LastFrameNoStop,
 }
 
+#[allow(dead_code)]
 impl FrameOptions {
     /// Sends start or repeated start condition before transfer.
     fn send_start(self) -> bool {
@@ -405,6 +407,7 @@ impl FrameOptions {
 /// the right start/stop/(N)ACK conditions on the wire.
 ///
 /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+#[allow(dead_code)]
 fn operation_frames<'a, 'b: 'a>(
     operations: &'a mut [embedded_hal_1::i2c::Operation<'b>],
 ) -> Result<impl IntoIterator<Item = (&'a mut embedded_hal_1::i2c::Operation<'b>, FrameOptions)>, Error> {
