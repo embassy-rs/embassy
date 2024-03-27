@@ -142,7 +142,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 return Err(Error::Arbitration);
             }
 
-            // Set up current address, we're trying to talk to
+            // Set up current address we're trying to talk to
             T::regs().dr().write(|reg| reg.set_dr(addr << 1));
 
             // Wait until address was sent
@@ -235,7 +235,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 return Err(Error::Arbitration);
             }
 
-            // Set up current address, we're trying to talk to
+            // Set up current address we're trying to talk to
             T::regs().dr().write(|reg| reg.set_dr((addr << 1) + 1));
 
             // Wait until address was sent
@@ -331,27 +331,21 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
-        let dma_transfer = unsafe {
-            let regs = T::regs();
-            regs.cr2().modify(|w| {
-                // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for reception.
-                w.set_itbufen(false);
-                // DMA mode can be enabled for transmission by setting the DMAEN bit in the I2C_CR2 register.
-                w.set_dmaen(true);
-                // Sending NACK is not necessary (nor possible) for write transfer.
-                w.set_last(false);
-            });
-            // Set the I2C_DR register address in the DMA_SxPAR register. The data will be moved to this address from the memory after each TxE event.
-            let dst = regs.dr().as_ptr() as *mut u8;
+        T::regs().cr2().modify(|w| {
+            // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
+            // reception.
+            w.set_itbufen(false);
+            // DMA mode can be enabled for transmission by setting the DMAEN bit in the I2C_CR2
+            // register.
+            w.set_dmaen(true);
+            // Sending NACK is not necessary (nor possible) for write transfer.
+            w.set_last(false);
+        });
 
-            let ch = &mut self.tx_dma;
-            let request = ch.request();
-            Transfer::new_write(ch, request, write, dst, Default::default())
-        };
-
+        // Sentinel to disable transfer when an error occurs or future is canceled.
+        // TODO: Generate STOP condition on cancel?
         let on_drop = OnDrop::new(|| {
-            let regs = T::regs();
-            regs.cr2().modify(|w| {
+            T::regs().cr2().modify(|w| {
                 w.set_dmaen(false);
                 w.set_iterren(false);
                 w.set_itevten(false);
@@ -390,7 +384,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 return Err(Error::Arbitration);
             }
 
-            // Set up current address, we're trying to talk to
+            // Set up current address we're trying to talk to
             T::regs().dr().write(|reg| reg.set_dr(address << 1));
 
             // Wait for the address to be acknowledged
@@ -416,14 +410,22 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             T::regs().sr2().read();
         }
 
+        let dma_transfer = unsafe {
+            // Set the I2C_DR register address in the DMA_SxPAR register. The data will be moved to
+            // this address from the memory after each TxE event.
+            let dst = T::regs().dr().as_ptr() as *mut u8;
+
+            let ch = &mut self.tx_dma;
+            let request = ch.request();
+            Transfer::new_write(ch, request, write, dst, Default::default())
+        };
+
         // Wait for bytes to be sent, or an error to occur.
         let poll_error = poll_fn(|cx| {
             state.waker.register(cx.waker());
 
             match Self::check_and_clear_error_flags() {
-                // Unclear why the Err turbofish is necessary here? The compiler didn’t require it in the other
-                // identical poll_fn check_and_clear matches.
-                Err(e) => Poll::Ready(Err::<T, Error>(e)),
+                Err(e) => Poll::Ready(Err::<(), Error>(e)),
                 Ok(_) => {
                     // When pending, (re-)enable interrupts to wake us up.
                     Self::enable_interrupts();
@@ -502,31 +504,30 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
-        let buffer_len = buffer.len();
+        if buffer.is_empty() {
+            return Err(Error::Overrun);
+        }
 
-        let dma_transfer = unsafe {
-            let regs = T::regs();
-            regs.cr2().modify(|w| {
-                // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for reception.
-                w.set_itbufen(false);
-                // DMA mode can be enabled for transmission by setting the DMAEN bit in the I2C_CR2 register.
-                w.set_dmaen(true);
-                // If, in the I2C_CR2 register, the LAST bit is set, I2C
-                // automatically sends a NACK after the next byte following EOT_1. The user can
-                // generate a Stop condition in the DMA Transfer Complete interrupt routine if enabled.
-                w.set_last(frame.send_nack() && buffer_len != 1);
-            });
-            // Set the I2C_DR register address in the DMA_SxPAR register. The data will be moved to this address from the memory after each TxE event.
-            let src = regs.dr().as_ptr() as *mut u8;
+        // Some branches below depend on whether the buffer contains only a single byte.
+        let single_byte = buffer.len() == 1;
 
-            let ch = &mut self.rx_dma;
-            let request = ch.request();
-            Transfer::new_read(ch, request, src, buffer, Default::default())
-        };
+        T::regs().cr2().modify(|w| {
+            // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
+            // reception.
+            w.set_itbufen(false);
+            // DMA mode can be enabled for transmission by setting the DMAEN bit in the I2C_CR2
+            // register.
+            w.set_dmaen(true);
+            // If, in the I2C_CR2 register, the LAST bit is set, I2C automatically sends a NACK
+            // after the next byte following EOT_1. The user can generate a Stop condition in
+            // the DMA Transfer Complete interrupt routine if enabled.
+            w.set_last(frame.send_nack() && !single_byte);
+        });
 
+        // Sentinel to disable transfer when an error occurs or future is canceled.
+        // TODO: Generate STOP condition on cancel?
         let on_drop = OnDrop::new(|| {
-            let regs = T::regs();
-            regs.cr2().modify(|w| {
+            T::regs().cr2().modify(|w| {
                 w.set_dmaen(false);
                 w.set_iterren(false);
                 w.set_itevten(false);
@@ -566,7 +567,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 return Err(Error::Arbitration);
             }
 
-            // Set up current address, we're trying to talk to
+            // Set up current address we're trying to talk to
             T::regs().dr().write(|reg| reg.set_dr((address << 1) + 1));
 
             // Wait for the address to be acknowledged
@@ -590,7 +591,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
             // 18.3.8: When a single byte must be received: the NACK must be programmed during EV6
             // event, i.e. program ACK=0 when ADDR=1, before clearing ADDR flag.
-            if frame.send_nack() && buffer_len == 1 {
+            if frame.send_nack() && single_byte {
                 T::regs().cr1().modify(|w| {
                     w.set_ack(false);
                 });
@@ -598,27 +599,41 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
             // Clear condition by reading SR2
             T::regs().sr2().read();
-        } else if frame.send_nack() && buffer_len == 1 {
-            T::regs().cr1().modify(|w| {
-                w.set_ack(false);
-            });
+        } else {
+            // Before starting reception of single byte (but without START condition, i.e. in case
+            // of continued frame), program NACK to emit at end of this byte.
+            if frame.send_nack() && single_byte {
+                T::regs().cr1().modify(|w| {
+                    w.set_ack(false);
+                });
+            }
         }
 
-        // 18.3.8: When a single byte must be received: [snip] Then the
-        // user can program the STOP condition either after clearing ADDR flag, or in the
-        // DMA Transfer Complete interrupt routine.
-        if frame.send_stop() && buffer_len == 1 {
+        // 18.3.8: When a single byte must be received: [snip] Then the user can program the STOP
+        // condition either after clearing ADDR flag, or in the DMA Transfer Complete interrupt
+        // routine.
+        if frame.send_stop() && single_byte {
             T::regs().cr1().modify(|w| {
                 w.set_stop(true);
             });
         }
+
+        let dma_transfer = unsafe {
+            // Set the I2C_DR register address in the DMA_SxPAR register. The data will be moved
+            // from this address from the memory after each RxE event.
+            let src = T::regs().dr().as_ptr() as *mut u8;
+
+            let ch = &mut self.rx_dma;
+            let request = ch.request();
+            Transfer::new_read(ch, request, src, buffer, Default::default())
+        };
 
         // Wait for bytes to be received, or an error to occur.
         let poll_error = poll_fn(|cx| {
             state.waker.register(cx.waker());
 
             match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err::<T, Error>(e)),
+                Err(e) => Poll::Ready(Err::<(), Error>(e)),
                 _ => {
                     // When pending, (re-)enable interrupts to wake us up.
                     Self::enable_interrupts();
@@ -636,7 +651,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             w.set_dmaen(false);
         });
 
-        if frame.send_stop() && buffer_len != 1 {
+        if frame.send_stop() && !single_byte {
             T::regs().cr1().modify(|w| {
                 w.set_stop(true);
             });
