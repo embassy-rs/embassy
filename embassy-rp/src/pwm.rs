@@ -7,7 +7,7 @@ use pac::pwm::regs::{ChDiv, Intr};
 use pac::pwm::vals::Divmode;
 
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::{AnyPin, Pin as GpioPin, Pull};
 use crate::{pac, peripherals, RegExt};
 
 /// The configuration of a PWM slice.
@@ -93,6 +93,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
         inner: impl Peripheral<P = T> + 'd,
         a: Option<PeripheralRef<'d, AnyPin>>,
         b: Option<PeripheralRef<'d, AnyPin>>,
+        b_pull: Pull,
         config: Config,
         divmode: Divmode,
     ) -> Self {
@@ -111,6 +112,10 @@ impl<'d, T: Channel> Pwm<'d, T> {
         }
         if let Some(pin) = &b {
             pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+            pin.pad_ctrl().modify(|w| {
+                w.set_pue(b_pull == Pull::Up);
+                w.set_pde(b_pull == Pull::Down);
+            });
         }
         Self {
             inner,
@@ -122,7 +127,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
     /// Create PWM driver without any configured pins.
     #[inline]
     pub fn new_free(inner: impl Peripheral<P = T> + 'd, config: Config) -> Self {
-        Self::new_inner(inner, None, None, config, Divmode::DIV)
+        Self::new_inner(inner, None, None, Pull::None, config, Divmode::DIV)
     }
 
     /// Create PWM driver with a single 'a' as output.
@@ -133,7 +138,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(a);
-        Self::new_inner(inner, Some(a.map_into()), None, config, Divmode::DIV)
+        Self::new_inner(inner, Some(a.map_into()), None, Pull::None, config, Divmode::DIV)
     }
 
     /// Create PWM driver with a single 'b' pin as output.
@@ -144,7 +149,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(b);
-        Self::new_inner(inner, None, Some(b.map_into()), config, Divmode::DIV)
+        Self::new_inner(inner, None, Some(b.map_into()), Pull::None, config, Divmode::DIV)
     }
 
     /// Create PWM driver with a 'a' and 'b' pins as output.
@@ -156,7 +161,14 @@ impl<'d, T: Channel> Pwm<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(a, b);
-        Self::new_inner(inner, Some(a.map_into()), Some(b.map_into()), config, Divmode::DIV)
+        Self::new_inner(
+            inner,
+            Some(a.map_into()),
+            Some(b.map_into()),
+            Pull::None,
+            config,
+            Divmode::DIV,
+        )
     }
 
     /// Create PWM driver with a single 'b' as input pin.
@@ -164,11 +176,12 @@ impl<'d, T: Channel> Pwm<'d, T> {
     pub fn new_input(
         inner: impl Peripheral<P = T> + 'd,
         b: impl Peripheral<P = impl PwmPinB<T>> + 'd,
+        b_pull: Pull,
         mode: InputMode,
         config: Config,
     ) -> Self {
         into_ref!(b);
-        Self::new_inner(inner, None, Some(b.map_into()), config, mode.into())
+        Self::new_inner(inner, None, Some(b.map_into()), b_pull, config, mode.into())
     }
 
     /// Create PWM driver with a 'a' and 'b' pins in the desired input mode.
@@ -177,11 +190,19 @@ impl<'d, T: Channel> Pwm<'d, T> {
         inner: impl Peripheral<P = T> + 'd,
         a: impl Peripheral<P = impl PwmPinA<T>> + 'd,
         b: impl Peripheral<P = impl PwmPinB<T>> + 'd,
+        b_pull: Pull,
         mode: InputMode,
         config: Config,
     ) -> Self {
         into_ref!(a, b);
-        Self::new_inner(inner, Some(a.map_into()), Some(b.map_into()), config, mode.into())
+        Self::new_inner(
+            inner,
+            Some(a.map_into()),
+            Some(b.map_into()),
+            b_pull,
+            config,
+            mode.into(),
+        )
     }
 
     /// Set the PWM config.
