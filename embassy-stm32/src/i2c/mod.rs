@@ -411,7 +411,7 @@ impl FrameOptions {
 fn operation_frames<'a, 'b: 'a>(
     operations: &'a mut [embedded_hal_1::i2c::Operation<'b>],
 ) -> Result<impl IntoIterator<Item = (&'a mut embedded_hal_1::i2c::Operation<'b>, FrameOptions)>, Error> {
-    use embedded_hal_1::i2c::Operation;
+    use embedded_hal_1::i2c::Operation::{Read, Write};
 
     // Check empty read buffer before starting transaction. Otherwise, we would risk halting with an
     // error in the middle of the transaction.
@@ -420,8 +420,8 @@ fn operation_frames<'a, 'b: 'a>(
     // at least one byte remains in the final (merged) read operation, but that makes the logic more
     // complicated and error-prone.
     if operations.iter().any(|op| match op {
-        Operation::Read(read) => read.is_empty(),
-        Operation::Write(_) => false,
+        Read(read) => read.is_empty(),
+        Write(_) => false,
     }) {
         return Err(Error::Overrun);
     }
@@ -452,12 +452,12 @@ fn operation_frames<'a, 'b: 'a>(
         // because the resulting frame options are identical for write operations.
         let frame = match (first_frame, next_op) {
             (true, None) => FrameOptions::FirstAndLastFrame,
-            (true, Some(Operation::Read(_))) => FrameOptions::FirstAndNextFrame,
-            (true, Some(Operation::Write(_))) => FrameOptions::FirstFrame,
+            (true, Some(Read(_))) => FrameOptions::FirstAndNextFrame,
+            (true, Some(Write(_))) => FrameOptions::FirstFrame,
             //
             (false, None) => FrameOptions::LastFrame,
-            (false, Some(Operation::Read(_))) => FrameOptions::NextFrame,
-            (false, Some(Operation::Write(_))) => FrameOptions::LastFrameNoStop,
+            (false, Some(Read(_))) => FrameOptions::NextFrame,
+            (false, Some(Write(_))) => FrameOptions::LastFrameNoStop,
         };
 
         // Pre-calculate if `next_op` is the first operation of its type. We do this here and not at
@@ -465,8 +465,8 @@ fn operation_frames<'a, 'b: 'a>(
         // anymore in the next iteration.
         next_first_frame = match (&op, next_op) {
             (_, None) => false,
-            (Operation::Read(_), Some(Operation::Write(_))) | (Operation::Write(_), Some(Operation::Read(_))) => true,
-            (Operation::Read(_), Some(Operation::Read(_))) | (Operation::Write(_), Some(Operation::Write(_))) => false,
+            (Read(_), Some(Write(_))) | (Write(_), Some(Read(_))) => true,
+            (Read(_), Some(Read(_))) | (Write(_), Some(Write(_))) => false,
         };
 
         Some((op, frame))
