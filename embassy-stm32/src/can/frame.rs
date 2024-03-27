@@ -3,6 +3,14 @@ use bit_field::BitField;
 
 use crate::can::enums::FrameCreateError;
 
+/// Calculate proper timestamp when available.
+#[cfg(feature = "time")]
+pub type Timestamp = embassy_time::Instant;
+
+/// Raw register timestamp
+#[cfg(not(feature = "time"))]
+pub type Timestamp = u16;
+
 /// CAN Header, without meta data
 #[derive(Debug, Copy, Clone)]
 pub struct Header {
@@ -264,15 +272,14 @@ impl CanHeader for Frame {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Envelope {
     /// Reception time.
-    #[cfg(feature = "time")]
-    pub ts: embassy_time::Instant,
+    pub ts: Timestamp,
     /// The actual CAN frame.
     pub frame: Frame,
 }
 
 impl Envelope {
     /// Convert into a tuple
-    pub fn parts(self) -> (Frame, embassy_time::Instant) {
+    pub fn parts(self) -> (Frame, Timestamp) {
         (self.frame, self.ts)
     }
 }
@@ -442,15 +449,15 @@ impl CanHeader for FdFrame {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FdEnvelope {
     /// Reception time.
-    #[cfg(feature = "time")]
-    pub ts: embassy_time::Instant,
+    pub ts: Timestamp,
+
     /// The actual CAN frame.
     pub frame: FdFrame,
 }
 
 impl FdEnvelope {
     /// Convert into a tuple
-    pub fn parts(self) -> (FdFrame, embassy_time::Instant) {
+    pub fn parts(self) -> (FdFrame, Timestamp) {
         (self.frame, self.ts)
     }
 }

@@ -622,17 +622,18 @@ impl Registers {
             let id = (stid << 18) | (exid);
             embedded_can::ExtendedId::new(id).unwrap().into()
         };
-        let data_len = fifo.rdtr().read().dlc();
+        let rdtr = fifo.rdtr().read();
+        let data_len = rdtr.dlc();
+
+        #[cfg(not(feature = "time"))]
+        let ts = rdtr.time();
+
         let mut data: [u8; 8] = [0; 8];
         data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
         data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
         let frame = Frame::new(Header::new(id, data_len, false), &data).unwrap();
-        let envelope = Envelope {
-            #[cfg(feature = "time")]
-            ts,
-            frame,
-        };
+        let envelope = Envelope { ts, frame };
 
         rfr.modify(|v| v.set_rfom(true));
 
