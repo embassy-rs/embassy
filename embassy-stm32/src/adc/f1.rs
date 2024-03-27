@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
+use embassy_time::Timer;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
@@ -120,6 +121,8 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_swstart(true);
         });
         T::regs().cr1().modify(|w| w.set_eocie(true));
+
+        Timer::after_ticks(1).await;
 
         poll_fn(|cx| {
             T::state().waker.register(cx.waker());
