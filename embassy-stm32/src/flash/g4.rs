@@ -15,12 +15,12 @@ pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
 }
 
 pub(crate) unsafe fn lock() {
-    trace!("locking");
+    // trace!("locking");
     pac::FLASH.cr().modify(|w| w.set_lock(true));
 }
 
 pub(crate) unsafe fn unlock() {
-    trace!("unlocking");
+    // trace!("unlocking");
     // Wait, while the memory interface is busy.
     while pac::FLASH.sr().read().bsy() {}
 
@@ -32,7 +32,7 @@ pub(crate) unsafe fn unlock() {
 }
 
 pub(crate) unsafe fn enable_blocking_write() {
-    trace!("enable_blocking_write");
+    // trace!("enable_blocking_write");
     assert_eq!(0, WRITE_SIZE % 4);
 
     // workaround for errata 2.2.2
@@ -42,14 +42,14 @@ pub(crate) unsafe fn enable_blocking_write() {
 }
 
 pub(crate) unsafe fn disable_blocking_write() {
-    trace!("disable_blocking_write");
+    // trace!("disable_blocking_write");
     pac::FLASH.cr().write(|w| w.set_pg(false));
     pac::FLASH.acr().modify(|w| w.set_dcrst(true));
     pac::FLASH.acr().modify(|w| w.set_dcen(true));
 }
 
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
-    trace!("blocking_write start_address={:08x} buf={}", start_address, buf.len());
+    // trace!("blocking_write start_address={:08x} buf={}", start_address, buf.len());
     let mut address = start_address;
     for val in buf.chunks(4) {
         write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
@@ -73,7 +73,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     while start < sector.size + sector.start {
         let idx = (start - super::FLASH_BASE as u32) / DUAL_BANK_ERASE_SIZE;
         let (idx, bank) = if idx < 128 { (idx, 0) } else { (idx - 128, 1) };
-        trace!("Erasing idx {} in bank {}", idx, bank);
+        // trace!("Erasing idx {} in bank {}", idx, bank);
 
         while pac::FLASH.sr().read().bsy() {}
         clear_all_err();
