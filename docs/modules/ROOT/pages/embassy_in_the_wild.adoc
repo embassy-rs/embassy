@@ -9,3 +9,11 @@ Here are known examples of real-world projects which make use of Embassy. Feel f
 * The link:https://github.com/lora-rs/lora-rs[lora-rs] project includes link:https://github.com/lora-rs/lora-rs/tree/main/examples/stm32l0/src/bin[various standalone examples] for NRF52840, RP2040, STM32L0 and STM32WL
 ** link:https://github.com/matoushybl/air-force-one[Air force one: A simple air quality monitoring system]
 *** Targets nRF52 and uses nrf-softdevice
+
+* link:https://github.com/schmettow/ylab-edge-go[YLab Edge Go] and link:https://github.com/schmettow/ylab-edge-pro[YLab Edge Pro] projects develop 
+firmware (RP2040, STM32) for capturing physiological data in behavioural science research. Included so far are:
+** biopotentials (analog ports)
+** motion capture (6-axis accelerometers)
+** air quality (CO2, Temp, Humidity)
+** comes with an app for capturing and visualizing data [link:https://github.com/schmettow/ystudio-zero[Ystudio]]
+
