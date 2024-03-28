@@ -225,6 +225,16 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cnt().write(|r| r.set_cnt(0));
     }
 
+    /// reset the peripheral registers
+    pub fn enable_and_reset(&self) {
+        T::enable_and_reset()
+    }
+
+    /// disable the peripheral
+    pub fn disable(&self) {
+        T::disable()
+    }
+
     /// Set the frequency of how many times per second the timer counts up to the max value or down to 0.
     ///
     /// This means that in the default edge-aligned mode,
