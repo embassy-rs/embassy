@@ -32,6 +32,9 @@ pub mod timer;
 pub mod adc;
 #[cfg(can)]
 pub mod can;
+// FIXME: Cordic driver cause stm32u5a5zj crash
+#[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
+pub mod cordic;
 #[cfg(crc)]
 pub mod crc;
 #[cfg(cryp)]
@@ -244,7 +247,7 @@ pub fn init(config: Config) -> Peripherals {
 
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
-            #[cfg(any(dbgmcu_h5))]
+            #[cfg(dbgmcu_h5)]
             {
                 cr.set_stop(config.enable_debug_during_sleep);
                 cr.set_standby(config.enable_debug_during_sleep);
