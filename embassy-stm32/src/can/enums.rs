@@ -40,3 +40,13 @@ pub enum FrameCreateError {
     /// Invalid ID.
     InvalidCanId,
 }
+
+/// Error returned by `try_read`
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TryReadError {
+    /// Bus error
+    BusError(BusError),
+    /// Receive buffer is empty
+    Empty,
+}
