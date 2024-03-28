@@ -15,5 +15,5 @@ firmware (RP2040, STM32) for capturing physiological data in behavioural science
 ** biopotentials (analog ports)
 ** motion capture (6-axis accelerometers)
 ** air quality (CO2, Temp, Humidity)
-** comes with an app for capturing and visualizing data [link:https://github.com/schmettow/ystudio[Ystudio]]
+** comes with an app for capturing and visualizing data [link:https://github.com/schmettow/ystudio-zero[Ystudio]]
 
