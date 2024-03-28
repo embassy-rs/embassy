@@ -466,7 +466,7 @@ impl<'d> Saadc<'d, 1> {
     /// that the size of this buffer can be less than the original buffer's size.
     /// A command is return from the closure that indicates whether the sampling
     /// should continue or stop.
-    pub async fn run_timer_sampler<I, S, const N0: usize>(
+    pub async fn run_timer_sampler<S, const N0: usize>(
         &mut self,
         bufs: &mut [[[i16; 1]; N0]; 2],
         sample_rate_divisor: u16,
