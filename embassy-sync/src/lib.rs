@@ -17,6 +17,7 @@ pub mod once_lock;
 pub mod pipe;
 pub mod priority_channel;
 pub mod pubsub;
+pub mod semaphore;
 pub mod signal;
 pub mod waitqueue;
 pub mod zerocopy_channel;
