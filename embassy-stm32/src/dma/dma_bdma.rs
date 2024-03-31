@@ -514,17 +514,17 @@ impl AnyChannel {
     fn disable_circular_mode(&self) {
         let info = self.info();
         let channel = match self.info().dma {
-        #[cfg(dma)]
-        DmaInfo::Dma(regs) => regs.st(info.num),
-        #[cfg(bdma)]
-        DmaInfo::Bdma(regs) => regs.ch(info.num),
+            #[cfg(dma)]
+            DmaInfo::Dma(regs) => regs.st(info.num),
+            #[cfg(bdma)]
+            DmaInfo::Bdma(regs) => regs.ch(info.num),
         };
         channel.cr().modify(|w| {
             w.set_circ(false);
         });
     }
 
-    fn poll_stop(&self) -> Poll<()>{
+    fn poll_stop(&self) -> Poll<()> {
         use core::sync::atomic::compiler_fence;
         compiler_fence(Ordering::SeqCst);
 
