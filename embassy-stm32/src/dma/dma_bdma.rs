@@ -513,15 +513,16 @@ impl AnyChannel {
 
     fn disable_circular_mode(&self) {
         let info = self.info();
-        let channel = match self.info().dma {
+        match self.info().dma {
             #[cfg(dma)]
-            DmaInfo::Dma(regs) => regs.st(info.num),
+            DmaInfo::Dma(regs) => regs.st(info.num).cr().modify(|w| {
+                w.set_circ(false);
+            }),
             #[cfg(bdma)]
-            DmaInfo::Bdma(regs) => regs.ch(info.num),
-        };
-        channel.cr().modify(|w| {
-            w.set_circ(false);
-        });
+            DmaInfo::Bdma(regs) => regs.ch(info.num).cr().modify(|w| {
+                w.set_circ(false);
+            }),
+        }
     }
 
     fn poll_stop(&self) -> Poll<()> {
