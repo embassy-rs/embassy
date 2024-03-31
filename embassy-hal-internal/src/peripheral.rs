@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
+use core::ops::Deref;
 
 /// An exclusive reference to a peripheral.
 ///
@@ -86,13 +86,6 @@ impl<'a, T> Deref for PeripheralRef<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for PeripheralRef<'a, T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
 /// Trait for any type that can be used as a peripheral of type `P`.
 ///
 /// This is used in driver constructors, to allow passing either owned peripherals (e.g. `TWISPI0`),
@@ -162,7 +155,7 @@ pub trait Peripheral: Sized {
     }
 }
 
-impl<'b, T: DerefMut> Peripheral for T
+impl<'b, T: Deref> Peripheral for T
 where
     T::Target: Peripheral,
 {

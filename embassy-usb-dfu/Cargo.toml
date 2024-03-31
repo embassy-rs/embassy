@@ -1,0 +1,43 @@
+[package]
+edition = "2021"
+name = "embassy-usb-dfu"
+version = "0.1.0"
+description = "An implementation of the USB DFU 1.1 protocol, using embassy-boot"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-usb-dfu"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous"
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-v$VERSION/embassy-usb-dfu/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-dfu/src/"
+features = ["defmt", "cortex-m"]
+target = "thumbv7em-none-eabi"
+flavors = [
+    { name = "dfu",         features = [ "dfu" ] },
+    { name = "application", features = [ "application" ] },
+]
+
+[package.metadata.docs.rs]
+features = ["defmt", "cortex-m", "dfu"]
+
+[dependencies]
+bitflags = "2.4.1"
+cortex-m = { version = "0.7.7", features = ["inline-asm"], optional = true }
+defmt = { version = "0.3.5", optional = true }
+embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
+embassy-futures = { version = "0.1.1", path = "../embassy-futures" }
+embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-time = { version = "0.3.0", path = "../embassy-time" }
+embassy-usb = { version = "0.1.0", path = "../embassy-usb", default-features = false }
+embedded-storage = { version = "0.3.1" }
+esp32c3-hal = { version = "0.13.0", optional = true, default-features = false }
+
+[features]
+dfu = []
+application = []
+defmt = ["dep:defmt"]

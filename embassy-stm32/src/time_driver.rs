@@ -1,21 +1,23 @@
+#![allow(non_snake_case)]
+
 use core::cell::Cell;
-use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_time::driver::{AlarmHandle, Driver};
-use embassy_time::TICK_HZ;
-use stm32_metapac::timer::regs;
+use embassy_time_driver::{AlarmHandle, Driver, TICK_HZ};
+use stm32_metapac::timer::{regs, TimGp16};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
-use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
+#[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
+use crate::timer::AdvancedInstance1Channel;
+use crate::timer::CoreInstance;
 use crate::{interrupt, peripherals};
 
 // NOTE regarding ALARM_COUNT:
@@ -23,18 +25,22 @@ use crate::{interrupt, peripherals};
 // As of 2023-12-04, this driver is implemented using CC1 as the halfway rollover interrupt, and any
 // additional CC capabilities to provide timer alarms to embassy-time. embassy-time requires AT LEAST
 // one alarm to be allocatable, which means timers that only have CC1, such as TIM16/TIM17, are not
-// candidates for use as an embassy-time driver provider.
+// candidates for use as an embassy-time driver provider. (a.k.a 1CH and 1CH_CMP are not, others are good.)
 //
 // The values of ALARM_COUNT below are not the TOTAL CC registers available, but rather the number
 // available after reserving CC1 for regular time keeping. For example, TIM2 has four CC registers:
 // CC1, CC2, CC3, and CC4, so it can provide ALARM_COUNT = 3.
 
-#[cfg(not(any(time_driver_tim12, time_driver_tim15)))]
-const ALARM_COUNT: usize = 3;
+cfg_if::cfg_if! {
+    if #[cfg(any(time_driver_tim9, time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22))] {
+        const ALARM_COUNT: usize = 1;
+    } else {
+        const ALARM_COUNT: usize = 3;
+    }
+}
 
-#[cfg(any(time_driver_tim12, time_driver_tim15))]
-const ALARM_COUNT: usize = 1;
-
+#[cfg(time_driver_tim1)]
+type T = peripherals::TIM1;
 #[cfg(time_driver_tim2)]
 type T = peripherals::TIM2;
 #[cfg(time_driver_tim3)]
@@ -43,16 +49,42 @@ type T = peripherals::TIM3;
 type T = peripherals::TIM4;
 #[cfg(time_driver_tim5)]
 type T = peripherals::TIM5;
+#[cfg(time_driver_tim8)]
+type T = peripherals::TIM8;
 #[cfg(time_driver_tim9)]
 type T = peripherals::TIM9;
-#[cfg(time_driver_tim11)]
-type T = peripherals::TIM11;
 #[cfg(time_driver_tim12)]
 type T = peripherals::TIM12;
 #[cfg(time_driver_tim15)]
 type T = peripherals::TIM15;
+#[cfg(time_driver_tim20)]
+type T = peripherals::TIM20;
+#[cfg(time_driver_tim21)]
+type T = peripherals::TIM21;
+#[cfg(time_driver_tim22)]
+type T = peripherals::TIM22;
+#[cfg(time_driver_tim23)]
+type T = peripherals::TIM23;
+#[cfg(time_driver_tim24)]
+type T = peripherals::TIM24;
 
 foreach_interrupt! {
+    (TIM1, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim1)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM1, timer, $block:ident, CC, $irq:ident) => {
+        #[cfg(time_driver_tim1)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
     (TIM2, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim2)]
         #[cfg(feature = "rt")]
@@ -85,16 +117,24 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM9, timer, $block:ident, UP, $irq:ident) => {
-        #[cfg(time_driver_tim9)]
+    (TIM8, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim8)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()
         }
     };
-    (TIM11, timer, $block:ident, UP, $irq:ident) => {
-        #[cfg(time_driver_tim11)]
+    (TIM8, timer, $block:ident, CC, $irq:ident) => {
+        #[cfg(time_driver_tim8)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM9, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim9)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
@@ -117,6 +157,58 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
+    (TIM20, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim20)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM20, timer, $block:ident, CC, $irq:ident) => {
+        #[cfg(time_driver_tim20)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM21, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim21)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM22, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim22)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM23, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim23)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM24, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim24)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+}
+
+fn regs_gp16() -> TimGp16 {
+    unsafe { TimGp16::from_ptr(T::regs()) }
 }
 
 // Clock timekeeping works with something we call "periods", which are time intervals
@@ -173,7 +265,7 @@ pub(crate) struct RtcDriver {
 
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 
-embassy_time::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
+embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
     alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
@@ -183,9 +275,9 @@ embassy_time::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 
 impl RtcDriver {
     fn init(&'static self, cs: critical_section::CriticalSection) {
-        let r = T::regs_gp16();
+        let r = regs_gp16();
 
-        <T as RccPeripheral>::enable_and_reset_with_cs(cs);
+        <T as SealedRccPeripheral>::enable_and_reset_with_cs(cs);
 
         let timer_freq = T::frequency();
 
@@ -198,7 +290,7 @@ impl RtcDriver {
             Ok(n) => n,
         };
 
-        r.psc().write(|w| w.set_psc(psc));
+        r.psc().write_value(psc);
         r.arr().write(|w| w.set_arr(u16::MAX));
 
         // Set URS, generate update and clear URS
@@ -215,14 +307,22 @@ impl RtcDriver {
             w.set_ccie(0, true);
         });
 
-        <T as BasicInstance>::Interrupt::unpend();
-        unsafe { <T as BasicInstance>::Interrupt::enable() };
+        <T as CoreInstance>::Interrupt::unpend();
+        unsafe { <T as CoreInstance>::Interrupt::enable() };
+
+        #[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
+        {
+            <T as AdvancedInstance1Channel>::CaptureCompareInterrupt::unpend();
+            unsafe {
+                <T as AdvancedInstance1Channel>::CaptureCompareInterrupt::enable();
+            }
+        }
 
         r.cr1().modify(|w| w.set_cen(true));
     }
 
     fn on_interrupt(&self) {
-        let r = T::regs_gp16();
+        let r = regs_gp16();
 
         // XXX: reduce the size of this critical section ?
         critical_section::with(|cs| {
@@ -232,7 +332,7 @@ impl RtcDriver {
             // Clear all interrupt flags. Bits in SR are "write 0 to clear", so write the bitwise NOT.
             // Other approaches such as writing all zeros, or RMWing won't work, they can
             // miss interrupts.
-            r.sr().write_value(regs::SrGp(!sr.0));
+            r.sr().write_value(regs::SrGp16(!sr.0));
 
             // Overflow
             if sr.uif() {
@@ -253,7 +353,7 @@ impl RtcDriver {
     }
 
     fn next_period(&self) {
-        let r = T::regs_gp16();
+        let r = regs_gp16();
 
         // We only modify the period from the timer interrupt, so we know this can't race.
         let period = self.period.load(Ordering::Relaxed) + 1;
@@ -317,7 +417,7 @@ impl RtcDriver {
     /// Add the given offset to the current time
     fn add_time(&self, offset: embassy_time::Duration, cs: CriticalSection) {
         let offset = offset.as_ticks();
-        let cnt = T::regs_gp16().cnt().read().cnt() as u32;
+        let cnt = regs_gp16().cnt().read().cnt() as u32;
         let period = self.period.load(Ordering::SeqCst);
 
         // Correct the race, if it exists
@@ -343,7 +443,7 @@ impl RtcDriver {
         let period = if cnt > u16::MAX as u32 / 2 { period + 1 } else { period };
 
         self.period.store(period, Ordering::SeqCst);
-        T::regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
+        regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
 
         // Now, recompute all alarms
         for i in 0..ALARM_COUNT {
@@ -400,7 +500,7 @@ impl RtcDriver {
                     .unwrap()
                     .start_wakeup_alarm(time_until_next_alarm, cs);
 
-                T::regs_gp16().cr1().modify(|w| w.set_cen(false));
+                regs_gp16().cr1().modify(|w| w.set_cen(false));
 
                 Ok(())
             }
@@ -410,7 +510,7 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Resume the timer with the given offset
     pub(crate) fn resume_time(&self) {
-        if T::regs_gp16().cr1().read().cen() {
+        if regs_gp16().cr1().read().cen() {
             // Time isn't currently stopped
 
             return;
@@ -419,14 +519,14 @@ impl RtcDriver {
         critical_section::with(|cs| {
             self.stop_wakeup_alarm(cs);
 
-            T::regs_gp16().cr1().modify(|w| w.set_cen(true));
+            regs_gp16().cr1().modify(|w| w.set_cen(true));
         })
     }
 }
 
 impl Driver for RtcDriver {
     fn now(&self) -> u64 {
-        let r = T::regs_gp16();
+        let r = regs_gp16();
 
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
@@ -457,7 +557,7 @@ impl Driver for RtcDriver {
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         critical_section::with(|cs| {
-            let r = T::regs_gp16();
+            let r = regs_gp16();
 
             let n = alarm.id() as usize;
             let alarm = self.get_alarm(cs, alarm);
@@ -474,16 +574,29 @@ impl Driver for RtcDriver {
                 return false;
             }
 
-            let safe_timestamp = timestamp.max(t + 3);
-
             // Write the CCR value regardless of whether we're going to enable it now or not.
             // This way, when we enable it later, the right value is already set.
-            r.ccr(n + 1).write(|w| w.set_ccr(safe_timestamp as u16));
+            r.ccr(n + 1).write(|w| w.set_ccr(timestamp as u16));
 
             // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
             let diff = timestamp - t;
             r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000));
 
+            // Reevaluate if the alarm timestamp is still in the future
+            let t = self.now();
+            if timestamp <= t {
+                // If alarm timestamp has passed since we set it, we have a race condition and
+                // the alarm may or may not have fired.
+                // Disarm the alarm and return `false` to indicate that.
+                // It is the caller's responsibility to handle this ambiguity.
+                r.dier().modify(|w| w.set_ccie(n + 1, false));
+
+                alarm.timestamp.set(u64::MAX);
+
+                return false;
+            }
+
+            // We're confident the alarm will ring in the future.
             true
         })
     }

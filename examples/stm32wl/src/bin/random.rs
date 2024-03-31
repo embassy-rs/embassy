@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -23,7 +22,7 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Bypass,
             prescaler: HsePrescaler::DIV1,
         });
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.pll = Some(Pll {
             source: PllSource::HSE,
             prediv: PllPreDiv::DIV2,

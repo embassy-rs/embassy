@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
@@ -29,7 +28,7 @@ async fn main(_spawner: Spawner) {
     loop {
         let now: NaiveDateTime = rtc.now().unwrap().into();
 
-        info!("{}", now.timestamp());
+        info!("{}", now.and_utc().timestamp());
 
         Timer::after_millis(1000).await;
     }

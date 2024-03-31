@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
@@ -25,7 +24,7 @@ async fn main(_spawner: Spawner) {
         .unwrap();
 
     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
-    info!("Got RTC! {:?}", now.timestamp());
+    info!("Got RTC! {:?}", now.and_utc().timestamp());
 
     rtc.set_datetime(now.into()).expect("datetime not set");
 
@@ -33,5 +32,5 @@ async fn main(_spawner: Spawner) {
     Timer::after_millis(20000).await;
 
     let then: NaiveDateTime = rtc.now().unwrap().into();
-    info!("Got RTC! {:?}", then.timestamp());
+    info!("Got RTC! {:?}", then.and_utc().timestamp());
 }

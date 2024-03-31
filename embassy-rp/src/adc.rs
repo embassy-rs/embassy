@@ -1,3 +1,4 @@
+//! ADC driver.
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem;
@@ -16,23 +17,21 @@ use crate::{dma, interrupt, pac, peripherals, Peripheral, RegExt};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
+/// ADC config.
 #[non_exhaustive]
+#[derive(Default)]
 pub struct Config {}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 enum Source<'p> {
     Pin(PeripheralRef<'p, AnyPin>),
     TempSensor(PeripheralRef<'p, ADC_TEMP_SENSOR>),
 }
 
+/// ADC channel.
 pub struct Channel<'p>(Source<'p>);
 
 impl<'p> Channel<'p> {
+    /// Create a new ADC channel from pin with the provided [Pull] configuration.
     pub fn new_pin(pin: impl Peripheral<P = impl AdcPin + 'p> + 'p, pull: Pull) -> Self {
         into_ref!(pin);
         pin.pad_ctrl().modify(|w| {
@@ -49,6 +48,7 @@ impl<'p> Channel<'p> {
         Self(Source::Pin(pin.map_into()))
     }
 
+    /// Create a new ADC channel for the internal temperature sensor.
     pub fn new_temp_sensor(s: impl Peripheral<P = ADC_TEMP_SENSOR> + 'p) -> Self {
         let r = pac::ADC;
         r.cs().write_set(|w| w.set_ts_en(true));
@@ -83,35 +83,44 @@ impl<'p> Drop for Source<'p> {
     }
 }
 
+/// ADC sample.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(transparent)]
 pub struct Sample(u16);
 
 impl Sample {
+    /// Sample is valid.
     pub fn good(&self) -> bool {
         self.0 < 0x8000
     }
 
+    /// Sample value.
     pub fn value(&self) -> u16 {
         self.0 & !0x8000
     }
 }
 
+/// ADC error.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Error converting value.
     ConversionFailed,
 }
 
+/// ADC mode.
 pub trait Mode {}
 
+/// ADC async mode.
 pub struct Async;
 impl Mode for Async {}
 
+/// ADC blocking mode.
 pub struct Blocking;
 impl Mode for Blocking {}
 
+/// ADC driver.
 pub struct Adc<'d, M: Mode> {
     phantom: PhantomData<(&'d ADC, M)>,
 }
@@ -150,6 +159,7 @@ impl<'d, M: Mode> Adc<'d, M> {
         while !r.cs().read().ready() {}
     }
 
+    /// Sample a value from a channel in blocking mode.
     pub fn blocking_read(&mut self, ch: &mut Channel) -> Result<u16, Error> {
         let r = Self::regs();
         r.cs().modify(|w| {
@@ -160,12 +170,13 @@ impl<'d, M: Mode> Adc<'d, M> {
         while !r.cs().read().ready() {}
         match r.cs().read().err() {
             true => Err(Error::ConversionFailed),
-            false => Ok(r.result().read().result().into()),
+            false => Ok(r.result().read().result()),
         }
     }
 }
 
 impl<'d> Adc<'d, Async> {
+    /// Create ADC driver in async mode.
     pub fn new(
         _inner: impl Peripheral<P = ADC> + 'd,
         _irq: impl Binding<interrupt::typelevel::ADC_IRQ_FIFO, InterruptHandler>,
@@ -194,6 +205,7 @@ impl<'d> Adc<'d, Async> {
         .await;
     }
 
+    /// Sample a value from a channel until completed.
     pub async fn read(&mut self, ch: &mut Channel<'_>) -> Result<u16, Error> {
         let r = Self::regs();
         r.cs().modify(|w| {
@@ -204,7 +216,7 @@ impl<'d> Adc<'d, Async> {
         Self::wait_for_ready().await;
         match r.cs().read().err() {
             true => Err(Error::ConversionFailed),
-            false => Ok(r.result().read().result().into()),
+            false => Ok(r.result().read().result()),
         }
     }
 
@@ -272,6 +284,7 @@ impl<'d> Adc<'d, Async> {
         }
     }
 
+    /// Sample multiple values from a channel using DMA.
     #[inline]
     pub async fn read_many<S: AdcSample>(
         &mut self,
@@ -283,6 +296,7 @@ impl<'d> Adc<'d, Async> {
         self.read_many_inner(ch, buf, false, div, dma).await
     }
 
+    /// Sample multiple values from a channel using DMA with errors inlined in samples.
     #[inline]
     pub async fn read_many_raw(
         &mut self,
@@ -299,6 +313,7 @@ impl<'d> Adc<'d, Async> {
 }
 
 impl<'d> Adc<'d, Blocking> {
+    /// Create ADC driver in blocking mode.
     pub fn new_blocking(_inner: impl Peripheral<P = ADC> + 'd, _config: Config) -> Self {
         Self::setup();
 
@@ -306,6 +321,7 @@ impl<'d> Adc<'d, Blocking> {
     }
 }
 
+/// Interrupt handler.
 pub struct InterruptHandler {
     _empty: (),
 }
@@ -324,6 +340,7 @@ mod sealed {
     pub trait AdcChannel {}
 }
 
+/// ADC sample.
 pub trait AdcSample: sealed::AdcSample {}
 
 impl sealed::AdcSample for u16 {}
@@ -332,7 +349,9 @@ impl AdcSample for u16 {}
 impl sealed::AdcSample for u8 {}
 impl AdcSample for u8 {}
 
+/// ADC channel.
 pub trait AdcChannel: sealed::AdcChannel {}
+/// ADC pin.
 pub trait AdcPin: AdcChannel + gpio::Pin {}
 
 macro_rules! impl_pin {

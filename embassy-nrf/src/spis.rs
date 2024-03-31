@@ -9,8 +9,9 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use pac::spis0::config::ORDER_A as BitOrder;
 
-use crate::chip::FORCE_COPY_BUFFER_SIZE;
+use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
@@ -36,6 +37,9 @@ pub struct Config {
     /// SPI mode
     pub mode: Mode,
 
+    /// Bit order
+    pub bit_order: BitOrder,
+
     /// Overread character.
     ///
     /// If the master keeps clocking the bus after all the bytes in the TX buffer have
@@ -56,6 +60,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             mode: MODE_0,
+            bit_order: BitOrder::MSB_FIRST,
             orc: 0x00,
             def: 0x00,
             auto_acquire: true,
@@ -105,7 +110,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         Self::new_inner(
             spis,
             cs.map_into(),
-            sck.map_into(),
+            Some(sck.map_into()),
             Some(miso.map_into()),
             Some(mosi.map_into()),
             config,
@@ -122,7 +127,14 @@ impl<'d, T: Instance> Spis<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, miso);
-        Self::new_inner(spis, cs.map_into(), sck.map_into(), Some(miso.map_into()), None, config)
+        Self::new_inner(
+            spis,
+            cs.map_into(),
+            Some(sck.map_into()),
+            Some(miso.map_into()),
+            None,
+            config,
+        )
     }
 
     /// Create a new SPIS driver, capable of RX only (MOSI only).
@@ -135,28 +147,49 @@ impl<'d, T: Instance> Spis<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, mosi);
-        Self::new_inner(spis, cs.map_into(), sck.map_into(), None, Some(mosi.map_into()), config)
+        Self::new_inner(
+            spis,
+            cs.map_into(),
+            Some(sck.map_into()),
+            None,
+            Some(mosi.map_into()),
+            config,
+        )
+    }
+
+    /// Create a new SPIS driver, capable of TX only (MISO only) without SCK pin.
+    pub fn new_txonly_nosck(
+        spis: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        cs: impl Peripheral<P = impl GpioPin> + 'd,
+        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cs, miso);
+        Self::new_inner(spis, cs.map_into(), None, Some(miso.map_into()), None, config)
     }
 
     fn new_inner(
         spis: impl Peripheral<P = T> + 'd,
         cs: PeripheralRef<'d, AnyPin>,
-        sck: PeripheralRef<'d, AnyPin>,
+        sck: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         compiler_fence(Ordering::SeqCst);
 
-        into_ref!(spis, cs, sck);
+        into_ref!(spis, cs);
 
         let r = T::regs();
 
         // Configure pins.
-        sck.conf().write(|w| w.input().connect().drive().h0h1());
-        r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
         cs.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.csn.write(|w| unsafe { w.bits(cs.psel_bits()) });
+        if let Some(sck) = &sck {
+            sck.conf().write(|w| w.input().connect().drive().h0h1());
+            r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
+        }
         if let Some(mosi) = &mosi {
             mosi.conf().write(|w| w.input().connect().drive().h0h1());
             r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
@@ -194,11 +227,17 @@ impl<'d, T: Instance> Spis<'d, T> {
 
         // Set up the DMA write.
         let (ptr, len) = slice_ptr_parts(tx);
+        if len > EASY_DMA_SIZE {
+            return Err(Error::TxBufferTooLong);
+        }
         r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
         // Set up the DMA read.
         let (ptr, len) = slice_ptr_parts_mut(rx);
+        if len > EASY_DMA_SIZE {
+            return Err(Error::RxBufferTooLong);
+        }
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
@@ -475,22 +514,22 @@ impl<'d, T: Instance> SetConfig for Spis<'d, T> {
         r.config.write(|w| {
             match mode {
                 MODE_0 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().leading();
                 }
                 MODE_1 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().trailing();
                 }
                 MODE_2 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().leading();
                 }
                 MODE_3 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().trailing();
                 }

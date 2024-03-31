@@ -2,9 +2,10 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 use crate::Peripheral;
 
+/// CRC driver.
 pub struct Crc<'d> {
     _peri: PeripheralRef<'d, CRC>,
 }
@@ -34,6 +35,7 @@ impl<'d> Crc<'d> {
         PAC_CRC.dr().write_value(word);
         self.read()
     }
+
     /// Feed a slice of words to the peripheral and return the result.
     pub fn feed_words(&mut self, words: &[u32]) -> u32 {
         for word in words {
@@ -42,6 +44,8 @@ impl<'d> Crc<'d> {
 
         self.read()
     }
+
+    /// Read the CRC result value.
     pub fn read(&self) -> u32 {
         PAC_CRC.dr().read()
     }

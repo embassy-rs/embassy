@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -39,7 +38,7 @@ async fn main(_spawner: Spawner) {
         config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
-        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
     }
     let mut p = embassy_stm32::init(config);
 
@@ -47,7 +46,7 @@ async fn main(_spawner: Spawner) {
 
     let mut adc = Adc::new(p.ADC3, &mut Delay);
 
-    adc.set_sample_time(SampleTime::Cycles32_5);
+    adc.set_sample_time(SampleTime::CYCLES32_5);
 
     let mut vrefint_channel = adc.enable_vrefint();
 

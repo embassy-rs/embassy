@@ -1,0 +1,52 @@
+[package]
+edition = "2021"
+name = "embassy-boot"
+version = "0.2.0"
+description = "A lightweight bootloader supporting firmware updates in a power-fail-safe way, with trial boots and rollbacks."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-boot"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-v$VERSION/embassy-boot/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/src/"
+target = "thumbv7em-none-eabi"
+features = ["defmt"]
+
+[package.metadata.docs.rs]
+features = ["defmt"]
+
+[lib]
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+digest = "0.10"
+log = { version = "0.4", optional = true }
+ed25519-dalek = { version = "2", default_features = false, features = ["digest"], optional = true }
+embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
+embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embedded-storage = "0.3.1"
+embedded-storage-async = { version = "0.4.1" }
+salty = { version = "0.3", optional = true }
+signature = { version = "2.0", default-features = false }
+
+[dev-dependencies]
+log = "0.4"
+env_logger = "0.9"
+rand = "0.8"
+futures = { version = "0.3", features = ["executor"] }
+sha1 = "0.10.5"
+critical-section = { version = "1.1.1", features = ["std"] }
+ed25519-dalek = { version = "2", default_features = false, features = ["std", "rand_core", "digest"]  }
+
+[features]
+ed25519-dalek = ["dep:ed25519-dalek", "_verify"]
+ed25519-salty = ["dep:salty", "_verify"]
+
+#Internal features
+_verify = []

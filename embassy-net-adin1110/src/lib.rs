@@ -5,6 +5,7 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 // must go first!
 mod fmt;
@@ -26,8 +27,9 @@ use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::{Error, Operation, SpiDevice};
 use heapless::Vec;
 pub use mdio::MdioBus;
-pub use phy::{Phy10BaseT1x, RegsC22, RegsC45};
-pub use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
+pub use phy::Phy10BaseT1x;
+use phy::{RegsC22, RegsC45};
+use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 
 use crate::fmt::Bytes;
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity, SpiHeader};
@@ -446,6 +448,7 @@ pub struct Runner<'d, SPI, INT, RST> {
 }
 
 impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
+    /// Run the driver.
     #[allow(clippy::too_many_lines)]
     pub async fn run(mut self) -> ! {
         loop {
@@ -774,19 +777,19 @@ mod tests {
     }
 
     struct TestHarnass {
-        spe: ADIN1110<ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay>>,
-        spi: Generic<SpiTransaction>,
+        spe: ADIN1110<ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay>>,
+        spi: Generic<SpiTransaction<u8>>,
     }
 
     impl TestHarnass {
-        pub fn new(expectations: &[SpiTransaction], spi_crc: bool, append_fcs_on_tx: bool) -> Self {
+        pub fn new(expectations: &[SpiTransaction<u8>], spi_crc: bool, append_fcs_on_tx: bool) -> Self {
             let cs = CsPinMock::default();
             let delay = MockDelay {};
             let spi = SpiMock::new(expectations);
-            let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay> =
+            let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay> =
                 ExclusiveDevice::new(spi.clone(), cs, delay);
             let spe: ADIN1110<
-                ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay>,
+                ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay>,
             > = ADIN1110::new(spi_dev, spi_crc, append_fcs_on_tx);
 
             Self { spe, spi }

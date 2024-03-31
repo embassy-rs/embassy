@@ -3,18 +3,22 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 use crate::Peripheral;
 
+/// CRC driver.
 pub struct Crc<'d> {
     _peripheral: PeripheralRef<'d, CRC>,
     _config: Config,
 }
 
+/// CRC configuration errlr
 pub enum ConfigError {
+    /// The selected polynomial is invalid.
     InvalidPolynomial,
 }
 
+/// CRC configuration
 pub struct Config {
     reverse_in: InputReverseConfig,
     reverse_out: bool,
@@ -25,14 +29,20 @@ pub struct Config {
     crc_poly: u32,
 }
 
+/// Input reverse configuration.
 pub enum InputReverseConfig {
+    /// Don't reverse anything
     None,
+    /// Reverse bytes
     Byte,
+    /// Reverse 16-bit halfwords.
     Halfword,
+    /// Reverse 32-bit words.
     Word,
 }
 
 impl Config {
+    /// Create a new CRC config.
     pub fn new(
         reverse_in: InputReverseConfig,
         reverse_out: bool,
@@ -57,7 +67,9 @@ impl Config {
     }
 }
 
+/// Polynomial size
 #[cfg(crc_v3)]
+#[allow(missing_docs)]
 pub enum PolySize {
     Width7,
     Width8,
@@ -81,6 +93,7 @@ impl<'d> Crc<'d> {
         instance
     }
 
+    /// Reset the CRC engine.
     pub fn reset(&mut self) {
         PAC_CRC.cr().modify(|w| w.set_reset(true));
     }

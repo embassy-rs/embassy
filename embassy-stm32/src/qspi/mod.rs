@@ -1,3 +1,5 @@
+//! Quad Serial Peripheral Interface (QSPI)
+
 #![macro_use]
 
 pub mod enums;
@@ -6,12 +8,12 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::*;
 
 use crate::dma::Transfer;
-use crate::gpio::sealed::AFType;
-use crate::gpio::{AnyPin, Pull};
+use crate::gpio::{AFType, AnyPin, Pull};
 use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
+/// QSPI transfer configuration.
 pub struct TransferConfig {
     /// Instraction width (IMODE)
     pub iwidth: QspiWidth,
@@ -43,6 +45,7 @@ impl Default for TransferConfig {
     }
 }
 
+/// QSPI driver configuration.
 pub struct Config {
     /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
     /// If you need other value the whose predefined use `Other` variant.
@@ -54,7 +57,7 @@ pub struct Config {
     /// Number of bytes to trigger FIFO threshold flag.
     pub fifo_threshold: FIFOThresholdLevel,
     /// Minimum number of cycles that chip select must be high between issued commands
-    pub cs_high_time: ChipSelectHightTime,
+    pub cs_high_time: ChipSelectHighTime,
 }
 
 impl Default for Config {
@@ -64,11 +67,12 @@ impl Default for Config {
             address_size: AddressSize::_24bit,
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
-            cs_high_time: ChipSelectHightTime::_5Cycle,
+            cs_high_time: ChipSelectHighTime::_5Cycle,
         }
     }
 }
 
+/// QSPI driver.
 #[allow(dead_code)]
 pub struct Qspi<'d, T: Instance, Dma> {
     _peri: PeripheralRef<'d, T>,
@@ -83,6 +87,7 @@ pub struct Qspi<'d, T: Instance, Dma> {
 }
 
 impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
+    /// Create a new QSPI driver for bank 1.
     pub fn new_bk1(
         peri: impl Peripheral<P = T> + 'd,
         d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
@@ -119,10 +124,11 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             Some(nss.map_into()),
             dma,
             config,
-            FlashSelection::Flash2,
+            FlashSelection::Flash1,
         )
     }
 
+    /// Create a new QSPI driver for bank 2.
     pub fn new_bk2(
         peri: impl Peripheral<P = T> + 'd,
         d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
@@ -221,6 +227,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         }
     }
 
+    /// Do a QSPI command.
     pub fn command(&mut self, transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
@@ -230,6 +237,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Blocking read data.
     pub fn blocking_read(&mut self, buf: &mut [u8], transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
@@ -254,6 +262,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Blocking write data.
     pub fn blocking_write(&mut self, buf: &[u8], transaction: TransferConfig) {
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
@@ -276,6 +285,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Blocking read data, using DMA.
     pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig)
     where
         Dma: QuadDma<T>,
@@ -308,6 +318,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         transfer.blocking_wait();
     }
 
+    /// Blocking write data, using DMA.
     pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig)
     where
         Dma: QuadDma<T>,
@@ -369,15 +380,13 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        const REGS: Regs;
-    }
+trait SealedInstance {
+    const REGS: Regs;
 }
 
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
+/// QSPI instance trait.
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(BK1D0Pin, Instance);
@@ -396,7 +405,7 @@ dma_trait!(QuadDma, Instance);
 
 foreach_peripheral!(
     (quadspi, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
         }
 

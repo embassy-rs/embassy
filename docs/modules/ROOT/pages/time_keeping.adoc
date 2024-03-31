@@ -1,0 +1,60 @@
+= Time-keeping
+
+In an embedded program, delaying a task is one of the most common actions taken. In an event loop, delays will need to be inserted to ensure
+that other tasks have a chance to run before the next iteration of the loop is called, if no other I/O is performed. Embassy provides abstractions
+to delay the current task for a specified interval of time.
+
+The interface for time-keeping in Embassy is handled by the link:https://crates.io/crates/embassy-time[embassy-time] crate. The types can be used with the internal
+timer queue in link:https://crates.io/crates/embassy-executor[embassy-executor] or a custom timer queue implementation.
+
+== Timer
+
+The `embassy::time::Timer` type provides two timing methods.
+
+`Timer::at` creates a future that completes at the specified `Instant`, relative to the system boot time.
+`Timer::after` creates a future that completes after the specified `Duration`, relative to when the future was created.
+
+An example of a delay is provided as follows:
+
+[,rust]
+----
+use embassy::executor::{task, Executor};
+use embassy::time::{Duration, Timer};
+
+#[task]
+/// Task that ticks periodically
+async fn tick_periodic() -> ! {
+    loop {
+        rprintln!("tick!");
+        // async sleep primitive, suspends the task for 500ms.
+        Timer::after(Duration::from_millis(500)).await;
+    }
+}
+----
+
+== Delay
+
+The `embassy::time::Delay` type provides an implementation of the link:https://docs.rs/embedded-hal/1.0.0/embedded_hal/delay/index.html[embedded-hal] and
+link:https://docs.rs/embedded-hal-async/latest/embedded_hal_async/delay/index.html[embedded-hal-async] traits. This can be used for drivers
+that expect a generic delay implementation to be provided.
+
+An example of how this can be used:
+
+[,rust]
+----
+use embassy::executor::{task, Executor};
+
+#[task]
+/// Task that ticks periodically
+async fn tick_periodic() -> ! {
+    loop {
+        rprintln!("tick!");
+        // async sleep primitive, suspends the task for 500ms.
+        generic_delay(embassy::time::Delay).await
+    }
+}
+
+async fn generic_delay<D: embedded_hal_async::delay::DelayNs>(delay: D) {
+      delay.delay_ms(500).await;
+}
+----

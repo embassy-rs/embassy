@@ -1,3 +1,4 @@
+//! Random Number Generator (RNG)
 #![macro_use]
 
 use core::future::poll_fn;
@@ -13,13 +14,19 @@ use crate::{interrupt, pac, peripherals, Peripheral};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
+/// RNG error
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Seed error.
     SeedError,
+    /// Clock error. Double-check the RCC configuration,
+    /// see the Reference Manual for details on restrictions
+    /// on RNG clocks.
     ClockError,
 }
 
+/// RNG interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -34,11 +41,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
+/// RNG driver.
 pub struct Rng<'d, T: Instance> {
     _inner: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Rng<'d, T> {
+    /// Create a new RNG driver.
     pub fn new(
         inner: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -54,6 +63,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         random
     }
 
+    /// Reset the RNG.
     #[cfg(rng_v1)]
     pub fn reset(&mut self) {
         T::regs().cr().write(|reg| {
@@ -70,6 +80,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         let _ = self.next_u32();
     }
 
+    /// Reset the RNG.
     #[cfg(not(rng_v1))]
     pub fn reset(&mut self) {
         T::regs().cr().write(|reg| {
@@ -106,7 +117,8 @@ impl<'d, T: Instance> Rng<'d, T> {
         while T::regs().cr().read().condrst() {}
     }
 
-    pub fn recover_seed_error(&mut self) -> () {
+    /// Try to recover from a seed error.
+    pub fn recover_seed_error(&mut self) {
         self.reset();
         // reset should also clear the SEIS flag
         if T::regs().sr().read().seis() {
@@ -117,6 +129,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         while T::regs().sr().read().secs() {}
     }
 
+    /// Fill the given slice with random values.
     pub async fn async_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
         for chunk in dest.chunks_mut(4) {
             let mut bits = T::regs().sr().read();
@@ -209,15 +222,14 @@ impl<'d, T: Instance> RngCore for Rng<'d, T> {
 
 impl<'d, T: Instance> CryptoRng for Rng<'d, T> {}
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        fn regs() -> pac::rng::Rng;
-    }
+trait SealedInstance {
+    fn regs() -> pac::rng::Rng;
 }
 
-pub trait Instance: sealed::Instance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+/// RNG instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+    /// Interrupt for this RNG instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
@@ -227,7 +239,7 @@ foreach_interrupt!(
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
 
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> crate::pac::rng::Rng {
                 crate::pac::$inst
             }

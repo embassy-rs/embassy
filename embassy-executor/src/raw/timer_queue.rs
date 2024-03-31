@@ -1,7 +1,5 @@
 use core::cmp::min;
 
-use embassy_time::Instant;
-
 use super::TaskRef;
 use crate::raw::util::SyncUnsafeCell;
 
@@ -30,7 +28,7 @@ impl TimerQueue {
 
     pub(crate) unsafe fn update(&self, p: TaskRef) {
         let task = p.header();
-        if task.expires_at.get() != Instant::MAX {
+        if task.expires_at.get() != u64::MAX {
             if task.state.timer_enqueue() {
                 task.timer_queue_item.next.set(self.head.get());
                 self.head.set(Some(p));
@@ -38,18 +36,18 @@ impl TimerQueue {
         }
     }
 
-    pub(crate) unsafe fn next_expiration(&self) -> Instant {
-        let mut res = Instant::MAX;
+    pub(crate) unsafe fn next_expiration(&self) -> u64 {
+        let mut res = u64::MAX;
         self.retain(|p| {
             let task = p.header();
             let expires = task.expires_at.get();
             res = min(res, expires);
-            expires != Instant::MAX
+            expires != u64::MAX
         });
         res
     }
 
-    pub(crate) unsafe fn dequeue_expired(&self, now: Instant, on_task: impl Fn(TaskRef)) {
+    pub(crate) unsafe fn dequeue_expired(&self, now: u64, on_task: impl Fn(TaskRef)) {
         self.retain(|p| {
             let task = p.header();
             if task.expires_at.get() <= now {

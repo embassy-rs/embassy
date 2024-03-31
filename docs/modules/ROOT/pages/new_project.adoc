@@ -1,6 +1,17 @@
 = Starting a new Embassy project
 
-Once you’ve successfully xref:getting_started.adoc[run some example projects], the next step is to make a standalone Embassy project. The easiest way to do this is to adapt an example for a similar chip to the one you’re targeting.
+Once you’ve successfully xref:getting_started.adoc[run some example projects], the next step is to make a standalone Embassy project.
+
+There are some tools for generating Embassy projects: (WIP)
+
+==== CLI
+- link:https://github.com/adinack/cargo-embassy[cargo-embassy] (STM32 and NRF)
+
+==== cargo-generate
+- link:https://github.com/lulf/embassy-template[embassy-template] (STM32, NRF, and RP)
+- link:https://github.com/bentwire/embassy-rp2040-template[embassy-rp2040-template] (RP)
+
+But if you want to start from scratch:
 
 As an example, let’s create a new embassy project from scratch for a STM32G474. The same instructions are applicable for any supported chip with some minor changes.
 
@@ -166,13 +177,13 @@ should result in a blinking LED (if there’s one attached to the pin in `src/ma
      Erasing sectors ✔ [00:00:00] [#########################################################] 18.00 KiB/18.00 KiB @ 54.09 KiB/s (eta 0s )
  Programming pages   ✔ [00:00:00] [#########################################################] 17.00 KiB/17.00 KiB @ 35.91 KiB/s (eta 0s )    Finished in 0.817s
 0.000000 TRACE BDCR configured: 00008200
-└─ embassy_stm32::rcc::bd::{impl#3}::init::{closure#4} @ /home/you/.cargo/git/checkouts/embassy-9312dcb0ed774b29/7703f47/embassy-stm32/src/fmt.rs:117 
+└─ embassy_stm32::rcc::bd::{impl#3}::init::{closure#4} @ /home/you/.cargo/git/checkouts/embassy-9312dcb0ed774b29/7703f47/embassy-stm32/src/fmt.rs:117
 0.000000 DEBUG rcc: Clocks { sys: Hertz(16000000), pclk1: Hertz(16000000), pclk1_tim: Hertz(16000000), pclk2: Hertz(16000000), pclk2_tim: Hertz(16000000), hclk1: Hertz(16000000), hclk2: Hertz(16000000), pll1_p: None, adc: None, adc34: None, rtc: Some(Hertz(32000)) }
-└─ embassy_stm32::rcc::set_freqs @ /home/you/.cargo/git/checkouts/embassy-9312dcb0ed774b29/7703f47/embassy-stm32/src/fmt.rs:130 
+└─ embassy_stm32::rcc::set_freqs @ /home/you/.cargo/git/checkouts/embassy-9312dcb0ed774b29/7703f47/embassy-stm32/src/fmt.rs:130
 0.000000 INFO  Hello World!
-└─ embassy_stm32g474::____embassy_main_task::{async_fn#0} @ src/main.rs:14  
+└─ embassy_stm32g474::____embassy_main_task::{async_fn#0} @ src/main.rs:14
 0.000091 INFO  high
-└─ embassy_stm32g474::____embassy_main_task::{async_fn#0} @ src/main.rs:19  
+└─ embassy_stm32g474::____embassy_main_task::{async_fn#0} @ src/main.rs:19
 0.300201 INFO  low
-└─ embassy_stm32g474::____embassy_main_task::{async_fn#0} @ src/main.rs:23  
+└─ embassy_stm32g474::____embassy_main_task::{async_fn#0} @ src/main.rs:23
 ----

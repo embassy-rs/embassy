@@ -284,6 +284,7 @@ impl ConfigurableChannel for AnyConfigurableChannel {
     }
 }
 
+#[cfg(not(feature = "nrf51"))]
 macro_rules! impl_ppi_channel {
     ($type:ident, $number:expr) => {
         impl crate::ppi::sealed::Channel for peripherals::$type {}

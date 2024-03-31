@@ -9,8 +9,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 embassy-sync = { version = "0.5.0", path = "../../embassy-sync", features = ["log"] }
-embassy-executor = { version = "0.4.0", path = "../../embassy-executor", features = ["arch-wasm", "executor-thread", "log", "nightly", "integrated-timers"] }
-embassy-time = { version = "0.2", path = "../../embassy-time", features = ["log", "wasm", ] }
+embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["arch-wasm", "executor-thread", "log", "integrated-timers"] }
+embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["log", "wasm", ] }
 
 wasm-logger = "0.2.0"
 wasm-bindgen = "0.2"

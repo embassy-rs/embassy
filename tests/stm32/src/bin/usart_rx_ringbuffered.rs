@@ -74,7 +74,7 @@ async fn transmit_task(mut tx: UartTx<'static, peris::UART, peris::UART_TX_DMA>)
 }
 
 #[embassy_executor::task]
-async fn receive_task(mut rx: RingBufferedUartRx<'static, peris::UART, peris::UART_RX_DMA>) {
+async fn receive_task(mut rx: RingBufferedUartRx<'static, peris::UART>) {
     info!("Ready to receive...");
 
     let mut rng = ChaCha8Rng::seed_from_u64(1337);

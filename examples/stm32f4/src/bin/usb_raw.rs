@@ -48,13 +48,12 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usb_otg::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
+use embassy_stm32::usb::Driver;
+use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;
@@ -67,7 +66,7 @@ use {defmt_rtt as _, panic_probe as _};
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{DAC2087C-63FA-458D-A55D-827C0762DEC7}"];
 
 bind_interrupts!(struct Irqs {
-    OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
+    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
 
 #[embassy_executor::main]
@@ -93,12 +92,13 @@ async fn main(_spawner: Spawner) {
         config.rcc.apb1_pre = APBPrescaler::DIV4;
         config.rcc.apb2_pre = APBPrescaler::DIV2;
         config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
     }
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
-    let mut config = embassy_stm32::usb_otg::Config::default();
+    let mut config = embassy_stm32::usb::Config::default();
     config.vbus_detection = true;
     let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
 
@@ -117,7 +117,6 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut msos_descriptor = [0; 256];
@@ -130,7 +129,6 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut msos_descriptor,

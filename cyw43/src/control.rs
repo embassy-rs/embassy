@@ -3,7 +3,7 @@ use core::iter::zip;
 
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer};
 
 use crate::consts::*;
 use crate::events::{Event, EventSubscriber, Events};
@@ -12,21 +12,64 @@ use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
 use crate::{countries, events, PowerManagementMode};
 
+/// Control errors.
 #[derive(Debug)]
 pub struct Error {
+    /// Status code.
     pub status: u32,
 }
 
+/// Multicast errors.
 #[derive(Debug)]
 pub enum AddMulticastAddressError {
+    /// Not a multicast address.
     NotMulticast,
+    /// No free address slots.
     NoFreeSlots,
 }
 
+/// Control driver.
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     events: &'a Events,
     ioctl_state: &'a IoctlState,
+}
+
+#[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ScanType {
+    Active,
+    Passive,
+}
+
+#[derive(Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ScanOptions {
+    pub ssid: Option<heapless::String<32>>,
+    /// If set to `None`, all APs will be returned. If set to `Some`, only APs
+    /// with the specified BSSID will be returned.
+    pub bssid: Option<[u8; 6]>,
+    /// Number of probes to send on each channel.
+    pub nprobes: Option<u16>,
+    /// Time to spend waiting on the home channel.
+    pub home_time: Option<Duration>,
+    /// Scan type: active or passive.
+    pub scan_type: ScanType,
+    /// Period of time to wait on each channel when passive scanning.
+    pub dwell_time: Option<Duration>,
+}
+
+impl Default for ScanOptions {
+    fn default() -> Self {
+        Self {
+            ssid: None,
+            bssid: None,
+            nprobes: None,
+            home_time: None,
+            scan_type: ScanType::Passive,
+            dwell_time: None,
+        }
+    }
 }
 
 impl<'a> Control<'a> {
@@ -38,6 +81,7 @@ impl<'a> Control<'a> {
         }
     }
 
+    /// Initialize WiFi controller.
     pub async fn init(&mut self, clm: &[u8]) {
         const CHUNK_SIZE: usize = 1024;
 
@@ -154,6 +198,7 @@ impl<'a> Control<'a> {
         self.ioctl(IoctlType::Set, IOCTL_CMD_DOWN, 0, &mut []).await;
     }
 
+    /// Set power management mode.
     pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
         // power save mode
         let mode_num = mode.mode();
@@ -166,6 +211,7 @@ impl<'a> Control<'a> {
         self.ioctl_set_u32(86, 0, mode_num).await;
     }
 
+    /// Join an unprotected network with the provided ssid.
     pub async fn join_open(&mut self, ssid: &str) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
@@ -183,6 +229,7 @@ impl<'a> Control<'a> {
         self.wait_for_join(i).await
     }
 
+    /// Join an protected network with the provided ssid and passphrase.
     pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
@@ -250,16 +297,19 @@ impl<'a> Control<'a> {
         }
     }
 
+    /// Set GPIO pin on WiFi chip.
     pub async fn gpio_set(&mut self, gpio_n: u8, gpio_en: bool) {
         assert!(gpio_n < 3);
         self.set_iovar_u32x2("gpioout", 1 << gpio_n, if gpio_en { 1 << gpio_n } else { 0 })
             .await
     }
 
+    /// Start open access point.
     pub async fn start_ap_open(&mut self, ssid: &str, channel: u8) {
         self.start_ap(ssid, "", Security::OPEN, channel).await;
     }
 
+    /// Start WPA2 protected access point.
     pub async fn start_ap_wpa2(&mut self, ssid: &str, passphrase: &str, channel: u8) {
         self.start_ap(ssid, passphrase, Security::WPA2_AES_PSK, channel).await;
     }
@@ -458,22 +508,54 @@ impl<'a> Control<'a> {
     /// # Note
     /// Device events are currently implemented using a bounded queue.
     /// To not miss any events, you should make sure to always await the stream.
-    pub async fn scan(&mut self) -> Scanner<'_> {
+    pub async fn scan(&mut self, scan_opts: ScanOptions) -> Scanner<'_> {
+        const SCANTYPE_ACTIVE: u8 = 0;
         const SCANTYPE_PASSIVE: u8 = 1;
+
+        let dwell_time = match scan_opts.dwell_time {
+            None => !0,
+            Some(t) => {
+                let mut t = t.as_millis() as u32;
+                if t == !0 {
+                    t = !0 - 1;
+                }
+                t
+            }
+        };
+
+        let mut active_time = !0;
+        let mut passive_time = !0;
+        let scan_type = match scan_opts.scan_type {
+            ScanType::Active => {
+                active_time = dwell_time;
+                SCANTYPE_ACTIVE
+            }
+            ScanType::Passive => {
+                passive_time = dwell_time;
+                SCANTYPE_PASSIVE
+            }
+        };
 
         let scan_params = ScanParams {
             version: 1,
             action: 1,
             sync_id: 1,
-            ssid_len: 0,
-            ssid: [0; 32],
-            bssid: [0xff; 6],
+            ssid_len: scan_opts.ssid.as_ref().map(|e| e.as_bytes().len() as u32).unwrap_or(0),
+            ssid: scan_opts
+                .ssid
+                .map(|e| {
+                    let mut ssid = [0; 32];
+                    ssid[..e.as_bytes().len()].copy_from_slice(e.as_bytes());
+                    ssid
+                })
+                .unwrap_or([0; 32]),
+            bssid: scan_opts.bssid.unwrap_or([0xff; 6]),
             bss_type: 2,
-            scan_type: SCANTYPE_PASSIVE,
-            nprobes: !0,
-            active_time: !0,
-            passive_time: !0,
-            home_time: !0,
+            scan_type,
+            nprobes: scan_opts.nprobes.unwrap_or(!0).into(),
+            active_time,
+            passive_time,
+            home_time: scan_opts.home_time.map(|e| e.as_millis() as u32).unwrap_or(!0),
             channel_num: 0,
             channel_list: [0; 1],
         };
@@ -494,13 +576,14 @@ impl<'a> Control<'a> {
     }
 }
 
+/// WiFi network scanner.
 pub struct Scanner<'a> {
     subscriber: EventSubscriber<'a>,
     events: &'a Events,
 }
 
 impl Scanner<'_> {
-    /// wait for the next found network
+    /// Wait for the next found network.
     pub async fn next(&mut self) -> Option<BssInfo> {
         let event = self.subscriber.next_message_pure().await;
         if event.header.status != EStatus::PARTIAL {

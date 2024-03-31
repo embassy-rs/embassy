@@ -49,7 +49,7 @@ pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStre
         },
     }
 
-    let mut arg_names = Vec::new();
+    let mut args = Vec::new();
     let mut fargs = f.sig.inputs.clone();
 
     for arg in fargs.iter_mut() {
@@ -59,8 +59,8 @@ pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStre
             }
             syn::FnArg::Typed(t) => match t.pat.as_mut() {
                 syn::Pat::Ident(id) => {
-                    arg_names.push(id.ident.clone());
                     id.mutability = None;
+                    args.push((id.clone(), t.attrs.clone()));
                 }
                 _ => {
                     ctxt.error_spanned_by(arg, "pattern matching in task arguments is not yet supported");
@@ -79,13 +79,35 @@ pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStre
     task_inner.vis = syn::Visibility::Inherited;
     task_inner.sig.ident = task_inner_ident.clone();
 
+    // assemble the original input arguments,
+    // including any attributes that may have
+    // been applied previously
+    let mut full_args = Vec::new();
+    for (arg, cfgs) in args {
+        full_args.push(quote!(
+            #(#cfgs)*
+            #arg
+        ));
+    }
+
     #[cfg(feature = "nightly")]
     let mut task_outer: ItemFn = parse_quote! {
         #visibility fn #task_ident(#fargs) -> ::embassy_executor::SpawnToken<impl Sized> {
-            type Fut = impl ::core::future::Future + 'static;
+            trait _EmbassyInternalTaskTrait {
+                type Fut: ::core::future::Future + 'static;
+                fn construct(#fargs) -> Self::Fut;
+            }
+
+            impl _EmbassyInternalTaskTrait for () {
+                type Fut = impl core::future::Future + 'static;
+                fn construct(#fargs) -> Self::Fut {
+                    #task_inner_ident(#(#full_args,)*)
+                }
+            }
+
             const POOL_SIZE: usize = #pool_size;
-            static POOL: ::embassy_executor::raw::TaskPool<Fut, POOL_SIZE> = ::embassy_executor::raw::TaskPool::new();
-            unsafe { POOL._spawn_async_fn(move || #task_inner_ident(#(#arg_names,)*)) }
+            static POOL: ::embassy_executor::raw::TaskPool<<() as _EmbassyInternalTaskTrait>::Fut, POOL_SIZE> = ::embassy_executor::raw::TaskPool::new();
+            unsafe { POOL._spawn_async_fn(move || <() as _EmbassyInternalTaskTrait>::construct(#(#full_args,)*)) }
         }
     };
     #[cfg(not(feature = "nightly"))]
@@ -93,7 +115,7 @@ pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStre
         #visibility fn #task_ident(#fargs) -> ::embassy_executor::SpawnToken<impl Sized> {
             const POOL_SIZE: usize = #pool_size;
             static POOL: ::embassy_executor::_export::TaskPoolRef = ::embassy_executor::_export::TaskPoolRef::new();
-            unsafe { POOL.get::<_, POOL_SIZE>()._spawn_async_fn(move || #task_inner_ident(#(#arg_names,)*)) }
+            unsafe { POOL.get::<_, POOL_SIZE>()._spawn_async_fn(move || #task_inner_ident(#(#full_args,)*)) }
         }
     };
 

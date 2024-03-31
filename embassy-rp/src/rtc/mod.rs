@@ -1,3 +1,4 @@
+//! RTC driver.
 mod filter;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
@@ -28,8 +29,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
         // Set the RTC divider
         inner.regs().clkdiv_m1().write(|w| w.set_clkdiv_m1(clk_rtc_freq() - 1));
 
-        let result = Self { inner };
-        result
+        Self { inner }
     }
 
     /// Enable or disable the leap year check. The rp2040 chip will always add a Feb 29th on every year that is divisable by 4, but this may be incorrect (e.g. on century years). This function allows you to disable this check.
@@ -194,6 +194,7 @@ mod sealed {
     }
 }
 
+/// RTC peripheral instance.
 pub trait Instance: sealed::Instance {}
 
 impl sealed::Instance for crate::peripherals::RTC {

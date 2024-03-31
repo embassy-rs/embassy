@@ -1,4 +1,3 @@
-use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, AtomicBool, Ordering};
 
@@ -9,7 +8,7 @@ use pac::FLASH_SIZE;
 use super::{FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
-
+#[allow(missing_docs)] // TODO
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 mod alt_regions {
     use core::marker::PhantomData;
@@ -227,8 +226,8 @@ pub(crate) unsafe fn lock() {
 
 pub(crate) unsafe fn unlock() {
     if pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write(|w| w.set_key(0x45670123));
-        pac::FLASH.keyr().write(|w| w.set_key(0xCDEF89AB));
+        pac::FLASH.keyr().write_value(0x4567_0123);
+        pac::FLASH.keyr().write_value(0xCDEF_89AB);
     }
 }
 
@@ -337,7 +336,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
 pub(crate) fn clear_all_err() {
     // read and write back the same value.
-    // This clears all "write 0 to clear" bits.
+    // This clears all "write 1 to clear" bits.
     pac::FLASH.sr().modify(|_| {});
 }
 

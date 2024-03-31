@@ -1,5 +1,10 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
+
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -25,15 +30,13 @@ pub mod rom_data;
 pub mod rtc;
 pub mod spi;
 #[cfg(feature = "time-driver")]
-pub mod timer;
+pub mod time_driver;
 pub mod uart;
 pub mod usb;
 pub mod watchdog;
 
 // PIO
-// TODO: move `pio_instr_util` and `relocate` to inside `pio`
 pub mod pio;
-pub mod pio_instr_util;
 pub(crate) mod relocate;
 
 // Reexports
@@ -235,8 +238,8 @@ select_bootloader! {
 }
 
 /// Installs a stack guard for the CORE0 stack in MPU region 0.
-/// Will fail if the MPU is already confgigured. This function requires
-/// a `_stack_end` symbol to be defined by the linker script, and expexcts
+/// Will fail if the MPU is already configured. This function requires
+/// a `_stack_end` symbol to be defined by the linker script, and expects
 /// `_stack_end` to be located at the lowest address (largest depth) of
 /// the stack.
 ///
@@ -247,7 +250,6 @@ select_bootloader! {
 /// # Usage
 ///
 /// ```no_run
-/// #![feature(type_alias_impl_trait)]
 /// use embassy_rp::install_core0_stack_guard;
 /// use embassy_executor::{Executor, Spawner};
 ///
@@ -272,7 +274,7 @@ pub fn install_core0_stack_guard() -> Result<(), ()> {
     extern "C" {
         static mut _stack_end: usize;
     }
-    unsafe { install_stack_guard(&mut _stack_end as *mut usize) }
+    unsafe { install_stack_guard(core::ptr::addr_of_mut!(_stack_end)) }
 }
 
 #[inline(always)]
@@ -302,11 +304,14 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     Ok(())
 }
 
+/// HAL configuration for RP.
 pub mod config {
     use crate::clocks::ClockConfig;
 
+    /// HAL configuration passed when initializing.
     #[non_exhaustive]
     pub struct Config {
+        /// Clock configuration.
         pub clocks: ClockConfig,
     }
 
@@ -319,12 +324,18 @@ pub mod config {
     }
 
     impl Config {
+        /// Create a new configuration with the provided clock config.
         pub fn new(clocks: ClockConfig) -> Self {
             Self { clocks }
         }
     }
 }
 
+/// Initialize the `embassy-rp` HAL with the provided configuration.
+///
+/// This returns the peripheral singletons that can be used for creating drivers.
+///
+/// This should only be called once at startup, otherwise it panics.
 pub fn init(config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
@@ -333,7 +344,7 @@ pub fn init(config: config::Config) -> Peripherals {
     unsafe {
         clocks::init(config.clocks);
         #[cfg(feature = "time-driver")]
-        timer::init();
+        time_driver::init();
         dma::init();
         gpio::init();
     }
@@ -343,6 +354,7 @@ pub fn init(config: config::Config) -> Peripherals {
 
 /// Extension trait for PAC regs, adding atomic xor/bitset/bitclear writes.
 trait RegExt<T: Copy> {
+    #[allow(unused)]
     fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;

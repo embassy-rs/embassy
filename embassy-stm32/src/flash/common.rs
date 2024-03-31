@@ -12,12 +12,14 @@ use super::{
 use crate::peripherals::FLASH;
 use crate::Peripheral;
 
+/// Internal flash memory driver.
 pub struct Flash<'d, MODE = Async> {
     pub(crate) inner: PeripheralRef<'d, FLASH>,
     pub(crate) _mode: PhantomData<MODE>,
 }
 
 impl<'d> Flash<'d, Blocking> {
+    /// Create a new flash driver, usable in blocking mode.
     pub fn new_blocking(p: impl Peripheral<P = FLASH> + 'd) -> Self {
         into_ref!(p);
 
@@ -29,15 +31,26 @@ impl<'d> Flash<'d, Blocking> {
 }
 
 impl<'d, MODE> Flash<'d, MODE> {
+    /// Split this flash driver into one instance per flash memory region.
+    ///
+    /// See module-level documentation for details on how memory regions work.
     pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
         assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 
-    pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+    /// Blocking read.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
+    /// For example, to read address `0x0800_1234` you have to use offset `0x1234`.
+    pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         blocking_read(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes)
     }
 
+    /// Blocking write.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
+    /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
     pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         unsafe {
             blocking_write(
@@ -50,6 +63,10 @@ impl<'d, MODE> Flash<'d, MODE> {
         }
     }
 
+    /// Blocking erase.
+    ///
+    /// NOTE: `from` and `to` are offsets from the flash start, NOT an absolute address.
+    /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         unsafe { blocking_erase(FLASH_BASE as u32, from, to, erase_sector_unlocked) }
     }
@@ -206,7 +223,7 @@ impl<MODE> embedded_storage::nor_flash::ReadNorFlash for Flash<'_, MODE> {
     const READ_SIZE: usize = READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(offset, bytes)
+        self.blocking_read(offset, bytes)
     }
 
     fn capacity(&self) -> usize {
@@ -230,16 +247,28 @@ impl<MODE> embedded_storage::nor_flash::NorFlash for Flash<'_, MODE> {
 foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl<MODE> crate::_generated::flash_regions::$type_name<'_, MODE> {
+            /// Blocking read.
+            ///
+            /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
+            /// For example, to read address `0x0800_1234` you have to use offset `0x1234`.
             pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 blocking_read(self.0.base, self.0.size, offset, bytes)
             }
         }
 
         impl crate::_generated::flash_regions::$type_name<'_, Blocking> {
+            /// Blocking write.
+            ///
+            /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
+            /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
             pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                 unsafe { blocking_write(self.0.base, self.0.size, offset, bytes, write_chunk_with_critical_section) }
             }
 
+            /// Blocking erase.
+            ///
+            /// NOTE: `from` and `to` are offsets from the flash start, NOT an absolute address.
+            /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
             pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
                 unsafe { blocking_erase(self.0.base, from, to, erase_sector_with_critical_section) }
             }

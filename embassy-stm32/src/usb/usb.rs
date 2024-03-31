@@ -12,13 +12,10 @@ use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
-use super::{DmPin, DpPin, Instance};
-use crate::gpio::sealed::AFType;
-use crate::interrupt::typelevel::Interrupt;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::RccPeripheral;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -244,6 +241,7 @@ struct EndpointData {
     used_out: bool,
 }
 
+/// USB driver.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     alloc: [EndpointData; EP_COUNT],
@@ -251,6 +249,7 @@ pub struct Driver<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
+    /// Create a new USB driver.
     pub fn new(
         _usb: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -258,18 +257,10 @@ impl<'d, T: Instance> Driver<'d, T> {
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
     ) -> Self {
         into_ref!(dp, dm);
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
+
+        super::common_init::<T>();
 
         let regs = T::regs();
-
-        #[cfg(any(stm32l5, stm32wb))]
-        crate::pac::PWR.cr2().modify(|w| w.set_usv(true));
-
-        #[cfg(pwr_h5)]
-        crate::pac::PWR.usbscr().modify(|w| w.set_usb33sv(true));
-
-        <T as RccPeripheral>::enable_and_reset();
 
         regs.cntr().write(|w| {
             w.set_pdwn(false);
@@ -279,13 +270,18 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(time)]
         embassy_time::block_for(embassy_time::Duration::from_millis(100));
         #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.0 / 10);
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 10);
 
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
 
-        dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
-        dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
+        #[cfg(not(stm32l1))]
+        {
+            dp.set_as_af(dp.af_num(), crate::gpio::AFType::OutputPushPull);
+            dm.set_as_af(dm.af_num(), crate::gpio::AFType::OutputPushPull);
+        }
+        #[cfg(stm32l1)]
+        let _ = (dp, dm); // suppress "unused" warnings.
 
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
@@ -442,6 +438,9 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         #[cfg(any(usb_v3, usb_v4))]
         regs.bcdr().write(|w| w.set_dppu(true));
 
+        #[cfg(stm32l1)]
+        crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
+
         trace!("enabled");
 
         let mut ep_types = [EpType::BULK; EP_COUNT - 1];
@@ -465,6 +464,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     }
 }
 
+/// USB bus.
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_types: [EpType; EP_COUNT - 1],
@@ -637,33 +637,25 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
 trait Dir {
     fn dir() -> Direction;
-    fn waker(i: usize) -> &'static AtomicWaker;
 }
 
+/// Marker type for the "IN" direction.
 pub enum In {}
 impl Dir for In {
     fn dir() -> Direction {
         Direction::In
     }
-
-    #[inline]
-    fn waker(i: usize) -> &'static AtomicWaker {
-        &EP_IN_WAKERS[i]
-    }
 }
 
+/// Marker type for the "OUT" direction.
 pub enum Out {}
 impl Dir for Out {
     fn dir() -> Direction {
         Direction::Out
     }
-
-    #[inline]
-    fn waker(i: usize) -> &'static AtomicWaker {
-        &EP_OUT_WAKERS[i]
-    }
 }
 
+/// USB endpoint.
 pub struct Endpoint<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
@@ -695,10 +687,10 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
     }
 
     async fn wait_enabled(&mut self) {
-        trace!("wait_enabled OUT WAITING");
+        trace!("wait_enabled IN WAITING");
         let index = self.info.addr.index();
         poll_fn(|cx| {
-            EP_OUT_WAKERS[index].register(cx.waker());
+            EP_IN_WAKERS[index].register(cx.waker());
             let regs = T::regs();
             if regs.epr(index).read().stat_tx() == Stat::DISABLED {
                 Poll::Pending
@@ -707,7 +699,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
             }
         })
         .await;
-        trace!("wait_enabled OUT OK");
+        trace!("wait_enabled IN OK");
     }
 }
 
@@ -813,6 +805,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     }
 }
 
+/// USB control pipe.
 pub struct ControlPipe<'d, T: Instance> {
     _phantom: PhantomData<&'d mut T>,
     max_packet_size: u16,
@@ -1043,3 +1036,32 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         });
     }
 }
+
+trait SealedInstance {
+    fn regs() -> crate::pac::usb::Usb;
+}
+
+/// USB instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
+    /// Interrupt for this USB instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+// Internal PHY pins
+pin_trait!(DpPin, Instance);
+pin_trait!(DmPin, Instance);
+
+foreach_interrupt!(
+    ($inst:ident, usb, $block:ident, LP, $irq:ident) => {
+        impl SealedInstance for crate::peripherals::$inst {
+            fn regs() -> crate::pac::usb::Usb {
+                crate::pac::$inst
+            }
+        }
+
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+);

@@ -61,9 +61,13 @@ impl Default for Config {
     }
 }
 
+/// PWM input mode.
 pub enum InputMode {
+    /// Level mode.
     Level,
+    /// Rising edge mode.
     RisingEdge,
+    /// Falling edge mode.
     FallingEdge,
 }
 
@@ -77,6 +81,7 @@ impl From<InputMode> for Divmode {
     }
 }
 
+/// PWM driver.
 pub struct Pwm<'d, T: Channel> {
     inner: PeripheralRef<'d, T>,
     pin_a: Option<PeripheralRef<'d, AnyPin>>,
@@ -109,16 +114,18 @@ impl<'d, T: Channel> Pwm<'d, T> {
         }
         Self {
             inner,
-            pin_a: a.into(),
-            pin_b: b.into(),
+            pin_a: a,
+            pin_b: b,
         }
     }
 
+    /// Create PWM driver without any configured pins.
     #[inline]
     pub fn new_free(inner: impl Peripheral<P = T> + 'd, config: Config) -> Self {
         Self::new_inner(inner, None, None, config, Divmode::DIV)
     }
 
+    /// Create PWM driver with a single 'a' as output.
     #[inline]
     pub fn new_output_a(
         inner: impl Peripheral<P = T> + 'd,
@@ -129,6 +136,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
         Self::new_inner(inner, Some(a.map_into()), None, config, Divmode::DIV)
     }
 
+    /// Create PWM driver with a single 'b' pin as output.
     #[inline]
     pub fn new_output_b(
         inner: impl Peripheral<P = T> + 'd,
@@ -139,6 +147,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
         Self::new_inner(inner, None, Some(b.map_into()), config, Divmode::DIV)
     }
 
+    /// Create PWM driver with a 'a' and 'b' pins as output.
     #[inline]
     pub fn new_output_ab(
         inner: impl Peripheral<P = T> + 'd,
@@ -150,6 +159,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
         Self::new_inner(inner, Some(a.map_into()), Some(b.map_into()), config, Divmode::DIV)
     }
 
+    /// Create PWM driver with a single 'b' as input pin.
     #[inline]
     pub fn new_input(
         inner: impl Peripheral<P = T> + 'd,
@@ -161,6 +171,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
         Self::new_inner(inner, None, Some(b.map_into()), config, mode.into())
     }
 
+    /// Create PWM driver with a 'a' and 'b' pins in the desired input mode.
     #[inline]
     pub fn new_output_input(
         inner: impl Peripheral<P = T> + 'd,
@@ -173,12 +184,13 @@ impl<'d, T: Channel> Pwm<'d, T> {
         Self::new_inner(inner, Some(a.map_into()), Some(b.map_into()), config, mode.into())
     }
 
+    /// Set the PWM config.
     pub fn set_config(&mut self, config: &Config) {
         Self::configure(self.inner.regs(), config);
     }
 
     fn configure(p: pac::pwm::Channel, config: &Config) {
-        if config.divider > FixedU16::<fixed::types::extra::U4>::from_bits(0xFF_F) {
+        if config.divider > FixedU16::<fixed::types::extra::U4>::from_bits(0xFFF) {
             panic!("Requested divider is too large");
         }
 
@@ -216,28 +228,33 @@ impl<'d, T: Channel> Pwm<'d, T> {
         while p.csr().read().ph_ret() {}
     }
 
+    /// Read PWM counter.
     #[inline]
     pub fn counter(&self) -> u16 {
         self.inner.regs().ctr().read().ctr()
     }
 
+    /// Write PWM counter.
     #[inline]
     pub fn set_counter(&self, ctr: u16) {
         self.inner.regs().ctr().write(|w| w.set_ctr(ctr))
     }
 
+    /// Wait for channel interrupt.
     #[inline]
     pub fn wait_for_wrap(&mut self) {
         while !self.wrapped() {}
         self.clear_wrapped();
     }
 
+    /// Check if interrupt for channel is set.
     #[inline]
     pub fn wrapped(&mut self) -> bool {
         pac::PWM.intr().read().0 & self.bit() != 0
     }
 
     #[inline]
+    /// Clear interrupt flag.
     pub fn clear_wrapped(&mut self) {
         pac::PWM.intr().write_value(Intr(self.bit() as _));
     }
@@ -248,15 +265,18 @@ impl<'d, T: Channel> Pwm<'d, T> {
     }
 }
 
+/// Batch representation of PWM channels.
 pub struct PwmBatch(u32);
 
 impl PwmBatch {
     #[inline]
+    /// Enable a PWM channel in this batch.
     pub fn enable(&mut self, pwm: &Pwm<'_, impl Channel>) {
         self.0 |= pwm.bit();
     }
 
     #[inline]
+    /// Enable channels in this batch in a PWM.
     pub fn set_enabled(enabled: bool, batch: impl FnOnce(&mut PwmBatch)) {
         let mut en = PwmBatch(0);
         batch(&mut en);
@@ -284,9 +304,12 @@ mod sealed {
     pub trait Channel {}
 }
 
+/// PWM Channel.
 pub trait Channel: Peripheral<P = Self> + sealed::Channel + Sized + 'static {
+    /// Channel number.
     fn number(&self) -> u8;
 
+    /// Channel register block.
     fn regs(&self) -> pac::pwm::Channel {
         pac::PWM.ch(self.number() as _)
     }
@@ -312,7 +335,9 @@ channel!(PWM_CH5, 5);
 channel!(PWM_CH6, 6);
 channel!(PWM_CH7, 7);
 
+/// PWM Pin A.
 pub trait PwmPinA<T: Channel>: GpioPin {}
+/// PWM Pin B.
 pub trait PwmPinB<T: Channel>: GpioPin {}
 
 macro_rules! impl_pin {

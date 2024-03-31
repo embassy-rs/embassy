@@ -1,9 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(nightly, feature(async_fn_in_trait, impl_trait_projections))]
-#![cfg_attr(nightly, allow(stable_features, unknown_lints))]
 #![allow(async_fn_in_trait)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
+
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 #[cfg(not(any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 compile_error!("You must enable at least one of the following features: proto-ipv4, proto-ipv6");
@@ -411,10 +412,12 @@ impl<D: Driver> Stack<D> {
     /// ```ignore
     /// let config = embassy_net::Config::dhcpv4(Default::default());
     ///// Init network stack
-    /// let stack = &*make_static!(embassy_net::Stack::new(
+    /// static RESOURCES: StaticCell<embassy_net::StackResources<2> = StaticCell::new();
+    /// static STACK: StaticCell<embassy_net::Stack> = StaticCell::new();
+    /// let stack = &*STACK.init(embassy_net::Stack::new(
     ///    device,
     ///    config,
-    ///    make_static!(embassy_net::StackResources::<2>::new()),
+    ///    RESOURCES.init(embassy_net::StackResources::new()),
     ///    seed
     /// ));
     /// // Launch network task that runs `stack.run().await`

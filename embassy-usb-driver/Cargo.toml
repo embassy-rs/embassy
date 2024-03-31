@@ -3,6 +3,11 @@ name = "embassy-usb-driver"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Driver trait for `embassy-usb`, an async USB device stack for embedded devices."
+keywords = ["embedded", "async", "usb", "hal", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-usb-driver"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,6 +16,9 @@ src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-driver-v$VERS
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-driver/src/"
 features = ["defmt"]
 target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["defmt"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }

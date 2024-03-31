@@ -30,9 +30,7 @@ use core::ptr::NonNull;
 use core::task::{Context, Poll};
 
 #[cfg(feature = "integrated-timers")]
-use embassy_time::driver::{self, AlarmHandle};
-#[cfg(feature = "integrated-timers")]
-use embassy_time::Instant;
+use embassy_time_driver::AlarmHandle;
 #[cfg(feature = "rtos-trace")]
 use rtos_trace::trace;
 
@@ -50,7 +48,7 @@ pub(crate) struct TaskHeader {
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     #[cfg(feature = "integrated-timers")]
-    pub(crate) expires_at: SyncUnsafeCell<Instant>,
+    pub(crate) expires_at: SyncUnsafeCell<u64>,
     #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
@@ -123,7 +121,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 poll_fn: SyncUnsafeCell::new(None),
 
                 #[cfg(feature = "integrated-timers")]
-                expires_at: SyncUnsafeCell::new(Instant::from_ticks(0)),
+                expires_at: SyncUnsafeCell::new(0),
                 #[cfg(feature = "integrated-timers")]
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
             },
@@ -164,7 +162,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 this.raw.state.despawn();
 
                 #[cfg(feature = "integrated-timers")]
-                this.raw.expires_at.set(Instant::MAX);
+                this.raw.expires_at.set(u64::MAX);
             }
             Poll::Pending => {}
         }
@@ -328,7 +326,7 @@ pub(crate) struct SyncExecutor {
 impl SyncExecutor {
     pub(crate) fn new(pender: Pender) -> Self {
         #[cfg(feature = "integrated-timers")]
-        let alarm = unsafe { unwrap!(driver::allocate_alarm()) };
+        let alarm = unsafe { unwrap!(embassy_time_driver::allocate_alarm()) };
 
         Self {
             run_queue: RunQueue::new(),
@@ -377,18 +375,19 @@ impl SyncExecutor {
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
         #[cfg(feature = "integrated-timers")]
-        driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
+        embassy_time_driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
 
         #[allow(clippy::never_loop)]
         loop {
             #[cfg(feature = "integrated-timers")]
-            self.timer_queue.dequeue_expired(Instant::now(), wake_task_no_pend);
+            self.timer_queue
+                .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
 
             self.run_queue.dequeue_all(|p| {
                 let task = p.header();
 
                 #[cfg(feature = "integrated-timers")]
-                task.expires_at.set(Instant::MAX);
+                task.expires_at.set(u64::MAX);
 
                 if !task.state.run_dequeue() {
                     // If task is not running, ignore it. This can happen in the following scenario:
@@ -418,7 +417,7 @@ impl SyncExecutor {
                 // If this is already in the past, set_alarm might return false
                 // In that case do another poll loop iteration.
                 let next_expiration = self.timer_queue.next_expiration();
-                if driver::set_alarm(self.alarm, next_expiration.as_ticks()) {
+                if embassy_time_driver::set_alarm(self.alarm, next_expiration) {
                     break;
                 }
             }
@@ -568,8 +567,8 @@ pub fn wake_task_no_pend(task: TaskRef) {
 struct TimerQueue;
 
 #[cfg(feature = "integrated-timers")]
-impl embassy_time::queue::TimerQueue for TimerQueue {
-    fn schedule_wake(&'static self, at: Instant, waker: &core::task::Waker) {
+impl embassy_time_queue_driver::TimerQueue for TimerQueue {
+    fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
         let task = waker::task_from_waker(waker);
         let task = task.header();
         unsafe {
@@ -580,7 +579,16 @@ impl embassy_time::queue::TimerQueue for TimerQueue {
 }
 
 #[cfg(feature = "integrated-timers")]
-embassy_time::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
+embassy_time_queue_driver::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
+
+#[cfg(all(feature = "rtos-trace", feature = "integrated-timers"))]
+const fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
 
 #[cfg(feature = "rtos-trace")]
 impl rtos_trace::RtosTraceOSCallbacks for Executor {
@@ -589,7 +597,8 @@ impl rtos_trace::RtosTraceOSCallbacks for Executor {
     }
     #[cfg(feature = "integrated-timers")]
     fn time() -> u64 {
-        Instant::now().as_micros()
+        const GCD_1M: u64 = gcd(embassy_time_driver::TICK_HZ, 1_000_000);
+        embassy_time_driver::now() * (1_000_000 / GCD_1M) / (embassy_time_driver::TICK_HZ / GCD_1M)
     }
     #[cfg(not(feature = "integrated-timers"))]
     fn time() -> u64 {
