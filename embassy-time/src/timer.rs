@@ -203,7 +203,7 @@ impl Ticker {
     }
 
     /// Waits for the next tick.
-    pub fn next(&mut self) -> impl Future<Output = ()> + '_ {
+    pub fn next(&mut self) -> impl Future<Output = ()> + Send + Sync + '_ {
         poll_fn(|cx| {
             if self.expires_at <= Instant::now() {
                 let dur = self.duration;
