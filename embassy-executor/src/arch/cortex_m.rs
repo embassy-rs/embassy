@@ -68,6 +68,9 @@ mod thread {
     pub struct Executor {
         inner: raw::Executor,
         not_send: PhantomData<*mut ()>,
+
+        #[cfg(feature = "measure-cpu-load")]
+        measure: Option<fn(u64, u64)>,
     }
 
     impl Executor {
@@ -76,6 +79,9 @@ mod thread {
             Self {
                 inner: raw::Executor::new(THREAD_PENDER as *mut ()),
                 not_send: PhantomData,
+
+                #[cfg(feature = "measure-cpu-load")]
+                measure: None,
             }
         }
 
@@ -100,9 +106,37 @@ mod thread {
         pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
             init(self.inner.spawner());
 
+            #[cfg(feature = "measure-cpu-load")]
+            let mut previous = Instant::now();
+
+            #[cfg(feature = "measure-cpu-load")]
+            let mut wakeup = previous;
+
+            #[cfg(feature = "measure-cpu-load")]
+            let mut sleep = previous;
+
             loop {
                 unsafe {
+                    #[cfg(feature = "measure-cpu-load")]
+                    {
+                        if let Some( f ) = self.measure {
+                            wakeup = Instant::now();
+
+                            f( (wakeup - previous).as_ticks(), (sleep - previous).as_ticks() );
+
+                            previous = wakeup;
+                        }
+                    }
+
+
+
                     self.inner.poll();
+
+                    #[cfg(feature = "measure-cpu-load")]
+                    if self.measure.is_some() {
+                        sleep = Instant::now();
+                    }
+
                     asm!("wfe");
                 };
             }
