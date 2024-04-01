@@ -136,11 +136,14 @@ mod thread {
             loop {
                 unsafe {
                     #[cfg(feature = "measure-cpu-load")]
+                    if self.measure.is_some() {
+                        wakeup = embassy_time_driver::now();
+                    }
                     {
                         if let Some( f ) = self.measure {
                             wakeup = embassy_time_driver::now();
 
-                            f( (wakeup - previous).as_ticks(), (sleep - previous).as_ticks() );
+                            f(  );
 
                             previous = wakeup;
                         }
@@ -149,8 +152,15 @@ mod thread {
                     self.inner.poll();
 
                     #[cfg(feature = "measure-cpu-load")]
-                    if self.measure.is_some() {
+                    if let Some( f ) = self.measure {
                         sleep = embassy_time_driver::now();
+
+                        let tc = sleep - previous;
+                        let ts = wakeup - previous;
+
+                        f( ts, tc )
+
+                        previous = sleep;
                     }
 
                     asm!("wfe");
