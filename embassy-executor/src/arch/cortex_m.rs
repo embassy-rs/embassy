@@ -139,15 +139,6 @@ mod thread {
                     if self.measure.is_some() {
                         wakeup = embassy_time_driver::now();
                     }
-                    {
-                        if let Some( f ) = self.measure {
-                            wakeup = embassy_time_driver::now();
-
-                            f(  );
-
-                            previous = wakeup;
-                        }
-                    }
 
                     self.inner.poll();
 
@@ -158,7 +149,7 @@ mod thread {
                         let tc = sleep - previous;
                         let ts = wakeup - previous;
 
-                        f( ts, tc )
+                        f( ts, tc );
 
                         previous = sleep;
                     }
