@@ -130,9 +130,6 @@ mod thread {
             #[cfg(feature = "measure-cpu-load")]
             let mut wakeup = previous;
 
-            #[cfg(feature = "measure-cpu-load")]
-            let mut sleep = previous;
-
             loop {
                 unsafe {
                     #[cfg(feature = "measure-cpu-load")]
@@ -144,7 +141,7 @@ mod thread {
 
                     #[cfg(feature = "measure-cpu-load")]
                     if let Some( f ) = self.measure {
-                        sleep = embassy_time_driver::now();
+                        let sleep = embassy_time_driver::now();
 
                         let tc = sleep - previous;
                         let ts = wakeup - previous;
