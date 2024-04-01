@@ -125,7 +125,7 @@ mod thread {
             init(self.inner.spawner());
 
             #[cfg(feature = "measure-cpu-load")]
-            let mut previous = Instant::now();
+            let mut previous = embassy_time::Instant::now();
 
             #[cfg(feature = "measure-cpu-load")]
             let mut wakeup = previous;
@@ -138,7 +138,7 @@ mod thread {
                     #[cfg(feature = "measure-cpu-load")]
                     {
                         if let Some( f ) = self.measure {
-                            wakeup = Instant::now();
+                            wakeup = embassy_time::Instant::now();
 
                             f( (wakeup - previous).as_ticks(), (sleep - previous).as_ticks() );
 
@@ -150,7 +150,7 @@ mod thread {
 
                     #[cfg(feature = "measure-cpu-load")]
                     if self.measure.is_some() {
-                        sleep = Instant::now();
+                        sleep = embassy_time::Instant::now();
                     }
 
                     asm!("wfe");
