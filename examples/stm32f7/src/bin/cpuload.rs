@@ -5,9 +5,9 @@ use defmt::info;
 use embassy_executor::{Executor, Spawner};
 use embassy_stm32::Config;
 use embassy_time::Timer;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-use static_cell::StaticCell;
 
 /// Global executor.
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
@@ -19,13 +19,13 @@ fn main() -> ! {
     let mut executor = embassy_executor::Executor::new();
 
     // Set the measure function.
-    executor.measure_cpu_load( measure );
+    executor.measure_cpu_load(measure);
 
     // Initialize the singleton.
     let executor = EXECUTOR.init(executor);
 
     executor.run(|spawner| {
-        spawner.must_spawn( asyncmain(spawner.clone()) );
+        spawner.must_spawn(asyncmain(spawner.clone()));
     })
 }
 
@@ -36,7 +36,7 @@ async fn asyncmain(_spawner: Spawner) -> ! {
 
     // Modify these values to see the change in CPU load.
     const ITERS: usize = 10_000_000;
-    const DELAY: u64 = 10;
+    const DELAY: u64 = 1000;
 
     info!("Hello World!");
 
@@ -47,7 +47,7 @@ async fn asyncmain(_spawner: Spawner) -> ! {
         }
 
         // Go to sleep.
-        Timer::after_millis( DELAY ).await;
+        Timer::after_millis(DELAY).await;
     }
 }
 

@@ -93,14 +93,14 @@ mod thread {
                 not_send: PhantomData,
 
                 #[cfg(feature = "measure-cpu-load")]
-                measure: Some( f ),
+                measure: Some(f),
             }
         }
 
         #[cfg(feature = "measure-cpu-load")]
         /// Sets the CPU load measurement function.
         pub fn measure_cpu_load(&mut self, f: fn(u64, u64)) {
-            self.measure = Some( f );
+            self.measure = Some(f);
         }
 
         /// Run the executor.
@@ -140,13 +140,13 @@ mod thread {
                     self.inner.poll();
 
                     #[cfg(feature = "measure-cpu-load")]
-                    if let Some( f ) = self.measure {
+                    if let Some(f) = self.measure {
                         let sleep = embassy_time_driver::now();
 
                         let tc = sleep - previous;
                         let ts = wakeup - previous;
 
-                        f( ts, tc );
+                        f(ts, tc);
 
                         previous = sleep;
                     }
