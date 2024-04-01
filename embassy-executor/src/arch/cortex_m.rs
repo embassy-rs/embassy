@@ -85,6 +85,24 @@ mod thread {
             }
         }
 
+        #[cfg(feature = "measure-cpu-load")]
+        /// Create a new Executor with a given CPU load measurement function.
+        pub fn new_with_cpu_load(f: fn(u64, u64)) -> Self {
+            Self {
+                inner: raw::Executor::new(THREAD_PENDER as *mut ()),
+                not_send: PhantomData,
+
+                #[cfg(feature = "measure-cpu-load")]
+                measure: Some( f ),
+            }
+        }
+
+        #[cfg(feature = "measure-cpu-load")]
+        /// Sets the CPU load measurement function.
+        pub fn measure_cpu_load(&mut self, f: fn(u64, u64)) {
+            self.measure = Some( f );
+        }
+
         /// Run the executor.
         ///
         /// The `init` closure is called with a [`Spawner`] that spawns tasks on
@@ -127,8 +145,6 @@ mod thread {
                             previous = wakeup;
                         }
                     }
-
-
 
                     self.inner.poll();
 
