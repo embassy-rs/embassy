@@ -38,6 +38,8 @@ embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver", opti
 embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver", optional = true }
 critical-section = "1.1"
 
+embassy-time = { version = "0.3.0", path = "../embassy-time", optional = true }
+
 document-features = "0.2.7"
 
 # needed for AVR
@@ -69,6 +71,9 @@ turbowakers = []
 
 ## Use the executor-integrated `embassy-time` timer queue.
 integrated-timers = ["dep:embassy-time-driver", "dep:embassy-time-queue-driver"]
+
+## Use embassy-time to measure CPU load
+measure-cpu-load = ["dep:embassy-time"]
 
 #! ### Architecture
 _arch = [] # some arch was picked
