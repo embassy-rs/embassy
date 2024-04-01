@@ -8,10 +8,8 @@ use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-
 /// Global executor.
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
-
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
@@ -50,7 +48,6 @@ async fn asyncmain(_spawner: Spawner) -> ! {
         Timer::after_millis(DELAY).await;
     }
 }
-
 
 /// Sync function that receives the CPU load variables.
 /// `ts`: Sleep time. The amount of timer cycles between the last sleep and the most recent wakeup.
