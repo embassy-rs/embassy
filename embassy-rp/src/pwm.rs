@@ -82,13 +82,13 @@ impl From<InputMode> for Divmode {
 }
 
 /// PWM driver.
-pub struct Pwm<'d, T: Channel> {
+pub struct Pwm<'d, T: Slice> {
     inner: PeripheralRef<'d, T>,
     pin_a: Option<PeripheralRef<'d, AnyPin>>,
     pin_b: Option<PeripheralRef<'d, AnyPin>>,
 }
 
-impl<'d, T: Channel> Pwm<'d, T> {
+impl<'d, T: Slice> Pwm<'d, T> {
     fn new_inner(
         inner: impl Peripheral<P = T> + 'd,
         a: Option<PeripheralRef<'d, AnyPin>>,
@@ -265,18 +265,18 @@ impl<'d, T: Channel> Pwm<'d, T> {
     }
 }
 
-/// Batch representation of PWM channels.
+/// Batch representation of PWM slices.
 pub struct PwmBatch(u32);
 
 impl PwmBatch {
     #[inline]
-    /// Enable a PWM channel in this batch.
-    pub fn enable(&mut self, pwm: &Pwm<'_, impl Channel>) {
+    /// Enable a PWM slice in this batch.
+    pub fn enable(&mut self, pwm: &Pwm<'_, impl Slice>) {
         self.0 |= pwm.bit();
     }
 
     #[inline]
-    /// Enable channels in this batch in a PWM.
+    /// Enable slices in this batch in a PWM.
     pub fn set_enabled(enabled: bool, batch: impl FnOnce(&mut PwmBatch)) {
         let mut en = PwmBatch(0);
         batch(&mut en);
@@ -288,7 +288,7 @@ impl PwmBatch {
     }
 }
 
-impl<'d, T: Channel> Drop for Pwm<'d, T> {
+impl<'d, T: Slice> Drop for Pwm<'d, T> {
     fn drop(&mut self) {
         self.inner.regs().csr().write_clear(|w| w.set_en(false));
         if let Some(pin) = &self.pin_a {
@@ -305,7 +305,7 @@ mod sealed {
 }
 
 /// PWM Slice.
-pub trait Slice: Peripheral<P = Self> + sealed::Channel + Sized + 'static {
+pub trait Slice: Peripheral<P = Self> + sealed::Slice + Sized + 'static {
     /// Slice number.
     fn number(&self) -> u8;
 
