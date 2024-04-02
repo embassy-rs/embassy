@@ -16,7 +16,6 @@ type CS = embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 /// The logger state containing buffers that must live as long as the USB peripheral.
 pub struct LoggerState<'d> {
     state: State<'d>,
-    device_descriptor: [u8; 32],
     config_descriptor: [u8; 128],
     bos_descriptor: [u8; 16],
     msos_descriptor: [u8; 256],
@@ -28,7 +27,6 @@ impl<'d> LoggerState<'d> {
     pub fn new() -> Self {
         Self {
             state: State::new(),
-            device_descriptor: [0; 32],
             config_descriptor: [0; 128],
             bos_descriptor: [0; 16],
             msos_descriptor: [0; 256],
@@ -74,7 +72,6 @@ impl<const N: usize> UsbLogger<N> {
         let mut builder = Builder::new(
             driver,
             config,
-            &mut state.device_descriptor,
             &mut state.config_descriptor,
             &mut state.bos_descriptor,
             &mut state.msos_descriptor,
@@ -151,7 +148,17 @@ struct Writer<'d, const N: usize>(&'d Pipe<CS, N>);
 
 impl<'d, const N: usize> core::fmt::Write for Writer<'d, N> {
     fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
-        let _ = self.0.try_write(s.as_bytes());
+        // The Pipe is implemented in such way that we cannot
+        // write across the wraparound discontinuity.
+        let b = s.as_bytes();
+        if let Ok(n) = self.0.try_write(b) {
+            if n < b.len() {
+                // We wrote some data but not all, attempt again
+                // as the reason might be a wraparound in the
+                // ring buffer, which resolves on second attempt.
+                let _ = self.0.try_write(&b[n..]);
+            }
+        }
         Ok(())
     }
 }

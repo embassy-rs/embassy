@@ -473,10 +473,12 @@ impl sealed::Pin for AnyPin {
 
 // ====================
 
+#[cfg(not(feature = "_nrf51"))]
 pub(crate) trait PselBits {
     fn psel_bits(&self) -> u32;
 }
 
+#[cfg(not(feature = "_nrf51"))]
 impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
     #[inline]
     fn psel_bits(&self) -> u32 {

@@ -35,7 +35,7 @@ const VBAT_CHANNEL: u8 = 17;
 /// Internal voltage reference channel.
 pub struct VrefInt;
 impl<T: Instance> InternalChannel<T> for VrefInt {}
-impl<T: Instance> super::sealed::InternalChannel<T> for VrefInt {
+impl<T: Instance> super::SealedInternalChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
         VREF_CHANNEL
     }
@@ -44,7 +44,7 @@ impl<T: Instance> super::sealed::InternalChannel<T> for VrefInt {
 /// Internal temperature channel.
 pub struct Temperature;
 impl<T: Instance> InternalChannel<T> for Temperature {}
-impl<T: Instance> super::sealed::InternalChannel<T> for Temperature {
+impl<T: Instance> super::SealedInternalChannel<T> for Temperature {
     fn channel(&self) -> u8 {
         TEMP_CHANNEL
     }
@@ -53,7 +53,7 @@ impl<T: Instance> super::sealed::InternalChannel<T> for Temperature {
 /// Internal battery voltage channel.
 pub struct Vbat;
 impl<T: Instance> InternalChannel<T> for Vbat {}
-impl<T: Instance> super::sealed::InternalChannel<T> for Vbat {
+impl<T: Instance> super::SealedInternalChannel<T> for Vbat {
     fn channel(&self) -> u8 {
         VBAT_CHANNEL
     }
@@ -276,7 +276,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn read<P>(&mut self, pin: &mut P) -> u16
     where
         P: AdcPin<T>,
-        P: crate::gpio::sealed::Pin,
+        P: crate::gpio::Pin,
     {
         pin.set_as_analog();
 

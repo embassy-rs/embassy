@@ -30,7 +30,12 @@ impl Registers {
         &mut self.msg_ram_mut().transmit.tbsa[bufidx]
     }
     pub fn msg_ram_mut(&self) -> &mut RegisterBlock {
+        #[cfg(stm32h7)]
+        let ptr = self.msgram.ram(self.msg_ram_offset / 4).as_ptr() as *mut RegisterBlock;
+
+        #[cfg(not(stm32h7))]
         let ptr = self.msgram.as_ptr() as *mut RegisterBlock;
+
         unsafe { &mut (*ptr) }
     }
 
@@ -56,7 +61,10 @@ impl Registers {
         match maybe_header {
             Some((header, ts)) => {
                 let data = &buffer[0..header.len() as usize];
-                Some((F::from_header(header, data)?, ts))
+                match F::from_header(header, data) {
+                    Ok(frame) => Some((frame, ts)),
+                    Err(_) => None,
+                }
             }
             None => None,
         }
@@ -182,7 +190,7 @@ impl Registers {
                 DataLength::Fdcan(len) => len,
                 DataLength::Classic(len) => len,
             };
-            if len as usize > ClassicFrame::MAX_DATA_LEN {
+            if len as usize > ClassicData::MAX_DATA_LEN {
                 return None;
             }
 
@@ -317,17 +325,6 @@ impl Registers {
         */
     }
 
-    /// Disables the CAN interface and returns back the raw peripheral it was created from.
-    #[inline]
-    pub fn free(mut self) {
-        //self.disable_interrupts(Interrupts::all());
-
-        //TODO check this!
-        self.enter_init_mode();
-        self.set_power_down_mode(true);
-        //self.control.instance
-    }
-
     /// Applies the settings of a new FdCanConfig See [`FdCanConfig`]
     #[inline]
     pub fn apply_config(&mut self, config: FdCanConfig) {
@@ -400,63 +397,14 @@ impl Registers {
 
     /// Moves out of ConfigMode and into specified mode
     #[inline]
-    pub fn into_mode(mut self, config: FdCanConfig, mode: crate::can::_version::FdcanOperatingMode) {
+    pub fn into_mode(mut self, config: FdCanConfig, mode: crate::can::_version::OperatingMode) {
         match mode {
-            crate::can::FdcanOperatingMode::InternalLoopbackMode => self.set_loopback_mode(LoopbackMode::Internal),
-            crate::can::FdcanOperatingMode::ExternalLoopbackMode => self.set_loopback_mode(LoopbackMode::External),
-            crate::can::FdcanOperatingMode::NormalOperationMode => self.set_normal_operations(true),
-            crate::can::FdcanOperatingMode::RestrictedOperationMode => self.set_restricted_operations(true),
-            crate::can::FdcanOperatingMode::BusMonitoringMode => self.set_bus_monitoring_mode(true),
+            crate::can::OperatingMode::InternalLoopbackMode => self.set_loopback_mode(LoopbackMode::Internal),
+            crate::can::OperatingMode::ExternalLoopbackMode => self.set_loopback_mode(LoopbackMode::External),
+            crate::can::OperatingMode::NormalOperationMode => self.set_normal_operations(true),
+            crate::can::OperatingMode::RestrictedOperationMode => self.set_restricted_operations(true),
+            crate::can::OperatingMode::BusMonitoringMode => self.set_bus_monitoring_mode(true),
         }
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into InternalLoopbackMode
-    #[inline]
-    pub fn into_internal_loopback(mut self, config: FdCanConfig) {
-        self.set_loopback_mode(LoopbackMode::Internal);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into ExternalLoopbackMode
-    #[inline]
-    pub fn into_external_loopback(mut self, config: FdCanConfig) {
-        self.set_loopback_mode(LoopbackMode::External);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into RestrictedOperationMode
-    #[inline]
-    pub fn into_restricted(mut self, config: FdCanConfig) {
-        self.set_restricted_operations(true);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into NormalOperationMode
-    #[inline]
-    pub fn into_normal(mut self, config: FdCanConfig) {
-        self.set_normal_operations(true);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into BusMonitoringMode
-    #[inline]
-    pub fn into_bus_monitoring(mut self, config: FdCanConfig) {
-        self.set_bus_monitoring_mode(true);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into Testmode
-    #[inline]
-    pub fn into_test_mode(mut self, config: FdCanConfig) {
-        self.set_test_mode(true);
-        self.leave_init_mode(config);
-    }
-
-    /// Moves out of ConfigMode and into PoweredDownmode
-    #[inline]
-    pub fn into_powered_down(mut self, config: FdCanConfig) {
-        self.set_power_down_mode(true);
         self.leave_init_mode(config);
     }
 
@@ -557,6 +505,7 @@ impl Registers {
 
     /// Configures and resets the timestamp counter
     #[inline]
+    #[allow(unused)]
     pub fn set_timestamp_counter_source(&mut self, select: TimestampSource) {
         #[cfg(stm32h7)]
         let (tcp, tss) = match select {
@@ -634,7 +583,7 @@ impl Registers {
 
         use crate::can::fd::message_ram::*;
         //use fdcan::message_ram::*;
-        let mut offset_words = self.msg_ram_offset as u16;
+        let mut offset_words = (self.msg_ram_offset / 4) as u16;
 
         // 11-bit filter
         r.sidfc().modify(|w| w.set_flssa(offset_words));

@@ -1,4 +1,4 @@
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
@@ -10,8 +10,7 @@ use super::ringbuffer::{DmaCtrl, OverrunError, ReadableDmaRingBuffer, WritableDm
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Channel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
-use crate::interrupt::Priority;
-use crate::pac;
+use crate::{interrupt, pac};
 
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
@@ -45,6 +44,8 @@ pub struct TransferOptions {
     /// FIFO threshold for DMA FIFO mode. If none, direct mode is used.
     #[cfg(dma)]
     pub fifo_threshold: Option<FifoThreshold>,
+    /// Request priority level
+    pub priority: Priority,
     /// Enable circular DMA
     ///
     /// Note:
@@ -68,9 +69,48 @@ impl Default for TransferOptions {
             flow_ctrl: FlowControl::Dma,
             #[cfg(dma)]
             fifo_threshold: None,
+            priority: Priority::VeryHigh,
             circular: false,
             half_transfer_ir: false,
             complete_transfer_ir: true,
+        }
+    }
+}
+
+/// DMA request priority
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Priority {
+    /// Low Priority
+    Low,
+    /// Medium Priority
+    Medium,
+    /// High Priority
+    High,
+    /// Very High Priority
+    VeryHigh,
+}
+
+#[cfg(dma)]
+impl From<Priority> for pac::dma::vals::Pl {
+    fn from(value: Priority) -> Self {
+        match value {
+            Priority::Low => pac::dma::vals::Pl::LOW,
+            Priority::Medium => pac::dma::vals::Pl::MEDIUM,
+            Priority::High => pac::dma::vals::Pl::HIGH,
+            Priority::VeryHigh => pac::dma::vals::Pl::VERYHIGH,
+        }
+    }
+}
+
+#[cfg(bdma)]
+impl From<Priority> for pac::bdma::vals::Pl {
+    fn from(value: Priority) -> Self {
+        match value {
+            Priority::Low => pac::bdma::vals::Pl::LOW,
+            Priority::Medium => pac::bdma::vals::Pl::MEDIUM,
+            Priority::High => pac::bdma::vals::Pl::HIGH,
+            Priority::VeryHigh => pac::bdma::vals::Pl::VERYHIGH,
         }
     }
 }
@@ -213,8 +253,8 @@ impl ChannelState {
 /// safety: must be called only once
 pub(crate) unsafe fn init(
     cs: critical_section::CriticalSection,
-    #[cfg(dma)] dma_priority: Priority,
-    #[cfg(bdma)] bdma_priority: Priority,
+    #[cfg(dma)] dma_priority: interrupt::Priority,
+    #[cfg(bdma)] bdma_priority: interrupt::Priority,
 ) {
     foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
@@ -334,7 +374,7 @@ impl AnyChannel {
                     w.set_dir(dir.into());
                     w.set_msize(data_size.into());
                     w.set_psize(data_size.into());
-                    w.set_pl(pac::dma::vals::Pl::VERYHIGH);
+                    w.set_pl(options.priority.into());
                     w.set_minc(incr_mem);
                     w.set_pinc(false);
                     w.set_teie(true);
@@ -374,7 +414,7 @@ impl AnyChannel {
                     w.set_tcie(options.complete_transfer_ir);
                     w.set_htie(options.half_transfer_ir);
                     w.set_circ(options.circular);
-                    w.set_pl(pac::bdma::vals::Pl::VERYHIGH);
+                    w.set_pl(options.priority.into());
                     w.set_en(false); // don't start yet
                 });
             }
@@ -468,6 +508,31 @@ impl AnyChannel {
             DmaInfo::Dma(r) => r.st(info.num).ndtr().read().ndt(),
             #[cfg(bdma)]
             DmaInfo::Bdma(r) => r.ch(info.num).ndtr().read().ndt(),
+        }
+    }
+
+    fn disable_circular_mode(&self) {
+        let info = self.info();
+        match self.info().dma {
+            #[cfg(dma)]
+            DmaInfo::Dma(regs) => regs.st(info.num).cr().modify(|w| {
+                w.set_circ(false);
+            }),
+            #[cfg(bdma)]
+            DmaInfo::Bdma(regs) => regs.ch(info.num).cr().modify(|w| {
+                w.set_circ(false);
+            }),
+        }
+    }
+
+    fn poll_stop(&self) -> Poll<()> {
+        use core::sync::atomic::compiler_fence;
+        compiler_fence(Ordering::SeqCst);
+
+        if !self.is_running() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
         }
     }
 }
@@ -789,6 +854,25 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
     }
+
+    /// Stop the DMA transfer and await until the buffer is full.
+    ///
+    /// This disables the DMA transfer's circular mode so that the transfer
+    /// stops when the buffer is full.
+    ///
+    /// This is designed to be used with streaming input data such as the
+    /// I2S/SAI or ADC.
+    ///
+    /// When using the UART, you probably want `request_stop()`.
+    pub async fn stop(&mut self) {
+        self.channel.disable_circular_mode();
+        //wait until cr.susp reads as true
+        poll_fn(|cx| {
+            self.set_waker(cx.waker());
+            self.channel.poll_stop()
+        })
+        .await
+    }
 }
 
 impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
@@ -899,6 +983,23 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
+    }
+
+    /// Stop the DMA transfer and await until the buffer is empty.
+    ///
+    /// This disables the DMA transfer's circular mode so that the transfer
+    /// stops when all available data has been written.
+    ///
+    /// This is designed to be used with streaming output data such as the
+    /// I2S/SAI or DAC.
+    pub async fn stop(&mut self) {
+        self.channel.disable_circular_mode();
+        //wait until cr.susp reads as true
+        poll_fn(|cx| {
+            self.set_waker(cx.waker());
+            self.channel.poll_stop()
+        })
+        .await
     }
 }
 

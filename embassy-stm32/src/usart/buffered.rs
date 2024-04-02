@@ -1,13 +1,10 @@
-use core::future::poll_fn;
 use core::slice;
-use core::sync::atomic::{AtomicBool, Ordering};
-use core::task::Poll;
+use core::sync::atomic::AtomicBool;
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
-use crate::interrupt::typelevel::Interrupt;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: BasicInstance> {
@@ -55,7 +52,7 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
                 // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
             }
 
-            if state.rx_buf.is_full() {
+            if !state.rx_buf.is_empty() {
                 state.rx_waker.wake();
             }
         }

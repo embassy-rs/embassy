@@ -39,7 +39,7 @@ pub struct Vbat;
 impl AdcPin<ADC> for Vbat {}
 
 #[cfg(not(adc_l0))]
-impl super::sealed::AdcPin<ADC> for Vbat {
+impl super::SealedAdcPin<ADC> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
@@ -47,7 +47,7 @@ impl super::sealed::AdcPin<ADC> for Vbat {
 
 pub struct Vref;
 impl AdcPin<ADC> for Vref {}
-impl super::sealed::AdcPin<ADC> for Vref {
+impl super::SealedAdcPin<ADC> for Vref {
     fn channel(&self) -> u8 {
         17
     }
@@ -55,7 +55,7 @@ impl super::sealed::AdcPin<ADC> for Vref {
 
 pub struct Temperature;
 impl AdcPin<ADC> for Temperature {}
-impl super::sealed::AdcPin<ADC> for Temperature {
+impl super::SealedAdcPin<ADC> for Temperature {
     fn channel(&self) -> u8 {
         16
     }

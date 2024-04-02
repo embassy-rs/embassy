@@ -1,4 +1,3 @@
-use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, AtomicBool, Ordering};
 

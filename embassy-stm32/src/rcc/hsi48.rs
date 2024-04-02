@@ -2,7 +2,7 @@
 
 use crate::pac::crs::vals::Syncsrc;
 use crate::pac::{CRS, RCC};
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 use crate::time::Hertz;
 
 /// HSI48 speed

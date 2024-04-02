@@ -13,8 +13,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
 use crate::dma::NoDma;
-use crate::gpio::sealed::{AFType, Pin};
-use crate::gpio::{AnyPin, Pull, Speed};
+use crate::gpio::{AFType, AnyPin, Pull, SealedPin, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::RccPeripheral;
@@ -240,12 +239,14 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
     mburst: crate::dma::Burst::Incr4,
     flow_ctrl: crate::dma::FlowControl::Peripheral,
     fifo_threshold: Some(crate::dma::FifoThreshold::Full),
+    priority: crate::dma::Priority::VeryHigh,
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
 };
 #[cfg(all(sdmmc_v1, not(dma)))]
 const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {
+    priority: crate::dma::Priority::VeryHigh,
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
@@ -1416,21 +1417,17 @@ impl Cmd {
 
 //////////////////////////////////////////////////////
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        type Interrupt: interrupt::typelevel::Interrupt;
-
-        fn regs() -> RegBlock;
-        fn state() -> &'static AtomicWaker;
-    }
-
-    pub trait Pins<T: Instance> {}
+trait SealedInstance {
+    fn regs() -> RegBlock;
+    fn state() -> &'static AtomicWaker;
 }
 
 /// SDMMC instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
+    /// Interrupt for this instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 pin_trait!(CkPin, Instance);
 pin_trait!(CmdPin, Instance);
@@ -1457,9 +1454,7 @@ impl<T: Instance> SdmmcDma<T> for NoDma {}
 
 foreach_peripheral!(
     (sdmmc, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$inst;
-
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> RegBlock {
                 crate::pac::$inst
             }
@@ -1470,6 +1465,8 @@ foreach_peripheral!(
             }
         }
 
-        impl Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$inst;
+        }
     };
 );

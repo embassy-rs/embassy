@@ -190,8 +190,20 @@ impl Ticker {
         self.expires_at = Instant::now() + self.duration;
     }
 
+    /// Reset the ticker at the deadline.
+    /// If the deadline is in the past, the ticker will fire instantly.
+    pub fn reset_at(&mut self, deadline: Instant) {
+        self.expires_at = deadline + self.duration;
+    }
+
+    /// Resets the ticker, after the specified duration has passed.
+    /// If the specified duration is zero, the next tick will be after the duration of the ticker.
+    pub fn reset_after(&mut self, after: Duration) {
+        self.expires_at = Instant::now() + after + self.duration;
+    }
+
     /// Waits for the next tick.
-    pub fn next(&mut self) -> impl Future<Output = ()> + '_ {
+    pub fn next(&mut self) -> impl Future<Output = ()> + Send + Sync + '_ {
         poll_fn(|cx| {
             if self.expires_at <= Instant::now() {
                 let dur = self.duration;

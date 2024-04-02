@@ -1,12 +1,36 @@
 //! Definition for CAN Frames
 use bit_field::BitField;
 
+use crate::can::enums::FrameCreateError;
+
+/// Calculate proper timestamp when available.
+#[cfg(feature = "time")]
+pub type Timestamp = embassy_time::Instant;
+
+/// Raw register timestamp
+#[cfg(not(feature = "time"))]
+pub type Timestamp = u16;
+
 /// CAN Header, without meta data
 #[derive(Debug, Copy, Clone)]
 pub struct Header {
     id: embedded_can::Id,
     len: u8,
     flags: u8,
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Header {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        match self.id() {
+            embedded_can::Id::Standard(id) => {
+                defmt::write!(fmt, "Can Standard ID={:x} len={}", id.as_raw(), self.len,)
+            }
+            embedded_can::Id::Extended(id) => {
+                defmt::write!(fmt, "Can Extended ID={:x} len={}", id.as_raw(), self.len,)
+            }
+        }
+    }
 }
 
 impl Header {
@@ -54,13 +78,21 @@ impl Header {
     pub fn bit_rate_switching(&self) -> bool {
         self.flags.get_bit(Self::FLAG_BRS)
     }
+
+    /// Get priority of frame
+    pub(crate) fn priority(&self) -> u32 {
+        match self.id() {
+            embedded_can::Id::Standard(id) => (id.as_raw() as u32) << 18,
+            embedded_can::Id::Extended(id) => id.as_raw(),
+        }
+    }
 }
 
 /// Trait for FDCAN frame types, providing ability to construct from a Header
 /// and to retrieve the Header from a frame
 pub trait CanHeader: Sized {
     /// Construct frame from header and payload
-    fn from_header(header: Header, data: &[u8]) -> Option<Self>;
+    fn from_header(header: Header, data: &[u8]) -> Result<Self, FrameCreateError>;
 
     /// Get this frame's header struct
     fn header(&self) -> &Header;
@@ -70,24 +102,26 @@ pub trait CanHeader: Sized {
 ///
 /// Contains 0 to 8 Bytes of data.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClassicData {
-    pub(crate) bytes: [u8; 8],
+    pub(crate) bytes: [u8; Self::MAX_DATA_LEN],
 }
 
 impl ClassicData {
+    pub(crate) const MAX_DATA_LEN: usize = 8;
     /// Creates a data payload from a raw byte slice.
     ///
     /// Returns `None` if `data` is more than 64 bytes (which is the maximum) or
     /// cannot be represented with an FDCAN DLC.
-    pub fn new(data: &[u8]) -> Option<Self> {
-        if !FdData::is_valid_len(data.len()) {
-            return None;
+    pub fn new(data: &[u8]) -> Result<Self, FrameCreateError> {
+        if data.len() > 8 {
+            return Err(FrameCreateError::InvalidDataLength);
         }
 
         let mut bytes = [0; 8];
         bytes[..data.len()].copy_from_slice(data);
 
-        Some(Self { bytes })
+        Ok(Self { bytes })
     }
 
     /// Raw read access to data.
@@ -110,60 +144,53 @@ impl ClassicData {
     }
 }
 
-/// Frame with up to 8 bytes of data payload as per Classic CAN
+/// Frame with up to 8 bytes of data payload as per Classic(non-FD) CAN
+/// For CAN-FD support use FdFrame
 #[derive(Debug, Copy, Clone)]
-pub struct ClassicFrame {
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Frame {
     can_header: Header,
     data: ClassicData,
 }
 
-impl ClassicFrame {
-    pub(crate) const MAX_DATA_LEN: usize = 8;
-
+impl Frame {
     /// Create a new CAN classic Frame
-    pub fn new(can_header: Header, data: ClassicData) -> ClassicFrame {
-        ClassicFrame { can_header, data }
+    pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
+        let data = ClassicData::new(raw_data)?;
+        Ok(Frame { can_header, data: data })
+    }
+
+    /// Creates a new data frame.
+    pub fn new_data(id: impl Into<embedded_can::Id>, data: &[u8]) -> Result<Self, FrameCreateError> {
+        let eid: embedded_can::Id = id.into();
+        let header = Header::new(eid, data.len() as u8, false);
+        Self::new(header, data)
     }
 
     /// Create new extended frame
-    pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Option<Self> {
+    pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            match ClassicData::new(raw_data) {
-                Some(data) => Some(ClassicFrame::new(
-                    Header::new(id.into(), raw_data.len() as u8, false),
-                    data,
-                )),
-                None => None,
-            }
+            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
         } else {
-            None
+            Err(FrameCreateError::InvalidCanId)
         }
     }
 
     /// Create new standard frame
-    pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Option<Self> {
+    pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            match ClassicData::new(raw_data) {
-                Some(data) => Some(ClassicFrame::new(
-                    Header::new(id.into(), raw_data.len() as u8, false),
-                    data,
-                )),
-                None => None,
-            }
+            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
         } else {
-            None
+            Err(FrameCreateError::InvalidCanId)
         }
     }
 
     /// Create new remote frame
-    pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
+    pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Result<Self, FrameCreateError> {
         if len <= 8usize {
-            Some(ClassicFrame::new(
-                Header::new(id.into(), len as u8, true),
-                ClassicData::empty(),
-            ))
+            Self::new(Header::new(id.into(), len as u8, true), &[0; 8])
         } else {
-            None
+            Err(FrameCreateError::InvalidDataLength)
         }
     }
 
@@ -181,24 +208,28 @@ impl ClassicFrame {
     pub fn data(&self) -> &[u8] {
         &self.data.raw()
     }
+
+    /// Get priority of frame
+    pub fn priority(&self) -> u32 {
+        self.header().priority()
+    }
 }
 
-impl embedded_can::Frame for ClassicFrame {
+impl embedded_can::Frame for Frame {
     fn new(id: impl Into<embedded_can::Id>, raw_data: &[u8]) -> Option<Self> {
-        match ClassicData::new(raw_data) {
-            Some(data) => Some(ClassicFrame::new(
-                Header::new(id.into(), raw_data.len() as u8, false),
-                data,
-            )),
-            None => None,
+        let frameopt = Frame::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data);
+        match frameopt {
+            Ok(frame) => Some(frame),
+            Err(_) => None,
         }
     }
     fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
         if len <= 8 {
-            Some(ClassicFrame::new(
-                Header::new(id.into(), len as u8, true),
-                ClassicData::empty(),
-            ))
+            let frameopt = Frame::new(Header::new(id.into(), len as u8, true), &[0; 8]);
+            match frameopt {
+                Ok(frame) => Some(frame),
+                Err(_) => None,
+            }
         } else {
             None
         }
@@ -223,9 +254,9 @@ impl embedded_can::Frame for ClassicFrame {
     }
 }
 
-impl CanHeader for ClassicFrame {
-    fn from_header(header: Header, data: &[u8]) -> Option<Self> {
-        Some(Self::new(header, ClassicData::new(data)?))
+impl CanHeader for Frame {
+    fn from_header(header: Header, data: &[u8]) -> Result<Self, FrameCreateError> {
+        Self::new(header, data)
     }
 
     fn header(&self) -> &Header {
@@ -233,10 +264,31 @@ impl CanHeader for ClassicFrame {
     }
 }
 
+/// Contains CAN frame and additional metadata.
+///
+/// Timestamp is available if `time` feature is enabled.
+/// For CAN-FD support use FdEnvelope
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Envelope {
+    /// Reception time.
+    pub ts: Timestamp,
+    /// The actual CAN frame.
+    pub frame: Frame,
+}
+
+impl Envelope {
+    /// Convert into a tuple
+    pub fn parts(self) -> (Frame, Timestamp) {
+        (self.frame, self.ts)
+    }
+}
+
 /// Payload of a (FD)CAN data frame.
 ///
 /// Contains 0 to 64 Bytes of data.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FdData {
     pub(crate) bytes: [u8; 64],
 }
@@ -246,15 +298,15 @@ impl FdData {
     ///
     /// Returns `None` if `data` is more than 64 bytes (which is the maximum) or
     /// cannot be represented with an FDCAN DLC.
-    pub fn new(data: &[u8]) -> Option<Self> {
+    pub fn new(data: &[u8]) -> Result<Self, FrameCreateError> {
         if !FdData::is_valid_len(data.len()) {
-            return None;
+            return Err(FrameCreateError::InvalidDataLength);
         }
 
         let mut bytes = [0; 64];
         bytes[..data.len()].copy_from_slice(data);
 
-        Some(Self { bytes })
+        Ok(Self { bytes })
     }
 
     /// Raw read access to data.
@@ -286,6 +338,7 @@ impl FdData {
 
 /// Frame with up to 8 bytes of data payload as per Fd CAN
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FdFrame {
     can_header: Header,
     data: FdData,
@@ -293,40 +346,35 @@ pub struct FdFrame {
 
 impl FdFrame {
     /// Create a new CAN classic Frame
-    pub fn new(can_header: Header, data: FdData) -> FdFrame {
-        FdFrame { can_header, data }
+    pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
+        let data = FdData::new(raw_data)?;
+        Ok(FdFrame { can_header, data })
     }
 
     /// Create new extended frame
-    pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Option<Self> {
+    pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            match FdData::new(raw_data) {
-                Some(data) => Some(FdFrame::new(Header::new(id.into(), raw_data.len() as u8, false), data)),
-                None => None,
-            }
+            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
         } else {
-            None
+            Err(FrameCreateError::InvalidCanId)
         }
     }
 
     /// Create new standard frame
-    pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Option<Self> {
+    pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            match FdData::new(raw_data) {
-                Some(data) => Some(FdFrame::new(Header::new(id.into(), raw_data.len() as u8, false), data)),
-                None => None,
-            }
+            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
         } else {
-            None
+            Err(FrameCreateError::InvalidCanId)
         }
     }
 
     /// Create new remote frame
-    pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
+    pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Result<Self, FrameCreateError> {
         if len <= 8 {
-            Some(FdFrame::new(Header::new(id.into(), len as u8, true), FdData::empty()))
+            Self::new(Header::new(id.into(), len as u8, true), &[0; 8])
         } else {
-            None
+            Err(FrameCreateError::InvalidDataLength)
         }
     }
 
@@ -348,20 +396,17 @@ impl FdFrame {
 
 impl embedded_can::Frame for FdFrame {
     fn new(id: impl Into<embedded_can::Id>, raw_data: &[u8]) -> Option<Self> {
-        match FdData::new(raw_data) {
-            Some(data) => Some(FdFrame::new(
-                Header::new_fd(id.into(), raw_data.len() as u8, false, true),
-                data,
-            )),
-            None => None,
+        match FdFrame::new(Header::new_fd(id.into(), raw_data.len() as u8, false, true), raw_data) {
+            Ok(frame) => Some(frame),
+            Err(_) => None,
         }
     }
     fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
         if len <= 8 {
-            Some(FdFrame::new(
-                Header::new_fd(id.into(), len as u8, true, true),
-                FdData::empty(),
-            ))
+            match FdFrame::new(Header::new_fd(id.into(), len as u8, true, true), &[0; 64]) {
+                Ok(frame) => Some(frame),
+                Err(_) => None,
+            }
         } else {
             None
         }
@@ -388,11 +433,31 @@ impl embedded_can::Frame for FdFrame {
 }
 
 impl CanHeader for FdFrame {
-    fn from_header(header: Header, data: &[u8]) -> Option<Self> {
-        Some(Self::new(header, FdData::new(data)?))
+    fn from_header(header: Header, data: &[u8]) -> Result<Self, FrameCreateError> {
+        Self::new(header, data)
     }
 
     fn header(&self) -> &Header {
         self.header()
+    }
+}
+
+/// Contains CAN FD frame and additional metadata.
+///
+/// Timestamp is available if `time` feature is enabled.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct FdEnvelope {
+    /// Reception time.
+    pub ts: Timestamp,
+
+    /// The actual CAN frame.
+    pub frame: FdFrame,
+}
+
+impl FdEnvelope {
+    /// Convert into a tuple
+    pub fn parts(self) -> (FdFrame, Timestamp) {
+        (self.frame, self.ts)
     }
 }

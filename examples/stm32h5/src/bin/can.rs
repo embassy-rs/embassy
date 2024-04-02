@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
 
     let peripherals = embassy_stm32::init(config);
 
-    let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
+    let mut can = can::CanConfigurator::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
 
     // 250k bps
     can.set_bitrate(250_000);
@@ -38,12 +38,13 @@ async fn main(_spawner: Spawner) {
     let mut last_read_ts = embassy_time::Instant::now();
 
     loop {
-        let frame = can::frame::ClassicFrame::new_extended(0x123456F, &[i; 8]).unwrap();
+        let frame = can::frame::Frame::new_extended(0x123456F, &[i; 8]).unwrap();
         info!("Writing frame");
         _ = can.write(&frame).await;
 
         match can.read().await {
-            Ok((rx_frame, ts)) => {
+            Ok(envelope) => {
+                let (rx_frame, ts) = envelope.parts();
                 let delta = (ts - last_read_ts).as_millis();
                 last_read_ts = ts;
                 info!(
@@ -69,12 +70,13 @@ async fn main(_spawner: Spawner) {
     let (mut tx, mut rx) = can.split();
     // With split
     loop {
-        let frame = can::frame::ClassicFrame::new_extended(0x123456F, &[i; 8]).unwrap();
+        let frame = can::frame::Frame::new_extended(0x123456F, &[i; 8]).unwrap();
         info!("Writing frame");
         _ = tx.write(&frame).await;
 
         match rx.read().await {
-            Ok((rx_frame, ts)) => {
+            Ok(envelope) => {
+                let (rx_frame, ts) = envelope.parts();
                 let delta = (ts - last_read_ts).as_millis();
                 last_read_ts = ts;
                 info!(

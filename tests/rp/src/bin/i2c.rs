@@ -210,10 +210,14 @@ async fn controller_task(con: &mut i2c::I2c<'static, I2C0, i2c::Async>) {
         config.addr = DEV_ADDR as u16;
         let device = i2c_slave::I2cSlave::new(p.I2C1, d_sda, d_scl, Irqs, config);
 
-        spawn_core1(p.CORE1, unsafe { &mut CORE1_STACK }, move || {
-            let executor1 = EXECUTOR1.init(Executor::new());
-            executor1.run(|spawner| unwrap!(spawner.spawn(device_task(device))));
-        });
+        spawn_core1(
+            p.CORE1,
+            unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
+            move || {
+                let executor1 = EXECUTOR1.init(Executor::new());
+                executor1.run(|spawner| unwrap!(spawner.spawn(device_task(device))));
+            },
+        );
 
         let c_sda = p.PIN_21;
         let c_scl = p.PIN_20;

@@ -7,8 +7,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::Transfer;
-use crate::gpio::sealed::AFType;
-use crate::gpio::Speed;
+use crate::gpio::{AFType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, Peripheral};
 
@@ -431,14 +430,13 @@ where
     }
 }
 
-mod sealed {
-    pub trait Instance: crate::rcc::RccPeripheral {
-        fn regs(&self) -> crate::pac::dcmi::Dcmi;
-    }
+trait SealedInstance: crate::rcc::RccPeripheral {
+    fn regs(&self) -> crate::pac::dcmi::Dcmi;
 }
 
 /// DCMI instance.
-pub trait Instance: sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + 'static {
     /// Interrupt for this instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -465,7 +463,7 @@ pin_trait!(PixClkPin, Instance);
 #[allow(unused)]
 macro_rules! impl_peripheral {
     ($inst:ident, $irq:ident) => {
-        impl sealed::Instance for crate::peripherals::$inst {
+        impl SealedInstance for crate::peripherals::$inst {
             fn regs(&self) -> crate::pac::dcmi::Dcmi {
                 crate::pac::$inst
             }

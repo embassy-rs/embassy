@@ -183,14 +183,14 @@ embassy_hal_internal::peripherals! {
     DMA_CH10,
     DMA_CH11,
 
-    PWM_CH0,
-    PWM_CH1,
-    PWM_CH2,
-    PWM_CH3,
-    PWM_CH4,
-    PWM_CH5,
-    PWM_CH6,
-    PWM_CH7,
+    PWM_SLICE0,
+    PWM_SLICE1,
+    PWM_SLICE2,
+    PWM_SLICE3,
+    PWM_SLICE4,
+    PWM_SLICE5,
+    PWM_SLICE6,
+    PWM_SLICE7,
 
     USB,
 
@@ -238,8 +238,8 @@ select_bootloader! {
 }
 
 /// Installs a stack guard for the CORE0 stack in MPU region 0.
-/// Will fail if the MPU is already confgigured. This function requires
-/// a `_stack_end` symbol to be defined by the linker script, and expexcts
+/// Will fail if the MPU is already configured. This function requires
+/// a `_stack_end` symbol to be defined by the linker script, and expects
 /// `_stack_end` to be located at the lowest address (largest depth) of
 /// the stack.
 ///
@@ -274,7 +274,7 @@ pub fn install_core0_stack_guard() -> Result<(), ()> {
     extern "C" {
         static mut _stack_end: usize;
     }
-    unsafe { install_stack_guard(&mut _stack_end as *mut usize) }
+    unsafe { install_stack_guard(core::ptr::addr_of_mut!(_stack_end)) }
 }
 
 #[inline(always)]
@@ -354,6 +354,7 @@ pub fn init(config: config::Config) -> Peripherals {
 
 /// Extension trait for PAC regs, adding atomic xor/bitset/bitclear writes.
 trait RegExt<T: Copy> {
+    #[allow(unused)]
     fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;

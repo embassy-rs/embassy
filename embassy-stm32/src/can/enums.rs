@@ -28,3 +28,25 @@ pub enum BusError {
     ///  At least one of error counter has reached the Error_Warning limit of 96.
     BusWarning,
 }
+
+/// Frame Create Errors
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum FrameCreateError {
+    /// Data in header does not match supplied.
+    NotEnoughData,
+    /// Invalid data length not 0-8 for Classic packet or valid for FD.
+    InvalidDataLength,
+    /// Invalid ID.
+    InvalidCanId,
+}
+
+/// Error returned by `try_read`
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TryReadError {
+    /// Bus error
+    BusError(BusError),
+    /// Receive buffer is empty
+    Empty,
+}

@@ -9,8 +9,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 use crate::dma::{slice_ptr_parts, word, Transfer};
-use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::{AnyPin, Pull};
+use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _};
 use crate::pac::spi::{regs, vals, Spi as Regs};
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
@@ -210,7 +209,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         // see RM0453 rev 1 section 7.2.13 page 291
         // The SUBGHZSPI_SCK frequency is obtained by PCLK3 divided by two.
         // The SUBGHZSPI_SCK clock maximum speed must not exceed 16 MHz.
-        let pclk3_freq = <peripherals::SUBGHZSPI as crate::rcc::sealed::RccPeripheral>::frequency().0;
+        let pclk3_freq = <peripherals::SUBGHZSPI as crate::rcc::SealedRccPeripheral>::frequency().0;
         let freq = Hertz(core::cmp::min(pclk3_freq / 2, 16_000_000));
         let mut config = Config::default();
         config.mode = MODE_0;
@@ -271,13 +270,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 if mosi.is_none() {
                     w.set_rxonly(vals::Rxonly::OUTPUTDISABLED);
                 }
-                w.set_dff(<u8 as sealed::Word>::CONFIG)
+                w.set_dff(<u8 as SealedWord>::CONFIG)
             });
         }
         #[cfg(spi_v2)]
         {
             T::REGS.cr2().modify(|w| {
-                let (ds, frxth) = <u8 as sealed::Word>::CONFIG;
+                let (ds, frxth) = <u8 as SealedWord>::CONFIG;
                 w.set_frxth(frxth);
                 w.set_ds(ds);
                 w.set_ssoe(false);
@@ -317,7 +316,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             T::REGS.cfg1().modify(|w| {
                 w.set_crcen(false);
                 w.set_mbr(br);
-                w.set_dsize(<u8 as sealed::Word>::CONFIG);
+                w.set_dsize(<u8 as SealedWord>::CONFIG);
                 w.set_fthlv(vals::Fthlv::ONEFRAME);
             });
             T::REGS.cr2().modify(|w| {
@@ -336,7 +335,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             miso,
             txdma,
             rxdma,
-            current_word_size: <u8 as sealed::Word>::CONFIG,
+            current_word_size: <u8 as SealedWord>::CONFIG,
         }
     }
 
@@ -700,7 +699,7 @@ use vals::Mbr as Br;
 
 fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> Br {
     let val = match clocks.0 / freq.0 {
-        0 => unreachable!(),
+        0 => panic!("You are trying to reach a frequency higher than the clock"),
         1..=2 => 0b000,
         3..=5 => 0b001,
         6..=11 => 0b010,
@@ -975,24 +974,21 @@ impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::s
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+pub(crate) trait SealedInstance {
+    const REGS: Regs;
+}
 
-    pub trait Instance {
-        const REGS: Regs;
-    }
-
-    pub trait Word {
-        const CONFIG: word_impl::Config;
-    }
+trait SealedWord {
+    const CONFIG: word_impl::Config;
 }
 
 /// Word sizes usable for SPI.
-pub trait Word: word::Word + sealed::Word {}
+#[allow(private_bounds)]
+pub trait Word: word::Word + SealedWord {}
 
 macro_rules! impl_word {
     ($T:ty, $config:expr) => {
-        impl sealed::Word for $T {
+        impl SealedWord for $T {
             const CONFIG: Config = $config;
         }
         impl Word for $T {}
@@ -1068,7 +1064,8 @@ mod word_impl {
 }
 
 /// SPI instance trait.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(MosiPin, Instance);
@@ -1082,7 +1079,7 @@ dma_trait!(TxDma, Instance);
 
 foreach_peripheral!(
     (spi, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
         }
 

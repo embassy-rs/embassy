@@ -33,7 +33,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vref {
+impl<T: Instance> super::SealedAdcPin<T> for Vref {
     fn channel(&self) -> u8 {
         17
     }
@@ -41,7 +41,7 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vref {
 
 pub struct Temperature;
 impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
+impl<T: Instance> super::SealedAdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
         16
     }

@@ -65,7 +65,7 @@ fn update_vref<T: Instance>(op: i8) {
 
 pub struct Vref<T: Instance>(core::marker::PhantomData<T>);
 impl<T: Instance> AdcPin<T> for Vref<T> {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vref<T> {
+impl<T: Instance> super::SealedAdcPin<T> for Vref<T> {
     fn channel(&self) -> u8 {
         17
     }
@@ -124,7 +124,7 @@ impl<T: Instance> Drop for Vref<T> {
 
 pub struct Temperature<T: Instance>(core::marker::PhantomData<T>);
 impl<T: Instance> AdcPin<T> for Temperature<T> {}
-impl<T: Instance> super::sealed::AdcPin<T> for Temperature<T> {
+impl<T: Instance> super::SealedAdcPin<T> for Temperature<T> {
     fn channel(&self) -> u8 {
         16
     }
