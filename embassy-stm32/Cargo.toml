@@ -95,7 +95,7 @@ proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
 #stm32-metapac = { version = "15", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e7f91751fbbf856e0cb30e50ae6db79f0409b085", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-ac187e40aa97da86f7d3cf22abad918f42f01739", default-features = false, features = ["metadata"]}
 
 
 [features]
