@@ -3,8 +3,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::can::frame::Envelope;
 use embassy_stm32::can::{
-    filter, Can, Envelope, Fifo, Frame, Id, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, StandardId,
+    filter, Can, Fifo, Frame, Id, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, StandardId,
     TxInterruptHandler,
 };
 use embassy_stm32::peripherals::CAN;
@@ -55,17 +56,13 @@ async fn main(_spawner: Spawner) {
 
     let mut can = Can::new(p.CAN, p.PB8, p.PB9, Irqs);
 
-    can.as_mut()
-        .modify_filters()
+    can.modify_filters()
         .enable_bank(0, Fifo::Fifo0, filter::Mask32::accept_all());
 
-    can.as_mut()
-        .modify_config()
+    can.modify_config()
         .set_loopback(false)
         .set_silent(false)
-        .leave_disabled();
-
-    can.set_bitrate(250_000);
+        .set_bitrate(250_000);
 
     can.enable().await;
     let mut i: u8 = 0;

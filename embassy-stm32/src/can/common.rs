@@ -1,7 +1,7 @@
 use embassy_sync::channel::{DynamicReceiver, DynamicSender};
 
-use crate::can::_version::enums::*;
-use crate::can::_version::frame::*;
+use super::enums::*;
+use super::frame::*;
 
 pub(crate) struct ClassicBufferedRxInner {
     pub rx_sender: DynamicSender<'static, Result<Envelope, BusError>>,

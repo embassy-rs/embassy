@@ -47,20 +47,18 @@ async fn main(spawner: Spawner) {
 
     static CAN: StaticCell<Can<'static, CAN3>> = StaticCell::new();
     let can = CAN.init(Can::new(p.CAN3, p.PA8, p.PA15, Irqs));
-    can.as_mut()
-        .modify_filters()
-        .enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
+    can.modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
-    can.as_mut()
-        .modify_config()
+    can.modify_config()
         .set_bit_timing(can::util::NominalBitTiming {
             prescaler: NonZeroU16::new(2).unwrap(),
             seg1: NonZeroU8::new(13).unwrap(),
             seg2: NonZeroU8::new(2).unwrap(),
             sync_jump_width: NonZeroU8::new(1).unwrap(),
         }) // http://www.bittiming.can-wiki.info/
-        .set_loopback(true)
-        .enable();
+        .set_loopback(true);
+
+    can.enable().await;
 
     let (tx, mut rx) = can.split();
 
