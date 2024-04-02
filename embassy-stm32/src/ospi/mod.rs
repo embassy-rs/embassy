@@ -519,7 +519,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
         T::REGS.dcr3().modify(|w| {
             w.set_csbound(config.chip_select_boundary);
-            w.set_maxtran(config.max_transfer);
+            #[cfg(octospi_v1)]
+            {
+                w.set_maxtran(config.max_transfer);
+            }
         });
 
         T::REGS.dcr4().modify(|w| {
@@ -911,7 +914,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
         T::REGS.dcr3().modify(|w| {
             w.set_csbound(config.chip_select_boundary);
-            w.set_maxtran(config.max_transfer);
+            #[cfg(octospi_v1)]
+            {
+                w.set_maxtran(config.max_transfer);
+            }
         });
 
         T::REGS.dcr4().modify(|w| {
