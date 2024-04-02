@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
 
     // Test free-running clock
     {
-        let pwm = Pwm::new_free(&mut p.PWM_CH3, cfg.clone());
+        let pwm = Pwm::new_free(&mut p.PWM_SLICE3, cfg.clone());
         cortex_m::asm::delay(125);
         let ctr = pwm.counter();
         assert!(ctr > 0);
@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
         // Test output from A
         {
             let pin1 = Input::new(&mut p9, Pull::None);
-            let _pwm = Pwm::new_output_a(&mut p.PWM_CH3, &mut p6, cfg.clone());
+            let _pwm = Pwm::new_output_a(&mut p.PWM_SLICE3, &mut p6, cfg.clone());
             Timer::after_millis(1).await;
             assert_eq!(pin1.is_low(), invert_a);
             Timer::after_millis(5).await;
@@ -60,7 +60,7 @@ async fn main(_spawner: Spawner) {
         // Test output from B
         {
             let pin2 = Input::new(&mut p11, Pull::None);
-            let _pwm = Pwm::new_output_b(&mut p.PWM_CH3, &mut p7, cfg.clone());
+            let _pwm = Pwm::new_output_b(&mut p.PWM_SLICE3, &mut p7, cfg.clone());
             Timer::after_millis(1).await;
             assert_ne!(pin2.is_low(), invert_a);
             Timer::after_millis(5).await;
@@ -75,7 +75,7 @@ async fn main(_spawner: Spawner) {
         {
             let pin1 = Input::new(&mut p9, Pull::None);
             let pin2 = Input::new(&mut p11, Pull::None);
-            let _pwm = Pwm::new_output_ab(&mut p.PWM_CH3, &mut p6, &mut p7, cfg.clone());
+            let _pwm = Pwm::new_output_ab(&mut p.PWM_SLICE3, &mut p6, &mut p7, cfg.clone());
             Timer::after_millis(1).await;
             assert_eq!(pin1.is_low(), invert_a);
             assert_ne!(pin2.is_low(), invert_a);
@@ -94,7 +94,7 @@ async fn main(_spawner: Spawner) {
     // Test level-gated
     {
         let mut pin2 = Output::new(&mut p11, Level::Low);
-        let pwm = Pwm::new_input(&mut p.PWM_CH3, &mut p7, InputMode::Level, cfg.clone());
+        let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, InputMode::Level, cfg.clone());
         assert_eq!(pwm.counter(), 0);
         Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);
@@ -110,7 +110,7 @@ async fn main(_spawner: Spawner) {
     // Test rising-gated
     {
         let mut pin2 = Output::new(&mut p11, Level::Low);
-        let pwm = Pwm::new_input(&mut p.PWM_CH3, &mut p7, InputMode::RisingEdge, cfg.clone());
+        let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, InputMode::RisingEdge, cfg.clone());
         assert_eq!(pwm.counter(), 0);
         Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);
@@ -125,7 +125,7 @@ async fn main(_spawner: Spawner) {
     // Test falling-gated
     {
         let mut pin2 = Output::new(&mut p11, Level::High);
-        let pwm = Pwm::new_input(&mut p.PWM_CH3, &mut p7, InputMode::FallingEdge, cfg.clone());
+        let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, InputMode::FallingEdge, cfg.clone());
         assert_eq!(pwm.counter(), 0);
         Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);

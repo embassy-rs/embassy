@@ -326,14 +326,14 @@ macro_rules! channel {
     };
 }
 
-channel!(PWM_CH0, 0);
-channel!(PWM_CH1, 1);
-channel!(PWM_CH2, 2);
-channel!(PWM_CH3, 3);
-channel!(PWM_CH4, 4);
-channel!(PWM_CH5, 5);
-channel!(PWM_CH6, 6);
-channel!(PWM_CH7, 7);
+channel!(PWM_SLICE0, 0);
+channel!(PWM_SLICE1, 1);
+channel!(PWM_SLICE2, 2);
+channel!(PWM_SLICE3, 3);
+channel!(PWM_SLICE4, 4);
+channel!(PWM_SLICE5, 5);
+channel!(PWM_SLICE6, 6);
+channel!(PWM_SLICE7, 7);
 
 /// PWM Pin A.
 pub trait PwmPinA<T: Channel>: GpioPin {}
@@ -346,33 +346,33 @@ macro_rules! impl_pin {
     };
 }
 
-impl_pin!(PIN_0, PWM_CH0, PwmPinA);
-impl_pin!(PIN_1, PWM_CH0, PwmPinB);
-impl_pin!(PIN_2, PWM_CH1, PwmPinA);
-impl_pin!(PIN_3, PWM_CH1, PwmPinB);
-impl_pin!(PIN_4, PWM_CH2, PwmPinA);
-impl_pin!(PIN_5, PWM_CH2, PwmPinB);
-impl_pin!(PIN_6, PWM_CH3, PwmPinA);
-impl_pin!(PIN_7, PWM_CH3, PwmPinB);
-impl_pin!(PIN_8, PWM_CH4, PwmPinA);
-impl_pin!(PIN_9, PWM_CH4, PwmPinB);
-impl_pin!(PIN_10, PWM_CH5, PwmPinA);
-impl_pin!(PIN_11, PWM_CH5, PwmPinB);
-impl_pin!(PIN_12, PWM_CH6, PwmPinA);
-impl_pin!(PIN_13, PWM_CH6, PwmPinB);
-impl_pin!(PIN_14, PWM_CH7, PwmPinA);
-impl_pin!(PIN_15, PWM_CH7, PwmPinB);
-impl_pin!(PIN_16, PWM_CH0, PwmPinA);
-impl_pin!(PIN_17, PWM_CH0, PwmPinB);
-impl_pin!(PIN_18, PWM_CH1, PwmPinA);
-impl_pin!(PIN_19, PWM_CH1, PwmPinB);
-impl_pin!(PIN_20, PWM_CH2, PwmPinA);
-impl_pin!(PIN_21, PWM_CH2, PwmPinB);
-impl_pin!(PIN_22, PWM_CH3, PwmPinA);
-impl_pin!(PIN_23, PWM_CH3, PwmPinB);
-impl_pin!(PIN_24, PWM_CH4, PwmPinA);
-impl_pin!(PIN_25, PWM_CH4, PwmPinB);
-impl_pin!(PIN_26, PWM_CH5, PwmPinA);
-impl_pin!(PIN_27, PWM_CH5, PwmPinB);
-impl_pin!(PIN_28, PWM_CH6, PwmPinA);
-impl_pin!(PIN_29, PWM_CH6, PwmPinB);
+impl_pin!(PIN_0, PWM_SLICE0, PwmPinA);
+impl_pin!(PIN_1, PWM_SLICE0, PwmPinB);
+impl_pin!(PIN_2, PWM_SLICE1, PwmPinA);
+impl_pin!(PIN_3, PWM_SLICE1, PwmPinB);
+impl_pin!(PIN_4, PWM_SLICE2, PwmPinA);
+impl_pin!(PIN_5, PWM_SLICE2, PwmPinB);
+impl_pin!(PIN_6, PWM_SLICE3, PwmPinA);
+impl_pin!(PIN_7, PWM_SLICE3, PwmPinB);
+impl_pin!(PIN_8, PWM_SLICE4, PwmPinA);
+impl_pin!(PIN_9, PWM_SLICE4, PwmPinB);
+impl_pin!(PIN_10, PWM_SLICE5, PwmPinA);
+impl_pin!(PIN_11, PWM_SLICE5, PwmPinB);
+impl_pin!(PIN_12, PWM_SLICE6, PwmPinA);
+impl_pin!(PIN_13, PWM_SLICE6, PwmPinB);
+impl_pin!(PIN_14, PWM_SLICE7, PwmPinA);
+impl_pin!(PIN_15, PWM_SLICE7, PwmPinB);
+impl_pin!(PIN_16, PWM_SLICE0, PwmPinA);
+impl_pin!(PIN_17, PWM_SLICE0, PwmPinB);
+impl_pin!(PIN_18, PWM_SLICE1, PwmPinA);
+impl_pin!(PIN_19, PWM_SLICE1, PwmPinB);
+impl_pin!(PIN_20, PWM_SLICE2, PwmPinA);
+impl_pin!(PIN_21, PWM_SLICE2, PwmPinB);
+impl_pin!(PIN_22, PWM_SLICE3, PwmPinA);
+impl_pin!(PIN_23, PWM_SLICE3, PwmPinB);
+impl_pin!(PIN_24, PWM_SLICE4, PwmPinA);
+impl_pin!(PIN_25, PWM_SLICE4, PwmPinB);
+impl_pin!(PIN_26, PWM_SLICE5, PwmPinA);
+impl_pin!(PIN_27, PWM_SLICE5, PwmPinB);
+impl_pin!(PIN_28, PWM_SLICE6, PwmPinA);
+impl_pin!(PIN_29, PWM_SLICE6, PwmPinB);
