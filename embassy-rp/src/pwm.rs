@@ -129,7 +129,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
     #[inline]
     pub fn new_output_a(
         inner: impl Peripheral<P = T> + 'd,
-        a: impl Peripheral<P = impl PwmPinA<T>> + 'd,
+        a: impl Peripheral<P = impl PwmChannelA<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(a);
@@ -140,7 +140,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
     #[inline]
     pub fn new_output_b(
         inner: impl Peripheral<P = T> + 'd,
-        b: impl Peripheral<P = impl PwmPinB<T>> + 'd,
+        b: impl Peripheral<P = impl PwmChannelB<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(b);
@@ -151,8 +151,8 @@ impl<'d, T: Channel> Pwm<'d, T> {
     #[inline]
     pub fn new_output_ab(
         inner: impl Peripheral<P = T> + 'd,
-        a: impl Peripheral<P = impl PwmPinA<T>> + 'd,
-        b: impl Peripheral<P = impl PwmPinB<T>> + 'd,
+        a: impl Peripheral<P = impl PwmChannelA<T>> + 'd,
+        b: impl Peripheral<P = impl PwmChannelB<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(a, b);
@@ -163,7 +163,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
     #[inline]
     pub fn new_input(
         inner: impl Peripheral<P = T> + 'd,
-        b: impl Peripheral<P = impl PwmPinB<T>> + 'd,
+        b: impl Peripheral<P = impl PwmChannelB<T>> + 'd,
         mode: InputMode,
         config: Config,
     ) -> Self {
@@ -175,8 +175,8 @@ impl<'d, T: Channel> Pwm<'d, T> {
     #[inline]
     pub fn new_output_input(
         inner: impl Peripheral<P = T> + 'd,
-        a: impl Peripheral<P = impl PwmPinA<T>> + 'd,
-        b: impl Peripheral<P = impl PwmPinB<T>> + 'd,
+        a: impl Peripheral<P = impl PwmChannelA<T>> + 'd,
+        b: impl Peripheral<P = impl PwmChannelB<T>> + 'd,
         mode: InputMode,
         config: Config,
     ) -> Self {
@@ -301,24 +301,24 @@ impl<'d, T: Channel> Drop for Pwm<'d, T> {
 }
 
 mod sealed {
-    pub trait Channel {}
+    pub trait Slice {}
 }
 
-/// PWM Channel.
-pub trait Channel: Peripheral<P = Self> + sealed::Channel + Sized + 'static {
-    /// Channel number.
+/// PWM Slice.
+pub trait Slice: Peripheral<P = Self> + sealed::Channel + Sized + 'static {
+    /// Slice number.
     fn number(&self) -> u8;
 
-    /// Channel register block.
+    /// Slice register block.
     fn regs(&self) -> pac::pwm::Channel {
         pac::PWM.ch(self.number() as _)
     }
 }
 
-macro_rules! channel {
+macro_rules! slice {
     ($name:ident, $num:expr) => {
-        impl sealed::Channel for peripherals::$name {}
-        impl Channel for peripherals::$name {
+        impl sealed::Slice for peripherals::$name {}
+        impl Slice for peripherals::$name {
             fn number(&self) -> u8 {
                 $num
             }
@@ -326,53 +326,53 @@ macro_rules! channel {
     };
 }
 
-channel!(PWM_SLICE0, 0);
-channel!(PWM_SLICE1, 1);
-channel!(PWM_SLICE2, 2);
-channel!(PWM_SLICE3, 3);
-channel!(PWM_SLICE4, 4);
-channel!(PWM_SLICE5, 5);
-channel!(PWM_SLICE6, 6);
-channel!(PWM_SLICE7, 7);
+slice!(PWM_SLICE0, 0);
+slice!(PWM_SLICE1, 1);
+slice!(PWM_SLICE2, 2);
+slice!(PWM_SLICE3, 3);
+slice!(PWM_SLICE4, 4);
+slice!(PWM_SLICE5, 5);
+slice!(PWM_SLICE6, 6);
+slice!(PWM_SLICE7, 7);
 
-/// PWM Pin A.
-pub trait PwmPinA<T: Channel>: GpioPin {}
-/// PWM Pin B.
-pub trait PwmPinB<T: Channel>: GpioPin {}
+/// PWM Channel A.
+pub trait PwmChannelA<T: Slice>: GpioPin {}
+/// PWM Channel B.
+pub trait PwmChannelB<T: Slice>: GpioPin {}
 
-macro_rules! impl_pin {
+macro_rules! impl_channel {
     ($pin:ident, $channel:ident, $kind:ident) => {
         impl $kind<peripherals::$channel> for peripherals::$pin {}
     };
 }
 
-impl_pin!(PIN_0, PWM_SLICE0, PwmPinA);
-impl_pin!(PIN_1, PWM_SLICE0, PwmPinB);
-impl_pin!(PIN_2, PWM_SLICE1, PwmPinA);
-impl_pin!(PIN_3, PWM_SLICE1, PwmPinB);
-impl_pin!(PIN_4, PWM_SLICE2, PwmPinA);
-impl_pin!(PIN_5, PWM_SLICE2, PwmPinB);
-impl_pin!(PIN_6, PWM_SLICE3, PwmPinA);
-impl_pin!(PIN_7, PWM_SLICE3, PwmPinB);
-impl_pin!(PIN_8, PWM_SLICE4, PwmPinA);
-impl_pin!(PIN_9, PWM_SLICE4, PwmPinB);
-impl_pin!(PIN_10, PWM_SLICE5, PwmPinA);
-impl_pin!(PIN_11, PWM_SLICE5, PwmPinB);
-impl_pin!(PIN_12, PWM_SLICE6, PwmPinA);
-impl_pin!(PIN_13, PWM_SLICE6, PwmPinB);
-impl_pin!(PIN_14, PWM_SLICE7, PwmPinA);
-impl_pin!(PIN_15, PWM_SLICE7, PwmPinB);
-impl_pin!(PIN_16, PWM_SLICE0, PwmPinA);
-impl_pin!(PIN_17, PWM_SLICE0, PwmPinB);
-impl_pin!(PIN_18, PWM_SLICE1, PwmPinA);
-impl_pin!(PIN_19, PWM_SLICE1, PwmPinB);
-impl_pin!(PIN_20, PWM_SLICE2, PwmPinA);
-impl_pin!(PIN_21, PWM_SLICE2, PwmPinB);
-impl_pin!(PIN_22, PWM_SLICE3, PwmPinA);
-impl_pin!(PIN_23, PWM_SLICE3, PwmPinB);
-impl_pin!(PIN_24, PWM_SLICE4, PwmPinA);
-impl_pin!(PIN_25, PWM_SLICE4, PwmPinB);
-impl_pin!(PIN_26, PWM_SLICE5, PwmPinA);
-impl_pin!(PIN_27, PWM_SLICE5, PwmPinB);
-impl_pin!(PIN_28, PWM_SLICE6, PwmPinA);
-impl_pin!(PIN_29, PWM_SLICE6, PwmPinB);
+impl_channel!(PIN_0, PWM_SLICE0, PwmChannelA);
+impl_channel!(PIN_1, PWM_SLICE0, PwmChannelB);
+impl_channel!(PIN_2, PWM_SLICE1, PwmChannelA);
+impl_channel!(PIN_3, PWM_SLICE1, PwmChannelB);
+impl_channel!(PIN_4, PWM_SLICE2, PwmChannelA);
+impl_channel!(PIN_5, PWM_SLICE2, PwmChannelB);
+impl_channel!(PIN_6, PWM_SLICE3, PwmChannelA);
+impl_channel!(PIN_7, PWM_SLICE3, PwmChannelB);
+impl_channel!(PIN_8, PWM_SLICE4, PwmChannelA);
+impl_channel!(PIN_9, PWM_SLICE4, PwmChannelB);
+impl_channel!(PIN_10, PWM_SLICE5, PwmChannelA);
+impl_channel!(PIN_11, PWM_SLICE5, PwmChannelB);
+impl_channel!(PIN_12, PWM_SLICE6, PwmChannelA);
+impl_channel!(PIN_13, PWM_SLICE6, PwmChannelB);
+impl_channel!(PIN_14, PWM_SLICE7, PwmChannelA);
+impl_channel!(PIN_15, PWM_SLICE7, PwmChannelB);
+impl_channel!(PIN_16, PWM_SLICE0, PwmChannelA);
+impl_channel!(PIN_17, PWM_SLICE0, PwmChannelB);
+impl_channel!(PIN_18, PWM_SLICE1, PwmChannelA);
+impl_channel!(PIN_19, PWM_SLICE1, PwmChannelB);
+impl_channel!(PIN_20, PWM_SLICE2, PwmChannelA);
+impl_channel!(PIN_21, PWM_SLICE2, PwmChannelB);
+impl_channel!(PIN_22, PWM_SLICE3, PwmChannelA);
+impl_channel!(PIN_23, PWM_SLICE3, PwmChannelB);
+impl_channel!(PIN_24, PWM_SLICE4, PwmChannelA);
+impl_channel!(PIN_25, PWM_SLICE4, PwmChannelB);
+impl_channel!(PIN_26, PWM_SLICE5, PwmChannelA);
+impl_channel!(PIN_27, PWM_SLICE5, PwmChannelB);
+impl_channel!(PIN_28, PWM_SLICE6, PwmChannelA);
+impl_channel!(PIN_29, PWM_SLICE6, PwmChannelB);
