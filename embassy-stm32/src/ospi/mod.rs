@@ -12,8 +12,7 @@ pub use enums::*;
 use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
 use crate::dma::{word, Transfer};
-use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::{AnyPin, Pull};
+use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _};
 use crate::pac::octospi::{vals, Octospi as Regs};
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
@@ -1002,20 +1001,17 @@ impl RegsExt for Regs {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+pub(crate) trait SealedInstance {
+    const REGS: Regs;
+}
 
-    pub trait Instance {
-        const REGS: Regs;
-    }
-
-    pub trait Word {
-        const CONFIG: word_impl::Config;
-    }
+trait SealedWord {
+    const CONFIG: word_impl::Config;
 }
 
 /// OSPI instance trait.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(NckPin, Instance);
@@ -1033,7 +1029,7 @@ dma_trait!(OctoDma, Instance);
 
 foreach_peripheral!(
     (octospi, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
         }
 
@@ -1057,11 +1053,12 @@ impl<'d, T: Instance, Dma> GetConfig for Ospi<'d, T, Dma> {
 }
 
 /// Word sizes usable for OSPI.
-pub trait Word: word::Word + sealed::Word {}
+#[allow(private_bounds)]
+pub trait Word: word::Word + SealedWord {}
 
 macro_rules! impl_word {
     ($T:ty, $config:expr) => {
-        impl sealed::Word for $T {
+        impl SealedWord for $T {
             const CONFIG: Config = $config;
         }
         impl Word for $T {}
