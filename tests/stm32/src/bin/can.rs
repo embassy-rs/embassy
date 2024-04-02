@@ -8,9 +8,10 @@ mod common;
 use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
-use embassy_stm32::can::bx::filter::Mask32;
-use embassy_stm32::can::bx::Fifo;
-use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
+use embassy_stm32::can::filter::Mask32;
+use embassy_stm32::can::{
+    Can, Fifo, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler,
+};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
 use embassy_time::Duration;
@@ -51,17 +52,15 @@ async fn main(_spawner: Spawner) {
 
     info!("Configuring can...");
 
-    can.as_mut()
-        .modify_filters()
-        .enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
+    can.modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
-    can.set_bitrate(1_000_000);
-    can.as_mut()
-        .modify_config()
+    can.modify_config()
         .set_loopback(true) // Receive own frames
         .set_silent(true)
         // .set_bit_timing(0x001c0003)
-        .enable();
+        .set_bitrate(1_000_000);
+
+    can.enable().await;
 
     info!("Can configured");
 

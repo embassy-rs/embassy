@@ -14,19 +14,15 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, peripherals, Peripheral};
 
-mod common;
-pub mod enums;
 pub(crate) mod fd;
-pub mod frame;
-mod util;
 
-use enums::*;
-use fd::config::*;
-use fd::filter::*;
-pub use fd::{config, filter};
-use frame::*;
-
-pub use self::common::{BufferedCanReceiver, BufferedCanSender};
+use self::fd::config::*;
+use self::fd::filter::*;
+pub use self::fd::{config, filter};
+pub use super::common::{BufferedCanReceiver, BufferedCanSender};
+use super::enums::*;
+use super::frame::*;
+use super::util;
 
 /// Timestamp for incoming packets. Use Embassy time when enabled.
 #[cfg(feature = "time")]
@@ -439,10 +435,10 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
         critical_section::with(|_| unsafe {
-            let rx_inner = self::common::ClassicBufferedRxInner {
+            let rx_inner = super::common::ClassicBufferedRxInner {
                 rx_sender: self.rx_buf.sender().into(),
             };
-            let tx_inner = self::common::ClassicBufferedTxInner {
+            let tx_inner = super::common::ClassicBufferedTxInner {
                 tx_receiver: self.tx_buf.receiver().into(),
             };
             T::mut_state().rx_mode = RxMode::ClassicBuffered(rx_inner);
@@ -555,10 +551,10 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
         critical_section::with(|_| unsafe {
-            let rx_inner = self::common::FdBufferedRxInner {
+            let rx_inner = super::common::FdBufferedRxInner {
                 rx_sender: self.rx_buf.sender().into(),
             };
-            let tx_inner = self::common::FdBufferedTxInner {
+            let tx_inner = super::common::FdBufferedTxInner {
                 tx_receiver: self.tx_buf.receiver().into(),
             };
             T::mut_state().rx_mode = RxMode::FdBuffered(rx_inner);
@@ -649,8 +645,8 @@ impl<'c, 'd, T: Instance> CanRx<'d, T> {
 
 enum RxMode {
     NonBuffered(AtomicWaker),
-    ClassicBuffered(self::common::ClassicBufferedRxInner),
-    FdBuffered(self::common::FdBufferedRxInner),
+    ClassicBuffered(super::common::ClassicBufferedRxInner),
+    FdBuffered(super::common::FdBufferedRxInner),
 }
 
 impl RxMode {
@@ -758,8 +754,8 @@ impl RxMode {
 
 enum TxMode {
     NonBuffered(AtomicWaker),
-    ClassicBuffered(self::common::ClassicBufferedTxInner),
-    FdBuffered(self::common::FdBufferedTxInner),
+    ClassicBuffered(super::common::ClassicBufferedTxInner),
+    FdBuffered(super::common::FdBufferedTxInner),
 }
 
 impl TxMode {
