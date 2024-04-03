@@ -7,7 +7,6 @@ pub mod enums;
 
 use embassy_embedded_hal::{GetConfig, SetConfig};
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use embedded_hal_1::spi::ErrorKind;
 pub use enums::*;
 use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
@@ -144,11 +143,14 @@ impl Default for TransferConfig {
 
 /// Error used for Octospi implementation
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OspiError {
     /// Peripheral configuration is invalid
     InvalidConfiguration,
     /// Operation configuration is invalid
     InvalidCommand,
+    /// Size zero buffer passed to instruction
+    EmptyBuffer,
 }
 
 /// OSPI driver.
@@ -627,10 +629,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
     /// Function used to control or configure the target device without data transfer
     pub async fn command(&mut self, command: &TransferConfig) -> Result<(), OspiError> {
-        // Prevent a transaction from being set with expected data transmission or reception
-        if let Some(_) = command.data_len {
-            return Err(OspiError::InvalidCommand);
-        };
+        // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
         // Need additional validation that command configuration doesn't have data set
@@ -647,6 +646,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
     /// Blocking read with byte by byte data transfer
     pub fn blocking_read<W: Word>(&mut self, buf: &mut [W], transaction: TransferConfig) -> Result<(), OspiError> {
+        if buf.is_empty() {
+            return Err(OspiError::EmptyBuffer);
+        }
+
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
@@ -657,22 +660,20 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
         self.configure_command(&transaction, Some(buf.len()))?;
 
-        if let Some(len) = transaction.data_len {
-            let current_address = T::REGS.ar().read().address();
-            let current_instruction = T::REGS.ir().read().instruction();
+        let current_address = T::REGS.ar().read().address();
+        let current_instruction = T::REGS.ir().read().instruction();
 
-            // For a indirect read transaction, the transaction begins when the instruction/address is set
-            T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTREAD));
-            if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
-                T::REGS.ir().write(|v| v.set_instruction(current_instruction));
-            } else {
-                T::REGS.ar().write(|v| v.set_address(current_address));
-            }
+        // For a indirect read transaction, the transaction begins when the instruction/address is set
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTREAD));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+            T::REGS.ir().write(|v| v.set_instruction(current_instruction));
+        } else {
+            T::REGS.ar().write(|v| v.set_address(current_address));
+        }
 
-            for idx in 0..len {
-                while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
-                buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut W).read_volatile() };
-            }
+        for idx in 0..buf.len() {
+            while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
+            buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut W).read_volatile() };
         }
 
         while !T::REGS.sr().read().tcf() {}
@@ -683,20 +684,26 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
     /// Blocking write with byte by byte data transfer
     pub fn blocking_write<W: Word>(&mut self, buf: &[W], transaction: TransferConfig) -> Result<(), OspiError> {
+        if buf.is_empty() {
+            return Err(OspiError::EmptyBuffer);
+        }
+
+        // Wait for peripheral to be free
+        while T::REGS.sr().read().busy() {}
+
         T::REGS.cr().modify(|w| {
             w.set_dmaen(false);
         });
+
         self.configure_command(&transaction, Some(buf.len()))?;
 
-        if let Some(len) = transaction.data_len {
-            T::REGS
-                .cr()
-                .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
+        T::REGS
+            .cr()
+            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
 
-            for idx in 0..len {
-                while !T::REGS.sr().read().ftf() {}
-                unsafe { (T::REGS.dr().as_ptr() as *mut W).write_volatile(buf[idx]) };
-            }
+        for idx in 0..buf.len() {
+            while !T::REGS.sr().read().ftf() {}
+            unsafe { (T::REGS.dr().as_ptr() as *mut W).write_volatile(buf[idx]) };
         }
 
         while !T::REGS.sr().read().tcf() {}
@@ -710,6 +717,13 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     where
         Dma: OctoDma<T>,
     {
+        if buf.is_empty() {
+            return Err(OspiError::EmptyBuffer);
+        }
+
+        // Wait for peripheral to be free
+        while T::REGS.sr().read().busy() {}
+
         self.configure_command(&transaction, Some(buf.len()))?;
 
         let current_address = T::REGS.ar().read().address();
@@ -748,6 +762,13 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     where
         Dma: OctoDma<T>,
     {
+        if buf.is_empty() {
+            return Err(OspiError::EmptyBuffer);
+        }
+
+        // Wait for peripheral to be free
+        while T::REGS.sr().read().busy() {}
+
         self.configure_command(&transaction, Some(buf.len()))?;
         T::REGS
             .cr()
@@ -778,6 +799,13 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     where
         Dma: OctoDma<T>,
     {
+        if buf.is_empty() {
+            return Err(OspiError::EmptyBuffer);
+        }
+
+        // Wait for peripheral to be free
+        while T::REGS.sr().read().busy() {}
+
         self.configure_command(&transaction, Some(buf.len()))?;
 
         let current_address = T::REGS.ar().read().address();
@@ -816,6 +844,13 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     where
         Dma: OctoDma<T>,
     {
+        if buf.is_empty() {
+            return Err(OspiError::EmptyBuffer);
+        }
+
+        // Wait for peripheral to be free
+        while T::REGS.sr().read().busy() {}
+
         self.configure_command(&transaction, Some(buf.len()))?;
         T::REGS
             .cr()
@@ -886,10 +921,6 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
         T::REGS.dcr2().modify(|w| {
             w.set_prescaler(config.clock_prescaler);
-        });
-
-        T::REGS.cr().modify(|w| {
-            w.set_dmm(config.dual_quad);
         });
 
         T::REGS.tcr().modify(|w| {
