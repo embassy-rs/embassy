@@ -194,10 +194,6 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d1.set_as_af_pull(d1.af_num(), AFType::Input, Pull::None);
         d1.set_speed(crate::gpio::Speed::VeryHigh);
 
-        T::REGS.cr().modify(|w| {
-            w.set_dmm(false);
-        });
-
         Self::new_inner(
             peri,
             Some(d0.map_into()),
@@ -214,6 +210,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             dma,
             config,
             OspiWidth::SING,
+            false,
         )
     }
 
@@ -238,10 +235,6 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
         d1.set_speed(crate::gpio::Speed::VeryHigh);
 
-        T::REGS.cr().modify(|w| {
-            w.set_dmm(false);
-        });
-
         Self::new_inner(
             peri,
             Some(d0.map_into()),
@@ -258,6 +251,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             dma,
             config,
             OspiWidth::DUAL,
+            false,
         )
     }
 
@@ -288,10 +282,6 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
         d3.set_speed(crate::gpio::Speed::VeryHigh);
 
-        T::REGS.cr().modify(|w| {
-            w.set_dmm(false);
-        });
-
         Self::new_inner(
             peri,
             Some(d0.map_into()),
@@ -308,6 +298,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             dma,
             config,
             OspiWidth::QUAD,
+            false,
         )
     }
 
@@ -350,10 +341,6 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d7.set_as_af_pull(d7.af_num(), AFType::OutputPushPull, Pull::None);
         d7.set_speed(crate::gpio::Speed::VeryHigh);
 
-        T::REGS.cr().modify(|w| {
-            w.set_dmm(true);
-        });
-
         Self::new_inner(
             peri,
             Some(d0.map_into()),
@@ -370,6 +357,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             dma,
             config,
             OspiWidth::QUAD,
+            true,
         )
     }
 
@@ -412,10 +400,6 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d7.set_as_af_pull(d7.af_num(), AFType::OutputPushPull, Pull::None);
         d7.set_speed(crate::gpio::Speed::VeryHigh);
 
-        T::REGS.cr().modify(|w| {
-            w.set_dmm(false);
-        });
-
         Self::new_inner(
             peri,
             Some(d0.map_into()),
@@ -432,6 +416,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             dma,
             config,
             OspiWidth::OCTO,
+            false,
         )
     }
 
@@ -451,6 +436,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         dma: impl Peripheral<P = Dma> + 'd,
         config: Config,
         width: OspiWidth,
+        dual_quad: bool,
     ) -> Self {
         into_ref!(peri, dma);
 
@@ -493,6 +479,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
         T::REGS.dcr2().modify(|w| {
             w.set_prescaler(config.clock_prescaler);
+        });
+
+        T::REGS.cr().modify(|w| {
+            w.set_dmm(dual_quad);
         });
 
         T::REGS.tcr().modify(|w| {
