@@ -113,8 +113,6 @@ pub struct TransferConfig {
 
     /// Data width (DMODE)
     pub dwidth: OspiWidth,
-    /// Length of data
-    pub data_len: Option<usize>,
     /// Data buffer
     pub ddtr: bool,
 
@@ -141,7 +139,6 @@ impl Default for TransferConfig {
             abdtr: false,
 
             dwidth: OspiWidth::NONE,
-            data_len: None,
             ddtr: false,
 
             dummy: DummyCycles::_0,
@@ -156,40 +153,6 @@ pub enum OspiError {
     InvalidConfiguration,
     /// Operation configuration is invalid
     InvalidCommand,
-}
-
-/// MultiSpi interface trait
-pub trait MultiSpiBus<Word: Copy + 'static = u8>: embedded_hal_1::spi::ErrorType {
-    /// Transaction configuration for specific multispi implementation
-    type Config;
-
-    /// Command function used for a configuration operation, when no user data is
-    /// supplied to or read from the target device.
-    async fn command(&mut self, config: Self::Config) -> Result<(), Self::Error>;
-
-    /// Read function used to read data from the target device following the supplied transaction
-    /// configuration.
-    async fn read(&mut self, data: &mut [Word], config: Self::Config) -> Result<(), Self::Error>;
-
-    /// Write function used to send data to the target device following the supplied transaction
-    /// configuration.
-    async fn write(&mut self, data: &[Word], config: Self::Config) -> Result<(), Self::Error>;
-}
-
-impl<T: MultiSpiBus<Word> + ?Sized, Word: Copy + 'static> MultiSpiBus<Word> for &mut T {
-    type Config = T::Config;
-    #[inline]
-    async fn command(&mut self, config: Self::Config) -> Result<(), Self::Error> {
-        T::command(self, config).await
-    }
-
-    async fn read(&mut self, data: &mut [Word], config: Self::Config) -> Result<(), Self::Error> {
-        T::read(self, data, config).await
-    }
-
-    async fn write(&mut self, data: &[Word], config: Self::Config) -> Result<(), Self::Error> {
-        T::write(self, data, config).await
-    }
 }
 
 /// OSPI driver.
@@ -211,35 +174,9 @@ pub struct Ospi<'d, T: Instance, Dma> {
     width: OspiWidth,
 }
 
-impl embedded_hal_1::spi::Error for OspiError {
-    fn kind(&self) -> ErrorKind {
-        ErrorKind::Other
-    }
-}
-
-impl<'d, T: Instance, Dma> embedded_hal_1::spi::ErrorType for Ospi<'d, T, Dma> {
-    type Error = OspiError;
-}
-
-impl<'d, T: Instance, Dma: OctoDma<T>, W: Word> MultiSpiBus<W> for Ospi<'d, T, Dma> {
-    type Config = TransferConfig;
-
-    async fn command(&mut self, config: Self::Config) -> Result<(), Self::Error> {
-        self.command(&config).await
-    }
-
-    async fn read(&mut self, data: &mut [W], config: Self::Config) -> Result<(), Self::Error> {
-        self.read(data, config).await
-    }
-
-    async fn write(&mut self, data: &[W], config: Self::Config) -> Result<(), Self::Error> {
-        self.write(data, config).await
-    }
-}
-
 impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
-    /// Create new OSPI driver for a dualspi external chip
-    pub fn new_spi(
+    /// Create new OSPI driver for a single spi external chip
+    pub fn new_singlespi(
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
@@ -422,7 +359,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         )
     }
 
-    /// Create new OSPI driver for two quadspi external chips
+    /// Create new OSPI driver for octospi external chips
     pub fn new_octospi(
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
@@ -584,7 +521,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     }
 
     // Function to configure the peripheral for the requested command
-    fn configure_command(&mut self, command: &TransferConfig) -> Result<(), OspiError> {
+    fn configure_command(&mut self, command: &TransferConfig, data_len: Option<usize>) -> Result<(), OspiError> {
         // Check that transaction doesn't use more than hardware initialized pins
         if <enums::OspiWidth as Into<u8>>::into(command.iwidth) > <enums::OspiWidth as Into<u8>>::into(self.width)
             || <enums::OspiWidth as Into<u8>>::into(command.adwidth) > <enums::OspiWidth as Into<u8>>::into(self.width)
@@ -614,9 +551,13 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         });
 
         // Configure data
-        if let Some(data_length) = command.data_len {
+        if let Some(data_length) = data_len {
             T::REGS.dlr().write(|v| {
                 v.set_dl((data_length - 1) as u32);
+            })
+        } else {
+            T::REGS.dlr().write(|v| {
+                v.set_dl((0) as u32);
             })
         }
 
@@ -681,7 +622,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         while T::REGS.sr().read().busy() {}
 
         // Need additional validation that command configuration doesn't have data set
-        self.configure_command(command)?;
+        self.configure_command(command, None)?;
 
         // Transaction initiated by setting final configuration, i.e the instruction register
         while !T::REGS.sr().read().tcf() {}
@@ -702,7 +643,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction)?;
+        self.configure_command(&transaction, Some(buf.len()))?;
 
         if let Some(len) = transaction.data_len {
             let current_address = T::REGS.ar().read().address();
@@ -733,7 +674,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         T::REGS.cr().modify(|w| {
             w.set_dmaen(false);
         });
-        self.configure_command(&transaction)?;
+        self.configure_command(&transaction, Some(buf.len()))?;
 
         if let Some(len) = transaction.data_len {
             T::REGS
@@ -757,7 +698,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     where
         Dma: OctoDma<T>,
     {
-        self.configure_command(&transaction)?;
+        self.configure_command(&transaction, Some(buf.len()))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -795,7 +736,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     where
         Dma: OctoDma<T>,
     {
-        self.configure_command(&transaction)?;
+        self.configure_command(&transaction, Some(buf.len()))?;
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
@@ -825,7 +766,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     where
         Dma: OctoDma<T>,
     {
-        self.configure_command(&transaction)?;
+        self.configure_command(&transaction, Some(buf.len()))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -863,7 +804,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     where
         Dma: OctoDma<T>,
     {
-        self.configure_command(&transaction)?;
+        self.configure_command(&transaction, Some(buf.len()))?;
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
