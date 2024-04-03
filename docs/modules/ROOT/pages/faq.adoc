@@ -208,3 +208,24 @@ Tools like `cargo size` and `cargo nm` can tell you the size of any globals or o
 === For Max Stack Usage
 
 Check out link:https://github.com/Dirbaio/cargo-call-stack/[`cargo-call-stack`] for statically calculating worst-case stack usage. There are some caveats and inaccuracies possible with this, but this is a good way to get the general idea. See link:https://github.com/dirbaio/cargo-call-stack#known-limitations[the README] for more details.
+
+== The memory definition for my STM chip seems wrong, how do I define a `memory.x` file?
+
+It could happen that your project compiles, flashes but fails to run. The following situation can be true for your setup:
+
+The `memory.x` is generated automatically when enabling the `memory-x` feature on the `embassy-stm32` crate in the `Cargo.toml` file.
+This, in turn, uses `stm32-metapac` to generate the `memory.x` file for you. Unfortunately, more often than not this memory definition is not correct.
+
+You can override this by adding your own `memory.x` file. Such a file could look like this:
+```
+MEMORY
+{
+  FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 1024K
+  RAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 320K
+}
+
+_stack_start = ORIGIN(RAM) + LENGTH(RAM);
+```
+
+Please refer to the STM32 documentation for the specific values suitable for your board and setup. The STM32 Cube examples often contain a linker script `.ld` file. 
+Look for the `MEMORY` section and try to determine the FLASH and RAM sizes and section start.
