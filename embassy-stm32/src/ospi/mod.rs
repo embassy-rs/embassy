@@ -889,7 +889,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     }
 
     /// Set new bus configuration
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ()> {
+    pub fn set_config(&mut self, config: &Config) {
         // Wait for busy flag to clear
         while T::REGS.sr().read().busy() {}
 
@@ -960,7 +960,6 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         }
 
         self.config = *config;
-        Ok(())
     }
 
     /// Get current configuration
@@ -1012,7 +1011,7 @@ pub(crate) trait SealedInstance {
 }
 
 trait SealedWord {
-    const CONFIG: word_impl::Config;
+    const CONFIG: u8;
 }
 
 /// OSPI instance trait.
@@ -1047,7 +1046,8 @@ impl<'d, T: Instance, Dma> SetConfig for Ospi<'d, T, Dma> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config)
+        self.set_config(config);
+        Ok(())
     }
 }
 
@@ -1065,18 +1065,12 @@ pub trait Word: word::Word + SealedWord {}
 macro_rules! impl_word {
     ($T:ty, $config:expr) => {
         impl SealedWord for $T {
-            const CONFIG: Config = $config;
+            const CONFIG: u8 = $config;
         }
         impl Word for $T {}
     };
 }
 
-mod word_impl {
-    use super::*;
-
-    pub type Config = u8;
-
-    impl_word!(u8, 8);
-    impl_word!(u16, 16);
-    impl_word!(u32, 32);
-}
+impl_word!(u8, 8);
+impl_word!(u16, 16);
+impl_word!(u32, 32);
