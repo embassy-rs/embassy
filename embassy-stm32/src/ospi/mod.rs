@@ -23,9 +23,6 @@ pub struct Config {
     /// Fifo threshold used by the peripheral to generate the interrupt indicating data
     /// or space is available in the FIFO
     pub fifo_threshold: FIFOThresholdLevel,
-    /// Enables dual-quad mode which allows access to two devices simultaneously to
-    /// increase throughput
-    pub dual_quad: bool,
     /// Indicates the type of external device connected
     pub memory_type: MemoryType, // Need to add an additional enum to provide this public interface
     /// Defines the size of the external device connected to the OSPI corresponding
@@ -64,7 +61,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             fifo_threshold: FIFOThresholdLevel::_16Bytes, // 32 bytes FIFO, half capacity
-            dual_quad: false,
             memory_type: MemoryType::Micron,
             device_size: MemorySize::Other(0),
             chip_select_high_time: ChipSelectHighTime::_5Cycle,
@@ -196,6 +192,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d1.set_as_af_pull(d1.af_num(), AFType::Input, Pull::None);
         d1.set_speed(crate::gpio::Speed::VeryHigh);
 
+        T::REGS.cr().modify(|w| {
+            w.set_dmm(false);
+        });
+
         Self::new_inner(
             peri,
             Some(d0.map_into()),
@@ -235,6 +235,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d0.set_speed(crate::gpio::Speed::VeryHigh);
         d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
         d1.set_speed(crate::gpio::Speed::VeryHigh);
+
+        T::REGS.cr().modify(|w| {
+            w.set_dmm(false);
+        });
 
         Self::new_inner(
             peri,
@@ -281,6 +285,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d2.set_speed(crate::gpio::Speed::VeryHigh);
         d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
         d3.set_speed(crate::gpio::Speed::VeryHigh);
+
+        T::REGS.cr().modify(|w| {
+            w.set_dmm(false);
+        });
 
         Self::new_inner(
             peri,
@@ -340,6 +348,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d7.set_as_af_pull(d7.af_num(), AFType::OutputPushPull, Pull::None);
         d7.set_speed(crate::gpio::Speed::VeryHigh);
 
+        T::REGS.cr().modify(|w| {
+            w.set_dmm(true);
+        });
+
         Self::new_inner(
             peri,
             Some(d0.map_into()),
@@ -397,6 +409,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         d6.set_speed(crate::gpio::Speed::VeryHigh);
         d7.set_as_af_pull(d7.af_num(), AFType::OutputPushPull, Pull::None);
         d7.set_speed(crate::gpio::Speed::VeryHigh);
+
+        T::REGS.cr().modify(|w| {
+            w.set_dmm(false);
+        });
 
         Self::new_inner(
             peri,
@@ -475,10 +491,6 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
         T::REGS.dcr2().modify(|w| {
             w.set_prescaler(config.clock_prescaler);
-        });
-
-        T::REGS.cr().modify(|w| {
-            w.set_dmm(config.dual_quad);
         });
 
         T::REGS.tcr().modify(|w| {
