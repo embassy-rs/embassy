@@ -168,7 +168,7 @@ pub struct Config {
 
     /// Enable debug during sleep and stop.
     ///
-    /// May incrase power consumption. Defaults to true.
+    /// May increase power consumption. Defaults to true.
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
 
