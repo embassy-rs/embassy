@@ -11,30 +11,25 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use crate::ppi::{Event, Task};
 use crate::{pac, Peripheral};
 
-pub(crate) mod sealed {
-
-    use super::*;
-
-    pub trait Instance {
-        /// The number of CC registers this instance has.
-        const CCS: usize;
-        fn regs() -> &'static pac::timer0::RegisterBlock;
-    }
-    pub trait ExtendedInstance {}
+pub(crate) trait SealedInstance {
+    /// The number of CC registers this instance has.
+    const CCS: usize;
+    fn regs() -> &'static pac::timer0::RegisterBlock;
 }
 
 /// Basic Timer instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 /// Extended timer instance.
-pub trait ExtendedInstance: Instance + sealed::ExtendedInstance {}
+pub trait ExtendedInstance: Instance {}
 
 macro_rules! impl_timer {
     ($type:ident, $pac_type:ident, $irq:ident, $ccs:literal) => {
-        impl crate::timer::sealed::Instance for peripherals::$type {
+        impl crate::timer::SealedInstance for peripherals::$type {
             const CCS: usize = $ccs;
             fn regs() -> &'static pac::timer0::RegisterBlock {
                 unsafe { &*(pac::$pac_type::ptr() as *const pac::timer0::RegisterBlock) }
@@ -49,7 +44,6 @@ macro_rules! impl_timer {
     };
     ($type:ident, $pac_type:ident, $irq:ident, extended) => {
         impl_timer!($type, $pac_type, $irq, 6);
-        impl crate::timer::sealed::ExtendedInstance for peripherals::$type {}
         impl crate::timer::ExtendedInstance for peripherals::$type {}
     };
 }
