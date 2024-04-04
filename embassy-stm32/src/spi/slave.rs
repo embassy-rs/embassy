@@ -71,7 +71,7 @@ pub struct SpiSlave<'d, T: Instance> {
     sck: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
     miso: Option<PeripheralRef<'d, AnyPin>>,
-    _cs: Option<PeripheralRef<'d, AnyPin>>,
+    cs: Option<PeripheralRef<'d, AnyPin>>,
     current_word_size: word_impl::Config,
 }
 
@@ -205,7 +205,7 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
             sck,
             mosi,
             miso,
-            _cs: cs,
+            cs,
             current_word_size: <u8 as SealedWord>::CONFIG,
         }
     }
@@ -436,6 +436,7 @@ impl<'d, T: Instance> Drop for SpiSlave<'d, T> {
         self.sck.as_ref().map(|x| x.set_as_disconnected());
         self.mosi.as_ref().map(|x| x.set_as_disconnected());
         self.miso.as_ref().map(|x| x.set_as_disconnected());
+        self.cs.as_ref().map(|x| x.set_as_disconnected());
 
         T::disable();
     }
