@@ -188,16 +188,15 @@ pub enum RtcError {
     NotRunning,
 }
 
-mod sealed {
-    pub trait Instance {
-        fn regs(&self) -> crate::pac::rtc::Rtc;
-    }
+trait SealedInstance {
+    fn regs(&self) -> crate::pac::rtc::Rtc;
 }
 
 /// RTC peripheral instance.
-pub trait Instance: sealed::Instance {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {}
 
-impl sealed::Instance for crate::peripherals::RTC {
+impl SealedInstance for crate::peripherals::RTC {
     fn regs(&self) -> crate::pac::rtc::Rtc {
         crate::pac::RTC
     }

@@ -7,8 +7,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::dma::{AnyChannel, Channel};
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
 use crate::{pac, peripherals, Peripheral};
 
 /// SPI errors.
@@ -443,28 +442,26 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     }
 }
 
-mod sealed {
-    use super::*;
+trait SealedMode {}
 
-    pub trait Mode {}
+trait SealedInstance {
+    const TX_DREQ: u8;
+    const RX_DREQ: u8;
 
-    pub trait Instance {
-        const TX_DREQ: u8;
-        const RX_DREQ: u8;
-
-        fn regs(&self) -> pac::spi::Spi;
-    }
+    fn regs(&self) -> pac::spi::Spi;
 }
 
 /// Mode.
-pub trait Mode: sealed::Mode {}
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
 
 /// SPI instance trait.
-pub trait Instance: sealed::Instance {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {}
 
 macro_rules! impl_instance {
     ($type:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
-        impl sealed::Instance for peripherals::$type {
+        impl SealedInstance for peripherals::$type {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
 
@@ -527,7 +524,7 @@ impl_pin!(PIN_29, SPI1, CsPin);
 
 macro_rules! impl_mode {
     ($name:ident) => {
-        impl sealed::Mode for $name {}
+        impl SealedMode for $name {}
         impl Mode for $name {}
     };
 }

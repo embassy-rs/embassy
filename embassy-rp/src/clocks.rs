@@ -6,8 +6,7 @@ use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use pac::clocks::vals::*;
 
-use crate::gpio::sealed::Pin;
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::common::{Reg, RW};
 use crate::{pac, reset, Peripheral};
 
@@ -788,14 +787,14 @@ impl_gpinpin!(PIN_20, 20, 0);
 impl_gpinpin!(PIN_22, 22, 1);
 
 /// General purpose clock input driver.
-pub struct Gpin<'d, T: Pin> {
+pub struct Gpin<'d, T: GpinPin> {
     gpin: PeripheralRef<'d, AnyPin>,
     _phantom: PhantomData<T>,
 }
 
-impl<'d, T: Pin> Gpin<'d, T> {
+impl<'d, T: GpinPin> Gpin<'d, T> {
     /// Create new gpin driver.
-    pub fn new<P: GpinPin>(gpin: impl Peripheral<P = P> + 'd) -> Gpin<'d, P> {
+    pub fn new(gpin: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(gpin);
 
         gpin.gpio().ctrl().write(|w| w.set_funcsel(0x08));
@@ -811,7 +810,7 @@ impl<'d, T: Pin> Gpin<'d, T> {
     // }
 }
 
-impl<'d, T: Pin> Drop for Gpin<'d, T> {
+impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
     fn drop(&mut self) {
         self.gpin
             .gpio()

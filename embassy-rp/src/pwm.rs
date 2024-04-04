@@ -6,8 +6,7 @@ use fixed::FixedU16;
 use pac::pwm::regs::{ChDiv, Intr};
 use pac::pwm::vals::Divmode;
 
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
 use crate::{pac, peripherals, RegExt};
 
 /// The configuration of a PWM slice.
@@ -300,12 +299,11 @@ impl<'d, T: Slice> Drop for Pwm<'d, T> {
     }
 }
 
-mod sealed {
-    pub trait Slice {}
-}
+trait SealedSlice {}
 
 /// PWM Slice.
-pub trait Slice: Peripheral<P = Self> + sealed::Slice + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Slice: Peripheral<P = Self> + SealedSlice + Sized + 'static {
     /// Slice number.
     fn number(&self) -> u8;
 
@@ -317,7 +315,7 @@ pub trait Slice: Peripheral<P = Self> + sealed::Slice + Sized + 'static {
 
 macro_rules! slice {
     ($name:ident, $num:expr) => {
-        impl sealed::Slice for peripherals::$name {}
+        impl SealedSlice for peripherals::$name {}
         impl Slice for peripherals::$name {
             fn number(&self) -> u8 {
                 $num

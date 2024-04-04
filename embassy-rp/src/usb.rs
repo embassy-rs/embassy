@@ -14,20 +14,19 @@ use embassy_usb_driver::{
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::usb::Usb;
-        fn dpram() -> crate::pac::usb_dpram::UsbDpram;
-    }
+trait SealedInstance {
+    fn regs() -> crate::pac::usb::Usb;
+    fn dpram() -> crate::pac::usb_dpram::UsbDpram;
 }
 
 /// USB peripheral instance.
-pub trait Instance: sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-impl crate::usb::sealed::Instance for peripherals::USB {
+impl crate::usb::SealedInstance for peripherals::USB {
     fn regs() -> pac::usb::Usb {
         pac::USBCTRL_REGS
     }
