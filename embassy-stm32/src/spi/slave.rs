@@ -1,15 +1,19 @@
 use core::ptr;
 
 use embassy_embedded_hal::SetConfig;
+#[cfg(not(gpdma))]
 use embassy_futures::join::join;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0};
 use embedded_hal_nb::nb;
 
+#[cfg(not(gpdma))]
+use super::{check_error_flags, set_rxdmaen, set_txdmaen, RxDma, TxDma};
 use super::{
-    check_error_flags, rx_ready, set_rxdmaen, set_txdmaen, tx_ready, word_impl, BitOrder, CsPin, Error, Instance,
-    MisoPin, MosiPin, RegsExt, RxDma, SckPin, SealedWord, TxDma, Word,
+    rx_ready, tx_ready, word_impl, BitOrder, CsPin, Error, Instance, MisoPin, MosiPin, RegsExt, SckPin, SealedWord,
+    Word,
 };
+#[cfg(not(gpdma))]
 use crate::dma::{Priority, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AFType, AnyPin, SealedPin as _};
 use crate::pac::spi::{vals, Spi as Regs};
@@ -73,6 +77,7 @@ pub struct SpiSlave<'d, T: Instance> {
     current_word_size: word_impl::Config,
 }
 
+#[cfg(not(gpdma))]
 pub struct SpiSlaveRingBuffered<'d, T: Instance, W: Word> {
     _inner: SpiSlave<'d, T>,
     tx_ring_buffer: WritableRingBuffer<'d, W>,
@@ -258,6 +263,7 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
     }
 
     /// Turn the SPI driver into an asynchronous driver using ring buffer-backed DMA.
+    #[cfg(not(gpdma))]
     pub fn dma_ringbuffered<'b, Tx, Rx, W: Word>(
         mut self,
         txdma: impl Peripheral<P = Tx> + 'd,
@@ -334,6 +340,7 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
     }
 }
 
+#[cfg(not(gpdma))]
 impl<'d, T: Instance, W> SpiSlaveRingBuffered<'d, T, W>
 where
     W: Word,
