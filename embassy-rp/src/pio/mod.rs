@@ -15,8 +15,7 @@ use pac::pio::vals::SmExecctrlStatusSel;
 use pio::{Program, SideSet, Wrap};
 
 use crate::dma::{Channel, Transfer, Word};
-use crate::gpio::sealed::Pin as SealedPin;
-use crate::gpio::{self, AnyPin, Drive, Level, Pull, SlewRate};
+use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::pac::dma::vals::TreqSel;
 use crate::relocate::RelocatedProgram;
@@ -695,6 +694,12 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         }
     }
 
+    /// Set the clock divider for this state machine.
+    pub fn set_clock_divider(&mut self, clock_divider: FixedU32<U8>) {
+        let sm = Self::this_sm();
+        sm.clkdiv().write(|w| w.0 = clock_divider.to_bits() << 8);
+    }
+
     #[inline(always)]
     fn this_sm() -> crate::pac::pio::StateMachine {
         PIO::PIO.sm(SM)
@@ -1148,49 +1153,47 @@ fn on_pio_drop<PIO: Instance>() {
     }
 }
 
-mod sealed {
-    use super::*;
+trait SealedInstance {
+    const PIO_NO: u8;
+    const PIO: &'static crate::pac::pio::Pio;
+    const FUNCSEL: crate::pac::io::vals::Gpio0ctrlFuncsel;
 
-    pub trait PioPin {}
+    #[inline]
+    fn wakers() -> &'static Wakers {
+        const NEW_AW: AtomicWaker = AtomicWaker::new();
+        static WAKERS: Wakers = Wakers([NEW_AW; 12]);
 
-    pub trait Instance {
-        const PIO_NO: u8;
-        const PIO: &'static crate::pac::pio::Pio;
-        const FUNCSEL: crate::pac::io::vals::Gpio0ctrlFuncsel;
-        type Interrupt: crate::interrupt::typelevel::Interrupt;
+        &WAKERS
+    }
 
-        #[inline]
-        fn wakers() -> &'static Wakers {
-            const NEW_AW: AtomicWaker = AtomicWaker::new();
-            static WAKERS: Wakers = Wakers([NEW_AW; 12]);
+    #[inline]
+    fn state() -> &'static State {
+        static STATE: State = State {
+            users: AtomicU8::new(0),
+            used_pins: AtomicU32::new(0),
+        };
 
-            &WAKERS
-        }
-
-        #[inline]
-        fn state() -> &'static State {
-            static STATE: State = State {
-                users: AtomicU8::new(0),
-                used_pins: AtomicU32::new(0),
-            };
-
-            &STATE
-        }
+        &STATE
     }
 }
 
 /// PIO instance.
-pub trait Instance: sealed::Instance + Sized + Unpin {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + Sized + Unpin {
+    /// Interrupt for this peripheral.
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
+}
 
 macro_rules! impl_pio {
     ($name:ident, $pio:expr, $pac:ident, $funcsel:ident, $irq:ident) => {
-        impl sealed::Instance for peripherals::$name {
+        impl SealedInstance for peripherals::$name {
             const PIO_NO: u8 = $pio;
             const PIO: &'static pac::pio::Pio = &pac::$pac;
             const FUNCSEL: pac::io::vals::Gpio0ctrlFuncsel = pac::io::vals::Gpio0ctrlFuncsel::$funcsel;
+        }
+        impl Instance for peripherals::$name {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
-        impl Instance for peripherals::$name {}
     };
 }
 
@@ -1198,12 +1201,11 @@ impl_pio!(PIO0, 0, PIO0, PIO0_0, PIO0_IRQ_0);
 impl_pio!(PIO1, 1, PIO1, PIO1_0, PIO1_IRQ_0);
 
 /// PIO pin.
-pub trait PioPin: sealed::PioPin + gpio::Pin {}
+pub trait PioPin: gpio::Pin {}
 
 macro_rules! impl_pio_pin {
     ($( $pin:ident, )*) => {
         $(
-            impl sealed::PioPin for peripherals::$pin {}
             impl PioPin for peripherals::$pin {}
         )*
     };
