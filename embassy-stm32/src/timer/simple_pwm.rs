@@ -4,9 +4,8 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use super::*;
-#[allow(unused_imports)]
-use crate::gpio::sealed::{AFType, Pin};
+use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
+use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
 use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -30,7 +29,7 @@ pub struct PwmPin<'d, T, C> {
 
 macro_rules! channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: CaptureCompare16bitInstance> PwmPin<'d, T, $channel> {
+        impl<'d, T: GeneralInstance4Channel> PwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
             pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, output_type: OutputType) -> Self {
                 into_ref!(pin);
@@ -55,11 +54,11 @@ channel_impl!(new_ch3, Ch3, Channel3Pin);
 channel_impl!(new_ch4, Ch4, Channel4Pin);
 
 /// Simple PWM driver.
-pub struct SimplePwm<'d, T> {
-    inner: PeripheralRef<'d, T>,
+pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
+    inner: Timer<'d, T>,
 }
 
-impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
+impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Create a new simple PWM driver.
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
@@ -74,15 +73,11 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     }
 
     fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
-        into_ref!(tim);
-
-        T::enable_and_reset();
-
-        let mut this = Self { inner: tim };
+        let mut this = Self { inner: Timer::new(tim) };
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
-        this.inner.enable_outputs(); // Required for advanced timers, see CaptureCompare16bitInstance for details
+        this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
         this.inner.start();
 
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
@@ -127,14 +122,14 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn get_max_duty(&self) -> u16 {
+    pub fn get_max_duty(&self) -> u32 {
         self.inner.get_max_compare_value() + 1
     }
 
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
-    pub fn set_duty(&mut self, channel: Channel, duty: u16) {
+    pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         assert!(duty <= self.get_max_duty());
         self.inner.set_compare_value(channel, duty)
     }
@@ -142,7 +137,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     /// Get the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
-    pub fn get_duty(&self, channel: Channel) -> u16 {
+    pub fn get_duty(&self, channel: Channel) -> u32 {
         self.inner.get_compare_value(channel)
     }
 
@@ -166,8 +161,6 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         channel: Channel,
         duty: &[u16],
     ) {
-        assert!(duty.iter().all(|v| *v <= self.get_max_duty()));
-
         into_ref!(dma);
 
         #[allow(clippy::let_unit_value)] // eg. stm32f334
@@ -202,7 +195,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
                 &mut dma,
                 req,
                 duty,
-                T::regs_1ch().ccr(channel.index()).as_ptr() as *mut _,
+                self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut _,
                 dma_transfer_option,
             )
             .await
@@ -228,22 +221,20 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
 
 macro_rules! impl_waveform_chx {
     ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
-        impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
+        impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             /// Generate a sequence of PWM waveform
             ///
             /// Note:
             /// you will need to provide corresponding TIMx_CHy DMA channel to use this method.
             pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u16]) {
-                use super::vals::Ccds;
-
-                assert!(duty.iter().all(|v| *v <= self.get_max_duty()));
+                use crate::pac::timer::vals::Ccds;
 
                 into_ref!(dma);
 
                 #[allow(clippy::let_unit_value)] // eg. stm32f334
                 let req = dma.request();
 
-                let cc_channel = super::Channel::$cc_ch;
+                let cc_channel = Channel::$cc_ch;
 
                 let original_duty_state = self.get_duty(cc_channel);
                 let original_enable_state = self.is_enabled(cc_channel);
@@ -280,7 +271,7 @@ macro_rules! impl_waveform_chx {
                         &mut dma,
                         req,
                         duty,
-                        T::regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
+                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
                         dma_transfer_option,
                     )
                     .await
@@ -315,10 +306,10 @@ impl_waveform_chx!(waveform_ch2, Ch2Dma, Ch2);
 impl_waveform_chx!(waveform_ch3, Ch3Dma, Ch3);
 impl_waveform_chx!(waveform_ch4, Ch4Dma, Ch4);
 
-impl<'d, T: CaptureCompare16bitInstance> embedded_hal_02::Pwm for SimplePwm<'d, T> {
+impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     type Channel = Channel;
     type Time = Hertz;
-    type Duty = u16;
+    type Duty = u32;
 
     fn disable(&mut self, channel: Self::Channel) {
         self.inner.enable_channel(channel, false);

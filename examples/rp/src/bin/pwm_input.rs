@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     let cfg: Config = Default::default();
-    let pwm = Pwm::new_input(p.PWM_CH2, p.PIN_5, InputMode::RisingEdge, cfg);
+    let pwm = Pwm::new_input(p.PWM_SLICE2, p.PIN_5, InputMode::RisingEdge, cfg);
 
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {

@@ -352,7 +352,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-pub(crate) fn set_up_i2c_pin<'d, P, T>(pin: &P)
+pub(crate) fn set_up_i2c_pin<P, T>(pin: &P)
 where
     P: core::ops::Deref<Target = T>,
     T: crate::gpio::Pin,
@@ -749,7 +749,7 @@ where
 
         let addr: u16 = address.into();
 
-        if operations.len() > 0 {
+        if !operations.is_empty() {
             Self::setup(addr)?;
         }
         let mut iterator = operations.iter_mut();
@@ -762,7 +762,7 @@ where
                     self.read_async_internal(buffer, false, last).await?;
                 }
                 Operation::Write(buffer) => {
-                    self.write_async_internal(buffer.into_iter().cloned(), last).await?;
+                    self.write_async_internal(buffer.iter().cloned(), last).await?;
                 }
             }
         }

@@ -140,26 +140,6 @@ pub(crate) struct _TxBufferElement;
 impl generic::Readable for TxBufferElementHeader {}
 impl generic::Writable for TxBufferElementHeader {}
 
-/// FdCan Message RAM instance.
-///
-/// # Safety
-///
-/// It is only safe to implement this trait, when:
-///
-/// * The implementing type has ownership of the Message RAM, preventing any
-///   other accesses to the register block.
-/// * `MSG_RAM` is a pointer to the Message RAM block and can be safely accessed
-/// for as long as ownership or a borrow of the implementing type is present.
-pub unsafe trait Instance {
-    const MSG_RAM: *mut RegisterBlock;
-    fn msg_ram(&self) -> &RegisterBlock {
-        unsafe { &*Self::MSG_RAM }
-    }
-    fn msg_ram_mut(&mut self) -> &mut RegisterBlock {
-        unsafe { &mut *Self::MSG_RAM }
-    }
-}
-
 // Ensure the RegisterBlock is the same size as on pg 1957 of RM0440.
 static_assertions::assert_eq_size!(Filters, [u32; 28 + 16]);
 static_assertions::assert_eq_size!(Receive, [u32; 54]);

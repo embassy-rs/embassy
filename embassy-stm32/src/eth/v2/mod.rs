@@ -7,11 +7,10 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
-use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::{AnyPin, Speed};
+use crate::gpio::{AFType, AnyPin, SealedPin as _, Speed};
 use crate::interrupt::InterruptExt;
 use crate::pac::ETH;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -207,9 +206,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        let dma = ETH.ethernet_dma();
-        let mac = ETH.ethernet_mac();
-        let mtl = ETH.ethernet_mtl();
+        let dma = T::regs().ethernet_dma();
+        let mac = T::regs().ethernet_mac();
+        let mtl = T::regs().ethernet_mtl();
 
         // Reset and wait
         dma.dmamr().modify(|w| w.set_swr(true));
@@ -265,7 +264,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
-        let hclk = <T as RccPeripheral>::frequency();
+        let hclk = <T as SealedRccPeripheral>::frequency();
         let hclk_mhz = hclk.0 / 1_000_000;
 
         // Set the MDC clock frequency in the range 1MHz - 2.5MHz
@@ -296,9 +295,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 
         fence(Ordering::SeqCst);
 
-        let mac = ETH.ethernet_mac();
-        let mtl = ETH.ethernet_mtl();
-        let dma = ETH.ethernet_dma();
+        let mac = T::regs().ethernet_mac();
+        let mtl = T::regs().ethernet_mtl();
+        let dma = T::regs().ethernet_dma();
 
         mac.maccr().modify(|w| {
             w.set_re(true);
@@ -334,7 +333,7 @@ pub struct EthernetStationManagement<T: Instance> {
 
 unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
     fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
-        let mac = ETH.ethernet_mac();
+        let mac = T::regs().ethernet_mac();
 
         mac.macmdioar().modify(|w| {
             w.set_pa(phy_addr);
@@ -348,7 +347,7 @@ unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
     }
 
     fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) {
-        let mac = ETH.ethernet_mac();
+        let mac = T::regs().ethernet_mac();
 
         mac.macmdiodr().write(|w| w.set_md(val));
         mac.macmdioar().modify(|w| {
@@ -364,9 +363,9 @@ unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
 
 impl<'d, T: Instance, P: PHY> Drop for Ethernet<'d, T, P> {
     fn drop(&mut self) {
-        let dma = ETH.ethernet_dma();
-        let mac = ETH.ethernet_mac();
-        let mtl = ETH.ethernet_mtl();
+        let dma = T::regs().ethernet_dma();
+        let mac = T::regs().ethernet_mac();
+        let mtl = T::regs().ethernet_mtl();
 
         // Disable the TX DMA and wait for any previous transmissions to be completed
         dma.dmactx_cr().modify(|w| w.set_st(false));

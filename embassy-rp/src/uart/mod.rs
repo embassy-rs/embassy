@@ -322,7 +322,7 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
 
 impl<'d, T: Instance, M: Mode> Drop for UartRx<'d, T, M> {
     fn drop(&mut self) {
-        if let Some(_) = self.rx_dma {
+        if self.rx_dma.is_some() {
             T::Interrupt::disable();
             // clear dma flags. irq handlers use these to disambiguate among themselves.
             T::regs().uartdmacr().write_clear(|reg| {

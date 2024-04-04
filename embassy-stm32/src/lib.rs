@@ -158,7 +158,7 @@ pub(crate) use stm32_metapac as pac;
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 
 /// `embassy-stm32` global configuration.
 #[non_exhaustive]
@@ -168,9 +168,17 @@ pub struct Config {
 
     /// Enable debug during sleep and stop.
     ///
-    /// May incrase power consumption. Defaults to true.
+    /// May increase power consumption. Defaults to true.
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
+
+    /// On low-power boards (eg. `stm32l4`, `stm32l5` and `stm32u5`),
+    /// some GPIO pins are powered by an auxiliary, independent power supply (`VDDIO2`),
+    /// which needs to be enabled before these pins can be used.
+    ///
+    /// May increase power consumption. Defaults to true.
+    #[cfg(any(stm32l4, stm32l5, stm32u5))]
+    pub enable_independent_io_supply: bool,
 
     /// BDMA interrupt priority.
     ///
@@ -209,6 +217,8 @@ impl Default for Config {
             rcc: Default::default(),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
+            #[cfg(any(stm32l4, stm32l5, stm32u5))]
+            enable_independent_io_supply: true,
             #[cfg(bdma)]
             bdma_interrupt_priority: Priority::P0,
             #[cfg(dma)]
@@ -269,6 +279,24 @@ pub fn init(config: Config) -> Peripherals {
         peripherals::PWR::enable_and_reset_with_cs(cs);
         #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
         peripherals::FLASH::enable_and_reset_with_cs(cs);
+
+        // Enable the VDDIO2 power supply on chips that have it.
+        // Note that this requires the PWR peripheral to be enabled first.
+        #[cfg(any(stm32l4, stm32l5))]
+        {
+            crate::pac::PWR.cr2().modify(|w| {
+                // The official documentation states that we should ideally enable VDDIO2
+                // through the PVME2 bit, but it looks like this isn't required,
+                // and CubeMX itself skips this step.
+                w.set_iosv(config.enable_independent_io_supply);
+            });
+        }
+        #[cfg(stm32u5)]
+        {
+            crate::pac::PWR.svmcr().modify(|w| {
+                w.set_io2sv(config.enable_independent_io_supply);
+            });
+        }
 
         // dead battery functionality is still present on these
         // chips despite them not having UCPD- disable it

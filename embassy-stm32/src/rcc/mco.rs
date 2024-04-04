@@ -2,8 +2,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::sealed::AFType;
-use crate::gpio::Speed;
+use crate::gpio::{AFType, Speed};
 #[cfg(not(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37)))]
 pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
 #[cfg(not(any(rcc_f2, rcc_f410, rcc_f4, rcc_f7, rcc_h50, rcc_h5, rcc_h7ab, rcc_h7rm0433, rcc_h7)))]
@@ -19,23 +18,25 @@ pub enum McoPrescaler {
     DIV1,
 }
 
-pub(crate) mod sealed {
-    pub trait McoInstance {
-        type Source;
-        unsafe fn apply_clock_settings(source: Self::Source, prescaler: super::McoPrescaler);
-    }
-}
+pub(crate) trait SealedMcoInstance {}
 
-pub trait McoInstance: sealed::McoInstance + 'static {}
+#[allow(private_bounds)]
+pub trait McoInstance: SealedMcoInstance + 'static {
+    type Source;
+
+    #[doc(hidden)]
+    unsafe fn _apply_clock_settings(source: Self::Source, prescaler: super::McoPrescaler);
+}
 
 pin_trait!(McoPin, McoInstance);
 
 macro_rules! impl_peri {
     ($peri:ident, $source:ident, $set_source:ident, $set_prescaler:ident) => {
-        impl sealed::McoInstance for peripherals::$peri {
+        impl SealedMcoInstance for peripherals::$peri {}
+        impl McoInstance for peripherals::$peri {
             type Source = $source;
 
-            unsafe fn apply_clock_settings(source: Self::Source, _prescaler: McoPrescaler) {
+            unsafe fn _apply_clock_settings(source: Self::Source, _prescaler: McoPrescaler) {
                 #[cfg(not(any(stm32u5, stm32wba)))]
                 let r = RCC.cfgr();
                 #[cfg(any(stm32u5, stm32wba))]
@@ -48,8 +49,6 @@ macro_rules! impl_peri {
                 });
             }
         }
-
-        impl McoInstance for peripherals::$peri {}
     };
 }
 
@@ -79,7 +78,7 @@ impl<'d, T: McoInstance> Mco<'d, T> {
         into_ref!(pin);
 
         critical_section::with(|_| unsafe {
-            T::apply_clock_settings(source, prescaler);
+            T::_apply_clock_settings(source, prescaler);
             pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
             pin.set_speed(Speed::VeryHigh);
         });

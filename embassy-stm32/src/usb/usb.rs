@@ -15,7 +15,7 @@ use embassy_usb_driver::{
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::RccPeripheral;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -277,8 +277,8 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         #[cfg(not(stm32l1))]
         {
-            dp.set_as_af(dp.af_num(), crate::gpio::sealed::AFType::OutputPushPull);
-            dm.set_as_af(dm.af_num(), crate::gpio::sealed::AFType::OutputPushPull);
+            dp.set_as_af(dp.af_num(), crate::gpio::AFType::OutputPushPull);
+            dm.set_as_af(dm.af_num(), crate::gpio::AFType::OutputPushPull);
         }
         #[cfg(stm32l1)]
         let _ = (dp, dm); // suppress "unused" warnings.
@@ -637,7 +637,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
 trait Dir {
     fn dir() -> Direction;
-    fn waker(i: usize) -> &'static AtomicWaker;
 }
 
 /// Marker type for the "IN" direction.
@@ -646,11 +645,6 @@ impl Dir for In {
     fn dir() -> Direction {
         Direction::In
     }
-
-    #[inline]
-    fn waker(i: usize) -> &'static AtomicWaker {
-        &EP_IN_WAKERS[i]
-    }
 }
 
 /// Marker type for the "OUT" direction.
@@ -658,11 +652,6 @@ pub enum Out {}
 impl Dir for Out {
     fn dir() -> Direction {
         Direction::Out
-    }
-
-    #[inline]
-    fn waker(i: usize) -> &'static AtomicWaker {
-        &EP_OUT_WAKERS[i]
     }
 }
 
@@ -1048,14 +1037,13 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::usb::Usb;
-    }
+trait SealedInstance {
+    fn regs() -> crate::pac::usb::Usb;
 }
 
 /// USB instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
     /// Interrupt for this USB instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -1066,7 +1054,7 @@ pin_trait!(DmPin, Instance);
 
 foreach_interrupt!(
     ($inst:ident, usb, $block:ident, LP, $irq:ident) => {
-        impl sealed::Instance for crate::peripherals::$inst {
+        impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::usb::Usb {
                 crate::pac::$inst
             }

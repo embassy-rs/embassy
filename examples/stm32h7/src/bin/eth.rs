@@ -64,19 +64,21 @@ async fn main(spawner: Spawner) -> ! {
     let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
     static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
+    // warning: Not all STM32H7 devices have the exact same pins here
+    // for STM32H747XIH, replace p.PB13 for PG12
     let device = Ethernet::new(
         PACKETS.init(PacketQueue::<4, 4>::new()),
         p.ETH,
         Irqs,
-        p.PA1,
-        p.PA2,
-        p.PC1,
-        p.PA7,
-        p.PC4,
-        p.PC5,
-        p.PG13,
-        p.PB13,
-        p.PG11,
+        p.PA1,  // ref_clk
+        p.PA2,  // mdio
+        p.PC1,  // eth_mdc
+        p.PA7,  // CRS_DV: Carrier Sense
+        p.PC4,  // RX_D0: Received Bit 0
+        p.PC5,  // RX_D1: Received Bit 1
+        p.PG13, // TX_D0: Transmit Bit 0
+        p.PB13, // TX_D1: Transmit Bit 1
+        p.PG11, // TX_EN: Transmit Enable
         GenericSMI::new(0),
         mac_addr,
     );

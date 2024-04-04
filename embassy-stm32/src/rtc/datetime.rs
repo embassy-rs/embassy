@@ -1,13 +1,10 @@
 #[cfg(feature = "chrono")]
-use core::convert::From;
-
-#[cfg(feature = "chrono")]
-use chrono::{self, Datelike, NaiveDate, Timelike, Weekday};
+use chrono::{Datelike, NaiveDate, Timelike, Weekday};
 
 #[cfg(any(feature = "defmt", feature = "time"))]
 use crate::peripherals::RTC;
 #[cfg(any(feature = "defmt", feature = "time"))]
-use crate::rtc::sealed::Instance;
+use crate::rtc::SealedInstance;
 
 /// Represents an instant in time that can be substracted to compute a duration
 pub struct RtcInstant {

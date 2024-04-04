@@ -9,7 +9,6 @@ use embedded_hal_1::i2c::Operation;
 use super::*;
 use crate::dma::Transfer;
 use crate::pac::i2c;
-use crate::time::Hertz;
 
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
     let regs = T::regs();

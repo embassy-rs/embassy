@@ -251,13 +251,6 @@ define_peris!(
 );
 
 pub fn config() -> Config {
-    // Setting this bit is mandatory to use PG[15:2].
-    #[cfg(feature = "stm32u5a5zj")]
-    embassy_stm32::pac::PWR.svmcr().modify(|w| {
-        w.set_io2sv(true);
-        w.set_io2vmen(true);
-    });
-
     #[allow(unused_mut)]
     let mut config = Config::default();
 

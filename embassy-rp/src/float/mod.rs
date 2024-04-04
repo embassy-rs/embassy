@@ -89,6 +89,7 @@ pub(crate) trait Float:
     }
 
     /// Returns true if `self` is infinity
+    #[allow(unused)]
     fn is_infinity(self) -> bool {
         (self.repr() & (Self::EXPONENT_MASK | Self::SIGNIFICAND_MASK)) == Self::EXPONENT_MASK
     }

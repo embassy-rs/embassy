@@ -21,8 +21,6 @@ pub(crate) mod sealed {
         fn regs() -> &'static pac::timer0::RegisterBlock;
     }
     pub trait ExtendedInstance {}
-
-    pub trait TimerType {}
 }
 
 /// Basic Timer instance.

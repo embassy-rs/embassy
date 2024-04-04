@@ -3,7 +3,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 use crate::Peripheral;
 
 /// CRC driver.
