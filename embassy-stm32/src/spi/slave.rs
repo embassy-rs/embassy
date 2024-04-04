@@ -4,6 +4,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0};
+use embedded_hal_nb::nb;
 
 use crate::dma::{Priority, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AFType, AnyPin, SealedPin as _};
@@ -11,8 +12,8 @@ use crate::pac::spi::{vals, Spi as Regs};
 use crate::Peripheral;
 
 use super::{
-    check_error_flags, rx_ready, set_rxdmaen, set_txdmaen, spin_until_tx_ready, word_impl,
-    BitOrder, Error, Instance, RegsExt, SealedWord, Word,
+    check_error_flags, rx_ready, set_rxdmaen, set_txdmaen, tx_ready, word_impl, BitOrder, Error,
+    Instance, RegsExt, SealedWord, Word,
 };
 use super::{CsPin, MisoPin, MosiPin, RxDma, SckPin, TxDma};
 
@@ -309,52 +310,31 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
         }
     }
 
-    /// Write data from`buf` to SPI. Returns the number of words written.
-    pub fn write<W: Word>(&mut self, buf: &[W]) -> Result<usize, Error> {
+    /// Write a word to the SPI.
+    pub fn write<W: Word>(&mut self, word: W) -> nb::Result<(), Error> {
         T::REGS.cr1().modify(|w| w.set_spe(true));
-
         self.set_word_size(W::CONFIG);
-        for (words_transferred, word) in buf.iter().enumerate() {
-            match transfer_word(T::REGS, *word)? {
-                Status::Recv(_) => (),
-                Status::Idle => return Ok(words_transferred),
-            }
-        }
 
-        Ok(buf.len())
+        let _ = transfer_word(T::REGS, word)?;
+
+        Ok(())
     }
 
-    /// Read data from SPI into `buf`. Returns the number of words read.
-    pub fn read<W: Word>(&mut self, buf: &mut [W]) -> Result<usize, Error> {
+    /// Read a word from the SPI.
+    pub fn read<W: Word>(&mut self) -> nb::Result<W, Error> {
         T::REGS.cr1().modify(|w| w.set_spe(true));
-
         self.set_word_size(W::CONFIG);
-        for (words_transferred, word) in buf.iter_mut().enumerate() {
-            match transfer_word(T::REGS, W::default())? {
-                Status::Recv(received_word) => *word = received_word,
-                Status::Idle => return Ok(words_transferred),
-            }
-        }
 
-        Ok(buf.len())
+        transfer_word(T::REGS, W::default())
     }
 
-    /// In-place bidirectional transfer.
-    ///
-    /// This writes the contents of `data` on MISO, and puts the received data on MOSI in `words`,
-    /// at the same time. Returns the number of words transferred.
-    pub fn transfer_in_place<W: Word>(&mut self, buf: &mut [W]) -> Result<usize, Error> {
+    /// Bidirectionally transfer by writing a word to SPI while simultaneously reading a word from
+    /// the SPI during the same clock cycle.
+    pub fn transfer<W: Word>(&mut self, word: W) -> nb::Result<W, Error> {
         T::REGS.cr1().modify(|w| w.set_spe(true));
-
         self.set_word_size(W::CONFIG);
-        for (words_transferred, word) in buf.iter_mut().enumerate() {
-            match transfer_word(T::REGS, *word)? {
-                Status::Recv(received_word) => *word = received_word,
-                Status::Idle => return Ok(words_transferred),
-            }
-        }
 
-        Ok(buf.len())
+        transfer_word(T::REGS, word)
     }
 }
 
@@ -469,19 +449,12 @@ impl<'d, T: Instance> SetConfig for SpiSlave<'d, T> {
     }
 }
 
-enum Status<W> {
-    Idle,
-    Recv(W),
-}
-
-fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<Status<W>, Error> {
-    if !rx_ready(regs)? {
-        return Ok(Status::Idle);
+fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> nb::Result<W, Error> {
+    // To keep the tx and rx FIFO queues in the SPI peripheral synchronized, a word must be
+    // simultaneously sent and received, even when only sending or receiving.
+    if !tx_ready(regs)? || !rx_ready(regs)? {
+        return Err(nb::Error::WouldBlock);
     }
-
-    let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
-
-    spin_until_tx_ready(regs)?;
 
     unsafe {
         ptr::write_volatile(regs.tx_ptr(), tx_word);
@@ -490,5 +463,6 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<Status<W>, Error> {
         regs.cr1().modify(|reg| reg.set_cstart(true));
     }
 
-    Ok(Status::Recv(rx_word))
+    let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
+    Ok(rx_word)
 }
