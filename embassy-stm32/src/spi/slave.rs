@@ -6,16 +6,14 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0};
 use embedded_hal_nb::nb;
 
+use super::{
+    check_error_flags, rx_ready, set_rxdmaen, set_txdmaen, tx_ready, word_impl, BitOrder, CsPin, Error, Instance,
+    MisoPin, MosiPin, RegsExt, RxDma, SckPin, SealedWord, TxDma, Word,
+};
 use crate::dma::{Priority, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AFType, AnyPin, SealedPin as _};
 use crate::pac::spi::{vals, Spi as Regs};
 use crate::Peripheral;
-
-use super::{
-    check_error_flags, rx_ready, set_rxdmaen, set_txdmaen, tx_ready, word_impl, BitOrder, Error,
-    Instance, RegsExt, SealedWord, Word,
-};
-use super::{CsPin, MisoPin, MosiPin, RxDma, SckPin, TxDma};
 
 /// SPI slave configuration.
 #[non_exhaustive]
@@ -286,15 +284,13 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
         opts.priority = Priority::High;
         let rx_request = rxdma.request();
         let rx_src = T::REGS.rx_ptr();
-        let mut rx_ring_buffer =
-            unsafe { ReadableRingBuffer::new(rxdma, rx_request, rx_src, rxdma_buffer, opts) };
+        let mut rx_ring_buffer = unsafe { ReadableRingBuffer::new(rxdma, rx_request, rx_src, rxdma_buffer, opts) };
 
         let mut opts = TransferOptions::default();
         opts.priority = Priority::VeryHigh;
         let tx_request = txdma.request();
         let tx_src = T::REGS.tx_ptr();
-        let mut tx_ring_buffer =
-            unsafe { WritableRingBuffer::new(txdma, tx_request, tx_src, txdma_buffer, opts) };
+        let mut tx_ring_buffer = unsafe { WritableRingBuffer::new(txdma, tx_request, tx_src, txdma_buffer, opts) };
 
         set_txdmaen(T::REGS, true);
 
@@ -381,10 +377,7 @@ where
     ///
     /// An overrun error occurs when the portion to be read was overwritten by DMA.
     pub async fn read_exact(&mut self, buf: &mut [W]) -> Result<(), Error> {
-        self.rx_ring_buffer
-            .read_exact(buf)
-            .await
-            .map_err(|_| Error::Overrun)?;
+        self.rx_ring_buffer.read_exact(buf).await.map_err(|_| Error::Overrun)?;
 
         let sr = T::REGS.sr().read();
         check_error_flags(sr)?;
@@ -396,10 +389,7 @@ where
     ///
     /// An overrun error occurs when the portion to be written was read by DMA.
     pub async fn write_exact(&mut self, buf: &[W]) -> Result<(), Error> {
-        self.tx_ring_buffer
-            .write_exact(buf)
-            .await
-            .map_err(|_| Error::Overrun)?;
+        self.tx_ring_buffer.write_exact(buf).await.map_err(|_| Error::Overrun)?;
 
         let sr = T::REGS.sr().read();
         check_error_flags(sr)?;
@@ -412,11 +402,7 @@ where
     ///
     /// An overrun error occurs when either the portion to be written to was read by DMA or the
     /// portion to be read was written to by DMA.
-    pub async fn transfer_exact(
-        &mut self,
-        write_buf: &[W],
-        read_buf: &mut [W],
-    ) -> Result<(), Error> {
+    pub async fn transfer_exact(&mut self, write_buf: &[W], read_buf: &mut [W]) -> Result<(), Error> {
         let write = self.tx_ring_buffer.write_exact(write_buf);
         let read = self.rx_ring_buffer.read_exact(read_buf);
 

@@ -13,8 +13,12 @@ async fn main(_spawner: Spawner) {
 
     let tx_ringbuffer = &mut [0u8; 8192];
     let rx_ringbuffer = &mut [0u8; 8192];
-    let mut spi_ = SpiSlave::new(p.SPI1, p.PA5, p.PA7, p.PA6, p.PA4, ConfigSlave::default())
-        .dma_ringbuffered(p.DMA1_CH2, p.DMA2_CH2, tx_ringbuffer, rx_ringbuffer);
+    let mut spi_ = SpiSlave::new(p.SPI1, p.PA5, p.PA7, p.PA6, p.PA4, ConfigSlave::default()).dma_ringbuffered(
+        p.DMA1_CH2,
+        p.DMA2_CH2,
+        tx_ringbuffer,
+        rx_ringbuffer,
+    );
 
     let mut total_read = 0;
     let write_buffer = &[0u8; 256];
