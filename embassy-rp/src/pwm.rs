@@ -81,24 +81,22 @@ impl From<InputMode> for Divmode {
 }
 
 /// PWM driver.
-pub struct Pwm<'d, T: Slice> {
-    inner: PeripheralRef<'d, T>,
+pub struct Pwm<'d> {
     pin_a: Option<PeripheralRef<'d, AnyPin>>,
     pin_b: Option<PeripheralRef<'d, AnyPin>>,
+    channel: usize,
 }
 
-impl<'d, T: Slice> Pwm<'d, T> {
+impl<'d> Pwm<'d> {
     fn new_inner(
-        inner: impl Peripheral<P = T> + 'd,
+        channel: usize,
         a: Option<PeripheralRef<'d, AnyPin>>,
         b: Option<PeripheralRef<'d, AnyPin>>,
         b_pull: Pull,
         config: Config,
         divmode: Divmode,
     ) -> Self {
-        into_ref!(inner);
-
-        let p = inner.regs();
+        let p = pac::PWM.ch(channel);
         p.csr().modify(|w| {
             w.set_divmode(divmode);
             w.set_en(false);
@@ -117,51 +115,66 @@ impl<'d, T: Slice> Pwm<'d, T> {
             });
         }
         Self {
-            inner,
+            // inner: p.into(),
             pin_a: a,
             pin_b: b,
+            channel,
         }
     }
 
     /// Create PWM driver without any configured pins.
     #[inline]
-    pub fn new_free(inner: impl Peripheral<P = T> + 'd, config: Config) -> Self {
-        Self::new_inner(inner, None, None, Pull::None, config, Divmode::DIV)
+    pub fn new_free<T: Slice>(channel: impl Peripheral<P = T> + 'd, config: Config) -> Self {
+        Self::new_inner(channel.number(), None, None, Pull::None, config, Divmode::DIV)
     }
 
     /// Create PWM driver with a single 'a' as output.
     #[inline]
-    pub fn new_output_a(
-        inner: impl Peripheral<P = T> + 'd,
+    pub fn new_output_a<T: Slice>(
+        channel: impl Peripheral<P = T> + 'd,
         a: impl Peripheral<P = impl ChannelAPin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(a);
-        Self::new_inner(inner, Some(a.map_into()), None, Pull::None, config, Divmode::DIV)
+        Self::new_inner(
+            channel.number(),
+            Some(a.map_into()),
+            None,
+            Pull::None,
+            config,
+            Divmode::DIV,
+        )
     }
 
     /// Create PWM driver with a single 'b' pin as output.
     #[inline]
-    pub fn new_output_b(
-        inner: impl Peripheral<P = T> + 'd,
+    pub fn new_output_b<T: Slice>(
+        channel: impl Peripheral<P = T> + 'd,
         b: impl Peripheral<P = impl ChannelBPin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(b);
-        Self::new_inner(inner, None, Some(b.map_into()), Pull::None, config, Divmode::DIV)
+        Self::new_inner(
+            channel.number(),
+            None,
+            Some(b.map_into()),
+            Pull::None,
+            config,
+            Divmode::DIV,
+        )
     }
 
     /// Create PWM driver with a 'a' and 'b' pins as output.
     #[inline]
-    pub fn new_output_ab(
-        inner: impl Peripheral<P = T> + 'd,
+    pub fn new_output_ab<T: Slice>(
+        channel: impl Peripheral<P = T> + 'd,
         a: impl Peripheral<P = impl ChannelAPin<T>> + 'd,
         b: impl Peripheral<P = impl ChannelBPin<T>> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(a, b);
         Self::new_inner(
-            inner,
+            channel.number(),
             Some(a.map_into()),
             Some(b.map_into()),
             Pull::None,
@@ -172,21 +185,21 @@ impl<'d, T: Slice> Pwm<'d, T> {
 
     /// Create PWM driver with a single 'b' as input pin.
     #[inline]
-    pub fn new_input(
-        inner: impl Peripheral<P = T> + 'd,
+    pub fn new_input<T: Slice>(
+        channel: impl Peripheral<P = T> + 'd,
         b: impl Peripheral<P = impl ChannelBPin<T>> + 'd,
         b_pull: Pull,
         mode: InputMode,
         config: Config,
     ) -> Self {
         into_ref!(b);
-        Self::new_inner(inner, None, Some(b.map_into()), b_pull, config, mode.into())
+        Self::new_inner(channel.number(), None, Some(b.map_into()), b_pull, config, mode.into())
     }
 
     /// Create PWM driver with a 'a' and 'b' pins in the desired input mode.
     #[inline]
-    pub fn new_output_input(
-        inner: impl Peripheral<P = T> + 'd,
+    pub fn new_output_input<T: Slice>(
+        channel: impl Peripheral<P = T> + 'd,
         a: impl Peripheral<P = impl ChannelAPin<T>> + 'd,
         b: impl Peripheral<P = impl ChannelBPin<T>> + 'd,
         b_pull: Pull,
@@ -195,7 +208,7 @@ impl<'d, T: Slice> Pwm<'d, T> {
     ) -> Self {
         into_ref!(a, b);
         Self::new_inner(
-            inner,
+            channel.number(),
             Some(a.map_into()),
             Some(b.map_into()),
             b_pull,
@@ -206,7 +219,7 @@ impl<'d, T: Slice> Pwm<'d, T> {
 
     /// Set the PWM config.
     pub fn set_config(&mut self, config: &Config) {
-        Self::configure(self.inner.regs(), config);
+        Self::configure(pac::PWM.ch(self.channel), config);
     }
 
     fn configure(p: pac::pwm::Channel, config: &Config) {
@@ -228,22 +241,22 @@ impl<'d, T: Slice> Pwm<'d, T> {
         });
     }
 
-    /// Advances a slice’s output phase by one count while it is running
+    /// Advances a slice's output phase by one count while it is running
     /// by inserting a pulse into the clock enable. The counter
     /// will not count faster than once per cycle.
     #[inline]
     pub fn phase_advance(&mut self) {
-        let p = self.inner.regs();
+        let p = pac::PWM.ch(self.channel);
         p.csr().write_set(|w| w.set_ph_adv(true));
         while p.csr().read().ph_adv() {}
     }
 
-    /// Retards a slice’s output phase by one count while it is running
+    /// Retards a slice's output phase by one count while it is running
     /// by deleting a pulse from the clock enable. The counter will not
-    /// count backward when clock enable is permenantly low.
+    /// count backward when clock enable is permanently low.
     #[inline]
     pub fn phase_retard(&mut self) {
-        let p = self.inner.regs();
+        let p = pac::PWM.ch(self.channel);
         p.csr().write_set(|w| w.set_ph_ret(true));
         while p.csr().read().ph_ret() {}
     }
@@ -251,13 +264,13 @@ impl<'d, T: Slice> Pwm<'d, T> {
     /// Read PWM counter.
     #[inline]
     pub fn counter(&self) -> u16 {
-        self.inner.regs().ctr().read().ctr()
+        pac::PWM.ch(self.channel).ctr().read().ctr()
     }
 
     /// Write PWM counter.
     #[inline]
     pub fn set_counter(&self, ctr: u16) {
-        self.inner.regs().ctr().write(|w| w.set_ctr(ctr))
+        pac::PWM.ch(self.channel).ctr().write(|w| w.set_ctr(ctr))
     }
 
     /// Wait for channel interrupt.
@@ -281,7 +294,7 @@ impl<'d, T: Slice> Pwm<'d, T> {
 
     #[inline]
     fn bit(&self) -> u32 {
-        1 << self.inner.number() as usize
+        1 << self.channel as usize
     }
 }
 
@@ -291,7 +304,7 @@ pub struct PwmBatch(u32);
 impl PwmBatch {
     #[inline]
     /// Enable a PWM slice in this batch.
-    pub fn enable(&mut self, pwm: &Pwm<'_, impl Slice>) {
+    pub fn enable(&mut self, pwm: &Pwm<'_>) {
         self.0 |= pwm.bit();
     }
 
@@ -308,9 +321,9 @@ impl PwmBatch {
     }
 }
 
-impl<'d, T: Slice> Drop for Pwm<'d, T> {
+impl<'d> Drop for Pwm<'d> {
     fn drop(&mut self) {
-        self.inner.regs().csr().write_clear(|w| w.set_en(false));
+        pac::PWM.ch(self.channel).csr().write_clear(|w| w.set_en(false));
         if let Some(pin) = &self.pin_a {
             pin.gpio().ctrl().write(|w| w.set_funcsel(31));
         }
@@ -327,11 +340,6 @@ trait SealedSlice {}
 pub trait Slice: Peripheral<P = Self> + SealedSlice + Sized + 'static {
     /// Slice number.
     fn number(&self) -> u8;
-
-    /// Slice register block.
-    fn regs(&self) -> pac::pwm::Channel {
-        pac::PWM.ch(self.number() as _)
-    }
 }
 
 macro_rules! slice {
