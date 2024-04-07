@@ -126,6 +126,10 @@ fn main() -> ! {
     // Initialize and create handle for devicer peripherals
     let _p = embassy_stm32::init(Default::default());
 
+    // STM32s don’t have software-defined interrupts, so just use any free interrupt vectors which aren’t used
+    // by the rest of your application. In this case we’re using UART1 and UART2, but there’s nothing special
+    // about them. Any otherwise unused interrupt vector would work exactly the same.
+
     // High-priority executor: USART1, priority level 6
     interrupt::USART1.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::USART1);
