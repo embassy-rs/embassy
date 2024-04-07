@@ -317,7 +317,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     ///
     /// # Arguments
     ///
-    /// * `ep_out_buffer` - An internal buffer used to temporarily store recevied packets.
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
     /// Must be large enough to fit all OUT endpoint max packet sizes.
     /// Endpoint allocation will fail if it is too small.
     pub fn new_fs(
@@ -348,7 +348,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     ///
     /// # Arguments
     ///
-    /// * `ep_out_buffer` - An internal buffer used to temporarily store recevied packets.
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
     /// Must be large enough to fit all OUT endpoint max packet sizes.
     /// Endpoint allocation will fail if it is too small.
     pub fn new_hs_ulpi(
