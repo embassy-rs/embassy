@@ -38,11 +38,12 @@ pub struct Config<'a> {
 
     /// Maximum packet size in bytes for the control endpoint 0.
     ///
-    /// Valid values are 8, 16, 32 and 64. There's generally no need to change this from the default
-    /// value of 8 bytes unless a class uses control transfers for sending large amounts of data, in
-    /// which case using a larger packet size may be more efficient.
+    /// Valid values depend on the speed at which the bus is enumerated.
+    /// - low speed: 8
+    /// - full speed: 8, 16, 32, or 64
+    /// - high speed: 64
     ///
-    /// Default: 8 bytes
+    /// Default: 64 bytes
     pub max_packet_size_0: u8,
 
     /// Manufacturer name string descriptor.
