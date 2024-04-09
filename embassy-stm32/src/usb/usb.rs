@@ -762,8 +762,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     }
 }
 
-impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+impl<'d, T: Instance> driver::EndpointInSinglePacket for Endpoint<'d, T, In> {
+    async fn write_one_packet(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
         if buf.len() > self.info.max_packet_size as usize {
             return Err(EndpointError::BufferOverflow);
         }

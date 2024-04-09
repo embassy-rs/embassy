@@ -345,8 +345,44 @@ pub trait ControlPipe {
 
 /// IN Endpoint trait.
 pub trait EndpointIn: Endpoint {
-    /// Write a single packet of data to the endpoint.
+    /// Write data to the endpoint.
+    ///
+    /// If the data is larger than the endpoint's maximum packet size, it will be transmitted as a
+    /// sequence of packets, where all but the last packet is guaranteed to be the maximum packet
+    /// size.
+    ///
+    /// A short packet always signifies the end of a USB transfer.  If you have a large transfer
+    /// to make, you can split it across multiple write() calls, but you must ensure that all but
+    /// the last call sends a multiple of the maximum packet size.
+    ///
+    /// Note that the write() call completes as soon as the data is enqueued for the hardware to
+    /// transmit.  A successful completion of write() does not mean the data has been successfully
+    /// transmitted yet.
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
+}
+
+/// A helper trait for implementations that only support writing a single packet at a time.
+///
+/// EndpointInSinglePacket will convert larger write() calls into multiple serial calls to
+/// write_one_packet().
+pub trait EndpointInSinglePacket: Endpoint {
+    /// Write a single packet to the endpoint.
+    ///
+    /// The length of buf is guaranteed to not be more than the endpoint's maximum packet size.
+    async fn write_one_packet(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
+}
+
+impl<EndpointSP: EndpointInSinglePacket> EndpointIn for EndpointSP {
+    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        if buf.len() == 0 {
+            self.write_one_packet(buf).await
+        } else {
+            for pkt in buf.chunks(self.info().max_packet_size as usize) {
+                self.write_one_packet(pkt).await?
+            }
+            Ok(())
+        }
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
