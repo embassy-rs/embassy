@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
+use embedded_hal_1::delay::DelayNs;
 
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
@@ -58,7 +58,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
         adc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        delay: &mut impl DelayUs<u32>,
+        delay: &mut impl DelayNs,
     ) -> Self {
         use crate::pac::adc::vals;
 
@@ -117,7 +117,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self, _delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vref(&self, _delay: &mut impl DelayNs) -> Vref {
         T::common_regs().ccr().modify(|w| w.set_vrefen(true));
 
         Vref {}

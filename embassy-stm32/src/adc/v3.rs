@@ -1,6 +1,6 @@
 use cfg_if::cfg_if;
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
+use embedded_hal_1::delay::DelayNs;
 
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::Peripheral;
@@ -74,7 +74,7 @@ cfg_if! {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayNs) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
         T::regs().cr().modify(|reg| {
@@ -106,7 +106,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vrefint(&self, delay: &mut impl DelayUs<u32>) -> VrefInt {
+    pub fn enable_vrefint(&self, delay: &mut impl DelayNs) -> VrefInt {
         #[cfg(not(adc_g0))]
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);

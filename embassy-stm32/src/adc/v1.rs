@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
+use embedded_hal_1::delay::DelayNs;
 #[cfg(adc_l0)]
 use stm32_metapac::adc::vals::Ckmode;
 
@@ -65,7 +65,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
         adc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        delay: &mut impl DelayUs<u32>,
+        delay: &mut impl DelayNs,
     ) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
@@ -114,7 +114,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     #[cfg(not(adc_l0))]
-    pub fn enable_vbat(&self, _delay: &mut impl DelayUs<u32>) -> Vbat {
+    pub fn enable_vbat(&self, _delay: &mut impl DelayNs) -> Vbat {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.20 Vbat monitoring characteristics
@@ -123,7 +123,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat
     }
 
-    pub fn enable_vref(&self, delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vref(&self, delay: &mut impl DelayNs) -> Vref {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
@@ -131,7 +131,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vref
     }
 
-    pub fn enable_temperature(&self, delay: &mut impl DelayUs<u32>) -> Temperature {
+    pub fn enable_temperature(&self, delay: &mut impl DelayNs) -> Temperature {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.19 Temperature sensor characteristics

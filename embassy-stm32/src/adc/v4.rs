@@ -1,4 +1,4 @@
-use embedded_hal_02::blocking::delay::DelayUs;
+use embedded_hal_1::delay::DelayNs;
 #[allow(unused)]
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
@@ -129,7 +129,7 @@ impl Prescaler {
 
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayNs) -> Self {
         embassy_hal_internal::into_ref!(adc);
         T::enable_and_reset();
 
@@ -173,7 +173,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         s
     }
 
-    fn power_up(&mut self, delay: &mut impl DelayUs<u16>) {
+    fn power_up(&mut self, delay: &mut impl DelayNs) {
         T::regs().cr().modify(|reg| {
             reg.set_deeppwd(false);
             reg.set_advregen(true);

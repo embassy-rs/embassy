@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
+use embedded_hal_1::delay::DelayNs;
 
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::time::Hertz;
@@ -48,7 +48,7 @@ impl<T: Instance> super::SealedAdcPin<T> for Temperature {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayNs) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
@@ -95,7 +95,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self, _delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vref(&self, _delay: &mut impl DelayNs) -> Vref {
         T::regs().cr2().modify(|reg| {
             reg.set_tsvrefe(true);
         });

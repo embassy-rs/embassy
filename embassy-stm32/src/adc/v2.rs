@@ -1,5 +1,5 @@
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
+use embedded_hal_1::delay::DelayNs;
 
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
@@ -97,7 +97,7 @@ impl<'d, T> Adc<'d, T>
 where
     T: Instance,
 {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayNs) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
 
