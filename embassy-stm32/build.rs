@@ -484,7 +484,7 @@ fn main() {
                 let expr = if let Some(mux) = self.chained_muxes.get(&v.name) {
                     self.gen_mux(mux)
                 } else {
-                    self.gen_clock(&v.name)
+                    self.gen_clock(v.name)
                 };
                 match_arms.extend(quote! {
                     crate::pac::rcc::vals::#enum_name::#variant_name => #expr,
@@ -1006,7 +1006,19 @@ fn main() {
         (("quadspi", "BK2_IO3"), quote!(crate::qspi::BK2D3Pin)),
         (("quadspi", "BK2_NCS"), quote!(crate::qspi::BK2NSSPin)),
         (("quadspi", "CLK"), quote!(crate::qspi::SckPin)),
-             ].into();
+        (("octospi", "IO0"), quote!(crate::ospi::D0Pin)),
+        (("octospi", "IO1"), quote!(crate::ospi::D1Pin)),
+        (("octospi", "IO2"), quote!(crate::ospi::D2Pin)),
+        (("octospi", "IO3"), quote!(crate::ospi::D3Pin)),
+        (("octospi", "IO4"), quote!(crate::ospi::D4Pin)),
+        (("octospi", "IO5"), quote!(crate::ospi::D5Pin)),
+        (("octospi", "IO6"), quote!(crate::ospi::D6Pin)),
+        (("octospi", "IO7"), quote!(crate::ospi::D7Pin)),
+        (("octospi", "DQS"), quote!(crate::ospi::DQSPin)),
+        (("octospi", "NCS"), quote!(crate::ospi::NSSPin)),
+        (("octospi", "CLK"), quote!(crate::ospi::SckPin)),
+        (("octospi", "NCLK"), quote!(crate::ospi::NckPin)),
+    ].into();
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
@@ -1129,6 +1141,7 @@ fn main() {
         // SDMMCv1 uses the same channel for both directions, so just implement for RX
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
+        (("octospi", "OCTOSPI1"), quote!(crate::ospi::OctoDma)),
         (("dac", "CH1"), quote!(crate::dac::DacDma1)),
         (("dac", "CH2"), quote!(crate::dac::DacDma2)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
@@ -1139,11 +1152,18 @@ fn main() {
         (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
         (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
         (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
+        (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
+        (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
     ]
     .into();
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
+            // FIXME: stm32u5a crash on Cordic driver
+            if chip_name.starts_with("stm32u5a") && regs.kind == "cordic" {
+                continue;
+            }
+
             let mut dupe = HashSet::new();
             for ch in p.dma_channels {
                 // Some chips have multiple request numbers for the same (peri, signal, channel) combos.

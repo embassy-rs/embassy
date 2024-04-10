@@ -12,8 +12,7 @@ use pac::uart::regs::Uartris;
 
 use crate::clocks::clk_peri_freq;
 use crate::dma::{AnyChannel, Channel};
-use crate::gpio::sealed::Pin;
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::io::vals::{Inover, Outover};
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
@@ -1107,35 +1106,26 @@ impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for Uart<'d, T, M>
     }
 }
 
-mod sealed {
-    use super::*;
+trait SealedMode {}
 
-    pub trait Mode {}
+trait SealedInstance {
+    const TX_DREQ: u8;
+    const RX_DREQ: u8;
 
-    pub trait Instance {
-        const TX_DREQ: u8;
-        const RX_DREQ: u8;
+    fn regs() -> pac::uart::Uart;
 
-        type Interrupt: interrupt::typelevel::Interrupt;
+    fn buffered_state() -> &'static buffered::State;
 
-        fn regs() -> pac::uart::Uart;
-
-        fn buffered_state() -> &'static buffered::State;
-
-        fn dma_state() -> &'static DmaState;
-    }
-    pub trait TxPin<T: Instance> {}
-    pub trait RxPin<T: Instance> {}
-    pub trait CtsPin<T: Instance> {}
-    pub trait RtsPin<T: Instance> {}
+    fn dma_state() -> &'static DmaState;
 }
 
 /// UART mode.
-pub trait Mode: sealed::Mode {}
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
 
 macro_rules! impl_mode {
     ($name:ident) => {
-        impl sealed::Mode for $name {}
+        impl SealedMode for $name {}
         impl Mode for $name {}
     };
 }
@@ -1149,15 +1139,17 @@ impl_mode!(Blocking);
 impl_mode!(Async);
 
 /// UART instance.
-pub trait Instance: sealed::Instance {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {
+    /// Interrupt for this instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 macro_rules! impl_instance {
     ($inst:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
-
-            type Interrupt = crate::interrupt::typelevel::$irq;
 
             fn regs() -> pac::uart::Uart {
                 pac::$inst
@@ -1176,7 +1168,9 @@ macro_rules! impl_instance {
                 &STATE
             }
         }
-        impl Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
     };
 }
 
@@ -1184,17 +1178,16 @@ impl_instance!(UART0, UART0_IRQ, 20, 21);
 impl_instance!(UART1, UART1_IRQ, 22, 23);
 
 /// Trait for TX pins.
-pub trait TxPin<T: Instance>: sealed::TxPin<T> + crate::gpio::Pin {}
+pub trait TxPin<T: Instance>: crate::gpio::Pin {}
 /// Trait for RX pins.
-pub trait RxPin<T: Instance>: sealed::RxPin<T> + crate::gpio::Pin {}
+pub trait RxPin<T: Instance>: crate::gpio::Pin {}
 /// Trait for Clear To Send (CTS) pins.
-pub trait CtsPin<T: Instance>: sealed::CtsPin<T> + crate::gpio::Pin {}
+pub trait CtsPin<T: Instance>: crate::gpio::Pin {}
 /// Trait for Request To Send (RTS) pins.
-pub trait RtsPin<T: Instance>: sealed::RtsPin<T> + crate::gpio::Pin {}
+pub trait RtsPin<T: Instance>: crate::gpio::Pin {}
 
 macro_rules! impl_pin {
     ($pin:ident, $instance:ident, $function:ident) => {
-        impl sealed::$function<peripherals::$instance> for peripherals::$pin {}
         impl $function<peripherals::$instance> for peripherals::$pin {}
     };
 }

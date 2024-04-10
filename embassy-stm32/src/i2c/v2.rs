@@ -557,6 +557,21 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
+    /// Transaction with operations.
+    ///
+    /// Consecutive operations of same type are merged. See [transaction contract] for details.
+    ///
+    /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        let _ = addr;
+        let _ = operations;
+        todo!()
+    }
+
     // =========================
     //  Blocking public API
 

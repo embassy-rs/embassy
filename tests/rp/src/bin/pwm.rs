@@ -94,7 +94,7 @@ async fn main(_spawner: Spawner) {
     // Test level-gated
     {
         let mut pin2 = Output::new(&mut p11, Level::Low);
-        let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, InputMode::Level, cfg.clone());
+        let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, Pull::None, InputMode::Level, cfg.clone());
         assert_eq!(pwm.counter(), 0);
         Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);
@@ -110,7 +110,13 @@ async fn main(_spawner: Spawner) {
     // Test rising-gated
     {
         let mut pin2 = Output::new(&mut p11, Level::Low);
-        let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, InputMode::RisingEdge, cfg.clone());
+        let pwm = Pwm::new_input(
+            &mut p.PWM_SLICE3,
+            &mut p7,
+            Pull::None,
+            InputMode::RisingEdge,
+            cfg.clone(),
+        );
         assert_eq!(pwm.counter(), 0);
         Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);
@@ -125,7 +131,13 @@ async fn main(_spawner: Spawner) {
     // Test falling-gated
     {
         let mut pin2 = Output::new(&mut p11, Level::High);
-        let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, InputMode::FallingEdge, cfg.clone());
+        let pwm = Pwm::new_input(
+            &mut p.PWM_SLICE3,
+            &mut p7,
+            Pull::None,
+            InputMode::FallingEdge,
+            cfg.clone(),
+        );
         assert_eq!(pwm.counter(), 0);
         Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);
@@ -135,6 +147,34 @@ async fn main(_spawner: Spawner) {
         assert_eq!(pwm.counter(), 1);
         Timer::after_millis(1).await;
         assert_eq!(pwm.counter(), 1);
+    }
+
+    // pull-down
+    {
+        let pin2 = Input::new(&mut p11, Pull::None);
+        Pwm::new_input(
+            &mut p.PWM_SLICE3,
+            &mut p7,
+            Pull::Down,
+            InputMode::FallingEdge,
+            cfg.clone(),
+        );
+        Timer::after_millis(1).await;
+        assert!(pin2.is_low());
+    }
+
+    // pull-up
+    {
+        let pin2 = Input::new(&mut p11, Pull::None);
+        Pwm::new_input(
+            &mut p.PWM_SLICE3,
+            &mut p7,
+            Pull::Up,
+            InputMode::FallingEdge,
+            cfg.clone(),
+        );
+        Timer::after_millis(1).await;
+        assert!(pin2.is_high());
     }
 
     info!("Test OK");

@@ -793,23 +793,20 @@ impl Allocator {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        fn regs() -> &'static pac::usbd::RegisterBlock;
-    }
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::usbd::RegisterBlock;
 }
 
 /// USB peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_usb {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::usb::sealed::Instance for peripherals::$type {
+        impl crate::usb::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::usbd::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
