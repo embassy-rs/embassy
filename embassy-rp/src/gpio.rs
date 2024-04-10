@@ -8,7 +8,6 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use self::sealed::Pin as _;
 use crate::interrupt::InterruptExt;
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
@@ -802,68 +801,65 @@ impl<'w> Drop for DormantWake<'w> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+pub(crate) trait SealedPin: Sized {
+    fn pin_bank(&self) -> u8;
 
-    pub trait Pin: Sized {
-        fn pin_bank(&self) -> u8;
+    #[inline]
+    fn _pin(&self) -> u8 {
+        self.pin_bank() & 0x1f
+    }
 
-        #[inline]
-        fn _pin(&self) -> u8 {
-            self.pin_bank() & 0x1f
+    #[inline]
+    fn _bank(&self) -> Bank {
+        match self.pin_bank() >> 5 {
+            #[cfg(feature = "qspi-as-gpio")]
+            1 => Bank::Qspi,
+            _ => Bank::Bank0,
         }
+    }
 
-        #[inline]
-        fn _bank(&self) -> Bank {
-            match self.pin_bank() >> 5 {
-                #[cfg(feature = "qspi-as-gpio")]
-                1 => Bank::Qspi,
-                _ => Bank::Bank0,
-            }
+    fn io(&self) -> pac::io::Io {
+        match self._bank() {
+            Bank::Bank0 => crate::pac::IO_BANK0,
+            #[cfg(feature = "qspi-as-gpio")]
+            Bank::Qspi => crate::pac::IO_QSPI,
         }
+    }
 
-        fn io(&self) -> pac::io::Io {
-            match self._bank() {
-                Bank::Bank0 => crate::pac::IO_BANK0,
-                #[cfg(feature = "qspi-as-gpio")]
-                Bank::Qspi => crate::pac::IO_QSPI,
-            }
-        }
+    fn gpio(&self) -> pac::io::Gpio {
+        self.io().gpio(self._pin() as _)
+    }
 
-        fn gpio(&self) -> pac::io::Gpio {
-            self.io().gpio(self._pin() as _)
-        }
+    fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
+        let block = match self._bank() {
+            Bank::Bank0 => crate::pac::PADS_BANK0,
+            #[cfg(feature = "qspi-as-gpio")]
+            Bank::Qspi => crate::pac::PADS_QSPI,
+        };
+        block.gpio(self._pin() as _)
+    }
 
-        fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
-            let block = match self._bank() {
-                Bank::Bank0 => crate::pac::PADS_BANK0,
-                #[cfg(feature = "qspi-as-gpio")]
-                Bank::Qspi => crate::pac::PADS_QSPI,
-            };
-            block.gpio(self._pin() as _)
-        }
+    fn sio_out(&self) -> pac::sio::Gpio {
+        SIO.gpio_out(self._bank() as _)
+    }
 
-        fn sio_out(&self) -> pac::sio::Gpio {
-            SIO.gpio_out(self._bank() as _)
-        }
+    fn sio_oe(&self) -> pac::sio::Gpio {
+        SIO.gpio_oe(self._bank() as _)
+    }
 
-        fn sio_oe(&self) -> pac::sio::Gpio {
-            SIO.gpio_oe(self._bank() as _)
-        }
+    fn sio_in(&self) -> Reg<u32, RW> {
+        SIO.gpio_in(self._bank() as _)
+    }
 
-        fn sio_in(&self) -> Reg<u32, RW> {
-            SIO.gpio_in(self._bank() as _)
-        }
-
-        fn int_proc(&self) -> pac::io::Int {
-            let proc = SIO.cpuid().read();
-            self.io().int_proc(proc as _)
-        }
+    fn int_proc(&self) -> pac::io::Int {
+        let proc = SIO.cpuid().read();
+        self.io().int_proc(proc as _)
     }
 }
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Degrade to a generic pin struct
     fn degrade(self) -> AnyPin {
         AnyPin {
@@ -903,7 +899,7 @@ impl AnyPin {
 impl_peripheral!(AnyPin);
 
 impl Pin for AnyPin {}
-impl sealed::Pin for AnyPin {
+impl SealedPin for AnyPin {
     fn pin_bank(&self) -> u8 {
         self.pin_bank
     }
@@ -914,7 +910,7 @@ impl sealed::Pin for AnyPin {
 macro_rules! impl_pin {
     ($name:ident, $bank:expr, $pin_num:expr) => {
         impl Pin for peripherals::$name {}
-        impl sealed::Pin for peripherals::$name {
+        impl SealedPin for peripherals::$name {
             #[inline]
             fn pin_bank(&self) -> u8 {
                 ($bank as u8) * 32 + $pin_num

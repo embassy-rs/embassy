@@ -208,14 +208,12 @@ pub(crate) const CHANNEL_COUNT: usize = 12;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 
-mod sealed {
-    pub trait Channel {}
-
-    pub trait Word {}
-}
+trait SealedChannel {}
+trait SealedWord {}
 
 /// DMA channel interface.
-pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Channel: Peripheral<P = Self> + SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Channel number.
     fn number(&self) -> u8;
 
@@ -231,26 +229,27 @@ pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + S
 }
 
 /// DMA word.
-pub trait Word: sealed::Word {
+#[allow(private_bounds)]
+pub trait Word: SealedWord {
     /// Word size.
     fn size() -> vals::DataSize;
 }
 
-impl sealed::Word for u8 {}
+impl SealedWord for u8 {}
 impl Word for u8 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_BYTE
     }
 }
 
-impl sealed::Word for u16 {}
+impl SealedWord for u16 {}
 impl Word for u16 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_HALFWORD
     }
 }
 
-impl sealed::Word for u32 {}
+impl SealedWord for u32 {}
 impl Word for u32 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_WORD
@@ -264,7 +263,7 @@ pub struct AnyChannel {
 
 impl_peripheral!(AnyChannel);
 
-impl sealed::Channel for AnyChannel {}
+impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> u8 {
         self.number
@@ -273,7 +272,7 @@ impl Channel for AnyChannel {
 
 macro_rules! channel {
     ($name:ident, $num:expr) => {
-        impl sealed::Channel for peripherals::$name {}
+        impl SealedChannel for peripherals::$name {}
         impl Channel for peripherals::$name {
             fn number(&self) -> u8 {
                 $num

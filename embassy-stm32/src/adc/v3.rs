@@ -222,6 +222,13 @@ impl<'d, T: Instance> Adc<'d, T> {
             // spin
         }
 
+        // RM0492, RM0481, etc.
+        // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
+        #[cfg(adc_h5)]
+        if pin.channel() == 0 {
+            T::regs().or().modify(|reg| reg.set_op0(true));
+        }
+
         // Configure channel
         Self::set_channel_sample_time(pin.channel(), self.sample_time);
 
@@ -243,6 +250,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         let val = self.convert();
 
         T::regs().cr().modify(|reg| reg.set_addis(true));
+
+        // RM0492, RM0481, etc.
+        // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
+        #[cfg(adc_h5)]
+        if pin.channel() == 0 {
+            T::regs().or().modify(|reg| reg.set_op0(false));
+        }
 
         val
     }

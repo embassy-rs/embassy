@@ -727,41 +727,38 @@ impl<'a, T: Instance> Drop for Twim<'a, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+pub(crate) struct State {
+    end_waker: AtomicWaker,
+}
 
-    pub struct State {
-        pub end_waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                end_waker: AtomicWaker::new(),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            end_waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static pac::twim0::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::twim0::RegisterBlock;
+    fn state() -> &'static State;
+}
+
 /// TWIM peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_twim {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::twim::sealed::Instance for peripherals::$type {
+        impl crate::twim::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::twim0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::twim::sealed::State {
-                static STATE: crate::twim::sealed::State = crate::twim::sealed::State::new();
+            fn state() -> &'static crate::twim::State {
+                static STATE: crate::twim::State = crate::twim::State::new();
                 &STATE
             }
         }
