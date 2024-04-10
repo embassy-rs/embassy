@@ -3,7 +3,6 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_1::delay::DelayNs;
 
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::time::Hertz;
@@ -48,14 +47,18 @@ impl<T: Instance> super::SealedAdcPin<T> for Temperature {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayNs) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
 
         // 11.4: Before starting a calibration, the ADC must have been in power-on state (ADON bit = ‘1’)
-        // for at least two ADC clock cycles
-        delay.delay_us((1_000_000 * 2) / Self::freq().0 + 1);
+        // for at least two ADC clock cycles.
+        let us = (1_000_000 * 2) / Self::freq().0 + 1;
+        #[cfg(time)]
+        embassy_time::block_for(embassy_time::Duration::from_micros(us));
+        #[cfg(not(time))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / (1000_000 / us));
 
         // Reset calibration
         T::regs().cr2().modify(|reg| reg.set_rstcal(true));
@@ -70,7 +73,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         // One cycle after calibration
-        delay.delay_us((1_000_000) / Self::freq().0 + 1);
+        let us = (1_000_000 * 1) / Self::freq().0 + 1;
+        #[cfg(time)]
+        embassy_time::block_for(embassy_time::Duration::from_micros(us));
+        #[cfg(not(time))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / (1000_000 / us));
 
         Self {
             adc,
@@ -95,7 +102,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self, _delay: &mut impl DelayNs) -> Vref {
+    pub fn enable_vref(&self) -> Vref {
         T::regs().cr2().modify(|reg| {
             reg.set_tsvrefe(true);
         });

@@ -1,6 +1,5 @@
 use cfg_if::cfg_if;
 use embassy_hal_internal::into_ref;
-use embedded_hal_1::delay::DelayNs;
 
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::Peripheral;
@@ -74,7 +73,7 @@ cfg_if! {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayNs) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
         T::regs().cr().modify(|reg| {
@@ -88,7 +87,10 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_chselrmod(false);
         });
 
-        delay.delay_us(20);
+        #[cfg(time)]
+        embassy_time::block_for(embassy_time::Duration::from_micros(20));
+        #[cfg(not(time))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 50_000);
 
         T::regs().cr().modify(|reg| {
             reg.set_adcal(true);
@@ -98,7 +100,10 @@ impl<'d, T: Instance> Adc<'d, T> {
             // spin
         }
 
-        delay.delay_us(1);
+        #[cfg(time)]
+        embassy_time::block_for(embassy_time::Duration::from_micros(1));
+        #[cfg(not(time))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 1000_000);
 
         Self {
             adc,
@@ -106,7 +111,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vrefint(&self, delay: &mut impl DelayNs) -> VrefInt {
+    pub fn enable_vrefint(&self) -> VrefInt {
         #[cfg(not(adc_g0))]
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
@@ -117,10 +122,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         // "Table 24. Embedded internal voltage reference" states that it takes a maximum of 12 us
-        // to stabilize the internal voltage reference, we wait a little more.
-        // TODO: delay 15us
-        //cortex_m::asm::delay(20_000_000);
-        delay.delay_us(15);
+        // to stabilize the internal voltage reference.
+        #[cfg(time)]
+        embassy_time::block_for(embassy_time::Duration::from_micros(20));
+        #[cfg(not(time))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 50_000);
 
         VrefInt {}
     }

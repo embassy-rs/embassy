@@ -3,7 +3,6 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_1::delay::DelayNs;
 
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
@@ -58,7 +57,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
         adc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        delay: &mut impl DelayNs,
     ) -> Self {
         use crate::pac::adc::vals;
 
@@ -71,7 +69,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::ENABLED));
 
         // Wait for the regulator to stabilize
-        delay.delay_us(10);
+        #[cfg(time)]
+        embassy_time::block_for(embassy_time::Duration::from_micros(10));
+        #[cfg(not(time))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 100_000);
 
         assert!(!T::regs().cr().read().aden());
 
@@ -81,8 +82,12 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         while T::regs().cr().read().adcal() {}
 
-        // Wait more than 4 clock cycles after adcal is cleared (RM0364 p. 223)
-        delay.delay_us(1 + (6 * 1_000_000 / Self::freq().0));
+        // Wait more than 4 clock cycles after adcal is cleared (RM0364 p. 223).
+        let us = (1_000_000 * 4) / Self::freq().0 + 1;
+        #[cfg(time)]
+        embassy_time::block_for(embassy_time::Duration::from_micros(us));
+        #[cfg(not(time))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / (1000_000 / us));
 
         // Enable the adc
         T::regs().cr().modify(|w| w.set_aden(true));
@@ -117,7 +122,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self, _delay: &mut impl DelayNs) -> Vref {
+    pub fn enable_vref(&self) -> Vref {
         T::common_regs().ccr().modify(|w| w.set_vrefen(true));
 
         Vref {}

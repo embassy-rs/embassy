@@ -1,5 +1,4 @@
 use embassy_hal_internal::into_ref;
-use embedded_hal_1::delay::DelayNs;
 
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
@@ -10,9 +9,6 @@ use crate::Peripheral;
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
-
-/// ADC turn-on time
-pub const ADC_POWERUP_TIME_US: u32 = 3;
 
 pub struct VrefInt;
 impl AdcPin<ADC1> for VrefInt {}
@@ -97,7 +93,7 @@ impl<'d, T> Adc<'d, T>
 where
     T: Instance,
 {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayNs) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
 
@@ -107,7 +103,10 @@ where
             reg.set_adon(true);
         });
 
-        delay.delay_us(ADC_POWERUP_TIME_US);
+        #[cfg(time)]
+        embassy_time::block_for(embassy_time::Duration::from_micros(5));
+        #[cfg(not(time))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 200_000);
 
         Self {
             adc,
