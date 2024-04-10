@@ -15,13 +15,13 @@ pub(crate) mod fmt;
 mod device;
 #[cfg(feature = "dns")]
 pub mod dns;
+#[cfg(feature = "raw")]
+pub mod raw;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 mod time;
 #[cfg(feature = "udp")]
 pub mod udp;
-#[cfg(feature = "raw")]
-pub mod raw;
 
 use core::cell::RefCell;
 use core::future::{poll_fn, Future};
