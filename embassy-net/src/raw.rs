@@ -13,28 +13,6 @@ use smoltcp::wire::{IpProtocol, IpVersion};
 
 use crate::{SocketStack, Stack};
 
-
-/// Unrelavent for RawSocket?
-/* /// Error returned by [`RawSocket::bind`].
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum BindError {
-    /// The socket was already open.
-    InvalidState,
-    /// No route to host.
-    NoRoute,
-} */
-
-/// Error returned by [`RawSocket::recv_from`] and [`RawSocket::send_to`].
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum SendError {
-    /// No route to host.
-    NoRoute,
-    /// Socket not bound to an outgoing port.
-    SocketNotBound,
-}
-
 /// Error returned by [`RawSocket::recv`] and [`RawSocket::send`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -87,42 +65,6 @@ impl<'a> RawSocket<'a> {
         res
     }
 
-    /// Bind the socket to a local endpoint.
-    /// 
-    /// How to handle this in RawSocket? no need for bind?
-    /// 
-    /* pub fn bind<T>(&mut self, endpoint: T) -> Result<(), BindError>
-    where
-        T: Into<IpListenEndpoint>,
-    {
-        let mut endpoint = endpoint.into();
-
-        if endpoint.port == 0 {
-            // If user didn't specify port allocate a dynamic port.
-            endpoint.port = self.stack.borrow_mut().get_local_port();
-        }
-
-        match self.with_mut(|s, _| s.bind(endpoint)) {
-            Ok(()) => Ok(()),
-            Err(raw::BindError::InvalidState) => Err(BindError::InvalidState),
-            Err(raw::BindError::Unaddressable) => Err(BindError::NoRoute),
-        }
-    }
-
-    fn with<R>(&self, f: impl FnOnce(&raw::Socket, &Interface) -> R) -> R {
-        let s = &*self.stack.borrow();
-        let socket = s.sockets.get::<raw::Socket>(self.handle);
-        f(socket, &s.iface)
-    }
-
-    fn with_mut<R>(&self, f: impl FnOnce(&mut raw::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.borrow_mut();
-        let socket = s.sockets.get_mut::<raw::Socket>(self.handle);
-        let res = f(socket, &mut s.iface);
-        s.waker.wake();
-        res
-    } */
-
     /// Receive a datagram.
     ///
     /// This method will wait until a datagram is received.
@@ -149,7 +91,7 @@ impl<'a> RawSocket<'a> {
     /// Send a datagram.
     ///
     /// This method will wait until the datagram has been sent.`
-    pub async fn send<T>(&self, buf: &[u8]) -> Result<(), SendError> {
+    pub async fn send<T>(&self, buf: &[u8]) -> Result<(), raw::SendError> {
         poll_fn(move |cx| self.poll_send(buf, cx)).await
     }
 
@@ -159,7 +101,7 @@ impl<'a> RawSocket<'a> {
     ///
     /// When the socket's send buffer is full, this method will return `Poll::Pending`
     /// and register the current task to be notified when the buffer has space available.
-    pub fn poll_send(&self, buf: &[u8], cx: &mut Context<'_>) -> Poll<Result<(), SendError>>{
+    pub fn poll_send(&self, buf: &[u8], cx: &mut Context<'_>) -> Poll<Result<(), raw::SendError>> {
         self.with_mut(|s, _| match s.send_slice(buf) {
             // Entire datagram has been sent
             Ok(()) => Poll::Ready(Ok(())),
@@ -169,7 +111,7 @@ impl<'a> RawSocket<'a> {
             }
         })
     }
-    }
+}
 
 impl Drop for RawSocket<'_> {
     fn drop(&mut self) {
