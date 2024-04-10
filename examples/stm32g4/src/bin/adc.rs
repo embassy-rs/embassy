@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::Config;
-use embassy_time::{Delay, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
     let mut p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC2, &mut Delay);
+    let mut adc = Adc::new(p.ADC2);
     adc.set_sample_time(SampleTime::CYCLES32_5);
 
     loop {
