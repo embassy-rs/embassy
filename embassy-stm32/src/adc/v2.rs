@@ -1,5 +1,6 @@
 use embassy_hal_internal::into_ref;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
@@ -103,10 +104,7 @@ where
             reg.set_adon(true);
         });
 
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(5));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 200_000);
+        blocking_delay_us(3);
 
         Self {
             adc,

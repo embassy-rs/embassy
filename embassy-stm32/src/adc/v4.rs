@@ -2,7 +2,7 @@
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
+use super::{blocking_delay_us, Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -164,10 +164,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         s.configure_differential_inputs();
 
         s.calibrate();
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(1));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 1000_000);
+        blocking_delay_us(1);
 
         s.enable();
         s.configure();
@@ -181,10 +178,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_advregen(true);
         });
 
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(10));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 100_000);
+        blocking_delay_us(10);
     }
 
     fn configure_differential_inputs(&mut self) {

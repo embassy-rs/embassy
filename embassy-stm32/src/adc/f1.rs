@@ -4,6 +4,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::time::Hertz;
 use crate::{interrupt, Peripheral};
@@ -54,11 +55,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // 11.4: Before starting a calibration, the ADC must have been in power-on state (ADON bit = ‘1’)
         // for at least two ADC clock cycles.
-        let us = (1_000_000 * 2) / Self::freq().0 + 1;
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(us));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / (1000_000 / us));
+        blocking_delay_us((1_000_000 * 2) / Self::freq().0 + 1);
 
         // Reset calibration
         T::regs().cr2().modify(|reg| reg.set_rstcal(true));
@@ -73,11 +70,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         // One cycle after calibration
-        let us = (1_000_000 * 1) / Self::freq().0 + 1;
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(us));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / (1000_000 / us));
+        blocking_delay_us((1_000_000 * 1) / Self::freq().0 + 1);
 
         Self {
             adc,

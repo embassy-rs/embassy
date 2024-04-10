@@ -4,6 +4,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
@@ -69,10 +70,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::ENABLED));
 
         // Wait for the regulator to stabilize
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(10));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 100_000);
+        blocking_delay_us(10);
 
         assert!(!T::regs().cr().read().aden());
 
@@ -83,11 +81,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         while T::regs().cr().read().adcal() {}
 
         // Wait more than 4 clock cycles after adcal is cleared (RM0364 p. 223).
-        let us = (1_000_000 * 4) / Self::freq().0 + 1;
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(us));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / (1000_000 / us));
+        blocking_delay_us((1_000_000 * 4) / Self::freq().0 + 1);
 
         // Enable the adc
         T::regs().cr().modify(|w| w.set_aden(true));

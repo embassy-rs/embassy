@@ -1,6 +1,7 @@
 use cfg_if::cfg_if;
 use embassy_hal_internal::into_ref;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::Peripheral;
 
@@ -87,10 +88,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_chselrmod(false);
         });
 
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(20));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 50_000);
+        blocking_delay_us(20);
 
         T::regs().cr().modify(|reg| {
             reg.set_adcal(true);
@@ -100,10 +98,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             // spin
         }
 
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(1));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 1000_000);
+        blocking_delay_us(1);
 
         Self {
             adc,
@@ -123,10 +118,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // "Table 24. Embedded internal voltage reference" states that it takes a maximum of 12 us
         // to stabilize the internal voltage reference.
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(20));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 50_000);
+        blocking_delay_us(15);
 
         VrefInt {}
     }

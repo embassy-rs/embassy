@@ -6,6 +6,7 @@ use embassy_hal_internal::into_ref;
 #[cfg(adc_l0)]
 use stm32_metapac::adc::vals::Ckmode;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC;
@@ -72,10 +73,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         //
         // Table 57. ADC characteristics
         // tstab = 14 * 1/fadc
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(1));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 1000_000);
+        blocking_delay_us(1);
 
         // set default PCKL/2 on L0s because HSI is disabled in the default clock config
         #[cfg(adc_l0)]
@@ -128,10 +126,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(10));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 100_000);
+        blocking_delay_us(10);
         Vref
     }
 
@@ -142,10 +137,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         // tstart ≤ 10μs
         // ts_temp ≥ 4μs
         T::regs().ccr().modify(|reg| reg.set_tsen(true));
-        #[cfg(time)]
-        embassy_time::block_for(embassy_time::Duration::from_micros(10));
-        #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 100_000);
+        blocking_delay_us(10);
         Temperature
     }
 
