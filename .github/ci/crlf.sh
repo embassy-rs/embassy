@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-FILES_WITH_CRLF=$(find  ! -path "./.git/*" -not -type d | xargs file -N | (grep " CRLF " || true))
+FILES_WITH_CRLF=$(find  ! -path "./.git/*" -not -type d | xargs -0 file -N | (grep " CRLF " || true))
 
 if [ -z "$FILES_WITH_CRLF" ]; then
   echo -e "No files with CRLF endings found."
