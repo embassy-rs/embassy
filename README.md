@@ -7,7 +7,7 @@ Embassy is the next-generation framework for embedded applications. Write safe, 
 
 The Rust programming language is blazingly fast and memory-efficient, with no runtime, garbage collector or OS. It catches a wide variety of bugs at compile time, thanks to its full memory- and thread-safety, and expressive type system. 
 
-Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows for unprecedently easy and efficient multitasking in embedded systems. Tasks get transformed at compile time into state machines that get run cooperatively. It requires no dynamic memory allocation, and runs on a single stack,  so no per-task stack size tuning is required. It obsoletes the need for a traditional RTOS with kernel context switching, and is <a href="https://tweedegolf.nl/en/blog/65/async-rust-vs-rtos-showdown">faster and smaller than one!</a>
+Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows for unprecedentedly easy and efficient multitasking in embedded systems. Tasks get transformed at compile time into state machines that get run cooperatively. It requires no dynamic memory allocation, and runs on a single stack,  so no per-task stack size tuning is required. It obsoletes the need for a traditional RTOS with kernel context switching, and is <a href="https://tweedegolf.nl/en/blog/65/async-rust-vs-rtos-showdown">faster and smaller than one!</a>
 
 ## Batteries included
 
@@ -89,7 +89,7 @@ async fn main(spawner: Spawner) {
 
 ## Examples
 
-Examples are found in the `examples/` folder seperated by the chip manufacturer they are designed to run on. For example:
+Examples are found in the `examples/` folder separated by the chip manufacturer they are designed to run on. For example:
 
 *   `examples/nrf52840` run on the `nrf52840-dk` board (PCA10056) but should be easily adaptable to other nRF52 chips and boards.
 *   `examples/nrf5340` run on the `nrf5340-dk` board (PCA10095).
@@ -130,8 +130,8 @@ For more help getting started, see [Getting Started][1] and [Running the Example
 ## Developing Embassy with Rust Analyzer based editors
 
 The [Rust Analyzer](https://rust-analyzer.github.io/) is used by [Visual Studio Code](https://code.visualstudio.com/)
-and others. Given the multiple targets that Embassy serves, there is no Cargo workspace file. Instead, the Rust Analyzer 
-must be told of the target project to work with. In the case of Visual Studio Code, 
+and others. Given the multiple targets that Embassy serves, there is no Cargo workspace file. Instead, the Rust Analyzer
+must be told of the target project to work with. In the case of Visual Studio Code,
 please refer to the `.vscode/settings.json` file's `rust-analyzer.linkedProjects`setting.
 
 ## Minimum supported Rust version (MSRV)
