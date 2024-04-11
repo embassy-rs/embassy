@@ -91,7 +91,7 @@ impl<'a> RawSocket<'a> {
     /// Send a datagram.
     ///
     /// This method will wait until the datagram has been sent.`
-    pub async fn send<T>(&self, buf: &[u8]) {
+    pub async fn send(&self, buf: &[u8]) {
         poll_fn(move |cx| self.poll_send(buf, cx)).await
     }
 
