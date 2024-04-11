@@ -16,11 +16,11 @@ categories = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
 
 [features]
 default = []
@@ -38,6 +38,8 @@ packet-trace = []
 
 ## Enable UDP support
 udp = ["smoltcp/socket-udp"]
+## Enable Raw support
+raw = ["smoltcp/socket-raw"]
 ## Enable TCP support
 tcp = ["smoltcp/socket-tcp"]
 ## Enable DNS support

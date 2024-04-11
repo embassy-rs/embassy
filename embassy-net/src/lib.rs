@@ -15,6 +15,8 @@ pub(crate) mod fmt;
 mod device;
 #[cfg(feature = "dns")]
 pub mod dns;
+#[cfg(feature = "raw")]
+pub mod raw;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 mod time;
