@@ -15,18 +15,18 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicU8, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use pac::uarte0::RegisterBlock;
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
+use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
@@ -939,7 +939,7 @@ pub(crate) fn apply_workaround_for_enable_anomaly(r: &crate::pac::uarte0::Regist
     }
 }
 
-pub(crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
+pub(crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &State) {
     if s.tx_rx_refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
         // Finally we can disable, and we do so for the peripheral
         // i.e. not just rx concerns.
@@ -954,49 +954,42 @@ pub(crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
     }
 }
 
-pub(crate) mod sealed {
-    use core::sync::atomic::AtomicU8;
-
-    use embassy_sync::waitqueue::AtomicWaker;
-
-    use super::*;
-
-    pub struct State {
-        pub rx_waker: AtomicWaker,
-        pub tx_waker: AtomicWaker,
-        pub tx_rx_refcount: AtomicU8,
-    }
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                rx_waker: AtomicWaker::new(),
-                tx_waker: AtomicWaker::new(),
-                tx_rx_refcount: AtomicU8::new(0),
-            }
+pub(crate) struct State {
+    pub(crate) rx_waker: AtomicWaker,
+    pub(crate) tx_waker: AtomicWaker,
+    pub(crate) tx_rx_refcount: AtomicU8,
+}
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            rx_waker: AtomicWaker::new(),
+            tx_waker: AtomicWaker::new(),
+            tx_rx_refcount: AtomicU8::new(0),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static pac::uarte0::RegisterBlock;
-        fn state() -> &'static State;
-        fn buffered_state() -> &'static crate::buffered_uarte::State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::uarte0::RegisterBlock;
+    fn state() -> &'static State;
+    fn buffered_state() -> &'static crate::buffered_uarte::State;
+}
+
 /// UARTE peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_uarte {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::uarte::sealed::Instance for peripherals::$type {
+        impl crate::uarte::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::uarte0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::uarte::sealed::State {
-                static STATE: crate::uarte::sealed::State = crate::uarte::sealed::State::new();
+            fn state() -> &'static crate::uarte::State {
+                static STATE: crate::uarte::State = crate::uarte::State::new();
                 &STATE
             }
             fn buffered_state() -> &'static crate::buffered_uarte::State {

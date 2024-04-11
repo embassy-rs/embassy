@@ -111,7 +111,7 @@ mod util {
     }
 }
 
-/// Get the kernel clocok frequency of the peripheral `T`.
+/// Get the kernel clock frequency of the peripheral `T`.
 ///
 /// # Panics
 ///
