@@ -1170,7 +1170,7 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointOut for Endpoint<'d, T, Out> {
 // The Synopsis USB core does support issuing larger writes.  We should take advantage of
 // this in the future, but for now just do a simple one-packet-at-a-time implementation.
 impl<'d, T: Instance> embassy_usb_driver::EndpointInSinglePacket for Endpoint<'d, T, In> {
-    async fn write_one_packet(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+    async fn write_packet(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
         trace!("write ep={:?} data={:?}", self.info.addr, buf);
 
         if buf.len() > self.info.max_packet_size as usize {

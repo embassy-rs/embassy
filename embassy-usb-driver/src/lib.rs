@@ -351,36 +351,68 @@ pub trait EndpointIn: Endpoint {
     /// sequence of packets, where all but the last packet is guaranteed to be the maximum packet
     /// size.
     ///
-    /// A short packet always signifies the end of a USB transfer.  If you have a large transfer
-    /// to make, you can split it across multiple write() calls, but you must ensure that all but
-    /// the last call sends a multiple of the maximum packet size.
+    /// If `force_short_packet` is true, a short packet will always be sent at the end of the
+    /// transfer.  If the data length is a multiple of the endpoint's maximum packet size, this
+    /// will transmit an extra zero-length packet after the other data has been sent.  This
+    /// signifies an explicit end to the USB transfer.  Whether a short packet is required to
+    /// signify the end of the transfer depends on the higher level protocol logic, and so this
+    /// information must be provided by the caller.
     ///
     /// Note that the write() call completes as soon as the data is enqueued for the hardware to
     /// transmit.  A successful completion of write() does not mean the data has been successfully
     /// transmitted yet.
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
+    async fn write_data(&mut self, buf: &[u8], force_short_packet: bool) -> Result<(), EndpointError>;
+
+    /// This is a legacy version of write_data().
+    ///
+    /// This API is provided for backwards compatibility with older implementations where write()
+    /// could only write a single packet at a time.  We can drop this API (and possibly rename
+    /// write_data() to write()) the next time we increment the embassy-usb-driver version number.
+    ///
+    /// Callers should only call this data with at most a single packet of data, and should use
+    /// write_data() to write larger amounts of data.
+    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+        self.write_data(buf, false).await
+    }
 }
 
 /// A helper trait for implementations that only support writing a single packet at a time.
 ///
 /// EndpointInSinglePacket will convert larger write() calls into multiple serial calls to
-/// write_one_packet().
+/// write_packet().
 pub trait EndpointInSinglePacket: Endpoint {
     /// Write a single packet to the endpoint.
     ///
     /// The length of buf is guaranteed to not be more than the endpoint's maximum packet size.
-    async fn write_one_packet(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
+    async fn write_packet(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
 }
 
-impl<EndpointSP: EndpointInSinglePacket> EndpointIn for EndpointSP {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+impl<EP: EndpointInSinglePacket> EndpointInZLP for EP {
+    async fn write_no_zlp(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
         if buf.len() == 0 {
-            self.write_one_packet(buf).await
+            self.write_packet(buf).await
         } else {
             for pkt in buf.chunks(self.info().max_packet_size as usize) {
-                self.write_one_packet(pkt).await?
+                self.write_packet(pkt).await?
             }
             Ok(())
+        }
+    }
+}
+
+/// A helper trait for handling the extra zero-length-packet required by the force_short_packet flag.
+pub trait EndpointInZLP: Endpoint {
+    /// Write the data, without ever adding an extra zero-length packet at the end.
+    async fn write_no_zlp(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
+}
+
+impl<EP: EndpointInZLP> EndpointIn for EP {
+    async fn write_data(&mut self, buf: &[u8], force_short_packet: bool) -> Result<(), EndpointError> {
+        if force_short_packet && buf.len() > 0 && buf.len() % self.info().max_packet_size as usize == 0 {
+            self.write_no_zlp(buf).await?;
+            self.write_no_zlp(&[]).await
+        } else {
+            self.write_no_zlp(buf).await
         }
     }
 }
