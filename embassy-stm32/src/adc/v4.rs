@@ -1,9 +1,8 @@
-use embedded_hal_02::blocking::delay::DelayUs;
 #[allow(unused)]
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
+use super::{blocking_delay_us, Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -129,7 +128,7 @@ impl Prescaler {
 
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         embassy_hal_internal::into_ref!(adc);
         T::enable_and_reset();
 
@@ -161,11 +160,11 @@ impl<'d, T: Instance> Adc<'d, T> {
             adc,
             sample_time: SampleTime::from_bits(0),
         };
-        s.power_up(delay);
+        s.power_up();
         s.configure_differential_inputs();
 
         s.calibrate();
-        delay.delay_us(1);
+        blocking_delay_us(1);
 
         s.enable();
         s.configure();
@@ -173,13 +172,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         s
     }
 
-    fn power_up(&mut self, delay: &mut impl DelayUs<u16>) {
+    fn power_up(&mut self) {
         T::regs().cr().modify(|reg| {
             reg.set_deeppwd(false);
             reg.set_advregen(true);
         });
 
-        delay.delay_us(10);
+        blocking_delay_us(10);
     }
 
     fn configure_differential_inputs(&mut self) {

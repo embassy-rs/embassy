@@ -69,6 +69,15 @@ trait SealedInternalChannel<T> {
     fn channel(&self) -> u8;
 }
 
+/// Performs a busy-wait delay for a specified number of microseconds.
+#[allow(unused)]
+pub(crate) fn blocking_delay_us(us: u32) {
+    #[cfg(time)]
+    embassy_time::block_for(embassy_time::Duration::from_micros(us));
+    #[cfg(not(time))]
+    cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 * us / 1_000_000);
+}
+
 /// ADC instance.
 #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0, adc_h5)))]
 #[allow(private_bounds)]
