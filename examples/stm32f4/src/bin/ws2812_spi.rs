@@ -8,7 +8,7 @@
 // If you want to save SPI for other purpose, you may want to take a look at `ws2812_pwm_dma.rs` file, which make use of TIM and DMA.
 //
 // Warning:
-// DO NOT stare at ws2812 directy (especially after each MCU Reset), its (max) brightness could easily make your eyes feel burn.
+// DO NOT stare at ws2812 directly (especially after each MCU Reset), its (max) brightness could easily make your eyes feel burn.
 
 #![no_std]
 #![no_main]
