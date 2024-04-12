@@ -15,6 +15,9 @@ use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
+mod slave;
+pub use slave::{Config as ConfigSlave, SpiSlave};
+
 /// SPI error.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -83,7 +86,7 @@ impl Config {
     }
 }
 
-/// SPI driver.
+/// SPI master driver.
 pub struct Spi<'d, T: Instance, Tx, Rx> {
     _peri: PeripheralRef<'d, T>,
     sck: Option<PeripheralRef<'d, AnyPin>>,
@@ -778,18 +781,43 @@ fn check_error_flags(sr: regs::Sr) -> Result<(), Error> {
     Ok(())
 }
 
+fn tx_ready(regs: Regs) -> Result<bool, Error> {
+    let sr = regs.sr().read();
+
+    check_error_flags(sr)?;
+
+    #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+    if sr.txe() {
+        return Ok(true);
+    }
+    #[cfg(any(spi_v3, spi_v4, spi_v5))]
+    if sr.txp() {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn rx_ready(regs: Regs) -> Result<bool, Error> {
+    let sr = regs.sr().read();
+
+    check_error_flags(sr)?;
+
+    #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+    if sr.rxne() {
+        return Ok(true);
+    }
+    #[cfg(any(spi_v3, spi_v4, spi_v5))]
+    if sr.rxp() {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 fn spin_until_tx_ready(regs: Regs) -> Result<(), Error> {
     loop {
-        let sr = regs.sr().read();
-
-        check_error_flags(sr)?;
-
-        #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
-        if sr.txe() {
-            return Ok(());
-        }
-        #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        if sr.txp() {
+        if tx_ready(regs)? {
             return Ok(());
         }
     }
@@ -797,16 +825,7 @@ fn spin_until_tx_ready(regs: Regs) -> Result<(), Error> {
 
 fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     loop {
-        let sr = regs.sr().read();
-
-        check_error_flags(sr)?;
-
-        #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
-        if sr.rxne() {
-            return Ok(());
-        }
-        #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        if sr.rxp() {
+        if rx_ready(regs)? {
             return Ok(());
         }
     }
