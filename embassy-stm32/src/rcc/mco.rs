@@ -52,7 +52,7 @@ macro_rules! impl_peri {
     };
 }
 
-#[cfg(any(rcc_c0, rcc_g0))]
+#[cfg(any(rcc_c0, rcc_g0, rcc_u0))]
 #[allow(unused_imports)]
 use self::{McoSource as Mco1Source, McoSource as Mco2Source};
 
