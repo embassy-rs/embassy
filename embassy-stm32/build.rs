@@ -272,8 +272,6 @@ fn main() {
                 "Bank1"
             } else if region.name.starts_with("BANK_2") {
                 "Bank2"
-            } else if region.name == "OTP" {
-                "Otp"
             } else {
                 continue;
             }
