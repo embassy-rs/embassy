@@ -26,8 +26,6 @@ fn main() -> ! {
     loop {
         let v = adc.read(&mut channel);
         info!("--> {}", v);
-        let v = adc.read(&mut temp);
-        info!("Temp: --> {}", v);
-        embassy_time::block_for(Duration::from_millis(1000));
+        embassy_time::block_for(Duration::from_millis(200));
     }
 }

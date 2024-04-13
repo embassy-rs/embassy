@@ -19,6 +19,8 @@ impl<T: Instance> super::SealedAdcPin<T> for VrefInt {
                 let val = 13;
             } else if #[cfg(adc_h5)] {
                 let val = 17;
+            } else if #[cfg(adc_u0)] {
+                let val = 12;
             } else {
                 let val = 0;
             }
@@ -36,6 +38,8 @@ impl<T: Instance> super::SealedAdcPin<T> for Temperature {
                 let val = 12;
             } else if #[cfg(adc_h5)] {
                 let val = 16;
+            } else if #[cfg(adc_u0)] {
+                let val = 11;
             } else {
                 let val = 17;
             }
@@ -53,6 +57,8 @@ impl<T: Instance> super::SealedAdcPin<T> for Vbat {
                 let val = 14;
             } else if #[cfg(adc_h5)] {
                 let val = 2;
+            } else if #[cfg(adc_h5)] {
+                let val = 13;
             } else {
                 let val = 18;
             }
@@ -73,17 +79,29 @@ cfg_if! {
     }
 }
 
+cfg_if! {
+    if #[cfg(adc_u0)] {
+        pub struct DacOut;
+        impl<T: Instance> AdcPin<T> for DacOut {}
+        impl<T: Instance> super::SealedAdcPin<T> for DacOut {
+            fn channel(&self) -> u8 {
+                19
+            }
+        }
+    }
+}
+
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
         T::regs().cr().modify(|reg| {
-            #[cfg(not(adc_g0))]
+            #[cfg(not(any(adc_g0, adc_u0)))]
             reg.set_deeppwd(false);
             reg.set_advregen(true);
         });
 
-        #[cfg(adc_g0)]
+        #[cfg(any(adc_g0, adc_u0))]
         T::regs().cfgr1().modify(|reg| {
             reg.set_chselrmod(false);
         });
@@ -107,11 +125,11 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn enable_vrefint(&self) -> VrefInt {
-        #[cfg(not(adc_g0))]
+        #[cfg(not(any(adc_g0, adc_u0)))]
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
-        #[cfg(adc_g0)]
+        #[cfg(any(adc_g0, adc_u0))]
         T::regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
@@ -125,7 +143,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     pub fn enable_temperature(&self) -> Temperature {
         cfg_if! {
-            if #[cfg(adc_g0)] {
+            if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
@@ -145,7 +163,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     pub fn enable_vbat(&self) -> Vbat {
         cfg_if! {
-            if #[cfg(adc_g0)] {
+            if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {
                     reg.set_vbaten(true);
                 });
@@ -168,9 +186,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        #[cfg(not(adc_g0))]
+        #[cfg(not(any(adc_g0, adc_u0)))]
         T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
-        #[cfg(adc_g0)]
+        #[cfg(any(adc_g0, adc_u0))]
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
@@ -231,9 +249,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self::set_channel_sample_time(pin.channel(), self.sample_time);
 
         // Select channel
-        #[cfg(not(adc_g0))]
+        #[cfg(not(any(adc_g0, adc_u0)))]
         T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
-        #[cfg(adc_g0)]
+        #[cfg(any(adc_g0, adc_u0))]
         T::regs().chselr().write(|reg| reg.set_chsel(1 << pin.channel()));
 
         // Some models are affected by an erratum:
@@ -261,7 +279,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
         cfg_if! {
-            if #[cfg(adc_g0)] {
+            if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
             } else if #[cfg(adc_h5)] {
                 match _ch {
