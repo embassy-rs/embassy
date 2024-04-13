@@ -19,7 +19,6 @@ fn main() -> ! {
     let p = embassy_stm32::init(config);
 
     let mut adc = Adc::new(p.ADC1);
-    let mut temp = adc.enable_temperature();
     adc.set_resolution(Resolution::BITS8);
     let mut channel = p.PC0;
 
