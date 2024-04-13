@@ -13,6 +13,8 @@ pub struct Crc<'d> {
 }
 
 /// CRC configuration errlr
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ConfigError {
     /// The selected polynomial is invalid.
     InvalidPolynomial,
