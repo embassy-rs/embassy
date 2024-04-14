@@ -25,7 +25,7 @@ pub use hsi48::*;
 #[cfg_attr(stm32g0, path = "g0.rs")]
 #[cfg_attr(stm32g4, path = "g4.rs")]
 #[cfg_attr(any(stm32h5, stm32h7), path = "h.rs")]
-#[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl), path = "l.rs")]
+#[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
 #[cfg_attr(stm32u5, path = "u5.rs")]
 #[cfg_attr(stm32wba, path = "wba.rs")]
 mod _version;
