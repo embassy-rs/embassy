@@ -662,6 +662,7 @@ fn main() {
             #(pub use crate::pac::rcc::vals::#enum_names as #enum_names; )*
 
             #[derive(Clone, Copy)]
+            #[non_exhaustive]
             pub struct ClockMux {
                 #( #struct_fields, )*
             }
