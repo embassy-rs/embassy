@@ -68,7 +68,7 @@ async fn main(_spawner: Spawner) {
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
 
-    let request_handler = MyRequestHandler {};
+    let mut request_handler = MyRequestHandler {};
 
     let mut state = State::new();
 
@@ -84,7 +84,7 @@ async fn main(_spawner: Spawner) {
     // Create classes on the builder.
     let config = embassy_usb::class::hid::Config {
         report_descriptor: MouseReport::desc(),
-        request_handler: Some(&request_handler),
+        request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
     };
@@ -131,7 +131,7 @@ impl RequestHandler for MyRequestHandler {
         None
     }
 
-    fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
+    fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
         info!("Set report for {:?}: {=[u8]}", id, data);
         OutResponse::Accepted
     }
