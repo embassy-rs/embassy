@@ -16,6 +16,9 @@ mod dmamux;
 #[cfg(dmamux)]
 pub use dmamux::*;
 
+mod util;
+pub(crate) use util::*;
+
 pub(crate) mod ringbuffer;
 pub mod word;
 

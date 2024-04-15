@@ -15,8 +15,8 @@ mod fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // Utilities
+mod macros;
 pub mod time;
-mod traits;
 /// Operating modes for peripherals.
 pub mod mode {
     trait SealedMode {}
