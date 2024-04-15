@@ -378,7 +378,7 @@ pub trait RequestHandler {
     /// Reads the value of report `id` into `buf` returning the size.
     ///
     /// Returns `None` if `id` is invalid or no data is available.
-    fn get_report(&self, id: ReportId, buf: &mut [u8]) -> Option<usize> {
+    fn get_report(&mut self, id: ReportId, buf: &mut [u8]) -> Option<usize> {
         let _ = (id, buf);
         None
     }
@@ -394,7 +394,7 @@ pub trait RequestHandler {
     /// If `id` is `None`, get the idle rate for all reports. Returning `None`
     /// will reject the control request. Any duration at or above 1.024 seconds
     /// or below 4ms will be returned as an indefinite idle rate.
-    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
+    fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
         let _ = id;
         None
     }
@@ -403,7 +403,7 @@ pub trait RequestHandler {
     ///
     /// If `id` is `None`, set the idle rate of all input reports to `dur`. If
     /// an indefinite duration is requested, `dur` will be set to `u32::MAX`.
-    fn set_idle_ms(&self, id: Option<ReportId>, duration_ms: u32) {
+    fn set_idle_ms(&mut self, id: Option<ReportId>, duration_ms: u32) {
         let _ = (id, duration_ms);
     }
 }
