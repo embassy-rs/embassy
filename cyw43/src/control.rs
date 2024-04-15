@@ -124,8 +124,7 @@ impl<'a> Control<'a> {
         self.set_iovar_u32("apsta", 1).await;
 
         // read MAC addr.
-        let mut mac_addr = [0; 6];
-        assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
+        let mac_addr = self.address().await;
         debug!("mac addr: {:02x}", Bytes(&mac_addr));
 
         let country = countries::WORLD_WIDE_XX;
@@ -573,6 +572,13 @@ impl<'a> Control<'a> {
     pub async fn leave(&mut self) {
         self.ioctl(IoctlType::Set, IOCTL_CMD_DISASSOC, 0, &mut []).await;
         info!("Disassociated")
+    }
+
+    /// Gets the MAC address of the device
+    pub async fn address(&mut self) -> [u8; 6] {
+        let mut mac_addr = [0; 6];
+        assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
+        mac_addr
     }
 }
 
