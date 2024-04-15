@@ -13,7 +13,7 @@ use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
 
 use super::*;
-use crate::dma::Transfer;
+use crate::mode::Mode as PeriMode;
 use crate::pac::i2c;
 
 // /!\                      /!\
@@ -41,7 +41,7 @@ pub unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
+impl<'d, T: Instance, M: PeriMode> I2c<'d, T, M> {
     pub(crate) fn init(&mut self, freq: Hertz, _config: Config) {
         T::regs().cr1().modify(|reg| {
             reg.set_pe(false);
@@ -326,11 +326,10 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             w.set_itevten(true);
         });
     }
+}
 
-    async fn write_frame(&mut self, address: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
+impl<'d, T: Instance> I2c<'d, T, Async> {
+    async fn write_frame(&mut self, address: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error> {
         T::regs().cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
             // reception.
@@ -415,9 +414,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             // this address from the memory after each TxE event.
             let dst = T::regs().dr().as_ptr() as *mut u8;
 
-            let ch = &mut self.tx_dma;
-            let request = ch.request();
-            Transfer::new_write(ch, request, write, dst, Default::default())
+            self.tx_dma.as_mut().unwrap().write(write, dst, Default::default())
         };
 
         // Wait for bytes to be sent, or an error to occur.
@@ -479,10 +476,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     /// Write.
-    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
+    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         self.write_frame(address, write, FrameOptions::FirstAndLastFrame)
             .await?;
 
@@ -490,20 +484,14 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     /// Read.
-    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-    {
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
         self.read_frame(address, buffer, FrameOptions::FirstAndLastFrame)
             .await?;
 
         Ok(())
     }
 
-    async fn read_frame(&mut self, address: u8, buffer: &mut [u8], frame: FrameOptions) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-    {
+    async fn read_frame(&mut self, address: u8, buffer: &mut [u8], frame: FrameOptions) -> Result<(), Error> {
         if buffer.is_empty() {
             return Err(Error::Overrun);
         }
@@ -623,9 +611,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             // from this address from the memory after each RxE event.
             let src = T::regs().dr().as_ptr() as *mut u8;
 
-            let ch = &mut self.rx_dma;
-            let request = ch.request();
-            Transfer::new_read(ch, request, src, buffer, Default::default())
+            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
         };
 
         // Wait for bytes to be received, or an error to occur.
@@ -664,11 +650,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     /// Write, restart, read.
-    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-        TXDMA: crate::i2c::TxDma<T>,
-    {
+    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         // Check empty read buffer before starting transaction. Otherwise, we would not generate the
         // stop condition below.
         if read.is_empty() {
@@ -684,11 +666,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-        TXDMA: crate::i2c::TxDma<T>,
-    {
+    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         for (op, frame) in operation_frames(operations)? {
             match op {
                 Operation::Read(read) => self.read_frame(addr, read, frame).await?,
@@ -700,7 +678,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 }
 
-impl<'d, T: Instance, TXDMA, RXDMA> Drop for I2c<'d, T, TXDMA, RXDMA> {
+impl<'d, T: Instance, M: PeriMode> Drop for I2c<'d, T, M> {
     fn drop(&mut self) {
         T::disable();
     }
@@ -806,7 +784,7 @@ impl Timings {
     }
 }
 
-impl<'d, T: Instance> SetConfig for I2c<'d, T> {
+impl<'d, T: Instance, M: PeriMode> SetConfig for I2c<'d, T, M> {
     type Config = Hertz;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
