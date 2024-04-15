@@ -69,3 +69,26 @@ macro_rules! dma_trait_impl {
         }
     };
 }
+
+macro_rules! new_dma {
+    ($name:ident) => {{
+        let dma = $name.into_ref();
+        let req = dma.request();
+        Some((dma.map_into(), req))
+    }};
+}
+
+macro_rules! new_pin {
+    ($name:ident, $aftype:expr, $speed:expr) => {{
+        let pin = $name.into_ref();
+        pin.set_as_af(pin.af_num(), $aftype);
+        pin.set_speed($speed);
+        Some(pin.map_into())
+    }};
+    ($name:ident, $aftype:expr, $speed:expr, $pull:expr) => {{
+        let pin = $name.into_ref();
+        pin.set_as_af_pull(pin.af_num(), $aftype, $pull);
+        pin.set_speed($speed);
+        Some(pin.map_into())
+    }};
+}
