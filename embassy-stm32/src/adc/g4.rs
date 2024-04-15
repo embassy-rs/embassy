@@ -1,5 +1,5 @@
 #[allow(unused)]
-use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
+use pac::adc::vals::{Adcaldif, Difsel, Exten};
 use pac::adccommon::vals::Presc;
 
 use super::{blocking_delay_us, Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
@@ -143,19 +143,6 @@ impl<'d, T: Instance> Adc<'d, T> {
             panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
         }
 
-        #[cfg(stm32h7)]
-        {
-            let boost = if frequency < Hertz::khz(6_250) {
-                Boost::LT6_25
-            } else if frequency < Hertz::khz(12_500) {
-                Boost::LT12_5
-            } else if frequency < Hertz::mhz(25) {
-                Boost::LT25
-            } else {
-                Boost::LT50
-            };
-            T::regs().cr().modify(|w| w.set_boost(boost));
-        }
         let mut s = Self {
             adc,
             sample_time: SampleTime::from_bits(0),
@@ -192,7 +179,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     fn calibrate(&mut self) {
         T::regs().cr().modify(|w| {
             w.set_adcaldif(Adcaldif::SINGLEENDED);
-            w.set_adcallin(true);
         });
 
         T::regs().cr().modify(|w| w.set_adcal(true));
@@ -310,9 +296,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
         let sample_time = sample_time.into();
         if ch <= 9 {
-            T::regs().smpr(0).modify(|reg| reg.set_smp(ch as _, sample_time));
+            T::regs().smpr().modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
-            T::regs().smpr(1).modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
+            T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
     }
 }

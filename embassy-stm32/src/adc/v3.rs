@@ -1,7 +1,7 @@
 use cfg_if::cfg_if;
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::Peripheral;
 
@@ -74,7 +74,7 @@ cfg_if! {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
         T::regs().cr().modify(|reg| {
@@ -88,7 +88,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_chselrmod(false);
         });
 
-        delay.delay_us(20);
+        blocking_delay_us(20);
 
         T::regs().cr().modify(|reg| {
             reg.set_adcal(true);
@@ -98,7 +98,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             // spin
         }
 
-        delay.delay_us(1);
+        blocking_delay_us(1);
 
         Self {
             adc,
@@ -106,7 +106,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vrefint(&self, delay: &mut impl DelayUs<u32>) -> VrefInt {
+    pub fn enable_vrefint(&self) -> VrefInt {
         #[cfg(not(adc_g0))]
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
@@ -117,10 +117,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         // "Table 24. Embedded internal voltage reference" states that it takes a maximum of 12 us
-        // to stabilize the internal voltage reference, we wait a little more.
-        // TODO: delay 15us
-        //cortex_m::asm::delay(20_000_000);
-        delay.delay_us(15);
+        // to stabilize the internal voltage reference.
+        blocking_delay_us(15);
 
         VrefInt {}
     }
@@ -222,6 +220,13 @@ impl<'d, T: Instance> Adc<'d, T> {
             // spin
         }
 
+        // RM0492, RM0481, etc.
+        // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
+        #[cfg(adc_h5)]
+        if pin.channel() == 0 {
+            T::regs().or().modify(|reg| reg.set_op0(true));
+        }
+
         // Configure channel
         Self::set_channel_sample_time(pin.channel(), self.sample_time);
 
@@ -243,6 +248,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         let val = self.convert();
 
         T::regs().cr().modify(|reg| reg.set_addis(true));
+
+        // RM0492, RM0481, etc.
+        // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
+        #[cfg(adc_h5)]
+        if pin.channel() == 0 {
+            T::regs().or().modify(|reg| reg.set_op0(false));
+        }
 
         val
     }

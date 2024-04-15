@@ -3,10 +3,10 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
 #[cfg(adc_l0)]
 use stm32_metapac::adc::vals::Ckmode;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC;
@@ -65,7 +65,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
         adc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        delay: &mut impl DelayUs<u32>,
     ) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
@@ -74,7 +73,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         //
         // Table 57. ADC characteristics
         // tstab = 14 * 1/fadc
-        delay.delay_us(1);
+        blocking_delay_us(1);
 
         // set default PCKL/2 on L0s because HSI is disabled in the default clock config
         #[cfg(adc_l0)]
@@ -114,7 +113,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     #[cfg(not(adc_l0))]
-    pub fn enable_vbat(&self, _delay: &mut impl DelayUs<u32>) -> Vbat {
+    pub fn enable_vbat(&self) -> Vbat {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.20 Vbat monitoring characteristics
@@ -123,22 +122,22 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat
     }
 
-    pub fn enable_vref(&self, delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vref(&self) -> Vref {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
-        delay.delay_us(10);
+        blocking_delay_us(10);
         Vref
     }
 
-    pub fn enable_temperature(&self, delay: &mut impl DelayUs<u32>) -> Temperature {
+    pub fn enable_temperature(&self) -> Temperature {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.19 Temperature sensor characteristics
         // tstart ≤ 10μs
         // ts_temp ≥ 4μs
         T::regs().ccr().modify(|reg| reg.set_tsen(true));
-        delay.delay_us(10);
+        blocking_delay_us(10);
         Temperature
     }
 

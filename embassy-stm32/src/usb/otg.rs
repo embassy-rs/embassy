@@ -317,7 +317,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     ///
     /// # Arguments
     ///
-    /// * `ep_out_buffer` - An internal buffer used to temporarily store recevied packets.
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
     /// Must be large enough to fit all OUT endpoint max packet sizes.
     /// Endpoint allocation will fail if it is too small.
     pub fn new_fs(
@@ -348,7 +348,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     ///
     /// # Arguments
     ///
-    /// * `ep_out_buffer` - An internal buffer used to temporarily store recevied packets.
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
     /// Must be large enough to fit all OUT endpoint max packet sizes.
     /// Endpoint allocation will fail if it is too small.
     pub fn new_hs_ulpi(
@@ -562,51 +562,29 @@ impl<'d, T: Instance> Bus<'d, T> {
     fn init(&mut self) {
         super::common_init::<T>();
 
-        #[cfg(stm32f7)]
-        {
-            // Enable ULPI clock if external PHY is used
-            let ulpien = !self.phy_type.internal();
-            critical_section::with(|_| {
-                crate::pac::RCC.ahb1enr().modify(|w| {
-                    if T::HIGH_SPEED {
-                        w.set_usb_otg_hsulpien(ulpien);
-                    } else {
-                        w.set_usb_otg_hsen(ulpien);
-                    }
-                });
+        // Enable ULPI clock if external PHY is used
+        let _ulpien = !self.phy_type.internal();
 
-                // Low power mode
-                crate::pac::RCC.ahb1lpenr().modify(|w| {
-                    if T::HIGH_SPEED {
-                        w.set_usb_otg_hsulpilpen(ulpien);
-                    } else {
-                        w.set_usb_otg_hslpen(ulpien);
-                    }
-                });
+        #[cfg(any(stm32f2, stm32f4, stm32f7))]
+        if T::HIGH_SPEED {
+            critical_section::with(|_| {
+                let rcc = crate::pac::RCC;
+                rcc.ahb1enr().modify(|w| w.set_usb_otg_hsulpien(_ulpien));
+                rcc.ahb1lpenr().modify(|w| w.set_usb_otg_hsulpilpen(_ulpien));
             });
         }
 
         #[cfg(stm32h7)]
-        {
-            // Enable ULPI clock if external PHY is used
-            let ulpien = !self.phy_type.internal();
-            critical_section::with(|_| {
-                crate::pac::RCC.ahb1enr().modify(|w| {
-                    if T::HIGH_SPEED {
-                        w.set_usb_otg_hs_ulpien(ulpien);
-                    } else {
-                        w.set_usb_otg_fs_ulpien(ulpien);
-                    }
-                });
-                crate::pac::RCC.ahb1lpenr().modify(|w| {
-                    if T::HIGH_SPEED {
-                        w.set_usb_otg_hs_ulpilpen(ulpien);
-                    } else {
-                        w.set_usb_otg_fs_ulpilpen(ulpien);
-                    }
-                });
-            });
-        }
+        critical_section::with(|_| {
+            let rcc = crate::pac::RCC;
+            if T::HIGH_SPEED {
+                rcc.ahb1enr().modify(|w| w.set_usb_otg_hs_ulpien(_ulpien));
+                rcc.ahb1lpenr().modify(|w| w.set_usb_otg_hs_ulpilpen(_ulpien));
+            } else {
+                rcc.ahb1enr().modify(|w| w.set_usb_otg_fs_ulpien(_ulpien));
+                rcc.ahb1lpenr().modify(|w| w.set_usb_otg_fs_ulpilpen(_ulpien));
+            }
+        });
 
         let r = T::regs();
         let core_id = r.cid().read().0;

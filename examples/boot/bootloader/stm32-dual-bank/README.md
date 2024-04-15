@@ -2,16 +2,16 @@
 
 ## Overview
 
-This bootloader leverages `embassy-boot` to interact with the flash. 
-This example targets STM32 devices with dual-bank flash memory, with a primary focus on the STM32H747XI series. 
+This bootloader leverages `embassy-boot` to interact with the flash.
+This example targets STM32 devices with dual-bank flash memory, with a primary focus on the STM32H747XI series.
 Users must modify the `memory.x` configuration file to match with the memory layout of their specific STM32 device.
 
 Additionally, this example can be extended to utilize external flash memory, such as QSPI, for storing partitions.
 
 ## Memory Configuration
 
-In this example's `memory.x` file, various symbols are defined to assist in effective memory management within the bootloader environment.  
-For dual-bank STM32 devices, it's crucial to assign these symbols correctly to their respective memory banks. 
+In this example's `memory.x` file, various symbols are defined to assist in effective memory management within the bootloader environment.
+For dual-bank STM32 devices, it's crucial to assign these symbols correctly to their respective memory banks.
 
 ### Symbol Definitions
 
