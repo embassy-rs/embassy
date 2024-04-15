@@ -24,5 +24,9 @@ heapless = { version = "0.8", default-features = false }
 
 micromath = "2.0.0"
 
+[features]
+## Use secure registers when TrustZone is enabled
+trustzone-secure = ["embassy-stm32/trustzone-secure"]
+
 [profile.release]
 debug = 2
