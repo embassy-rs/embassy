@@ -111,10 +111,8 @@ impl<'a> UdpSocket<'a> {
     /// This method will wait until a datagram is received.
     ///
     /// Returns the number of bytes received and the remote endpoint.
-    pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), RecvError> {
-        poll_fn(move |cx| self.poll_recv_from(buf, cx))
-            .await
-            .map(|(size, metadata)| (size, metadata.endpoint))
+    pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, UdpMetadata), RecvError> {
+        poll_fn(move |cx| self.poll_recv_from(buf, cx)).await
     }
 
     /// Receive a datagram.
