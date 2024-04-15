@@ -9,7 +9,7 @@ use embassy_futures::join::join;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
-use crate::dma::{slice_ptr_parts, word, AnyChannel, Request, Transfer};
+use crate::dma::{slice_ptr_parts, word, ChannelAndRequest};
 use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{regs, vals, Spi as Regs};
@@ -97,8 +97,8 @@ pub struct Spi<'d, T: Instance, M: PeriMode> {
     sck: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
     miso: Option<PeripheralRef<'d, AnyPin>>,
-    txdma: Option<(PeripheralRef<'d, AnyChannel>, Request)>,
-    rxdma: Option<(PeripheralRef<'d, AnyChannel>, Request)>,
+    txdma: Option<ChannelAndRequest<'d>>,
+    rxdma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     current_word_size: word_impl::Config,
 }
@@ -109,8 +109,8 @@ impl<'d, T: Instance, M: PeriMode> Spi<'d, T, M> {
         sck: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
-        txdma: Option<(PeripheralRef<'d, AnyChannel>, Request)>,
-        rxdma: Option<(PeripheralRef<'d, AnyChannel>, Request)>,
+        txdma: Option<ChannelAndRequest<'d>>,
+        rxdma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
         into_ref!(peri);
@@ -593,9 +593,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             w.set_spe(false);
         });
 
-        let (txdma, tx_request) = self.txdma.as_mut().unwrap();
         let tx_dst = T::REGS.tx_ptr();
-        let tx_f = unsafe { Transfer::new_write(txdma, *tx_request, data, tx_dst, Default::default()) };
+        let tx_f = unsafe { self.txdma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
 
         set_txdmaen(T::REGS, true);
         T::REGS.cr1().modify(|w| {
@@ -632,22 +631,16 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 
         let clock_byte_count = data.len();
 
-        let (rxdma, rx_request) = self.rxdma.as_mut().unwrap();
         let rx_src = T::REGS.rx_ptr();
-        let rx_f = unsafe { Transfer::new_read(rxdma, *rx_request, rx_src, data, Default::default()) };
+        let rx_f = unsafe { self.rxdma.as_mut().unwrap().read(rx_src, data, Default::default()) };
 
-        let (txdma, tx_request) = self.txdma.as_mut().unwrap();
         let tx_dst = T::REGS.tx_ptr();
         let clock_byte = 0x00u8;
         let tx_f = unsafe {
-            Transfer::new_write_repeated(
-                txdma,
-                *tx_request,
-                &clock_byte,
-                clock_byte_count,
-                tx_dst,
-                Default::default(),
-            )
+            self.txdma
+                .as_mut()
+                .unwrap()
+                .write_repeated(&clock_byte, clock_byte_count, tx_dst, Default::default())
         };
 
         set_txdmaen(T::REGS, true);
@@ -685,13 +678,16 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 
         set_rxdmaen(T::REGS, true);
 
-        let (rxdma, rx_request) = self.rxdma.as_mut().unwrap();
         let rx_src = T::REGS.rx_ptr();
-        let rx_f = unsafe { Transfer::new_read_raw(rxdma, *rx_request, rx_src, read, Default::default()) };
+        let rx_f = unsafe { self.rxdma.as_mut().unwrap().read_raw(rx_src, read, Default::default()) };
 
-        let (txdma, tx_request) = self.txdma.as_mut().unwrap();
         let tx_dst = T::REGS.tx_ptr();
-        let tx_f = unsafe { Transfer::new_write_raw(txdma, *tx_request, write, tx_dst, Default::default()) };
+        let tx_f = unsafe {
+            self.txdma
+                .as_mut()
+                .unwrap()
+                .write_raw(write, tx_dst, Default::default())
+        };
 
         set_txdmaen(T::REGS, true);
         T::REGS.cr1().modify(|w| {
