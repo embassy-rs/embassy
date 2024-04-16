@@ -76,7 +76,12 @@ pub(crate) fn blocking_delay_us(us: u32) {
     #[cfg(time)]
     embassy_time::block_for(embassy_time::Duration::from_micros(us));
     #[cfg(not(time))]
-    cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 * us / 1_000_000);
+    {
+        let freq = unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 as u64;
+        let us = us as u64;
+        let cycles = freq * us / 1_000_000;
+        cortex_m::asm::delay(cycles as u32);
+    }
 }
 
 /// ADC instance.
