@@ -82,12 +82,12 @@ macro_rules! new_dma {
 }
 
 macro_rules! new_pin {
-    ($name:ident, $aftype:expr, $speed:expr) => {{
-        let pin = $name.into_ref();
-        pin.set_as_af(pin.af_num(), $aftype);
-        pin.set_speed($speed);
-        Some(pin.map_into())
+    ($name:ident, $aftype:expr) => {{
+        new_pin!($name, $aftype, crate::gpio::Speed::Medium, crate::gpio::Pull::None)
     }};
+    ($name:ident, $aftype:expr, $speed:expr) => {
+        new_pin!($name, $aftype, $speed, crate::gpio::Pull::None)
+    };
     ($name:ident, $aftype:expr, $speed:expr, $pull:expr) => {{
         let pin = $name.into_ref();
         pin.set_as_af_pull(pin.af_num(), $aftype, $pull);
