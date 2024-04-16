@@ -1226,12 +1226,10 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
                 w.set_xfrsiz(buf.len() as _);
             });
 
-            critical_section::with(|_| {
-                // Enable endpoint
-                r.diepctl(index).modify(|w| {
-                    w.set_cnak(true);
-                    w.set_epena(true);
-                });
+            // Enable endpoint
+            r.diepctl(index).modify(|w| {
+                w.set_cnak(true);
+                w.set_epena(true);
             });
 
             // Write data to FIFO
