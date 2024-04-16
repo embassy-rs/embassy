@@ -170,7 +170,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     fn configure_differential_inputs(&mut self) {
         T::regs().difsel().modify(|w| {
-            for n in 0..20 {
+            for n in 0..18 {
                 w.set_difsel(n, Difsel::SINGLEENDED);
             }
         });
