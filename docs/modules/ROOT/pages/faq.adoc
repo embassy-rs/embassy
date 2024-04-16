@@ -231,3 +231,34 @@ Please refer to the STM32 documentation for the specific values suitable for you
 Look for the `MEMORY` section and try to determine the FLASH and RAM sizes and section start.
 
 If you find a case where the memory.x is wrong, please report it on [this Github issue](https://github.com/embassy-rs/stm32-data/issues/301) so other users are not caught by surprise.
+
+== Known issues (details and/or mitigations)
+
+These are issues that are commonly reported. Help wanted fixing them, or improving the UX when possible!
+
+=== STM32H5 and STM32H7 power issues
+
+STM32 chips with built-in power management (SMPS and LDO) settings often cause user problems when the configuration does not match how the board was designed.
+
+Settings from the examples, or even from other working boards, may not work on YOUR board, because they are wired differently.
+
+Additionally, some PWR settings require a full device reboot (and enough time to discharge any power capacitors!), making this hard to troubleshoot. Also, some
+"wrong" power settings will ALMOST work, meaning it will sometimes work on some boots, or for a while, but crash unexpectedly.
+
+There is not a fix for this yet, as it is board/hardware dependant. See link:https://github.com/embassy-rs/embassy/issues/2806[this tracking issue] for more details
+
+=== STM32 BDMA only work out of some RAM regions
+
+The STM32 BDMA controller included in some chips (TODO: list which ones) has a limitation in that it only works out of certain regions of RAM (TODO: list which ones), otherwise the transfer
+will fail.
+
+If you see errors that look like this:
+
+[source,plain]
+----
+DMA: error on BDMA@1234ABCD channel 4
+----
+
+You likely need to set up your linker script to define a special region for this area, and copy data to that region before using with BDMA.
+
+TODO: show how to do that
