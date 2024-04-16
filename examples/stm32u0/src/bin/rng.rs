@@ -3,6 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::rcc::mux::Clk48sel;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, peripherals, rng, Config};
 use {defmt_rtt as _, panic_probe as _};
@@ -26,6 +27,8 @@ async fn main(_spawner: Spawner) {
             divr: Some(PllRDiv::DIV2), // 112 / 2 = 56 MHz
         });
         config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: false }); // needed for RNG
+        config.rcc.mux.clk48sel = Clk48sel::HSI48; // needed for RNG (or use MSI or PLLQ if you want)
     }
 
     let p = embassy_stm32::init(config);
@@ -33,7 +36,6 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut rng = Rng::new(p.RNG, Irqs);
-    info!("Hello World 2!");
 
     let mut buf = [0u8; 16];
     unwrap!(rng.async_fill_bytes(&mut buf).await);
