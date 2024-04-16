@@ -115,6 +115,9 @@ low-power-debug-with-sleep = []
 ## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
 memory-x = ["stm32-metapac/memory-x"]
 
+## Use secure registers when TrustZone is enabled
+trustzone-secure = []
+
 ## Re-export stm32-metapac at `embassy_stm32::pac`.
 ## This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
 ## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.

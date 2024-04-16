@@ -119,3 +119,21 @@ mod util {
 pub fn frequency<T: RccPeripheral>() -> Hertz {
     T::frequency()
 }
+
+/// Enables and resets peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+pub unsafe fn enable_and_reset<T: RccPeripheral>() {
+    T::enable_and_reset();
+}
+
+/// Disables peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+pub unsafe fn disable<T: RccPeripheral>() {
+    T::disable();
+}

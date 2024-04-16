@@ -69,3 +69,29 @@ macro_rules! dma_trait_impl {
         }
     };
 }
+
+macro_rules! new_dma {
+    ($name:ident) => {{
+        let dma = $name.into_ref();
+        let request = dma.request();
+        Some(crate::dma::ChannelAndRequest {
+            channel: dma.map_into(),
+            request,
+        })
+    }};
+}
+
+macro_rules! new_pin {
+    ($name:ident, $aftype:expr) => {{
+        new_pin!($name, $aftype, crate::gpio::Speed::Medium, crate::gpio::Pull::None)
+    }};
+    ($name:ident, $aftype:expr, $speed:expr) => {
+        new_pin!($name, $aftype, $speed, crate::gpio::Pull::None)
+    };
+    ($name:ident, $aftype:expr, $speed:expr, $pull:expr) => {{
+        let pin = $name.into_ref();
+        pin.set_as_af_pull(pin.af_num(), $aftype, $pull);
+        pin.set_speed($speed);
+        Some(pin.map_into())
+    }};
+}
