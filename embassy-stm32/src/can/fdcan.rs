@@ -44,50 +44,40 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
 
         let ir = regs.ir().read();
 
-        {
-            if ir.tc() {
-                regs.ir().write(|w| w.set_tc(true));
-            }
-            if ir.tefn() {
-                regs.ir().write(|w| w.set_tefn(true));
-            }
-
-            match &T::state().tx_mode {
-                TxMode::NonBuffered(waker) => waker.wake(),
-                TxMode::ClassicBuffered(buf) => {
-                    if !T::registers().tx_queue_is_full() {
-                        match buf.tx_receiver.try_receive() {
-                            Ok(frame) => {
-                                _ = T::registers().write(&frame);
-                            }
-                            Err(_) => {}
-                        }
-                    }
-                }
-                TxMode::FdBuffered(buf) => {
-                    if !T::registers().tx_queue_is_full() {
-                        match buf.tx_receiver.try_receive() {
-                            Ok(frame) => {
-                                _ = T::registers().write(&frame);
-                            }
-                            Err(_) => {}
-                        }
-                    }
-                }
-            }
+        if ir.tc() {
+            regs.ir().write(|w| w.set_tc(true));
+        }
+        if ir.tefn() {
+            regs.ir().write(|w| w.set_tefn(true));
         }
 
-        if ir.ped() || ir.pea() {
-            regs.ir().write(|w| {
-                w.set_ped(true);
-                w.set_pea(true);
-            });
+        match &T::state().tx_mode {
+            TxMode::NonBuffered(waker) => waker.wake(),
+            TxMode::ClassicBuffered(buf) => {
+                if !T::registers().tx_queue_is_full() {
+                    match buf.tx_receiver.try_receive() {
+                        Ok(frame) => {
+                            _ = T::registers().write(&frame);
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
+            TxMode::FdBuffered(buf) => {
+                if !T::registers().tx_queue_is_full() {
+                    match buf.tx_receiver.try_receive() {
+                        Ok(frame) => {
+                            _ = T::registers().write(&frame);
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
         }
 
         if ir.rfn(0) {
             T::state().rx_mode.on_interrupt::<T>(0);
         }
-
         if ir.rfn(1) {
             T::state().rx_mode.on_interrupt::<T>(1);
         }
