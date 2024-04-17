@@ -81,6 +81,14 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
         if ir.rfn(1) {
             T::state().rx_mode.on_interrupt::<T>(1);
         }
+
+        if ir.bo() {
+            regs.ir().write(|w| w.set_bo(true));
+            if regs.psr().read().bo() {
+                // Initiate bus-off recovery sequence by resetting CCCR.INIT
+                regs.cccr().modify(|w| w.set_init(false));
+            }
+        }
     }
 }
 
