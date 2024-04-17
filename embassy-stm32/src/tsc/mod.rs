@@ -81,20 +81,89 @@ pub struct Config {
     pub sampling_ios: u32,
 }
 
+pub struct TscPin<'d, T> {
+    pin: PeripheralRef<'d, AnyPin>,
+    role: PinType,
+}
+
+pub struct PinGroup<'d, A, B, C, D> {
+    d1: Option<TscPin<'d, A>>,
+    d2: Option<TscPin<'d, B>>,
+    d3: Option<TscPin<'d, C>>,
+    d4: Option<TscPin<'d, D>>,
+}
+
 pub struct TSC<'d, T: Instance> {
     _peri: PeripheralRef<'d, T>,
+    g1: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
+    g2: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
+    g3: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
+    g4: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
+    g5: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
+    g6: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
+    g7: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
+    g8: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
     state: State,
     config: Config,
 }
 
 impl<'d, T: Instance> TSC<'d, T> {
-    pub fn new(peri: impl Peripheral<P = T> + 'd, config: Config) -> Self {
+    pub fn new(
+        peri: impl Peripheral<P = T> + 'd,
+        g1: Option<
+            PinGroup<
+                'd,
+                impl Peripheral<P = impl G1IO1Pin<T>> + 'd,
+                impl Peripheral<P = impl G1IO2Pin<T>> + 'd,
+                impl Peripheral<P = impl G1IO3Pin<T>> + 'd,
+                impl Peripheral<P = impl G1IO4Pin<T>> + 'd,
+            >,
+        >,
+
+        g2_d1: Option<impl Peripheral<P = impl G2IO1Pin<T>> + 'd>,
+        g2_d2: Option<impl Peripheral<P = impl G2IO2Pin<T>> + 'd>,
+        g2_d3: Option<impl Peripheral<P = impl G2IO3Pin<T>> + 'd>,
+        g2_d4: Option<impl Peripheral<P = impl G2IO4Pin<T>> + 'd>,
+
+        g3_d1: Option<impl Peripheral<P = impl G3IO1Pin<T>> + 'd>,
+        g3_d2: Option<impl Peripheral<P = impl G3IO2Pin<T>> + 'd>,
+        g3_d3: Option<impl Peripheral<P = impl G3IO3Pin<T>> + 'd>,
+        g3_d4: Option<impl Peripheral<P = impl G3IO4Pin<T>> + 'd>,
+
+        g4_d1: Option<impl Peripheral<P = impl G4IO1Pin<T>> + 'd>,
+        g4_d2: Option<impl Peripheral<P = impl G4IO2Pin<T>> + 'd>,
+        g4_d3: Option<impl Peripheral<P = impl G4IO3Pin<T>> + 'd>,
+        g4_d4: Option<impl Peripheral<P = impl G4IO4Pin<T>> + 'd>,
+
+        g5_d1: Option<impl Peripheral<P = impl G5IO1Pin<T>> + 'd>,
+        g5_d2: Option<impl Peripheral<P = impl G5IO2Pin<T>> + 'd>,
+        g5_d3: Option<impl Peripheral<P = impl G5IO3Pin<T>> + 'd>,
+        g5_d4: Option<impl Peripheral<P = impl G5IO4Pin<T>> + 'd>,
+
+        g6_d1: Option<impl Peripheral<P = impl G6IO1Pin<T>> + 'd>,
+        g6_d2: Option<impl Peripheral<P = impl G6IO2Pin<T>> + 'd>,
+        g6_d3: Option<impl Peripheral<P = impl G6IO3Pin<T>> + 'd>,
+        g6_d4: Option<impl Peripheral<P = impl G6IO4Pin<T>> + 'd>,
+
+        g7_d1: Option<impl Peripheral<P = impl G7IO1Pin<T>> + 'd>,
+        g7_d2: Option<impl Peripheral<P = impl G7IO2Pin<T>> + 'd>,
+        g7_d3: Option<impl Peripheral<P = impl G7IO3Pin<T>> + 'd>,
+        g7_d4: Option<impl Peripheral<P = impl G7IO4Pin<T>> + 'd>,
+
+        g8_d1: Option<impl Peripheral<P = impl G8IO1Pin<T>> + 'd>,
+        g8_d2: Option<impl Peripheral<P = impl G8IO2Pin<T>> + 'd>,
+        g8_d3: Option<impl Peripheral<P = impl G8IO3Pin<T>> + 'd>,
+        g8_d4: Option<impl Peripheral<P = impl G8IO4Pin<T>> + 'd>,
+        config: Config,
+    ) -> Self {
         into_ref!(peri);
 
         // Need to check valid pin configuration input
         // Need to configure pin
         Self::new_inner(peri, config)
     }
+
+    fn filter_group() -> Result<PinGroup<'d>, ()> {}
 
     fn new_inner(peri: impl Peripheral<P = T> + 'd, config: Config) -> Self {
         into_ref!(peri);
@@ -111,7 +180,7 @@ impl<'d, T: Instance> TSC<'d, T> {
             w.set_pgpsc(config.pulse_generator_prescaler.into());
             w.set_mcv(config.max_count_value);
             w.set_syncpol(config.synchro_pin_polarity);
-            w.set_am(config.acquisition_mode)
+            w.set_am(config.acquisition_mode);
         });
 
         // Set IO configuration
