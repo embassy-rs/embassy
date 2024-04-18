@@ -933,7 +933,6 @@ impl<'d, T: BasicInstance> Uart<'d, T, Async> {
     /// I/O in idle or in reception.
     /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
     /// on the line must be managed by software (for instance by using a centralized arbiter).
-    #[cfg(not(any(usart_v1, usart_v2)))]
     #[doc(alias("HDSEL"))]
     pub fn new_half_duplex(
         peri: impl Peripheral<P = T> + 'd,
@@ -943,7 +942,10 @@ impl<'d, T: BasicInstance> Uart<'d, T, Async> {
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         mut config: Config,
     ) -> Result<Self, ConfigError> {
-        config.swap_rx_tx = false;
+        #[cfg(not(any(usart_v1, usart_v2)))]
+        {
+            config.swap_rx_tx = false;
+        }
         config.half_duplex = true;
 
         Self::new_inner(
@@ -1084,14 +1086,16 @@ impl<'d, T: BasicInstance> Uart<'d, T, Blocking> {
     /// I/O in idle or in reception.
     /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
     /// on the line must be managed by software (for instance by using a centralized arbiter).
-    #[cfg(not(any(usart_v1, usart_v2)))]
     #[doc(alias("HDSEL"))]
     pub fn new_blocking_half_duplex(
         peri: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         mut config: Config,
     ) -> Result<Self, ConfigError> {
-        config.swap_rx_tx = false;
+        #[cfg(not(any(usart_v1, usart_v2)))]
+        {
+            config.swap_rx_tx = false;
+        }
         config.half_duplex = true;
 
         Self::new_inner(
@@ -1354,10 +1358,9 @@ fn configure(
         }
     });
 
-    #[cfg(not(usart_v1))]
     r.cr3().modify(|w| {
+        #[cfg(not(usart_v1))]
         w.set_onebit(config.assume_noise_free);
-        #[cfg(any(usart_v3, usart_v4))]
         w.set_hdsel(config.half_duplex);
     });
 
