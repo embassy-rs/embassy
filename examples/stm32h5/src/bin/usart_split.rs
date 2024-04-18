@@ -4,7 +4,6 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
-use embassy_stm32::peripherals::UART7;
 use embassy_stm32::usart::{Config, Uart, UartRx};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -38,7 +37,7 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: UartRx<'static, UART7, Async>) {
+async fn reader(mut rx: UartRx<'static, Async>) {
     let mut buf = [0; 8];
     loop {
         info!("reading...");
