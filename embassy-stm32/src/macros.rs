@@ -1,5 +1,30 @@
 #![macro_use]
 
+macro_rules! peri_trait {
+    () => {
+        #[allow(private_interfaces)]
+        pub(crate) trait SealedInstance {
+            const INFO: Info;
+            const STATE: &'static State;
+        }
+
+        /// SPI instance trait.
+        #[allow(private_bounds)]
+        pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+    };
+}
+
+macro_rules! peri_trait_impl {
+    ($instance:ident, $info:expr) => {
+        #[allow(private_interfaces)]
+        impl SealedInstance for crate::peripherals::$instance {
+            const INFO: Info = $info;
+            const STATE: &'static State = &State::new();
+        }
+        impl Instance for crate::peripherals::$instance {}
+    };
+}
+
 macro_rules! pin_trait {
     ($signal:ident, $instance:path $(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " pin trait")]
