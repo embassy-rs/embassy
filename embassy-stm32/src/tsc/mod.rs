@@ -5,7 +5,7 @@
 /// Enums defined for peripheral parameters
 pub mod enums;
 
-use crate::gpio::AnyPin;
+use crate::gpio::{low_level::AFType, AnyPin, Pull};
 use crate::{pac::tsc::Tsc as Regs, rcc::RccPeripheral};
 use crate::{peripherals, Peripheral};
 use embassy_hal_internal::{into_ref, PeripheralRef};
@@ -186,22 +186,21 @@ impl<'d, T: Instance> Tsc<'d, T> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         // g1_d1: Option<PeriPin<impl Peripheral<P = impl G1IO1Pin<T>> + 'd>>,
-        // g1_d2: Option<PeriPin<impl Peripheral<P = impl G1IO2Pin<T>> + 'd>>,
-        // g1_d3: Option<PeriPin<impl Peripheral<P = impl G1IO3Pin<T>> + 'd>>,
+        g1_d2: Option<PeriPin<impl Peripheral<P = impl G1IO2Pin<T>> + 'd>>,
+        g1_d3: Option<PeriPin<impl Peripheral<P = impl G1IO3Pin<T>> + 'd>>,
         // g1_d4: Option<PeriPin<impl Peripheral<P = impl G1IO4Pin<T>> + 'd>>,
 
         // g2_d1: Option<impl Peripheral<P = impl G2IO1Pin<T>> + 'd>,
         // g2_d2: Option<impl Peripheral<P = impl G2IO2Pin<T>> + 'd>,
-        // g2_d3: Option<impl Peripheral<P = impl G2IO3Pin<T>> + 'd>,
-        // g2_d4: Option<impl Peripheral<P = impl G2IO4Pin<T>> + 'd>,
+        g2_d3: Option<PeriPin<impl Peripheral<P = impl G2IO3Pin<T>> + 'd>>,
+        g2_d4: Option<PeriPin<impl Peripheral<P = impl G2IO4Pin<T>> + 'd>>,
 
         // g3_d1: Option<impl Peripheral<P = impl G3IO1Pin<T>> + 'd>,
         // g3_d2: Option<impl Peripheral<P = impl G3IO2Pin<T>> + 'd>,
         // g3_d3: Option<impl Peripheral<P = impl G3IO3Pin<T>> + 'd>,
         // g3_d4: Option<impl Peripheral<P = impl G3IO4Pin<T>> + 'd>,
-
-        // g4_d1: Option<impl Peripheral<P = impl G4IO1Pin<T>> + 'd>,
-        // g4_d2: Option<impl Peripheral<P = impl G4IO2Pin<T>> + 'd>,
+        g4_d1: Option<PeriPin<impl Peripheral<P = impl G4IO1Pin<T>> + 'd>>,
+        g4_d2: Option<PeriPin<impl Peripheral<P = impl G4IO2Pin<T>> + 'd>>,
         // g4_d3: Option<impl Peripheral<P = impl G4IO3Pin<T>> + 'd>,
         // g4_d4: Option<impl Peripheral<P = impl G4IO4Pin<T>> + 'd>,
 
@@ -226,12 +225,101 @@ impl<'d, T: Instance> Tsc<'d, T> {
         // g8_d4: Option<impl Peripheral<P = impl G8IO4Pin<T>> + 'd>,
         config: Config,
     ) -> Self {
-        into_ref!(peri);
+        let g1_d2 = g1_d2.unwrap();
+        let g1_d2_pin = g1_d2.pin;
+        let g1_d3 = g1_d3.unwrap();
+        let g1_d3_pin = g1_d3.pin;
+        let g2_d3 = g2_d3.unwrap();
+        let g2_d3_pin = g2_d3.pin;
+        let g2_d4 = g2_d4.unwrap();
+        let g2_d4_pin = g2_d4.pin;
+        let g4_d1 = g4_d1.unwrap();
+        let g4_d1_pin = g4_d1.pin;
+        let g4_d2 = g4_d2.unwrap();
+        let g4_d2_pin = g4_d2.pin;
+        into_ref!(peri, g1_d2_pin, g1_d3_pin, g2_d3_pin, g2_d4_pin, g4_d1_pin, g4_d2_pin);
+
+        // Configure pins
+        match g1_d2.role {
+            PinType::Channel => g1_d2_pin.set_as_af_pull(g1_d2_pin.af_num(), AFType::OutputPushPull, Pull::None),
+            PinType::Sample => g1_d2_pin.set_as_af_pull(g1_d2_pin.af_num(), AFType::OutputOpenDrain, Pull::None),
+            PinType::Shield => g1_d2_pin.set_as_af_pull(g1_d2_pin.af_num(), AFType::OutputPushPull, Pull::None),
+        }
+        match g1_d3.role {
+            PinType::Channel => g1_d3_pin.set_as_af_pull(g1_d3_pin.af_num(), AFType::OutputPushPull, Pull::None),
+            PinType::Sample => g1_d3_pin.set_as_af_pull(g1_d3_pin.af_num(), AFType::OutputOpenDrain, Pull::None),
+            PinType::Shield => g1_d3_pin.set_as_af_pull(g1_d3_pin.af_num(), AFType::OutputPushPull, Pull::None),
+        }
+        let g1 = PinGroup {
+            d1: None,
+            d2: Some(TscPin {
+                pin: g1_d2_pin.map_into(),
+                role: g1_d2.role,
+            }),
+            d3: Some(TscPin {
+                pin: g1_d3_pin.map_into(),
+                role: g1_d3.role,
+            }),
+            d4: None,
+        };
+
+        match g2_d3.role {
+            PinType::Channel => g2_d3_pin.set_as_af_pull(g2_d3_pin.af_num(), AFType::OutputPushPull, Pull::None),
+            PinType::Sample => g2_d3_pin.set_as_af_pull(g2_d3_pin.af_num(), AFType::OutputOpenDrain, Pull::None),
+            PinType::Shield => g2_d3_pin.set_as_af_pull(g2_d3_pin.af_num(), AFType::OutputPushPull, Pull::None),
+        }
+        match g2_d4.role {
+            PinType::Channel => g2_d4_pin.set_as_af_pull(g2_d4_pin.af_num(), AFType::OutputPushPull, Pull::None),
+            PinType::Sample => g2_d4_pin.set_as_af_pull(g2_d4_pin.af_num(), AFType::OutputOpenDrain, Pull::None),
+            PinType::Shield => g2_d4_pin.set_as_af_pull(g2_d4_pin.af_num(), AFType::OutputPushPull, Pull::None),
+        }
+        let g2 = PinGroup {
+            d1: None,
+            d2: None,
+            d3: Some(TscPin {
+                pin: g2_d3_pin.map_into(),
+                role: g2_d3.role,
+            }),
+            d4: Some(TscPin {
+                pin: g2_d4_pin.map_into(),
+                role: g2_d4.role,
+            }),
+        };
+
+        match g4_d1.role {
+            PinType::Channel => g4_d1_pin.set_as_af_pull(g4_d1_pin.af_num(), AFType::OutputPushPull, Pull::None),
+            PinType::Sample => g4_d1_pin.set_as_af_pull(g4_d1_pin.af_num(), AFType::OutputOpenDrain, Pull::None),
+            PinType::Shield => g4_d1_pin.set_as_af_pull(g4_d1_pin.af_num(), AFType::OutputPushPull, Pull::None),
+        }
+        match g4_d2.role {
+            PinType::Channel => g4_d2_pin.set_as_af_pull(g4_d2_pin.af_num(), AFType::OutputPushPull, Pull::None),
+            PinType::Sample => g4_d2_pin.set_as_af_pull(g4_d2_pin.af_num(), AFType::OutputOpenDrain, Pull::None),
+            PinType::Shield => g4_d2_pin.set_as_af_pull(g4_d2_pin.af_num(), AFType::OutputPushPull, Pull::None),
+        }
+        let g4 = PinGroup {
+            d1: Some(TscPin {
+                pin: g4_d1_pin.map_into(),
+                role: g4_d1.role,
+            }),
+            d2: Some(TscPin {
+                pin: g4_d2_pin.map_into(),
+                role: g4_d2.role,
+            }),
+            d3: None,
+            d4: None,
+        };
 
         // Need to check valid pin configuration input
-        // Need to configure pin
-        Self::new_inner(peri, config)
+        Self::new_inner(peri, Some(g1), Some(g2), None, Some(g4), None, None, None, None, config)
     }
+
+    // fn configure_pin<'b, G: Pin>(pin: PeripheralRef<'b, G>, role: PinType) {
+    //     match role {
+    //         PinType::Channel => pin.set_as_af_pull(pin.af_num(), AFType::OutputPushPull, Pull::None),
+    //         PinType::Sample => {}
+    //         PinType::Shield => {}
+    //     }
+    // }
 
     // fn filter_group() -> Option<PinGroup<'d>> {}
     fn extract_groups(io_mask: u32) -> u32 {
@@ -244,7 +332,18 @@ impl<'d, T: Instance> Tsc<'d, T> {
         groups
     }
 
-    fn new_inner(peri: impl Peripheral<P = T> + 'd, config: Config) -> Self {
+    fn new_inner(
+        peri: impl Peripheral<P = T> + 'd,
+        g1: Option<PinGroup<'d, AnyPin>>,
+        g2: Option<PinGroup<'d, AnyPin>>,
+        g3: Option<PinGroup<'d, AnyPin>>,
+        g4: Option<PinGroup<'d, AnyPin>>,
+        g5: Option<PinGroup<'d, AnyPin>>,
+        g6: Option<PinGroup<'d, AnyPin>>,
+        g7: Option<PinGroup<'d, AnyPin>>,
+        g8: Option<PinGroup<'d, AnyPin>>,
+        config: Config,
+    ) -> Self {
         into_ref!(peri);
 
         T::enable_and_reset();
@@ -306,14 +405,14 @@ impl<'d, T: Instance> Tsc<'d, T> {
 
         Self {
             _peri: peri,
-            g1: None,
-            g2: None,
-            g3: None,
-            g4: None,
-            g5: None,
-            g6: None,
-            g7: None,
-            g8: None,
+            g1,
+            g2,
+            g3,
+            g4,
+            g5,
+            g6,
+            g7,
+            g8,
             state: State::Ready,
             config,
         }
