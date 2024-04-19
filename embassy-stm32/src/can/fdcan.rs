@@ -209,11 +209,6 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
         &self.properties
     }
 
-    /// Get mutable driver properties
-    pub fn properties_mut(&mut self) -> &mut Properties<T> {
-        &mut self.properties
-    }
-
     /// Get configuration
     pub fn config(&self) -> crate::can::fd::config::FdCanConfig {
         return self.config;
@@ -297,11 +292,6 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Get properties
     pub fn properties(&self) -> &Properties<T> {
         &self.properties
-    }
-
-    /// Get mutable driver properties
-    pub fn properties_mut(&mut self) -> &mut Properties<T> {
-        &mut self.properties
     }
 
     /// Flush one of the TX mailboxes.
@@ -437,11 +427,6 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
         &self.properties
     }
 
-    /// Get mutable driver properties
-    pub fn properties_mut(&mut self) -> &mut Properties<T> {
-        &mut self.properties
-    }
-
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
         critical_section::with(|_| unsafe {
@@ -563,11 +548,6 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     /// Get driver properties
     pub fn properties(&self) -> &Properties<T> {
         &self.properties
-    }
-
-    /// Get mutable driver properties
-    pub fn properties_mut(&mut self) -> &mut Properties<T> {
-        &mut self.properties
     }
 
     fn setup(self) -> Self {
@@ -830,7 +810,8 @@ impl TxMode {
 
 /// Common driver properties, including filters and error counters
 pub struct Properties<T> {
-    instance: PhantomData<T>,
+    // phantom pointer to ensure !Sync
+    instance: PhantomData<*const T>,
 }
 
 impl<T: Instance> Properties<T> {
@@ -840,44 +821,46 @@ impl<T: Instance> Properties<T> {
         }
     }
 
-    /// Set an Standard Address CAN filter into slot 'id'
+    /// Set a standard address CAN filter in the specified slot in FDCAN memory.
     #[inline]
-    pub fn set_standard_filter(&mut self, slot: StandardFilterSlot, filter: StandardFilter) {
+    pub fn set_standard_filter(&self, slot: StandardFilterSlot, filter: StandardFilter) {
         T::registers().msg_ram_mut().filters.flssa[slot as usize].activate(filter);
     }
 
-    /// Set an array of Standard Address CAN filters and overwrite the current set
-    pub fn set_standard_filters(&mut self, filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
+    /// Set the full array of standard address CAN filters in FDCAN memory.
+    /// Overwrites all standard address filters in memory.
+    pub fn set_standard_filters(&self, filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
         for (i, f) in filters.iter().enumerate() {
             T::registers().msg_ram_mut().filters.flssa[i].activate(*f);
         }
     }
 
-    /// Set an Extended Address CAN filter into slot 'id'
+    /// Set an extended address CAN filter in the specified slot in FDCAN memory.
     #[inline]
-    pub fn set_extended_filter(&mut self, slot: ExtendedFilterSlot, filter: ExtendedFilter) {
+    pub fn set_extended_filter(&self, slot: ExtendedFilterSlot, filter: ExtendedFilter) {
         T::registers().msg_ram_mut().filters.flesa[slot as usize].activate(filter);
     }
 
-    /// Set an array of Extended Address CAN filters and overwrite the current set
-    pub fn set_extended_filters(&mut self, filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
+    /// Set the full array of extended address CAN filters in FDCAN memory.
+    /// Overwrites all extended address filters in memory.
+    pub fn set_extended_filters(&self, filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
         for (i, f) in filters.iter().enumerate() {
             T::registers().msg_ram_mut().filters.flesa[i].activate(*f);
         }
     }
 
     /// Get the CAN RX error counter
-    pub fn get_rx_error_count(&self) -> u8 {
+    pub fn rx_error_count(&self) -> u8 {
         T::registers().regs.ecr().read().rec()
     }
 
     /// Get the CAN TX error counter
-    pub fn get_tx_error_count(&self) -> u8 {
+    pub fn tx_error_count(&self) -> u8 {
         T::registers().regs.ecr().read().tec()
     }
 
     /// Get the current Bus-Off state
-    pub fn get_bus_off(&self) -> bool {
+    pub fn bus_off(&self) -> bool {
         T::registers().regs.psr().read().bo()
     }
 }
