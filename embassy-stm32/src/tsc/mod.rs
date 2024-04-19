@@ -6,7 +6,6 @@
 pub mod enums;
 
 use crate::gpio::AnyPin;
-use crate::pac::tsc::regs;
 use crate::{pac::tsc::Tsc as Regs, rcc::RccPeripheral};
 use crate::{peripherals, Peripheral};
 use embassy_hal_internal::{into_ref, PeripheralRef};
@@ -98,7 +97,7 @@ pub struct Config {
     /// Enable/disable of spread spectrum feature
     pub spread_spectrum: bool,
     /// Adds variable number of periods of the SS clk to pulse high state
-    pub spread_spectrum_deviation: u8,
+    pub spread_spectrum_deviation: SSDeviation,
     /// Selects AHB clock divider used to generate SS clk
     pub spread_spectrum_prescaler: bool,
     /// Selects AHB clock divider used to generate pulse generator clk
@@ -127,7 +126,7 @@ impl Default for Config {
             ct_pulse_high_length: ChargeTransferPulseCycle::_1,
             ct_pulse_low_length: ChargeTransferPulseCycle::_1,
             spread_spectrum: false,
-            spread_spectrum_deviation: 0,
+            spread_spectrum_deviation: SSDeviation::new(0).unwrap(),
             spread_spectrum_prescaler: false,
             pulse_generator_prescaler: PGPrescalerDivider::_1,
             max_count_value: MaxCount::_255,
@@ -255,9 +254,22 @@ impl<'d, T: Instance> Tsc<'d, T> {
             w.set_ctph(config.ct_pulse_high_length.into());
             w.set_ctpl(config.ct_pulse_low_length.into());
             w.set_sse(config.spread_spectrum);
-            w.set_ssd(config.spread_spectrum_deviation);
+            // Prevent invalid configuration for pulse generator prescaler
+            if config.ct_pulse_low_length == ChargeTransferPulseCycle::_1
+                && (config.pulse_generator_prescaler == PGPrescalerDivider::_1
+                    || config.pulse_generator_prescaler == PGPrescalerDivider::_2)
+            {
+                w.set_pgpsc(PGPrescalerDivider::_4.into());
+            } else if config.ct_pulse_low_length == ChargeTransferPulseCycle::_2
+                && config.pulse_generator_prescaler == PGPrescalerDivider::_1
+            {
+                w.set_pgpsc(PGPrescalerDivider::_2.into());
+            } else {
+                w.set_pgpsc(config.pulse_generator_prescaler.into());
+            }
+            w.set_ssd(config.spread_spectrum_deviation.into());
             w.set_sspsc(config.spread_spectrum_prescaler);
-            w.set_pgpsc(config.pulse_generator_prescaler.into());
+
             w.set_mcv(config.max_count_value.into());
             w.set_syncpol(config.synchro_pin_polarity);
             w.set_am(config.acquisition_mode);

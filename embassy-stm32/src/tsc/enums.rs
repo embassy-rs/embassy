@@ -90,9 +90,28 @@ impl Into<u32> for TscIOPin {
     }
 }
 
+/// Spread Spectrum Deviation
+#[derive(Copy, Clone)]
+pub struct SSDeviation(u8);
+impl SSDeviation {
+    /// Create new deviation value, acceptable inputs are 1-128
+    pub fn new(val: u8) -> Result<Self, ()> {
+        if val == 0 || val > 128 {
+            return Err(());
+        }
+        Ok(Self(val - 1))
+    }
+}
+
+impl Into<u8> for SSDeviation {
+    fn into(self) -> u8 {
+        self.0
+    }
+}
+
 /// Charge transfer pulse cycles
 #[allow(missing_docs)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum ChargeTransferPulseCycle {
     _1,
     _2,
@@ -137,7 +156,7 @@ impl Into<u8> for ChargeTransferPulseCycle {
 
 /// Prescaler divider
 #[allow(missing_docs)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum PGPrescalerDivider {
     _1,
     _2,
