@@ -9,7 +9,7 @@ use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::udp;
 pub use smoltcp::socket::udp::{PacketMetadata, UdpMetadata};
-use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
+use smoltcp::wire::IpListenEndpoint;
 
 use crate::{SocketStack, Stack};
 
