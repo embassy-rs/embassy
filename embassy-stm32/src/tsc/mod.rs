@@ -2,6 +2,7 @@
 
 #![macro_use]
 
+/// Enums defined for peripheral parameters
 pub mod enums;
 
 use crate::gpio::AnyPin;
@@ -11,6 +12,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 pub use enums::*;
 
+/// Error type defined for TSC
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -18,26 +20,45 @@ pub enum Error {
     Test,
 }
 
+/// Pin type definition to control IO parameters
 pub enum PinType {
+    /// Sensing channel pin connected to an electrode
     Channel,
+    /// Sampling capacitor pin, one required for every pin group
     Sample,
+    /// Shield pin connected to capacitive sensing shield
     Shield,
 }
 
+/// Unclear
 pub struct TscGroup {}
 
+/// Peripheral state
+#[derive(PartialEq, Clone, Copy)]
 pub enum State {
+    /// Peripheral is being setup or reconfigured
     Reset,
+    /// Ready to start acquisition
     Ready,
+    /// In process of sensor acquisition
     Busy,
+    /// Error occured during acquisition
     Error,
 }
 
+/// Individual group status checked after acquisition reported as complete
+/// For groups with multiple channel pins, may take longer because acquisitions
+/// are done sequentially. Check this status before pulling count for each
+/// sampled channel
 pub enum GroupStatus {
+    /// Acquisition for channel still in progress
     Ongoing,
+    /// Acquisition either not started or complete
     Complete,
 }
 
+/// Group identifier used to interrogate status
+#[allow(missing_docs)]
 pub enum Group {
     One,
     Two,
@@ -64,61 +85,99 @@ impl Into<usize> for Group {
     }
 }
 
+/// Peripheral configuration
+#[derive(Clone, Copy)]
 pub struct Config {
+    /// Duration of high state of the charge transfer pulse
     pub ct_pulse_high_length: ChargeTransferPulseCycle,
+    /// Duration of the low state of the charge transfer pulse
     pub ct_pulse_low_length: ChargeTransferPulseCycle,
+    /// Enable/disable of spread spectrum feature
     pub spread_spectrum: bool,
+    /// Adds variable number of periods of the SS clk to pulse high state
     pub spread_spectrum_deviation: u8,
+    /// Selects AHB clock divider used to generate SS clk
     pub spread_spectrum_prescaler: bool,
+    /// Selects AHB clock divider used to generate pulse generator clk
     pub pulse_generator_prescaler: PGPrescalerDivider,
-    pub max_count_value: u8,
+    /// Maximum number of charge tranfer pulses that can be generated before error
+    pub max_count_value: MaxCount,
+    /// Defines config of all IOs when no ongoing acquisition
     pub io_default_mode: bool,
+    /// Polarity of sync input pin
     pub synchro_pin_polarity: bool,
+    /// Acquisition starts when start bit is set or with sync pin input
     pub acquisition_mode: bool,
+    /// Enable max count interrupt
     pub max_count_interrupt: bool,
-    pub channel_ios: u32,
-    pub shield_ios: u32,
-    pub sampling_ios: u32,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            ct_pulse_high_length: ChargeTransferPulseCycle::_1,
+            ct_pulse_low_length: ChargeTransferPulseCycle::_1,
+            spread_spectrum: false,
+            spread_spectrum_deviation: 0,
+            spread_spectrum_prescaler: false,
+            pulse_generator_prescaler: PGPrescalerDivider::_1,
+            max_count_value: MaxCount::_255,
+            io_default_mode: false,
+            synchro_pin_polarity: false,
+            acquisition_mode: false,
+            max_count_interrupt: false,
+        }
+    }
+}
+
+/// Pin struct that maintains usage
+#[allow(missing_docs)]
 pub struct TscPin<'d, T> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: PeripheralRef<'d, T>,
     role: PinType,
 }
 
-pub struct PinGroup<'d, A, B, C, D> {
-    d1: Option<TscPin<'d, A>>,
-    d2: Option<TscPin<'d, B>>,
-    d3: Option<TscPin<'d, C>>,
-    d4: Option<TscPin<'d, D>>,
+/// Input structure for constructor containing peripherals
+#[allow(missing_docs)]
+pub struct PeriPin<T> {
+    pub pin: T,
+    pub role: PinType,
 }
 
-pub struct TSC<'d, T: Instance> {
+/// Pin group definition
+/// Pins are organized into groups of four IOs, all groups with a
+/// sampling channel must also have a sampling capacitor channel.
+#[allow(missing_docs)]
+pub struct PinGroup<'d, A> {
+    pub d1: Option<TscPin<'d, A>>,
+    pub d2: Option<TscPin<'d, A>>,
+    pub d3: Option<TscPin<'d, A>>,
+    pub d4: Option<TscPin<'d, A>>,
+}
+
+/// TSC driver
+pub struct Tsc<'d, T: Instance> {
     _peri: PeripheralRef<'d, T>,
-    g1: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
-    g2: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
-    g3: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
-    g4: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
-    g5: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
-    g6: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
-    g7: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
-    g8: Option<PinGroup<'d, AnyPin, AnyPin, AnyPin, AnyPin>>,
+    g1: Option<PinGroup<'d, AnyPin>>,
+    g2: Option<PinGroup<'d, AnyPin>>,
+    g3: Option<PinGroup<'d, AnyPin>>,
+    g4: Option<PinGroup<'d, AnyPin>>,
+    g5: Option<PinGroup<'d, AnyPin>>,
+    g6: Option<PinGroup<'d, AnyPin>>,
+    g7: Option<PinGroup<'d, AnyPin>>,
+    g8: Option<PinGroup<'d, AnyPin>>,
     state: State,
     config: Config,
 }
 
-impl<'d, T: Instance> TSC<'d, T> {
+impl<'d, T: Instance> Tsc<'d, T> {
+    /// Create new TSC driver
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
-        g1: Option<
-            PinGroup<
-                'd,
-                impl Peripheral<P = impl G1IO1Pin<T>> + 'd,
-                impl Peripheral<P = impl G1IO2Pin<T>> + 'd,
-                impl Peripheral<P = impl G1IO3Pin<T>> + 'd,
-                impl Peripheral<P = impl G1IO4Pin<T>> + 'd,
-            >,
-        >,
+        // g1_d1: Option<PeriPin<impl Peripheral<P = impl G1IO1Pin<T>> + 'd>>,
+        g1_d2: Option<PeriPin<impl Peripheral<P = impl G1IO2Pin<T>> + 'd>>,
+        g1_d3: Option<PeriPin<impl Peripheral<P = impl G1IO3Pin<T>> + 'd>>,
+        g1_d4: Option<impl Peripheral<P = impl G1IO4Pin<T>> + 'd>,
 
         g2_d1: Option<impl Peripheral<P = impl G2IO1Pin<T>> + 'd>,
         g2_d2: Option<impl Peripheral<P = impl G2IO2Pin<T>> + 'd>,
@@ -154,6 +213,7 @@ impl<'d, T: Instance> TSC<'d, T> {
         g8_d2: Option<impl Peripheral<P = impl G8IO2Pin<T>> + 'd>,
         g8_d3: Option<impl Peripheral<P = impl G8IO3Pin<T>> + 'd>,
         g8_d4: Option<impl Peripheral<P = impl G8IO4Pin<T>> + 'd>,
+
         config: Config,
     ) -> Self {
         into_ref!(peri);
@@ -163,7 +223,7 @@ impl<'d, T: Instance> TSC<'d, T> {
         Self::new_inner(peri, config)
     }
 
-    fn filter_group() -> Result<PinGroup<'d>, ()> {}
+    // fn filter_group() -> Option<PinGroup<'d>> {}
 
     fn new_inner(peri: impl Peripheral<P = T> + 'd, config: Config) -> Self {
         into_ref!(peri);
@@ -178,7 +238,7 @@ impl<'d, T: Instance> TSC<'d, T> {
             w.set_ssd(config.spread_spectrum_deviation);
             w.set_sspsc(config.spread_spectrum_prescaler);
             w.set_pgpsc(config.pulse_generator_prescaler.into());
-            w.set_mcv(config.max_count_value);
+            w.set_mcv(config.max_count_value.into());
             w.set_syncpol(config.synchro_pin_polarity);
             w.set_am(config.acquisition_mode);
         });
@@ -216,11 +276,20 @@ impl<'d, T: Instance> TSC<'d, T> {
 
         Self {
             _peri: peri,
+            g1: None,
+            g2: None,
+            g3: None,
+            g4: None,
+            g5: None,
+            g6: None,
+            g7: None,
+            g8: None,
             state: State::Ready,
             config,
         }
     }
 
+    /// Start charge transfer acquisition
     pub fn start(&mut self) {
         self.state = State::Busy;
 
@@ -247,6 +316,7 @@ impl<'d, T: Instance> TSC<'d, T> {
         });
     }
 
+    /// Start charge transfer acquisition with interrupts enabled
     pub fn start_it(&mut self) {
         self.state = State::Busy;
 
@@ -273,6 +343,7 @@ impl<'d, T: Instance> TSC<'d, T> {
         });
     }
 
+    /// Stop charge transfer acquisition
     pub fn stop(&mut self) {
         T::REGS.cr().modify(|w| {
             w.set_start(false);
@@ -292,6 +363,7 @@ impl<'d, T: Instance> TSC<'d, T> {
         self.state = State::Ready;
     }
 
+    /// Stop charge transfer acquisition and clear interrupts
     pub fn stop_it(&mut self) {
         T::REGS.cr().modify(|w| {
             w.set_start(false);
@@ -317,10 +389,12 @@ impl<'d, T: Instance> TSC<'d, T> {
         self.state = State::Ready;
     }
 
+    /// Wait for end of acquisition
     pub fn poll_for_acquisition(&mut self) {
         while self.get_state() == State::Busy {}
     }
 
+    /// Get current state of acquisition
     pub fn get_state(&mut self) -> State {
         if self.state == State::Busy {
             if T::REGS.isr().read().eoaf() {
@@ -334,6 +408,7 @@ impl<'d, T: Instance> TSC<'d, T> {
         self.state
     }
 
+    /// Get the individual group status to check acquisition complete
     pub fn group_get_status(&mut self, index: Group) -> GroupStatus {
         // Status bits are set by hardware when the acquisition on the corresponding
         // enabled analog IO group is complete, cleared when new acquisition is started
@@ -353,12 +428,14 @@ impl<'d, T: Instance> TSC<'d, T> {
         }
     }
 
+    /// Get the count for the acquisiton, valid once group status is set
     pub fn group_get_value(&mut self, index: Group) -> u16 {
         T::REGS.iogcr(index.into()).read().cnt()
     }
 
     // pub fn configure_io()
 
+    /// Discharge the IOs for subsequent acquisition
     pub fn discharge_io(&mut self, status: bool) {
         // Set the touch sensing IOs in low power mode
         T::REGS.cr().modify(|w| {
@@ -367,7 +444,7 @@ impl<'d, T: Instance> TSC<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for TSC<'d, T> {
+impl<'d, T: Instance> Drop for Tsc<'d, T> {
     fn drop(&mut self) {
         //  Need to figure out what to do with the IOs
         T::disable();
