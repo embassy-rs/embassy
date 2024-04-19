@@ -6,11 +6,14 @@
 pub mod enums;
 
 use crate::gpio::AnyPin;
+use crate::pac::tsc::regs;
 use crate::{pac::tsc::Tsc as Regs, rcc::RccPeripheral};
 use crate::{peripherals, Peripheral};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 pub use enums::*;
+
+const TSC_NUM_GROUPS: u32 = 8;
 
 /// Error type defined for TSC
 #[derive(Debug)]
@@ -110,6 +113,12 @@ pub struct Config {
     pub acquisition_mode: bool,
     /// Enable max count interrupt
     pub max_count_interrupt: bool,
+    /// Channel IO mask
+    pub channel_ios: u32,
+    /// Shield IO mask
+    pub shield_ios: u32,
+    /// Sampling IO mask
+    pub sampling_ios: u32,
 }
 
 impl Default for Config {
@@ -126,6 +135,9 @@ impl Default for Config {
             synchro_pin_polarity: false,
             acquisition_mode: false,
             max_count_interrupt: false,
+            channel_ios: 0,
+            shield_ios: 0,
+            sampling_ios: 0,
         }
     }
 }
@@ -175,45 +187,44 @@ impl<'d, T: Instance> Tsc<'d, T> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         // g1_d1: Option<PeriPin<impl Peripheral<P = impl G1IO1Pin<T>> + 'd>>,
-        g1_d2: Option<PeriPin<impl Peripheral<P = impl G1IO2Pin<T>> + 'd>>,
-        g1_d3: Option<PeriPin<impl Peripheral<P = impl G1IO3Pin<T>> + 'd>>,
-        g1_d4: Option<impl Peripheral<P = impl G1IO4Pin<T>> + 'd>,
+        // g1_d2: Option<PeriPin<impl Peripheral<P = impl G1IO2Pin<T>> + 'd>>,
+        // g1_d3: Option<PeriPin<impl Peripheral<P = impl G1IO3Pin<T>> + 'd>>,
+        // g1_d4: Option<PeriPin<impl Peripheral<P = impl G1IO4Pin<T>> + 'd>>,
 
-        g2_d1: Option<impl Peripheral<P = impl G2IO1Pin<T>> + 'd>,
-        g2_d2: Option<impl Peripheral<P = impl G2IO2Pin<T>> + 'd>,
-        g2_d3: Option<impl Peripheral<P = impl G2IO3Pin<T>> + 'd>,
-        g2_d4: Option<impl Peripheral<P = impl G2IO4Pin<T>> + 'd>,
+        // g2_d1: Option<impl Peripheral<P = impl G2IO1Pin<T>> + 'd>,
+        // g2_d2: Option<impl Peripheral<P = impl G2IO2Pin<T>> + 'd>,
+        // g2_d3: Option<impl Peripheral<P = impl G2IO3Pin<T>> + 'd>,
+        // g2_d4: Option<impl Peripheral<P = impl G2IO4Pin<T>> + 'd>,
 
-        g3_d1: Option<impl Peripheral<P = impl G3IO1Pin<T>> + 'd>,
-        g3_d2: Option<impl Peripheral<P = impl G3IO2Pin<T>> + 'd>,
-        g3_d3: Option<impl Peripheral<P = impl G3IO3Pin<T>> + 'd>,
-        g3_d4: Option<impl Peripheral<P = impl G3IO4Pin<T>> + 'd>,
+        // g3_d1: Option<impl Peripheral<P = impl G3IO1Pin<T>> + 'd>,
+        // g3_d2: Option<impl Peripheral<P = impl G3IO2Pin<T>> + 'd>,
+        // g3_d3: Option<impl Peripheral<P = impl G3IO3Pin<T>> + 'd>,
+        // g3_d4: Option<impl Peripheral<P = impl G3IO4Pin<T>> + 'd>,
 
-        g4_d1: Option<impl Peripheral<P = impl G4IO1Pin<T>> + 'd>,
-        g4_d2: Option<impl Peripheral<P = impl G4IO2Pin<T>> + 'd>,
-        g4_d3: Option<impl Peripheral<P = impl G4IO3Pin<T>> + 'd>,
-        g4_d4: Option<impl Peripheral<P = impl G4IO4Pin<T>> + 'd>,
+        // g4_d1: Option<impl Peripheral<P = impl G4IO1Pin<T>> + 'd>,
+        // g4_d2: Option<impl Peripheral<P = impl G4IO2Pin<T>> + 'd>,
+        // g4_d3: Option<impl Peripheral<P = impl G4IO3Pin<T>> + 'd>,
+        // g4_d4: Option<impl Peripheral<P = impl G4IO4Pin<T>> + 'd>,
 
-        g5_d1: Option<impl Peripheral<P = impl G5IO1Pin<T>> + 'd>,
-        g5_d2: Option<impl Peripheral<P = impl G5IO2Pin<T>> + 'd>,
-        g5_d3: Option<impl Peripheral<P = impl G5IO3Pin<T>> + 'd>,
-        g5_d4: Option<impl Peripheral<P = impl G5IO4Pin<T>> + 'd>,
+        // g5_d1: Option<impl Peripheral<P = impl G5IO1Pin<T>> + 'd>,
+        // g5_d2: Option<impl Peripheral<P = impl G5IO2Pin<T>> + 'd>,
+        // g5_d3: Option<impl Peripheral<P = impl G5IO3Pin<T>> + 'd>,
+        // g5_d4: Option<impl Peripheral<P = impl G5IO4Pin<T>> + 'd>,
 
-        g6_d1: Option<impl Peripheral<P = impl G6IO1Pin<T>> + 'd>,
-        g6_d2: Option<impl Peripheral<P = impl G6IO2Pin<T>> + 'd>,
-        g6_d3: Option<impl Peripheral<P = impl G6IO3Pin<T>> + 'd>,
-        g6_d4: Option<impl Peripheral<P = impl G6IO4Pin<T>> + 'd>,
+        // g6_d1: Option<impl Peripheral<P = impl G6IO1Pin<T>> + 'd>,
+        // g6_d2: Option<impl Peripheral<P = impl G6IO2Pin<T>> + 'd>,
+        // g6_d3: Option<impl Peripheral<P = impl G6IO3Pin<T>> + 'd>,
+        // g6_d4: Option<impl Peripheral<P = impl G6IO4Pin<T>> + 'd>,
 
-        g7_d1: Option<impl Peripheral<P = impl G7IO1Pin<T>> + 'd>,
-        g7_d2: Option<impl Peripheral<P = impl G7IO2Pin<T>> + 'd>,
-        g7_d3: Option<impl Peripheral<P = impl G7IO3Pin<T>> + 'd>,
-        g7_d4: Option<impl Peripheral<P = impl G7IO4Pin<T>> + 'd>,
+        // g7_d1: Option<impl Peripheral<P = impl G7IO1Pin<T>> + 'd>,
+        // g7_d2: Option<impl Peripheral<P = impl G7IO2Pin<T>> + 'd>,
+        // g7_d3: Option<impl Peripheral<P = impl G7IO3Pin<T>> + 'd>,
+        // g7_d4: Option<impl Peripheral<P = impl G7IO4Pin<T>> + 'd>,
 
-        g8_d1: Option<impl Peripheral<P = impl G8IO1Pin<T>> + 'd>,
-        g8_d2: Option<impl Peripheral<P = impl G8IO2Pin<T>> + 'd>,
-        g8_d3: Option<impl Peripheral<P = impl G8IO3Pin<T>> + 'd>,
-        g8_d4: Option<impl Peripheral<P = impl G8IO4Pin<T>> + 'd>,
-
+        // g8_d1: Option<impl Peripheral<P = impl G8IO1Pin<T>> + 'd>,
+        // g8_d2: Option<impl Peripheral<P = impl G8IO2Pin<T>> + 'd>,
+        // g8_d3: Option<impl Peripheral<P = impl G8IO3Pin<T>> + 'd>,
+        // g8_d4: Option<impl Peripheral<P = impl G8IO4Pin<T>> + 'd>,
         config: Config,
     ) -> Self {
         into_ref!(peri);
@@ -224,6 +235,15 @@ impl<'d, T: Instance> Tsc<'d, T> {
     }
 
     // fn filter_group() -> Option<PinGroup<'d>> {}
+    fn extract_groups(io_mask: u32) -> u32 {
+        let mut groups: u32 = 0;
+        for idx in 0..TSC_NUM_GROUPS {
+            if io_mask & (0x0F << idx * 4) != 0 {
+                groups |= 1 << idx
+            }
+        }
+        groups
+    }
 
     fn new_inner(peri: impl Peripheral<P = T> + 'd, config: Config) -> Self {
         into_ref!(peri);
@@ -245,22 +265,20 @@ impl<'d, T: Instance> Tsc<'d, T> {
 
         // Set IO configuration
         // Disable Schmitt trigger hysteresis on all used TSC IOs
-        // T::REGS.iohcr().modify(|w| {
-        //     w.
-        // });
+        T::REGS
+            .iohcr()
+            .write(|w| w.0 = config.channel_ios | config.shield_ios | config.sampling_ios);
 
         // Set channel and shield IOs
-        // T::REGS.ioccr().modify(|w| {});
+        T::REGS.ioccr().write(|w| w.0 = config.channel_ios | config.shield_ios);
 
         // Set sampling IOs
-        // T::REGS.ioscr().modify(|w| {
-        //     w.set_g1_io1(val)
-        // });
+        T::REGS.ioscr().write(|w| w.0 = config.sampling_ios);
 
         // Set the groups to be acquired
-        // T::REGS.iogcsr().modify(|w| {
-        //     w.set_g1e(val);
-        // });
+        T::REGS
+            .iogcsr()
+            .write(|w| w.0 = Self::extract_groups(config.channel_ios));
 
         // Disable interrupts
         T::REGS.ier().modify(|w| {
