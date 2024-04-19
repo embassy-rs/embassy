@@ -145,9 +145,9 @@ impl<'a> UdpSocket<'a> {
     /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
     pub async fn send_to<T>(&self, buf: &[u8], remote_endpoint: T) -> Result<(), SendError>
     where
-        T: Into<IpEndpoint>,
+        T: Into<UdpMetadata>,
     {
-        let remote_endpoint: IpEndpoint = remote_endpoint.into();
+        let remote_endpoint: UdpMetadata = remote_endpoint.into();
         poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await
     }
 
