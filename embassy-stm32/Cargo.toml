@@ -30,6 +30,7 @@ flavors = [
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
+    { regex_feature = "stm32u0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32wba.*", target = "thumbv8m.main-none-eabihf" },
@@ -70,7 +71,7 @@ rand_core = "0.6.3"
 sdio-host = "0.5.0"
 critical-section = "1.1"
 #stm32-metapac = { version = "15" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-2b7ec569a5510c324693f0515ac8ea20b12917a9" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-01ac9bfd035961dc75f32dcd6080501538246d5c" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -96,7 +97,7 @@ proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
 #stm32-metapac = { version = "15", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-2b7ec569a5510c324693f0515ac8ea20b12917a9", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-01ac9bfd035961dc75f32dcd6080501538246d5c", default-features = false, features = ["metadata"]}
 
 [features]
 default = ["rt"]
@@ -113,6 +114,9 @@ low-power-debug-with-sleep = []
 
 ## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
 memory-x = ["stm32-metapac/memory-x"]
+
+## Use secure registers when TrustZone is enabled
+trustzone-secure = []
 
 ## Re-export stm32-metapac at `embassy_stm32::pac`.
 ## This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
@@ -1419,6 +1423,38 @@ stm32l562qe = [ "stm32-metapac/stm32l562qe" ]
 stm32l562re = [ "stm32-metapac/stm32l562re" ]
 stm32l562ve = [ "stm32-metapac/stm32l562ve" ]
 stm32l562ze = [ "stm32-metapac/stm32l562ze" ]
+stm32u031c6 = [ "stm32-metapac/stm32u031c6" ]
+stm32u031c8 = [ "stm32-metapac/stm32u031c8" ]
+stm32u031f4 = [ "stm32-metapac/stm32u031f4" ]
+stm32u031f6 = [ "stm32-metapac/stm32u031f6" ]
+stm32u031f8 = [ "stm32-metapac/stm32u031f8" ]
+stm32u031g6 = [ "stm32-metapac/stm32u031g6" ]
+stm32u031g8 = [ "stm32-metapac/stm32u031g8" ]
+stm32u031k4 = [ "stm32-metapac/stm32u031k4" ]
+stm32u031k6 = [ "stm32-metapac/stm32u031k6" ]
+stm32u031k8 = [ "stm32-metapac/stm32u031k8" ]
+stm32u031r6 = [ "stm32-metapac/stm32u031r6" ]
+stm32u031r8 = [ "stm32-metapac/stm32u031r8" ]
+stm32u073c8 = [ "stm32-metapac/stm32u073c8" ]
+stm32u073cb = [ "stm32-metapac/stm32u073cb" ]
+stm32u073cc = [ "stm32-metapac/stm32u073cc" ]
+stm32u073h8 = [ "stm32-metapac/stm32u073h8" ]
+stm32u073hb = [ "stm32-metapac/stm32u073hb" ]
+stm32u073hc = [ "stm32-metapac/stm32u073hc" ]
+stm32u073k8 = [ "stm32-metapac/stm32u073k8" ]
+stm32u073kb = [ "stm32-metapac/stm32u073kb" ]
+stm32u073kc = [ "stm32-metapac/stm32u073kc" ]
+stm32u073m8 = [ "stm32-metapac/stm32u073m8" ]
+stm32u073mb = [ "stm32-metapac/stm32u073mb" ]
+stm32u073mc = [ "stm32-metapac/stm32u073mc" ]
+stm32u073r8 = [ "stm32-metapac/stm32u073r8" ]
+stm32u073rb = [ "stm32-metapac/stm32u073rb" ]
+stm32u073rc = [ "stm32-metapac/stm32u073rc" ]
+stm32u083cc = [ "stm32-metapac/stm32u083cc" ]
+stm32u083hc = [ "stm32-metapac/stm32u083hc" ]
+stm32u083kc = [ "stm32-metapac/stm32u083kc" ]
+stm32u083mc = [ "stm32-metapac/stm32u083mc" ]
+stm32u083rc = [ "stm32-metapac/stm32u083rc" ]
 stm32u535cb = [ "stm32-metapac/stm32u535cb" ]
 stm32u535cc = [ "stm32-metapac/stm32u535cc" ]
 stm32u535ce = [ "stm32-metapac/stm32u535ce" ]
@@ -1474,6 +1510,7 @@ stm32u599vj = [ "stm32-metapac/stm32u599vj" ]
 stm32u599zi = [ "stm32-metapac/stm32u599zi" ]
 stm32u599zj = [ "stm32-metapac/stm32u599zj" ]
 stm32u5a5aj = [ "stm32-metapac/stm32u5a5aj" ]
+stm32u5a5qi = [ "stm32-metapac/stm32u5a5qi" ]
 stm32u5a5qj = [ "stm32-metapac/stm32u5a5qj" ]
 stm32u5a5rj = [ "stm32-metapac/stm32u5a5rj" ]
 stm32u5a5vj = [ "stm32-metapac/stm32u5a5vj" ]

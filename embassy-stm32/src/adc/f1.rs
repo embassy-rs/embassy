@@ -3,8 +3,8 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::time::Hertz;
 use crate::{interrupt, Peripheral};
@@ -48,14 +48,14 @@ impl<T: Instance> super::SealedAdcPin<T> for Temperature {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
 
         // 11.4: Before starting a calibration, the ADC must have been in power-on state (ADON bit = ‘1’)
-        // for at least two ADC clock cycles
-        delay.delay_us((1_000_000 * 2) / Self::freq().0 + 1);
+        // for at least two ADC clock cycles.
+        blocking_delay_us((1_000_000 * 2) / Self::freq().0 + 1);
 
         // Reset calibration
         T::regs().cr2().modify(|reg| reg.set_rstcal(true));
@@ -70,7 +70,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         // One cycle after calibration
-        delay.delay_us((1_000_000) / Self::freq().0 + 1);
+        blocking_delay_us((1_000_000 * 1) / Self::freq().0 + 1);
 
         Self {
             adc,
@@ -95,7 +95,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self, _delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vref(&self) -> Vref {
         T::regs().cr2().modify(|reg| {
             reg.set_tsvrefe(true);
         });

@@ -9,10 +9,16 @@ use core::task::{Context, Poll};
 /// hold, while still allowing other tasks to run concurrently (not monopolizing
 /// the executor thread).
 ///
-/// ```rust,no_run
+/// ```rust
+/// # use embassy_futures::{block_on, yield_now};
+/// # async fn test_fn() {
+/// # let mut iter_count: u32 = 0;
+/// # let mut some_condition = || { iter_count += 1; iter_count > 10 };
 /// while !some_condition() {
 ///     yield_now().await;
 /// }
+/// # }
+/// # block_on(test_fn());
 /// ```
 ///
 /// The downside is this will spin in a busy loop, using 100% of the CPU, while

@@ -10,8 +10,9 @@
 #[cfg_attr(adc_v1, path = "v1.rs")]
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
-#[cfg_attr(any(adc_v3, adc_g0, adc_h5), path = "v3.rs")]
+#[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_u0), path = "v3.rs")]
 #[cfg_attr(adc_v4, path = "v4.rs")]
+#[cfg_attr(adc_g4, path = "g4.rs")]
 mod _version;
 
 #[allow(unused)]
@@ -69,14 +70,54 @@ trait SealedInternalChannel<T> {
     fn channel(&self) -> u8;
 }
 
+/// Performs a busy-wait delay for a specified number of microseconds.
+#[allow(unused)]
+pub(crate) fn blocking_delay_us(us: u32) {
+    #[cfg(time)]
+    embassy_time::block_for(embassy_time::Duration::from_micros(us));
+    #[cfg(not(time))]
+    {
+        let freq = unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 as u64;
+        let us = us as u64;
+        let cycles = freq * us / 1_000_000;
+        cortex_m::asm::delay(cycles as u32);
+    }
+}
+
 /// ADC instance.
-#[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0, adc_h5)))]
+#[cfg(not(any(
+    adc_f1,
+    adc_v1,
+    adc_l0,
+    adc_v2,
+    adc_v3,
+    adc_v4,
+    adc_g4,
+    adc_f3,
+    adc_f3_v1_1,
+    adc_g0,
+    adc_u0,
+    adc_h5
+)))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::Peripheral<P = Self> {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 /// ADC instance.
-#[cfg(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0, adc_h5))]
+#[cfg(any(
+    adc_f1,
+    adc_v1,
+    adc_l0,
+    adc_v2,
+    adc_v3,
+    adc_v4,
+    adc_g4,
+    adc_f3,
+    adc_f3_v1_1,
+    adc_g0,
+    adc_u0,
+    adc_h5
+))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {
     type Interrupt: crate::interrupt::typelevel::Interrupt;

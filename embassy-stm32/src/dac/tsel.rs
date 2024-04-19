@@ -235,6 +235,23 @@ pub enum TriggerSel {
     Exti9 = 13,
 }
 
+/// Trigger selection for U0.
+#[cfg(stm32u0)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TriggerSel {
+    Software = 0,
+    Tim1 = 1,
+    Tim2 = 2,
+    Tim3 = 3,
+    Tim6 = 5,
+    Tim7 = 6,
+    Tim15 = 8,
+    Lptim1 = 11,
+    Lptim2 = 12,
+    Exti9 = 14,
+}
+
 /// Trigger selection for G4.
 #[cfg(stm32g4)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
