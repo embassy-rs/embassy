@@ -16,6 +16,7 @@ The `embassy::time::Timer` type provides two timing methods.
 
 An example of a delay is provided as follows:
 
+TIP: The depenencies you need to run this example link:/book/dev/basic_application.html#_the_cargo_toml[can be found here].
 [,rust]
 ----
 use embassy::executor::{task, Executor};
@@ -40,6 +41,7 @@ that expect a generic delay implementation to be provided.
 
 An example of how this can be used:
 
+TIP: The depenencies you need to run this example link:/book/dev/basic_application.html#_the_cargo_toml[can be found here].
 [,rust]
 ----
 use embassy::executor::{task, Executor};
