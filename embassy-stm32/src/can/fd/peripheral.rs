@@ -368,6 +368,7 @@ impl Registers {
             w.set_rfne(0, true); // Rx Fifo 0 New Msg
             w.set_rfne(1, true); // Rx Fifo 1 New Msg
             w.set_tce(true); //  Tx Complete
+            w.set_boe(true); // Bus-Off Status Changed
         });
         self.regs.ile().modify(|w| {
             w.set_eint0(true); // Interrupt Line 0

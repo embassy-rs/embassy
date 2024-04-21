@@ -23,7 +23,7 @@ fn common_init<T: Instance>() {
         )
     }
 
-    #[cfg(any(stm32l4, stm32l5, stm32wb))]
+    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32u0))]
     critical_section::with(|_| crate::pac::PWR.cr2().modify(|w| w.set_usv(true)));
 
     #[cfg(pwr_h5)]
