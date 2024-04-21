@@ -281,10 +281,10 @@ pub struct Config {
     /// Enable VBUS detection.
     ///
     /// The USB spec requires USB devices monitor for USB cable plug/unplug and react accordingly.
-    /// This is done by checkihg whether there is 5V on the VBUS pin or not.
+    /// This is done by checking whether there is 5V on the VBUS pin or not.
     ///
     /// If your device is bus-powered (powers itself from the USB host via VBUS), then this is optional.
-    /// (if there's no power in VBUS your device would be off anyway, so it's fine to always assume
+    /// (If there's no power in VBUS your device would be off anyway, so it's fine to always assume
     /// there's power in VBUS, i.e. the USB cable is always plugged in.)
     ///
     /// If your device is self-powered (i.e. it gets power from a source other than the USB cable, and
