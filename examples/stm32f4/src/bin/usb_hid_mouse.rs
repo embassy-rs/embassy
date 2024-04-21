@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
 
     // Enable vbus_detection
     // Note: some boards don't have this wired up and might not require it,
-    // as they are powered through usb! 
+    // as they are powered through usb!
     // If you hang on boot, try setting this to "false"!
     // See https://embassy.dev/book/dev/faq.html#_the_usb_examples_are_not_working_on_my_board_is_there_anything_else_i_need_to_configure
     // for more information
