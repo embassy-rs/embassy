@@ -417,6 +417,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         self.builder.config_descriptor.write(descriptor_type, descriptor);
     }
 
+    /// Add a custom Binary Object Store (BOS) descriptor to this alternate setting.
+    pub fn bos_capability(&mut self, capability_type: u8, capability: &[u8]) {
+        self.builder.bos_descriptor.capability(capability_type, capability);
+    }
+
     fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
         let ep = self
             .builder
