@@ -31,7 +31,7 @@ pub struct PwmPio<'d, T: Instance, const SM: usize> {
 }
 
 impl<'d, T: Instance, const SM: usize> PwmPio<'d, T, SM> {
-    pub fn attach(pio: &mut Common<'d, T>, mut sm: StateMachine<'d, T, SM>, pin: impl PioPin) -> Self {
+    pub fn new(pio: &mut Common<'d, T>, mut sm: StateMachine<'d, T, SM>, pin: impl PioPin) -> Self {
         let prg = pio_proc::pio_asm!(
             ".side_set 1 opt"
                 "pull noblock    side 0"
@@ -190,7 +190,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
 
-    let pwm_pio = PwmPio::attach(&mut common, sm0, p.PIN_1);
+    let pwm_pio = PwmPio::new(&mut common, sm0, p.PIN_1);
     let mut servo = ServoBuilder::new(pwm_pio)
         .set_max_degree_rotation(120) // Example of adjusting values for MG996R servo
         .set_min_pulse_width(Duration::from_micros(350)) // This value was detemined by a rough experiment.

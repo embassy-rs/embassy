@@ -28,7 +28,7 @@ pub struct PwmPio<'d, T: Instance, const SM: usize> {
 }
 
 impl<'d, T: Instance, const SM: usize> PwmPio<'d, T, SM> {
-    pub fn attach(pio: &mut Common<'d, T>, mut sm: StateMachine<'d, T, SM>, pin: impl PioPin) -> Self {
+    pub fn new(pio: &mut Common<'d, T>, mut sm: StateMachine<'d, T, SM>, pin: impl PioPin) -> Self {
         let prg = pio_proc::pio_asm!(
             ".side_set 1 opt"
                 "pull noblock    side 0"
@@ -105,7 +105,7 @@ async fn main(_spawner: Spawner) {
     let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
 
     // Note that PIN_25 is the led pin on the Pico
-    let mut pwm_pio = PwmPio::attach(&mut common, sm0, p.PIN_25);
+    let mut pwm_pio = PwmPio::new(&mut common, sm0, p.PIN_25);
     pwm_pio.set_period(Duration::from_micros(REFRESH_INTERVAL));
     pwm_pio.start();
 
