@@ -5,12 +5,13 @@
 /// Enums defined for peripheral parameters
 pub mod enums;
 
-use crate::gpio::{low_level::AFType, AnyPin, Pull};
-use crate::{pac::tsc::Tsc as Regs, rcc::RccPeripheral};
+pub use enums::*;
+
+use crate::gpio::{AFType, AnyPin, Pull};
+use crate::pac::tsc::Tsc as Regs;
+use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 use embassy_hal_internal::{into_ref, PeripheralRef};
-
-pub use enums::*;
 
 const TSC_NUM_GROUPS: u32 = 8;
 
@@ -68,7 +69,9 @@ pub enum Group {
     Four,
     Five,
     Six,
+    #[cfg(any(tsc_v2, tsc_v3))]
     Seven,
+    #[cfg(tsc_v3)]
     Eight,
 }
 
@@ -81,7 +84,9 @@ impl Into<usize> for Group {
             Group::Four => 3,
             Group::Five => 4,
             Group::Six => 5,
+            #[cfg(any(tsc_v2, tsc_v3))]
             Group::Seven => 6,
+            #[cfg(tsc_v3)]
             Group::Eight => 7,
         }
     }
@@ -175,7 +180,9 @@ pub struct Tsc<'d, T: Instance> {
     g4: Option<PinGroup<'d, AnyPin>>,
     g5: Option<PinGroup<'d, AnyPin>>,
     g6: Option<PinGroup<'d, AnyPin>>,
+    #[cfg(any(tsc_v2, tsc_v3))]
     g7: Option<PinGroup<'d, AnyPin>>,
+    #[cfg(tsc_v3)]
     g8: Option<PinGroup<'d, AnyPin>>,
     state: State,
     config: Config,
@@ -310,7 +317,20 @@ impl<'d, T: Instance> Tsc<'d, T> {
         };
 
         // Need to check valid pin configuration input
-        Self::new_inner(peri, Some(g1), Some(g2), None, Some(g4), None, None, None, None, config)
+        Self::new_inner(
+            peri,
+            Some(g1),
+            Some(g2),
+            None,
+            Some(g4),
+            None,
+            None,
+            #[cfg(any(tsc_v2, tsc_v3))]
+            None,
+            #[cfg(tsc_v3)]
+            None,
+            config,
+        )
     }
 
     // fn configure_pin<'b, G: Pin>(pin: PeripheralRef<'b, G>, role: PinType) {
@@ -340,8 +360,8 @@ impl<'d, T: Instance> Tsc<'d, T> {
         g4: Option<PinGroup<'d, AnyPin>>,
         g5: Option<PinGroup<'d, AnyPin>>,
         g6: Option<PinGroup<'d, AnyPin>>,
-        g7: Option<PinGroup<'d, AnyPin>>,
-        g8: Option<PinGroup<'d, AnyPin>>,
+        #[cfg(any(tsc_v2, tsc_v3))] g7: Option<PinGroup<'d, AnyPin>>,
+        #[cfg(tsc_v3)] g8: Option<PinGroup<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         into_ref!(peri);
@@ -411,7 +431,9 @@ impl<'d, T: Instance> Tsc<'d, T> {
             g4,
             g5,
             g6,
+            #[cfg(any(tsc_v2, tsc_v3))]
             g7,
+            #[cfg(tsc_v3)]
             g8,
             state: State::Ready,
             config,
@@ -548,7 +570,9 @@ impl<'d, T: Instance> Tsc<'d, T> {
             Group::Four => T::REGS.iogcsr().read().g4s(),
             Group::Five => T::REGS.iogcsr().read().g5s(),
             Group::Six => T::REGS.iogcsr().read().g6s(),
+            #[cfg(any(tsc_v2, tsc_v3))]
             Group::Seven => T::REGS.iogcsr().read().g7s(),
+            #[cfg(tsc_v3)]
             Group::Eight => T::REGS.iogcsr().read().g8s(),
         };
         match status {

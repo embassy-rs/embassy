@@ -27,13 +27,21 @@ pub enum TscIOPin {
     Group6Io2,
     Group6Io3,
     Group6Io4,
+    #[cfg(any(tsc_v2, tsc_v3))]
     Group7Io1,
+    #[cfg(any(tsc_v2, tsc_v3))]
     Group7Io2,
+    #[cfg(any(tsc_v2, tsc_v3))]
     Group7Io3,
+    #[cfg(any(tsc_v2, tsc_v3))]
     Group7Io4,
+    #[cfg(tsc_v3)]
     Group8Io1,
+    #[cfg(tsc_v3)]
     Group8Io2,
+    #[cfg(tsc_v3)]
     Group8Io3,
+    #[cfg(tsc_v3)]
     Group8Io4,
 }
 
@@ -78,13 +86,21 @@ impl Into<u32> for TscIOPin {
             TscIOPin::Group6Io2 => 0x00200000,
             TscIOPin::Group6Io3 => 0x00400000,
             TscIOPin::Group6Io4 => 0x00800000,
+            #[cfg(any(tsc_v2, tsc_v3))]
             TscIOPin::Group7Io1 => 0x01000000,
+            #[cfg(any(tsc_v2, tsc_v3))]
             TscIOPin::Group7Io2 => 0x02000000,
+            #[cfg(any(tsc_v2, tsc_v3))]
             TscIOPin::Group7Io3 => 0x04000000,
+            #[cfg(any(tsc_v2, tsc_v3))]
             TscIOPin::Group7Io4 => 0x08000000,
+            #[cfg(tsc_v3)]
             TscIOPin::Group8Io1 => 0x10000000,
+            #[cfg(tsc_v3)]
             TscIOPin::Group8Io2 => 0x20000000,
+            #[cfg(tsc_v3)]
             TscIOPin::Group8Io3 => 0x40000000,
+            #[cfg(tsc_v3)]
             TscIOPin::Group8Io4 => 0x80000000,
         }
     }
