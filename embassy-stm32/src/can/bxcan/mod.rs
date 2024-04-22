@@ -261,7 +261,7 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     /// Manually wake the peripheral from sleep mode.
-    /// 
+    ///
     /// Waking the peripheral manually does not trigger a wake-up interrupt.
     /// This will wait until the peripheral has acknowledged it has awoken from sleep mode
     pub fn wakeup(&mut self) {
@@ -274,17 +274,17 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     /// Put the peripheral in sleep mode
-    /// 
+    ///
     /// When the peripherial is in sleep mode, messages can still be queued for transmission
     /// and any previously received messages can be read from the receive FIFOs, however
     /// no messages will be transmitted and no additional messages will be received.
-    /// 
+    ///
     /// If the peripheral has automatic wakeup enabled, when a Start-of-Frame is detected
     /// the peripheral will automatically wake and receive the incoming message.
     pub async fn sleep(&mut self) {
         T::regs().ier().modify(|i| i.set_slkie(true));
         T::regs().mcr().modify(|m| m.set_sleep(true));
-        
+
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
             if self.is_sleeping() {
@@ -292,7 +292,8 @@ impl<'d, T: Instance> Can<'d, T> {
             } else {
                 Poll::Pending
             }
-        }).await;
+        })
+        .await;
 
         T::regs().ier().modify(|i| i.set_slkie(false));
     }
