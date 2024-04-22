@@ -168,6 +168,21 @@ fn main() {
     // ========
     // Handle time-driver-XXXX features.
 
+    println!("cargo:rerun-if-env-changed=EMBASSY_STM32_TIME_DRIVER_MIN_STOP_PAUSE_MS");
+
+    let min_stop_pause_ms = env::var("EMBASSY_STM32_TIME_DRIVER_MIN_STOP_PAUSE_MS")
+        .map(|s| {
+            s.parse()
+                .expect("could not parse EMBASSY_STM32_TIME_DRIVER_MIN_STOP_PAUSE_MS as u64")
+        })
+        .unwrap_or(256_u64);
+
+    let mut g = TokenStream::new();
+
+    g.extend(quote! {
+        pub const MIN_STOP_PAUSE_MS: u64 = #min_stop_pause_ms;
+    });
+
     let time_driver = match env::vars()
         .map(|(a, _)| a)
         .filter(|x| x.starts_with("CARGO_FEATURE_TIME_DRIVER_"))
@@ -221,8 +236,6 @@ fn main() {
 
     // ========
     // Write singletons
-
-    let mut g = TokenStream::new();
 
     let singleton_tokens: Vec<_> = singletons.iter().map(|s| format_ident!("{}", s)).collect();
 

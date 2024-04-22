@@ -468,7 +468,8 @@ impl RtcDriver {
 
     #[cfg(feature = "low-power")]
     /// The minimum pause time beyond which the executor will enter a low-power state.
-    pub(crate) const MIN_STOP_PAUSE: embassy_time::Duration = embassy_time::Duration::from_millis(250);
+    pub(crate) const MIN_STOP_PAUSE: embassy_time::Duration =
+        embassy_time::Duration::from_millis(crate::_generated::MIN_STOP_PAUSE_MS);
 
     #[cfg(feature = "low-power")]
     /// Pause the timer if ready; return err if not
