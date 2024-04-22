@@ -152,6 +152,13 @@ where
         self.channel.receive()
     }
 
+    /// Is a value ready to be received in the channel
+    ///
+    /// See [`Channel::ready_to_receive()`].
+    pub fn ready_to_receive(&self) -> ReceiveReadyFuture<'_, M, T, N> {
+        self.channel.ready_to_receive()
+    }
+
     /// Attempt to immediately receive the next value.
     ///
     /// See [`Channel::try_receive()`]
@@ -243,6 +250,26 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
         self.channel.poll_receive(cx)
+    }
+}
+
+/// Future returned by [`Channel::ready_to_receive`] and  [`Receiver::ready_to_receive`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct ReceiveReadyFuture<'ch, M, T, const N: usize>
+where
+    M: RawMutex,
+{
+    channel: &'ch Channel<M, T, N>,
+}
+
+impl<'ch, M, T, const N: usize> Future for ReceiveReadyFuture<'ch, M, T, N>
+where
+    M: RawMutex,
+{
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.channel.poll_ready_to_receive(cx)
     }
 }
 
@@ -575,6 +602,14 @@ where
     /// wait until a message is sent.
     pub fn receive(&self) -> ReceiveFuture<'_, M, T, N> {
         ReceiveFuture { channel: self }
+    }
+
+    /// Is a value ready to be received in the channel
+    ///
+    /// If there are no messages in the channel's buffer, this method will
+    /// wait until there is at least one
+    pub fn ready_to_receive(&self) -> ReceiveReadyFuture<'_, M, T, N> {
+        ReceiveReadyFuture { channel: self }
     }
 
     /// Attempt to immediately receive a message.
