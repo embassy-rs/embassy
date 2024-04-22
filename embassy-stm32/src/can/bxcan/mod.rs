@@ -67,12 +67,23 @@ pub struct SceInterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterruptHandler<T> {
     unsafe fn on_interrupt() {
-        // info!("sce irq");
+        info!("sce irq");
         let msr = T::regs().msr();
         let msr_val = msr.read();
 
-        if msr_val.erri() {
-            msr.modify(|v| v.set_erri(true));
+        if msr_val.slaki() {
+            msr.modify(|m| m.set_slaki(true));
+            T::state().err_waker.wake();
+        } else if msr_val.erri() {
+            info!("Error interrupt");
+            // Disable the interrupt, but don't acknowledge the error, so that it can be
+            // forwarded off the the bus message consumer. If we don't provide some way for
+            // downstream code to determine that it has already provided this bus error instance
+            // to the bus message consumer, we are doomed to re-provide a single error instance for
+            // an indefinite amount of time.
+            let ier = T::regs().ier();
+            ier.modify(|i| i.set_errie(false));
+
             T::state().err_waker.wake();
         }
     }
@@ -180,6 +191,10 @@ impl<'d, T: Instance> Can<'d, T> {
                 w.set_fmpie(0, true);
                 w.set_fmpie(1, true);
                 w.set_tmeie(true);
+                w.set_bofie(true);
+                w.set_epvie(true);
+                w.set_ewgie(true);
+                w.set_lecie(true);
             });
 
             T::regs().mcr().write(|w| {
@@ -237,6 +252,50 @@ impl<'d, T: Instance> Can<'d, T> {
             // Yield to allow other tasks to execute while can bus is initializing.
             embassy_futures::yield_now().await;
         }
+    }
+
+    /// Enables or disables the peripheral from automatically wakeup when a SOF is detected on the bus
+    /// while the peripheral is in sleep mode
+    pub fn set_automatic_wakeup(&mut self, enabled: bool) {
+        Registers(T::regs()).set_automatic_wakeup(enabled);
+    }
+
+    /// Manually wake the peripheral from sleep mode.
+    ///
+    /// Waking the peripheral manually does not trigger a wake-up interrupt.
+    /// This will wait until the peripheral has acknowledged it has awoken from sleep mode
+    pub fn wakeup(&mut self) {
+        Registers(T::regs()).wakeup()
+    }
+
+    /// Check if the peripheral is currently in sleep mode
+    pub fn is_sleeping(&self) -> bool {
+        T::regs().msr().read().slak()
+    }
+
+    /// Put the peripheral in sleep mode
+    ///
+    /// When the peripherial is in sleep mode, messages can still be queued for transmission
+    /// and any previously received messages can be read from the receive FIFOs, however
+    /// no messages will be transmitted and no additional messages will be received.
+    ///
+    /// If the peripheral has automatic wakeup enabled, when a Start-of-Frame is detected
+    /// the peripheral will automatically wake and receive the incoming message.
+    pub async fn sleep(&mut self) {
+        T::regs().ier().modify(|i| i.set_slkie(true));
+        T::regs().mcr().modify(|m| m.set_sleep(true));
+
+        poll_fn(|cx| {
+            T::state().err_waker.register(cx.waker());
+            if self.is_sleeping() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        T::regs().ier().modify(|i| i.set_slkie(false));
     }
 
     /// Queues the message to be sent.
