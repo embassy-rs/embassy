@@ -8,7 +8,7 @@ The following examples shows different ways to use the on-board LED on a Raspber
 
 Using mutual exclusion is the simplest way to share a peripheral.
 
-TIP: The depenencies you need to run this example link:/book/dev/basic_application.html#_the_cargo_toml[can be found here].
+TIP: Dependencies needed to run this example link:/book/dev/basic_application.html#_the_cargo_toml[can be found here].
 [,rust]
 ----
 use defmt::*;
@@ -78,7 +78,7 @@ To indicate that the pin will be set to an Output. The `AnyPin` could have been 
 
 A channel is another way to ensure exclusive access to a resource. Using a channel is great in the cases where the access can happen at a later point in time, allowing you to enqueue operations and do other things.
 
-TIP: The depenencies you need to run this example link:/book/dev/basic_application.html#_the_cargo_toml[can be found here].
+TIP: Dependencies needed to run this example link:/book/dev/basic_application.html#_the_cargo_toml[can be found here].
 [,rust]
 ----
 use defmt::*;
