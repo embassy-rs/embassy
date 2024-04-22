@@ -5,13 +5,13 @@
 /// Enums defined for peripheral parameters
 pub mod enums;
 
+use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use enums::*;
 
 use crate::gpio::{AFType, AnyPin, Pull};
 use crate::pac::tsc::Tsc as Regs;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
-use embassy_hal_internal::{into_ref, PeripheralRef};
 
 const TSC_NUM_GROUPS: u32 = 8;
 
@@ -148,6 +148,7 @@ impl Default for Config {
 
 /// Pin struct that maintains usage
 #[allow(missing_docs)]
+#[allow(dead_code)]
 pub struct TscPin<'d, T> {
     pin: PeripheralRef<'d, T>,
     role: PinType,
@@ -174,16 +175,16 @@ pub struct PinGroup<'d, A> {
 /// TSC driver
 pub struct Tsc<'d, T: Instance> {
     _peri: PeripheralRef<'d, T>,
-    g1: Option<PinGroup<'d, AnyPin>>,
-    g2: Option<PinGroup<'d, AnyPin>>,
-    g3: Option<PinGroup<'d, AnyPin>>,
-    g4: Option<PinGroup<'d, AnyPin>>,
-    g5: Option<PinGroup<'d, AnyPin>>,
-    g6: Option<PinGroup<'d, AnyPin>>,
+    _g1: Option<PinGroup<'d, AnyPin>>,
+    _g2: Option<PinGroup<'d, AnyPin>>,
+    _g3: Option<PinGroup<'d, AnyPin>>,
+    _g4: Option<PinGroup<'d, AnyPin>>,
+    _g5: Option<PinGroup<'d, AnyPin>>,
+    _g6: Option<PinGroup<'d, AnyPin>>,
     #[cfg(any(tsc_v2, tsc_v3))]
-    g7: Option<PinGroup<'d, AnyPin>>,
+    _g7: Option<PinGroup<'d, AnyPin>>,
     #[cfg(tsc_v3)]
-    g8: Option<PinGroup<'d, AnyPin>>,
+    _g8: Option<PinGroup<'d, AnyPin>>,
     state: State,
     config: Config,
 }
@@ -425,16 +426,16 @@ impl<'d, T: Instance> Tsc<'d, T> {
 
         Self {
             _peri: peri,
-            g1,
-            g2,
-            g3,
-            g4,
-            g5,
-            g6,
+            _g1: g1,
+            _g2: g2,
+            _g3: g3,
+            _g4: g4,
+            _g5: g5,
+            _g6: g6,
             #[cfg(any(tsc_v2, tsc_v3))]
-            g7,
+            _g7: g7,
             #[cfg(tsc_v3)]
-            g8,
+            _g8: g8,
             state: State::Ready,
             config,
         }
