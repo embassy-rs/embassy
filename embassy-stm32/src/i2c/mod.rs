@@ -5,6 +5,9 @@
 #[cfg_attr(i2c_v2, path = "v2.rs")]
 mod _version;
 
+pub mod v2slave;
+
+use crate::peripherals;
 use core::future::Future;
 use core::iter;
 use core::marker::PhantomData;
@@ -41,6 +44,45 @@ pub enum Error {
     ZeroLengthTransfer,
 }
 
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Address2Mask {
+    NOMASK,
+    MASK1,
+    MASK2,
+    MASK3,
+    MASK4,
+    MASK5,
+    MASK6,
+    MASK7,
+}
+impl Address2Mask {
+    #[inline(always)]
+    pub const fn to_vals_impl(self) -> i2c::vals::Oamsk {
+        match self {
+            Address2Mask::NOMASK => i2c::vals::Oamsk::NOMASK,
+            Address2Mask::MASK1 => i2c::vals::Oamsk::MASK1,
+            Address2Mask::MASK2 => i2c::vals::Oamsk::MASK2,
+            Address2Mask::MASK3 => i2c::vals::Oamsk::MASK3,
+            Address2Mask::MASK4 => i2c::vals::Oamsk::MASK4,
+            Address2Mask::MASK5 => i2c::vals::Oamsk::MASK5,
+            Address2Mask::MASK6 => i2c::vals::Oamsk::MASK6,
+            Address2Mask::MASK7 => i2c::vals::Oamsk::MASK7,
+        }
+    }
+}
+#[derive(Copy, Clone, Eq, PartialEq)]
+#[repr(usize)]
+pub enum AddressIndex {
+    Address1 = 0,
+    Address2 = 2,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Dir {
+    WRITE,
+    READ,
+}
 /// I2C config
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -55,6 +97,10 @@ pub struct Config {
     /// Using external pullup resistors is recommended for I2C. If you do
     /// have external pullups you should not enable this.
     pub scl_pullup: bool,
+    pub slave_address_1: u16,
+    pub slave_address_2: u8,
+    pub slave_address_mask: Address2Mask,
+    pub address_11bits: bool,
     /// Timeout.
     #[cfg(feature = "time")]
     pub timeout: embassy_time::Duration,
@@ -65,9 +111,34 @@ impl Default for Config {
         Self {
             sda_pullup: false,
             scl_pullup: false,
+            slave_address_1: 0,
+            slave_address_2: 0,
+            slave_address_mask: Address2Mask::NOMASK,
+            address_11bits: false,
             #[cfg(feature = "time")]
             timeout: embassy_time::Duration::from_millis(1000),
         }
+    }
+}
+impl Config {
+    /// Slave address 1 as 7 bit address, in range 0 .. 127
+    pub fn slave_address_7bits(&mut self, address: u8) {
+        // assert!(address < (2 ^ 7));
+        self.slave_address_1 = address as u16;
+        self.address_11bits = false;
+    }
+    /// Slave address 1 as 11 bit address in range 0 .. 2047
+    pub fn slave_address_11bits(&mut self, address: u16) {
+        // assert!(address < (2 ^ 11));
+        self.slave_address_1 = address;
+        self.address_11bits = true;
+    }
+    /// Slave address 2 as 7 bit address in range 0 .. 127.
+    /// The mask makes all slaves within the mask addressable
+    pub fn slave_address_2(&mut self, address: u8, mask: Address2Mask) {
+        // assert!(address < (2 ^ 7));
+        self.slave_address_2 = address;
+        self.slave_address_mask = mask;
     }
 }
 
@@ -96,124 +167,6 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         config: Config,
     ) -> Self {
         Self::new_inner(peri, scl, sda, new_dma!(tx_dma), new_dma!(rx_dma), freq, config)
-    }
-}
-
-impl<'d, T: Instance> I2c<'d, T, Blocking> {
-    /// Create a new blocking I2C driver.
-    pub fn new_blocking(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
-        freq: Hertz,
-        config: Config,
-    ) -> Self {
-        Self::new_inner(peri, scl, sda, None, None, freq, config)
-    }
-}
-
-impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
-    /// Create a new I2C driver.
-    fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
-        tx_dma: Option<ChannelAndRequest<'d>>,
-        rx_dma: Option<ChannelAndRequest<'d>>,
-        freq: Hertz,
-        config: Config,
-    ) -> Self {
-        into_ref!(peri, scl, sda);
-
-        T::enable_and_reset();
-
-        scl.set_as_af_pull(
-            scl.af_num(),
-            AFType::OutputOpenDrain,
-            match config.scl_pullup {
-                true => Pull::Up,
-                false => Pull::None,
-            },
-        );
-        sda.set_as_af_pull(
-            sda.af_num(),
-            AFType::OutputOpenDrain,
-            match config.sda_pullup {
-                true => Pull::Up,
-                false => Pull::None,
-            },
-        );
-
-        unsafe { T::EventInterrupt::enable() };
-        unsafe { T::ErrorInterrupt::enable() };
-
-        let mut this = Self {
-            _peri: peri,
-            tx_dma,
-            rx_dma,
-            #[cfg(feature = "time")]
-            timeout: config.timeout,
-            _phantom: PhantomData,
-        };
-
-        this.init(freq, config);
-
-        this
-    }
-
-    fn timeout(&self) -> Timeout {
-        Timeout {
-            #[cfg(feature = "time")]
-            deadline: Instant::now() + self.timeout,
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-struct Timeout {
-    #[cfg(feature = "time")]
-    deadline: Instant,
-}
-
-#[allow(dead_code)]
-impl Timeout {
-    #[inline]
-    fn check(self) -> Result<(), Error> {
-        #[cfg(feature = "time")]
-        if Instant::now() > self.deadline {
-            return Err(Error::Timeout);
-        }
-
-        Ok(())
-    }
-
-    #[inline]
-    fn with<R>(self, fut: impl Future<Output = Result<R, Error>>) -> impl Future<Output = Result<R, Error>> {
-        #[cfg(feature = "time")]
-        {
-            use futures::FutureExt;
-
-            embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).map(|r| match r {
-                embassy_futures::select::Either::First(_) => Err(Error::Timeout),
-                embassy_futures::select::Either::Second(r) => r,
-            })
-        }
-
-        #[cfg(not(feature = "time"))]
-        fut
-    }
-}
-
-struct State {
-    #[allow(unused)]
-    waker: AtomicWaker,
-}
-
-impl State {
-    const fn new() -> Self {
-        Self {
-            waker: AtomicWaker::new(),
-        }
     }
 }
 
@@ -258,9 +211,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::ErrorInterrupt> for ErrorInte
     }
 }
 
-foreach_peripheral!(
-    (i2c, $inst:ident) => {
-        impl SealedInstance for peripherals::$inst {
+foreach_interrupt!(
+    ($inst:ident, i2c, $block:ident, EV, $irq:ident) => {
+        impl sealed::Instance for peripherals::$inst {
             fn regs() -> crate::pac::i2c::I2c {
                 crate::pac::$inst
             }
