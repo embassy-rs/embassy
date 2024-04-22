@@ -1,0 +1,85 @@
+= Project Structure
+
+There are many ways to configure embassy and its components for your exact application. The link:https://github.com/embassy-rs/embassy/tree/main/examples[examples] directory for each chipset demonstrates how your project structure should look. Let's break it down:
+
+The toplevel file structure of your project should look like this:
+[source,plain]
+----
+{} = Maybe
+
+my-project
+|- .cargo
+|  |- config.toml
+|- src
+|  |- main.rs
+|- build.rs
+|- Cargo.toml
+|- {memory.x}
+|- rust-toolchain.toml
+----
+
+== .cargo/config.toml
+
+This directory/file describes what platform you're on, and configures link:https://github.com/probe-rs/probe-rs[probe-rs] to deploy to your device.
+
+Here is a minimal example:
+
+[source,toml]
+----
+[target.thumbv6m-none-eabi] # <-change for your platform
+runner = 'probe-rs run --chip STM32F031K6Tx' # <- change for your chip
+
+[build]
+target = "thumbv6m-none-eabi" # <-change for your platform
+
+[env]
+DEFMT_LOG = "trace" # <- can change to info, warn, or error
+----
+
+== build.rs
+
+This is the build script for your project. It links defmt (what is link:https://defmt.ferrous-systems.com[defmt]?) and the `memory.x` file if needed. This file is pretty specific for each chipset, just copy and paste from the corresponding link:https://github.com/embassy-rs/embassy/tree/main/examples[example].
+
+== Cargo.toml
+
+This is your manifest file, where you can configure all of the embassy components to use the features you need.
+
+==== Features
+===== Time
+- tick-hz-x: Configures the tick rate of `embassy-time`. Higher tick rate means higher precision, and higher CPU wakes.
+- defmt-timestamp-uptime: defmt log entries will display the uptime in seconds.
+
+...more to come
+
+== memory.x
+
+This file outlines the flash/ram usage of your program. It is especially useful when using link:https://github.com/embassy-rs/nrf-softdevice[nrf-softdevice] on an nRF5x.
+
+Here is an example for using S140 with an nRF52840:
+
+[source,x]
+----
+MEMORY
+{
+  /* NOTE 1 K = 1 KiBi = 1024 bytes */
+  /* These values correspond to the NRF52840 with Softdevices S140 7.0.1 */
+  FLASH : ORIGIN = 0x00027000, LENGTH = 868K
+  RAM : ORIGIN = 0x20020000, LENGTH = 128K
+}
+----
+
+== rust-toolchain.toml
+
+This file configures the rust version and configuration to use.
+
+A minimal example:
+
+[source,toml]
+----
+[toolchain]
+channel = "nightly-2023-08-19" # <- as of writing, this is the exact rust version embassy uses
+components = [ "rust-src", "rustfmt" ] # <- optionally add "llvm-tools-preview" for some extra features like "cargo size"
+targets = [
+    "thumbv6m-none-eabi" # <-change for your platform
+]
+----

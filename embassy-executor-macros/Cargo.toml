@@ -1,0 +1,25 @@
+[package]
+name = "embassy-executor-macros"
+version = "0.4.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "macros for creating the entry point and tasks for embassy-executor"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-executor-macros"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
+
+[dependencies]
+syn = { version = "2.0.15", features = ["full", "extra-traits"] }
+quote = "1.0.9"
+darling = "0.20.1"
+proc-macro2 = "1.0.29"
+
+[lib]
+proc-macro = true
+
+[features]
+nightly = []

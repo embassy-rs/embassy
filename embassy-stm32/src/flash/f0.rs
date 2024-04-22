@@ -1,4 +1,3 @@
-use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
@@ -6,11 +5,11 @@ use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-pub const fn is_default_layout() -> bool {
+pub(crate) const fn is_default_layout() -> bool {
     true
 }
 
-pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
+pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
@@ -20,8 +19,8 @@ pub(crate) unsafe fn lock() {
 
 pub(crate) unsafe fn unlock() {
     if pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write(|w| w.set_fkeyr(0x4567_0123));
-        pac::FLASH.keyr().write(|w| w.set_fkeyr(0xCDEF_89AB));
+        pac::FLASH.keyr().write_value(0x4567_0123);
+        pac::FLASH.keyr().write_value(0xCDEF_89AB);
     }
 }
 
@@ -79,7 +78,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
 pub(crate) unsafe fn clear_all_err() {
     // read and write back the same value.
-    // This clears all "write 0 to clear" bits.
+    // This clears all "write 1 to clear" bits.
     pac::FLASH.sr().modify(|_| {});
 }
 

@@ -1,6 +1,6 @@
 use core::future::{poll_fn, Future};
 use core::pin::Pin;
-use core::task::{Context, Poll, Waker};
+use core::task::{Context, Poll};
 
 use futures_util::future::{select, Either};
 use futures_util::stream::FusedStream;
@@ -8,7 +8,7 @@ use futures_util::{pin_mut, Stream};
 
 use crate::{Duration, Instant};
 
-/// Error returned by [`with_timeout`] on timeout.
+/// Error returned by [`with_timeout`] and [`with_deadline`] on timeout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimeoutError;
@@ -19,6 +19,19 @@ pub struct TimeoutError;
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
 pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, TimeoutError> {
     let timeout_fut = Timer::after(timeout);
+    pin_mut!(fut);
+    match select(fut, timeout_fut).await {
+        Either::Left((r, _)) => Ok(r),
+        Either::Right(_) => Err(TimeoutError),
+    }
+}
+
+/// Runs a given future with a deadline time.
+///
+/// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
+/// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+pub async fn with_deadline<F: Future>(at: Instant, fut: F) -> Result<F::Output, TimeoutError> {
+    let timeout_fut = Timer::at(at);
     pin_mut!(fut);
     match select(fut, timeout_fut).await {
         Either::Left((r, _)) => Ok(r),
@@ -47,9 +60,6 @@ impl Timer {
     ///
     /// Example:
     /// ``` no_run
-    /// # #![feature(type_alias_impl_trait)]
-    /// #
-    /// # fn foo() {}
     /// use embassy_time::{Duration, Timer};
     ///
     /// #[embassy_executor::task]
@@ -72,6 +82,15 @@ impl Timer {
     #[inline]
     pub fn after_ticks(ticks: u64) -> Self {
         Self::after(Duration::from_ticks(ticks))
+    }
+
+    /// Expire after the specified number of nanoseconds.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::after(Duration::from_nanos())`.
+    /// For more details, refer to [`Timer::after()`] and [`Duration::from_nanos()`].
+    #[inline]
+    pub fn after_nanos(nanos: u64) -> Self {
+        Self::after(Duration::from_nanos(nanos))
     }
 
     /// Expire after the specified number of microseconds.
@@ -110,7 +129,7 @@ impl Future for Timer {
         if self.yielded_once && self.expires_at <= Instant::now() {
             Poll::Ready(())
         } else {
-            schedule_wake(self.expires_at, cx.waker());
+            embassy_time_queue_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
             self.yielded_once = true;
             Poll::Pending
         }
@@ -123,8 +142,6 @@ impl Future for Timer {
 ///
 /// For instance, consider the following code fragment.
 /// ``` no_run
-/// # #![feature(type_alias_impl_trait)]
-/// #
 /// use embassy_time::{Duration, Timer};
 /// # fn foo() {}
 ///
@@ -143,8 +160,6 @@ impl Future for Timer {
 /// Example using ticker, which will consistently call `foo` once a second.
 ///
 /// ``` no_run
-/// # #![feature(type_alias_impl_trait)]
-/// #
 /// use embassy_time::{Duration, Ticker};
 /// # fn foo(){}
 ///
@@ -175,15 +190,27 @@ impl Ticker {
         self.expires_at = Instant::now() + self.duration;
     }
 
+    /// Reset the ticker at the deadline.
+    /// If the deadline is in the past, the ticker will fire instantly.
+    pub fn reset_at(&mut self, deadline: Instant) {
+        self.expires_at = deadline + self.duration;
+    }
+
+    /// Resets the ticker, after the specified duration has passed.
+    /// If the specified duration is zero, the next tick will be after the duration of the ticker.
+    pub fn reset_after(&mut self, after: Duration) {
+        self.expires_at = Instant::now() + after + self.duration;
+    }
+
     /// Waits for the next tick.
-    pub fn next(&mut self) -> impl Future<Output = ()> + '_ {
+    pub fn next(&mut self) -> impl Future<Output = ()> + Send + Sync + '_ {
         poll_fn(|cx| {
             if self.expires_at <= Instant::now() {
                 let dur = self.duration;
                 self.expires_at += dur;
                 Poll::Ready(())
             } else {
-                schedule_wake(self.expires_at, cx.waker());
+                embassy_time_queue_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
                 Poll::Pending
             }
         })
@@ -200,7 +227,7 @@ impl Stream for Ticker {
             self.expires_at += dur;
             Poll::Ready(Some(()))
         } else {
-            schedule_wake(self.expires_at, cx.waker());
+            embassy_time_queue_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
             Poll::Pending
         }
     }
@@ -211,12 +238,4 @@ impl FusedStream for Ticker {
         // `Ticker` keeps yielding values until dropped, it never terminates.
         false
     }
-}
-
-extern "Rust" {
-    fn _embassy_time_schedule_wake(at: Instant, waker: &Waker);
-}
-
-fn schedule_wake(at: Instant, waker: &Waker) {
-    unsafe { _embassy_time_schedule_wake(at, waker) }
 }

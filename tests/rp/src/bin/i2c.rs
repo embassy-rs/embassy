@@ -1,10 +1,12 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::{assert_eq, info, panic, unwrap};
-use embassy_executor::Executor;
+use embassy_embedded_hal::SetConfig;
+use embassy_executor::{Executor, Spawner};
+use embassy_rp::clocks::{PllConfig, XoscConfig};
+use embassy_rp::config::Config as rpConfig;
 use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::peripherals::{I2C0, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
@@ -14,7 +16,6 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _, panic_probe as _, panic_probe as _};
 
 static mut CORE1_STACK: Stack<1024> = Stack::new();
-static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
 use crate::i2c::AbortReason;
@@ -45,10 +46,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
                         Ok(x) => match x {
                             i2c_slave::ReadStatus::Done => break,
                             i2c_slave::ReadStatus::NeedMoreBytes => count += 1,
-                            i2c_slave::ReadStatus::LeftoverBytes(x) => {
-                                info!("tried to write {} extra bytes", x);
-                                break;
-                            }
+                            i2c_slave::ReadStatus::LeftoverBytes(x) => panic!("tried to write {} extra bytes", x),
                         },
                         Err(e) => match e {
                             embassy_rp::i2c_slave::Error::Abort(AbortReason::Other(n)) => panic!("Other {:b}", n),
@@ -81,7 +79,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
                 _ => panic!("Invalid write length {}", len),
             },
             Ok(i2c_slave::Command::WriteRead(len)) => {
-                info!("device recieved write read: {:x}", buf[..len]);
+                info!("device received write read: {:x}", buf[..len]);
                 match buf[0] {
                     0xC2 => {
                         let resp_buff = [0xD1, 0xD2, 0xD3, 0xD4];
@@ -93,6 +91,8 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
                             resp_buff[i] = i as u8;
                         }
                         dev.respond_to_read(&resp_buff).await.unwrap();
+                        // reset count for next round of tests
+                        count = 0xD0;
                     }
                     x => panic!("Invalid Write Read {:x}", x),
                 }
@@ -105,8 +105,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
     }
 }
 
-#[embassy_executor::task]
-async fn controller_task(mut con: i2c::I2c<'static, I2C0, i2c::Async>) {
+async fn controller_task(con: &mut i2c::I2c<'static, I2C0, i2c::Async>) {
     info!("Device start");
 
     {
@@ -180,33 +179,59 @@ async fn controller_task(mut con: i2c::I2c<'static, I2C0, i2c::Async>) {
         info!("large write_read - OK")
     }
 
-    info!("Test OK");
-    cortex_m::asm::bkpt();
-}
+    #[embassy_executor::main]
+    async fn main(_core0_spawner: Spawner) {
+        let mut config = rpConfig::default();
+        // Configure clk_sys to 48MHz to support 1kHz scl.
+        // In theory it can go lower, but we won't bother to test below 1kHz.
+        config.clocks.xosc = Some(XoscConfig {
+            hz: 12_000_000,
+            delay_multiplier: 128,
+            sys_pll: Some(PllConfig {
+                refdiv: 1,
+                fbdiv: 120,
+                post_div1: 6,
+                post_div2: 5,
+            }),
+            usb_pll: Some(PllConfig {
+                refdiv: 1,
+                fbdiv: 120,
+                post_div1: 6,
+                post_div2: 5,
+            }),
+        });
 
-#[cortex_m_rt::entry]
-fn main() -> ! {
-    let p = embassy_rp::init(Default::default());
-    info!("Hello World!");
+        let p = embassy_rp::init(config);
+        info!("Hello World!");
 
-    let d_sda = p.PIN_19;
-    let d_scl = p.PIN_18;
-    let mut config = i2c_slave::Config::default();
-    config.addr = DEV_ADDR as u16;
-    let device = i2c_slave::I2cSlave::new(p.I2C1, d_sda, d_scl, Irqs, config);
+        let d_sda = p.PIN_19;
+        let d_scl = p.PIN_18;
+        let mut config = i2c_slave::Config::default();
+        config.addr = DEV_ADDR as u16;
+        let device = i2c_slave::I2cSlave::new(p.I2C1, d_sda, d_scl, Irqs, config);
 
-    spawn_core1(p.CORE1, unsafe { &mut CORE1_STACK }, move || {
-        let executor1 = EXECUTOR1.init(Executor::new());
-        executor1.run(|spawner| unwrap!(spawner.spawn(device_task(device))));
-    });
+        spawn_core1(
+            p.CORE1,
+            unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
+            move || {
+                let executor1 = EXECUTOR1.init(Executor::new());
+                executor1.run(|spawner| unwrap!(spawner.spawn(device_task(device))));
+            },
+        );
 
-    let executor0 = EXECUTOR0.init(Executor::new());
+        let c_sda = p.PIN_21;
+        let c_scl = p.PIN_20;
+        let mut controller = i2c::I2c::new_async(p.I2C0, c_sda, c_scl, Irqs, Default::default());
 
-    let c_sda = p.PIN_21;
-    let c_scl = p.PIN_20;
-    let mut config = i2c::Config::default();
-    config.frequency = 5_000;
-    let controller = i2c::I2c::new_async(p.I2C0, c_sda, c_scl, Irqs, config);
+        for freq in [1000, 100_000, 400_000, 1_000_000] {
+            info!("testing at {}hz", freq);
+            let mut config = i2c::Config::default();
+            config.frequency = freq;
+            controller.set_config(&config).unwrap();
+            controller_task(&mut controller).await;
+        }
 
-    executor0.run(|spawner| unwrap!(spawner.spawn(controller_task(controller))));
+        info!("Test OK");
+        cortex_m::asm::bkpt();
+    }
 }

@@ -2,10 +2,10 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::gpio::Pull;
 use embassy_rp::pwm::{Config, InputMode, Pwm};
 use embassy_time::{Duration, Ticker};
 use {defmt_rtt as _, panic_probe as _};
@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     let cfg: Config = Default::default();
-    let pwm = Pwm::new_input(p.PWM_CH2, p.PIN_5, InputMode::RisingEdge, cfg);
+    let pwm = Pwm::new_input(p.PWM_SLICE2, p.PIN_5, Pull::None, InputMode::RisingEdge, cfg);
 
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {

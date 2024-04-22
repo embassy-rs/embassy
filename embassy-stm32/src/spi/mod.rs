@@ -1,5 +1,7 @@
+//! Serial Peripheral Interface (SPI)
 #![macro_use]
 
+use core::marker::PhantomData;
 use core::ptr;
 
 use embassy_embedded_hal::SetConfig;
@@ -7,35 +9,46 @@ use embassy_futures::join::join;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
-use crate::dma::{slice_ptr_parts, word, Transfer};
-use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::{AnyPin, Pull};
+use crate::dma::{slice_ptr_parts, word, ChannelAndRequest};
+use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{regs, vals, Spi as Regs};
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
+/// SPI error.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Invalid framing.
     Framing,
+    /// CRC error (only if hardware CRC checking is enabled).
     Crc,
+    /// Mode fault
     ModeFault,
+    /// Overrun.
     Overrun,
 }
 
-// TODO move upwards in the tree
+/// SPI bit order
 #[derive(Copy, Clone)]
 pub enum BitOrder {
+    /// Least significant bit first.
     LsbFirst,
+    /// Most significant bit first.
     MsbFirst,
 }
 
+/// SPI configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// SPI mode.
     pub mode: Mode,
+    /// Bit order.
     pub bit_order: BitOrder,
+    /// Clock frequency.
     pub frequency: Hertz,
 }
 
@@ -70,156 +83,37 @@ impl Config {
             BitOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
         }
     }
-}
 
-pub struct Spi<'d, T: Instance, Tx, Rx> {
+    fn sck_pull_mode(&self) -> Pull {
+        match self.mode.polarity {
+            Polarity::IdleLow => Pull::Down,
+            Polarity::IdleHigh => Pull::Up,
+        }
+    }
+}
+/// SPI driver.
+pub struct Spi<'d, T: Instance, M: PeriMode> {
     _peri: PeripheralRef<'d, T>,
     sck: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
     miso: Option<PeripheralRef<'d, AnyPin>>,
-    txdma: PeripheralRef<'d, Tx>,
-    rxdma: PeripheralRef<'d, Rx>,
+    tx_dma: Option<ChannelAndRequest<'d>>,
+    rx_dma: Option<ChannelAndRequest<'d>>,
+    _phantom: PhantomData<M>,
     current_word_size: word_impl::Config,
 }
 
-impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
-    pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        txdma: impl Peripheral<P = Tx> + 'd,
-        rxdma: impl Peripheral<P = Rx> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(peri, sck, mosi, miso);
-
-        let sck_pull_mode = match config.mode.polarity {
-            Polarity::IdleLow => Pull::Down,
-            Polarity::IdleHigh => Pull::Up,
-        };
-
-        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, sck_pull_mode);
-        sck.set_speed(crate::gpio::Speed::VeryHigh);
-        mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
-        mosi.set_speed(crate::gpio::Speed::VeryHigh);
-        miso.set_as_af(miso.af_num(), AFType::Input);
-        miso.set_speed(crate::gpio::Speed::VeryHigh);
-
-        Self::new_inner(
-            peri,
-            Some(sck.map_into()),
-            Some(mosi.map_into()),
-            Some(miso.map_into()),
-            txdma,
-            rxdma,
-            config,
-        )
-    }
-
-    pub fn new_rxonly(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        txdma: impl Peripheral<P = Tx> + 'd, // TODO remove
-        rxdma: impl Peripheral<P = Rx> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(sck, miso);
-        sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
-        sck.set_speed(crate::gpio::Speed::VeryHigh);
-        miso.set_as_af(miso.af_num(), AFType::Input);
-        miso.set_speed(crate::gpio::Speed::VeryHigh);
-
-        Self::new_inner(
-            peri,
-            Some(sck.map_into()),
-            None,
-            Some(miso.map_into()),
-            txdma,
-            rxdma,
-            config,
-        )
-    }
-
-    pub fn new_txonly(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        txdma: impl Peripheral<P = Tx> + 'd,
-        rxdma: impl Peripheral<P = Rx> + 'd, // TODO remove
-        config: Config,
-    ) -> Self {
-        into_ref!(sck, mosi);
-        sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
-        sck.set_speed(crate::gpio::Speed::VeryHigh);
-        mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
-        mosi.set_speed(crate::gpio::Speed::VeryHigh);
-
-        Self::new_inner(
-            peri,
-            Some(sck.map_into()),
-            Some(mosi.map_into()),
-            None,
-            txdma,
-            rxdma,
-            config,
-        )
-    }
-
-    pub fn new_txonly_nosck(
-        peri: impl Peripheral<P = T> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        txdma: impl Peripheral<P = Tx> + 'd,
-        rxdma: impl Peripheral<P = Rx> + 'd, // TODO: remove
-        config: Config,
-    ) -> Self {
-        into_ref!(mosi);
-        mosi.set_as_af_pull(mosi.af_num(), AFType::OutputPushPull, Pull::Down);
-        mosi.set_speed(crate::gpio::Speed::Medium);
-
-        Self::new_inner(peri, None, Some(mosi.map_into()), None, txdma, rxdma, config)
-    }
-
-    #[cfg(stm32wl)]
-    /// Useful for on chip peripherals like SUBGHZ which are hardwired.
-    pub fn new_subghz(
-        peri: impl Peripheral<P = T> + 'd,
-        txdma: impl Peripheral<P = Tx> + 'd,
-        rxdma: impl Peripheral<P = Rx> + 'd,
-    ) -> Self {
-        // see RM0453 rev 1 section 7.2.13 page 291
-        // The SUBGHZSPI_SCK frequency is obtained by PCLK3 divided by two.
-        // The SUBGHZSPI_SCK clock maximum speed must not exceed 16 MHz.
-        let pclk3_freq = <peripherals::SUBGHZSPI as crate::rcc::sealed::RccPeripheral>::frequency().0;
-        let freq = Hertz(core::cmp::min(pclk3_freq / 2, 16_000_000));
-        let mut config = Config::default();
-        config.mode = MODE_0;
-        config.bit_order = BitOrder::MsbFirst;
-        config.frequency = freq;
-        Self::new_inner(peri, None, None, None, txdma, rxdma, config)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn new_internal(
-        peri: impl Peripheral<P = T> + 'd,
-        txdma: impl Peripheral<P = Tx> + 'd,
-        rxdma: impl Peripheral<P = Rx> + 'd,
-        config: Config,
-    ) -> Self {
-        Self::new_inner(peri, None, None, None, txdma, rxdma, config)
-    }
-
+impl<'d, T: Instance, M: PeriMode> Spi<'d, T, M> {
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
         sck: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
-        txdma: impl Peripheral<P = Tx> + 'd,
-        rxdma: impl Peripheral<P = Rx> + 'd,
+        tx_dma: Option<ChannelAndRequest<'d>>,
+        rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
-        into_ref!(peri, txdma, rxdma);
+        into_ref!(peri);
 
         let pclk = T::frequency();
         let freq = config.frequency;
@@ -252,13 +146,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 if mosi.is_none() {
                     w.set_rxonly(vals::Rxonly::OUTPUTDISABLED);
                 }
-                w.set_dff(<u8 as sealed::Word>::CONFIG)
+                w.set_dff(<u8 as SealedWord>::CONFIG)
             });
         }
         #[cfg(spi_v2)]
         {
             T::REGS.cr2().modify(|w| {
-                let (ds, frxth) = <u8 as sealed::Word>::CONFIG;
+                let (ds, frxth) = <u8 as SealedWord>::CONFIG;
                 w.set_frxth(frxth);
                 w.set_ds(ds);
                 w.set_ssoe(false);
@@ -292,13 +186,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_ssom(vals::Ssom::ASSERTED);
                 w.set_midi(0);
                 w.set_mssi(0);
-                w.set_afcntr(vals::Afcntr::CONTROLLED);
+                w.set_afcntr(true);
                 w.set_ssiop(vals::Ssiop::ACTIVEHIGH);
             });
             T::REGS.cfg1().modify(|w| {
                 w.set_crcen(false);
                 w.set_mbr(br);
-                w.set_dsize(<u8 as sealed::Word>::CONFIG);
+                w.set_dsize(<u8 as SealedWord>::CONFIG);
                 w.set_fthlv(vals::Fthlv::ONEFRAME);
             });
             T::REGS.cr2().modify(|w| {
@@ -315,9 +209,10 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             sck,
             mosi,
             miso,
-            txdma,
-            rxdma,
-            current_word_size: <u8 as sealed::Word>::CONFIG,
+            tx_dma,
+            rx_dma,
+            current_word_size: <u8 as SealedWord>::CONFIG,
+            _phantom: PhantomData,
         }
     }
 
@@ -354,6 +249,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
+    /// Get current SPI configuration.
     pub fn get_current_config(&self) -> Config {
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
         let cfg = T::REGS.cr1().read();
@@ -443,10 +339,251 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         self.current_word_size = word_size;
     }
 
-    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-    {
+    /// Blocking write.
+    pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
+        T::REGS.cr1().modify(|w| w.set_spe(true));
+        flush_rx_fifo(T::REGS);
+        self.set_word_size(W::CONFIG);
+        for word in words.iter() {
+            let _ = transfer_word(T::REGS, *word)?;
+        }
+        Ok(())
+    }
+
+    /// Blocking read.
+    pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
+        T::REGS.cr1().modify(|w| w.set_spe(true));
+        flush_rx_fifo(T::REGS);
+        self.set_word_size(W::CONFIG);
+        for word in words.iter_mut() {
+            *word = transfer_word(T::REGS, W::default())?;
+        }
+        Ok(())
+    }
+
+    /// Blocking in-place bidirectional transfer.
+    ///
+    /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
+    pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
+        T::REGS.cr1().modify(|w| w.set_spe(true));
+        flush_rx_fifo(T::REGS);
+        self.set_word_size(W::CONFIG);
+        for word in words.iter_mut() {
+            *word = transfer_word(T::REGS, *word)?;
+        }
+        Ok(())
+    }
+
+    /// Blocking bidirectional transfer.
+    ///
+    /// This transfers both buffers at the same time, so it is NOT equivalent to `write` followed by `read`.
+    ///
+    /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
+    /// If `write` is shorter it is padded with zero bytes.
+    pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
+        T::REGS.cr1().modify(|w| w.set_spe(true));
+        flush_rx_fifo(T::REGS);
+        self.set_word_size(W::CONFIG);
+        let len = read.len().max(write.len());
+        for i in 0..len {
+            let wb = write.get(i).copied().unwrap_or_default();
+            let rb = transfer_word(T::REGS, wb)?;
+            if let Some(r) = read.get_mut(i) {
+                *r = rb;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance> Spi<'d, T, Blocking> {
+    /// Create a new blocking SPI driver.
+    pub fn new_blocking(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
+            new_pin!(mosi, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(miso, AFType::Input, Speed::VeryHigh),
+            None,
+            None,
+            config,
+        )
+    }
+
+    /// Create a new blocking SPI driver, in RX-only mode (only MISO pin, no MOSI).
+    pub fn new_blocking_rxonly(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
+            None,
+            new_pin!(miso, AFType::Input, Speed::VeryHigh),
+            None,
+            None,
+            config,
+        )
+    }
+
+    /// Create a new blocking SPI driver, in TX-only mode (only MOSI pin, no MISO).
+    pub fn new_blocking_txonly(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
+            new_pin!(mosi, AFType::OutputPushPull, Speed::VeryHigh),
+            None,
+            None,
+            None,
+            config,
+        )
+    }
+
+    /// Create a new SPI driver, in TX-only mode, without SCK pin.
+    ///
+    /// This can be useful for bit-banging non-SPI protocols.
+    pub fn new_blocking_txonly_nosck(
+        peri: impl Peripheral<P = T> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            None,
+            new_pin!(mosi, AFType::OutputPushPull, Speed::VeryHigh),
+            None,
+            None,
+            None,
+            config,
+        )
+    }
+}
+
+impl<'d, T: Instance> Spi<'d, T, Async> {
+    /// Create a new SPI driver.
+    pub fn new(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
+            new_pin!(mosi, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(miso, AFType::Input, Speed::VeryHigh),
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+
+    /// Create a new SPI driver, in RX-only mode (only MISO pin, no MOSI).
+    pub fn new_rxonly(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
+            None,
+            new_pin!(miso, AFType::Input, Speed::VeryHigh),
+            None,
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+
+    /// Create a new SPI driver, in TX-only mode (only MOSI pin, no MISO).
+    pub fn new_txonly(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
+            new_pin!(mosi, AFType::OutputPushPull, Speed::VeryHigh),
+            None,
+            new_dma!(tx_dma),
+            None,
+            config,
+        )
+    }
+
+    /// Create a new SPI driver, in TX-only mode, without SCK pin.
+    ///
+    /// This can be useful for bit-banging non-SPI protocols.
+    pub fn new_txonly_nosck(
+        peri: impl Peripheral<P = T> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            None,
+            new_pin!(mosi, AFType::OutputPushPull, Speed::VeryHigh),
+            None,
+            new_dma!(tx_dma),
+            None,
+            config,
+        )
+    }
+
+    #[cfg(stm32wl)]
+    /// Useful for on chip peripherals like SUBGHZ which are hardwired.
+    pub fn new_subghz(
+        peri: impl Peripheral<P = T> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+    ) -> Self {
+        // see RM0453 rev 1 section 7.2.13 page 291
+        // The SUBGHZSPI_SCK frequency is obtained by PCLK3 divided by two.
+        // The SUBGHZSPI_SCK clock maximum speed must not exceed 16 MHz.
+        let pclk3_freq = <peripherals::SUBGHZSPI as crate::rcc::SealedRccPeripheral>::frequency().0;
+        let freq = Hertz(core::cmp::min(pclk3_freq / 2, 16_000_000));
+        let mut config = Config::default();
+        config.mode = MODE_0;
+        config.bit_order = BitOrder::MsbFirst;
+        config.frequency = freq;
+
+        Self::new_inner(peri, None, None, None, new_dma!(tx_dma), new_dma!(rx_dma), config)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn new_internal(
+        peri: impl Peripheral<P = T> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(peri, None, None, None, new_dma!(tx_dma), new_dma!(rx_dma), config)
+    }
+
+    /// SPI write, using DMA.
+    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
         if data.is_empty() {
             return Ok(());
         }
@@ -456,9 +593,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             w.set_spe(false);
         });
 
-        let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
-        let tx_f = unsafe { Transfer::new_write(&mut self.txdma, tx_request, data, tx_dst, Default::default()) };
+        let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
 
         set_txdmaen(T::REGS, true);
         T::REGS.cr1().modify(|w| {
@@ -476,11 +612,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-        Rx: RxDma<T>,
-    {
+    /// SPI read, using DMA.
+    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
         if data.is_empty() {
             return Ok(());
         }
@@ -498,22 +631,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let clock_byte_count = data.len();
 
-        let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
-        let rx_f = unsafe { Transfer::new_read(&mut self.rxdma, rx_request, rx_src, data, Default::default()) };
+        let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read(rx_src, data, Default::default()) };
 
-        let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
         let clock_byte = 0x00u8;
         let tx_f = unsafe {
-            Transfer::new_write_repeated(
-                &mut self.txdma,
-                tx_request,
-                &clock_byte,
-                clock_byte_count,
-                tx_dst,
-                Default::default(),
-            )
+            self.tx_dma
+                .as_mut()
+                .unwrap()
+                .write_repeated(&clock_byte, clock_byte_count, tx_dst, Default::default())
         };
 
         set_txdmaen(T::REGS, true);
@@ -532,11 +659,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    async fn transfer_inner<W: Word>(&mut self, read: *mut [W], write: *const [W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-        Rx: RxDma<T>,
-    {
+    async fn transfer_inner<W: Word>(&mut self, read: *mut [W], write: *const [W]) -> Result<(), Error> {
         let (_, rx_len) = slice_ptr_parts(read);
         let (_, tx_len) = slice_ptr_parts(write);
         assert_eq!(rx_len, tx_len);
@@ -555,13 +678,16 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         set_rxdmaen(T::REGS, true);
 
-        let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
-        let rx_f = unsafe { Transfer::new_read_raw(&mut self.rxdma, rx_request, rx_src, read, Default::default()) };
+        let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read_raw(rx_src, read, Default::default()) };
 
-        let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
-        let tx_f = unsafe { Transfer::new_write_raw(&mut self.txdma, tx_request, write, tx_dst, Default::default()) };
+        let tx_f = unsafe {
+            self.tx_dma
+                .as_mut()
+                .unwrap()
+                .write_raw(write, tx_dst, Default::default())
+        };
 
         set_txdmaen(T::REGS, true);
         T::REGS.cr1().modify(|w| {
@@ -579,69 +705,25 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
-    pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-        Rx: RxDma<T>,
-    {
+    /// Bidirectional transfer, using DMA.
+    ///
+    /// This transfers both buffers at the same time, so it is NOT equivalent to `write` followed by `read`.
+    ///
+    /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
+    /// If `write` is shorter it is padded with zero bytes.
+    pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
         self.transfer_inner(read, write).await
     }
 
-    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-        Rx: RxDma<T>,
-    {
+    /// In-place bidirectional transfer, using DMA.
+    ///
+    /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
+    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
         self.transfer_inner(data, data).await
-    }
-
-    pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
-        T::REGS.cr1().modify(|w| w.set_spe(true));
-        flush_rx_fifo(T::REGS);
-        self.set_word_size(W::CONFIG);
-        for word in words.iter() {
-            let _ = transfer_word(T::REGS, *word)?;
-        }
-        Ok(())
-    }
-
-    pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        T::REGS.cr1().modify(|w| w.set_spe(true));
-        flush_rx_fifo(T::REGS);
-        self.set_word_size(W::CONFIG);
-        for word in words.iter_mut() {
-            *word = transfer_word(T::REGS, W::default())?;
-        }
-        Ok(())
-    }
-
-    pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        T::REGS.cr1().modify(|w| w.set_spe(true));
-        flush_rx_fifo(T::REGS);
-        self.set_word_size(W::CONFIG);
-        for word in words.iter_mut() {
-            *word = transfer_word(T::REGS, *word)?;
-        }
-        Ok(())
-    }
-
-    pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
-        T::REGS.cr1().modify(|w| w.set_spe(true));
-        flush_rx_fifo(T::REGS);
-        self.set_word_size(W::CONFIG);
-        let len = read.len().max(write.len());
-        for i in 0..len {
-            let wb = write.get(i).copied().unwrap_or_default();
-            let rb = transfer_word(T::REGS, wb)?;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
-        }
-        Ok(())
     }
 }
 
-impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
+impl<'d, T: Instance, M: PeriMode> Drop for Spi<'d, T, M> {
     fn drop(&mut self) {
         self.sck.as_ref().map(|x| x.set_as_disconnected());
         self.mosi.as_ref().map(|x| x.set_as_disconnected());
@@ -658,7 +740,7 @@ use vals::Mbr as Br;
 
 fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> Br {
     let val = match clocks.0 / freq.0 {
-        0 => unreachable!(),
+        0 => panic!("You are trying to reach a frequency higher than the clock"),
         1..=2 => 0b000,
         3..=5 => 0b001,
         6..=11 => 0b010,
@@ -694,18 +776,22 @@ trait RegsExt {
 
 impl RegsExt for Regs {
     fn tx_ptr<W>(&self) -> *mut W {
-        #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+        #[cfg(any(spi_v1, spi_f1))]
         let dr = self.dr();
+        #[cfg(spi_v2)]
+        let dr = self.dr16();
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        let dr = self.txdr();
+        let dr = self.txdr32();
         dr.as_ptr() as *mut W
     }
 
     fn rx_ptr<W>(&self) -> *mut W {
-        #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+        #[cfg(any(spi_v1, spi_f1))]
         let dr = self.dr();
+        #[cfg(spi_v2)]
+        let dr = self.dr16();
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        let dr = self.rxdr();
+        let dr = self.rxdr32();
         dr.as_ptr() as *mut W
     }
 }
@@ -774,11 +860,14 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
 fn flush_rx_fifo(regs: Regs) {
     #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
     while regs.sr().read().rxne() {
+        #[cfg(not(spi_v2))]
         let _ = regs.dr().read();
+        #[cfg(spi_v2)]
+        let _ = regs.dr16().read();
     }
     #[cfg(any(spi_v3, spi_v4, spi_v5))]
     while regs.sr().read().rxp() {
-        let _ = regs.rxdr().read();
+        let _ = regs.rxdr32().read();
     }
 }
 
@@ -848,122 +937,106 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     Ok(rx_word)
 }
 
-mod eh02 {
-    use super::*;
+// Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
+// some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
+macro_rules! impl_blocking {
+    ($w:ident) => {
+        impl<'d, T: Instance, M: PeriMode> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, T, M> {
+            type Error = Error;
 
-    // Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
-    // some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
-    macro_rules! impl_blocking {
-        ($w:ident) => {
-            impl<'d, T: Instance, Tx, Rx> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, T, Tx, Rx> {
-                type Error = Error;
-
-                fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
-                    self.blocking_write(words)
-                }
-            }
-
-            impl<'d, T: Instance, Tx, Rx> embedded_hal_02::blocking::spi::Transfer<$w> for Spi<'d, T, Tx, Rx> {
-                type Error = Error;
-
-                fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
-                    self.blocking_transfer_in_place(words)?;
-                    Ok(words)
-                }
-            }
-        };
-    }
-
-    impl_blocking!(u8);
-    impl_blocking!(u16);
-}
-
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
-
-    impl<'d, T: Instance, Tx, Rx> embedded_hal_1::spi::ErrorType for Spi<'d, T, Tx, Rx> {
-        type Error = Error;
-    }
-
-    impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
-
-        fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-            self.blocking_read(words)
-        }
-
-        fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
-            self.blocking_write(words)
-        }
-
-        fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
-            self.blocking_transfer(read, write)
-        }
-
-        fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-            self.blocking_transfer_in_place(words)
-        }
-    }
-
-    impl embedded_hal_1::spi::Error for Error {
-        fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
-            match *self {
-                Self::Framing => embedded_hal_1::spi::ErrorKind::FrameFormat,
-                Self::Crc => embedded_hal_1::spi::ErrorKind::Other,
-                Self::ModeFault => embedded_hal_1::spi::ErrorKind::ModeFault,
-                Self::Overrun => embedded_hal_1::spi::ErrorKind::Overrun,
+            fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
+                self.blocking_write(words)
             }
         }
+
+        impl<'d, T: Instance, M: PeriMode> embedded_hal_02::blocking::spi::Transfer<$w> for Spi<'d, T, M> {
+            type Error = Error;
+
+            fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
+                self.blocking_transfer_in_place(words)?;
+                Ok(words)
+            }
+        }
+    };
+}
+
+impl_blocking!(u8);
+impl_blocking!(u16);
+
+impl<'d, T: Instance, M: PeriMode> embedded_hal_1::spi::ErrorType for Spi<'d, T, M> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance, W: Word, M: PeriMode> embedded_hal_1::spi::SpiBus<W> for Spi<'d, T, M> {
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        self.blocking_read(words)
+    }
+
+    fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
+        self.blocking_write(words)
+    }
+
+    fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
+        self.blocking_transfer(read, write)
+    }
+
+    fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        self.blocking_transfer_in_place(words)
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eha {
-    use super::*;
-
-    impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
-
-        async fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
-            self.write(words).await
-        }
-
-        async fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-            self.read(words).await
-        }
-
-        async fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
-            self.transfer(read, write).await
-        }
-
-        async fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-            self.transfer_in_place(words).await
+impl embedded_hal_1::spi::Error for Error {
+    fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
+        match *self {
+            Self::Framing => embedded_hal_1::spi::ErrorKind::FrameFormat,
+            Self::Crc => embedded_hal_1::spi::ErrorKind::Other,
+            Self::ModeFault => embedded_hal_1::spi::ErrorKind::ModeFault,
+            Self::Overrun => embedded_hal_1::spi::ErrorKind::Overrun,
         }
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        const REGS: Regs;
+impl<'d, T: Instance, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, T, Async> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 
-    pub trait Word {
-        const CONFIG: word_impl::Config;
+    async fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
+        self.write(words).await
+    }
+
+    async fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        self.read(words).await
+    }
+
+    async fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
+        self.transfer(read, write).await
+    }
+
+    async fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        self.transfer_in_place(words).await
     }
 }
 
-pub trait Word: word::Word + sealed::Word {}
+pub(crate) trait SealedInstance {
+    const REGS: Regs;
+}
+
+trait SealedWord {
+    const CONFIG: word_impl::Config;
+}
+
+/// Word sizes usable for SPI.
+#[allow(private_bounds)]
+pub trait Word: word::Word + SealedWord {}
 
 macro_rules! impl_word {
     ($T:ty, $config:expr) => {
-        impl sealed::Word for $T {
+        impl SealedWord for $T {
             const CONFIG: Config = $config;
         }
         impl Word for $T {}
@@ -976,8 +1049,8 @@ mod word_impl {
 
     pub type Config = vals::Dff;
 
-    impl_word!(u8, vals::Dff::EIGHTBIT);
-    impl_word!(u16, vals::Dff::SIXTEENBIT);
+    impl_word!(u8, vals::Dff::BITS8);
+    impl_word!(u16, vals::Dff::BITS16);
 }
 
 #[cfg(spi_v2)]
@@ -986,19 +1059,19 @@ mod word_impl {
 
     pub type Config = (vals::Ds, vals::Frxth);
 
-    impl_word!(word::U4, (vals::Ds::FOURBIT, vals::Frxth::QUARTER));
-    impl_word!(word::U5, (vals::Ds::FIVEBIT, vals::Frxth::QUARTER));
-    impl_word!(word::U6, (vals::Ds::SIXBIT, vals::Frxth::QUARTER));
-    impl_word!(word::U7, (vals::Ds::SEVENBIT, vals::Frxth::QUARTER));
-    impl_word!(u8, (vals::Ds::EIGHTBIT, vals::Frxth::QUARTER));
-    impl_word!(word::U9, (vals::Ds::NINEBIT, vals::Frxth::HALF));
-    impl_word!(word::U10, (vals::Ds::TENBIT, vals::Frxth::HALF));
-    impl_word!(word::U11, (vals::Ds::ELEVENBIT, vals::Frxth::HALF));
-    impl_word!(word::U12, (vals::Ds::TWELVEBIT, vals::Frxth::HALF));
-    impl_word!(word::U13, (vals::Ds::THIRTEENBIT, vals::Frxth::HALF));
-    impl_word!(word::U14, (vals::Ds::FOURTEENBIT, vals::Frxth::HALF));
-    impl_word!(word::U15, (vals::Ds::FIFTEENBIT, vals::Frxth::HALF));
-    impl_word!(u16, (vals::Ds::SIXTEENBIT, vals::Frxth::HALF));
+    impl_word!(word::U4, (vals::Ds::BITS4, vals::Frxth::QUARTER));
+    impl_word!(word::U5, (vals::Ds::BITS5, vals::Frxth::QUARTER));
+    impl_word!(word::U6, (vals::Ds::BITS6, vals::Frxth::QUARTER));
+    impl_word!(word::U7, (vals::Ds::BITS7, vals::Frxth::QUARTER));
+    impl_word!(u8, (vals::Ds::BITS8, vals::Frxth::QUARTER));
+    impl_word!(word::U9, (vals::Ds::BITS9, vals::Frxth::HALF));
+    impl_word!(word::U10, (vals::Ds::BITS10, vals::Frxth::HALF));
+    impl_word!(word::U11, (vals::Ds::BITS11, vals::Frxth::HALF));
+    impl_word!(word::U12, (vals::Ds::BITS12, vals::Frxth::HALF));
+    impl_word!(word::U13, (vals::Ds::BITS13, vals::Frxth::HALF));
+    impl_word!(word::U14, (vals::Ds::BITS14, vals::Frxth::HALF));
+    impl_word!(word::U15, (vals::Ds::BITS15, vals::Frxth::HALF));
+    impl_word!(u16, (vals::Ds::BITS16, vals::Frxth::HALF));
 }
 
 #[cfg(any(spi_v3, spi_v4, spi_v5))]
@@ -1038,7 +1111,10 @@ mod word_impl {
     impl_word!(u32, 32 - 1);
 }
 
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
+/// SPI instance trait.
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+
 pin_trait!(SckPin, Instance);
 pin_trait!(MosiPin, Instance);
 pin_trait!(MisoPin, Instance);
@@ -1051,7 +1127,7 @@ dma_trait!(TxDma, Instance);
 
 foreach_peripheral!(
     (spi, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
         }
 
@@ -1059,7 +1135,7 @@ foreach_peripheral!(
     };
 );
 
-impl<'d, T: Instance, Tx, Rx> SetConfig for Spi<'d, T, Tx, Rx> {
+impl<'d, T: Instance, M: PeriMode> SetConfig for Spi<'d, T, M> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {

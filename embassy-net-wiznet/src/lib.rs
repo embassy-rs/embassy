@@ -1,7 +1,7 @@
 #![no_std]
-#![feature(async_fn_in_trait)]
-#![allow(stable_features, unknown_lints, async_fn_in_trait)]
+#![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 pub mod chip;
 mod device;
@@ -48,6 +48,7 @@ pub struct Runner<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> {
 
 /// You must call this in a background task for the driver to operate.
 impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, INT, RST> {
+    /// Run the driver.
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
         let mut tick = Ticker::every(Duration::from_millis(500));

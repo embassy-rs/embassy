@@ -1,3 +1,4 @@
+//! USB driver.
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
@@ -13,18 +14,19 @@ use embassy_usb_driver::{
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::usb::Usb;
-        fn dpram() -> crate::pac::usb_dpram::UsbDpram;
-    }
+trait SealedInstance {
+    fn regs() -> crate::pac::usb::Usb;
+    fn dpram() -> crate::pac::usb_dpram::UsbDpram;
 }
 
-pub trait Instance: sealed::Instance + 'static {
+/// USB peripheral instance.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + 'static {
+    /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-impl crate::usb::sealed::Instance for peripherals::USB {
+impl crate::usb::SealedInstance for peripherals::USB {
     fn regs() -> pac::usb::Usb {
         pac::USBCTRL_REGS
     }
@@ -96,6 +98,7 @@ impl EndpointData {
     }
 }
 
+/// RP2040 USB driver handle.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_in: [EndpointData; EP_COUNT],
@@ -104,6 +107,7 @@ pub struct Driver<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
+    /// Create a new USB driver.
     pub fn new(_usb: impl Peripheral<P = T> + 'd, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -240,6 +244,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     }
 }
 
+/// USB interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
@@ -342,6 +347,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     }
 }
 
+/// Type representing the RP USB bus.
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_out: [EndpointData; EP_COUNT],
@@ -363,7 +369,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             let siestatus = regs.sie_status().read();
             let intrstatus = regs.intr().read();
 
-            if siestatus.resume() {
+            if siestatus.resume() || intrstatus.dev_resume_from_host() {
                 regs.sie_status().write(|w| w.set_resume(true));
                 return Poll::Ready(Event::Resume);
             }
@@ -458,33 +464,25 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
 trait Dir {
     fn dir() -> Direction;
-    fn waker(i: usize) -> &'static AtomicWaker;
 }
 
+/// Type for In direction.
 pub enum In {}
 impl Dir for In {
     fn dir() -> Direction {
         Direction::In
     }
-
-    #[inline]
-    fn waker(i: usize) -> &'static AtomicWaker {
-        &EP_IN_WAKERS[i]
-    }
 }
 
+/// Type for Out direction.
 pub enum Out {}
 impl Dir for Out {
     fn dir() -> Direction {
         Direction::Out
     }
-
-    #[inline]
-    fn waker(i: usize) -> &'static AtomicWaker {
-        &EP_OUT_WAKERS[i]
-    }
 }
 
+/// Endpoint for RP USB driver.
 pub struct Endpoint<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
@@ -616,6 +614,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     }
 }
 
+/// Control pipe for RP USB driver.
 pub struct ControlPipe<'d, T: Instance> {
     _phantom: PhantomData<&'d mut T>,
     max_packet_size: u16,

@@ -1,16 +1,14 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
-use embassy_nrf::peripherals::P0_13;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _}; // global logger
 
 #[embassy_executor::task]
-async fn blinker(mut led: Output<'static, P0_13>, interval: Duration) {
+async fn blinker(mut led: Output<'static>, interval: Duration) {
     loop {
         led.set_high();
         Timer::after(interval).await;

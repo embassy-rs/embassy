@@ -1,15 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections, try_blocks))]
-#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
+#![allow(async_fn_in_trait)]
 #![warn(missing_docs)]
+#![doc = include_str!("../README.md")]
 
-//! Utilities to use `embedded-hal` traits with Embassy.
-
-#[cfg(feature = "nightly")]
 pub mod adapter;
-
 pub mod flash;
-
 pub mod shared_bus;
 
 /// Set the configuration of a peripheral driver.

@@ -5,11 +5,11 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-embassy-sync = { version = "0.4.0", path = "../../../../embassy-sync" }
-embassy-executor = { version = "0.3.1", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "nightly", "integrated-timers", "arch-cortex-m", "executor-thread"] }
-embassy-time = { version = "0.1.5", path = "../../../../embassy-time", features = ["nightly"] }
-embassy-rp = { version = "0.1.0", path = "../../../../embassy-rp", features = ["time-driver", "unstable-traits", "nightly"] }
-embassy-boot-rp = { version = "0.1.0", path = "../../../../embassy-boot/rp", features = ["nightly"] }
+embassy-sync = { version = "0.5.0", path = "../../../../embassy-sync" }
+embassy-executor = { version = "0.5.0", path = "../../../../embassy-executor", features = ["task-arena-size-16384", "arch-cortex-m", "executor-thread", "integrated-timers", "arch-cortex-m", "executor-thread"] }
+embassy-time = { version = "0.3.0", path = "../../../../embassy-time", features = [] }
+embassy-rp = { version = "0.1.0", path = "../../../../embassy-rp", features = ["time-driver", ] }
+embassy-boot-rp = { version = "0.2.0", path = "../../../../embassy-boot-rp", features = [] }
 embassy-embedded-hal = { version = "0.1.0", path = "../../../../embassy-embedded-hal" }
 
 defmt = "0.3"
@@ -20,7 +20,7 @@ embedded-hal = { version = "0.2.6" }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
-embedded-storage = "0.3.0"
+embedded-storage = "0.3.1"
 
 [features]
 default = ["panic-reset"]

@@ -8,9 +8,7 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
-#![feature(async_fn_in_trait)]
-#![allow(stable_features, unknown_lints, async_fn_in_trait)]
+#![allow(async_fn_in_trait)]
 
 use defmt::{info, panic, trace};
 use embassy_executor::Spawner;
@@ -62,7 +60,6 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
@@ -72,9 +69,9 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut [], // no msos descriptors
         &mut control_buf,
     );
 
@@ -147,7 +144,7 @@ async fn usb_read<'d, T: Instance + 'd>(
         let n = usb_rx.read_packet(&mut buf).await?;
         let data = &buf[..n];
         trace!("USB IN: {:x}", data);
-        uart_pipe_writer.write(data).await;
+        (*uart_pipe_writer).write(data).await;
     }
 }
 
@@ -158,7 +155,7 @@ async fn usb_write<'d, T: Instance + 'd>(
 ) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
-        let n = usb_pipe_reader.read(&mut buf).await;
+        let n = (*usb_pipe_reader).read(&mut buf).await;
         let data = &buf[..n];
         trace!("USB OUT: {:x}", data);
         usb_tx.write_packet(&data).await?;
@@ -178,7 +175,7 @@ async fn uart_read(
         }
         let data = &buf[..n];
         trace!("UART IN: {:x}", buf);
-        usb_pipe_writer.write(data).await;
+        (*usb_pipe_writer).write(data).await;
     }
 }
 
@@ -189,7 +186,7 @@ async fn uart_write(
 ) -> ! {
     let mut buf = [0; 64];
     loop {
-        let n = uart_pipe_reader.read(&mut buf).await;
+        let n = (*uart_pipe_reader).read(&mut buf).await;
         let data = &buf[..n];
         trace!("UART OUT: {:x}", data);
         let _ = uart_tx.write(&data).await;

@@ -1,3 +1,5 @@
+//! Quad Serial Peripheral Interface (QSPI)
+
 #![macro_use]
 
 pub mod enums;
@@ -6,12 +8,12 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::*;
 
 use crate::dma::Transfer;
-use crate::gpio::sealed::AFType;
-use crate::gpio::{AnyPin, Pull};
+use crate::gpio::{AFType, AnyPin, Pull};
 use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
+/// QSPI transfer configuration.
 pub struct TransferConfig {
     /// Instraction width (IMODE)
     pub iwidth: QspiWidth,
@@ -25,8 +27,6 @@ pub struct TransferConfig {
     pub address: Option<u32>,
     /// Number of dummy cycles (DCYC)
     pub dummy: DummyCycles,
-    /// Length of data
-    pub data_len: Option<usize>,
 }
 
 impl Default for TransferConfig {
@@ -38,11 +38,11 @@ impl Default for TransferConfig {
             instruction: 0,
             address: None,
             dummy: DummyCycles::_0,
-            data_len: None,
         }
     }
 }
 
+/// QSPI driver configuration.
 pub struct Config {
     /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
     /// If you need other value the whose predefined use `Other` variant.
@@ -54,7 +54,7 @@ pub struct Config {
     /// Number of bytes to trigger FIFO threshold flag.
     pub fifo_threshold: FIFOThresholdLevel,
     /// Minimum number of cycles that chip select must be high between issued commands
-    pub cs_high_time: ChipSelectHightTime,
+    pub cs_high_time: ChipSelectHighTime,
 }
 
 impl Default for Config {
@@ -64,11 +64,12 @@ impl Default for Config {
             address_size: AddressSize::_24bit,
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
-            cs_high_time: ChipSelectHightTime::_5Cycle,
+            cs_high_time: ChipSelectHighTime::_5Cycle,
         }
     }
 }
 
+/// QSPI driver.
 #[allow(dead_code)]
 pub struct Qspi<'d, T: Instance, Dma> {
     _peri: PeripheralRef<'d, T>,
@@ -83,6 +84,7 @@ pub struct Qspi<'d, T: Instance, Dma> {
 }
 
 impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
+    /// Create a new QSPI driver for bank 1.
     pub fn new_bk1(
         peri: impl Peripheral<P = T> + 'd,
         d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
@@ -119,10 +121,11 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             Some(nss.map_into()),
             dma,
             config,
-            FlashSelection::Flash2,
+            FlashSelection::Flash1,
         )
     }
 
+    /// Create a new QSPI driver for bank 2.
     pub fn new_bk2(
         peri: impl Peripheral<P = T> + 'd,
         d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
@@ -221,66 +224,66 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         }
     }
 
+    /// Do a QSPI command.
     pub fn command(&mut self, transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction);
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
 
         while !T::REGS.sr().read().tcf() {}
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Blocking read data.
     pub fn blocking_read(&mut self, buf: &mut [u8], transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction);
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
-        if let Some(len) = transaction.data_len {
-            let current_ar = T::REGS.ar().read().address();
-            T::REGS.ccr().modify(|v| {
-                v.set_fmode(QspiMode::IndirectRead.into());
-            });
-            T::REGS.ar().write(|v| {
-                v.set_address(current_ar);
-            });
+        let current_ar = T::REGS.ar().read().address();
+        T::REGS.ccr().modify(|v| {
+            v.set_fmode(QspiMode::IndirectRead.into());
+        });
+        T::REGS.ar().write(|v| {
+            v.set_address(current_ar);
+        });
 
-            for idx in 0..len {
-                while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
-                buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
-            }
+        for b in buf {
+            while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
+            *b = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
         }
 
         while !T::REGS.sr().read().tcf() {}
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Blocking write data.
     pub fn blocking_write(&mut self, buf: &[u8], transaction: TransferConfig) {
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
 
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction);
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
-        if let Some(len) = transaction.data_len {
-            T::REGS.ccr().modify(|v| {
-                v.set_fmode(QspiMode::IndirectWrite.into());
-            });
+        T::REGS.ccr().modify(|v| {
+            v.set_fmode(QspiMode::IndirectWrite.into());
+        });
 
-            for idx in 0..len {
-                while !T::REGS.sr().read().ftf() {}
-                unsafe { (T::REGS.dr().as_ptr() as *mut u8).write_volatile(buf[idx]) };
-            }
+        for &b in buf {
+            while !T::REGS.sr().read().ftf() {}
+            unsafe { (T::REGS.dr().as_ptr() as *mut u8).write_volatile(b) };
         }
 
         while !T::REGS.sr().read().tcf() {}
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Blocking read data, using DMA.
     pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig)
     where
         Dma: QuadDma<T>,
     {
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction);
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
         T::REGS.ccr().modify(|v| {
             v.set_fmode(QspiMode::IndirectRead.into());
@@ -308,11 +311,12 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         transfer.blocking_wait();
     }
 
+    /// Blocking write data, using DMA.
     pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig)
     where
         Dma: QuadDma<T>,
     {
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction);
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
         T::REGS.ccr().modify(|v| {
             v.set_fmode(QspiMode::IndirectWrite.into());
@@ -336,7 +340,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         transfer.blocking_wait();
     }
 
-    fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig) {
+    fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
         T::REGS.fcr().modify(|v| {
             v.set_csmf(true);
             v.set_ctcf(true);
@@ -346,7 +350,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
 
         while T::REGS.sr().read().busy() {}
 
-        if let Some(len) = transaction.data_len {
+        if let Some(len) = data_len {
             T::REGS.dlr().write(|v| v.set_dl(len as u32 - 1));
         }
 
@@ -369,15 +373,13 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        const REGS: Regs;
-    }
+trait SealedInstance {
+    const REGS: Regs;
 }
 
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
+/// QSPI instance trait.
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(BK1D0Pin, Instance);
@@ -396,7 +398,7 @@ dma_trait!(QuadDma, Instance);
 
 foreach_peripheral!(
     (quadspi, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
         }
 

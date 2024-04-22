@@ -2,6 +2,7 @@ use core::fmt;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 use super::{GCD_1K, GCD_1M, TICK_HZ};
+use crate::GCD_1G;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -58,6 +59,14 @@ impl Duration {
     pub const fn from_micros(micros: u64) -> Duration {
         Duration {
             ticks: div_ceil(micros * (TICK_HZ / GCD_1M), 1_000_000 / GCD_1M),
+        }
+    }
+
+    /// Creates a duration from the specified number of nanoseconds, rounding up.
+    /// NOTE: Delays this small may be inaccurate.
+    pub const fn from_nanos(micros: u64) -> Duration {
+        Duration {
+            ticks: div_ceil(micros * (TICK_HZ / GCD_1G), 1_000_000_000 / GCD_1G),
         }
     }
 

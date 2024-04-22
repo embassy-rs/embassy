@@ -342,7 +342,7 @@ impl<'a> TcpSocket<'a> {
         self.io.with(|s, _| s.may_send())
     }
 
-    /// return whether the recieve half of the full-duplex connection is open.
+    /// return whether the receive half of the full-duplex connection is open.
     /// This function returns true if it’s possible to receive data from the remote endpoint.
     /// It will return true while there is data in the receive buffer, and if there isn’t,
     /// as long as the remote endpoint has not closed the connection.
@@ -390,6 +390,13 @@ impl<'d> TcpIo<'d> {
             // CAUTION: smoltcp semantics around EOF are different to what you'd expect
             // from posix-like IO, so we have to tweak things here.
             self.with_mut(|s, _| match s.recv_slice(buf) {
+                // Reading into empty buffer
+                Ok(0) if buf.is_empty() => {
+                    // embedded_io_async::Read's contract is to not block if buf is empty. While
+                    // this function is not a direct implementor of the trait method, we still don't
+                    // want our future to never resolve.
+                    Poll::Ready(Ok(0))
+                }
                 // No data ready
                 Ok(0) => {
                     s.register_recv_waker(cx.waker());
@@ -464,7 +471,7 @@ impl<'d> TcpIo<'d> {
                         s.register_recv_waker(cx.waker());
                         Poll::Pending
                     } else {
-                        // if we can't receive because the recieve half of the duplex connection is closed then return an error
+                        // if we can't receive because the receive half of the duplex connection is closed then return an error
                         Poll::Ready(Err(Error::ConnectionReset))
                     }
                 } else {
@@ -484,10 +491,16 @@ impl<'d> TcpIo<'d> {
     async fn flush(&mut self) -> Result<(), Error> {
         poll_fn(move |cx| {
             self.with_mut(|s, _| {
-                let waiting_close = s.state() == tcp::State::Closed && s.remote_endpoint().is_some();
+                let data_pending = s.send_queue() > 0;
+                let fin_pending = matches!(
+                    s.state(),
+                    tcp::State::FinWait1 | tcp::State::Closing | tcp::State::LastAck
+                );
+                let rst_pending = s.state() == tcp::State::Closed && s.remote_endpoint().is_some();
+
                 // If there are outstanding send operations, register for wake up and wait
                 // smoltcp issues wake-ups when octets are dequeued from the send buffer
-                if s.send_queue() > 0 || waiting_close {
+                if data_pending || fin_pending || rst_pending {
                     s.register_send_waker(cx.waker());
                     Poll::Pending
                 // No outstanding sends, socket is flushed
@@ -508,7 +521,6 @@ impl<'d> TcpIo<'d> {
     }
 }
 
-#[cfg(feature = "nightly")]
 mod embedded_io_impls {
     use super::*;
 
@@ -541,6 +553,12 @@ mod embedded_io_impls {
         }
     }
 
+    impl<'d> embedded_io_async::ReadReady for TcpSocket<'d> {
+        fn read_ready(&mut self) -> Result<bool, Self::Error> {
+            Ok(self.io.with(|s, _| s.may_recv()))
+        }
+    }
+
     impl<'d> embedded_io_async::Write for TcpSocket<'d> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.io.write(buf).await
@@ -551,6 +569,12 @@ mod embedded_io_impls {
         }
     }
 
+    impl<'d> embedded_io_async::WriteReady for TcpSocket<'d> {
+        fn write_ready(&mut self) -> Result<bool, Self::Error> {
+            Ok(self.io.with(|s, _| s.may_send()))
+        }
+    }
+
     impl<'d> embedded_io_async::ErrorType for TcpReader<'d> {
         type Error = Error;
     }
@@ -558,6 +582,12 @@ mod embedded_io_impls {
     impl<'d> embedded_io_async::Read for TcpReader<'d> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             self.io.read(buf).await
+        }
+    }
+
+    impl<'d> embedded_io_async::ReadReady for TcpReader<'d> {
+        fn read_ready(&mut self) -> Result<bool, Self::Error> {
+            Ok(self.io.with(|s, _| s.may_recv()))
         }
     }
 
@@ -574,10 +604,15 @@ mod embedded_io_impls {
             self.io.flush().await
         }
     }
+
+    impl<'d> embedded_io_async::WriteReady for TcpWriter<'d> {
+        fn write_ready(&mut self) -> Result<bool, Self::Error> {
+            Ok(self.io.with(|s, _| s.may_send()))
+        }
+    }
 }
 
 /// TCP client compatible with `embedded-nal-async` traits.
-#[cfg(feature = "nightly")]
 pub mod client {
     use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;
@@ -611,10 +646,7 @@ pub mod client {
         async fn connect<'a>(
             &'a self,
             remote: embedded_nal_async::SocketAddr,
-        ) -> Result<Self::Connection<'a>, Self::Error>
-        where
-            Self: 'a,
-        {
+        ) -> Result<Self::Connection<'a>, Self::Error> {
             let addr: crate::IpAddress = match remote.ip() {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),

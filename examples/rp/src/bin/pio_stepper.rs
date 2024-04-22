@@ -3,7 +3,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 use core::mem::{self, MaybeUninit};
 
 use defmt::info;
@@ -70,7 +69,7 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
         let clock_divider: FixedU32<U8> = (125_000_000 / (freq * 136)).to_fixed();
         assert!(clock_divider <= 65536, "clkdiv must be <= 65536");
         assert!(clock_divider >= 1, "clkdiv must be >= 1");
-        T::PIO.sm(SM).clkdiv().write(|w| w.0 = clock_divider.to_bits() << 8);
+        self.sm.set_clock_divider(clock_divider);
         self.sm.clkdiv_restart();
     }
 

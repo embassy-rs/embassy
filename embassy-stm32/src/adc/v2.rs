@@ -1,6 +1,6 @@
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
@@ -11,12 +11,9 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-/// ADC turn-on time
-pub const ADC_POWERUP_TIME_US: u32 = 3;
-
 pub struct VrefInt;
 impl AdcPin<ADC1> for VrefInt {}
-impl super::sealed::AdcPin<ADC1> for VrefInt {
+impl super::SealedAdcPin<ADC1> for VrefInt {
     fn channel(&self) -> u8 {
         17
     }
@@ -31,10 +28,10 @@ impl VrefInt {
 
 pub struct Temperature;
 impl AdcPin<ADC1> for Temperature {}
-impl super::sealed::AdcPin<ADC1> for Temperature {
+impl super::SealedAdcPin<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         cfg_if::cfg_if! {
-            if #[cfg(any(stm32f40, stm32f41))] {
+            if #[cfg(any(stm32f2, stm32f40, stm32f41))] {
                 16
             } else {
                 18
@@ -52,7 +49,7 @@ impl Temperature {
 
 pub struct Vbat;
 impl AdcPin<ADC1> for Vbat {}
-impl super::sealed::AdcPin<ADC1> for Vbat {
+impl super::SealedAdcPin<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
@@ -67,7 +64,11 @@ enum Prescaler {
 
 impl Prescaler {
     fn from_pclk2(freq: Hertz) -> Self {
+        // Datasheet for F2 specifies min frequency 0.6 MHz, and max 30 MHz (with VDDA 2.4-3.6V).
+        #[cfg(stm32f2)]
+        const MAX_FREQUENCY: Hertz = Hertz(30_000_000);
         // Datasheet for both F4 and F7 specifies min frequency 0.6 MHz, typ freq. 30 MHz and max 36 MHz.
+        #[cfg(not(stm32f2))]
         const MAX_FREQUENCY: Hertz = Hertz(36_000_000);
         let raw_div = freq.0 / MAX_FREQUENCY.0;
         match raw_div {
@@ -93,7 +94,7 @@ impl<'d, T> Adc<'d, T>
 where
     T: Instance,
 {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
 
@@ -103,11 +104,11 @@ where
             reg.set_adon(true);
         });
 
-        delay.delay_us(ADC_POWERUP_TIME_US);
+        blocking_delay_us(3);
 
         Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         }
     }
 
@@ -156,7 +157,7 @@ where
     fn convert(&mut self) -> u16 {
         // clear end of conversion flag
         T::regs().sr().modify(|reg| {
-            reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
+            reg.set_eoc(false);
         });
 
         // Start conversion
@@ -164,10 +165,10 @@ where
             reg.set_swstart(true);
         });
 
-        while T::regs().sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
+        while T::regs().sr().read().strt() == false {
             // spin //wait for actual start
         }
-        while T::regs().sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
+        while T::regs().sr().read().eoc() == false {
             // spin //wait for finish
         }
 

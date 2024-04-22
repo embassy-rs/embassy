@@ -2,11 +2,9 @@
 
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
-#[cfg(feature = "nightly")]
 mod asynch;
 mod blocking;
 
-#[cfg(feature = "nightly")]
 pub use asynch::Partition;
 pub use blocking::BlockingPartition;
 

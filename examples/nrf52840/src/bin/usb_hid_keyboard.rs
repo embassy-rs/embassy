@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -9,7 +8,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::select::{select, Either};
-use embassy_nrf::gpio::{Input, Pin, Pull};
+use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
@@ -51,7 +50,6 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut msos_descriptor = [0; 256];
@@ -64,7 +62,6 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut msos_descriptor,
@@ -98,7 +95,7 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    let mut button = Input::new(p.P0_11.degrade(), Pull::Up);
+    let mut button = Input::new(p.P0_11, Pull::Up);
 
     let (reader, mut writer) = hid.split();
 

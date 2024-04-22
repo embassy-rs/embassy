@@ -2,17 +2,11 @@ use core::ops::RangeInclusive;
 
 use crate::pac;
 use crate::pac::pwr::vals::Vos;
-#[cfg(stm32h5)]
-pub use crate::pac::rcc::vals::Adcdacsel as AdcClockSource;
-#[cfg(stm32h7)]
-pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
 pub use crate::pac::rcc::vals::{
-    Ckpersel as PerClockSource, Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
-    Pllsrc as PllSource, Sw as Sysclk,
+    Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
 };
-use crate::pac::rcc::vals::{Ckpersel, Pllrge, Pllvcosel, Timpre};
+use crate::pac::rcc::vals::{Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -20,9 +14,6 @@ pub const HSI_FREQ: Hertz = Hertz(64_000_000);
 
 /// CSI speed
 pub const CSI_FREQ: Hertz = Hertz(4_000_000);
-
-/// HSI48 speed
-pub const HSI48_FREQ: Hertz = Hertz(48_000_000);
 
 const VCO_RANGE: RangeInclusive<Hertz> = Hertz(150_000_000)..=Hertz(420_000_000);
 #[cfg(any(stm32h5, pwr_h7rm0455))]
@@ -73,7 +64,9 @@ pub struct Pll {
     pub mul: PllMul,
 
     /// PLL P division factor. If None, PLL P output is disabled.
-    /// On PLL1, it must be even (in particular, it cannot be 1.)
+    /// On PLL1, it must be even for most series (in particular,
+    /// it cannot be 1 in series other than STM32H723/733,
+    /// STM32H725/735 and STM32H730.)
     pub divp: Option<PllDiv>,
     /// PLL Q division factor. If None, PLL Q output is disabled.
     pub divq: Option<PllDiv>,
@@ -120,13 +113,67 @@ impl From<TimerPrescaler> for Timpre {
     }
 }
 
+/// Power supply configuration
+/// See RM0433 Rev 4 7.4
+#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+#[derive(PartialEq)]
+pub enum SupplyConfig {
+    /// Default power supply configuration.
+    /// V CORE Power Domains are supplied from the LDO according to VOS.
+    /// SMPS step-down converter enabled at 1.2V, may be used to supply the LDO.
+    Default,
+
+    /// Power supply configuration using the LDO.
+    /// V CORE Power Domains are supplied from the LDO according to VOS.
+    /// LDO power mode (Main, LP, Off) will follow system low-power modes.
+    /// SMPS step-down converter disabled.
+    LDO,
+
+    /// Power supply configuration directly from the SMPS step-down converter.
+    /// V CORE Power Domains are supplied from SMPS step-down converter according to VOS.
+    /// LDO bypassed.
+    /// SMPS step-down converter power mode (MR, LP, Off) will follow system low-power modes.
+    DirectSMPS,
+
+    /// Power supply configuration from the SMPS step-down converter, that supplies the LDO.
+    /// V CORE Power Domains are supplied from the LDO according to VOS
+    /// LDO power mode (Main, LP, Off) will follow system low-power modes.
+    /// SMPS step-down converter enabled according to SDLEVEL, and supplies the LDO.
+    /// SMPS step-down converter power mode (MR, LP, Off) will follow system low-power modes.
+    SMPSLDO(SMPSSupplyVoltage),
+
+    /// Power supply configuration from SMPS supplying external circuits and potentially the LDO.
+    /// V CORE Power Domains are supplied from voltage regulator according to VOS
+    /// LDO power mode (Main, LP, Off) will follow system low-power modes.
+    /// SMPS step-down converter enabled according to SDLEVEL used to supply external circuits and may supply the LDO.
+    /// SMPS step-down converter forced ON in MR mode.
+    SMPSExternalLDO(SMPSSupplyVoltage),
+
+    /// Power supply configuration from SMPS supplying external circuits and bypassing the LDO.
+    /// V CORE supplied from external source
+    /// SMPS step-down converter enabled according to SDLEVEL used to supply external circuits and may supply the external source for V CORE .
+    /// SMPS step-down converter forced ON in MR mode.
+    SMPSExternalLDOBypass(SMPSSupplyVoltage),
+
+    /// Power supply configuration from an external source, SMPS disabled and the LDO bypassed.
+    /// V CORE supplied from external source
+    /// SMPS step-down converter disabled and LDO bypassed, voltage monitoring still active.
+    SMPSDisabledLDOBypass,
+}
+
+/// SMPS step-down converter voltage output level.
+/// This is only used in certain power supply configurations:
+/// SMPSLDO, SMPSExternalLDO, SMPSExternalLDOBypass.
+#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+pub use pac::pwr::vals::Sdlevel as SMPSSupplyVoltage;
+
 /// Configuration of the core clocks
 #[non_exhaustive]
 pub struct Config {
     pub hsi: Option<HSIPrescaler>,
     pub hse: Option<Hse>,
     pub csi: bool,
-    pub hsi48: bool,
+    pub hsi48: Option<super::Hsi48Config>,
     pub sys: Sysclk,
 
     pub pll1: Option<Pll>,
@@ -142,11 +189,15 @@ pub struct Config {
     #[cfg(stm32h7)]
     pub apb4_pre: APBPrescaler,
 
-    pub per_clock_source: PerClockSource,
-    pub adc_clock_source: AdcClockSource,
     pub timer_prescaler: TimerPrescaler,
     pub voltage_scale: VoltageScale,
     pub ls: super::LsConfig,
+
+    #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+    pub supply_config: SupplyConfig,
+
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 }
 
 impl Default for Config {
@@ -155,7 +206,7 @@ impl Default for Config {
             hsi: Some(HSIPrescaler::DIV1),
             hse: None,
             csi: false,
-            hsi48: false,
+            hsi48: Some(Default::default()),
             sys: Sysclk::HSI,
             pll1: None,
             pll2: None,
@@ -170,11 +221,14 @@ impl Default for Config {
             #[cfg(stm32h7)]
             apb4_pre: APBPrescaler::DIV1,
 
-            per_clock_source: PerClockSource::HSI,
-            adc_clock_source: AdcClockSource::from_bits(0), // PLL2_P on H7, HCLK on H5
             timer_prescaler: TimerPrescaler::DefaultX2,
             voltage_scale: VoltageScale::Scale0,
             ls: Default::default(),
+
+            #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+            supply_config: SupplyConfig::Default,
+
+            mux: Default::default(),
         }
     }
 }
@@ -193,12 +247,58 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
-    PWR.cr3().modify(|w| {
-        // hardcode "Direct SPMS" for now, this is what works on nucleos with the
-        // default solderbridge configuration.
-        w.set_sden(true);
-        w.set_ldoen(false);
-    });
+    {
+        match config.supply_config {
+            SupplyConfig::Default => {
+                PWR.cr3().modify(|w| {
+                    w.set_sdlevel(SMPSSupplyVoltage::RESET);
+                    w.set_sdexthp(false);
+                    w.set_sden(true);
+                    w.set_ldoen(true);
+                    w.set_bypass(false);
+                });
+            }
+            SupplyConfig::LDO => {
+                PWR.cr3().modify(|w| {
+                    w.set_sden(false);
+                    w.set_ldoen(true);
+                    w.set_bypass(false);
+                });
+            }
+            SupplyConfig::DirectSMPS => {
+                PWR.cr3().modify(|w| {
+                    w.set_sdexthp(false);
+                    w.set_sden(true);
+                    w.set_ldoen(false);
+                    w.set_bypass(false);
+                });
+            }
+            SupplyConfig::SMPSLDO(smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDO(smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDOBypass(smps_supply_voltage) => {
+                PWR.cr3().modify(|w| {
+                    w.set_sdlevel(smps_supply_voltage);
+                    w.set_sdexthp(matches!(
+                        config.supply_config,
+                        SupplyConfig::SMPSExternalLDO(_) | SupplyConfig::SMPSExternalLDOBypass(_)
+                    ));
+                    w.set_sden(true);
+                    w.set_ldoen(matches!(
+                        config.supply_config,
+                        SupplyConfig::SMPSLDO(_) | SupplyConfig::SMPSExternalLDO(_)
+                    ));
+                    w.set_bypass(matches!(config.supply_config, SupplyConfig::SMPSExternalLDOBypass(_)));
+                });
+            }
+            SupplyConfig::SMPSDisabledLDOBypass => {
+                PWR.cr3().modify(|w| {
+                    w.set_sden(false);
+                    w.set_ldoen(false);
+                    w.set_bypass(true);
+                });
+            }
+        }
+    }
 
     // Validate the supply configuration. If you are stuck here, it is
     // because the voltages on your board do not match those specified
@@ -301,14 +401,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     // Configure HSI48.
-    RCC.cr().modify(|w| w.set_hsi48on(config.hsi48));
-    let _hsi48 = match config.hsi48 {
-        false => None,
-        true => {
-            while !RCC.cr().read().hsi48rdy() {}
-            Some(CSI_FREQ)
-        }
-    };
+    let hsi48 = config.hsi48.map(super::init_hsi48);
 
     // Configure CSI.
     RCC.cr().modify(|w| w.set_csion(config.csi));
@@ -360,7 +453,21 @@ pub(crate) unsafe fn init(config: Config) {
         VoltageScale::Scale2 => (Hertz(160_000_000), Hertz(160_000_000), Hertz(80_000_000)),
         VoltageScale::Scale3 => (Hertz(88_000_000), Hertz(88_000_000), Hertz(44_000_000)),
     };
-    #[cfg(all(stm32h7, not(pwr_h7rm0455)))]
+    #[cfg(pwr_h7rm0468)]
+    let (d1cpre_clk_max, hclk_max, pclk_max) = match config.voltage_scale {
+        VoltageScale::Scale0 => {
+            let d1cpre_clk_max = if pac::SYSCFG.ur18().read().cpu_freq_boost() {
+                550_000_000
+            } else {
+                520_000_000
+            };
+            (Hertz(d1cpre_clk_max), Hertz(275_000_000), Hertz(137_500_000))
+        }
+        VoltageScale::Scale1 => (Hertz(400_000_000), Hertz(200_000_000), Hertz(100_000_000)),
+        VoltageScale::Scale2 => (Hertz(300_000_000), Hertz(150_000_000), Hertz(75_000_000)),
+        VoltageScale::Scale3 => (Hertz(170_000_000), Hertz(85_000_000), Hertz(42_500_000)),
+    };
+    #[cfg(all(stm32h7, not(any(pwr_h7rm0455, pwr_h7rm0468))))]
     let (d1cpre_clk_max, hclk_max, pclk_max) = match config.voltage_scale {
         VoltageScale::Scale0 => (Hertz(480_000_000), Hertz(240_000_000), Hertz(120_000_000)),
         VoltageScale::Scale1 => (Hertz(400_000_000), Hertz(200_000_000), Hertz(100_000_000)),
@@ -391,31 +498,6 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32h7)]
     assert!(apb4 <= pclk_max);
 
-    let _per_ck = match config.per_clock_source {
-        Ckpersel::HSI => hsi,
-        Ckpersel::CSI => csi,
-        Ckpersel::HSE => hse,
-        _ => unreachable!(),
-    };
-
-    #[cfg(stm32h7)]
-    let adc = match config.adc_clock_source {
-        AdcClockSource::PLL2_P => pll2.p,
-        AdcClockSource::PLL3_R => pll3.r,
-        AdcClockSource::PER => _per_ck,
-        _ => unreachable!(),
-    };
-    #[cfg(stm32h5)]
-    let adc = match config.adc_clock_source {
-        AdcClockSource::HCLK1 => Some(hclk),
-        AdcClockSource::SYS => Some(sys),
-        AdcClockSource::PLL2_R => pll2.r,
-        AdcClockSource::HSE => hse,
-        AdcClockSource::HSI => hsi,
-        AdcClockSource::CSI => csi,
-        _ => unreachable!(),
-    };
-
     flash_setup(hclk, config.voltage_scale);
 
     let rtc = config.ls.init();
@@ -437,13 +519,6 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.d3cfgr().modify(|w| {
             w.set_d3ppre(config.apb4_pre);
         });
-
-        RCC.d1ccipr().modify(|w| {
-            w.set_ckpersel(config.per_clock_source);
-        });
-        RCC.d3ccipr().modify(|w| {
-            w.set_adcsel(config.adc_clock_source);
-        });
     }
     #[cfg(stm32h5)]
     {
@@ -456,11 +531,6 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_ppre1(config.apb1_pre);
             w.set_ppre2(config.apb2_pre);
             w.set_ppre3(config.apb3_pre);
-        });
-
-        RCC.ccipr5().modify(|w| {
-            w.set_ckpersel(config.per_clock_source);
-            w.set_adcdacsel(config.adc_clock_source)
         });
     }
 
@@ -484,45 +554,35 @@ pub(crate) unsafe fn init(config: Config) {
         while !pac::SYSCFG.cccsr().read().ready() {}
     }
 
-    set_freqs(Clocks {
-        sys,
-        hclk1: hclk,
-        hclk2: hclk,
-        hclk3: hclk,
-        hclk4: hclk,
-        pclk1: apb1,
-        pclk2: apb2,
-        pclk3: apb3,
+    config.mux.init();
+
+    set_clocks!(
+        sys: Some(sys),
+        hclk1: Some(hclk),
+        hclk2: Some(hclk),
+        hclk3: Some(hclk),
+        hclk4: Some(hclk),
+        pclk1: Some(apb1),
+        pclk2: Some(apb2),
+        pclk3: Some(apb3),
         #[cfg(stm32h7)]
-        pclk4: apb4,
-        #[cfg(stm32h5)]
-        pclk4: Hertz(1),
-        pclk1_tim: apb1_tim,
-        pclk2_tim: apb2_tim,
-        adc,
-        rtc,
+        pclk4: Some(apb4),
+        pclk1_tim: Some(apb1_tim),
+        pclk2_tim: Some(apb2_tim),
+        rtc: rtc,
 
-        #[cfg(any(stm32h5, stm32h7))]
-        hsi: None,
-        #[cfg(stm32h5)]
-        hsi48: None,
-        #[cfg(stm32h5)]
-        lsi: None,
-        #[cfg(any(stm32h5, stm32h7))]
-        csi: None,
+        hsi: hsi,
+        hsi48: hsi48,
+        csi: csi,
+        csi_div_122: csi.map(|c| c / 122u32),
+        hse: hse,
 
-        #[cfg(any(stm32h5, stm32h7))]
         lse: None,
-        #[cfg(any(stm32h5, stm32h7))]
-        hse: None,
+        lsi: None,
 
-        #[cfg(any(stm32h5, stm32h7))]
         pll1_q: pll1.q,
-        #[cfg(any(stm32h5, stm32h7))]
         pll2_p: pll2.p,
-        #[cfg(any(stm32h5, stm32h7))]
         pll2_q: pll2.q,
-        #[cfg(any(stm32h5, stm32h7))]
         pll2_r: pll2.r,
         #[cfg(any(rcc_h5, stm32h7))]
         pll3_p: pll3.p,
@@ -540,12 +600,8 @@ pub(crate) unsafe fn init(config: Config) {
 
         #[cfg(stm32h5)]
         audioclk: None,
-        #[cfg(any(stm32h5, stm32h7))]
-        per: None,
-
-        #[cfg(stm32h7)]
-        rcc_pclk_d3: None,
-    });
+        i2s_ckin: None,
+    );
 }
 
 struct PllInput {
@@ -608,14 +664,17 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
         Pllvcosel::WIDEVCO
     } else {
-        panic!("pll vco_clk out of range: {} mhz", vco_clk.0)
+        panic!("pll vco_clk out of range: {} hz", vco_clk.0)
     };
 
     let p = config.divp.map(|div| {
         if num == 0 {
-            // on PLL1, DIVP must be even.
+            // on PLL1, DIVP must be even for most series.
             // The enum value is 1 less than the divider, so check it's odd.
+            #[cfg(not(pwr_h7rm0468))]
             assert!(div.to_bits() % 2 == 1);
+            #[cfg(pwr_h7rm0468)]
+            assert!(div.to_bits() % 2 == 1 || div.to_bits() == 0);
         }
 
         vco_clk / div
@@ -704,7 +763,7 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         _ => unreachable!(),
     };
 
-    #[cfg(flash_h7)]
+    #[cfg(all(flash_h7, not(pwr_h7rm0468)))]
     let (latency, wrhighfreq) = match (vos, clk.0) {
         // VOS 0 range VCORE 1.26V - 1.40V
         (VoltageScale::Scale0, ..=70_000_000) => (0, 0),
@@ -730,6 +789,30 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         (VoltageScale::Scale3, ..=135_000_000) => (2, 1),
         (VoltageScale::Scale3, ..=180_000_000) => (3, 2),
         (VoltageScale::Scale3, ..=224_000_000) => (4, 2),
+        _ => unreachable!(),
+    };
+
+    // See RM0468 Rev 3 Table 16. FLASH recommended number of wait
+    // states and programming delay
+    #[cfg(all(flash_h7, pwr_h7rm0468))]
+    let (latency, wrhighfreq) = match (vos, clk.0) {
+        // VOS 0 range VCORE 1.26V - 1.40V
+        (VoltageScale::Scale0, ..=70_000_000) => (0, 0),
+        (VoltageScale::Scale0, ..=140_000_000) => (1, 1),
+        (VoltageScale::Scale0, ..=210_000_000) => (2, 2),
+        (VoltageScale::Scale0, ..=275_000_000) => (3, 3),
+        // VOS 1 range VCORE 1.15V - 1.26V
+        (VoltageScale::Scale1, ..=67_000_000) => (0, 0),
+        (VoltageScale::Scale1, ..=133_000_000) => (1, 1),
+        (VoltageScale::Scale1, ..=200_000_000) => (2, 2),
+        // VOS 2 range VCORE 1.05V - 1.15V
+        (VoltageScale::Scale2, ..=50_000_000) => (0, 0),
+        (VoltageScale::Scale2, ..=100_000_000) => (1, 1),
+        (VoltageScale::Scale2, ..=150_000_000) => (2, 2),
+        // VOS 3 range VCORE 0.95V - 1.05V
+        (VoltageScale::Scale3, ..=35_000_000) => (0, 0),
+        (VoltageScale::Scale3, ..=70_000_000) => (1, 1),
+        (VoltageScale::Scale3, ..=85_000_000) => (2, 2),
         _ => unreachable!(),
     };
 

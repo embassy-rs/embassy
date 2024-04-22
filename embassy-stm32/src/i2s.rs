@@ -1,37 +1,49 @@
+//! Inter-IC Sound (I2S)
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::AnyPin;
+use crate::gpio::{AFType, AnyPin, SealedPin};
+use crate::mode::Async;
 use crate::pac::spi::vals;
-use crate::rcc::get_freqs;
 use crate::spi::{Config as SpiConfig, *};
 use crate::time::Hertz;
 use crate::{Peripheral, PeripheralRef};
 
+/// I2S mode
 #[derive(Copy, Clone)]
 pub enum Mode {
+    /// Master mode
     Master,
+    /// Slave mode
     Slave,
 }
 
+/// I2S function
 #[derive(Copy, Clone)]
 pub enum Function {
+    /// Transmit audio data
     Transmit,
+    /// Receive audio data
     Receive,
 }
 
+/// I2C standard
 #[derive(Copy, Clone)]
 pub enum Standard {
+    /// Philips
     Philips,
+    /// Most significant bit first.
     MsbFirst,
+    /// Least significant bit first.
     LsbFirst,
+    /// PCM with long sync.
     PcmLongSync,
+    /// PCM with short sync.
     PcmShortSync,
 }
 
 impl Standard {
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn i2sstd(&self) -> vals::I2sstd {
+    const fn i2sstd(&self) -> vals::I2sstd {
         match self {
             Standard::Philips => vals::I2sstd::PHILIPS,
             Standard::MsbFirst => vals::I2sstd::MSB,
@@ -42,7 +54,7 @@ impl Standard {
     }
 
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn pcmsync(&self) -> vals::Pcmsync {
+    const fn pcmsync(&self) -> vals::Pcmsync {
         match self {
             Standard::PcmLongSync => vals::Pcmsync::LONG,
             _ => vals::Pcmsync::SHORT,
@@ -50,6 +62,7 @@ impl Standard {
     }
 }
 
+/// I2S data format.
 #[derive(Copy, Clone)]
 pub enum Format {
     /// 16 bit data length on 16 bit wide channel
@@ -64,35 +77,38 @@ pub enum Format {
 
 impl Format {
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn datlen(&self) -> vals::Datlen {
+    const fn datlen(&self) -> vals::Datlen {
         match self {
-            Format::Data16Channel16 => vals::Datlen::SIXTEENBIT,
-            Format::Data16Channel32 => vals::Datlen::SIXTEENBIT,
-            Format::Data24Channel32 => vals::Datlen::TWENTYFOURBIT,
-            Format::Data32Channel32 => vals::Datlen::THIRTYTWOBIT,
+            Format::Data16Channel16 => vals::Datlen::BITS16,
+            Format::Data16Channel32 => vals::Datlen::BITS16,
+            Format::Data24Channel32 => vals::Datlen::BITS24,
+            Format::Data32Channel32 => vals::Datlen::BITS32,
         }
     }
 
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn chlen(&self) -> vals::Chlen {
+    const fn chlen(&self) -> vals::Chlen {
         match self {
-            Format::Data16Channel16 => vals::Chlen::SIXTEENBIT,
-            Format::Data16Channel32 => vals::Chlen::THIRTYTWOBIT,
-            Format::Data24Channel32 => vals::Chlen::THIRTYTWOBIT,
-            Format::Data32Channel32 => vals::Chlen::THIRTYTWOBIT,
+            Format::Data16Channel16 => vals::Chlen::BITS16,
+            Format::Data16Channel32 => vals::Chlen::BITS32,
+            Format::Data24Channel32 => vals::Chlen::BITS32,
+            Format::Data32Channel32 => vals::Chlen::BITS32,
         }
     }
 }
 
+/// Clock polarity
 #[derive(Copy, Clone)]
 pub enum ClockPolarity {
+    /// Low on idle.
     IdleLow,
+    /// High on idle.
     IdleHigh,
 }
 
 impl ClockPolarity {
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn ckpol(&self) -> vals::Ckpol {
+    const fn ckpol(&self) -> vals::Ckpol {
         match self {
             ClockPolarity::IdleHigh => vals::Ckpol::IDLEHIGH,
             ClockPolarity::IdleLow => vals::Ckpol::IDLELOW,
@@ -109,11 +125,17 @@ impl ClockPolarity {
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// Mode
     pub mode: Mode,
+    /// Function (transmit, receive)
     pub function: Function,
+    /// Which I2S standard to use.
     pub standard: Standard,
+    /// Data format.
     pub format: Format,
+    /// Clock polarity.
     pub clock_polarity: ClockPolarity,
+    /// True to eanble master clock output from this instance.
     pub master_clock: bool,
 }
 
@@ -130,15 +152,16 @@ impl Default for Config {
     }
 }
 
-pub struct I2S<'d, T: Instance, Tx, Rx> {
-    _peri: Spi<'d, T, Tx, Rx>,
+/// I2S driver.
+pub struct I2S<'d, T: Instance> {
+    _peri: Spi<'d, T, Async>,
     sd: Option<PeripheralRef<'d, AnyPin>>,
     ws: Option<PeripheralRef<'d, AnyPin>>,
     ck: Option<PeripheralRef<'d, AnyPin>>,
     mck: Option<PeripheralRef<'d, AnyPin>>,
 }
 
-impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
+impl<'d, T: Instance> I2S<'d, T> {
     /// Note: Full-Duplex modes are not supported at this time
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
@@ -146,8 +169,8 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         ws: impl Peripheral<P = impl WsPin<T>> + 'd,
         ck: impl Peripheral<P = impl CkPin<T>> + 'd,
         mck: impl Peripheral<P = impl MckPin<T>> + 'd,
-        txdma: impl Peripheral<P = Tx> + 'd,
-        rxdma: impl Peripheral<P = Rx> + 'd,
+        txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rxdma: impl Peripheral<P = impl RxDma<T>> + 'd,
         freq: Hertz,
         config: Config,
     ) -> Self {
@@ -169,10 +192,10 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         spi_cfg.frequency = freq;
         let spi = Spi::new_internal(peri, txdma, rxdma, spi_cfg);
 
-        #[cfg(all(rcc_f4, not(stm32f410)))]
-        let pclk = unsafe { get_freqs() }.plli2s1_q.unwrap();
-
-        #[cfg(stm32f410)]
+        // TODO move i2s to the new mux infra.
+        //#[cfg(all(rcc_f4, not(stm32f410)))]
+        //let pclk = unsafe { get_freqs() }.plli2s1_q.unwrap();
+        //#[cfg(stm32f410)]
         let pclk = T::frequency();
 
         let (odd, div) = compute_baud_rate(pclk, freq, config.master_clock, config.format);
@@ -242,23 +265,18 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         }
     }
 
-    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-    {
+    /// Write audio data.
+    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
         self._peri.write(data).await
     }
 
-    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-        Rx: RxDma<T>,
-    {
+    /// Read audio data.
+    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
         self._peri.read(data).await
     }
 }
 
-impl<'d, T: Instance, Tx, Rx> Drop for I2S<'d, T, Tx, Rx> {
+impl<'d, T: Instance> Drop for I2S<'d, T> {
     fn drop(&mut self) {
         self.sd.as_ref().map(|x| x.set_as_disconnected());
         self.ws.as_ref().map(|x| x.set_as_disconnected());

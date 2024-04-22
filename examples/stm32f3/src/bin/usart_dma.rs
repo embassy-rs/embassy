@@ -1,12 +1,10 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::fmt::Write;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 use heapless::String;
@@ -22,7 +20,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut usart = Uart::new(p.USART1, p.PE1, p.PE0, Irqs, p.DMA1_CH4, NoDma, config).unwrap();
+    let mut usart = Uart::new(p.USART1, p.PE1, p.PE0, Irqs, p.DMA1_CH4, p.DMA1_CH5, config).unwrap();
 
     for n in 0u32.. {
         let mut s: String<128> = String::new();

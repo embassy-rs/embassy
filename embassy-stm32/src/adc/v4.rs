@@ -1,9 +1,8 @@
-use embedded_hal_02::blocking::delay::DelayUs;
 #[allow(unused)]
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
+use super::{blocking_delay_us, Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -32,25 +31,28 @@ const TEMP_CHANNEL: u8 = 18;
 const VBAT_CHANNEL: u8 = 17;
 
 // NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
+/// Internal voltage reference channel.
 pub struct VrefInt;
 impl<T: Instance> InternalChannel<T> for VrefInt {}
-impl<T: Instance> super::sealed::InternalChannel<T> for VrefInt {
+impl<T: Instance> super::SealedInternalChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
         VREF_CHANNEL
     }
 }
 
+/// Internal temperature channel.
 pub struct Temperature;
 impl<T: Instance> InternalChannel<T> for Temperature {}
-impl<T: Instance> super::sealed::InternalChannel<T> for Temperature {
+impl<T: Instance> super::SealedInternalChannel<T> for Temperature {
     fn channel(&self) -> u8 {
         TEMP_CHANNEL
     }
 }
 
+/// Internal battery voltage channel.
 pub struct Vbat;
 impl<T: Instance> InternalChannel<T> for Vbat {}
-impl<T: Instance> super::sealed::InternalChannel<T> for Vbat {
+impl<T: Instance> super::SealedInternalChannel<T> for Vbat {
     fn channel(&self) -> u8 {
         VBAT_CHANNEL
     }
@@ -125,7 +127,8 @@ impl Prescaler {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
+    /// Create a new ADC driver.
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         embassy_hal_internal::into_ref!(adc);
         T::enable_and_reset();
 
@@ -155,13 +158,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
         let mut s = Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         };
-        s.power_up(delay);
+        s.power_up();
         s.configure_differential_inputs();
 
         s.calibrate();
-        delay.delay_us(1);
+        blocking_delay_us(1);
 
         s.enable();
         s.configure();
@@ -169,13 +172,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         s
     }
 
-    fn power_up(&mut self, delay: &mut impl DelayUs<u16>) {
+    fn power_up(&mut self) {
         T::regs().cr().modify(|reg| {
             reg.set_deeppwd(false);
             reg.set_advregen(true);
         });
 
-        delay.delay_us(10);
+        blocking_delay_us(10);
     }
 
     fn configure_differential_inputs(&mut self) {
@@ -212,6 +215,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
     }
 
+    /// Enable reading the voltage reference internal channel.
     pub fn enable_vrefint(&self) -> VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
@@ -220,6 +224,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         VrefInt {}
     }
 
+    /// Enable reading the temperature internal channel.
     pub fn enable_temperature(&self) -> Temperature {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
@@ -228,6 +233,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature {}
     }
 
+    /// Enable reading the vbat internal channel.
     pub fn enable_vbat(&self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbaten(true);
@@ -236,10 +242,12 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
+    /// Set the ADC sample time.
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
         self.sample_time = sample_time;
     }
 
+    /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
     }
@@ -263,16 +271,18 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().0 as u16
     }
 
+    /// Read an ADC pin.
     pub fn read<P>(&mut self, pin: &mut P) -> u16
     where
         P: AdcPin<T>,
-        P: crate::gpio::sealed::Pin,
+        P: crate::gpio::Pin,
     {
         pin.set_as_analog();
 
         self.read_channel(pin.channel())
     }
 
+    /// Read an ADC internal channel.
     pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
         self.read_channel(channel.channel())
     }

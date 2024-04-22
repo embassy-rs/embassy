@@ -1,18 +1,20 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
-// required-features: dac-adc-pin
+// required-features: dac
 
 #[path = "../common.rs"]
 mod common;
+use core::f32::consts::PI;
+
 use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::Adc;
-use embassy_stm32::dac::{DacCh1, DacChannel, Value};
+use embassy_stm32::dac::{DacCh1, Value};
 use embassy_stm32::dma::NoDma;
-use embassy_time::{Delay, Timer};
+use embassy_time::Timer;
+use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -20,31 +22,28 @@ async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
     let p: embassy_stm32::Peripherals = embassy_stm32::init(config());
 
-    #[cfg(feature = "stm32f429zi")]
-    let dac_peripheral = p.DAC;
+    let adc = peri!(p, ADC);
+    let dac = peri!(p, DAC);
+    let dac_pin = peri!(p, DAC_PIN);
+    let mut adc_pin = unsafe { core::ptr::read(&dac_pin) };
 
-    #[cfg(any(feature = "stm32h755zi", feature = "stm32g071rb"))]
-    let dac_peripheral = p.DAC1;
-
-    let mut dac: DacCh1<'_, _, NoDma> = DacCh1::new(dac_peripheral, NoDma, p.PA4);
-    unwrap!(dac.set_trigger_enable(false));
-
-    let mut adc = Adc::new(p.ADC1, &mut Delay);
+    let mut dac = DacCh1::new(dac, NoDma, dac_pin);
+    let mut adc = Adc::new(adc);
 
     #[cfg(feature = "stm32h755zi")]
     let normalization_factor = 256;
-    #[cfg(any(feature = "stm32f429zi", feature = "stm32g071rb"))]
+    #[cfg(any(feature = "stm32f429zi", feature = "stm32f446re", feature = "stm32g071rb"))]
     let normalization_factor: i32 = 16;
 
-    unwrap!(dac.set(Value::Bit8(0)));
+    dac.set(Value::Bit8(0));
     // Now wait a little to obtain a stable value
     Timer::after_millis(30).await;
-    let offset = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);
+    let offset = adc.read(&mut adc_pin);
 
     for v in 0..=255 {
         // First set the DAC output value
         let dac_output_val = to_sine_wave(v);
-        unwrap!(dac.set(Value::Bit8(dac_output_val)));
+        dac.set(Value::Bit8(dac_output_val));
 
         // Now wait a little to obtain a stable value
         Timer::after_millis(30).await;
@@ -63,10 +62,6 @@ async fn main(_spawner: Spawner) {
     info!("Test OK");
     cortex_m::asm::bkpt();
 }
-
-use core::f32::consts::PI;
-
-use micromath::F32Ext;
 
 fn to_sine_wave(v: u8) -> u8 {
     if v >= 128 {

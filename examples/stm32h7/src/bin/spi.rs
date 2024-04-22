@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::fmt::Write;
 use core::str::from_utf8;
@@ -8,7 +7,7 @@ use core::str::from_utf8;
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::Executor;
-use embassy_stm32::dma::NoDma;
+use embassy_stm32::mode::Blocking;
 use embassy_stm32::peripherals::SPI3;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{spi, Config};
@@ -17,7 +16,7 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
-async fn main_task(mut spi: spi::Spi<'static, SPI3, NoDma, NoDma>) {
+async fn main_task(mut spi: spi::Spi<'static, SPI3, Blocking>) {
     for n in 0u32.. {
         let mut write: String<128> = String::new();
         core::write!(&mut write, "Hello DMA World {}!\r\n", n).unwrap();
@@ -63,7 +62,7 @@ fn main() -> ! {
     let mut spi_config = spi::Config::default();
     spi_config.frequency = mhz(1);
 
-    let spi = spi::Spi::new(p.SPI3, p.PB3, p.PB5, p.PB4, NoDma, NoDma, spi_config);
+    let spi = spi::Spi::new_blocking(p.SPI3, p.PB3, p.PB5, p.PB4, spi_config);
 
     let executor = EXECUTOR.init(Executor::new());
 

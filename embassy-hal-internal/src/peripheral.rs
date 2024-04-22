@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
+use core::ops::Deref;
 
 /// An exclusive reference to a peripheral.
 ///
@@ -20,6 +20,7 @@ pub struct PeripheralRef<'a, T> {
 }
 
 impl<'a, T> PeripheralRef<'a, T> {
+    /// Create a new reference to a peripheral.
     #[inline]
     pub fn new(inner: T) -> Self {
         Self {
@@ -82,13 +83,6 @@ impl<'a, T> Deref for PeripheralRef<'a, T> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl<'a, T> DerefMut for PeripheralRef<'a, T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
     }
 }
 
@@ -161,7 +155,7 @@ pub trait Peripheral: Sized {
     }
 }
 
-impl<'b, T: DerefMut> Peripheral for T
+impl<'b, T: Deref> Peripheral for T
 where
     T::Target: Peripheral,
 {

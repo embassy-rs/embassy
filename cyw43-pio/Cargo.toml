@@ -2,6 +2,12 @@
 name = "cyw43-pio"
 version = "0.1.0"
 edition = "2021"
+description = "RP2040 PIO SPI implementation for cyw43"
+keywords = ["embedded", "cyw43", "embassy-net", "embedded-hal-async", "wifi"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/cyw43-pio"
 
 [features]
 # If disabled, SPI runs at 31.25MHz

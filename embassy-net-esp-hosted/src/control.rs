@@ -5,38 +5,54 @@ use heapless::String;
 use crate::ioctl::Shared;
 use crate::proto::{self, CtrlMsg};
 
+/// Errors reported by control.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// The operation failed with the given error code.
     Failed(u32),
+    /// The operation timed out.
     Timeout,
+    /// Internal error.
     Internal,
 }
 
+/// Handle for managing the network and WiFI state.
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
 }
 
+/// WiFi mode.
 #[allow(unused)]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum WifiMode {
+    /// No mode.
     None = 0,
+    /// Client station.
     Sta = 1,
+    /// Access point mode.
     Ap = 2,
+    /// Repeater mode.
     ApSta = 3,
 }
 
 pub use proto::CtrlWifiSecProt as Security;
 
+/// WiFi status.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Status {
+    /// Service Set Identifier.
     pub ssid: String<32>,
+    /// Basic Service Set Identifier.
     pub bssid: [u8; 6],
+    /// Received Signal Strength Indicator.
     pub rssi: i32,
+    /// WiFi channel.
     pub channel: u32,
+    /// Security mode.
     pub security: Security,
 }
 
@@ -65,6 +81,7 @@ impl<'a> Control<'a> {
         Self { state_ch, shared }
     }
 
+    /// Initialize device.
     pub async fn init(&mut self) -> Result<(), Error> {
         debug!("wait for init event...");
         self.shared.init_wait().await;
@@ -82,6 +99,7 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
+    /// Get the current status.
     pub async fn get_status(&mut self) -> Result<Status, Error> {
         let req = proto::CtrlMsgReqGetApConfig {};
         ioctl!(self, ReqGetApConfig, RespGetApConfig, req, resp);
@@ -95,10 +113,11 @@ impl<'a> Control<'a> {
         })
     }
 
+    /// Connect to the network identified by ssid using the provided password.
     pub async fn connect(&mut self, ssid: &str, password: &str) -> Result<(), Error> {
         let req = proto::CtrlMsgReqConnectAp {
-            ssid: String::from(ssid),
-            pwd: String::from(password),
+            ssid: unwrap!(String::try_from(ssid)),
+            pwd: unwrap!(String::try_from(password)),
             bssid: String::new(),
             listen_interval: 3,
             is_wpa3_supported: false,
@@ -108,6 +127,7 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
+    /// Disconnect from any currently connected network.
     pub async fn disconnect(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqGetStatus {};
         ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp);

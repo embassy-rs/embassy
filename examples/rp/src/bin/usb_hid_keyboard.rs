@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -37,11 +36,10 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     // You can also add a Microsoft OS descriptor.
-    // let mut msos_descriptor = [0; 256];
+    let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
     let request_handler = MyRequestHandler {};
     let mut device_handler = MyDeviceHandler::new();
@@ -51,10 +49,9 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
-        // &mut msos_descriptor,
+        &mut msos_descriptor,
         &mut control_buf,
     );
 

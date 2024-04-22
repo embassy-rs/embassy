@@ -3,10 +3,9 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
-use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::{interrupt, Peripheral};
 
@@ -34,7 +33,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vref {
+impl<T: Instance> super::SealedAdcPin<T> for Vref {
     fn channel(&self) -> u8 {
         17
     }
@@ -42,21 +41,21 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vref {
 
 pub struct Temperature;
 impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
+impl<T: Instance> super::SealedAdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
 
         // 11.4: Before starting a calibration, the ADC must have been in power-on state (ADON bit = ‘1’)
-        // for at least two ADC clock cycles
-        delay.delay_us((1_000_000 * 2) / Self::freq().0 + 1);
+        // for at least two ADC clock cycles.
+        blocking_delay_us((1_000_000 * 2) / Self::freq().0 + 1);
 
         // Reset calibration
         T::regs().cr2().modify(|reg| reg.set_rstcal(true));
@@ -71,32 +70,32 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         // One cycle after calibration
-        delay.delay_us((1_000_000) / Self::freq().0 + 1);
+        blocking_delay_us((1_000_000 * 1) / Self::freq().0 + 1);
 
         Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         }
     }
 
     fn freq() -> Hertz {
-        unsafe { get_freqs() }.adc.unwrap()
+        T::frequency()
     }
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
         match us * Self::freq().0 / 1_000_000 {
-            0..=1 => SampleTime::Cycles1_5,
-            2..=7 => SampleTime::Cycles7_5,
-            8..=13 => SampleTime::Cycles13_5,
-            14..=28 => SampleTime::Cycles28_5,
-            29..=41 => SampleTime::Cycles41_5,
-            42..=55 => SampleTime::Cycles55_5,
-            56..=71 => SampleTime::Cycles71_5,
-            _ => SampleTime::Cycles239_5,
+            0..=1 => SampleTime::CYCLES1_5,
+            2..=7 => SampleTime::CYCLES7_5,
+            8..=13 => SampleTime::CYCLES13_5,
+            14..=28 => SampleTime::CYCLES28_5,
+            29..=41 => SampleTime::CYCLES41_5,
+            42..=55 => SampleTime::CYCLES55_5,
+            56..=71 => SampleTime::CYCLES71_5,
+            _ => SampleTime::CYCLES239_5,
         }
     }
 
-    pub fn enable_vref(&self, _delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vref(&self) -> Vref {
         T::regs().cr2().modify(|reg| {
             reg.set_tsvrefe(true);
         });
@@ -148,7 +147,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_cont(false);
             reg.set_exttrig(true);
             reg.set_swstart(false);
-            reg.set_extsel(crate::pac::adc::vals::Extsel::SWSTART);
+            reg.set_extsel(7); // SWSTART
         });
 
         // Configure the channel to sample

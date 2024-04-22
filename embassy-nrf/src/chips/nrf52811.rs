@@ -7,6 +7,7 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 256;
 pub const FLASH_SIZE: usize = 192 * 1024;
 
 pub const RESET_PIN: u32 = 21;
+pub const APPROTECT_MIN_BUILD_CODE: u8 = b'B';
 
 embassy_hal_internal::peripherals! {
     // RTC
@@ -134,6 +135,9 @@ embassy_hal_internal::peripherals! {
 
     // PDM
     PDM,
+
+    // Radio
+    RADIO,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
@@ -235,6 +239,8 @@ impl_saadc_input!(P0_28, ANALOG_INPUT4);
 impl_saadc_input!(P0_29, ANALOG_INPUT5);
 impl_saadc_input!(P0_30, ANALOG_INPUT6);
 impl_saadc_input!(P0_31, ANALOG_INPUT7);
+
+impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,

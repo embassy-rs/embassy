@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -15,7 +14,7 @@ use embassy_time::Timer;
 use embedded_io_async::Write;
 use embedded_nal_async::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpConnect};
 use rand_core::RngCore;
-use static_cell::make_static;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -37,7 +36,7 @@ async fn main(spawner: Spawner) -> ! {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
-        config.rcc.hsi48 = true; // needed for RNG
+        config.rcc.hsi48 = Some(Default::default()); // needed for RNG
         config.rcc.pll1 = Some(Pll {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
@@ -65,8 +64,10 @@ async fn main(spawner: Spawner) -> ! {
 
     let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
+    static PACKETS: StaticCell<PacketQueue<16, 16>> = StaticCell::new();
+
     let device = Ethernet::new(
-        make_static!(PacketQueue::<16, 16>::new()),
+        PACKETS.init(PacketQueue::<16, 16>::new()),
         p.ETH,
         Irqs,
         p.PA1,
@@ -90,11 +91,13 @@ async fn main(spawner: Spawner) -> ! {
     //});
 
     // Init network stack
-    let stack = &*make_static!(Stack::new(
+    static STACK: StaticCell<Stack<Device>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let stack = &*STACK.init(Stack::new(
         device,
         config,
-        make_static!(StackResources::<2>::new()),
-        seed
+        RESOURCES.init(StackResources::<3>::new()),
+        seed,
     ));
 
     // Launch network task
@@ -109,6 +112,7 @@ async fn main(spawner: Spawner) -> ! {
     let client = TcpClient::new(&stack, &state);
 
     loop {
+        // You need to start a server on the host machine, for example: `nc -l 8000`
         let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 42, 0, 1), 8000));
 
         info!("connecting...");

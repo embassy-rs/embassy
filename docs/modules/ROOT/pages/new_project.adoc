@@ -1,0 +1,189 @@
+= Starting a new Embassy project
+
+Once you’ve successfully xref:getting_started.adoc[run some example projects], the next step is to make a standalone Embassy project.
+
+There are some tools for generating Embassy projects: (WIP)
+
+==== CLI
+- link:https://github.com/adinack/cargo-embassy[cargo-embassy] (STM32 and NRF)
+
+==== cargo-generate
+- link:https://github.com/lulf/embassy-template[embassy-template] (STM32, NRF, and RP)
+- link:https://github.com/bentwire/embassy-rp2040-template[embassy-rp2040-template] (RP)
+
+But if you want to start from scratch:
+
+As an example, let’s create a new embassy project from scratch for a STM32G474. The same instructions are applicable for any supported chip with some minor changes.
+
+Run:
+
+[source,bash]
+----
+cargo new stm32g474-example
+cd stm32g474-example
+----
+
+to create an empty rust project:
+
+[source]
+----
+stm32g474-example
+├── Cargo.toml
+└── src
+    └── main.rs
+----
+
+Looking in link:https://github.com/embassy-rs/embassy/tree/main/examples[the Embassy examples], we can see there’s a `stm32g4` folder. Find `src/blinky.rs` and copy its contents into our `src/main.rs`.
+
+== .cargo/config.toml
+
+Currently, we’d need to provide cargo with a target triple every time we run `cargo build` or `cargo run`. Let’s spare ourselves that work by copying `.cargo/config.toml` from `examples/stm32g4` into our project.
+
+[source]
+----
+stm32g474-example
+├── .cargo
+│   └── config.toml
+├── Cargo.toml
+└── src
+    └── main.rs
+----
+
+In addition to a target triple, `.cargo/config.toml` contains a `runner` key which allows us to conveniently run our project on hardware with `cargo run` via probe-rs. In order for this to work, we need to provide the correct chip ID. We can do this by checking `probe-rs chip list`:
+
+[source,bash]
+----
+$ probe-rs chip list | grep -i stm32g474re
+        STM32G474RETx
+----
+
+and copying `STM32G474RETx` into `.cargo/config.toml` as so:
+
+[source,toml]
+----
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace STM32G071C8Rx with your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --chip STM32G474RETx"
+----
+
+== Cargo.toml
+
+Now that cargo knows what target to compile for (and probe-rs knows what chip to run it on), we’re ready to add some dependencies.
+
+Looking in `examples/stm32g4/Cargo.toml`, we can see that the examples require a number of embassy crates. For blinky, we’ll only need three of them: `embassy-stm32`, `embassy-executor` and `embassy-time`.
+
+At the time of writing, the latest version of embassy isn‘t available on crates.io, so we need to install it straight from the git repository. The recommended way of doing so is as follows:
+
+* Copy the required `embassy-*` lines from the example `Cargo.toml`
+* Make any necessary changes to `features`, e.g. requiring the `stm32g474re` feature of `embassy-stm32`
+* Remove the `path = ""` keys in the `embassy-*` entries
+* Create a `[patch.crates-io]` section, with entries for each embassy crate we need. These should all contain identical values: a link to the git repository, and a reference to the commit we’re checking out. Assuming you want the latest commit, you can find it by running `git ls-remote https://github.com/embassy-rs/embassy.git HEAD`
+
+NOTE: When using this method, it’s necessary that the `version` keys in `[dependencies]` match up with the versions defined in each crate’s `Cargo.toml` in the specificed `rev` under `[patch.crates.io]`. This means that when updating, you have to a pick a new revision, change everything in `[patch.crates.io]` to match it, and then correct any versions under `[dependencies]` which have changed. Hopefully this will no longer be necessary once embassy is released on crates.io!
+
+At the time of writing, this method produces the following results:
+
+[source,toml]
+----
+[dependencies]
+embassy-stm32 = {version = "0.1.0", features =  ["defmt", "time-driver-any", "stm32g474re", "memory-x", "unstable-pac", "exti"]}
+embassy-executor = { version = "0.3.3", features = ["nightly", "arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.2", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+
+[patch.crates-io]
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "7703f47c1ecac029f603033b7977d9a2becef48c" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "7703f47c1ecac029f603033b7977d9a2becef48c" }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "7703f47c1ecac029f603033b7977d9a2becef48c" }
+----
+
+There are a few other dependencies we need to build the project, but fortunately they’re much simpler to install. Copy their lines from the example `Cargo.toml` to the the `[dependencies]` section in the new `Cargo.toml`:
+
+[source,toml]
+----
+defmt = "0.3.5"
+defmt-rtt = "0.4.0"
+cortex-m = {version = "0.7.7", features = ["critical-section-single-core"]}
+cortex-m-rt = "0.7.3"
+panic-probe = "0.3.1"
+----
+
+These are the bare minimum dependencies required to run `blinky.rs`, but it’s worth taking a look at the other dependencies specified in the example `Cargo.toml`, and noting what features are required for use with embassy – for example `futures = { version = "0.3.17", default-features = false, features = ["async-await"] }`.
+
+Finally, copy the `[profile.release]` section from the example `Cargo.toml` into ours.
+
+[source,toml]
+----
+[profile.release]
+debug = 2
+----
+
+== rust-toolchain.toml
+
+Before we can build our project, we need to add an additional file to tell cargo to use the nightly toolchain. Copy the `rust-toolchain.toml` from the embassy repo to ours, and trim the list of targets down to only the target triple relevent for our project — in this case, `thumbv7em-none-eabi`:
+
+[source]
+----
+stm32g474-example
+├── .cargo
+│   └── config.toml
+├── Cargo.toml
+├── rust-toolchain.toml
+└── src
+    └── main.rs
+----
+
+[source,toml]
+----
+# Before upgrading check that everything is available on all tier1 targets here:
+# https://rust-lang.github.io/rustup-components-history
+[toolchain]
+channel = "nightly-2023-11-01"
+components = [ "rust-src", "rustfmt", "llvm-tools", "miri" ]
+targets = ["thumbv7em-none-eabi"]
+----
+
+== build.rs
+
+In order to produce a working binary for our target, cargo requires a custom build script. Copy `build.rs` from the example to our project:
+
+[source]
+----
+stm32g474-example
+├── build.rs
+├── .cargo
+│   └── config.toml
+├── Cargo.toml
+├── rust-toolchain.toml
+└── src
+    └── main.rs
+----
+
+== Building and running
+
+At this point, we‘re finally ready to build and run our project! Connect your board via a debug probe and run:
+
+[source,bash]
+----
+cargo run --release
+----
+
+should result in a blinking LED (if there’s one attached to the pin in `src/main.rs` – change it if not!) and the following output:
+
+[source]
+----
+   Compiling stm32g474-example v0.1.0 (/home/you/stm32g474-example)
+    Finished release [optimized + debuginfo] target(s) in 0.22s
+     Running `probe-rs run --chip STM32G474RETx target/thumbv7em-none-eabi/release/stm32g474-example`
+     Erasing sectors ✔ [00:00:00] [#########################################################] 18.00 KiB/18.00 KiB @ 54.09 KiB/s (eta 0s )
+ Programming pages   ✔ [00:00:00] [#########################################################] 17.00 KiB/17.00 KiB @ 35.91 KiB/s (eta 0s )    Finished in 0.817s
+0.000000 TRACE BDCR configured: 00008200
+└─ embassy_stm32::rcc::bd::{impl#3}::init::{closure#4} @ /home/you/.cargo/git/checkouts/embassy-9312dcb0ed774b29/7703f47/embassy-stm32/src/fmt.rs:117
+0.000000 DEBUG rcc: Clocks { sys: Hertz(16000000), pclk1: Hertz(16000000), pclk1_tim: Hertz(16000000), pclk2: Hertz(16000000), pclk2_tim: Hertz(16000000), hclk1: Hertz(16000000), hclk2: Hertz(16000000), pll1_p: None, adc: None, adc34: None, rtc: Some(Hertz(32000)) }
+└─ embassy_stm32::rcc::set_freqs @ /home/you/.cargo/git/checkouts/embassy-9312dcb0ed774b29/7703f47/embassy-stm32/src/fmt.rs:130
+0.000000 INFO  Hello World!
+└─ embassy_stm32g474::____embassy_main_task::{async_fn#0} @ src/main.rs:14
+0.000091 INFO  high
+└─ embassy_stm32g474::____embassy_main_task::{async_fn#0} @ src/main.rs:19
+0.300201 INFO  low
+└─ embassy_stm32g474::____embassy_main_task::{async_fn#0} @ src/main.rs:23
+----

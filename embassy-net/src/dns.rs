@@ -63,12 +63,15 @@ where
     }
 
     /// Make a query for a given name and return the corresponding IP addresses.
-    pub async fn query(&self, name: &str, qtype: DnsQueryType) -> Result<Vec<IpAddress, 1>, Error> {
+    pub async fn query(
+        &self,
+        name: &str,
+        qtype: DnsQueryType,
+    ) -> Result<Vec<IpAddress, { smoltcp::config::DNS_MAX_RESULT_COUNT }>, Error> {
         self.stack.dns_query(name, qtype).await
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<'a, D> embedded_nal_async::Dns for DnsSocket<'a, D>
 where
     D: Driver + 'static,
@@ -101,7 +104,8 @@ where
     async fn get_host_by_address(
         &self,
         _addr: embedded_nal_async::IpAddr,
-    ) -> Result<heapless::String<256>, Self::Error> {
+        _result: &mut [u8],
+    ) -> Result<usize, Self::Error> {
         todo!()
     }
 }

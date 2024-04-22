@@ -8,8 +8,7 @@ mod thread {
 
     use core::marker::PhantomData;
 
-    #[cfg(feature = "nightly")]
-    pub use embassy_macros::main_wasm as main;
+    pub use embassy_executor_macros::main_wasm as main;
     use js_sys::Promise;
     use wasm_bindgen::prelude::*;
 

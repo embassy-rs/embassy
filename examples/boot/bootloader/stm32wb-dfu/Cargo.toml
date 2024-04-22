@@ -1,0 +1,63 @@
+[package]
+edition = "2021"
+name = "stm32wb-dfu-bootloader-example"
+version = "0.1.0"
+description = "Example USB DFUbootloader for the STM32WB series of chips"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.4", optional = true }
+
+embassy-stm32 = { path = "../../../../embassy-stm32", features = [] }
+embassy-boot-stm32 = { path = "../../../../embassy-boot-stm32" }
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+embassy-sync = { version = "0.5.0", path = "../../../../embassy-sync" }
+cortex-m-rt = { version = "0.7" }
+embedded-storage = "0.3.1"
+embedded-storage-async = "0.4.0"
+cfg-if = "1.0.0"
+embassy-usb-dfu = { version = "0.1.0", path = "../../../../embassy-usb-dfu", features = ["dfu", "cortex-m"] }
+embassy-usb = { version = "0.1.0", path = "../../../../embassy-usb", default-features = false }
+embassy-futures = { version = "0.1.1", path = "../../../../embassy-futures" }
+
+[features]
+defmt = [
+    "dep:defmt",
+    "embassy-boot-stm32/defmt",
+    "embassy-stm32/defmt",
+    "embassy-usb/defmt",
+    "embassy-usb-dfu/defmt"
+]
+debug = ["defmt-rtt", "defmt"]
+
+[profile.dev]
+debug = 2
+debug-assertions = true
+incremental = false
+opt-level = 'z'
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 'z'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false

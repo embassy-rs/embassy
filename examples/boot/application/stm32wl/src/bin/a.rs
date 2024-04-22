@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt::*;
@@ -9,7 +8,7 @@ use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_sync::mutex::Mutex;
 use panic_reset as _;
 
@@ -24,13 +23,12 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(BlockingAsync::new(flash));
 
-    let button = Input::new(p.PA0, Pull::Up);
-    let mut button = ExtiInput::new(button, p.EXTI0);
+    let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up);
 
     let mut led = Output::new(p.PB9, Level::Low, Speed::Low);
     led.set_high();
 
-    let config = FirmwareUpdaterConfig::from_linkerfile(&flash);
+    let config = FirmwareUpdaterConfig::from_linkerfile(&flash, &flash);
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     let mut updater = FirmwareUpdater::new(config, &mut magic.0);
     button.wait_for_falling_edge().await;
