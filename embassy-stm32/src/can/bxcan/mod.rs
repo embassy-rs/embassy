@@ -67,12 +67,20 @@ pub struct SceInterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterruptHandler<T> {
     unsafe fn on_interrupt() {
-        // info!("sce irq");
+        info!("sce irq");
         let msr = T::regs().msr();
         let msr_val = msr.read();
 
         if msr_val.erri() {
-            msr.modify(|v| v.set_erri(true));
+            info!("Error interrupt");
+            // Disable the interrupt, but don't acknowledge the error, so that it can be
+            // forwarded off the the bus message consumer. If we don't provide some way for
+            // downstream code to determine that it has already provided this bus error instance
+            // to the bus message consumer, we are doomed to re-provide a single error instance for 
+            // an indefinite amount of time.
+            let ier = T::regs().ier();
+            ier.modify(|i| i.set_errie(false));
+
             T::state().err_waker.wake();
         }
     }
@@ -180,6 +188,9 @@ impl<'d, T: Instance> Can<'d, T> {
                 w.set_fmpie(0, true);
                 w.set_fmpie(1, true);
                 w.set_tmeie(true);
+                w.set_bofie(true);
+                w.set_epvie(true);
+                w.set_ewgie(true);
             });
 
             T::regs().mcr().write(|w| {

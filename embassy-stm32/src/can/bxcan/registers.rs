@@ -145,7 +145,21 @@ impl Registers {
     }
 
     pub fn curr_error(&self) -> Option<BusError> {
-        let err = { self.0.esr().read() };
+        if !self.0.msr().read().erri() {
+            // This ensures that once a single error instance has
+            // been acknowledged and forwared to the bus message consumer
+            // we don't continue to re-forward the same error occurrance for an 
+            // in-definite amount of time.
+            return None;
+        } 
+
+        // Since we have not already acknowledge the error, and the interrupt was
+        // disabled in the ISR, we will acknowledge the current error and re-enable the interrupt
+        // so futher errors are captured
+        self.0.msr().modify(|m| m.set_erri(true));
+        self.0.ier().modify(|i| i.set_errie(true));
+
+        let err = self.0.esr().read();
         if err.boff() {
             return Some(BusError::BusOff);
         } else if err.epvf() {
