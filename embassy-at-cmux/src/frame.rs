@@ -14,25 +14,44 @@ const GOOD_FCS: u8 = 0xCF;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
 pub enum CR {
-    Command = 0x02,
     Response = 0x00,
+    Command = CR,
 }
 
 impl From<u8> for CR {
     fn from(value: u8) -> Self {
-        match (value & CR) == CR {
-            false => Self::Command,
-            _ => Self::Response,
+        if (value & CR) == CR {
+            return Self::Command;
         }
+        Self::Response
     }
 }
 
-fn read_ea(buf: &[u8]) -> &[u8] {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum PF {
+    Final = 0x00,
+    Poll = PF,
+}
+
+impl From<u8> for PF {
+    fn from(value: u8) -> Self {
+        if (value & PF) == PF {
+            return Self::Poll;
+        }
+        Self::Final
+    }
+}
+
+fn read_ea_len(buf: &[u8]) -> (usize, usize) {
     let mut len = 0;
     let mut i = 0;
     for b in buf {
-        len = (len << 7) | ((b & !EA) >> 1) as usize;
+        len <<= 7;
+        len |= (b >> 1) as usize;
         if (b & EA) == EA {
             break;
         }
@@ -40,6 +59,11 @@ fn read_ea(buf: &[u8]) -> &[u8] {
     }
     i += 1;
 
+    (i, len)
+}
+
+fn read_ea(buf: &[u8]) -> &[u8] {
+    let (i, len) = read_ea_len(buf);
     &buf[i..i + len]
 }
 
@@ -70,18 +94,6 @@ pub enum InformationType {
     ServiceNegotiationCommand = 0xD0,
 }
 
-impl InformationType {
-    const fn max_data_len(&self) -> usize {
-        match self {
-            Self::ParameterNegotiation => 8,
-            Self::ModemStatusCommand => 3,
-            Self::NonSupportedCommandResponse => 1,
-            Self::RemoteLineStatusCommand => 2,
-            _ => 0,
-        }
-    }
-}
-
 impl From<u8> for InformationType {
     fn from(value: u8) -> Self {
         match value & !(CR | EA) {
@@ -101,6 +113,7 @@ impl From<u8> for InformationType {
     }
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Information<'a> {
     /// DLC parameter negotiation (PN)
@@ -141,19 +154,19 @@ impl<'a> Information<'a> {
         }
     }
 
-    const fn max_data_len(&self) -> usize {
+    fn wire_len(&self) -> usize {
         match self {
-            Information::ParameterNegotiation(_) => InformationType::ParameterNegotiation.max_data_len(),
-            Information::PowerSavingControl => InformationType::ParameterNegotiation.max_data_len(),
-            Information::MultiplexerCloseDown => InformationType::ParameterNegotiation.max_data_len(),
-            Information::TestCommand => InformationType::ParameterNegotiation.max_data_len(),
-            Information::FlowControlOnCommand(_) => InformationType::ParameterNegotiation.max_data_len(),
-            Information::FlowControlOffCommand(_) => InformationType::ParameterNegotiation.max_data_len(),
-            Information::ModemStatusCommand(_) => InformationType::ParameterNegotiation.max_data_len(),
-            Information::NonSupportedCommandResponse(_) => InformationType::ParameterNegotiation.max_data_len(),
-            Information::RemotePortNegotiationCommand => InformationType::ParameterNegotiation.max_data_len(),
-            Information::RemoteLineStatusCommand(_) => InformationType::ParameterNegotiation.max_data_len(),
-            Information::ServiceNegotiationCommand => InformationType::ParameterNegotiation.max_data_len(),
+            Information::ParameterNegotiation(inner) => inner.wire_len(),
+            Information::PowerSavingControl => todo!(),
+            Information::MultiplexerCloseDown => todo!(),
+            Information::TestCommand => todo!(),
+            Information::FlowControlOnCommand(inner) => inner.wire_len(),
+            Information::FlowControlOffCommand(inner) => inner.wire_len(),
+            Information::ModemStatusCommand(inner) => inner.wire_len(),
+            Information::NonSupportedCommandResponse(inner) => inner.wire_len(),
+            Information::RemotePortNegotiationCommand => todo!(),
+            Information::RemoteLineStatusCommand(inner) => inner.wire_len(),
+            Information::ServiceNegotiationCommand => todo!(),
             Information::Data(d) => d.len(),
         }
     }
@@ -181,9 +194,6 @@ impl<'a> Information<'a> {
 
         // get length
         let inner_data = read_ea(&buf[1..]);
-        if inner_data.len() > info_type.max_data_len() {
-            return Err(Error::MalformedFrame);
-        }
 
         Ok(match info_type {
             InformationType::ParameterNegotiation => Self::ParameterNegotiation(ParameterNegotiation { cr }),
@@ -200,7 +210,7 @@ impl<'a> Information<'a> {
                 };
                 Self::ModemStatusCommand(ModemStatusCommand {
                     cr,
-                    dlci: (inner_data[0] & !(EA | CR)) >> 2,
+                    dlci: inner_data[0] >> 2,
                     control: Control::from_bits(inner_data[1]),
                     brk,
                 })
@@ -214,7 +224,7 @@ impl<'a> Information<'a> {
             InformationType::RemotePortNegotiationCommand => Self::RemotePortNegotiationCommand,
             InformationType::RemoteLineStatusCommand => Self::RemoteLineStatusCommand(RemoteLineStatusCommand {
                 cr,
-                dlci: (inner_data[0] & !(EA | CR)) >> 2,
+                dlci: inner_data[0] >> 2,
                 remote_line_status: RemoteLineStatus::from(inner_data[1]),
             }),
             InformationType::ServiceNegotiationCommand => Self::ServiceNegotiationCommand,
@@ -229,12 +239,14 @@ pub enum FrameType {
     Sabm = 0x2F,
     /// Unnumbered Acknowledgement (UA) response
     Ua = 0x63,
-    Disc = 0x43,
+    /// Disconnected mode (DM)
     Dm = 0x0F,
-    /// Unnumbered information (UI) command and response
-    Ui = 0x03,
+    /// Disconnect (DISC)
+    Disc = 0x43,
     /// Unnumbered information with header check (UIH) command and response
     Uih = 0xEF,
+    /// Unnumbered information (UI) command and response
+    Ui = 0x03,
 }
 
 impl From<u8> for FrameType {
@@ -242,10 +254,10 @@ impl From<u8> for FrameType {
         match value & !PF {
             0x2F => Self::Sabm,
             0x63 => Self::Ua,
-            0x43 => Self::Disc,
             0x0F => Self::Dm,
-            0x03 => Self::Ui,
+            0x43 => Self::Disc,
             0xEF => Self::Uih,
+            0x03 => Self::Ui,
             n => panic!("Unknown frame type {:#02x}", n),
         }
     }
@@ -257,7 +269,6 @@ pub enum Error {
     Read(embedded_io_async::ErrorKind),
     Write(embedded_io_async::ErrorKind),
     Crc,
-    UnexpectedFrameType,
     MalformedFrame,
 }
 
@@ -266,9 +277,12 @@ pub trait Info {
 
     fn is_command(&self) -> bool;
 
+    fn wire_len(&self) -> usize;
+
     async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error>;
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ParameterNegotiation {
     cr: CR,
@@ -281,8 +295,12 @@ impl Info for ParameterNegotiation {
         self.cr == CR::Command
     }
 
+    fn wire_len(&self) -> usize {
+        todo!()
+    }
+
     async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error> {
-        let buf = [0u8; Self::INFORMATION_TYPE.max_data_len()];
+        let buf = [0u8; 8];
 
         // TODO: Add Parameters!
 
@@ -290,6 +308,7 @@ impl Info for ParameterNegotiation {
     }
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlowControlOffCommand {
     cr: CR,
@@ -302,6 +321,10 @@ impl Info for FlowControlOffCommand {
         self.cr == CR::Command
     }
 
+    fn wire_len(&self) -> usize {
+        1
+    }
+
     async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error> {
         writer
             .write_all(&[Self::INFORMATION_TYPE as u8 | self.cr as u8 | EA])
@@ -310,6 +333,7 @@ impl Info for FlowControlOffCommand {
     }
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlowControlOnCommand {
     cr: CR,
@@ -322,6 +346,10 @@ impl Info for FlowControlOnCommand {
         self.cr == CR::Command
     }
 
+    fn wire_len(&self) -> usize {
+        1
+    }
+
     async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error> {
         writer
             .write_all(&[Self::INFORMATION_TYPE as u8 | self.cr as u8 | EA])
@@ -330,6 +358,7 @@ impl Info for FlowControlOnCommand {
     }
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ModemStatusCommand {
     pub cr: CR,
@@ -345,19 +374,26 @@ impl Info for ModemStatusCommand {
         self.cr == CR::Command
     }
 
+    fn wire_len(&self) -> usize {
+        self.brk.map_or(4, |_| 5)
+    }
+
     async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let len = self.wire_len() as u8 - 2;
+
         writer
             .write_all(&[
                 Self::INFORMATION_TYPE as u8 | self.cr as u8 | EA,
+                len << 1 | EA,
                 self.dlci << 2 | CR | EA,
-                self.control.into_bits(),
+                self.control.with_ea(true).into_bits(),
             ])
             .await
             .map_err(|e| Error::Write(e.kind()))?;
 
         if let Some(brk) = self.brk {
             writer
-                .write_all(&[brk.into_bits()])
+                .write_all(&[brk.with_ea(true).into_bits()])
                 .await
                 .map_err(|e| Error::Write(e.kind()))?;
         }
@@ -366,6 +402,7 @@ impl Info for ModemStatusCommand {
     }
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NonSupportedCommandResponse {
     pub cr: CR,
@@ -379,6 +416,10 @@ impl Info for NonSupportedCommandResponse {
         self.cr == CR::Command
     }
 
+    fn wire_len(&self) -> usize {
+        2
+    }
+
     async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error> {
         writer
             .write_all(&[
@@ -390,6 +431,7 @@ impl Info for NonSupportedCommandResponse {
     }
 }
 
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RemoteLineStatusCommand {
     pub cr: CR,
@@ -404,6 +446,10 @@ impl Info for RemoteLineStatusCommand {
         self.cr == CR::Command
     }
 
+    fn wire_len(&self) -> usize {
+        3
+    }
+
     async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error> {
         writer
             .write_all(&[
@@ -416,30 +462,13 @@ impl Info for RemoteLineStatusCommand {
     }
 }
 
-//   val   bit NAME   RX         TX
-// 0x0001   0  FC     -          -
-// 0x0002   1  RTC    107.DSR    108/2.DTR
-// 0x0004   2  RTR    106.CTS    133.RFR / 105.RTS
-// 0x0008   3  RFU1   -          -
-// 0x0010   4  RFU2   -          -
-// 0x0020   5  IC     125.RI     always 0
-// 0x0040   6  DV     109.DCD    always 1
-// 0x0080   7  B1     1 = signal break
-// 0x0100   8  B2     reserved, always 0
-// 0x0200   9  B3     reserved, always 0
-// 0x0400  10  L1     |
-// 0x0800  11  L2     | break length
-// 0x1000  12  L3     | units of 200ms
-// 0x2000  13  L4     |
-
 /// Control signal octet
 #[bitfield(u8, order = Lsb)]
 #[derive(PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Control {
     /// The EA bit is set to 1 in the last octet of the sequence; in other
     /// octets EA is set to 0. If only one octet is transmitted EA is set to 1
-    ea: bool,
+    pub ea: bool,
     /// Flow Control (FC). The bit is set to 1(one) when the device is unable to
     /// accept frames
     pub fc: bool,
@@ -461,6 +490,22 @@ pub struct Control {
     pub dv: bool,
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Control {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "Control {{ ea: {}, fc: {}, rtc: {}, rtr: {}, ic: {}, dv: {} }}",
+            self.ea(),
+            self.fc(),
+            self.rtc(),
+            self.rtr(),
+            self.ic(),
+            self.dv(),
+        )
+    }
+}
+
 /// Break signal octet
 #[bitfield(u8, order = Lsb)]
 #[derive(PartialEq, Eq)]
@@ -468,7 +513,7 @@ pub struct Control {
 pub struct Break {
     /// The EA bit is set to 1 in the last octet of the sequence; in other
     /// octets EA is set to 0. If only one octet is transmitted EA is set to 1
-    ea: bool,
+    pub ea: bool,
     pub brk: bool,
     #[bits(2, access = None)]
     b2: u8,
@@ -491,7 +536,7 @@ pub struct RemoteLineStatus {
 
 pub(crate) struct RxHeader<'a, R: embedded_io_async::BufRead> {
     id: u8,
-    frame_type: FrameType,
+    pub frame_type: FrameType,
     pub len: usize,
     fcs: crc::Digest<'a, u8>,
     reader: &'a mut R,
@@ -524,23 +569,23 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
     pub(crate) async fn read(reader: &'a mut R) -> Result<Self, Error> {
         let mut fcs = FCS.digest();
 
-        let mut header = [FLAG; 4];
+        let mut header = [FLAG; 3];
         while header[0] == FLAG {
             Self::read_exact(reader, &mut header[..1]).await?;
         }
-        Self::read_exact(reader, &mut header[1..3]).await?;
+        Self::read_exact(reader, &mut header[1..]).await?;
 
-        let id = (header[0] & !(EA | CR)) >> 2;
-
+        let id = header[0] >> 2;
         let frame_type = FrameType::from(header[1]);
 
-        let len = if (header[2] & EA) == EA {
-            fcs.update(&header[..3]);
-            ((header[2] & !EA) >> 1) as usize
-        } else {
-            Self::read_exact(reader, &mut header[3..4]).await?;
-            fcs.update(&header[..4]);
-            (header[3] as usize) << 7 | ((header[2] & !EA) >> 1) as usize
+        fcs.update(&header);
+
+        let mut len = (header[2] >> 1) as usize;
+        if (header[2] & EA) != EA {
+            let mut l2 = [0u8; 1];
+            Self::read_exact(reader, &mut l2).await?;
+            fcs.update(&l2);
+            len |= (l2[0] as usize) << 7;
         };
 
         Ok(Self {
@@ -575,22 +620,16 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
     }
 
     pub(crate) async fn read_information<'d>(mut self) -> Result<Information<'d>, Error> {
-        let fcs_over_data = match self.frame_type {
-            FrameType::Ui => true,
-            FrameType::Uih => false,
-            _ => return Err(Error::UnexpectedFrameType),
-        };
-
         assert!(self.len <= 24);
 
         let mut buf = [0u8; 24];
         Self::read_exact(self.reader, &mut buf[..self.len]).await?;
 
-        if fcs_over_data {
+        if self.frame_type == FrameType::Ui {
             self.fcs.update(&buf[..self.len]);
         }
 
-        let info = Information::parse(&buf[..self.len]).unwrap();
+        let info = Information::parse(&buf[..self.len])?;
 
         // Make sure we cannot call this twice, or call `copy`, to over-read data
         self.len = 0;
@@ -607,7 +646,9 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
                 panic!("EOF");
             }
             let n = buf.len().min(self.len);
-            w.write_all(&buf[..n]).await.map_err(|e| Error::Write(e.kind()))?;
+
+            // FIXME: This should be re-written in a way that allows us to set channel flowcontrol if `w` cannot receive more bytes
+            let n = w.write(&buf[..n]).await.map_err(|e| Error::Write(e.kind()))?;
             self.reader.consume(n);
             self.len -= n;
         }
@@ -625,6 +666,7 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
                 panic!("EOF");
             }
             let n = buf.len().min(self.len);
+            warn!("Discarding {} bytes of data in {:?}", n, self.frame_type);
             self.reader.consume(n);
             self.len -= n;
         }
@@ -653,6 +695,8 @@ pub trait Frame {
     const FRAME_TYPE: FrameType;
 
     fn cr(&self) -> u8;
+    fn pf(&self) -> u8;
+
     fn id(&self) -> u8;
 
     fn information(&self) -> Option<&Information> {
@@ -660,33 +704,37 @@ pub trait Frame {
     }
 
     async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error> {
-        let information_len = if let Some(info) = self.information() {
-            info.max_data_len()
-        } else {
-            0
-        };
+        let information_len = self.information().map_or(0, |i| i.wire_len());
 
-        let fcs = if information_len > 127 {
-            let [b1, b2] = ((information_len as u16) << 1).to_le_bytes();
+        trace!(
+            "TxHeader {{ id: {}, frame_type: {:?}, len: {}}}",
+            self.id(),
+            Self::FRAME_TYPE,
+            information_len
+        );
 
+        let fcs = if information_len < 128 {
             let header = [
                 FLAG,
                 self.id() << 2 | EA | self.cr(),
-                Self::FRAME_TYPE as u8 | PF,
-                b1,
-                b2,
+                Self::FRAME_TYPE as u8 | self.pf(),
+                (information_len as u8) << 1 | EA,
             ];
 
             writer.write_all(&header).await.map_err(|e| Error::Write(e.kind()))?;
 
             0xFF - FCS.checksum(&header[1..])
         } else {
+            let [b1, b2] = ((information_len as u16) << 1).to_le_bytes();
+
             let header = [
                 FLAG,
                 self.id() << 2 | EA | self.cr(),
-                Self::FRAME_TYPE as u8 | PF,
-                (information_len as u8) << 1 | EA,
+                Self::FRAME_TYPE as u8 | self.pf(),
+                b1,
+                b2,
             ];
+
             writer.write_all(&header).await.map_err(|e| Error::Write(e.kind()))?;
 
             0xFF - FCS.checksum(&header[1..])
@@ -719,6 +767,10 @@ impl Frame for Sabm {
         CR::Command as u8
     }
 
+    fn pf(&self) -> u8 {
+        PF::Poll as u8
+    }
+
     fn id(&self) -> u8 {
         self.id
     }
@@ -726,7 +778,6 @@ impl Frame for Sabm {
 
 /// Unnumbered information with header check (UIH) command and response
 pub struct Uih<'d> {
-    pub cr: CR,
     pub id: u8,
     pub information: Information<'d>,
 }
@@ -735,11 +786,15 @@ impl<'d> Frame for Uih<'d> {
     const FRAME_TYPE: FrameType = FrameType::Uih;
 
     fn cr(&self) -> u8 {
-        self.cr as u8
+        CR::Command as u8
     }
 
     fn id(&self) -> u8 {
         self.id
+    }
+
+    fn pf(&self) -> u8 {
+        PF::Final as u8
     }
 
     fn information(&self) -> Option<&Information> {
@@ -747,10 +802,86 @@ impl<'d> Frame for Uih<'d> {
     }
 }
 
-#[test]
-fn parse_out() {
-    Information::parse(&[
-        0x41, 0x54, 0x44, 0x2a, 0x39, 0x39, 0x2a, 0x2a, 0x2a, 0x31, 0x23, 0x0d, 0x0a,
-    ])
-    .unwrap();
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fcs() {
+        assert!(FrameType::Sabm as u8 & PF != PF);
+        assert_eq!(FrameType::Sabm as u8 | PF, 0x3F);
+        assert_eq!(FrameType::Uih as u8, 0xEF);
+
+        // let mut fcs = FCS.digest();
+        // fcs.update(&[5, 239, 255, 166]);
+        // assert_eq!(fcs.finalize(), GOOD_FCS);
+    }
+
+    #[test]
+    fn read_ea_test() {
+        let tests = [
+            (vec![EA], 0),
+            (vec![0x01 << 1, 0xFE | EA], 255),
+            (vec![0x02 << 1, 0xFE | EA], 255 + 128),
+        ];
+
+        // assert_eq!((0xFE | EA as usize) << 7 | (((0x01 << 1 & !EA) >> 1) as usize), 255);
+
+        for (data, exp) in tests {
+            let mut buf = [0u8; 1024];
+            buf[..data.len()].copy_from_slice(data.as_slice());
+            assert_eq!(read_ea(&buf).len(), exp);
+
+            let header = ((exp as u16) << 1).to_le_bytes();
+
+            let mut len = (header[0] >> 1) as usize;
+            if (header[0] & EA) != EA {
+                len |= (header[1] as usize) << 7;
+            };
+
+            assert_eq!(len, exp);
+        }
+    }
+
+    #[cfg(test)]
+    #[tokio::test]
+    async fn msc() {
+        let buf = &mut [0u8; 32];
+        let mut w = &mut buf[..];
+
+        ModemStatusCommand {
+            cr: CR::Command,
+            dlci: 2,
+            control: Control::new(),
+            brk: Some(Break::new()),
+        }
+        .write(&mut w)
+        .await
+        .unwrap();
+
+        assert_eq!(&buf[..5], &[0xE3, 0x07, 2 << 2 | 0x03, 0x01, 0x01][..]);
+    }
+
+    #[cfg(test)]
+    #[tokio::test]
+    async fn data_frame() {
+        let buf = &mut [0u8; 32];
+        let mut w = &mut buf[..];
+
+        let data = b"Hello";
+
+        let frame = Uih {
+            id: 2,
+            information: Information::Data(data),
+        };
+
+        frame.write(&mut w).await.unwrap();
+
+        assert_eq!(
+            &buf[..4],
+            &[0xF9, 2 << 2 | CR | EA, 0xEF, (data.len() as u8) << 1 | 1][..]
+        );
+        assert_eq!(&buf[4..4 + data.len()], data);
+        assert_eq!(&buf[4 + data.len()..4 + data.len() + 2], &[0x5D, 0xF9][..]);
+    }
 }

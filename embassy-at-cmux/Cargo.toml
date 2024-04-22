@@ -28,6 +28,9 @@ embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
 
 crc = "3.0"
 
+[dev-dependencies]
+tokio = { version = "1.37", features = ["rt", "macros"] }
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-at-cmux-v$VERSION/embassy-at-cmux/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-at-cmux/src/"

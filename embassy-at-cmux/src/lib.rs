@@ -1,7 +1,7 @@
 //! Implementation of 3GPP TS 27.010 based on
 //! https://www.3gpp.org/ftp/tsg_t/tsg_t/tsgt_04/docs/pdfs/TP-99119.pdf
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 mod fmt;
 mod frame;
@@ -18,12 +18,12 @@ use embassy_sync::pipe::{Pipe, Reader, Writer};
 use embassy_sync::signal::Signal;
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_io_async::{BufRead, Error, ErrorType, Read, Write};
+pub use frame::{Break, Control};
+use frame::{Frame, Information, ModemStatusCommand};
 use futures::FutureExt;
 use heapless::Vec;
 
-use frame::{Frame, Information, ModemStatusCommand, NonSupportedCommandResponse, CR};
-
-pub use frame::{Break, Control};
+use crate::frame::{FrameType, NonSupportedCommandResponse};
 
 struct Lines {
     rx: Cell<(Control, Option<Break>)>,
@@ -45,18 +45,17 @@ impl Lines {
     }
 
     fn check_hangup(&self) {
-        if let Some((mask, val)) = self.hangup_mask.get() {
-            // FIXME:
-            // if self.rx.get() & mask == val & mask {
-            //     if !self.hangup.get() {
-            //         warn!("HANGUP detected!");
-            //         // self.hangup_waker.wake();
-            //     }
-            //     // self.hangup.set(true);
-            // }
-        } else {
-            self.hangup.set(false);
+        // if let Some((mask, val)) = self.hangup_mask.get() {
+        if !self.rx.get().0.dv() {
+            if !self.hangup.get() {
+                warn!("HANGUP detected!");
+                // self.hangup_waker.wake();
+            }
+            // self.hangup.set(true);
         }
+        // } else {
+        //     self.hangup.set(false);
+        // }
     }
 }
 
@@ -153,11 +152,20 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
             sabm.write(&mut port_w).await.unwrap();
 
             // Read response
-            let header = frame::RxHeader::read(&mut port_r).await.unwrap();
-            trace!("RX header {:?}", header);
+            for _ in 0..5 {
+                let header = frame::RxHeader::read(&mut port_r).await.unwrap();
+                trace!("RX header {:?}", header);
 
-            if let Err(e) = header.finalize().await {
-                warn!("bad open channel resp: {:?}", e);
+                if header.frame_type == FrameType::Ua && header.id() == id {
+                    if let Err(e) = header.finalize().await {
+                        warn!("bad open channel resp: {:?}", e);
+                    }
+                    break;
+                }
+                warn!("Got unexpected packet during channel open: {:?}", header);
+                if let Err(e) = header.finalize().await {
+                    warn!("bad open channel resp: {:?}", e);
+                }
             }
         }
 
@@ -172,6 +180,7 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
         let tx_fut = async {
             let mut line_tx_sent = [(Control::default(), None); N];
+            let mut line_rx_sent = [(Control::default(), None); N];
             loop {
                 let mut futs: Vec<_, N> = Vec::new();
                 for c in &mut self.tx {
@@ -181,11 +190,16 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
                 match select(select_slice(&mut futs), self.line_status_updated.wait()).await {
                     Either::First((buf, i)) => {
+                        let (control, _) = self.lines[i].tx.get();
+                        if control.fc() {
+                            warn!("Channel {} TX flow controlled!", i + 1);
+                            continue;
+                        }
+
                         let len = buf.len().min(max_frame_size);
 
                         let frame = frame::Uih {
                             id: i as u8 + 1,
-                            cr: frame::CR::Command,
                             information: Information::Data(&buf[..len]),
                         };
 
@@ -197,17 +211,36 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                     }
                     Either::Second(()) => {
                         for i in 0..N {
-                            let id = i as u8 + 1;
                             let (control, brk) = self.lines[i].tx.get();
                             if (control, brk) != line_tx_sent[i] {
                                 line_tx_sent[i] = (control, brk);
 
+                                info!("Sending new TX signals");
+
                                 let frame = frame::Uih {
                                     id: 0,
-                                    cr: frame::CR::Command,
                                     information: Information::ModemStatusCommand(ModemStatusCommand {
-                                        cr: CR::Command,
-                                        dlci: id,
+                                        cr: frame::CR::Command,
+                                        dlci: i as u8 + 1,
+                                        control,
+                                        brk,
+                                    }),
+                                };
+                                frame.write(&mut port_w).await.unwrap();
+                            }
+
+                            // Send ack message with `CR::Response`
+                            let (control, brk) = self.lines[i].rx.get();
+                            if (control, brk) != line_rx_sent[i] {
+                                line_rx_sent[i] = (control, brk);
+
+                                info!("Acknowledging new RX signals");
+
+                                let frame = frame::Uih {
+                                    id: 0,
+                                    information: Information::ModemStatusCommand(ModemStatusCommand {
+                                        cr: frame::CR::Response,
+                                        dlci: i as u8 + 1,
                                         control,
                                         brk,
                                     }),
@@ -242,18 +275,27 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                                 }
                                 Information::ModemStatusCommand(msc) => {
                                     let lines = &self.lines[msc.dlci as usize - 1];
+                                    let new_control = msc.control.with_ea(false);
+                                    let new_brk = msc.brk.map(|b| b.with_ea(false));
                                     debug!(
-                                        "channel {:?} lines rx: {} -> {}",
+                                        "channel {:?} lines rx: {:?} -> {:?}",
                                         msc.dlci,
                                         lines.rx.get(),
-                                        (msc.control, msc.brk)
+                                        (new_control, new_brk)
                                     );
 
-                                    lines.rx.set((msc.control, msc.brk));
+                                    // Modem is telling us something abount
+                                    // channel `msc.dlci`.
+                                    //
+                                    // We need to ack this message by sending
+                                    // `MSC` with the same payload, but
+                                    // `CR::Response`.
+                                    lines.rx.set((new_control, new_brk));
+                                    self.line_status_updated.signal(());
                                     lines.check_hangup();
                                 }
                                 n => {
-                                    warn!("Unknown command {:?} from the control channel", n);
+                                    warn!("Unknown command {:?} for the control channel", n);
 
                                     // Send `InformationType::NonSupportedCommandResponse`
 
@@ -287,7 +329,16 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                     } else {
                         // data from logical channel
                         let id = header.id() as usize - 1;
-                        header.copy(&mut self.rx[id]).await.unwrap();
+                        match header.copy(&mut self.rx[id]).await {
+                            Ok(_) => {}
+                            // TODO: Only set FC for buffer full errors
+                            Err(_) => {
+                                // let lines = &self.lines[id];
+                                // let (ctrl, brk) = lines.tx.get();
+                                // lines.tx.set((ctrl.with_fc(true), brk));
+                                // self.line_status_updated.signal(());
+                            }
+                        }
                     }
                 } else {
                     header.finalize().await.unwrap();
