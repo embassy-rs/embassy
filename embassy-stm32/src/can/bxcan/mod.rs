@@ -191,6 +191,7 @@ impl<'d, T: Instance> Can<'d, T> {
                 w.set_bofie(true);
                 w.set_epvie(true);
                 w.set_ewgie(true);
+                w.set_lecie(true);
             });
 
             T::regs().mcr().write(|w| {
