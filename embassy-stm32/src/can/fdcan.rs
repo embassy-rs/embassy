@@ -859,9 +859,17 @@ impl<T: Instance> Properties<T> {
         T::registers().regs.ecr().read().tec()
     }
 
-    /// Get the current Bus-Off state
-    pub fn bus_off(&self) -> bool {
-        T::registers().regs.psr().read().bo()
+    /// Get the current bus error mode
+    pub fn bus_error_mode(&self) -> BusErrorMode {
+        // This read will clear LEC and DLEC. This is not ideal, but protocol
+        // error reporting in this driver should have a big ol' FIXME on it
+        // anyway!
+        let psr = T::regs().psr().read();
+        match (psr.bo(), psr.ep()) {
+            (false, false) => BusErrorMode::ErrorActive,
+            (false, true) => BusErrorMode::ErrorPassive,
+            (true, _) => BusErrorMode::BusOff,
+        }
     }
 }
 
