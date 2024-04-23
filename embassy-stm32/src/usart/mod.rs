@@ -1222,6 +1222,13 @@ impl<'d, T: BasicInstance, M: Mode> Uart<'d, T, M> {
     pub fn split(self) -> (UartTx<'d, T, M>, UartRx<'d, T, M>) {
         (self.tx, self.rx)
     }
+
+    /// Perform a blocking UART write and block until transmission complete
+    pub fn blocking_write_and_flush(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.blocking_write(buffer)?;
+        self.tx.blocking_flush()?;
+        Ok(())
+    }
 }
 
 fn reconfigure<T: BasicInstance>(config: &Config) -> Result<(), ConfigError> {
