@@ -289,7 +289,7 @@ pub struct Can<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Can<'d, T> {
-    /// Get properties
+    /// Get driver properties
     pub fn properties(&self) -> &Properties<T> {
         &self.properties
     }
@@ -338,7 +338,7 @@ impl<'d, T: Instance> Can<'d, T> {
         T::state().rx_mode.read_fd::<T>().await
     }
 
-    /// Split instance into separate Tx(write) and Rx(read) portions
+    /// Split instance into separate portions: Tx(write), Rx(read), common properties
     pub fn split(self) -> (CanTx<'d, T>, CanRx<'d, T>, Properties<T>) {
         (
             CanTx {
