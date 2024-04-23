@@ -1,5 +1,4 @@
 use core::slice;
-use core::sync::atomic::AtomicBool;
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
