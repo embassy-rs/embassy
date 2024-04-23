@@ -449,6 +449,13 @@ impl<'d, T: BasicInstance, M: Mode> UartTx<'d, T, M> {
         while !sr(r).read().tc() {}
         Ok(())
     }
+
+    /// Perform a blocking UART write and block until transmission complete
+    pub fn blocking_write_and_flush(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.blocking_write(buffer)?;
+        self.blocking_flush()?;
+        Ok(())
+    }
 }
 
 impl<'d, T: BasicInstance> UartRx<'d, T, Async> {
