@@ -1,26 +1,73 @@
+use core::cell::RefCell;
 use core::cmp;
 use core::future::poll_fn;
 use core::task::Poll;
+use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
+#[cfg(feature = "time")]
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
+use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(feature = "time")]
+use embassy_time::{Duration, Instant};
+#[cfg(feature = "time")]
+use futures::task::Poll;
 
 use super::*;
+use super::v2slave::{SlaveState, SlaveTransaction, SLAVE_QUEUE_DEPTH};
+use crate::dma::NoDma;
+#[cfg(feature = "time")]
+use crate::dma::Transfer;
+use crate::gpio::sealed::AFType;
+use crate::gpio::Pull;
+use crate::i2c::{Address2Mask, Error, Instance, SclPin, SdaPin};
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2c;
+use crate::time::Hertz;
+use crate::{interrupt, Peripheral};
 
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
-    let regs = T::regs();
-    let isr = regs.isr().read();
+	T::state().mutex.lock(|f| {
+	    let regs = T::regs();
+	    let mut state_m = f.borrow_mut();
+	    if state_m.slave_mode {
+		I2c::<'_, T, NoDma, NoDma>::slave_interupt_handler(&mut state_m, &regs)
+	    } else {
+		let isr = regs.isr().read();
+		if isr.tcr() || isr.tc() {
+		    T::state().waker.wake();
+		}
+	    }
+	}); // end of mutex
 
-    if isr.tcr() || isr.tc() {
-        T::state().waker.wake();
-    }
-    // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
+`    // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
     // the interrupt
     critical_section::with(|_| {
         regs.cr1().modify(|w| w.set_tcie(false));
     });
+}
+ 
+pub struct State {
+    pub(crate) waker: AtomicWaker,
+    pub(crate) channel_out: Channel<CriticalSectionRawMutex, SlaveTransaction, SLAVE_QUEUE_DEPTH>,
+    pub(crate) channel_in: Channel<CriticalSectionRawMutex, SlaveTransaction, SLAVE_QUEUE_DEPTH>,
+    pub(crate) mutex: Mutex<CriticalSectionRawMutex, RefCell<SlaveState>>,
+}
+
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+            channel_out: Channel::new(),
+            channel_in: Channel::new(),
+            mutex: Mutex::new(RefCell::new(SlaveState::new())),
+        }
+    }
 }
 
 impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
@@ -42,7 +89,39 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
 
         T::regs().cr1().modify(|reg| {
             reg.set_pe(true);
+            reg.set_nostretch(false);
+            reg.set_sbc(true);
         });
+        if config.slave_address_1 > 0 {
+            T::regs().oar1().write(|reg| {
+                reg.set_oa1en(false);
+            });
+            let (mode, address) = if config.address_11bits {
+                (i2c::vals::Addmode::BIT10, config.slave_address_1)
+            } else {
+                (i2c::vals::Addmode::BIT7, config.slave_address_1 << 1)
+            };
+            T::regs().oar1().write(|reg| {
+                reg.set_oa1(address);
+                reg.set_oa1mode(mode);
+                reg.set_oa1en(true);
+            });
+            T::state().mutex.lock(|f| {
+                let mut state_m = f.borrow_mut();
+                state_m.address1 = config.slave_address_1;
+            });
+        }
+
+        if config.slave_address_2 > 0 {
+            T::regs().oar2().write(|reg| {
+                reg.set_oa2en(false);
+            });
+            T::regs().oar2().write(|reg| {
+                reg.set_oa2msk(config.slave_address_mask.to_vals_impl());
+                reg.set_oa2(config.slave_address_2);
+                reg.set_oa2en(true);
+            });
+        }
     }
 
     fn master_stop(&mut self) {
