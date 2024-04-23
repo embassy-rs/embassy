@@ -67,7 +67,7 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    let (mut tx, mut rx) = can.split();
+    let (mut tx, mut rx, _props) = can.split();
     // With split
     loop {
         let frame = can::frame::Frame::new_extended(0x123456F, &[i; 8]).unwrap();
