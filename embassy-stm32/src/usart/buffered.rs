@@ -2,6 +2,7 @@ use core::slice;
 use core::sync::atomic::AtomicBool;
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
+#[allow(unused_imports)]
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
