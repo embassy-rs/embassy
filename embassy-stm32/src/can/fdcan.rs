@@ -851,12 +851,12 @@ impl<T: Instance> Properties<T> {
 
     /// Get the CAN RX error counter
     pub fn rx_error_count(&self) -> u8 {
-        T::registers().regs.ecr().read().rec()
+        T::regs().ecr().read().rec()
     }
 
     /// Get the CAN TX error counter
     pub fn tx_error_count(&self) -> u8 {
-        T::registers().regs.ecr().read().tec()
+        T::regs().ecr().read().tec()
     }
 
     /// Get the current bus error mode
