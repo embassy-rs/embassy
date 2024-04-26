@@ -7,6 +7,7 @@
 mod fmt;
 
 use core::cell::UnsafeCell;
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use core::task::Poll;
@@ -16,7 +17,6 @@ use embassy_usb_driver::{
     Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut,
     EndpointType, Event, Unsupported,
 };
-use futures::future::poll_fn;
 
 pub mod otg_v1;
 

@@ -8,8 +8,6 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-usb-synopsys-otg"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-synopsys-otg-v$VERSION/embassy-usb-synopsys-otg/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-synopsys-otg/src/"
@@ -18,7 +16,6 @@ target = "thumbv7em-none-eabi"
 
 [dependencies]
 critical-section = "1.1"
-futures = { version = "0.3.17", default-features = false }
 
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
