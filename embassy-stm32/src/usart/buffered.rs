@@ -1,10 +1,23 @@
+use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::AtomicBool;
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::Poll;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
+use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::*;
+#[cfg(not(any(usart_v1, usart_v2)))]
+use super::DePin;
+use super::{
+    clear_interrupt_flags, configure, rdr, reconfigure, sr, tdr, BasicInstance, Config, ConfigError, CtsPin, Error,
+    RtsPin, RxPin, TxPin,
+};
+use crate::gpio::AFType;
+use crate::interrupt;
+use crate::interrupt::typelevel::Interrupt;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: BasicInstance> {

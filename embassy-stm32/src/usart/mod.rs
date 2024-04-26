@@ -9,7 +9,7 @@ use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralRef;
 use embassy_sync::waitqueue::AtomicWaker;
 use futures::future::{select, Either};
 
