@@ -22,3 +22,6 @@ features = ["defmt"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
+
+[dev-dependencies]
+embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
