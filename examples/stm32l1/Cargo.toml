@@ -10,6 +10,7 @@ embassy-executor = { version = "0.5.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = [ "defmt", "stm32l151cb-a", "time-driver-any", "memory-x"]  }
 embassy-usb = { version = "0.2.0", path = "../../embassy-usb", features = ["defmt"] }
+embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -18,7 +19,6 @@ cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-sing
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.8", default-features = false }
 embedded-storage = "0.3.1"
 

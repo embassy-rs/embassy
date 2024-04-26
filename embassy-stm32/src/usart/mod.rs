@@ -11,7 +11,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::PeripheralRef;
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::{select, Either};
+use futures_util::future::{select, Either};
 
 use crate::dma::ChannelAndRequest;
 use crate::gpio::{AFType, AnyPin, SealedPin};

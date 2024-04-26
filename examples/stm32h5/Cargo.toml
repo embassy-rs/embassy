@@ -12,6 +12,7 @@ embassy-executor = { version = "0.5.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "proto-ipv6"] }
 embassy-usb = { version = "0.2.0", path = "../../embassy-usb", features = ["defmt"] }
+embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -24,7 +25,6 @@ embedded-hal-async = { version = "1.0" }
 embedded-io-async = { version = "0.6.1" }
 embedded-nal-async = { version = "0.7.1" }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.8", default-features = false }
 rand_core = "0.6.3"
 critical-section = "1.1"
