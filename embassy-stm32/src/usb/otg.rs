@@ -280,7 +280,6 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
     }
 
     async fn disable(&mut self) {
-        Bus::disable(self);
         // NOTE: inner call is a no-op
         self.inner.disable().await
     }
@@ -291,7 +290,9 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
 }
 
 impl<'d, T: Instance> Drop for Bus<'d, T> {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        Bus::disable(self);
+    }
 }
 
 trait SealedInstance {
