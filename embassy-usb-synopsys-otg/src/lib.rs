@@ -276,7 +276,7 @@ impl Default for Config {
     }
 }
 
-/// USB driver.
+/// USB OTG driver.
 pub struct Driver<'d> {
     config: Config,
     ep_in: [Option<EndpointData>; MAX_EP_COUNT],
@@ -287,13 +287,15 @@ pub struct Driver<'d> {
 }
 
 impl<'d> Driver<'d> {
-    /// Initializes USB OTG peripheral.
+    /// Initializes the USB OTG peripheral.
     ///
     /// # Arguments
     ///
     /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
     /// Must be large enough to fit all OUT endpoint max packet sizes.
     /// Endpoint allocation will fail if it is too small.
+    /// * `instance` - The USB OTG peripheral instance and its configuration.
+    /// * `config` - The USB driver configuration.
     pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d>, config: Config) -> Self {
         Self {
             config,
@@ -305,13 +307,13 @@ impl<'d> Driver<'d> {
         }
     }
 
-    // Returns total amount of words (u32) allocated in dedicated FIFO
+    /// Returns the total amount of words (u32) allocated in dedicated FIFO.
     fn allocated_fifo_words(&self) -> u16 {
         self.instance.extra_rx_fifo_words + ep_fifo_size(&self.ep_out) + ep_fifo_size(&self.ep_in)
     }
 
     /// Creates an [`Endpoint`] with the given parameters.
-    pub fn alloc_endpoint<D: Dir>(
+    fn alloc_endpoint<D: Dir>(
         &mut self,
         ep_type: EndpointType,
         max_packet_size: u16,
@@ -919,7 +921,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
 }
 
 /// USB endpoint direction.
-pub trait Dir {
+trait Dir {
     /// Returns the direction value.
     fn dir() -> Direction;
 }
@@ -1279,7 +1281,7 @@ fn ep0_mpsiz(max_packet_size: u16) -> u16 {
 // Using OtgInstance::ENDPOINT_COUNT requires feature(const_generic_expr) so just define maximum eps
 pub const MAX_EP_COUNT: usize = 9;
 
-/// USB instance.
+/// Hardware-dependent USB IP configuration.
 pub struct OtgInstance<'d> {
     /// The USB peripheral.
     pub regs: Otg,

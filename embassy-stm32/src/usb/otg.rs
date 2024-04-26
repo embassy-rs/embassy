@@ -161,7 +161,7 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.inner.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.inner.alloc_endpoint_in(ep_type, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
@@ -170,7 +170,7 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.inner.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.inner.alloc_endpoint_out(ep_type, max_packet_size, interval_ms)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
