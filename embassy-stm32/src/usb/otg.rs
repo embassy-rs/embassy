@@ -245,6 +245,7 @@ impl<'d, T: Instance> Bus<'d, T> {
         T::Interrupt::disable();
 
         <T as SealedRccPeripheral>::disable();
+        self.inited = false;
 
         #[cfg(stm32l4)]
         crate::pac::PWR.cr2().modify(|w| w.set_usv(false));
