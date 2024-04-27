@@ -926,8 +926,9 @@ impl<'d, T: BasicInstance> Uart<'d, T, Async> {
 
     /// Create a single-wire half-duplex Uart transceiver on a single Tx pin.
     ///
-    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin.
-    /// There is no functional difference between these methods, as both allow bidirectional communication.
+    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin
+    /// (when it is available for your chip). There is no functional difference between these methods, as both
+    /// allow bidirectional communication.
     ///
     /// The pin is always released when no data is transmitted. Thus, it acts as a standard
     /// I/O in idle or in reception.
@@ -1079,8 +1080,9 @@ impl<'d, T: BasicInstance> Uart<'d, T, Blocking> {
 
     /// Create a single-wire half-duplex Uart transceiver on a single Tx pin.
     ///
-    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin.
-    /// There is no functional difference between these methods, as both allow bidirectional communication.
+    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin
+    /// (when it is available for your chip). There is no functional difference between these methods, as both
+    /// allow bidirectional communication.
     ///
     /// The pin is always released when no data is transmitted. Thus, it acts as a standard
     /// I/O in idle or in reception.
