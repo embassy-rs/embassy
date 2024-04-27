@@ -6,7 +6,10 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_rp::pwm::{builder::PeripheralsExt, enable_pwm_slices, AsPwmSlice, Frequency};
+use embassy_rp::pwm::{
+    builder::PeripheralsExt,
+    v2::{enable_pwm_slices, AsPwmSlice as _, Frequency},
+};
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -16,13 +19,13 @@ async fn main(_spawner: Spawner) {
     let peripherals = embassy_rp::init(Default::default());
 
     // Initialize PWM slice 0 as a free-running PWM with a frequency of 100 kHz.
-    let mut slice0 = peripherals
+    let slice0 = peripherals
         .pwm_0()
         .free_running()
         .frequency(Frequency::KHz(100.0))
         .with_channel_a(&peripherals.PIN_0, |a| a.duty_cycle(100.0).invert(true))
         .with_channel_b(&peripherals.PIN_1, |b| b.duty_cycle(50.0))
-        .configure();
+        .apply();
 
     // Alternative syntax:
     // let mut slice0 = PwmSlice::builder(peripherals.PWM_SLICE_0)
@@ -36,7 +39,7 @@ async fn main(_spawner: Spawner) {
         .divider(5, 0)
         .with_input(&peripherals.PIN_3)
         .with_output(&peripherals.PIN_2)
-        .configure();
+        .apply();
 
     // Enable multiple slices simultaneously...
     enable_pwm_slices(|slices| slices.slice_0().slice_1());
