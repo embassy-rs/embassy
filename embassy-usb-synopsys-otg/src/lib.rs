@@ -61,7 +61,7 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: us
                     data[0..4].copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
                     data[4..8].copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
                     state.ep0_setup_ready.store(true, Ordering::Release);
-                    state.ep_out_wakers[0].wake();
+                    state.ep_states[0].out_waker.wake();
                 } else {
                     error!("received SETUP before previous finished processing");
                     // discard FIFO
@@ -72,10 +72,11 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: us
             vals::Pktstsd::OUT_DATA_RX => {
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
 
-                if state.ep_out_size[ep_num].load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
+                if state.ep_states[ep_num].out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
                     // SAFETY: Buffer size is allocated to be equal to endpoint's maximum packet size
                     // We trust the peripheral to not exceed its configured MPSIZ
-                    let buf = unsafe { core::slice::from_raw_parts_mut(*state.ep_out_buffers[ep_num].get(), len) };
+                    let buf =
+                        unsafe { core::slice::from_raw_parts_mut(*state.ep_states[ep_num].out_buffer.get(), len) };
 
                     for chunk in buf.chunks_mut(4) {
                         // RX FIFO is shared so always read from fifo(0)
@@ -83,8 +84,8 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: us
                         chunk.copy_from_slice(&data.to_ne_bytes()[0..chunk.len()]);
                     }
 
-                    state.ep_out_size[ep_num].store(len as u16, Ordering::Release);
-                    state.ep_out_wakers[ep_num].wake();
+                    state.ep_states[ep_num].out_size.store(len as u16, Ordering::Release);
+                    state.ep_states[ep_num].out_waker.wake();
                 } else {
                     error!("ep_out buffer overflow index={}", ep_num);
 
@@ -132,7 +133,7 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: us
                     });
                 }
 
-                state.ep_in_wakers[ep_num].wake();
+                state.ep_states[ep_num].in_waker.wake();
                 trace!("in ep={} irq val={:08x}", ep_num, ep_ints.0);
             }
 
@@ -206,17 +207,21 @@ impl PhyType {
 /// Indicates that [State::ep_out_buffers] is empty.
 const EP_OUT_BUFFER_EMPTY: u16 = u16::MAX;
 
+struct EpState {
+    in_waker: AtomicWaker,
+    out_waker: AtomicWaker,
+    /// RX FIFO is shared so extra buffers are needed to dequeue all data without waiting on each endpoint.
+    /// Buffers are ready when associated [State::ep_out_size] != [EP_OUT_BUFFER_EMPTY].
+    out_buffer: UnsafeCell<*mut u8>,
+    out_size: AtomicU16,
+}
+
 /// USB OTG driver state.
 pub struct State<const EP_COUNT: usize> {
     /// Holds received SETUP packets. Available if [State::ep0_setup_ready] is true.
     ep0_setup_data: UnsafeCell<[u8; 8]>,
     ep0_setup_ready: AtomicBool,
-    ep_in_wakers: [AtomicWaker; EP_COUNT],
-    ep_out_wakers: [AtomicWaker; EP_COUNT],
-    /// RX FIFO is shared so extra buffers are needed to dequeue all data without waiting on each endpoint.
-    /// Buffers are ready when associated [State::ep_out_size] != [EP_OUT_BUFFER_EMPTY].
-    ep_out_buffers: [UnsafeCell<*mut u8>; EP_COUNT],
-    ep_out_size: [AtomicU16; EP_COUNT],
+    ep_states: [EpState; EP_COUNT],
     bus_waker: AtomicWaker,
 }
 
@@ -229,14 +234,17 @@ impl<const EP_COUNT: usize> State<EP_COUNT> {
         const NEW_AW: AtomicWaker = AtomicWaker::new();
         const NEW_BUF: UnsafeCell<*mut u8> = UnsafeCell::new(0 as _);
         const NEW_SIZE: AtomicU16 = AtomicU16::new(EP_OUT_BUFFER_EMPTY);
+        const NEW_EP_STATE: EpState = EpState {
+            in_waker: NEW_AW,
+            out_waker: NEW_AW,
+            out_buffer: NEW_BUF,
+            out_size: NEW_SIZE,
+        };
 
         Self {
             ep0_setup_data: UnsafeCell::new([0u8; 8]),
             ep0_setup_ready: AtomicBool::new(false),
-            ep_in_wakers: [NEW_AW; EP_COUNT],
-            ep_out_wakers: [NEW_AW; EP_COUNT],
-            ep_out_buffers: [NEW_BUF; EP_COUNT],
-            ep_out_size: [NEW_SIZE; EP_COUNT],
+            ep_states: [NEW_EP_STATE; EP_COUNT],
             bus_waker: NEW_AW,
         }
     }
@@ -380,7 +388,7 @@ impl<'d> Driver<'d> {
         if D::dir() == Direction::Out {
             // Buffer capacity check was done above, now allocation cannot fail
             unsafe {
-                *self.instance.state.ep_out_buffers[index].get() =
+                *self.instance.state.ep_states[index].out_buffer.get() =
                     self.ep_out_buffer.as_mut_ptr().offset(self.ep_out_buffer_offset as _);
             }
             self.ep_out_buffer_offset += max_packet_size as usize;
@@ -811,7 +819,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     });
                 });
 
-                state.ep_out_wakers[ep_addr.index()].wake();
+                state.ep_states[ep_addr.index()].out_waker.wake();
             }
             Direction::In => {
                 critical_section::with(|_| {
@@ -820,7 +828,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     });
                 });
 
-                state.ep_in_wakers[ep_addr.index()].wake();
+                state.ep_states[ep_addr.index()].in_waker.wake();
             }
         }
     }
@@ -879,7 +887,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 });
 
                 // Wake `Endpoint::wait_enabled()`
-                state.ep_out_wakers[ep_addr.index()].wake();
+                state.ep_states[ep_addr.index()].out_waker.wake();
             }
             Direction::In => {
                 critical_section::with(|_| {
@@ -898,7 +906,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 });
 
                 // Wake `Endpoint::wait_enabled()`
-                state.ep_in_wakers[ep_addr.index()].wake();
+                state.ep_states[ep_addr.index()].in_waker.wake();
             }
         }
     }
@@ -959,7 +967,7 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, In> {
         poll_fn(|cx| {
             let ep_index = self.info.addr.index();
 
-            self.state.ep_in_wakers[ep_index].register(cx.waker());
+            self.state.ep_states[ep_index].in_waker.register(cx.waker());
 
             if self.regs.diepctl(ep_index).read().usbaep() {
                 Poll::Ready(())
@@ -980,7 +988,7 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, Out> {
         poll_fn(|cx| {
             let ep_index = self.info.addr.index();
 
-            self.state.ep_out_wakers[ep_index].register(cx.waker());
+            self.state.ep_states[ep_index].out_waker.register(cx.waker());
 
             if self.regs.doepctl(ep_index).read().usbaep() {
                 Poll::Ready(())
@@ -998,7 +1006,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
 
         poll_fn(|cx| {
             let index = self.info.addr.index();
-            self.state.ep_out_wakers[index].register(cx.waker());
+            self.state.ep_states[index].out_waker.register(cx.waker());
 
             let doepctl = self.regs.doepctl(index).read();
             trace!("read ep={:?}: doepctl {:08x}", self.info.addr, doepctl.0,);
@@ -1007,7 +1015,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                 return Poll::Ready(Err(EndpointError::Disabled));
             }
 
-            let len = self.state.ep_out_size[index].load(Ordering::Relaxed);
+            let len = self.state.ep_states[index].out_size.load(Ordering::Relaxed);
             if len != EP_OUT_BUFFER_EMPTY {
                 trace!("read ep={:?} done len={}", self.info.addr, len);
 
@@ -1017,11 +1025,13 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
 
                 // SAFETY: exclusive access ensured by `ep_out_size` atomic variable
                 let data =
-                    unsafe { core::slice::from_raw_parts(*self.state.ep_out_buffers[index].get(), len as usize) };
+                    unsafe { core::slice::from_raw_parts(*self.state.ep_states[index].out_buffer.get(), len as usize) };
                 buf[..len as usize].copy_from_slice(data);
 
                 // Release buffer
-                self.state.ep_out_size[index].store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
+                self.state.ep_states[index]
+                    .out_size
+                    .store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
 
                 critical_section::with(|_| {
                     // Receive 1 packet
@@ -1056,7 +1066,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
         let index = self.info.addr.index();
         // Wait for previous transfer to complete and check if endpoint is disabled
         poll_fn(|cx| {
-            self.state.ep_in_wakers[index].register(cx.waker());
+            self.state.ep_states[index].in_waker.register(cx.waker());
 
             let diepctl = self.regs.diepctl(index).read();
             let dtxfsts = self.regs.dtxfsts(index).read();
@@ -1081,7 +1091,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
 
         if buf.len() > 0 {
             poll_fn(|cx| {
-                self.state.ep_in_wakers[index].register(cx.waker());
+                self.state.ep_states[index].in_waker.register(cx.waker());
 
                 let size_words = (buf.len() + 3) / 4;
 
@@ -1153,7 +1163,7 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
 
     async fn setup(&mut self) -> [u8; 8] {
         poll_fn(|cx| {
-            self.ep_out.state.ep_out_wakers[0].register(cx.waker());
+            self.ep_out.state.ep_states[0].out_waker.register(cx.waker());
 
             if self.ep_out.state.ep0_setup_ready.load(Ordering::Relaxed) {
                 let data = unsafe { *self.ep_out.state.ep0_setup_data.get() };
