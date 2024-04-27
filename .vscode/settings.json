@@ -10,25 +10,25 @@
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.showUnlinkedFileNotification": false,
   // uncomment the target of your chip.
-  //"rust-analyzer.cargo.target": "thumbv6m-none-eabi",
+  "rust-analyzer.cargo.target": "thumbv6m-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv7m-none-eabi",
-  "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
+  //"rust-analyzer.cargo.target": "thumbv7em-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
-  "rust-analyzer.cargo.features": [
-    "stm32f446re",
-    "time-driver-any",
-    "unstable-pac",
-    "exti",
-    "rt",
-  ],
+  // "rust-analyzer.cargo.features": [
+  //   "stm32f446re",
+  //   "time-driver-any",
+  //   "unstable-pac",
+  //   "exti",
+  //   "rt",
+  // ],
   "rust-analyzer.linkedProjects": [
     // Uncomment ONE line for the chip you want to work on.
     // This makes rust-analyzer work on the example crate and all its dependencies.
-    "embassy-stm32/Cargo.toml",
+    //"embassy-stm32/Cargo.toml",
     // "examples/nrf52840-rtic/Cargo.toml",
     // "examples/nrf5340/Cargo.toml",
     // "examples/nrf-rtos-trace/Cargo.toml",
-    // "examples/rp/Cargo.toml",
+    "examples/rp/Cargo.toml",
     // "examples/std/Cargo.toml",
     // "examples/stm32c0/Cargo.toml",
     // "examples/stm32f0/Cargo.toml",
