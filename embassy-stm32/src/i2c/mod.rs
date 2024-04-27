@@ -191,7 +191,7 @@ impl Timeout {
     fn with<R>(self, fut: impl Future<Output = Result<R, Error>>) -> impl Future<Output = Result<R, Error>> {
         #[cfg(feature = "time")]
         {
-            use futures::FutureExt;
+            use futures_util::FutureExt;
 
             embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).map(|r| match r {
                 embassy_futures::select::Either::First(_) => Err(Error::Timeout),

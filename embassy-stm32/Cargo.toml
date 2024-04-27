@@ -50,6 +50,7 @@ embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", fea
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
+embassy-usb-synopsys-otg = {version = "0.1.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.5.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
@@ -66,7 +67,7 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
-futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
+futures-util = { version = "0.3.30", default-features = false }
 rand_core = "0.6.3"
 sdio-host = "0.5.0"
 critical-section = "1.1"
