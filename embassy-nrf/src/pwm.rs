@@ -368,7 +368,7 @@ impl<'s> Sequence<'s> {
 }
 
 /// A single sequence that can be started and stopped.
-/// Takes at one sequence along with its configuration.
+/// Takes one sequence along with its configuration.
 #[non_exhaustive]
 pub struct SingleSequencer<'d, 's, T: Instance> {
     sequencer: Sequencer<'d, 's, T>,
