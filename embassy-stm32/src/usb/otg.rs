@@ -7,13 +7,15 @@ use embassy_usb_synopsys_otg::otg_v1::Otg;
 pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::{
     on_interrupt as on_interrupt_impl, Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out,
-    PhyType, State, MAX_EP_COUNT,
+    PhyType, State,
 };
 
 use crate::gpio::AFType;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{RccPeripheral, SealedRccPeripheral};
+
+const MAX_EP_COUNT: usize = 9;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -54,7 +56,7 @@ const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
 /// USB driver.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    inner: OtgDriver<'d>,
+    inner: OtgDriver<'d, MAX_EP_COUNT>,
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
@@ -190,7 +192,7 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
 /// USB bus.
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    inner: OtgBus<'d>,
+    inner: OtgBus<'d, MAX_EP_COUNT>,
     inited: bool,
 }
 

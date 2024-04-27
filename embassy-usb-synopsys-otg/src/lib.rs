@@ -23,7 +23,12 @@ pub mod otg_v1;
 use otg_v1::{regs, vals, Otg};
 
 /// Handle interrupts.
-pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: usize, quirk_setup_late_cnak: bool) {
+pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
+    r: Otg,
+    state: &State<MAX_EP_COUNT>,
+    ep_count: usize,
+    quirk_setup_late_cnak: bool,
+) {
     let ints = r.gintsts().read();
     if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
         // Mask interrupts and notify `Bus` to process them
@@ -55,13 +60,13 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: us
                     while r.grstctl().read().txfflsh() {}
                 }
 
-                if state.ep0_setup_ready.load(Ordering::Relaxed) == false {
+                if state.cp_state.setup_ready.load(Ordering::Relaxed) == false {
                     // SAFETY: exclusive access ensured by atomic bool
-                    let data = unsafe { &mut *state.ep0_setup_data.get() };
+                    let data = unsafe { &mut *state.cp_state.setup_data.get() };
                     data[0..4].copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
                     data[4..8].copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
-                    state.ep0_setup_ready.store(true, Ordering::Release);
-                    state.ep_out_wakers[0].wake();
+                    state.cp_state.setup_ready.store(true, Ordering::Release);
+                    state.ep_states[0].out_waker.wake();
                 } else {
                     error!("received SETUP before previous finished processing");
                     // discard FIFO
@@ -72,10 +77,11 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: us
             vals::Pktstsd::OUT_DATA_RX => {
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
 
-                if state.ep_out_size[ep_num].load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
+                if state.ep_states[ep_num].out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
                     // SAFETY: Buffer size is allocated to be equal to endpoint's maximum packet size
                     // We trust the peripheral to not exceed its configured MPSIZ
-                    let buf = unsafe { core::slice::from_raw_parts_mut(*state.ep_out_buffers[ep_num].get(), len) };
+                    let buf =
+                        unsafe { core::slice::from_raw_parts_mut(*state.ep_states[ep_num].out_buffer.get(), len) };
 
                     for chunk in buf.chunks_mut(4) {
                         // RX FIFO is shared so always read from fifo(0)
@@ -83,8 +89,8 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: us
                         chunk.copy_from_slice(&data.to_ne_bytes()[0..chunk.len()]);
                     }
 
-                    state.ep_out_size[ep_num].store(len as u16, Ordering::Release);
-                    state.ep_out_wakers[ep_num].wake();
+                    state.ep_states[ep_num].out_size.store(len as u16, Ordering::Release);
+                    state.ep_states[ep_num].out_waker.wake();
                 } else {
                     error!("ep_out buffer overflow index={}", ep_num);
 
@@ -132,7 +138,7 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: us
                     });
                 }
 
-                state.ep_in_wakers[ep_num].wake();
+                state.ep_states[ep_num].in_waker.wake();
                 trace!("in ep={} irq val={:08x}", ep_num, ep_ints.0);
             }
 
@@ -206,17 +212,25 @@ impl PhyType {
 /// Indicates that [State::ep_out_buffers] is empty.
 const EP_OUT_BUFFER_EMPTY: u16 = u16::MAX;
 
-/// USB OTG driver state.
-pub struct State<const EP_COUNT: usize> {
-    /// Holds received SETUP packets. Available if [State::ep0_setup_ready] is true.
-    ep0_setup_data: UnsafeCell<[u8; 8]>,
-    ep0_setup_ready: AtomicBool,
-    ep_in_wakers: [AtomicWaker; EP_COUNT],
-    ep_out_wakers: [AtomicWaker; EP_COUNT],
+struct EpState {
+    in_waker: AtomicWaker,
+    out_waker: AtomicWaker,
     /// RX FIFO is shared so extra buffers are needed to dequeue all data without waiting on each endpoint.
     /// Buffers are ready when associated [State::ep_out_size] != [EP_OUT_BUFFER_EMPTY].
-    ep_out_buffers: [UnsafeCell<*mut u8>; EP_COUNT],
-    ep_out_size: [AtomicU16; EP_COUNT],
+    out_buffer: UnsafeCell<*mut u8>,
+    out_size: AtomicU16,
+}
+
+struct ControlPipeSetupState {
+    /// Holds received SETUP packets. Available if [Ep0State::setup_ready] is true.
+    setup_data: UnsafeCell<[u8; 8]>,
+    setup_ready: AtomicBool,
+}
+
+/// USB OTG driver state.
+pub struct State<const EP_COUNT: usize> {
+    cp_state: ControlPipeSetupState,
+    ep_states: [EpState; EP_COUNT],
     bus_waker: AtomicWaker,
 }
 
@@ -229,14 +243,19 @@ impl<const EP_COUNT: usize> State<EP_COUNT> {
         const NEW_AW: AtomicWaker = AtomicWaker::new();
         const NEW_BUF: UnsafeCell<*mut u8> = UnsafeCell::new(0 as _);
         const NEW_SIZE: AtomicU16 = AtomicU16::new(EP_OUT_BUFFER_EMPTY);
+        const NEW_EP_STATE: EpState = EpState {
+            in_waker: NEW_AW,
+            out_waker: NEW_AW,
+            out_buffer: NEW_BUF,
+            out_size: NEW_SIZE,
+        };
 
         Self {
-            ep0_setup_data: UnsafeCell::new([0u8; 8]),
-            ep0_setup_ready: AtomicBool::new(false),
-            ep_in_wakers: [NEW_AW; EP_COUNT],
-            ep_out_wakers: [NEW_AW; EP_COUNT],
-            ep_out_buffers: [NEW_BUF; EP_COUNT],
-            ep_out_size: [NEW_SIZE; EP_COUNT],
+            cp_state: ControlPipeSetupState {
+                setup_data: UnsafeCell::new([0u8; 8]),
+                setup_ready: AtomicBool::new(false),
+            },
+            ep_states: [NEW_EP_STATE; EP_COUNT],
             bus_waker: NEW_AW,
         }
     }
@@ -277,16 +296,16 @@ impl Default for Config {
 }
 
 /// USB OTG driver.
-pub struct Driver<'d> {
+pub struct Driver<'d, const MAX_EP_COUNT: usize> {
     config: Config,
     ep_in: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out_buffer: &'d mut [u8],
     ep_out_buffer_offset: usize,
-    instance: OtgInstance<'d>,
+    instance: OtgInstance<'d, MAX_EP_COUNT>,
 }
 
-impl<'d> Driver<'d> {
+impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
     /// Initializes the USB OTG peripheral.
     ///
     /// # Arguments
@@ -296,7 +315,7 @@ impl<'d> Driver<'d> {
     /// Endpoint allocation will fail if it is too small.
     /// * `instance` - The USB OTG peripheral instance and its configuration.
     /// * `config` - The USB driver configuration.
-    pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d>, config: Config) -> Self {
+    pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d, MAX_EP_COUNT>, config: Config) -> Self {
         Self {
             config,
             ep_in: [None; MAX_EP_COUNT],
@@ -377,11 +396,11 @@ impl<'d> Driver<'d> {
 
         trace!("  index={}", index);
 
+        let state = &self.instance.state.ep_states[index];
         if D::dir() == Direction::Out {
             // Buffer capacity check was done above, now allocation cannot fail
             unsafe {
-                *self.instance.state.ep_out_buffers[index].get() =
-                    self.ep_out_buffer.as_mut_ptr().offset(self.ep_out_buffer_offset as _);
+                *state.out_buffer.get() = self.ep_out_buffer.as_mut_ptr().offset(self.ep_out_buffer_offset as _);
             }
             self.ep_out_buffer_offset += max_packet_size as usize;
         }
@@ -389,7 +408,7 @@ impl<'d> Driver<'d> {
         Ok(Endpoint {
             _phantom: PhantomData,
             regs: self.instance.regs,
-            state: self.instance.state,
+            state,
             info: EndpointInfo {
                 addr: EndpointAddress::from_parts(index, D::dir()),
                 ep_type,
@@ -400,11 +419,11 @@ impl<'d> Driver<'d> {
     }
 }
 
-impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
+impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d, MAX_EP_COUNT> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
     type ControlPipe = ControlPipe<'d>;
-    type Bus = Bus<'d>;
+    type Bus = Bus<'d, MAX_EP_COUNT>;
 
     fn alloc_endpoint_in(
         &mut self,
@@ -438,6 +457,7 @@ impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
 
         let regs = self.instance.regs;
         let quirk_setup_late_cnak = self.instance.quirk_setup_late_cnak;
+        let cp_setup_state = &self.instance.state.cp_state;
         (
             Bus {
                 config: self.config,
@@ -448,6 +468,7 @@ impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
             },
             ControlPipe {
                 max_packet_size: control_max_packet_size,
+                setup_state: cp_setup_state,
                 ep_out,
                 ep_in,
                 regs,
@@ -458,15 +479,15 @@ impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
 }
 
 /// USB bus.
-pub struct Bus<'d> {
+pub struct Bus<'d, const MAX_EP_COUNT: usize> {
     config: Config,
     ep_in: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out: [Option<EndpointData>; MAX_EP_COUNT],
-    instance: OtgInstance<'d>,
+    instance: OtgInstance<'d, MAX_EP_COUNT>,
     inited: bool,
 }
 
-impl<'d> Bus<'d> {
+impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
     fn restore_irqs(&mut self) {
         self.instance.regs.gintmsk().write(|w| {
             w.set_usbrst(true);
@@ -480,9 +501,7 @@ impl<'d> Bus<'d> {
             w.set_otgint(true);
         });
     }
-}
 
-impl<'d> Bus<'d> {
     /// Returns the PHY type.
     pub fn phy_type(&self) -> PhyType {
         self.instance.phy_type
@@ -699,7 +718,7 @@ impl<'d> Bus<'d> {
     }
 }
 
-impl<'d> embassy_usb_driver::Bus for Bus<'d> {
+impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_COUNT> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
             if !self.inited {
@@ -811,7 +830,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     });
                 });
 
-                state.ep_out_wakers[ep_addr.index()].wake();
+                state.ep_states[ep_addr.index()].out_waker.wake();
             }
             Direction::In => {
                 critical_section::with(|_| {
@@ -820,7 +839,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     });
                 });
 
-                state.ep_in_wakers[ep_addr.index()].wake();
+                state.ep_states[ep_addr.index()].in_waker.wake();
             }
         }
     }
@@ -879,7 +898,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 });
 
                 // Wake `Endpoint::wait_enabled()`
-                state.ep_out_wakers[ep_addr.index()].wake();
+                state.ep_states[ep_addr.index()].out_waker.wake();
             }
             Direction::In => {
                 critical_section::with(|_| {
@@ -898,7 +917,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 });
 
                 // Wake `Endpoint::wait_enabled()`
-                state.ep_in_wakers[ep_addr.index()].wake();
+                state.ep_states[ep_addr.index()].in_waker.wake();
             }
         }
     }
@@ -947,7 +966,7 @@ pub struct Endpoint<'d, D> {
     _phantom: PhantomData<D>,
     regs: Otg,
     info: EndpointInfo,
-    state: &'d State<{ MAX_EP_COUNT }>,
+    state: &'d EpState,
 }
 
 impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, In> {
@@ -959,7 +978,7 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, In> {
         poll_fn(|cx| {
             let ep_index = self.info.addr.index();
 
-            self.state.ep_in_wakers[ep_index].register(cx.waker());
+            self.state.in_waker.register(cx.waker());
 
             if self.regs.diepctl(ep_index).read().usbaep() {
                 Poll::Ready(())
@@ -980,7 +999,7 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, Out> {
         poll_fn(|cx| {
             let ep_index = self.info.addr.index();
 
-            self.state.ep_out_wakers[ep_index].register(cx.waker());
+            self.state.out_waker.register(cx.waker());
 
             if self.regs.doepctl(ep_index).read().usbaep() {
                 Poll::Ready(())
@@ -998,7 +1017,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
 
         poll_fn(|cx| {
             let index = self.info.addr.index();
-            self.state.ep_out_wakers[index].register(cx.waker());
+            self.state.out_waker.register(cx.waker());
 
             let doepctl = self.regs.doepctl(index).read();
             trace!("read ep={:?}: doepctl {:08x}", self.info.addr, doepctl.0,);
@@ -1007,7 +1026,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                 return Poll::Ready(Err(EndpointError::Disabled));
             }
 
-            let len = self.state.ep_out_size[index].load(Ordering::Relaxed);
+            let len = self.state.out_size.load(Ordering::Relaxed);
             if len != EP_OUT_BUFFER_EMPTY {
                 trace!("read ep={:?} done len={}", self.info.addr, len);
 
@@ -1016,12 +1035,11 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                 }
 
                 // SAFETY: exclusive access ensured by `ep_out_size` atomic variable
-                let data =
-                    unsafe { core::slice::from_raw_parts(*self.state.ep_out_buffers[index].get(), len as usize) };
+                let data = unsafe { core::slice::from_raw_parts(*self.state.out_buffer.get(), len as usize) };
                 buf[..len as usize].copy_from_slice(data);
 
                 // Release buffer
-                self.state.ep_out_size[index].store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
+                self.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
 
                 critical_section::with(|_| {
                     // Receive 1 packet
@@ -1056,7 +1074,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
         let index = self.info.addr.index();
         // Wait for previous transfer to complete and check if endpoint is disabled
         poll_fn(|cx| {
-            self.state.ep_in_wakers[index].register(cx.waker());
+            self.state.in_waker.register(cx.waker());
 
             let diepctl = self.regs.diepctl(index).read();
             let dtxfsts = self.regs.dtxfsts(index).read();
@@ -1081,7 +1099,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
 
         if buf.len() > 0 {
             poll_fn(|cx| {
-                self.state.ep_in_wakers[index].register(cx.waker());
+                self.state.in_waker.register(cx.waker());
 
                 let size_words = (buf.len() + 3) / 4;
 
@@ -1141,6 +1159,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
 pub struct ControlPipe<'d> {
     max_packet_size: u16,
     regs: Otg,
+    setup_state: &'d ControlPipeSetupState,
     ep_in: Endpoint<'d, In>,
     ep_out: Endpoint<'d, Out>,
     quirk_setup_late_cnak: bool,
@@ -1153,11 +1172,11 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
 
     async fn setup(&mut self) -> [u8; 8] {
         poll_fn(|cx| {
-            self.ep_out.state.ep_out_wakers[0].register(cx.waker());
+            self.ep_out.state.out_waker.register(cx.waker());
 
-            if self.ep_out.state.ep0_setup_ready.load(Ordering::Relaxed) {
-                let data = unsafe { *self.ep_out.state.ep0_setup_data.get() };
-                self.ep_out.state.ep0_setup_ready.store(false, Ordering::Release);
+            if self.setup_state.setup_ready.load(Ordering::Relaxed) {
+                let data = unsafe { *self.setup_state.setup_data.get() };
+                self.setup_state.setup_ready.store(false, Ordering::Release);
 
                 // EP0 should not be controlled by `Bus` so this RMW does not need a critical section
                 // Receive 1 SETUP packet
@@ -1276,17 +1295,12 @@ fn ep0_mpsiz(max_packet_size: u16) -> u16 {
     }
 }
 
-/// The number of maximum configurable EPs.
-// TODO: this should at least be configurable, but ideally not a constant.
-// Using OtgInstance::ENDPOINT_COUNT requires feature(const_generic_expr) so just define maximum eps
-pub const MAX_EP_COUNT: usize = 9;
-
 /// Hardware-dependent USB IP configuration.
-pub struct OtgInstance<'d> {
+pub struct OtgInstance<'d, const MAX_EP_COUNT: usize> {
     /// The USB peripheral.
     pub regs: Otg,
     /// The USB state.
-    pub state: &'d State<{ MAX_EP_COUNT }>,
+    pub state: &'d State<MAX_EP_COUNT>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
     /// Number of used endpoints.
