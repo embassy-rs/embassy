@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embedded_hal_1::pwm::ErrorKind;
 use rp_pac::pwm::vals::Divmode;
 
 use crate::{
@@ -11,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    v2::{EdgeSensitivity, Frequency, PwmFreeRunningSlice, PwmInputOutputSlice},
+    v2::{Channel, EdgeSensitivity, Frequency, PwmError, PwmFreeRunningSlice, PwmInputOutputSlice},
     ChannelAPin, ChannelBPin, InputMode, Slice,
 };
 
@@ -216,7 +217,6 @@ pub struct PwmFreeRunningSliceBuilder<'a, T: Slice> {
     inner: PeripheralRef<'a, T>,
     builder_a: Option<PwmFreeRunningChannelBuilder<'a, T>>,
     builder_b: Option<PwmFreeRunningChannelBuilder<'a, T>>,
-    frequency: Frequency,
     frequency_hz: u32,
     phase_correct: bool,
 }
@@ -227,7 +227,6 @@ impl<'a, T: Slice> PwmFreeRunningSliceBuilder<'a, T> {
             inner: slice,
             builder_a: None,
             builder_b: None,
-            frequency: Frequency::Hz(clk_sys_freq()),
             frequency_hz: clk_sys_freq(),
             phase_correct: false,
         }
@@ -248,7 +247,7 @@ impl<'a, T: Slice> PwmFreeRunningSliceBuilder<'a, T> {
             panic!("Frequency must be less than the system clock frequency");
         }
 
-        self.frequency = freq;
+        self.frequency_hz = freq_hz;
         self
     }
 
@@ -307,53 +306,52 @@ impl<'a, T: Slice> PwmFreeRunningSliceBuilder<'a, T> {
     /// Note that this will not enable the slice, only configure it. You must
     /// call [`PwmInputOutputSlice::enable`], or alternatively use the
     /// [`enable_pwm_slices`] function, to start the slice.
-    pub fn apply(mut self) -> PwmFreeRunningSlice<'a, T> {
+    pub fn apply(mut self) -> Result<PwmFreeRunningSlice<'a, T>, PwmError> {
         // Require that at least one of A or B is configured.
         if self.builder_a.is_none() && self.builder_b.is_none() {
             panic!("At least one channel must be configured");
         }
 
+        // Get an instance of the registers for this slice.
         let regs = self.inner.regs();
 
-        let slice: PwmFreeRunningSlice<'_, T> = PwmFreeRunningSlice::new(
-            self.inner,
-            self.frequency_hz,
-            self.phase_correct,
-            self.builder_a.as_ref().map(|a| a.duty_percent),
-            self.builder_b.as_ref().map(|b| b.duty_percent),
-            self.builder_a.take().map(|b| b.pin),
-            self.builder_b.take().map(|b| b.pin),
-        );
+        // Grab our pins.
+        let pin_a = self.builder_a.take();
+        let pin_b = self.builder_b.take();
 
         // If channel A is configured, set the pin function to PWM.
-        if let Some(pin) = &slice.pin_a {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+        if let Some(a) = &pin_a {
+            a.pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+            regs.csr().modify(|w| w.set_a_inv(a.invert));
         }
 
         // If channel B is configured, set the pin function to PWM.
-        if let Some(pin) = &slice.pin_b {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+        if let Some(b) = &pin_b {
+            b.pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+            regs.csr().modify(|w| w.set_b_inv(b.invert));
         }
 
-        // Set the control and status register values.
-        // (CH0_CSR..CH7_CSR).
-        regs.csr().write_set(|w| {
-            // TODO: Calculate div/top for slice
+        let pin_a_duty = pin_a.as_ref().map(|a| a.duty_percent);
+        let pin_b_duty = pin_b.as_ref().map(|b| b.duty_percent);
 
-            if let Some(a) = self.builder_a {
-                w.set_a_inv(a.invert);
+        // Create our PWM slice instance.
+        let mut slice: PwmFreeRunningSlice<'_, T> = PwmFreeRunningSlice::new(
+            self.inner,
+            pin_a.map(|b| b.pin),
+            pin_b.map(|b| b.pin),
+        );
 
-                // TODO: Calculate compare value for A
-            }
-            if let Some(b) = self.builder_b {
-                w.set_b_inv(b.invert);
+        // If channel A is configured, configure PWM for the A pin.
+        if let Some(duty) = pin_a_duty {
+            slice.reconfigure(Channel::A, self.frequency_hz, duty, self.phase_correct)?;
+        }
 
-                // TODO: Calculate compare value for B
-            }
-            w.set_ph_correct(self.phase_correct);
-        });
+        // If channel B is configured, configure PWM for the B pin.
+        if let Some(duty) = pin_b_duty {
+            slice.reconfigure(Channel::B, self.frequency_hz, duty, self.phase_correct)?;
+        }
 
-        slice
+        Ok(slice)
     }
 }
 

@@ -13,7 +13,7 @@ use crate::clocks::clk_sys_freq;
 use crate::gpio::{AnyPin, Pin as GpioPin, Pull, SealedPin as _};
 use crate::{pac, peripherals, RegExt};
 
-use self::v2::Channel;
+use self::v2::{Channel, PwmError};
 
 pub mod builder;
 pub mod v2;
@@ -254,14 +254,14 @@ impl<'d, T: Slice> Pwm<'d, T> {
     ///
     /// TODO: Add support for fractional hz
     #[inline]
-    pub fn set_freq(&mut self, freq: u32) -> Result<(), ErrorKind> {
+    pub fn set_freq(&mut self, freq: u32) -> Result<(), PwmError> {
         let clock_hz = clk_sys_freq() / 1_000_000;
         let min_hz = clock_hz / 125;
         let max_hz = clock_hz / 2;
 
         // The frequency must be between 8 and the clock frequency
         if freq < MIN_PWM_FREQ as u32 || freq > max_hz as u32 {
-            return Err(ErrorKind::Other);
+            return Err(PwmError::Other(ErrorKind::Other));
         }
 
         // Only perform recalculations if the frequency has changed
@@ -292,9 +292,9 @@ impl<'d, T: Slice> Pwm<'d, T> {
     /// Set the PWM duty cycle for channel A. Returns an error if the slice
     /// does not have a channel A configured.
     #[inline]
-    pub fn set_duty_a(&mut self, duty: u16) -> Result<(), ErrorKind> {
+    pub fn set_duty_a(&mut self, duty: u16) -> Result<(), PwmError> {
         if self.pin_a.is_none() {
-            return Err(ErrorKind::Other);
+            return Err(PwmError::Other(ErrorKind::Other));
         }
 
         self.recalculate_duty(Channel::A, duty)?;
@@ -305,9 +305,9 @@ impl<'d, T: Slice> Pwm<'d, T> {
     /// Set the PWM duty cycle for channel B. Returns an error if the slice
     /// does not have a channel B configured.
     #[inline]
-    pub fn set_duty_b(&mut self, duty: u16) -> Result<(), ErrorKind> {
+    pub fn set_duty_b(&mut self, duty: u16) -> Result<(), PwmError> {
         if self.pin_b.is_none() {
-            return Err(ErrorKind::Other);
+            return Err(PwmError::Other(ErrorKind::Other));
         }
 
         self.recalculate_duty(Channel::B, duty)?;
@@ -318,9 +318,9 @@ impl<'d, T: Slice> Pwm<'d, T> {
     /// Set the PWM duty cycle for both channels A and B. Returns an error if
     /// the slice does not have both A & B channels configured.
     #[inline]
-    pub fn set_duty_ab(&mut self, duty: u16) -> Result<(), ErrorKind> {
+    pub fn set_duty_ab(&mut self, duty: u16) -> Result<(), PwmError> {
         if self.pin_a.is_none() || self.pin_b.is_none() {
-            return Err(ErrorKind::Other);
+            return Err(PwmError::Other(ErrorKind::Other));
         }
 
         self.set_duty_a(duty)?;
@@ -401,7 +401,7 @@ impl<'d, T: Slice> Pwm<'d, T> {
 
     /// Recalculates the TOP and DIV values and updates the PWM slice registers.
     #[inline]
-    fn recalculate_div_wrap(&self, freq: u32) -> Result<(), ErrorKind> {
+    fn recalculate_div_wrap(&self, freq: u32) -> Result<(), PwmError> {
         let mut clk_divider = 0;
         let mut wrap = 0;
         let mut clock_div;
@@ -425,14 +425,14 @@ impl<'d, T: Slice> Pwm<'d, T> {
             self.inner.regs().top().write(|w| w.set_top(wrap as u16));
             Ok(())
         } else {
-            Err(ErrorKind::Other)
+            Err(PwmError::Other(ErrorKind::Other))
         }
     }
 
     /// Recalculates the duty cycle for a channel and updates the PWM slice CC
     /// register with the new values for both A and B channels.
     #[inline]
-    fn recalculate_duty(&self, channel: Channel, duty: u16) -> Result<(), ErrorKind> {
+    fn recalculate_duty(&self, channel: Channel, duty: u16) -> Result<(), PwmError> {
         // Get the current `DIV` register value for this slice (only the
         // integer part is used)
         let wrap = self.inner.regs().div().read().int();
@@ -448,7 +448,7 @@ impl<'d, T: Slice> Pwm<'d, T> {
             } else {
                 // We shouldn't have been able to get here if the `Pwm`
                 // constructors are doing their job.
-                return Err(ErrorKind::Other);
+                return Err(PwmError::Other(ErrorKind::Other));
             }
             Ok(())
         })

@@ -20,12 +20,13 @@ async fn main(_spawner: Spawner) {
 
     // Initialize PWM slice 0 as a free-running PWM with a frequency of 100 kHz.
     let slice0 = peripherals
-        .pwm_0()
+        .pwm_2()
         .free_running()
-        .frequency(Frequency::KHz(100.0))
-        .with_channel_a(&peripherals.PIN_0, |a| a.duty_cycle(100.0).invert(true))
-        .with_channel_b(&peripherals.PIN_1, |b| b.duty_cycle(50.0))
-        .apply();
+        .frequency(Frequency::Hz(7629))
+        .with_channel_a(&peripherals.PIN_20, |a| a.duty_cycle(100.0).invert(true))
+        .with_channel_b(&peripherals.PIN_21, |b| b.duty_cycle(50.0))
+        .apply().unwrap()
+        .enable();
 
     // Alternative syntax:
     // let mut slice0 = PwmSlice::builder(peripherals.PWM_SLICE_0)
@@ -33,22 +34,15 @@ async fn main(_spawner: Spawner) {
     //    ...
 
     // Initialize PWM slice 1 as a level-sensitive PWM with a divider of 5.
-    let slice1 = peripherals
-        .pwm_1()
-        .level_sensitive()
-        .divider(5, 0)
-        .with_input(&peripherals.PIN_3)
-        .with_output(&peripherals.PIN_2)
-        .apply();
+    // let slice1 = peripherals
+    //     .pwm_1()
+    //     .level_sensitive()
+    //     .divider(5, 0)
+    //     .with_input(&peripherals.PIN_3)
+    //     .with_output(&peripherals.PIN_2)
+    //     .apply();
 
     // Enable multiple slices simultaneously...
-    enable_pwm_slices(|slices| slices.slice_0().slice_1());
+    //enable_pwm_slices(|slices| slices.slice_0().slice_1());
 
-    // Do some stuff
-    slice1.phase_advance();
-    slice1.phase_retard();
-
-    // Disable slices one-by-one...
-    slice0.disable();
-    slice1.disable();
 }
