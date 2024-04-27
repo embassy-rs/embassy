@@ -23,7 +23,12 @@ pub mod otg_v1;
 use otg_v1::{regs, vals, Otg};
 
 /// Handle interrupts.
-pub unsafe fn on_interrupt(r: Otg, state: &State<{ MAX_EP_COUNT }>, ep_count: usize, quirk_setup_late_cnak: bool) {
+pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
+    r: Otg,
+    state: &State<MAX_EP_COUNT>,
+    ep_count: usize,
+    quirk_setup_late_cnak: bool,
+) {
     let ints = r.gintsts().read();
     if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
         // Mask interrupts and notify `Bus` to process them
@@ -291,16 +296,16 @@ impl Default for Config {
 }
 
 /// USB OTG driver.
-pub struct Driver<'d> {
+pub struct Driver<'d, const MAX_EP_COUNT: usize> {
     config: Config,
     ep_in: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out_buffer: &'d mut [u8],
     ep_out_buffer_offset: usize,
-    instance: OtgInstance<'d>,
+    instance: OtgInstance<'d, MAX_EP_COUNT>,
 }
 
-impl<'d> Driver<'d> {
+impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
     /// Initializes the USB OTG peripheral.
     ///
     /// # Arguments
@@ -310,7 +315,7 @@ impl<'d> Driver<'d> {
     /// Endpoint allocation will fail if it is too small.
     /// * `instance` - The USB OTG peripheral instance and its configuration.
     /// * `config` - The USB driver configuration.
-    pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d>, config: Config) -> Self {
+    pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d, MAX_EP_COUNT>, config: Config) -> Self {
         Self {
             config,
             ep_in: [None; MAX_EP_COUNT],
@@ -414,11 +419,11 @@ impl<'d> Driver<'d> {
     }
 }
 
-impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
+impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d, MAX_EP_COUNT> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
     type ControlPipe = ControlPipe<'d>;
-    type Bus = Bus<'d>;
+    type Bus = Bus<'d, MAX_EP_COUNT>;
 
     fn alloc_endpoint_in(
         &mut self,
@@ -474,15 +479,15 @@ impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
 }
 
 /// USB bus.
-pub struct Bus<'d> {
+pub struct Bus<'d, const MAX_EP_COUNT: usize> {
     config: Config,
     ep_in: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out: [Option<EndpointData>; MAX_EP_COUNT],
-    instance: OtgInstance<'d>,
+    instance: OtgInstance<'d, MAX_EP_COUNT>,
     inited: bool,
 }
 
-impl<'d> Bus<'d> {
+impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
     fn restore_irqs(&mut self) {
         self.instance.regs.gintmsk().write(|w| {
             w.set_usbrst(true);
@@ -496,9 +501,7 @@ impl<'d> Bus<'d> {
             w.set_otgint(true);
         });
     }
-}
 
-impl<'d> Bus<'d> {
     /// Returns the PHY type.
     pub fn phy_type(&self) -> PhyType {
         self.instance.phy_type
@@ -715,7 +718,7 @@ impl<'d> Bus<'d> {
     }
 }
 
-impl<'d> embassy_usb_driver::Bus for Bus<'d> {
+impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_COUNT> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
             if !self.inited {
@@ -1292,17 +1295,12 @@ fn ep0_mpsiz(max_packet_size: u16) -> u16 {
     }
 }
 
-/// The number of maximum configurable EPs.
-// TODO: this should at least be configurable, but ideally not a constant.
-// Using OtgInstance::ENDPOINT_COUNT requires feature(const_generic_expr) so just define maximum eps
-pub const MAX_EP_COUNT: usize = 9;
-
 /// Hardware-dependent USB IP configuration.
-pub struct OtgInstance<'d> {
+pub struct OtgInstance<'d, const MAX_EP_COUNT: usize> {
     /// The USB peripheral.
     pub regs: Otg,
     /// The USB state.
-    pub state: &'d State<{ MAX_EP_COUNT }>,
+    pub state: &'d State<MAX_EP_COUNT>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
     /// Number of used endpoints.
