@@ -229,11 +229,7 @@ impl<'a> Control<'a> {
     }
 
     /// Join a protected network with the provided ssid and [`PassphraseInfo`].
-    pub async fn join_wpa2_passphrase_info(
-        &mut self,
-        ssid: &str,
-        passphrase_info: &PassphraseInfo,
-    ) -> Result<(), Error> {
+    async fn join_wpa2_passphrase_info(&mut self, ssid: &str, passphrase_info: &PassphraseInfo) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         self.ioctl_set_u32(134, 0, 4).await; // wsec = wpa2
