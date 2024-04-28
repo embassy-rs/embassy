@@ -232,7 +232,7 @@ impl<'a> Control<'a> {
     pub async fn join_wpa2_passphrase_info(
         &mut self,
         ssid: &str,
-        passphrase_info: &mut PassphraseInfo,
+        passphrase_info: &PassphraseInfo,
     ) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
@@ -272,7 +272,7 @@ impl<'a> Control<'a> {
             passphrase: [0; 64],
         };
         pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
-        self.join_wpa2_passphrase_info(ssid, &mut pfi).await
+        self.join_wpa2_passphrase_info(ssid, &pfi).await
     }
 
     /// Join a protected network with the provided ssid and precomputed PSK.
@@ -283,7 +283,7 @@ impl<'a> Control<'a> {
             passphrase: [0; 64],
         };
         pfi.passphrase[..psk.len()].copy_from_slice(psk);
-        self.join_wpa2_passphrase_info(ssid, &mut pfi).await
+        self.join_wpa2_passphrase_info(ssid, &pfi).await
     }
 
     async fn wait_for_join(&mut self, i: SsidInfo) -> Result<(), Error> {
