@@ -24,7 +24,7 @@ flavors = [
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
-    { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
@@ -72,7 +72,7 @@ rand_core = "0.6.3"
 sdio-host = "0.5.0"
 critical-section = "1.1"
 #stm32-metapac = { version = "15" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-01ac9bfd035961dc75f32dcd6080501538246d5c" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-823168933f3860770111f7bde2a82b912eac58c0" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -98,7 +98,7 @@ proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
 #stm32-metapac = { version = "15", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-01ac9bfd035961dc75f32dcd6080501538246d5c", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-823168933f3860770111f7bde2a82b912eac58c0", default-features = false, features = ["metadata"]}
 
 [features]
 default = ["rt"]
