@@ -1,17 +1,17 @@
 #![no_std]
 #![no_main]
 
-use defmt::{debug, info, unwrap};
+use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::UART0;
-use embassy_rp::uart::{Async, Config, DataBits, InterruptHandler as UARTInterruptHandler, StopBits, Uart, UartRx};
+use embassy_rp::uart::{Config, DataBits, InterruptHandler as UARTInterruptHandler, Parity, StopBits, Uart};
 use embassy_time::Timer;
 use heapless::Vec;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(pub struct Irqs {
-    UART0_IRQ  => UARTInterruptHandler<UART0>;	// Fingerprint scanner (TX)
+    UART0_IRQ  => UARTInterruptHandler<UART0>;
 });
 
 const ADDRESS: u32 = 0xFFFFFFFF;
@@ -34,24 +34,8 @@ fn compute_checksum(buf: Vec<u8, 32>) -> u16 {
     return checksum;
 }
 
-// NOTE: Doesn't work for some reason, it just hangs!
-#[embassy_executor::task]
-async fn reader(mut rx: UartRx<'static, UART0, Async>) {
-    loop {
-        let mut buf = [0; 32];
-        debug!("Attempting read..");
-
-        //rx.read(&mut buf).await.unwrap();
-        match rx.read(&mut buf).await {
-            Ok(v) => info!("Read successful: {:?}", v),
-            Err(e) => info!("Read error: {:?}", e),
-        }
-        info!("RX='{:?}'", buf);
-    }
-}
-
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     info!("Start");
 
     let p = embassy_rp::init(Default::default());
@@ -61,16 +45,16 @@ async fn main(spawner: Spawner) {
     config.baudrate = 57600;
     config.stop_bits = StopBits::STOP1;
     config.data_bits = DataBits::DataBits8;
+    config.parity = Parity::ParityNone;
 
     let (uart, tx_pin, tx_dma, rx_pin, rx_dma) = (p.UART0, p.PIN_16, p.DMA_CH0, p.PIN_17, p.DMA_CH1);
     let uart = Uart::new(uart, tx_pin, rx_pin, Irqs, tx_dma, rx_dma, config);
-    let (mut tx, rx) = uart.split();
-
-    unwrap!(spawner.spawn(reader(rx)));
-    Timer::after_secs(1).await;
+    let (mut tx, mut rx) = uart.split();
 
     let mut vec_buf: Vec<u8, 32> = heapless::Vec::new();
-    {
+
+    // Cycle through the three colours Red, Blue and Purple.
+    for colour in 1..=3 {
         // Clear buffers
         vec_buf.clear();
 
@@ -93,7 +77,7 @@ async fn main(spawner: Spawner) {
         // DATA
         let _ = vec_buf.push(0x01); // ctrl=Breathing light
         let _ = vec_buf.push(0x50); // speed=80
-        let _ = vec_buf.push(0x02); // colour=Blue
+        let _ = vec_buf.push(colour as u8); // colour=Red, Blue, Purple
         let _ = vec_buf.push(0x00); // times=Infinite
 
         // SUM
@@ -103,11 +87,46 @@ async fn main(spawner: Spawner) {
         // =====
 
         // Send command buffer.
-        let data: [u8; 16] = vec_buf.clone().into_array().unwrap();
-        debug!("data='{:?}'", data);
-        match tx.write(&data).await {
-            Ok(..) => info!("Write successful"),
+        let data_write: [u8; 16] = vec_buf.clone().into_array().unwrap();
+        info!("write ({})='{:?}'", colour, data_write);
+        match tx.write(&data_write).await {
+            Ok(..) => info!("Write successful."),
             Err(e) => info!("Write error: {:?}", e),
         }
+
+        // =====
+
+        // Read command buffer.
+        let mut read_buf: [u8; 1] = [0; 1]; // Can only read one byte at a time!
+        let mut data_read: Vec<u8, 32> = heapless::Vec::new(); // Return buffer.
+        let mut cnt: u8 = 0; // Keep track of how many packages we've received.
+
+        info!("Attempting read.");
+        loop {
+            match rx.read(&mut read_buf).await {
+                Ok(..) => (),
+                Err(e) => info!("  Read error: {:?}", e),
+            }
+
+            match cnt {
+                _ => data_read.push(read_buf[0]).unwrap(),
+            }
+
+            if cnt > 10 {
+                info!("read ({})='{:?}'", colour, data_read[..]);
+                break;
+            }
+
+            cnt = cnt + 1;
+        }
+
+        // =====
+
+        if colour != 3 {
+            Timer::after_secs(2).await;
+            info!("Changing colour.");
+        }
     }
+
+    info!("All done..");
 }
