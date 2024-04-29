@@ -14,7 +14,7 @@ pub use gpdma::*;
 #[cfg(dmamux)]
 mod dmamux;
 #[cfg(dmamux)]
-pub use dmamux::*;
+pub(crate) use dmamux::*;
 
 mod util;
 pub(crate) use util::*;

@@ -1169,42 +1169,52 @@ fn main() {
 
             let mut dupe = HashSet::new();
             for ch in p.dma_channels {
-                // Some chips have multiple request numbers for the same (peri, signal, channel) combos.
-                // Ignore the dupes, picking the first one. Otherwise this causes conflicting trait impls
-                let key = (ch.signal, ch.channel);
-                if !dupe.insert(key) {
-                    continue;
-                }
-
                 if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
                     let peri = format_ident!("{}", p.name);
 
-                    let channel = if let Some(channel) = &ch.channel {
+                    let channels = if let Some(channel) = &ch.channel {
                         // Chip with DMA/BDMA, without DMAMUX
-                        let channel = format_ident!("{}", channel);
-                        quote!({channel: #channel})
+                        vec![*channel]
                     } else if let Some(dmamux) = &ch.dmamux {
                         // Chip with DMAMUX
-                        let dmamux = format_ident!("{}", dmamux);
-                        quote!({dmamux: #dmamux})
+                        METADATA
+                            .dma_channels
+                            .iter()
+                            .filter(|ch| ch.dmamux == Some(*dmamux))
+                            .map(|ch| ch.name)
+                            .collect()
                     } else if let Some(dma) = &ch.dma {
                         // Chip with GPDMA
-                        let dma = format_ident!("{}", dma);
-                        quote!({dma: #dma})
+                        METADATA
+                            .dma_channels
+                            .iter()
+                            .filter(|ch| ch.dma == *dma)
+                            .map(|ch| ch.name)
+                            .collect()
                     } else {
                         unreachable!();
                     };
 
-                    let request = if let Some(request) = ch.request {
-                        let request = request as u8;
-                        quote!(#request)
-                    } else {
-                        quote!(())
-                    };
+                    for channel in channels {
+                        // Some chips have multiple request numbers for the same (peri, signal, channel) combos.
+                        // Ignore the dupes, picking the first one. Otherwise this causes conflicting trait impls
+                        let key = (ch.signal, channel.to_string());
+                        if !dupe.insert(key) {
+                            continue;
+                        }
 
-                    g.extend(quote! {
-                        dma_trait_impl!(#tr, #peri, #channel, #request);
-                    });
+                        let request = if let Some(request) = ch.request {
+                            let request = request as u8;
+                            quote!(#request)
+                        } else {
+                            quote!(())
+                        };
+
+                        let channel = format_ident!("{}", channel);
+                        g.extend(quote! {
+                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                        });
+                    }
                 }
             }
         }
@@ -1447,9 +1457,6 @@ fn main() {
             Some(dmamux) => {
                 let dmamux = format_ident!("{}", dmamux);
                 let num = ch.dmamux_channel.unwrap() as usize;
-
-                g.extend(quote!(dmamux_channel_impl!(#name, #dmamux);));
-
                 quote! {
                     dmamux: crate::dma::DmamuxInfo {
                         mux: crate::pac::#dmamux,
