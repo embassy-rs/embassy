@@ -94,8 +94,6 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 
         #[cfg(rcc_h5)]
         critical_section::with(|_| {
-            crate::pac::RCC.apb3enr().modify(|w| w.set_sbsen(true));
-
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_ethen(true);
                 w.set_ethtxen(true);
@@ -161,8 +159,6 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 
         #[cfg(rcc_h5)]
         critical_section::with(|_| {
-            crate::pac::RCC.apb3enr().modify(|w| w.set_sbsen(true));
-
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_ethen(true);
                 w.set_ethtxen(true);

@@ -299,54 +299,66 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
+    // TODO: all this ADC stuff should probably go into the ADC module, not here.
+    // Most STM32s manage ADC clocks in a similar way with ADCx_COMMON.
     #[cfg(all(stm32f3, not(rcc_f37)))]
     use crate::pac::adccommon::vals::Ckmode;
 
     #[cfg(all(stm32f3, not(rcc_f37)))]
-    let adc = match config.adc {
-        AdcClockSource::Pll(adcpres) => {
-            RCC.cfgr2().modify(|w| w.set_adc12pres(adcpres));
-            crate::pac::ADC_COMMON
-                .ccr()
-                .modify(|w| w.set_ckmode(Ckmode::ASYNCHRONOUS));
+    let adc = {
+        #[cfg(peri_adc1_common)]
+        let common = crate::pac::ADC1_COMMON;
+        #[cfg(peri_adc12_common)]
+        let common = crate::pac::ADC12_COMMON;
 
-            unwrap!(pll) / adcpres
-        }
-        AdcClockSource::Hclk(adcpres) => {
-            assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
+        match config.adc {
+            AdcClockSource::Pll(adcpres) => {
+                RCC.cfgr2().modify(|w| w.set_adc12pres(adcpres));
+                common.ccr().modify(|w| w.set_ckmode(Ckmode::ASYNCHRONOUS));
 
-            let (div, ckmode) = match adcpres {
-                AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNCDIV1),
-                AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNCDIV2),
-                AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNCDIV4),
-            };
-            crate::pac::ADC_COMMON.ccr().modify(|w| w.set_ckmode(ckmode));
+                unwrap!(pll) / adcpres
+            }
+            AdcClockSource::Hclk(adcpres) => {
+                assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
 
-            hclk / div
+                let (div, ckmode) = match adcpres {
+                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNCDIV1),
+                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNCDIV2),
+                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNCDIV4),
+                };
+                common.ccr().modify(|w| w.set_ckmode(ckmode));
+
+                hclk / div
+            }
         }
     };
 
     #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
-    let adc34 = match config.adc34 {
-        AdcClockSource::Pll(adcpres) => {
-            RCC.cfgr2().modify(|w| w.set_adc34pres(adcpres));
-            crate::pac::ADC3_COMMON
-                .ccr()
-                .modify(|w| w.set_ckmode(Ckmode::ASYNCHRONOUS));
+    let adc34 = {
+        #[cfg(peri_adc3_common)]
+        let common = crate::pac::ADC3_COMMON;
+        #[cfg(peri_adc34_common)]
+        let common = crate::pac::ADC34_COMMON;
 
-            unwrap!(pll) / adcpres
-        }
-        AdcClockSource::Hclk(adcpres) => {
-            assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
+        match config.adc34 {
+            AdcClockSource::Pll(adcpres) => {
+                RCC.cfgr2().modify(|w| w.set_adc34pres(adcpres));
+                common.ccr().modify(|w| w.set_ckmode(Ckmode::ASYNCHRONOUS));
 
-            let (div, ckmode) = match adcpres {
-                AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNCDIV1),
-                AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNCDIV2),
-                AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNCDIV4),
-            };
-            crate::pac::ADC3_COMMON.ccr().modify(|w| w.set_ckmode(ckmode));
+                unwrap!(pll) / adcpres
+            }
+            AdcClockSource::Hclk(adcpres) => {
+                assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
 
-            hclk / div
+                let (div, ckmode) = match adcpres {
+                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNCDIV1),
+                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNCDIV2),
+                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNCDIV4),
+                };
+                common.ccr().modify(|w| w.set_ckmode(ckmode));
+
+                hclk / div
+            }
         }
     };
 
