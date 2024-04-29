@@ -18,7 +18,7 @@ async fn main(_spawner: Spawner) {
     let mut wdt = IndependentWatchdog::new(p.IWDG, 1_000_000);
     wdt.unleash();
 
-    let mut i = 0;
+    let mut i:u8 = 0;
 
     loop {
         info!("high");
