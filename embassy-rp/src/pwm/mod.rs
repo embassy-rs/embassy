@@ -1,23 +1,20 @@
 //! Pulse Width Modulation (PWM)
 
-use core::ops::Div;
-
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
-use embedded_hal_1::pwm::ErrorKind;
 use fixed::traits::ToFixed;
 use fixed::FixedU16;
 use pac::pwm::regs::{ChDiv, Intr};
 use pac::pwm::vals::Divmode;
 
-use crate::clocks::clk_sys_freq;
 use crate::gpio::{AnyPin, Pin as GpioPin, Pull, SealedPin as _};
 use crate::{pac, peripherals, RegExt};
 
-use self::v2::{Channel, PwmError};
-
+/// Builder for PWM slices.
 pub mod builder;
+/// PWM API v2.
 pub mod v2;
 
+/// Minimum PWM frequency in Hz.
 pub const MIN_PWM_FREQ: f32 = 7.5;
 
 /// The configuration of a PWM slice.
@@ -96,9 +93,6 @@ pub struct Pwm<'d, T: Slice> {
     inner: PeripheralRef<'d, T>,
     pin_a: Option<PeripheralRef<'d, AnyPin>>,
     pin_b: Option<PeripheralRef<'d, AnyPin>>,
-    freq: u32,
-    duty_a: Option<u16>,
-    duty_b: Option<u16>,
 }
 
 impl<'d, T: Slice> Pwm<'d, T> {
@@ -134,9 +128,6 @@ impl<'d, T: Slice> Pwm<'d, T> {
             inner,
             pin_a: a,
             pin_b: b,
-            freq: clk_sys_freq(),
-            duty_a: None,
-            duty_b: None,
         }
     }
 
@@ -247,86 +238,6 @@ impl<'d, T: Slice> Pwm<'d, T> {
         });
     }
 
-    /// Sets the PWM frequency for this slice. Note that this affects
-    /// both channels (A and B).
-    ///
-    /// @param freq: The frequency in Hz.
-    ///
-    /// TODO: Add support for fractional hz
-    #[inline]
-    pub fn set_freq(&mut self, freq: u32) -> Result<(), PwmError> {
-        let clock_hz = clk_sys_freq() / 1_000_000;
-        let min_hz = clock_hz / 125;
-        let max_hz = clock_hz / 2;
-
-        // The frequency must be between 8 and the clock frequency
-        if freq < MIN_PWM_FREQ as u32 || freq > max_hz as u32 {
-            return Err(PwmError::Other(ErrorKind::Other));
-        }
-
-        // Only perform recalculations if the frequency has changed
-        if freq == self.freq {
-            return Ok(());
-        }
-
-        self.freq = freq;
-
-        self.recalculate_div_wrap(freq)?;
-
-        if let Some(duty_a) = self.duty_a {
-            self.recalculate_duty(Channel::A, duty_a)?;
-        }
-
-        if let Some(duty_b) = self.duty_b {
-            self.recalculate_duty(Channel::B, duty_b)?;
-        }
-        Ok(())
-    }
-
-    /// Get the current PWM frequency for this slice.
-    #[inline]
-    pub fn freq(&self) -> u32 {
-        self.freq
-    }
-
-    /// Set the PWM duty cycle for channel A. Returns an error if the slice
-    /// does not have a channel A configured.
-    #[inline]
-    pub fn set_duty_a(&mut self, duty: u16) -> Result<(), PwmError> {
-        if self.pin_a.is_none() {
-            return Err(PwmError::Other(ErrorKind::Other));
-        }
-
-        self.recalculate_duty(Channel::A, duty)?;
-        self.duty_a = Some(duty);
-        Ok(())
-    }
-
-    /// Set the PWM duty cycle for channel B. Returns an error if the slice
-    /// does not have a channel B configured.
-    #[inline]
-    pub fn set_duty_b(&mut self, duty: u16) -> Result<(), PwmError> {
-        if self.pin_b.is_none() {
-            return Err(PwmError::Other(ErrorKind::Other));
-        }
-
-        self.recalculate_duty(Channel::B, duty)?;
-        self.duty_b = Some(duty);
-        Ok(())
-    }
-
-    /// Set the PWM duty cycle for both channels A and B. Returns an error if
-    /// the slice does not have both A & B channels configured.
-    #[inline]
-    pub fn set_duty_ab(&mut self, duty: u16) -> Result<(), PwmError> {
-        if self.pin_a.is_none() || self.pin_b.is_none() {
-            return Err(PwmError::Other(ErrorKind::Other));
-        }
-
-        self.set_duty_a(duty)?;
-        self.set_duty_b(duty)
-    }
-
     /// Advances a slice’s output phase by one count while it is running
     /// by inserting a pulse into the clock enable. The counter
     /// will not count faster than once per cycle.
@@ -397,61 +308,6 @@ impl<'d, T: Slice> Pwm<'d, T> {
     #[inline]
     fn bit(&self) -> u32 {
         1 << self.inner.number() as usize
-    }
-
-    /// Recalculates the TOP and DIV values and updates the PWM slice registers.
-    #[inline]
-    fn recalculate_div_wrap(&self, freq: u32) -> Result<(), PwmError> {
-        let mut clk_divider = 0;
-        let mut wrap = 0;
-        let mut clock_div;
-        let clock = clk_sys_freq();
-
-        // Only recalculate divider if frequency has changed
-        for div in 1..u8::MAX as u32 {
-            clk_divider = div;
-            // Find clock_division to fit current frequency
-            clock_div = clock.div(div);
-            wrap = clock_div / freq;
-            if clock_div / u16::MAX as u32 <= freq && wrap <= u16::MAX as u32 {
-                break;
-            }
-        }
-
-        if clk_divider < u8::MAX as u32 {
-            // Only update divider and top registers if the frequency has
-            // changed
-            self.inner.regs().div().write(|w| w.set_int(clk_divider as u8));
-            self.inner.regs().top().write(|w| w.set_top(wrap as u16));
-            Ok(())
-        } else {
-            Err(PwmError::Other(ErrorKind::Other))
-        }
-    }
-
-    /// Recalculates the duty cycle for a channel and updates the PWM slice CC
-    /// register with the new values for both A and B channels.
-    #[inline]
-    fn recalculate_duty(&self, channel: Channel, duty: u16) -> Result<(), PwmError> {
-        // Get the current `DIV` register value for this slice (only the
-        // integer part is used)
-        let wrap = self.inner.regs().div().read().int();
-
-        // Update the `CC` register.
-        self.inner.regs().cc().write(|w| {
-            let compare = ((((wrap + if duty == 100 { 1 } else { 0 }) as u16) * duty) / 100) as u16;
-
-            if self.pin_a.is_some() && channel == Channel::A {
-                w.set_a(compare);
-            } else if self.pin_b.is_some() && channel == Channel::B {
-                w.set_b(compare);
-            } else {
-                // We shouldn't have been able to get here if the `Pwm`
-                // constructors are doing their job.
-                return Err(PwmError::Other(ErrorKind::Other));
-            }
-            Ok(())
-        })
     }
 }
 

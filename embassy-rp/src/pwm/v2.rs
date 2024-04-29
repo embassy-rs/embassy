@@ -1,16 +1,15 @@
-use core::ops::Div;
-
 #[cfg(feature = "defmt")]
 use defmt::Format;
 use embassy_hal_internal::PeripheralRef;
-use embedded_hal_1::pwm::{ErrorKind, ErrorType, SetDutyCycle};
+use embedded_hal_1::pwm::ErrorKind;
+use rp_pac::pwm::regs::ChTop;
 
 use crate::clocks::clk_sys_freq;
 use crate::gpio::AnyPin;
 use crate::RegExt;
 
 use super::builder::PwmSliceBuilder;
-use super::{Pwm, Slice};
+use super::Slice;
 
 /// Error type for PWM operations.
 #[derive(Debug)]
@@ -31,11 +30,10 @@ impl embedded_hal_1::pwm::Error for PwmError {
 impl Format for PwmError {
     fn format(&self, f: defmt::Formatter) {
         match self {
-            PwmError::Other(kind) => defmt::write!(f, "A generic PWM error has occurred."),
+            PwmError::Other(_) => defmt::write!(f, "A generic PWM error has occurred."),
             PwmError::ChannelNotConfigured(channel) => defmt::write!(f, "Channel {} is not configured", channel),
         }
     }
-
 }
 
 /// Represents a frequency in Hz, KHz, or MHz.
@@ -65,7 +63,6 @@ impl Format for Channel {
             Channel::B => defmt::write!(f, "B"),
         }
     }
-
 }
 
 /// Which edge to trigger on in edge-sensitive input mode.
@@ -85,8 +82,8 @@ pub struct PwmFreeRunningSlice<'a, T: Slice> {
     duty_b: Option<f32>,
     pub(crate) pin_a: Option<PeripheralRef<'a, AnyPin>>,
     pub(crate) pin_b: Option<PeripheralRef<'a, AnyPin>>,
-    div: u8,
-    top: u16,
+    div: u32,
+    top: u32,
 }
 
 impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
@@ -104,12 +101,18 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
             pin_a,
             pin_b,
             div: 1,
-            top: u16::MAX,
+            top: u16::MAX as u32 + 1,
         }
     }
 
-    /// Reconfigures the slice and specified channel 
-    pub(crate) fn reconfigure(&mut self, channel: Channel, freq_hz: u32, duty: f32, phase_correct: bool) -> Result<(), PwmError> {
+    /// Reconfigures the slice and specified channel
+    pub(crate) fn reconfigure(
+        &mut self,
+        channel: Channel,
+        freq_hz: u32,
+        duty: f32,
+        phase_correct: bool,
+    ) -> Result<(), PwmError> {
         // Check for changes and assert that the provided channel is configured
         // prior to reconfiguring.
         if !self.reconfigure_precheck(channel.clone(), freq_hz, duty, phase_correct)? {
@@ -119,7 +122,10 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
         // Update the phase-correct mode if it has changed. Note that we need to
         // do this first as it affects the TOP value calculation.
         if phase_correct != self.phase_correct {
-            debug!("Changing phase-correct mode to {} (from {})", phase_correct, self.phase_correct);
+            debug!(
+                "Changing phase-correct mode to {} (from {})",
+                phase_correct, self.phase_correct
+            );
             self.inner.regs().csr().modify(|w| w.set_ph_correct(phase_correct));
             self.phase_correct = phase_correct;
 
@@ -128,30 +134,38 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
             // it wrap value is divided by two.
             if phase_correct {
                 self.top = self.top * 2;
-                self.inner.regs().top().write_set(|w| w.set_top(self.top));
+                self.inner.regs().top().write_value(ChTop(self.top));
             } else {
                 self.top = self.top / 2;
-                self.inner.regs().top().write_set(|w| w.set_top(self.top));
+                self.inner.regs().top().write_value(ChTop(self.top));
             }
         }
 
+        let (div, top) = self.calculate_div_and_top(freq_hz);
+
         // If the frequency has changed then we need to recalculate the divider
         // and top values.
-        if freq_hz != self.frequency_hz {
-            debug!("Changing frequency to {}Hz (from Hz={}, TOP={}, DIV={})", 
-                freq_hz, 
-                self.frequency_hz,
-                self.top,
-                self.div,
+        if div != self.div || top != self.top {
+            debug!(
+                "Changing frequency to {}Hz (from Hz={}, TOP={}, DIV={})",
+                freq_hz, self.frequency_hz, self.top, self.div,
             );
-            self.calculate_div_and_top(freq_hz);
+
+            self.div = div;
+            self.top = top;
 
             // Update the DIV register with the new divider value.
-            self.inner.regs().div().write_set(|w| w.set_int(self.div));
+            self.inner.regs().div().write_set(|w| {
+                w.set_int((div >> 4) as u8);
+                w.set_frac((div & 0xF) as u8);
+            });
             // Update the TOP register with the new top (wrap) value.
-            self.inner.regs().top().write_set(|w| w.set_top(self.top));
+            self.inner.regs().top().write_value(ChTop(top));
 
-            debug!("Frequency changed to {}Hz (TOP={}, DIV={})", freq_hz, self.top, self.div);
+            debug!(
+                "Frequency changed to {}Hz (TOP={}, DIV={})",
+                freq_hz, self.top, self.div
+            );
         } else {
             debug!("No changes have been made to the frequency ({}Hz).", freq_hz);
         }
@@ -187,27 +201,27 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
     ) -> Result<bool, PwmError> {
         // Check for changes and assert that the provided channel is configured
         // prior to reconfiguring.
-        let (pin, duty) = match channel {
+        let (pin, current_duty) = match channel {
             Channel::A => (&self.pin_a, &self.duty_a),
             Channel::B => (&self.pin_b, &self.duty_b),
         };
-    
+
         if pin.is_none() {
             return Err(PwmError::ChannelNotConfigured(channel));
         }
-    
+
         if freq_hz == self.frequency_hz && phase_correct == self.phase_correct {
             return Ok(true);
         }
-    
-        if let Some(duty) = duty {
-            if *duty != *duty {
+
+        if let Some(current_duty) = current_duty {
+            if duty != *current_duty {
                 return Ok(true);
             }
         } else {
             return Ok(true);
         }
-    
+
         debug!("No changes have been made, skipping reconfiguration.");
         Ok(false)
     }
@@ -215,7 +229,7 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
     /// Calculates the divider and top values for the PWM slice based on the
     /// provided frequency and whether or not phase-correct is enabled for
     /// this slice.
-    fn calculate_div_and_top(&mut self, freq_hz: u32) {
+    fn calculate_div_and_top(&mut self, freq_hz: u32) -> (u32, u32) {
         const TOP_MAX: u32 = 65534;
         const DIV_MIN: u32 = (0x01 << 4) + 0x0; // 0x01.0
         const DIV_MAX: u32 = (0xFF << 4) + 0xF; // 0xFF.F
@@ -240,52 +254,57 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
 
         let out = (clock << 4) / div / (top + 1);
 
-        debug!("\nFreq = {}\nTop = {}\nDiv = 0x{:02X}.{:X}\nOut = {}", freq_hz, top, div >> 4, div & 0xF, out);
+        debug!(
+            "\nFreq = {}\nTop = {}\nDiv = 0x{:02X}.{:X}\nOut = {}",
+            freq_hz,
+            top,
+            div >> 4,
+            div & 0xF,
+            out
+        );
 
         if self.phase_correct {
             top = top / 2;
         }
 
-        self.div = div as u8;
-        self.top = top as u16;
-        self.frequency_hz = freq_hz;
+        (div, top)
     }
 
     /*void SetPwmFreq(float freq) {
-#define TOP_MAX 65534
-#define DIV_MIN ((0x01 << 4) + 0x0) // 0x01.0
-#define DIV_MAX ((0xFF << 4) + 0xF) // 0xFF.F
-uint32_t clock = 125000000;
-// Calculate a div value for frequency desired
-uint32_t div = (clock << 4) / freq / (TOP_MAX + 1);
-if (div < DIV_MIN) {
-    div = DIV_MIN;
-}
-// Determine what period that gives us
-uint32_t period = (clock << 4) / div / freq;
-// We may have had a rounding error when calculating div so it may
-// be lower than it should be, which in turn causes the period to
-// be higher than it should be, higher than can be used. In which
-// case we increase the div until the period becomes usable.
-while ((period > (TOP_MAX+1)) && (div <= DIV_MAX)) {
-    period = (clock << 4) / ++div / freq;
-}
-// Check if the result is usable
-if (period <= 1) {
-    printf("Freq below is too high ...\n");
-} else if (div > DIV_MAX) {
-    printf("Freq below is too low ...\n");
-}
-// Determine the top value we will be setting
-uint32_t top = period - 1;
-// Determine what output frequency that will generate
-float out = (float)(clock << 4) / div / (top + 1);
-// Report the results
-printf("Freq = %f\t",         freq);
-printf("Top = %ld\t",         top);
-printf("Div = 0x%02lX.%lX\t", div >> 4, div & 0xF);
-printf("Out = %f\n",          out);
-} */
+    #define TOP_MAX 65534
+    #define DIV_MIN ((0x01 << 4) + 0x0) // 0x01.0
+    #define DIV_MAX ((0xFF << 4) + 0xF) // 0xFF.F
+    uint32_t clock = 125000000;
+    // Calculate a div value for frequency desired
+    uint32_t div = (clock << 4) / freq / (TOP_MAX + 1);
+    if (div < DIV_MIN) {
+        div = DIV_MIN;
+    }
+    // Determine what period that gives us
+    uint32_t period = (clock << 4) / div / freq;
+    // We may have had a rounding error when calculating div so it may
+    // be lower than it should be, which in turn causes the period to
+    // be higher than it should be, higher than can be used. In which
+    // case we increase the div until the period becomes usable.
+    while ((period > (TOP_MAX+1)) && (div <= DIV_MAX)) {
+        period = (clock << 4) / ++div / freq;
+    }
+    // Check if the result is usable
+    if (period <= 1) {
+        printf("Freq below is too high ...\n");
+    } else if (div > DIV_MAX) {
+        printf("Freq below is too low ...\n");
+    }
+    // Determine the top value we will be setting
+    uint32_t top = period - 1;
+    // Determine what output frequency that will generate
+    float out = (float)(clock << 4) / div / (top + 1);
+    // Report the results
+    printf("Freq = %f\t",         freq);
+    printf("Top = %ld\t",         top);
+    printf("Div = 0x%02lX.%lX\t", div >> 4, div & 0xF);
+    printf("Out = %f\n",          out);
+    } */
 
     /// Sets the duty cycle for this channel. The duty cycle is a percentage
     /// value between 0.0 and 100.0. Defaults to 0.0.
@@ -312,7 +331,6 @@ printf("Out = %f\n",          out);
             Channel::A => self.pin_a.is_some(),
             Channel::B => self.pin_b.is_some(),
         }
-    
     }
 }
 
@@ -494,25 +512,4 @@ impl<'a, T: Slice> AsPwmSliceNumber for &PwmFreeRunningSlice<'a, T> {
     fn slice_number(&self) -> u8 {
         self.inner.number()
     }
-}
-
-/// Note that this implementation is not representative of `RP2040`'s PWM, which
-/// has two channels per slice. Calling [`SetDutyCycle::set_duty_cycle`]
-/// from `embedded-hal` will set the duty cycle for both channels A and B. If
-/// you need to set the duty cycle for each channel individually, you can use
-/// the [`Pwm::set_duty_a`] and [`Pwm::set_duty_b`] methods.
-impl<T: Slice> SetDutyCycle for Pwm<'_, T> {
-    fn max_duty_cycle(&self) -> u16 {
-        u16::MAX
-    }
-
-    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
-        self.recalculate_duty(Channel::A, duty)?;
-        self.recalculate_duty(Channel::B, duty)
-    }
-}
-
-/// TODO: Expand on actual error types.
-impl<T: Slice> ErrorType for Pwm<'_, T> {
-    type Error = PwmError;
 }
