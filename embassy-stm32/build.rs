@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
@@ -1536,13 +1538,15 @@ fn main() {
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_macros.rs").to_string_lossy().to_string();
-    fs::write(out_file, m).unwrap();
+    fs::write(&out_file, m).unwrap();
+    rustfmt(&out_file);
 
     // ========
     // Write generated.rs
 
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
-    fs::write(out_file, g.to_string()).unwrap();
+    fs::write(&out_file, g.to_string()).unwrap();
+    rustfmt(&out_file);
 
     // ========
     // Multicore
@@ -1656,4 +1660,24 @@ fn get_flash_region_type_name(name: &str) -> String {
         .replace("BANK", "Bank")
         .replace("REGION", "Region")
         .replace('_', "")
+}
+
+/// rustfmt a given path.
+/// Failures are logged to stderr and ignored.
+fn rustfmt(path: impl AsRef<Path>) {
+    let path = path.as_ref();
+    match Command::new("rustfmt").args([path]).output() {
+        Err(e) => {
+            eprintln!("failed to exec rustfmt {:?}: {:?}", path, e);
+        }
+        Ok(out) => {
+            if !out.status.success() {
+                eprintln!("rustfmt {:?} failed:", path);
+                eprintln!("=== STDOUT:");
+                std::io::stderr().write_all(&out.stdout).unwrap();
+                eprintln!("=== STDERR:");
+                std::io::stderr().write_all(&out.stderr).unwrap();
+            }
+        }
+    }
 }
