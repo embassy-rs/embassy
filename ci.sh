@@ -147,7 +147,11 @@ cargo batch \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f103re,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f100c4,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h503rb,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h523cc,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h562ag,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32wba50ke,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32wba55ug,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32u5g9nj,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb35ce,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u031r8,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u073mb,defmt,exti,time-driver-any,time \
