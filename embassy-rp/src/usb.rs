@@ -432,6 +432,9 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         };
 
         ctrl.modify(|w| w.set_stall(stalled));
+
+        let wakers = if ep_addr.is_in() { &EP_IN_WAKERS } else { &EP_OUT_WAKERS };
+        wakers[n].wake();
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
