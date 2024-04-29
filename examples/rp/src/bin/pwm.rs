@@ -7,12 +7,9 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp::pwm::{
-    builder::PeripheralsExt,
-    v2::{enable_pwm_slices, AsPwmSlice as _, Frequency},
-};
+use embassy_rp::pwm::builder::PeripheralsExt;
+use embassy_rp::pwm::v2::{enable_pwm_slices, AsPwmSlice as _, Frequency};
 use embassy_time::{Duration, Timer};
-
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

@@ -3,17 +3,14 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use rp_pac::pwm::vals::Divmode;
 
-use crate::{
-    clocks::clk_sys_freq,
-    gpio::{AnyPin, SealedPin},
-    peripherals::{PWM_SLICE0, PWM_SLICE1, PWM_SLICE2, PWM_SLICE3, PWM_SLICE4, PWM_SLICE5, PWM_SLICE6, PWM_SLICE7},
-    Peripherals,
+use super::v2::{Channel, EdgeSensitivity, Frequency, PwmError, PwmFreeRunningSlice, PwmInputOutputSlice};
+use super::{ChannelAPin, ChannelBPin, InputMode, Slice};
+use crate::clocks::clk_sys_freq;
+use crate::gpio::{AnyPin, SealedPin};
+use crate::peripherals::{
+    PWM_SLICE0, PWM_SLICE1, PWM_SLICE2, PWM_SLICE3, PWM_SLICE4, PWM_SLICE5, PWM_SLICE6, PWM_SLICE7,
 };
-
-use super::{
-    v2::{Channel, EdgeSensitivity, Frequency, PwmError, PwmFreeRunningSlice, PwmInputOutputSlice},
-    ChannelAPin, ChannelBPin, InputMode, Slice,
-};
+use crate::Peripherals;
 
 /// TODO
 pub struct PwmSliceBuilder<'a, T: Slice> {

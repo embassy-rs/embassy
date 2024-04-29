@@ -4,12 +4,11 @@ use embassy_hal_internal::PeripheralRef;
 use embedded_hal_1::pwm::ErrorKind;
 use rp_pac::pwm::regs::ChTop;
 
+use super::builder::PwmSliceBuilder;
+use super::Slice;
 use crate::clocks::clk_sys_freq;
 use crate::gpio::AnyPin;
 use crate::RegExt;
-
-use super::builder::PwmSliceBuilder;
-use super::Slice;
 
 /// Error type for PWM operations.
 #[derive(Debug)]
@@ -53,6 +52,15 @@ pub enum Channel {
     A,
     /// Channel B of a slice.
     B,
+}
+
+impl core::fmt::Display for Channel {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            Channel::A => write!(f, "A"),
+            Channel::B => write!(f, "B"),
+        }
+    }
 }
 
 #[cfg(feature = "defmt")]
