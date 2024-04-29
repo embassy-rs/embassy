@@ -192,7 +192,7 @@ async fn main(_spawner: Spawner) {
 
             Timer::after_millis(250).await;
 
-            i += 1;
+            i = i.wrapping_add(1);
         }
     } else {
         static TX_BUF: StaticCell<can::TxBuf<8>> = StaticCell::new();
@@ -228,7 +228,7 @@ async fn main(_spawner: Spawner) {
 
             Timer::after_millis(250).await;
 
-            i += 1;
+            i = i.wrapping_add(1);
         }
     }
 }
