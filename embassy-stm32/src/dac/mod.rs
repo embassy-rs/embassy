@@ -368,7 +368,7 @@ impl<'d, T: Instance, const N: u8, DMA> Drop for DacChannel<'d, T, N, DMA> {
 ///
 /// ```ignore
 /// // Pins may need to be changed for your specific device.
-/// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC, NoDma, NoDma, p.PA4, p.PA5).split();
+/// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, NoDma, NoDma, p.PA4, p.PA5).split();
 /// ```
 pub struct Dac<'d, T: Instance, DMACh1 = NoDma, DMACh2 = NoDma> {
     ch1: DacChannel<'d, T, 1, DMACh1>,
