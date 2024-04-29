@@ -118,7 +118,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     ///
     /// If you're not using DMA, pass [`dma::NoDma`] for the `dma` argument.
     ///
-    /// The channel is enabled on creation and begins to drive the output pin.
+    /// The channel is enabled on creation and begin to drive the output pin.
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
     /// disable the channel; you must re-enable it with `enable()`.
     ///
@@ -382,7 +382,7 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
     /// call `split()` to obtain separate `DacChannel`s, or use methods on `Dac` to use
     /// the two channels together.
     ///
-    /// The channels are enabled on creation and begins to drive their output pins.
+    /// The channels are enabled on creation and begin to drive their output pins.
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
     /// disable the channel; you must re-enable them with `enable()`.
     ///
@@ -398,19 +398,28 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
         into_ref!(dma_ch1, dma_ch2, pin_ch1, pin_ch2);
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
+
         // Enable twice to increment the DAC refcount for each channel.
         T::enable_and_reset();
         T::enable_and_reset();
-        Self {
-            ch1: DacCh1 {
-                phantom: PhantomData,
-                dma: dma_ch1,
-            },
-            ch2: DacCh2 {
-                phantom: PhantomData,
-                dma: dma_ch2,
-            },
-        }
+
+        let mut ch1 = DacCh1 {
+            phantom: PhantomData,
+            dma: dma_ch1,
+        };
+        #[cfg(any(dac_v5, dac_v6, dac_v7))]
+        ch1.set_hfsel();
+        ch1.enable();
+
+        let mut ch2 = DacCh2 {
+            phantom: PhantomData,
+            dma: dma_ch2,
+        };
+        #[cfg(any(dac_v5, dac_v6, dac_v7))]
+        ch2.set_hfsel();
+        ch2.enable();
+
+        Self { ch1, ch2 }
     }
 
     /// Create a new `Dac` instance where the external output pins are not used,
@@ -437,16 +446,26 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
         // Enable twice to increment the DAC refcount for each channel.
         T::enable_and_reset();
         T::enable_and_reset();
-        Self {
-            ch1: DacCh1 {
-                phantom: PhantomData,
-                dma: dma_ch1,
-            },
-            ch2: DacCh2 {
-                phantom: PhantomData,
-                dma: dma_ch2,
-            },
-        }
+
+        let mut ch1 = DacCh1 {
+            phantom: PhantomData,
+            dma: dma_ch1,
+        };
+        #[cfg(any(dac_v5, dac_v6, dac_v7))]
+        ch1.set_hfsel();
+        ch1.set_mode(Mode::NormalInternalUnbuffered);
+        ch1.enable();
+
+        let mut ch2 = DacCh2 {
+            phantom: PhantomData,
+            dma: dma_ch2,
+        };
+        #[cfg(any(dac_v5, dac_v6, dac_v7))]
+        ch2.set_hfsel();
+        ch2.set_mode(Mode::NormalInternalUnbuffered);
+        ch2.enable();
+
+        Self { ch1, ch2 }
     }
 
     /// Split this `Dac` into separate channels.
