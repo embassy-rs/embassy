@@ -48,6 +48,32 @@ impl<'d, T: Instance, M: PeriMode> I2c<'d, T, M> {
             //reg.set_anfoff(false);
         });
 
+        // Errata: "Start cannot be generated after a misplaced Stop"
+        //
+        // > If a master generates a misplaced Stop on the bus (bus error)
+        // > while the microcontroller I2C peripheral attempts to switch to
+        // > Master mode by setting the START bit, the Start condition is
+        // > not properly generated.
+        //
+        // This also can occur with falsely detected STOP events, for example
+        // if the SDA line is shorted to low.
+        //
+        // The workaround for this is to trigger the SWRST line AFTER power is
+        // enabled, AFTER PE is disabled and BEFORE making any other configuration.
+        //
+        // It COULD be possible to apply this workaround at runtime, instead of
+        // only on initialization, however this would require detecting the timeout
+        // or BUSY lockup condition, and re-configuring the peripheral after reset.
+        //
+        // This presents as an ~infinite hang on read or write, as the START condition
+        // is never generated, meaning the start event is never generated.
+        T::regs().cr1().modify(|reg| {
+            reg.set_swrst(true);
+        });
+        T::regs().cr1().modify(|reg| {
+            reg.set_swrst(false);
+        });
+
         let timings = Timings::new(T::frequency(), freq);
 
         T::regs().cr2().modify(|reg| {
