@@ -36,6 +36,6 @@ async fn main(_spawner: Spawner) {
             wdt.pet();
         }
 
-        i = i.wrapping_add(1);
+        i += 1;
     }
 }
