@@ -37,8 +37,11 @@ pub struct SpiDevice<'a, M: RawMutex, BUS, CS, Word> {
 impl<'a, M: RawMutex, BUS, CS, Word> SpiDevice<'a, M, BUS, CS, Word> {
     /// Create a new `SpiDevice`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS) -> Self {
-        Self { bus, cs
-            , _word: core::marker::PhantomData}
+        Self {
+            bus,
+            cs,
+            _word: core::marker::PhantomData,
+        }
     }
 }
 
@@ -93,7 +96,8 @@ where
     }
 }
 
-impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Transfer<u8> for SpiDevice<'_, M, BUS, CS, Word>
+impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Transfer<u8>
+    for SpiDevice<'_, M, BUS, CS, Word>
 where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::spi::Transfer<u8, Error = BusErr>,
@@ -134,11 +138,12 @@ where
     }
 }
 
-impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Transfer<u16> for SpiDevice<'_, M, BUS, CS, Word>
-    where
-        M: RawMutex,
-        BUS: embedded_hal_02::blocking::spi::Transfer<u16, Error = BusErr>,
-        CS: OutputPin<Error = CsErr>,
+impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Transfer<u16>
+    for SpiDevice<'_, M, BUS, CS, Word>
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::spi::Transfer<u16, Error = BusErr>,
+    CS: OutputPin<Error = CsErr>,
 {
     type Error = SpiDeviceError<BusErr, CsErr>;
     fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
@@ -155,10 +160,10 @@ impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Transf
 }
 
 impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Write<u16> for SpiDevice<'_, M, BUS, CS, Word>
-    where
-        M: RawMutex,
-        BUS: embedded_hal_02::blocking::spi::Write<u16, Error = BusErr>,
-        CS: OutputPin<Error = CsErr>,
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::spi::Write<u16, Error = BusErr>,
+    CS: OutputPin<Error = CsErr>,
 {
     type Error = SpiDeviceError<BusErr, CsErr>;
 
@@ -190,7 +195,12 @@ pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS, Word> {
 impl<'a, M: RawMutex, BUS: SetConfig, CS, Word> SpiDeviceWithConfig<'a, M, BUS, CS, Word> {
     /// Create a new `SpiDeviceWithConfig`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: BUS::Config) -> Self {
-        Self { bus, cs, config, _word: core::marker::PhantomData }
+        Self {
+            bus,
+            cs,
+            config,
+            _word: core::marker::PhantomData,
+        }
     }
 
     /// Change the device's config at runtime
