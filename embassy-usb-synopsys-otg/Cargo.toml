@@ -2,6 +2,7 @@
 name = "embassy-usb-synopsys-otg"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 description = "`embassy-usb-driver` implementation for Synopsys OTG USB controllers"
 keywords = ["embedded", "async", "usb", "hal", "embedded-hal"]
 categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
