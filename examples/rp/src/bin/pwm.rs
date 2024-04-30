@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
 
     let slice0 = Pwm::builder()
         .free_running()
-        .frequency(Frequency::Hz(30_000))
+        .frequency(Frequency::Hz(500))
         .phase_correct(false)
         .with_output_a(|a| a.duty_cycle(50.0))
         .with_output_b(|b| b.duty_cycle(75.0))

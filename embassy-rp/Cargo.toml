@@ -104,6 +104,7 @@ embedded-storage = { version = "0.3" }
 embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
+num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 
 rp-pac = { version = "6" }
 

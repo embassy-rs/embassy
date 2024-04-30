@@ -6,7 +6,7 @@ use rp_pac::pwm::vals::Divmode;
 use super::{BuilderState, ChannelConfig, ConfigureFrequency, ConfigurePhaseCorrect, DivMode, PwmBuilder, SliceConfig};
 use crate::builder_state;
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pwm::v2::{Channel, PwmError, PwmFreeRunningSlice};
+use crate::pwm::v2::{Channel, PwmError, PwmFreeRunningSlice, UncheckedPwmFreeRunningSlice};
 use crate::pwm::{ChannelAPin, ChannelBPin, Slice};
 
 builder_state!(FreeRunning);
@@ -175,7 +175,7 @@ impl PwmBuilder<FreeRunningChannelAB> {
     ///
     /// Note that this will not automatically enable the PWM slice. You must
     /// call [`PwmFreeRunningSlice::enable`] to start the PWM output, or
-    /// alternatively use the [`enable_pwm_slices`] function to enable multiple
+    /// alternatively use the [`enable_pwm_slices`](crate::pwm::v2::enable_pwm_slices) function to enable multiple
     /// slices simultaneously.
     pub fn apply<'a, S: Slice>(
         self,
@@ -192,6 +192,30 @@ impl PwmBuilder<FreeRunningChannelAB> {
             Some(pin_b.map_into()),
         )
     }
+
+    /// **Advanced Method**
+    ///
+    /// Apply the configuration to the provided slice and GPIO pins without
+    /// checking if the pins are compatible with the slice. This can easily
+    /// result in an incorrect configuration, so use with caution.
+    ///
+    /// Note that this will not automatically enable the PWM slice. You must
+    /// call [`UncheckedPwmFreeRunningSlice::enable`] to start the PWM output, or
+    /// alternatively use the [`enable_pwm_slices`](crate::pwm::v2::enable_pwm_slices) function to enable multiple
+    /// slices simultaneously.
+    #[allow(unused)]
+    pub fn apply_unchecked(
+        self,
+        slice_number: usize,
+        pin_a_number: usize,
+        pin_b_number: usize,
+    ) -> Result<UncheckedPwmFreeRunningSlice, PwmError> {
+        let slice = rp_pac::PWM.ch(slice_number);
+        let pin_a = rp_pac::IO_BANK0.gpio(pin_a_number);
+        let pin_b = rp_pac::IO_BANK0.gpio(pin_b_number);
+
+        todo!()
+    }
 }
 
 impl<'a, S: Slice> PwmFreeRunningSlice<'a, S> {
@@ -201,10 +225,12 @@ impl<'a, S: Slice> PwmFreeRunningSlice<'a, S> {
         pin_a: Option<impl Peripheral<P = AnyPin> + 'static>,
         pin_b: Option<impl Peripheral<P = AnyPin> + 'static>,
     ) -> Result<Self, PwmError> {
+        // We shouldn't be able to get here, but we'll check it anyway.
         if config.a.is_none() && config.b.is_none() {
             return Err(PwmError::Configuration("At least one channel must be configured"));
         }
 
+        // Get a reference to the slice peripheral.
         into_ref!(slice);
 
         // Get an instance of the registers for this slice.
@@ -224,42 +250,38 @@ impl<'a, S: Slice> PwmFreeRunningSlice<'a, S> {
 
         // If channel A is configured, set the pin function to PWM.
         if let Some(ref a) = pwm_slice.pin_a {
-            if let Some(a_conf) = &config.a {
-                into_ref!(a);
-                debug!("Setting A pin function to PWM");
-                a.gpio().ctrl().write(|w| w.set_funcsel(4));
-                regs.csr().modify(|w| w.set_a_inv(a_conf.invert));
-                pwm_slice.reconfigure(
-                    Channel::A,
-                    config.frequency_hz,
-                    a_conf.duty_percent,
-                    config.phase_correct,
-                )?;
-            } else {
-                return Err(PwmError::Configuration(
-                    "Channel A must be configured if and only if pin A is provided",
-                ));
-            }
+            let a_conf = config.a.as_ref().ok_or_else(|| {
+                PwmError::Configuration("Channel A must be configured if and only if pin A is provided")
+            })?;
+
+            into_ref!(a);
+            debug!("Setting A pin function to PWM");
+            a.gpio().ctrl().write(|w| w.set_funcsel(4));
+            regs.csr().modify(|w| w.set_b_inv(a_conf.invert));
+            pwm_slice.reconfigure(
+                Channel::A,
+                config.frequency_hz,
+                a_conf.duty_percent,
+                config.phase_correct,
+            )?;
         }
 
         // If channel B is configured, set the pin function to PWM.
         if let Some(ref b) = pwm_slice.pin_b {
-            if let Some(b_conf) = &config.b {
-                into_ref!(b);
-                debug!("Setting B pin function to PWM");
-                b.gpio().ctrl().write(|w| w.set_funcsel(4));
-                regs.csr().modify(|w| w.set_b_inv(b_conf.invert));
-                pwm_slice.reconfigure(
-                    Channel::B,
-                    config.frequency_hz,
-                    b_conf.duty_percent,
-                    config.phase_correct,
-                )?;
-            } else {
-                return Err(PwmError::Configuration(
-                    "Channel B must be configured if and only if pin B is provided",
-                ));
-            }
+            let b_conf = config.b.as_ref().ok_or_else(|| {
+                PwmError::Configuration("Channel B must be configured if and only if pin B is provided")
+            })?;
+
+            into_ref!(b);
+            debug!("Setting B pin function to PWM");
+            b.gpio().ctrl().write(|w| w.set_funcsel(4));
+            regs.csr().modify(|w| w.set_b_inv(b_conf.invert));
+            pwm_slice.reconfigure(
+                Channel::B,
+                config.frequency_hz,
+                b_conf.duty_percent,
+                config.phase_correct,
+            )?;
         }
 
         Ok(pwm_slice)

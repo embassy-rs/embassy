@@ -2,6 +2,7 @@
 use defmt::Format;
 use embassy_hal_internal::PeripheralRef;
 use embedded_hal_1::pwm::ErrorKind;
+use num_traits::float::FloatCore;
 use rp_pac::pwm::regs::ChTop;
 
 use super::builder::{DivMode, PwmBuilder, SliceConfig};
@@ -19,6 +20,10 @@ pub enum PwmError {
     ChannelNotConfigured(Channel),
     /// A configuration error has occurred.
     Configuration(&'static str),
+    /// The requested frequency is out of range.
+    FrequencyOutOfRange(u32),
+    /// The requested duty cycle is out of range.
+    DutyCycleOutOfRange(f32),
 }
 
 impl embedded_hal_1::pwm::Error for PwmError {
@@ -34,6 +39,16 @@ impl Format for PwmError {
             PwmError::Other(_) => defmt::write!(f, "A generic PWM error has occurred."),
             PwmError::ChannelNotConfigured(channel) => defmt::write!(f, "Channel {} is not configured", channel),
             PwmError::Configuration(msg) => defmt::write!(f, "Configuration error: {}", msg),
+            PwmError::FrequencyOutOfRange(freq) => defmt::write!(
+                f,
+                "Frequency {}Hz is out of range. Frequency must be >= 7.5Hz and <= the system clock speed.",
+                freq
+            ),
+            PwmError::DutyCycleOutOfRange(duty) => defmt::write!(
+                f,
+                "Duty cycle {}% is out of range. Duty cycle must be >= 0.0% and <= 100.0%.",
+                duty
+            ),
         }
     }
 }
@@ -90,6 +105,26 @@ impl Pwm {
     /// Returns a builder for configuring a PWM slice.
     pub fn builder() -> PwmBuilder<DivMode> {
         PwmBuilder::new(SliceConfig::default())
+    }
+}
+
+/// Represents a configured free-running PWM slice which is unchecked, i.e.
+/// there are no guarantees that the configuration is valid.
+#[allow(unused)] // TODO: Temporary, to be used for unchecked free-running slice.
+pub struct UncheckedPwmFreeRunningSlice {
+    slice_number: u8,
+    pin_a_number: Option<u8>,
+    pub_b_number: Option<u8>,
+}
+
+impl UncheckedPwmFreeRunningSlice {
+    /// Creates a new unchecked free-running slice.
+    pub fn new(slice_number: u8, pin_a_number: Option<u8>, pin_b_number: Option<u8>) -> Self {
+        Self {
+            slice_number,
+            pin_a_number,
+            pub_b_number: pin_b_number,
+        }
     }
 }
 
@@ -219,6 +254,14 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
         duty: f32,
         phase_correct: bool,
     ) -> Result<bool, PwmError> {
+        if freq_hz < 8 || freq_hz > clk_sys_freq() {
+            return Err(PwmError::FrequencyOutOfRange(freq_hz));
+        }
+
+        if duty < 0.0 || duty > 100.0 {
+            return Err(PwmError::DutyCycleOutOfRange(duty));
+        }
+
         // Check for changes and assert that the provided channel is configured
         // prior to reconfiguring.
         let (pin, current_duty) = match channel {
@@ -249,30 +292,74 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
     /// Calculates the divider and top values for the PWM slice based on the
     /// provided frequency and whether or not phase-correct is enabled for
     /// this slice.
+    // fn calculate_div_and_top(&mut self, freq_hz: u32) -> (u32, u32) {
+    //     const TOP_MAX: u32 = 65534;
+    //     const DIV_MIN: u32 = (0x01 << 4) + 0x0; // 0x01.0
+    //     const DIV_MAX: u32 = (0xFF << 4) + 0xF; // 0xFF.F
+
+    //     //let freq_hz = freq_hz / 2;
+
+    //     let clock = clk_sys_freq();
+    //     let div = (clock << 4) / freq_hz / (TOP_MAX + 1);
+    //     let div = if div < DIV_MIN { DIV_MIN } else { div };
+    //     let mut period = (clock << 4) / div / freq_hz;
+    //     while (period > (TOP_MAX + 1)) && (div <= DIV_MAX) {
+    //         period = (clock << 4) / (div + 1) / freq_hz;
+    //     }
+
+    //     if period <= 1 {
+    //         panic!("Frequency below is too high ...");
+    //     } else if div > DIV_MAX {
+    //         panic!("Frequency below is too low ...");
+    //     }
+
+    //     let mut top = period - 1;
+
+    //     let out = (clock << 4) / div / (top + 1);
+
+    //     debug!(
+    //         "\nFreq = {}\nTop = {}\nDiv = 0x{:02X}.{:X}\nOut = {}",
+    //         freq_hz,
+    //         top,
+    //         div >> 4,
+    //         div & 0xF,
+    //         out
+    //     );
+
+    //     if self.phase_correct {
+    //         top = top / 2;
+    //     }
+
+    //     (div, top)
+    // }
+
     fn calculate_div_and_top(&mut self, freq_hz: u32) -> (u32, u32) {
-        const TOP_MAX: u32 = 65534;
-        const DIV_MIN: u32 = (0x01 << 4) + 0x0; // 0x01.0
-        const DIV_MAX: u32 = (0xFF << 4) + 0xF; // 0xFF.F
+        let freq_hz = freq_hz as f32;
 
-        //let freq_hz = freq_hz / 2;
+        const TOP_MAX: f32 = 65534.0;
+        const DIV_MIN: f32 = 16.0; // 0x01.0
+        const DIV_MAX: f32 = 4095.0; // 0xFF.F
 
-        let clock = clk_sys_freq();
-        let div = (clock << 4) / freq_hz / (TOP_MAX + 1);
-        let div = if div < DIV_MIN { DIV_MIN } else { div };
-        let mut period = (clock << 4) / div / freq_hz;
-        while (period > (TOP_MAX + 1)) && (div <= DIV_MAX) {
-            period = (clock << 4) / (div + 1) / freq_hz;
+        let clock = clk_sys_freq() as f32;
+        let mut div = (clock * 16.0) / freq_hz / (TOP_MAX + 1.0);
+        div = if div < DIV_MIN { DIV_MIN } else { div };
+        let mut period = (clock * 16.0) / div / freq_hz;
+
+        while (period > (TOP_MAX + 1.0)) && (div <= DIV_MAX) {
+            div += 1.0;
+            period = (clock * 16.0) / div / freq_hz;
         }
 
-        if period <= 1 {
+        if period <= 1.0 {
             panic!("Frequency below is too high ...");
         } else if div > DIV_MAX {
             panic!("Frequency below is too low ...");
         }
 
-        let mut top = period - 1;
+        let top = (period - 1.0).round() as u32;
+        let div = div.round() as u32;
 
-        let out = (clock << 4) / div / (top + 1);
+        let out = (clock * 16.0) / (div as f32) / ((top + 1) as f32);
 
         debug!(
             "\nFreq = {}\nTop = {}\nDiv = 0x{:02X}.{:X}\nOut = {}",
@@ -282,10 +369,6 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
             div & 0xF,
             out
         );
-
-        if self.phase_correct {
-            top = top / 2;
-        }
 
         (div, top)
     }
