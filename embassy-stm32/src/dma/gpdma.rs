@@ -3,7 +3,7 @@
 use core::future::Future;
 use core::pin::Pin;
 use core::ptr;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{fence, AtomicBool, AtomicU8, Ordering};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
@@ -33,7 +33,7 @@ impl Default for TransferOptions {
     }
 }
 
-impl From<WordSize> for vals::Dw {
+impl From<WordSize> for vals::ChTr1Dw {
     fn from(raw: WordSize) -> Self {
         match raw {
             WordSize::OneByte => Self::BYTE,
@@ -45,11 +45,19 @@ impl From<WordSize> for vals::Dw {
 
 pub(crate) struct ChannelState {
     waker: AtomicWaker,
+    is_lli_mode: AtomicBool,
+    transfer_in: AtomicU8,
+    transfer_out: AtomicU8,
+    transfer_size: AtomicU8,
 }
 
 impl ChannelState {
     pub(crate) const NEW: Self = Self {
         waker: AtomicWaker::new(),
+        is_lli_mode: AtomicBool::new(false),
+        transfer_in: AtomicU8::new(0),
+        transfer_out: AtomicU8::new(0),
+        transfer_size: AtomicU8::new(0),
     };
 }
 
@@ -62,6 +70,119 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: P
         };
     }
     crate::_generated::init_gpdma();
+}
+
+/// Linked List Table
+#[derive(Debug)]
+pub struct LliTable<W: Word, const MEMS: usize, const BUFLEN: usize> {
+    addrs: [&'static [W; BUFLEN]; MEMS],
+    items: &'static mut [LliItem; MEMS],
+    option: LliOption,
+}
+
+impl<W: Word, const MEMS: usize, const BUFLEN: usize> LliTable<W, MEMS, BUFLEN> {
+    /// sets the buffer addresses
+    ///
+    /// const ADC_BUFFERS: usize = 2;
+    /// const ADC1_CHANNELS: usize = 8;
+    /// static mut ADC1_BUF: [[u16;8];ADC_BUFFERS] = [[0u16;ADC1_CHANNELS];ADC_BUFFERS];
+    /// static mut ADC1_LLIITEMS: [LliItem;ADC_BUFFERS] = [LliItem { dar: 0, llr: 0 }; ADC_BUFFERS];
+    /// static ADC1_LLITABLE: StaticCell<LliTable<u16, ADC_BUFFERS, ADC1_CHANNELS>> = StaticCell::new();
+    /// // creates an array of buffer addresses
+    /// let adc1_lli = unsafe { ADC1_BUF.iter().map(|w| *addr_of!(w)).collect::<Vec<&[u16;ADC1_CHANNELS]>>().as_slice().try_into().unwrap() };  
+    ///
+    /// let lli_table = unsafe { ADC1_LLITABLE.init(LliTable::new(adc1_lli, &mut *addr_of_mut!(ADC1_LLIITEMS), LliOption::Repeated)) };
+    ///
+    /// // start the dma with
+    /// let dma = Transfer::new_read_with_lli(...)
+    ///
+    /// // the data can read with get_next_buffer(..)
+    ///
+    pub fn new(
+        addrs: [&'static [W; BUFLEN]; MEMS],
+        lli_items: &'static mut [LliItem; MEMS],
+        option: LliOption,
+    ) -> Self {
+        assert!(MEMS > 1);
+        assert!(BUFLEN > 0);
+        //map the buffer startaddr to lli
+        for (index, buf) in addrs.iter().enumerate() {
+            let (ptr, mut len) = super::slice_ptr_parts(*buf);
+            len *= W::size().bytes();
+            assert!(len > 0 && len <= 0xFFFF);
+            lli_items[index].dar = ptr as u32;
+        }
+        let mut this = Self {
+            items: lli_items,
+            addrs,
+            option,
+        };
+        this.fixing_memory();
+        this
+    }
+
+    /// Create the Linked List
+    fn fixing_memory(&mut self) {
+        // create linked list
+        for i in 0..MEMS - 1 {
+            let lli_plus_one = ptr::addr_of!(self.items[i + 1]) as u16;
+            self.items[i].set_llr(lli_plus_one as u16);
+        }
+        match self.option {
+            LliOption::Repeated => self.items[MEMS - 1].set_llr(ptr::addr_of!(self.items[0]) as u16), // Connect the end and the beginning
+            LliOption::Single => self.items[MEMS - 1].llr = 0,
+        }
+    }
+
+    /// get the next Buffer
+    pub fn get_next_buffer(&self, dma: &Transfer) -> Option<&&[W; BUFLEN]> {
+        let state = dma.get_lli_state();
+        let i = state.transfer_in.load(Ordering::Relaxed);
+        let o = state.transfer_out.load(Ordering::Relaxed);
+        match i == o {
+            true => None,
+            false => {
+                //defmt::info!("DMA GET BUF {}", o);
+                let result = self.addrs.get((o as usize) % MEMS);
+                let _ = state
+                    .transfer_out
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                        if v >= state.transfer_size.load(Ordering::Relaxed) {
+                            Some(0)
+                        } else {
+                            Some(v + 1)
+                        }
+                    });
+                result
+            }
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+/// Linked List Item
+pub struct LliItem {
+    /// Data Start Address
+    pub dar: u32,
+    /// Linked List
+    pub llr: u32,
+}
+#[allow(unused)]
+impl LliItem {
+    fn set_llr(&mut self, la: u16) {
+        // set la, uda and ull
+        self.llr = (la as u32) | 1u32 << 27 | 1u32 << 16;
+    }
+}
+
+#[derive(Debug)]
+/// Definition for the end of the linked list
+pub enum LliOption {
+    /// The end of the list is linked to the beginning
+    Repeated,
+    /// the list is only processed once
+    Single,
 }
 
 impl AnyChannel {
@@ -89,104 +210,27 @@ impl AnyChannel {
         }
 
         if sr.suspf() || sr.tcf() {
-            // disable all xxIEs to prevent the irq from firing again.
-            ch.cr().write(|_| {});
+            if state.is_lli_mode.load(Ordering::Relaxed) {
+                let _ = state
+                    .transfer_in
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                        if v >= state.transfer_size.load(Ordering::Relaxed) {
+                            Some(0)
+                        } else {
+                            Some(v + 1)
+                        }
+                    });
+                ch.fcr().modify(|reg| reg.set_tcf(true));
+                //defmt::info!("DMA SET BUF {}", state.transfer_in.load(Ordering::Relaxed));
+            } else {
+                // disable all xxIEs to prevent the irq from firing again.
+                ch.cr().write(|_| {});
 
-            // Wake the future. It'll look at tcf and see it's set.
-            state.waker.wake();
+                // Wake the future. It'll look at tcf and see it's set.
+                state.waker.wake();
+            }
         }
     }
-}
-
-/// Linked List Table
-#[derive(Debug)]
-pub struct LliTable<'a, W: Word, const MEMS: usize, const BUFLEN: usize> {
-    addrs: &'a [&'a [W; BUFLEN]; MEMS],
-    items: [LliItem; MEMS],
-    size: WordSize,
-}
-
-impl<'a, W: Word, const MEMS: usize, const BUFLEN: usize> LliTable<'a, W, MEMS, BUFLEN> {
-    /// sets the buffer addresses
-    ///
-    /// let buf0 = [0u16; 6];
-    /// let buf1 = [0u16; 6];
-    /// let bufs = [&buf0,&buf1];
-    /// let lli_table = LliTable::new(&bufs);
-    ///
-    /// // after move or copy use fixing_in_mem(LliOption)
-    ///
-    pub fn new(addrs: &'a [&'a [W; BUFLEN]; MEMS]) -> Self {
-        assert!(MEMS > 1);
-        assert!(BUFLEN > 0);
-        let mut items = [LliItem::default(); MEMS];
-        //map the buffer startaddr to lli
-        for (index, buf) in addrs.into_iter().enumerate() {
-            let (ptr, mut len) = super::slice_ptr_parts(*buf);
-            len *= W::size().bytes();
-            assert!(len > 0 && len <= 0xFFFF);
-            items[index].dar = ptr as u32;
-        }
-        Self {
-            items,
-            size: W::size(),
-            addrs,
-        }
-    }
-
-    /// Create the Linked List
-    /// use it after a copy or move
-    pub fn fixing_in_mem(&mut self, option: LliOption) {
-        // create linked list
-        for i in 0..MEMS - 1 {
-            let lli_plus_one = ptr::addr_of!(self.items[i + 1]) as u16;
-            let lli = &mut self.items[i];
-            lli.set_llr(lli_plus_one);
-        }
-        match option {
-            LliOption::Repeated => self.items[MEMS - 1].set_llr(ptr::addr_of!(self.items[0]) as u16), // Connect the end and the beginning
-            LliOption::Single => self.items[MEMS - 1].llr = 0,
-        }
-    }
-
-    /// the memory width
-    pub fn get_size(&self) -> WordSize {
-        self.size
-    }
-
-    /// get the last address from the buffer for double Buffer mode
-    /// Buffer 0 and 1 must not be the same
-    pub fn find_last_buffer_in_double_buffer_mode(&self, dar: u32) -> &[W; BUFLEN] {
-        assert!(MEMS == 2);
-        match self.items[0].dar == dar {
-            true => self.addrs[1],
-            _ => self.addrs[0],
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Default)]
-/// Linked List Item
-pub struct LliItem {
-    /// Data Start Address
-    pub dar: u32,
-    /// Linked List
-    pub llr: u32,
-}
-#[allow(unused)]
-impl LliItem {
-    fn set_llr(&mut self, la: u16) {
-        // set la, uda and ull
-        self.llr = (la as u32) | 1u32 << 27 | 1u32 << 16;
-    }
-}
-
-/// Definition for the end of the linked list
-pub enum LliOption {
-    /// The end of the list is linked to the beginning
-    Repeated,
-    /// the list is only processed once
-    Single,
 }
 
 /// DMA transfer.
@@ -196,6 +240,76 @@ pub struct Transfer<'a> {
 }
 
 impl<'a> Transfer<'a> {
+    /// Create a new read DMA transfer (peripheral to memory). with linked list
+    /// The transfer starts at buf0 and moves to the next buffer after a transfer, etc
+    /// The LLI Table can be configured as a single or repeated transfer
+    /// the buffer switching is done in Hardware
+    pub unsafe fn new_read_with_lli<W: Word, const M: usize, const N: usize>(
+        channel: impl Peripheral<P = impl Channel> + 'a,
+        request: Request,
+        peri_addr: *mut W,
+        llit: &LliTable<W, M, N>,
+        _options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+        let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
+        let data_size = W::size();
+        let info = channel.info();
+        let ch = info.dma.ch(info.num);
+
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::SeqCst);
+
+        let this = Self { channel };
+
+        #[cfg(dmamux)]
+        super::dmamux::configure_dmamux(&*this.channel, request);
+
+        ch.cr().write(|w| w.set_reset(true));
+        ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
+        ch.tr1().write(|w| {
+            w.set_sdw(data_size.into());
+            w.set_ddw(data_size.into());
+            w.set_sinc(false);
+            w.set_dinc(true);
+        });
+        ch.tr2().write(|w| {
+            w.set_dreq(vals::ChTr2Dreq::SOURCEPERIPHERAL);
+            w.set_reqsel(request);
+        });
+
+        ch.sar().write_value(peri_addr as _); // Peripheral Addr
+        let llis_base_addr = ptr::addr_of!(llit.items) as u32;
+        ch.lbar().write(|reg| reg.set_lba((llis_base_addr >> 16) as u16)); // linked high addr
+        ch.br1().write(|reg| reg.set_bndt((N * W::size().bytes()) as u16));
+        ch.dar().write(|reg| *reg = llit.items[0].dar);
+        ch.llr().write(|reg| reg.0 = llit.items[0].llr); // Set Start llr
+
+        let state = &STATE[this.channel.id as usize];
+        state.is_lli_mode.store(true, Ordering::Relaxed);
+        state.transfer_in.store(0, Ordering::Relaxed);
+        state.transfer_out.store(0, Ordering::Relaxed);
+        state.transfer_size.store(M as _, Ordering::Relaxed);
+
+        ch.cr().write(|w| {
+            // Enable interrupts
+            w.set_tcie(true);
+            w.set_useie(true);
+            w.set_dteie(true);
+            w.set_suspie(true);
+
+            // Start it
+            w.set_en(true);
+        });
+
+        this
+    }
+
+    /// get the channel state
+    fn get_lli_state(&self) -> &ChannelState {
+        &STATE[self.channel.id as usize]
+    }
+
     /// Create a new read DMA transfer (peripheral to memory).
     pub unsafe fn new_read<W: Word>(
         channel: impl Peripheral<P = impl Channel> + 'a,
@@ -327,8 +441,8 @@ impl<'a> Transfer<'a> {
         });
         ch.tr2().write(|w| {
             w.set_dreq(match dir {
-                Dir::MemoryToPeripheral => vals::Dreq::DESTINATIONPERIPHERAL,
-                Dir::PeripheralToMemory => vals::Dreq::SOURCEPERIPHERAL,
+                Dir::MemoryToPeripheral => vals::ChTr2Dreq::DESTINATIONPERIPHERAL,
+                Dir::PeripheralToMemory => vals::ChTr2Dreq::SOURCEPERIPHERAL,
             });
             w.set_reqsel(request);
         });
@@ -360,74 +474,6 @@ impl<'a> Transfer<'a> {
         });
 
         this
-    }
-
-    /// Create a new read DMA transfer (peripheral to memory). with linked list
-    /// The transfer starts at buf0 and moves to the next buffer after a transfer, etc
-    /// The last LLI entry has a link to the first buffer
-    /// the buffer switching is in Hardware
-    pub unsafe fn new_read_with_lli<W: Word, const M: usize, const N: usize>(
-        channel: impl Peripheral<P = impl Channel> + 'a,
-        request: Request,
-        peri_addr: *mut W,
-        llit: &mut LliTable<'a, W, M, N>,
-        lli_option: LliOption,
-        _options: TransferOptions,
-    ) -> Self {
-        into_ref!(channel);
-        let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
-        let data_size = W::size();
-        let info = channel.info();
-        let ch = info.dma.ch(info.num);
-
-        // "Preceding reads and writes cannot be moved past subsequent writes."
-        fence(Ordering::SeqCst);
-
-        let this = Self { channel };
-
-        #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&*this.channel, request);
-
-        ch.cr().write(|w| w.set_reset(true));
-        ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
-        ch.tr1().write(|w| {
-            w.set_sdw(data_size.into());
-            w.set_ddw(data_size.into());
-            w.set_sinc(false);
-            w.set_dinc(true);
-        });
-        ch.tr2().write(|w| {
-            w.set_dreq(vals::ChTr2Dreq::SOURCEPERIPHERAL);
-            w.set_reqsel(request);
-        });
-
-        ch.sar().write_value(peri_addr as _); // Peripheral Addr
-        llit.fixing_in_mem(lli_option);
-        let llis_base_addr = ptr::addr_of!(llit.items[0]) as u32;
-        ch.lbar().write(|reg| reg.set_lba((llis_base_addr >> 16) as u16)); // linked high addr
-        ch.br1().write(|reg| reg.set_bndt((N * W::size().bytes()) as u16));
-        ch.dar().write(|reg| *reg = llit.items[0].dar);
-        ch.llr().write(|reg| reg.0 = llit.items[0].llr); // Set Start llr
-
-        ch.cr().write(|w| {
-            // Enable interrupts
-            w.set_tcie(true);
-            w.set_useie(true);
-            w.set_dteie(true);
-            w.set_suspie(true);
-
-            // Start it
-            w.set_en(true);
-        });
-
-        this
-    }
-
-    /// get the address value from the linked address register
-    pub fn get_dar_reg(&self) -> u32 {
-        let info = self.channel.info();
-        let ch = info.dma.ch(info.num);
-        ch.dar().read()
     }
 
     /// Request the transfer to stop.
