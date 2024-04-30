@@ -25,12 +25,16 @@ use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler};
 use embassy_usb::class::web_usb::{Config as WebUsbConfig, State, Url, WebUsb};
 use embassy_usb::driver::{Driver, Endpoint, EndpointIn, EndpointOut};
+use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
+
+// This is a randomly generated GUID to allow clients on Windows to find our device
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -58,6 +62,7 @@ async fn main(_spawner: Spawner) {
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
+    let mut msos_descriptor = [0; 256];
 
     let webusb_config = WebUsbConfig {
         max_packet_size: 64,
@@ -73,9 +78,22 @@ async fn main(_spawner: Spawner) {
         config,
         &mut config_descriptor,
         &mut bos_descriptor,
-        &mut [], // no msos descriptors
+        &mut msos_descriptor,
         &mut control_buf,
     );
+
+    // Add the Microsoft OS Descriptor (MSOS/MOD) descriptor.
+    // We tell Windows that this entire device is compatible with the "WINUSB" feature,
+    // which causes it to use the built-in WinUSB driver automatically, which in turn
+    // can be used by libusb/rusb software without needing a custom driver or INF file.
+    // In principle you might want to call msos_feature() just on a specific function,
+    // if your device also has other functions that still use standard class drivers.
+    builder.msos_descriptor(windows_version::WIN8_1, 0);
+    builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+    builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+        "DeviceInterfaceGUIDs",
+        msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+    ));
 
     // Create classes on the builder (WebUSB just needs some setup, but doesn't return anything)
     WebUsb::configure(&mut builder, &mut state, &webusb_config);
