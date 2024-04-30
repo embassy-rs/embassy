@@ -1,21 +1,22 @@
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::PeripheralRef;
-use futures::future::{select, Either};
+use futures_util::future::{select, Either};
 
 use super::{clear_interrupt_flags, rdr, reconfigure, sr, BasicInstance, Config, ConfigError, Error, UartRx};
 use crate::dma::ReadableRingBuffer;
+use crate::mode::Async;
 use crate::usart::{Regs, Sr};
 
 /// Rx-only Ring-buffered UART Driver
 ///
 /// Created with [UartRx::into_ring_buffered]
 pub struct RingBufferedUartRx<'d, T: BasicInstance> {
-    _peri: PeripheralRef<'d, T>,
+    _phantom: PhantomData<T>,
     ring_buf: ReadableRingBuffer<'d, u8>,
 }
 
@@ -28,26 +29,29 @@ impl<'d, T: BasicInstance> SetConfig for RingBufferedUartRx<'d, T> {
     }
 }
 
-impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
+impl<'d, T: BasicInstance> UartRx<'d, T, Async> {
     /// Turn the `UartRx` into a buffered uart which can continously receive in the background
     /// without the possibility of losing bytes. The `dma_buf` is a buffer registered to the
     /// DMA controller, and must be large enough to prevent overflows.
-    pub fn into_ring_buffered(self, dma_buf: &'d mut [u8]) -> RingBufferedUartRx<'d, T> {
+    pub fn into_ring_buffered(mut self, dma_buf: &'d mut [u8]) -> RingBufferedUartRx<'d, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
-        let request = self.rx_dma.request();
         let opts = Default::default();
 
         // Safety: we forget the struct before this function returns.
-        let rx_dma = unsafe { self.rx_dma.clone_unchecked() };
-        let _peri = unsafe { self._peri.clone_unchecked() };
+        let rx_dma = self.rx_dma.as_mut().unwrap();
+        let request = rx_dma.request;
+        let rx_dma = unsafe { rx_dma.channel.clone_unchecked() };
 
         let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rdr(T::regs()), dma_buf, opts) };
 
         // Don't disable the clock
         mem::forget(self);
 
-        RingBufferedUartRx { _peri, ring_buf }
+        RingBufferedUartRx {
+            _phantom: PhantomData,
+            ring_buf,
+        }
     }
 }
 

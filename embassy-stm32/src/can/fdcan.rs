@@ -44,52 +44,50 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
 
         let ir = regs.ir().read();
 
-        {
-            if ir.tc() {
-                regs.ir().write(|w| w.set_tc(true));
-            }
-            if ir.tefn() {
-                regs.ir().write(|w| w.set_tefn(true));
-            }
-
-            match &T::state().tx_mode {
-                TxMode::NonBuffered(waker) => waker.wake(),
-                TxMode::ClassicBuffered(buf) => {
-                    if !T::registers().tx_queue_is_full() {
-                        match buf.tx_receiver.try_receive() {
-                            Ok(frame) => {
-                                _ = T::registers().write(&frame);
-                            }
-                            Err(_) => {}
-                        }
-                    }
-                }
-                TxMode::FdBuffered(buf) => {
-                    if !T::registers().tx_queue_is_full() {
-                        match buf.tx_receiver.try_receive() {
-                            Ok(frame) => {
-                                _ = T::registers().write(&frame);
-                            }
-                            Err(_) => {}
-                        }
-                    }
-                }
-            }
+        if ir.tc() {
+            regs.ir().write(|w| w.set_tc(true));
+        }
+        if ir.tefn() {
+            regs.ir().write(|w| w.set_tefn(true));
         }
 
-        if ir.ped() || ir.pea() {
-            regs.ir().write(|w| {
-                w.set_ped(true);
-                w.set_pea(true);
-            });
+        match &T::state().tx_mode {
+            TxMode::NonBuffered(waker) => waker.wake(),
+            TxMode::ClassicBuffered(buf) => {
+                if !T::registers().tx_queue_is_full() {
+                    match buf.tx_receiver.try_receive() {
+                        Ok(frame) => {
+                            _ = T::registers().write(&frame);
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
+            TxMode::FdBuffered(buf) => {
+                if !T::registers().tx_queue_is_full() {
+                    match buf.tx_receiver.try_receive() {
+                        Ok(frame) => {
+                            _ = T::registers().write(&frame);
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
         }
 
         if ir.rfn(0) {
             T::state().rx_mode.on_interrupt::<T>(0);
         }
-
         if ir.rfn(1) {
             T::state().rx_mode.on_interrupt::<T>(1);
+        }
+
+        if ir.bo() {
+            regs.ir().write(|w| w.set_bo(true));
+            if regs.psr().read().bo() {
+                // Initiate bus-off recovery sequence by resetting CCCR.INIT
+                regs.cccr().modify(|w| w.set_init(false));
+            }
         }
     }
 }
@@ -148,6 +146,7 @@ pub struct CanConfigurator<'d, T: Instance> {
     config: crate::can::fd::config::FdCanConfig,
     /// Reference to internals.
     instance: FdcanInstance<'d, T>,
+    properties: Properties<T>,
 }
 
 fn calc_ns_per_timer_tick<T: Instance>(mode: crate::can::fd::config::FrameTransmissionConfig) -> u64 {
@@ -201,7 +200,13 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
         Self {
             config,
             instance: FdcanInstance(peri),
+            properties: Properties::new(),
         }
+    }
+
+    /// Get driver properties
+    pub fn properties(&self) -> &Properties<T> {
+        &self.properties
     }
 
     /// Get configuration
@@ -242,32 +247,6 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
         self.config = self.config.set_data_bit_timing(nbtr);
     }
 
-    /// Set an Standard Address CAN filter into slot 'id'
-    #[inline]
-    pub fn set_standard_filter(&mut self, slot: StandardFilterSlot, filter: StandardFilter) {
-        T::registers().msg_ram_mut().filters.flssa[slot as usize].activate(filter);
-    }
-
-    /// Set an array of Standard Address CAN filters and overwrite the current set
-    pub fn set_standard_filters(&mut self, filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
-        for (i, f) in filters.iter().enumerate() {
-            T::registers().msg_ram_mut().filters.flssa[i].activate(*f);
-        }
-    }
-
-    /// Set an Extended Address CAN filter into slot 'id'
-    #[inline]
-    pub fn set_extended_filter(&mut self, slot: ExtendedFilterSlot, filter: ExtendedFilter) {
-        T::registers().msg_ram_mut().filters.flesa[slot as usize].activate(filter);
-    }
-
-    /// Set an array of Extended Address CAN filters and overwrite the current set
-    pub fn set_extended_filters(&mut self, filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
-        for (i, f) in filters.iter().enumerate() {
-            T::registers().msg_ram_mut().filters.flesa[i].activate(*f);
-        }
-    }
-
     /// Start in mode.
     pub fn start(self, mode: OperatingMode) -> Can<'d, T> {
         let ns_per_timer_tick = calc_ns_per_timer_tick::<T>(self.config.frame_transmit);
@@ -279,6 +258,7 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
             config: self.config,
             instance: self.instance,
             _mode: mode,
+            properties: self.properties,
         };
         ret
     }
@@ -305,9 +285,15 @@ pub struct Can<'d, T: Instance> {
     /// Reference to internals.
     instance: FdcanInstance<'d, T>,
     _mode: OperatingMode,
+    properties: Properties<T>,
 }
 
 impl<'d, T: Instance> Can<'d, T> {
+    /// Get driver properties
+    pub fn properties(&self) -> &Properties<T> {
+        &self.properties
+    }
+
     /// Flush one of the TX mailboxes.
     pub async fn flush(&self, idx: usize) {
         poll_fn(|cx| {
@@ -352,8 +338,8 @@ impl<'d, T: Instance> Can<'d, T> {
         T::state().rx_mode.read_fd::<T>().await
     }
 
-    /// Split instance into separate Tx(write) and Rx(read) portions
-    pub fn split(self) -> (CanTx<'d, T>, CanRx<'d, T>) {
+    /// Split instance into separate portions: Tx(write), Rx(read), common properties
+    pub fn split(self) -> (CanTx<'d, T>, CanRx<'d, T>, Properties<T>) {
         (
             CanTx {
                 config: self.config,
@@ -365,6 +351,7 @@ impl<'d, T: Instance> Can<'d, T> {
                 _instance2: T::regs(),
                 _mode: self._mode,
             },
+            self.properties,
         )
     }
 
@@ -375,6 +362,7 @@ impl<'d, T: Instance> Can<'d, T> {
             //_instance2: T::regs(),
             instance: tx._instance,
             _mode: rx._mode,
+            properties: Properties::new(),
         }
     }
 
@@ -410,6 +398,7 @@ pub struct BufferedCan<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_S
     _mode: OperatingMode,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
+    properties: Properties<T>,
 }
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
@@ -428,8 +417,14 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
             _mode,
             tx_buf,
             rx_buf,
+            properties: Properties::new(),
         }
         .setup()
+    }
+
+    /// Get driver properties
+    pub fn properties(&self) -> &Properties<T> {
+        &self.properties
     }
 
     fn setup(self) -> Self {
@@ -496,6 +491,7 @@ pub struct BufferedCanFd<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF
     _mode: OperatingMode,
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
+    properties: Properties<T>,
 }
 
 /// Sender that can be used for sending CAN frames.
@@ -544,8 +540,14 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
             _mode,
             tx_buf,
             rx_buf,
+            properties: Properties::new(),
         }
         .setup()
+    }
+
+    /// Get driver properties
+    pub fn properties(&self) -> &Properties<T> {
+        &self.properties
     }
 
     fn setup(self) -> Self {
@@ -803,6 +805,71 @@ impl TxMode {
     /// transmitted, then tries again.
     async fn write_fd<T: Instance>(&self, frame: &FdFrame) -> Option<FdFrame> {
         self.write_generic::<T, _>(frame).await
+    }
+}
+
+/// Common driver properties, including filters and error counters
+pub struct Properties<T> {
+    // phantom pointer to ensure !Sync
+    instance: PhantomData<*const T>,
+}
+
+impl<T: Instance> Properties<T> {
+    fn new() -> Self {
+        Self {
+            instance: Default::default(),
+        }
+    }
+
+    /// Set a standard address CAN filter in the specified slot in FDCAN memory.
+    #[inline]
+    pub fn set_standard_filter(&self, slot: StandardFilterSlot, filter: StandardFilter) {
+        T::registers().msg_ram_mut().filters.flssa[slot as usize].activate(filter);
+    }
+
+    /// Set the full array of standard address CAN filters in FDCAN memory.
+    /// Overwrites all standard address filters in memory.
+    pub fn set_standard_filters(&self, filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
+        for (i, f) in filters.iter().enumerate() {
+            T::registers().msg_ram_mut().filters.flssa[i].activate(*f);
+        }
+    }
+
+    /// Set an extended address CAN filter in the specified slot in FDCAN memory.
+    #[inline]
+    pub fn set_extended_filter(&self, slot: ExtendedFilterSlot, filter: ExtendedFilter) {
+        T::registers().msg_ram_mut().filters.flesa[slot as usize].activate(filter);
+    }
+
+    /// Set the full array of extended address CAN filters in FDCAN memory.
+    /// Overwrites all extended address filters in memory.
+    pub fn set_extended_filters(&self, filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
+        for (i, f) in filters.iter().enumerate() {
+            T::registers().msg_ram_mut().filters.flesa[i].activate(*f);
+        }
+    }
+
+    /// Get the CAN RX error counter
+    pub fn rx_error_count(&self) -> u8 {
+        T::regs().ecr().read().rec()
+    }
+
+    /// Get the CAN TX error counter
+    pub fn tx_error_count(&self) -> u8 {
+        T::regs().ecr().read().tec()
+    }
+
+    /// Get the current bus error mode
+    pub fn bus_error_mode(&self) -> BusErrorMode {
+        // This read will clear LEC and DLEC. This is not ideal, but protocol
+        // error reporting in this driver should have a big ol' FIXME on it
+        // anyway!
+        let psr = T::regs().psr().read();
+        match (psr.bo(), psr.ep()) {
+            (false, false) => BusErrorMode::ErrorActive,
+            (false, true) => BusErrorMode::ErrorPassive,
+            (true, _) => BusErrorMode::BusOff,
+        }
     }
 }
 

@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
@@ -48,6 +50,8 @@ fn main() {
     .strip_prefix("CARGO_FEATURE_")
     .unwrap()
     .to_ascii_lowercase();
+
+    eprintln!("chip: {chip_name}");
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
@@ -272,8 +276,6 @@ fn main() {
                 "Bank1"
             } else if region.name.starts_with("BANK_2") {
                 "Bank2"
-            } else if region.name == "OTP" {
-                "Otp"
             } else {
                 continue;
             }
@@ -664,6 +666,7 @@ fn main() {
             #(pub use crate::pac::rcc::vals::#enum_names as #enum_names; )*
 
             #[derive(Clone, Copy)]
+            #[non_exhaustive]
             pub struct ClockMux {
                 #( #struct_fields, )*
             }
@@ -1166,42 +1169,52 @@ fn main() {
 
             let mut dupe = HashSet::new();
             for ch in p.dma_channels {
-                // Some chips have multiple request numbers for the same (peri, signal, channel) combos.
-                // Ignore the dupes, picking the first one. Otherwise this causes conflicting trait impls
-                let key = (ch.signal, ch.channel);
-                if !dupe.insert(key) {
-                    continue;
-                }
-
                 if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
                     let peri = format_ident!("{}", p.name);
 
-                    let channel = if let Some(channel) = &ch.channel {
+                    let channels = if let Some(channel) = &ch.channel {
                         // Chip with DMA/BDMA, without DMAMUX
-                        let channel = format_ident!("{}", channel);
-                        quote!({channel: #channel})
+                        vec![*channel]
                     } else if let Some(dmamux) = &ch.dmamux {
                         // Chip with DMAMUX
-                        let dmamux = format_ident!("{}", dmamux);
-                        quote!({dmamux: #dmamux})
+                        METADATA
+                            .dma_channels
+                            .iter()
+                            .filter(|ch| ch.dmamux == Some(*dmamux))
+                            .map(|ch| ch.name)
+                            .collect()
                     } else if let Some(dma) = &ch.dma {
                         // Chip with GPDMA
-                        let dma = format_ident!("{}", dma);
-                        quote!({dma: #dma})
+                        METADATA
+                            .dma_channels
+                            .iter()
+                            .filter(|ch| ch.dma == *dma)
+                            .map(|ch| ch.name)
+                            .collect()
                     } else {
                         unreachable!();
                     };
 
-                    let request = if let Some(request) = ch.request {
-                        let request = request as u8;
-                        quote!(#request)
-                    } else {
-                        quote!(())
-                    };
+                    for channel in channels {
+                        // Some chips have multiple request numbers for the same (peri, signal, channel) combos.
+                        // Ignore the dupes, picking the first one. Otherwise this causes conflicting trait impls
+                        let key = (ch.signal, channel.to_string());
+                        if !dupe.insert(key) {
+                            continue;
+                        }
 
-                    g.extend(quote! {
-                        dma_trait_impl!(#tr, #peri, #channel, #request);
-                    });
+                        let request = if let Some(request) = ch.request {
+                            let request = request as u8;
+                            quote!(#request)
+                        } else {
+                            quote!(())
+                        };
+
+                        let channel = format_ident!("{}", channel);
+                        g.extend(quote! {
+                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                        });
+                    }
                 }
             }
         }
@@ -1322,17 +1335,7 @@ fn main() {
     let mut interrupts_table: Vec<Vec<String>> = Vec::new();
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut pins_table: Vec<Vec<String>> = Vec::new();
-    let mut adc_common_table: Vec<Vec<String>> = Vec::new();
-
-    /*
-        If ADC3_COMMON exists, ADC3 and higher are assigned to it
-        All other ADCs are assigned to ADC_COMMON
-
-        ADC3 and higher are assigned to the adc34 clock in the table
-        The adc3_common cfg directive is added if ADC3_COMMON exists
-    */
-    let has_adc3 = METADATA.peripherals.iter().any(|p| p.name == "ADC3_COMMON");
-    let set_adc345 = HashSet::from(["ADC3", "ADC4", "ADC5"]);
+    let mut adc_table: Vec<Vec<String>> = Vec::new();
 
     for m in METADATA
         .memory
@@ -1389,14 +1392,18 @@ fn main() {
             }
 
             if regs.kind == "adc" {
-                let (adc_common, adc_clock) = if set_adc345.contains(p.name) && has_adc3 {
-                    ("ADC3_COMMON", "adc34")
-                } else {
-                    ("ADC_COMMON", "adc")
-                };
-
-                let row = vec![p.name.to_string(), adc_common.to_string(), adc_clock.to_string()];
-                adc_common_table.push(row);
+                let adc_num = p.name.strip_prefix("ADC").unwrap();
+                let mut adc_common = None;
+                for p2 in METADATA.peripherals {
+                    if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON")) {
+                        if common_nums.contains(adc_num) {
+                            adc_common = Some(p2);
+                        }
+                    }
+                }
+                let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
+                let row = vec![p.name.to_string(), adc_common.to_string(), "adc".to_string()];
+                adc_table.push(row);
             }
 
             for irq in p.interrupts {
@@ -1442,6 +1449,7 @@ fn main() {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
             "gpdma" => quote!(crate::pac::#dma),
+            "lpdma" => quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())}),
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 
@@ -1449,9 +1457,6 @@ fn main() {
             Some(dmamux) => {
                 let dmamux = format_ident!("{}", dmamux);
                 let num = ch.dmamux_channel.unwrap() as usize;
-
-                g.extend(quote!(dmamux_channel_impl!(#name, #dmamux);));
-
                 quote! {
                     dmamux: crate::dma::DmamuxInfo {
                         mux: crate::pac::#dmamux,
@@ -1536,17 +1541,19 @@ fn main() {
     make_table(&mut m, "foreach_interrupt", &interrupts_table);
     make_table(&mut m, "foreach_peripheral", &peripherals_table);
     make_table(&mut m, "foreach_pin", &pins_table);
-    make_table(&mut m, "foreach_adc", &adc_common_table);
+    make_table(&mut m, "foreach_adc", &adc_table);
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_macros.rs").to_string_lossy().to_string();
-    fs::write(out_file, m).unwrap();
+    fs::write(&out_file, m).unwrap();
+    rustfmt(&out_file);
 
     // ========
     // Write generated.rs
 
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
-    fs::write(out_file, g.to_string()).unwrap();
+    fs::write(&out_file, g.to_string()).unwrap();
+    rustfmt(&out_file);
 
     // ========
     // Multicore
@@ -1567,13 +1574,6 @@ fn main() {
 
     if let Some(core) = core_name {
         println!("cargo:rustc-cfg={}_{}", &chip_name[..chip_name.len() - 2], core);
-    }
-
-    // =======
-    // ADC3_COMMON is present
-    #[allow(clippy::print_literal)]
-    if has_adc3 {
-        println!("cargo:rustc-cfg={}", "adc3_common");
     }
 
     // =======
@@ -1667,4 +1667,24 @@ fn get_flash_region_type_name(name: &str) -> String {
         .replace("BANK", "Bank")
         .replace("REGION", "Region")
         .replace('_', "")
+}
+
+/// rustfmt a given path.
+/// Failures are logged to stderr and ignored.
+fn rustfmt(path: impl AsRef<Path>) {
+    let path = path.as_ref();
+    match Command::new("rustfmt").args([path]).output() {
+        Err(e) => {
+            eprintln!("failed to exec rustfmt {:?}: {:?}", path, e);
+        }
+        Ok(out) => {
+            if !out.status.success() {
+                eprintln!("rustfmt {:?} failed:", path);
+                eprintln!("=== STDOUT:");
+                std::io::stderr().write_all(&out.stdout).unwrap();
+                eprintln!("=== STDERR:");
+                std::io::stderr().write_all(&out.stderr).unwrap();
+            }
+        }
+    }
 }

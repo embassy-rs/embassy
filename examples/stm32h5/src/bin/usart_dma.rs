@@ -6,7 +6,6 @@ use core::fmt::Write;
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::Executor;
-use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 use heapless::String;
@@ -22,7 +21,7 @@ async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, p.GPDMA1_CH0, NoDma, config).unwrap();
+    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, p.GPDMA1_CH0, p.GPDMA1_CH1, config).unwrap();
 
     for n in 0u32.. {
         let mut s: String<128> = String::new();
