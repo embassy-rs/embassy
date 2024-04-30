@@ -28,19 +28,21 @@ use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
 
 /// SPI device on a shared bus.
-pub struct SpiDevice<'a, M: RawMutex, BUS, CS> {
+pub struct SpiDevice<'a, M: RawMutex, BUS, CS, Word> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
+    _word: core::marker::PhantomData<Word>,
 }
 
-impl<'a, M: RawMutex, BUS, CS> SpiDevice<'a, M, BUS, CS> {
+impl<'a, M: RawMutex, BUS, CS, Word> SpiDevice<'a, M, BUS, CS, Word> {
     /// Create a new `SpiDevice`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS) -> Self {
-        Self { bus, cs }
+        Self { bus, cs
+            , _word: core::marker::PhantomData}
     }
 }
 
-impl<'a, M: RawMutex, BUS, CS> spi::ErrorType for SpiDevice<'a, M, BUS, CS>
+impl<'a, M: RawMutex, BUS, CS, Word> spi::ErrorType for SpiDevice<'a, M, BUS, CS, Word>
 where
     BUS: spi::ErrorType,
     CS: OutputPin,
@@ -48,13 +50,14 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> embedded_hal_1::spi::SpiDevice for SpiDevice<'_, M, BUS, CS>
+impl<BUS, M, CS, Word> embedded_hal_1::spi::SpiDevice<Word> for SpiDevice<'_, M, BUS, CS, Word>
 where
     M: RawMutex,
-    BUS: SpiBus,
+    BUS: SpiBus<Word>,
     CS: OutputPin,
+    Word: Copy + 'static,
 {
-    fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
+    fn transaction(&mut self, operations: &mut [embedded_hal_1::spi::Operation<'_, Word>]) -> Result<(), Self::Error> {
         if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
             return Err(SpiDeviceError::DelayNotSupported);
         }
@@ -90,7 +93,7 @@ where
     }
 }
 
-impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Transfer<u8> for SpiDevice<'_, M, BUS, CS>
+impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Transfer<u8> for SpiDevice<'_, M, BUS, CS, Word>
 where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::spi::Transfer<u8, Error = BusErr>,
@@ -110,7 +113,7 @@ where
     }
 }
 
-impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Write<u8> for SpiDevice<'_, M, BUS, CS>
+impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Write<u8> for SpiDevice<'_, M, BUS, CS, Word>
 where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::spi::Write<u8, Error = BusErr>,
@@ -131,21 +134,63 @@ where
     }
 }
 
+impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Transfer<u16> for SpiDevice<'_, M, BUS, CS, Word>
+    where
+        M: RawMutex,
+        BUS: embedded_hal_02::blocking::spi::Transfer<u16, Error = BusErr>,
+        CS: OutputPin<Error = CsErr>,
+{
+    type Error = SpiDeviceError<BusErr, CsErr>;
+    fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
+        self.bus.lock(|bus| {
+            let mut bus = bus.borrow_mut();
+            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+            let op_res = bus.transfer(words);
+            let cs_res = self.cs.set_high();
+            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+            cs_res.map_err(SpiDeviceError::Cs)?;
+            Ok(op_res)
+        })
+    }
+}
+
+impl<'d, M, BUS, CS, BusErr, CsErr, Word> embedded_hal_02::blocking::spi::Write<u16> for SpiDevice<'_, M, BUS, CS, Word>
+    where
+        M: RawMutex,
+        BUS: embedded_hal_02::blocking::spi::Write<u16, Error = BusErr>,
+        CS: OutputPin<Error = CsErr>,
+{
+    type Error = SpiDeviceError<BusErr, CsErr>;
+
+    fn write(&mut self, words: &[u16]) -> Result<(), Self::Error> {
+        self.bus.lock(|bus| {
+            let mut bus = bus.borrow_mut();
+            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+            let op_res = bus.write(words);
+            let cs_res = self.cs.set_high();
+            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+            cs_res.map_err(SpiDeviceError::Cs)?;
+            Ok(op_res)
+        })
+    }
+}
+
 /// SPI device on a shared bus, with its own configuration.
 ///
 /// This is like [`SpiDevice`], with an additional bus configuration that's applied
 /// to the bus before each use using [`SetConfig`]. This allows different
 /// devices on the same bus to use different communication settings.
-pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS> {
+pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS, Word> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
     config: BUS::Config,
+    _word: core::marker::PhantomData<Word>,
 }
 
-impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiDeviceWithConfig<'a, M, BUS, CS> {
+impl<'a, M: RawMutex, BUS: SetConfig, CS, Word> SpiDeviceWithConfig<'a, M, BUS, CS, Word> {
     /// Create a new `SpiDeviceWithConfig`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: BUS::Config) -> Self {
-        Self { bus, cs, config }
+        Self { bus, cs, config, _word: core::marker::PhantomData }
     }
 
     /// Change the device's config at runtime
@@ -154,22 +199,24 @@ impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiDeviceWithConfig<'a, M, BUS, CS> {
     }
 }
 
-impl<'a, M, BUS, CS> spi::ErrorType for SpiDeviceWithConfig<'a, M, BUS, CS>
+impl<'a, M, BUS, CS, Word> spi::ErrorType for SpiDeviceWithConfig<'a, M, BUS, CS, Word>
 where
     M: RawMutex,
     BUS: spi::ErrorType + SetConfig,
     CS: OutputPin,
+    Word: Copy + 'static,
 {
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> embedded_hal_1::spi::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
+impl<BUS, M, CS, Word> embedded_hal_1::spi::SpiDevice<Word> for SpiDeviceWithConfig<'_, M, BUS, CS, Word>
 where
     M: RawMutex,
-    BUS: SpiBus + SetConfig,
+    BUS: SpiBus<Word> + SetConfig,
     CS: OutputPin,
+    Word: Copy + 'static,
 {
-    fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
+    fn transaction(&mut self, operations: &mut [embedded_hal_1::spi::Operation<'_, Word>]) -> Result<(), Self::Error> {
         if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
             return Err(SpiDeviceError::DelayNotSupported);
         }
