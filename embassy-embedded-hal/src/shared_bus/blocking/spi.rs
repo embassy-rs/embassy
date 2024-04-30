@@ -103,7 +103,7 @@ pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS, Word: Copy +
     _word: core::marker::PhantomData<Word>,
 }
 
-impl<'a, M: RawMutex, BUS: SetConfig, CS, Word: Copy + 'static> SpiDeviceWithConfig<'a, M, BUS, CS, Word> {
+impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiDeviceWithConfig<'a, M, BUS, CS> {
     /// Create a new `SpiDeviceWithConfig`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: BUS::Config) -> Self {
         Self {
