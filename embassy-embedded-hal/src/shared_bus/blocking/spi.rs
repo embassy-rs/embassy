@@ -28,13 +28,13 @@ use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
 
 /// SPI device on a shared bus.
-pub struct SpiDevice<'a, M: RawMutex, BUS, CS, Word> {
+pub struct SpiDevice<'a, M: RawMutex, BUS, CS, Word: Copy + 'static = u8> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
     _word: core::marker::PhantomData<Word>,
 }
 
-impl<'a, M: RawMutex, BUS, CS, Word> SpiDevice<'a, M, BUS, CS, Word> {
+impl<'a, M: RawMutex, BUS, CS, Word: Copy + 'static> SpiDevice<'a, M, BUS, CS, Word> {
     /// Create a new `SpiDevice`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS) -> Self {
         Self {
@@ -49,6 +49,7 @@ impl<'a, M: RawMutex, BUS, CS, Word> spi::ErrorType for SpiDevice<'a, M, BUS, CS
 where
     BUS: spi::ErrorType,
     CS: OutputPin,
+    Word: Copy + 'static,
 {
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
@@ -102,6 +103,7 @@ where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::spi::Transfer<u8, Error = BusErr>,
     CS: OutputPin<Error = CsErr>,
+    Word: Copy + 'static,
 {
     type Error = SpiDeviceError<BusErr, CsErr>;
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
@@ -122,6 +124,7 @@ where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::spi::Write<u8, Error = BusErr>,
     CS: OutputPin<Error = CsErr>,
+    Word: Copy + 'static,
 {
     type Error = SpiDeviceError<BusErr, CsErr>;
 
@@ -144,6 +147,7 @@ where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::spi::Transfer<u16, Error = BusErr>,
     CS: OutputPin<Error = CsErr>,
+    Word: Copy + 'static,
 {
     type Error = SpiDeviceError<BusErr, CsErr>;
     fn transfer<'w>(&mut self, words: &'w mut [u16]) -> Result<&'w [u16], Self::Error> {
@@ -164,6 +168,7 @@ where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::spi::Write<u16, Error = BusErr>,
     CS: OutputPin<Error = CsErr>,
+    Word: Copy + 'static,
 {
     type Error = SpiDeviceError<BusErr, CsErr>;
 
@@ -185,14 +190,14 @@ where
 /// This is like [`SpiDevice`], with an additional bus configuration that's applied
 /// to the bus before each use using [`SetConfig`]. This allows different
 /// devices on the same bus to use different communication settings.
-pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS, Word> {
+pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS, Word: Copy + 'static = u8> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
     config: BUS::Config,
     _word: core::marker::PhantomData<Word>,
 }
 
-impl<'a, M: RawMutex, BUS: SetConfig, CS, Word> SpiDeviceWithConfig<'a, M, BUS, CS, Word> {
+impl<'a, M: RawMutex, BUS: SetConfig, CS, Word: Copy + 'static> SpiDeviceWithConfig<'a, M, BUS, CS, Word> {
     /// Create a new `SpiDeviceWithConfig`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: BUS::Config) -> Self {
         Self {
