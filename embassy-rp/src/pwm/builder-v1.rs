@@ -1,26 +1,59 @@
-use core::marker::PhantomData;
-
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral};
 use rp_pac::pwm::vals::Divmode;
 
-use super::v2::{Channel, EdgeSensitivity, Frequency, PwmError, PwmFreeRunningSlice, PwmInputOutputSlice};
+use super::v2::{AsPwmSlice, Channel, EdgeSensitivity, Frequency, PwmInputOutputSlice};
 use super::{ChannelAPin, ChannelBPin, InputMode, Slice};
 use crate::clocks::clk_sys_freq;
-use crate::gpio::{AnyPin, SealedPin};
-use crate::peripherals::{
-    PWM_SLICE0, PWM_SLICE1, PWM_SLICE2, PWM_SLICE3, PWM_SLICE4, PWM_SLICE5, PWM_SLICE6, PWM_SLICE7,
-};
-use crate::Peripherals;
+use crate::gpio::SealedPin;
 
-/// TODO
-pub struct PwmSliceBuilder<'a, T: Slice> {
-    inner: PeripheralRef<'a, T>,
+trait GetPwmSliceConfig {
+    fn get_config(&mut self) -> &mut PwmSliceConfig;
 }
 
-impl<'a, T: Slice> PwmSliceBuilder<'a, T> {
-    pub(crate) fn new(slice: &'a T) -> Self {
-        into_ref!(slice);
-        Self { inner: slice }
+struct PwmSliceConfig {
+    top: u32,
+    div: u32,
+    a: Option<PwmChannelConfig>,
+    b: Option<PwmChannelConfig>,
+}
+
+impl Default for PwmSliceConfig {
+    fn default() -> Self {
+        Self {
+            top: u16::MAX as u32,
+            div: 1,
+            a: None,
+            b: None,
+        }
+    }
+}
+
+struct PwmChannelConfig {
+    duty: f32,
+    phase_correct: bool,
+    invert: bool,
+}
+
+impl Default for PwmChannelConfig {
+    fn default() -> Self {
+        Self {
+            duty: 0.0,
+            phase_correct: false,
+            invert: false,
+        }
+    }
+}
+
+/// TODO
+pub struct PwmSliceBuilder {
+    config: PwmSliceConfig,
+}
+
+impl PwmSliceBuilder {
+    pub(crate) fn new() -> Self {
+        Self {
+            config: Default::default(),
+        }
     }
 
     /// Returns a builder for configuring a free-running PWM slice. A
@@ -35,8 +68,8 @@ impl<'a, T: Slice> PwmSliceBuilder<'a, T> {
     /// By default, the counter wraps back to `0` when the counter reaches
     /// the value set in the `top` register. This behavior can be changed
     /// by setting `phase_correct` to `true` in the channel configuration.
-    pub fn free_running(self) -> PwmFreeRunningSliceBuilder<'a, T> {
-        PwmFreeRunningSliceBuilder::new(self.inner)
+    pub fn free_running(self) -> PwmFreeRunningSliceBuilder {
+        PwmFreeRunningSliceBuilder::new(self.config)
     }
 
     /// Returns a builder for configuring a level-sensitive PWM slice. A
@@ -54,8 +87,8 @@ impl<'a, T: Slice> PwmSliceBuilder<'a, T> {
     ///
     /// The default divider is `1` and can be changed by using the
     /// [`PwmInputOutputSliceBuilder::divider`] method.
-    pub fn level_sensitive(self) -> PwmInputOutputSliceBuilder<'a, T> {
-        PwmInputOutputSliceBuilder::new(self.inner, InputMode::Level)
+    pub fn level_sensitive(self) -> PwmInputOutputSliceBuilder {
+        PwmInputOutputSliceBuilder::new(self.config, InputMode::Level)
     }
 
     /// Returns a builder for configuring an edge-sensitive PWM slice. An
@@ -76,32 +109,34 @@ impl<'a, T: Slice> PwmSliceBuilder<'a, T> {
     /// the _low_ period and _high_ period of the measured signal must both
     /// be strictly greater than the system clock period when taking
     /// frequency measurements.
-    pub fn edge_sensitive(self, edge: EdgeSensitivity) -> PwmInputOutputSliceBuilder<'a, T> {
+    pub fn edge_sensitive(self, edge: EdgeSensitivity) -> PwmInputOutputSliceBuilder {
         match edge {
-            EdgeSensitivity::Rising => PwmInputOutputSliceBuilder::new(self.inner, InputMode::RisingEdge),
-            EdgeSensitivity::Falling => PwmInputOutputSliceBuilder::new(self.inner, InputMode::FallingEdge),
+            EdgeSensitivity::Rising => PwmInputOutputSliceBuilder::new(self.config, InputMode::RisingEdge),
+            EdgeSensitivity::Falling => PwmInputOutputSliceBuilder::new(self.config, InputMode::FallingEdge),
         }
     }
 }
 
 /// Builder for configuring a PWM slice in either level- or edge-sensitive
 /// mode.
-pub struct PwmInputOutputSliceBuilder<'a, T: Slice> {
-    inner: PeripheralRef<'a, T>,
-    pin_a: Option<PeripheralRef<'a, AnyPin>>,
-    pin_b: Option<PeripheralRef<'a, AnyPin>>,
+pub struct PwmInputOutputSliceBuilder {
+    config: PwmSliceConfig,
     divider_int: u8,
     divider_frac: u8,
     input_mode: InputMode,
     phase_correct: bool,
 }
 
-impl<'a, T: Slice> PwmInputOutputSliceBuilder<'a, T> {
-    pub(crate) fn new(slice: PeripheralRef<'a, T>, input_mode: InputMode) -> Self {
+impl GetPwmSliceConfig for PwmInputOutputSliceBuilder {
+    fn get_config(&mut self) -> &mut PwmSliceConfig {
+        &mut self.config
+    }
+}
+
+impl PwmInputOutputSliceBuilder {
+    fn new(config: PwmSliceConfig, input_mode: InputMode) -> Self {
         Self {
-            inner: slice,
-            pin_a: None,
-            pin_b: None,
+            config,
             divider_int: 1,
             divider_frac: 0,
             input_mode,
@@ -121,18 +156,16 @@ impl<'a, T: Slice> PwmInputOutputSliceBuilder<'a, T> {
     /// Assign the specified pin as an output for this slice. The pin must
     /// be a valid PWM output pin for the slice (only A-pins are supported
     /// as output pins in level- and edge-sensitive slice modes).
-    pub fn with_output(mut self, pin: impl Peripheral<P = impl ChannelAPin<T>> + 'a) -> Self {
-        into_ref!(pin);
-        self.pin_a = Some(pin.map_into());
+    pub fn with_output(mut self) -> Self {
+        self.config.a = Some(Default::default());
         self
     }
 
     /// Assign the specified pin as an input for this slice. The pin must be
     /// a valid PWM input pin for the slice (only B-pins are supported as
     /// input pins in level- and edge-sensitive slice modes).
-    pub fn with_input(mut self, pin: impl Peripheral<P = impl ChannelBPin<T>> + 'a) -> Self {
-        into_ref!(pin);
-        self.pin_b = Some(pin.map_into());
+    pub fn with_input(mut self) -> Self {
+        self.config.b = Some(Default::default());
         self
     }
 
@@ -167,15 +200,24 @@ impl<'a, T: Slice> PwmInputOutputSliceBuilder<'a, T> {
     /// Note that this will not enable the slice, only configure it. You must
     /// call [`PwmInputOutputSlice::enable`], or alternatively use the
     /// [`enable_pwm_slices`] function, to start the slice.
-    pub fn apply(self) -> PwmInputOutputSlice<'a, T> {
+    pub fn apply<S: Slice>(
+        self,
+        slice: impl Peripheral<P = S> + 'static,
+        pin_a: impl Peripheral<P = impl ChannelAPin<S>> + 'static,
+        pin_b: impl Peripheral<P = impl ChannelBPin<S>> + 'static,
+    ) -> PwmInputOutputSlice<'static, S> {
+        into_ref!(slice);
+        into_ref!(pin_a);
+        into_ref!(pin_b);
+
         // B-pin is required for controlling the counter.
-        if self.pin_b.is_none() {
+        if self.config.b.is_none() {
             panic!("B-pin must be set for input mode");
         }
 
-        let regs = self.inner.regs();
+        let regs = slice.regs();
 
-        let slice = PwmInputOutputSlice::new(self.inner, self.pin_a, self.pin_b);
+        let slice = PwmInputOutputSlice::new(slice, Some(pin_a.map_into()), Some(pin_b.map_into()));
 
         // Set the fractional divider (CH0_DIV..CH7_DIV).
         regs.div().write(|w| {
@@ -209,20 +251,22 @@ impl<'a, T: Slice> PwmInputOutputSliceBuilder<'a, T> {
 }
 
 /// TODO
-pub struct PwmFreeRunningSliceBuilder<'a, T: Slice> {
-    inner: PeripheralRef<'a, T>,
-    builder_a: Option<PwmFreeRunningChannelBuilder<'a, T>>,
-    builder_b: Option<PwmFreeRunningChannelBuilder<'a, T>>,
+pub struct PwmFreeRunningSliceBuilder {
+    config: PwmSliceConfig,
     frequency_hz: u32,
     phase_correct: bool,
 }
 
-impl<'a, T: Slice> PwmFreeRunningSliceBuilder<'a, T> {
-    pub(crate) fn new(slice: PeripheralRef<'a, T>) -> Self {
+impl GetPwmSliceConfig for PwmFreeRunningSliceBuilder {
+    fn get_config(&mut self) -> &mut PwmSliceConfig {
+        &mut self.config
+    }
+}
+
+impl PwmFreeRunningSliceBuilder {
+    fn new(config: PwmSliceConfig) -> Self {
         Self {
-            inner: slice,
-            builder_a: None,
-            builder_b: None,
+            config,
             frequency_hz: clk_sys_freq(),
             phase_correct: false,
         }
@@ -248,26 +292,26 @@ impl<'a, T: Slice> PwmFreeRunningSliceBuilder<'a, T> {
     }
 
     /// TODO
-    pub fn with_channel_a(
-        mut self,
-        pin: impl Peripheral<P = impl ChannelAPin<T>> + 'a,
-        cfg: impl FnOnce(PwmFreeRunningChannelBuilder<'a, T>) -> PwmFreeRunningChannelBuilder<'a, T>,
+    pub fn with_channel_a<'a>(
+        self,
+        cfg: impl FnOnce(&mut PwmFreeRunningChannelBuilder) -> &'a mut PwmFreeRunningChannelBuilder<'a>,
     ) -> Self {
-        let mut builder = PwmFreeRunningChannelBuilder::<T>::new_a(pin);
-        builder = cfg(builder);
-        self.builder_a = Some(builder);
+        {
+            let mut builder = PwmFreeRunningChannelBuilder::new(&self.config, Channel::A);
+            cfg(&mut builder);
+        }
         self
     }
 
     /// TODO
-    pub fn with_channel_b(
-        mut self,
-        pin: impl Peripheral<P = impl ChannelBPin<T>> + 'a,
-        cfg: impl FnOnce(PwmFreeRunningChannelBuilder<'a, T>) -> PwmFreeRunningChannelBuilder<'a, T>,
+    pub fn with_channel_b<'a>(
+        self,
+        cfg: impl FnOnce(&mut PwmFreeRunningChannelBuilder) -> &'a mut PwmFreeRunningChannelBuilder<'a>,
     ) -> Self {
-        let mut builder = PwmFreeRunningChannelBuilder::<T>::new_b(pin);
-        builder = cfg(builder);
-        self.builder_b = Some(builder);
+        {
+            let mut builder = PwmFreeRunningChannelBuilder::new(&self.config, Channel::B);
+            cfg(&mut builder);
+        }
         self
     }
 
@@ -295,65 +339,65 @@ impl<'a, T: Slice> PwmFreeRunningSliceBuilder<'a, T> {
         self
     }
 
-    /// Applies the configuration of this builder to the PWM slice and
-    /// GPIO pins. This method will return a configured PWM slice that can
-    /// be enabled to start generating PWM signals.
-    ///
-    /// Note that this will not enable the slice, only configure it. You must
-    /// call [`PwmInputOutputSlice::enable`], or alternatively use the
-    /// [`enable_pwm_slices`] function, to start the slice.
-    pub fn apply(mut self) -> Result<PwmFreeRunningSlice<'a, T>, PwmError> {
-        // Require that at least one of A or B is configured.
-        if self.builder_a.is_none() && self.builder_b.is_none() {
-            panic!("At least one channel must be configured");
-        }
+    // /// Applies the configuration of this builder to the PWM slice and
+    // /// GPIO pins. This method will return a configured PWM slice that can
+    // /// be enabled to start generating PWM signals.
+    // ///
+    // /// Note that this will not enable the slice, only configure it. You must
+    // /// call [`PwmInputOutputSlice::enable`], or alternatively use the
+    // /// [`enable_pwm_slices`] function, to start the slice.
+    // pub fn apply(mut self) -> Result<PwmFreeRunningSlice<'a>, PwmError> {
+    //     // Require that at least one of A or B is configured.
+    //     if self.builder_a.is_none() && self.builder_b.is_none() {
+    //         panic!("At least one channel must be configured");
+    //     }
 
-        // Get an instance of the registers for this slice.
-        let regs = self.inner.regs();
+    //     // Get an instance of the registers for this slice.
+    //     let regs = self.inner.regs();
 
-        // Grab our pins.
-        let pin_a = self.builder_a.take();
-        let pin_b = self.builder_b.take();
+    //     // Grab our pins.
+    //     let pin_a = self.builder_a.take();
+    //     let pin_b = self.builder_b.take();
 
-        regs.csr().write(|w| {
-            w.set_divmode(Divmode::DIV);
-            w.set_en(false);
-            w.set_ph_correct(self.phase_correct);
-        });
+    //     regs.csr().write(|w| {
+    //         w.set_divmode(Divmode::DIV);
+    //         w.set_en(false);
+    //         w.set_ph_correct(self.phase_correct);
+    //     });
 
-        // If channel A is configured, set the pin function to PWM.
-        if let Some(a) = &pin_a {
-            debug!("Setting A pin function to PWM");
-            a.pin.gpio().ctrl().write(|w| w.set_funcsel(4));
-            regs.csr().modify(|w| w.set_a_inv(a.invert));
-        }
+    //     // If channel A is configured, set the pin function to PWM.
+    //     if let Some(a) = &pin_a {
+    //         debug!("Setting A pin function to PWM");
+    //         a.pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+    //         regs.csr().modify(|w| w.set_a_inv(a.invert));
+    //     }
 
-        // If channel B is configured, set the pin function to PWM.
-        if let Some(b) = &pin_b {
-            debug!("Setting B pin function to PWM");
-            b.pin.gpio().ctrl().write(|w| w.set_funcsel(4));
-            regs.csr().modify(|w| w.set_b_inv(b.invert));
-        }
+    //     // If channel B is configured, set the pin function to PWM.
+    //     if let Some(b) = &pin_b {
+    //         debug!("Setting B pin function to PWM");
+    //         b.pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+    //         regs.csr().modify(|w| w.set_b_inv(b.invert));
+    //     }
 
-        let pin_a_duty = pin_a.as_ref().map(|a| a.duty_percent);
-        let pin_b_duty = pin_b.as_ref().map(|b| b.duty_percent);
+    //     let pin_a_duty = pin_a.as_ref().map(|a| a.duty_percent);
+    //     let pin_b_duty = pin_b.as_ref().map(|b| b.duty_percent);
 
-        // Create our PWM slice instance.
-        let mut slice: PwmFreeRunningSlice<'_, T> =
-            PwmFreeRunningSlice::new(self.inner, pin_a.map(|b| b.pin), pin_b.map(|b| b.pin));
+    //     // Create our PWM slice instance.
+    //     let mut slice: PwmFreeRunningSlice<'_, T> =
+    //         PwmFreeRunningSlice::new(self.inner, pin_a.map(|b| b.pin), pin_b.map(|b| b.pin));
 
-        // If channel A is configured, configure PWM for the A pin.
-        if let Some(duty) = pin_a_duty {
-            slice.reconfigure(Channel::A, self.frequency_hz, duty, self.phase_correct)?;
-        }
+    //     // If channel A is configured, configure PWM for the A pin.
+    //     if let Some(duty) = pin_a_duty {
+    //         slice.reconfigure(Channel::A, self.frequency_hz, duty, self.phase_correct)?;
+    //     }
 
-        // If channel B is configured, configure PWM for the B pin.
-        if let Some(duty) = pin_b_duty {
-            slice.reconfigure(Channel::B, self.frequency_hz, duty, self.phase_correct)?;
-        }
+    //     // If channel B is configured, configure PWM for the B pin.
+    //     if let Some(duty) = pin_b_duty {
+    //         slice.reconfigure(Channel::B, self.frequency_hz, duty, self.phase_correct)?;
+    //     }
 
-        Ok(slice)
-    }
+    //     Ok(slice)
+    // }
 }
 
 // /// Builder for configuring the PWM input channel (`B`) for a level- or
@@ -390,29 +434,18 @@ impl<'a, T: Slice> PwmFreeRunningSliceBuilder<'a, T> {
 
 /// Builder for configuring a PWM channel (`A` or `B`) in a free-running
 /// slice.
-pub struct PwmFreeRunningChannelBuilder<'a, T: Slice> {
-    _slice: PhantomData<T>,
-    pin: PeripheralRef<'a, AnyPin>,
+pub struct PwmFreeRunningChannelBuilder<'a> {
+    config: &'a PwmSliceConfig,
+    channel: Channel,
     duty_percent: f32,
     invert: bool,
 }
 
-impl<'a, T: Slice> PwmFreeRunningChannelBuilder<'a, T> {
-    pub(crate) fn new_a(pin: impl Peripheral<P = impl ChannelAPin<T>> + 'a) -> Self {
-        into_ref!(pin);
-        Self::new_inner(pin.map_into())
-    }
-
-    pub(crate) fn new_b(pin: impl Peripheral<P = impl ChannelBPin<T>> + 'a) -> Self {
-        into_ref!(pin);
-        Self::new_inner(pin.map_into())
-    }
-
-    fn new_inner(pin: PeripheralRef<'a, AnyPin>) -> Self {
-        into_ref!(pin);
+impl<'a> PwmFreeRunningChannelBuilder<'a> {
+    fn new(config: &'a PwmSliceConfig, channel: Channel) -> Self {
         Self {
-            _slice: PhantomData,
-            pin,
+            config,
+            channel,
             duty_percent: 0.0,
             invert: false,
         }
@@ -430,53 +463,5 @@ impl<'a, T: Slice> PwmFreeRunningChannelBuilder<'a, T> {
     pub fn invert(mut self, invert: bool) -> Self {
         self.invert = invert;
         self
-    }
-}
-
-/// Extension trait for the RP2040 [`Peripherals`] struct, providing
-/// convenience methods for configuring PWM slices.
-pub trait PeripheralsExt {
-    /// Returns a builder for configuring PWM slice 0.
-    fn pwm_0(&self) -> PwmSliceBuilder<PWM_SLICE0>;
-    /// Returns a builder for configuring PWM slice 1.
-    fn pwm_1(&self) -> PwmSliceBuilder<PWM_SLICE1>;
-    /// Returns a builder for configuring PWM slice 2.
-    fn pwm_2(&self) -> PwmSliceBuilder<PWM_SLICE2>;
-    /// Returns a builder for configuring PWM slice 3.
-    fn pwm_3(&self) -> PwmSliceBuilder<PWM_SLICE3>;
-    /// Returns a builder for configuring PWM slice 4.
-    fn pwm_4(&self) -> PwmSliceBuilder<PWM_SLICE4>;
-    /// Returns a builder for configuring PWM slice 5.
-    fn pwm_5(&self) -> PwmSliceBuilder<PWM_SLICE5>;
-    /// Returns a builder for configuring PWM slice 6.
-    fn pwm_6(&self) -> PwmSliceBuilder<PWM_SLICE6>;
-    /// Returns a builder for configuring PWM slice 7.
-    fn pwm_7(&self) -> PwmSliceBuilder<PWM_SLICE7>;
-}
-
-impl PeripheralsExt for Peripherals {
-    fn pwm_0(&self) -> PwmSliceBuilder<PWM_SLICE0> {
-        PwmSliceBuilder::new(&self.PWM_SLICE0)
-    }
-    fn pwm_1(&self) -> PwmSliceBuilder<PWM_SLICE1> {
-        PwmSliceBuilder::new(&self.PWM_SLICE1)
-    }
-    fn pwm_2(&self) -> PwmSliceBuilder<PWM_SLICE2> {
-        PwmSliceBuilder::new(&self.PWM_SLICE2)
-    }
-    fn pwm_3(&self) -> PwmSliceBuilder<PWM_SLICE3> {
-        PwmSliceBuilder::new(&self.PWM_SLICE3)
-    }
-    fn pwm_4(&self) -> PwmSliceBuilder<PWM_SLICE4> {
-        PwmSliceBuilder::new(&self.PWM_SLICE4)
-    }
-    fn pwm_5(&self) -> PwmSliceBuilder<PWM_SLICE5> {
-        PwmSliceBuilder::new(&self.PWM_SLICE5)
-    }
-    fn pwm_6(&self) -> PwmSliceBuilder<PWM_SLICE6> {
-        PwmSliceBuilder::new(&self.PWM_SLICE6)
-    }
-    fn pwm_7(&self) -> PwmSliceBuilder<PWM_SLICE7> {
-        PwmSliceBuilder::new(&self.PWM_SLICE7)
     }
 }

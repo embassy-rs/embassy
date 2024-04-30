@@ -4,7 +4,7 @@ use embassy_hal_internal::PeripheralRef;
 use embedded_hal_1::pwm::ErrorKind;
 use rp_pac::pwm::regs::ChTop;
 
-use super::builder::PwmSliceBuilder;
+use super::builder::{DivMode, PwmBuilder, SliceConfig};
 use super::Slice;
 use crate::clocks::clk_sys_freq;
 use crate::gpio::AnyPin;
@@ -17,6 +17,8 @@ pub enum PwmError {
     Other(ErrorKind),
     /// An operation was attempted on a channel that has not been configured.
     ChannelNotConfigured(Channel),
+    /// A configuration error has occurred.
+    Configuration(&'static str),
 }
 
 impl embedded_hal_1::pwm::Error for PwmError {
@@ -31,6 +33,7 @@ impl Format for PwmError {
         match self {
             PwmError::Other(_) => defmt::write!(f, "A generic PWM error has occurred."),
             PwmError::ChannelNotConfigured(channel) => defmt::write!(f, "Channel {} is not configured", channel),
+            PwmError::Configuration(msg) => defmt::write!(f, "Configuration error: {}", msg),
         }
     }
 }
@@ -79,6 +82,15 @@ pub enum EdgeSensitivity {
     Rising,
     /// The counter advances with each falling edge of the PWM B pin.
     Falling,
+}
+
+/// Entry point for configuring PWM slices.
+pub struct Pwm;
+impl Pwm {
+    /// Returns a builder for configuring a PWM slice.
+    pub fn builder() -> PwmBuilder<DivMode> {
+        PwmBuilder::new(SliceConfig::default())
+    }
 }
 
 /// Represents a configured free-running PWM slice.
@@ -343,12 +355,14 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
 }
 
 /// Represents a configured slice in level- or edge-sensitive mode.
+#[allow(dead_code)] // TODO: Temporary, to be used in level- and edge-sensitive slices
 pub struct PwmInputOutputSlice<'a, T: Slice> {
     inner: PeripheralRef<'a, T>,
     pub(crate) pin_a: Option<PeripheralRef<'a, AnyPin>>,
     pub(crate) pin_b: Option<PeripheralRef<'a, AnyPin>>,
 }
 
+#[allow(dead_code)] // TODO: Temporary, to be used in level- and edge-sensitive slices
 impl<'a, T: Slice> PwmInputOutputSlice<'a, T> {
     pub(crate) fn new(
         slice: PeripheralRef<'a, T>,
@@ -404,28 +418,6 @@ impl<'a, T: Slice> AsPwmSlice<T> for PwmFreeRunningSlice<'a, T> {
     fn slice(&self) -> &T {
         &self.inner
     }
-}
-
-/// PWM slice.
-pub struct PwmSlice;
-
-impl PwmSlice {
-    /// Get a builder for configuring a PWM slice.
-    pub fn builder<'a, T: Slice>(slice: &'a T) -> PwmSliceBuilder<'a, T> {
-        PwmSliceBuilder::new(slice)
-    }
-
-    // /// Enable multiple PWM slices at once. This is more efficient than
-    // /// enabling each slice individually and results in all slice counters
-    // /// starting at the same clock cycle.
-    // pub fn enable(slices: impl IntoIterator<Item = impl AsPwmSliceNumber>) {
-    //     let mut mask: u32 = 0;
-    //     for slice in slices.into_iter() {
-    //         let slice: u8 = slice.slice_number();
-    //         mask |= 1u32 << slice;
-    //     }
-    //     pac::PWM.en().write_set(|w| w.0 = mask);
-    // }
 }
 
 /// Enable multiple PWM slices simultaneously, causing them to start on the
