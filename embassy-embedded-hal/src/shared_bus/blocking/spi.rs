@@ -33,17 +33,14 @@ pub struct SpiDevice<'a, M: RawMutex, BUS, CS> {
     cs: CS,
 }
 
-impl<'a, M: RawMutex, BUS, CS> SpiDevice<'a, M, BUS, CS, > {
+impl<'a, M: RawMutex, BUS, CS> SpiDevice<'a, M, BUS, CS> {
     /// Create a new `SpiDevice`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS) -> Self {
-        Self {
-            bus,
-            cs,
-        }
+        Self { bus, cs }
     }
 }
 
-impl<'a, M: RawMutex, BUS, CS> spi::ErrorType for SpiDevice<'a, M, BUS, CS, >
+impl<'a, M: RawMutex, BUS, CS> spi::ErrorType for SpiDevice<'a, M, BUS, CS>
 where
     BUS: spi::ErrorType,
     CS: OutputPin,
@@ -51,7 +48,7 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS, Word> embedded_hal_1::spi::SpiDevice<Word> for SpiDevice<'_, M, BUS, CS, >
+impl<BUS, M, CS, Word> embedded_hal_1::spi::SpiDevice<Word> for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: SpiBus<Word>,
@@ -93,7 +90,6 @@ where
         })
     }
 }
-
 
 /// SPI device on a shared bus, with its own configuration.
 ///
