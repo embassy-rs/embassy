@@ -1,12 +1,12 @@
 #![no_std]
 #![no_main]
 
-use defmt::info;
+use defmt::{debug, error, info};
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{Config, DataBits, InterruptHandler as UARTInterruptHandler, Parity, StopBits, Uart};
-use embassy_time::Timer;
+use embassy_time::{with_timeout, Duration, Timer};
 use heapless::Vec;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -14,15 +14,34 @@ bind_interrupts!(pub struct Irqs {
     UART0_IRQ  => UARTInterruptHandler<UART0>;
 });
 
-const ADDRESS: u32 = 0xFFFFFFFF;
 const START: u16 = 0xEF01;
+const ADDRESS: u32 = 0xFFFFFFFF;
 
 // ================================================================================
 
-fn write_cmd_bytes(buf: &mut Vec<u8, 32>, bytes: &[u8]) {
-    let _ = buf.extend_from_slice(bytes);
-}
+// Data package format
+// Name     Length          Description
+// ==========================================================================================================
+// Start    2 bytes         Fixed value of 0xEF01; High byte transferred first.
+// Address  4 bytes         Default value is 0xFFFFFFFF, which can be modified by command.
+//                          High byte transferred first and at wrong adder value, module
+//                          will reject to transfer.
+// PID      1 byte          01H     Command packet;
+//                          02H     Data packet; Data packet shall not appear alone in executing
+//                                  processs, must follow command packet or acknowledge packet.
+//                          07H     Acknowledge packet;
+//                          08H     End of Data packet.
+// LENGTH   2 bytes         Refers to the length of package content (command packets and data packets)
+//                          plus the length of Checksum (2 bytes). Unit is byte. Max length is 256 bytes.
+//                          And high byte is transferred first.
+// DATA     -               It can be commands, data, command’s parameters, acknowledge result, etc.
+//                          (fingerprint character value, template are all deemed as data);
+// SUM      2 bytes         The arithmetic sum of package identifier, package length and all package
+//                          contens. Overflowing bits are omitted. high byte is transferred first.
 
+// ================================================================================
+
+// Checksum is calculated on 'length (2 bytes) + data (??)'.
 fn compute_checksum(buf: Vec<u8, 32>) -> u16 {
     let mut checksum = 0u16;
 
@@ -52,81 +71,88 @@ async fn main(_spawner: Spawner) {
     let (mut tx, mut rx) = uart.split();
 
     let mut vec_buf: Vec<u8, 32> = heapless::Vec::new();
+    let mut data: Vec<u8, 32> = heapless::Vec::new();
 
-    // Cycle through the three colours Red, Blue and Purple.
-    for colour in 1..=3 {
-        // Clear buffers
-        vec_buf.clear();
+    let mut speeds: Vec<u8, 3> = heapless::Vec::new();
+    let _ = speeds.push(0xC8); // Slow
+    let _ = speeds.push(0x20); // Medium
+    let _ = speeds.push(0x02); // Fast
 
-        // START
-        let _ = write_cmd_bytes(&mut vec_buf, &START.to_be_bytes()[..]);
+    // Cycle through the three colours Red, Blue and Purple forever.
+    loop {
+        for colour in 1..=3 {
+            for speed in &speeds {
+                // Set the data first, because the length is dependent on that.
+                // However, we write the length bits before we do the data.
+                data.clear();
+                let _ = data.push(0x01); // ctrl=Breathing light
+                let _ = data.push(*speed);
+                let _ = data.push(colour as u8); // colour=Red, Blue, Purple
+                let _ = data.push(0x00); // times=Infinite
 
-        // ADDRESS
-        let _ = write_cmd_bytes(&mut vec_buf, &ADDRESS.to_be_bytes()[..]);
+                // Clear buffers
+                vec_buf.clear();
 
-        // PID
-        let _ = vec_buf.push(0x01);
+                // START
+                let _ = vec_buf.extend_from_slice(&START.to_be_bytes()[..]);
 
-        // LENGTH
-        let len = <usize as TryInto<u16>>::try_into(vec_buf.len()).unwrap() as u16;
-        let _ = write_cmd_bytes(&mut vec_buf, &len.to_be_bytes()[..]);
+                // ADDRESS
+                let _ = vec_buf.extend_from_slice(&ADDRESS.to_be_bytes()[..]);
 
-        // COMMAND
-        let _ = vec_buf.push(0x35); // AuraLedConfig
+                // PID
+                let _ = vec_buf.extend_from_slice(&[0x01]);
 
-        // DATA
-        let _ = vec_buf.push(0x01); // ctrl=Breathing light
-        let _ = vec_buf.push(0x50); // speed=80
-        let _ = vec_buf.push(colour as u8); // colour=Red, Blue, Purple
-        let _ = vec_buf.push(0x00); // times=Infinite
+                // LENGTH
+                let len: u16 = (1 + data.len() + 2).try_into().unwrap();
+                let _ = vec_buf.extend_from_slice(&len.to_be_bytes()[..]);
 
-        // SUM
-        let chk = compute_checksum(vec_buf.clone());
-        let _ = write_cmd_bytes(&mut vec_buf, &chk.to_be_bytes()[..]);
+                // COMMAND
+                let _ = vec_buf.push(0x35); // Command: AuraLedConfig
 
-        // =====
+                // DATA
+                let _ = vec_buf.extend_from_slice(&data);
 
-        // Send command buffer.
-        let data_write: [u8; 16] = vec_buf.clone().into_array().unwrap();
-        info!("write ({})='{:?}'", colour, data_write);
-        match tx.write(&data_write).await {
-            Ok(..) => info!("Write successful."),
-            Err(e) => info!("Write error: {:?}", e),
-        }
+                // SUM
+                let chk = compute_checksum(vec_buf.clone());
+                let _ = vec_buf.extend_from_slice(&chk.to_be_bytes()[..]);
 
-        // =====
+                // =====
 
-        // Read command buffer.
-        let mut read_buf: [u8; 1] = [0; 1]; // Can only read one byte at a time!
-        let mut data_read: Vec<u8, 32> = heapless::Vec::new(); // Return buffer.
-        let mut cnt: u8 = 0; // Keep track of how many packages we've received.
+                // Send command buffer.
+                let data_write: [u8; 16] = vec_buf.clone().into_array().unwrap();
+                debug!("  write='{:?}'", data_write[..]);
+                match tx.write(&data_write).await {
+                    Ok(..) => info!("Write successful."),
+                    Err(e) => error!("Write error: {:?}", e),
+                }
 
-        info!("Attempting read.");
-        loop {
-            match rx.read(&mut read_buf).await {
-                Ok(..) => (),
-                Err(e) => info!("  Read error: {:?}", e),
+                // =====
+
+                // Read command buffer.
+                let mut read_buf: [u8; 1] = [0; 1]; // Can only read one byte at a time!
+                let mut data_read: Vec<u8, 32> = heapless::Vec::new(); // Save buffer.
+
+                info!("Attempting read.");
+                loop {
+                    // Some commands, like `Img2Tz()` needs longer, but we hard-code this to 200ms
+                    // for this command.
+                    match with_timeout(Duration::from_millis(200), rx.read(&mut read_buf)).await {
+                        Ok(..) => {
+                            // Extract and save read byte.
+                            debug!("  r='{=u8:#04x}H' ({:03}D)", read_buf[0], read_buf[0]);
+                            let _ = data_read.push(read_buf[0]).unwrap();
+                        }
+                        Err(..) => break, // TimeoutError -> Ignore.
+                    }
+                }
+                info!("Read successful");
+                debug!("  read='{:?}'", data_read[..]);
+
+                Timer::after_secs(3).await;
+                info!("Changing speed.");
             }
 
-            match cnt {
-                _ => data_read.push(read_buf[0]).unwrap(),
-            }
-
-            if cnt > 10 {
-                info!("read ({})='{:?}'", colour, data_read[..]);
-                break;
-            }
-
-            cnt = cnt + 1;
-        }
-
-        // =====
-
-        if colour != 3 {
-            Timer::after_secs(2).await;
             info!("Changing colour.");
         }
     }
-
-    info!("All done..");
 }
