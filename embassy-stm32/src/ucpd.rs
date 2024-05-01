@@ -58,7 +58,7 @@ pub(crate) fn init(
         })
     }
 
-    #[cfg(any(stm32h5, stm32u5))]
+    #[cfg(any(stm32h5, stm32u5, stm32h7rs))]
     {
         crate::pac::PWR.ucpdr().modify(|w| {
             w.set_ucpd_dbdis(!ucpd1_db_enable);

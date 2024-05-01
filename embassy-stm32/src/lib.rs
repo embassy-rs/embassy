@@ -2,7 +2,7 @@
 #![allow(async_fn_in_trait)]
 #![cfg_attr(
     docsrs,
-    doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-stm32'>browse the `embassy-stm32` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (STM32H755 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
+    doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-stm32'>browse the `embassy-stm32` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (stm32h7, stm32h7rs55 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
 )]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
@@ -303,9 +303,9 @@ pub fn init(config: Config) -> Peripherals {
 
         #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
         peripherals::SYSCFG::enable_and_reset_with_cs(cs);
-        #[cfg(not(any(stm32h5, stm32h7, stm32wb, stm32wl)))]
+        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
         peripherals::PWR::enable_and_reset_with_cs(cs);
-        #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
+        #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs)))]
         peripherals::FLASH::enable_and_reset_with_cs(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.

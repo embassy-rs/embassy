@@ -4,7 +4,7 @@
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 runner = "teleprobe client run"
-#runner = "teleprobe local run --chip STM32F103C8 --elf"
+#runner = "teleprobe local run --chip STM32H7S3L8Hx --elf"
 
 rustflags = [
   # Code-size optimizations.

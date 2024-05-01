@@ -74,6 +74,20 @@ fn options() -> (Config, TestOptions) {
     )
 }
 
+#[cfg(any(feature = "stm32h7s3l8"))]
+fn options() -> (Config, TestOptions) {
+    use embassy_stm32::rcc;
+    let mut c = config();
+    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::HSE;
+    (
+        c,
+        TestOptions {
+            max_latency: Duration::from_micros(1200),
+            max_buffered: 3,
+        },
+    )
+}
+
 #[cfg(any(feature = "stm32g491re", feature = "stm32g431cb"))]
 fn options() -> (Config, TestOptions) {
     info!("G4 config");

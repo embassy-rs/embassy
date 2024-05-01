@@ -406,7 +406,16 @@ fn main() {
             },
         );
     }
-    if chip_name.starts_with("stm32h7") {
+
+    if chip_name.starts_with("stm32h7r") || chip_name.starts_with("stm32h7s") {
+        clock_gen.chained_muxes.insert(
+            "PER",
+            &PeripheralRccRegister {
+                register: "AHBPERCKSELR",
+                field: "PERSEL",
+            },
+        );
+    } else if chip_name.starts_with("stm32h7") {
         clock_gen.chained_muxes.insert(
             "PER",
             &PeripheralRccRegister {
@@ -1585,7 +1594,11 @@ fn main() {
         println!("cargo:rustc-cfg=package_{}", &chip_name[10..11]);
         println!("cargo:rustc-cfg=flashsize_{}", &chip_name[11..12]);
     } else {
-        println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
+        if &chip_name[..8] == "stm32h7r" || &chip_name[..8] == "stm32h7s" {
+            println!("cargo:rustc-cfg=stm32h7rs");
+        } else {
+            println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
+        }
         println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
         println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
         println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9

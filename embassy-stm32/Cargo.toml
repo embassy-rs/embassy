@@ -72,7 +72,7 @@ rand_core = "0.6.3"
 sdio-host = "0.5.0"
 critical-section = "1.1"
 #stm32-metapac = { version = "15" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-37a0941112fd16fee53aaa2005fd67b77adab59c" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-afee4331adc717f4cc52caab16838c95334535be" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -98,7 +98,7 @@ proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
 #stm32-metapac = { version = "15", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-37a0941112fd16fee53aaa2005fd67b77adab59c", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-afee4331adc717f4cc52caab16838c95334535be", default-features = false, features = ["metadata"]}
 
 [features]
 default = ["rt"]
@@ -1095,6 +1095,26 @@ stm32h7b3qi = [ "stm32-metapac/stm32h7b3qi" ]
 stm32h7b3ri = [ "stm32-metapac/stm32h7b3ri" ]
 stm32h7b3vi = [ "stm32-metapac/stm32h7b3vi" ]
 stm32h7b3zi = [ "stm32-metapac/stm32h7b3zi" ]
+stm32h7r3a8 = [ "stm32-metapac/stm32h7r3a8" ]
+stm32h7r3i8 = [ "stm32-metapac/stm32h7r3i8" ]
+stm32h7r3l8 = [ "stm32-metapac/stm32h7r3l8" ]
+stm32h7r3r8 = [ "stm32-metapac/stm32h7r3r8" ]
+stm32h7r3v8 = [ "stm32-metapac/stm32h7r3v8" ]
+stm32h7r3z8 = [ "stm32-metapac/stm32h7r3z8" ]
+stm32h7r7a8 = [ "stm32-metapac/stm32h7r7a8" ]
+stm32h7r7i8 = [ "stm32-metapac/stm32h7r7i8" ]
+stm32h7r7l8 = [ "stm32-metapac/stm32h7r7l8" ]
+stm32h7r7z8 = [ "stm32-metapac/stm32h7r7z8" ]
+stm32h7s3a8 = [ "stm32-metapac/stm32h7s3a8" ]
+stm32h7s3i8 = [ "stm32-metapac/stm32h7s3i8" ]
+stm32h7s3l8 = [ "stm32-metapac/stm32h7s3l8" ]
+stm32h7s3r8 = [ "stm32-metapac/stm32h7s3r8" ]
+stm32h7s3v8 = [ "stm32-metapac/stm32h7s3v8" ]
+stm32h7s3z8 = [ "stm32-metapac/stm32h7s3z8" ]
+stm32h7s7a8 = [ "stm32-metapac/stm32h7s7a8" ]
+stm32h7s7i8 = [ "stm32-metapac/stm32h7s7i8" ]
+stm32h7s7l8 = [ "stm32-metapac/stm32h7s7l8" ]
+stm32h7s7z8 = [ "stm32-metapac/stm32h7s7z8" ]
 stm32l010c6 = [ "stm32-metapac/stm32l010c6" ]
 stm32l010f4 = [ "stm32-metapac/stm32l010f4" ]
 stm32l010k4 = [ "stm32-metapac/stm32l010k4" ]

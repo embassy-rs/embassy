@@ -371,7 +371,7 @@ foreach_interrupt!(
                 } else if #[cfg(stm32g0x1)] {
                     const FIFO_DEPTH_WORDS: u16 = 512;
                     const ENDPOINT_COUNT: usize = 8;
-                } else if #[cfg(stm32h7)] {
+                } else if #[cfg(any(stm32h7, stm32h7rs))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
                 } else if #[cfg(stm32u5)] {
@@ -420,7 +420,7 @@ foreach_interrupt!(
                     stm32f469,
                     stm32f479,
                     stm32f7,
-                    stm32h7,
+                    stm32h7, stm32h7rs,
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
