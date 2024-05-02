@@ -303,8 +303,6 @@ pub(crate) unsafe fn init(config: Config) {
         hsi_div488: hsi.map(|hsi| hsi/488u32),
         hsi_hse: None,
         afif: None,
-        #[cfg(any(stm32f4, stm32f7))]
-        dsi_phy: None, // TODO
     );
 }
 

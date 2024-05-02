@@ -423,8 +423,6 @@ pub(crate) unsafe fn init(config: Config) {
         sai2_extclk: None,
         lsi: None,
         lse: None,
-        #[cfg(stm32l4)]
-        dsi_phy: None,
     );
 }
 
