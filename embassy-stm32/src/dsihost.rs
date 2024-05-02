@@ -1,11 +1,12 @@
 //! DSI HOST
 
-use crate::rcc::RccPeripheral;
 use core::marker::PhantomData;
+
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 //use crate::gpio::{AnyPin, SealedPin};
 use crate::gpio::{AFType, AnyPin, Pull, Speed};
+use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
 /// Performs a busy-wait delay for a specified number of microseconds.

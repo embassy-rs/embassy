@@ -1,7 +1,8 @@
 //! LTDC
+use core::marker::PhantomData;
+
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
-use core::marker::PhantomData;
 
 /// LTDC driver.
 pub struct Ltdc<'d, T: Instance> {
@@ -47,6 +48,12 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         critical_section::with(|_cs| {
             // RM says the pllsaidivr should only be changed when pllsai is off. But this could have other unintended side effects. So let's just give it a try like this.
             // According to the debugger, this bit gets set, anyway.
+            #[cfg(stm32f7)]
+            stm32_metapac::RCC
+                .dckcfgr1()
+                .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
+
+            #[cfg(not(stm32f7))]
             stm32_metapac::RCC
                 .dckcfgr()
                 .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
