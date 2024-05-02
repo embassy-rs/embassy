@@ -48,14 +48,25 @@ pub enum TscIOPin {
 impl BitOr<TscIOPin> for u32 {
     type Output = u32;
     fn bitor(self, rhs: TscIOPin) -> Self::Output {
-        self | rhs as u32
+        let rhs: u32 = rhs.into();
+        self | rhs
+    }
+}
+
+impl BitOr<u32> for TscIOPin {
+    type Output = u32;
+    fn bitor(self, rhs: u32) -> Self::Output {
+        let val: u32 = self.into();
+        val | rhs
     }
 }
 
 impl BitOr for TscIOPin {
     type Output = u32;
     fn bitor(self, rhs: Self) -> Self::Output {
-        self as u32 | rhs as u32
+        let val: u32 = self.into();
+        let rhs: u32 = rhs.into();
+        val | rhs
     }
 }
 
