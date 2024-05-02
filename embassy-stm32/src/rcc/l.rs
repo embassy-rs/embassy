@@ -413,6 +413,9 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
         pllsai2_r: pllsai2.r,
 
+        #[cfg(dsihost)]
+        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+
         rtc: rtc,
 
         // TODO

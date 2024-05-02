@@ -66,6 +66,10 @@ pub mod cryp;
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dsihost)]
+pub mod dsihost;
+#[cfg(ltdc)]
+pub mod ltdc;
 #[cfg(eth)]
 pub mod eth;
 #[cfg(feature = "exti")]

@@ -277,7 +277,7 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim: Some(pclk2_tim),
         rtc: rtc,
         pll1_q: pll.q,
-        pll1_r: None, // TODO
+        pll1_r: pll.r,
 
         #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
         plli2s1_p: plli2s.p,
@@ -296,6 +296,9 @@ pub(crate) unsafe fn init(config: Config) {
         // TODO workaround until f4 rcc is fixed in stm32-data
         #[cfg(not(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7)))]
         pllsai1_q: None,
+
+        #[cfg(dsihost)]
+        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
 
         hsi_div488: hsi.map(|hsi| hsi/488u32),
         hsi_hse: None,

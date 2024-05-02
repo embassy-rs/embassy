@@ -677,6 +677,9 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(rcc_h50)]
         pll3_r: None,
 
+        #[cfg(dsihost)]
+        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+
         #[cfg(stm32h5)]
         audioclk: None,
         i2s_ckin: None,
