@@ -53,7 +53,7 @@ impl<'d, T: Instance> Ltdc<'d, T> {
                 .dckcfgr1()
                 .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
 
-            #[cfg(not(stm32f7))]
+            #[cfg(not(any(stm32f7, stm32u5)))]
             stm32_metapac::RCC
                 .dckcfgr()
                 .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
