@@ -241,6 +241,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         });
     }
 
+    /// Read DSI Register
     pub fn read(
         &mut self,
         channel_id: u8,
