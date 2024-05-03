@@ -22,7 +22,7 @@ static mut RAM_D3: [u8; 64 * 1024] = [0u8; 64 * 1024];
 async fn main_task(mut spi: spi::Spi<'static, peripherals::SPI6, Async>) {
     let read_buffer = unsafe { &mut RAM_D3[0..128] };
     let write_buffer = unsafe { &mut RAM_D3[128..256] };
-    
+
     for n in 0u32.. {
         let mut write: String<128> = String::new();
         core::write!(&mut write, "Hello DMA World {}!\r\n", n).unwrap();
