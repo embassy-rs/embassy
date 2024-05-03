@@ -515,7 +515,9 @@ impl<'d, T: Instance> Tsc<'d, T> {
         let g4 = g4.filter(|b| b.check_group().is_ok());
         let g5 = g5.filter(|b| b.check_group().is_ok());
         let g6 = g6.filter(|b| b.check_group().is_ok());
+        #[cfg(any(tsc_v2, tsc_v3))]
         let g7 = g7.filter(|b| b.check_group().is_ok());
+        #[cfg(tsc_v3)]
         let g8 = g8.filter(|b| b.check_group().is_ok());
 
         match Self::check_shields(
