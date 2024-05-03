@@ -6,8 +6,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
+use crate::gpio::{AnyPin, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::ppi::{Event, Task};
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
@@ -369,7 +368,7 @@ impl<'s> Sequence<'s> {
 }
 
 /// A single sequence that can be started and stopped.
-/// Takes at one sequence along with its configuration.
+/// Takes one sequence along with its configuration.
 #[non_exhaustive]
 pub struct SingleSequencer<'d, 's, T: Instance> {
     sequencer: Sequencer<'d, 's, T>,
@@ -847,23 +846,20 @@ impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        fn regs() -> &'static pac::pwm0::RegisterBlock;
-    }
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::pwm0::RegisterBlock;
 }
 
 /// PWM peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_pwm {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::pwm::sealed::Instance for peripherals::$type {
+        impl crate::pwm::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::pwm0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }

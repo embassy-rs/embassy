@@ -168,8 +168,6 @@ struct Interface {
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct UsbBufferReport {
-    /// Number of device descriptor bytes used
-    pub device_descriptor_used: usize,
     /// Number of config descriptor bytes used
     pub config_descriptor_used: usize,
     /// Number of bos descriptor bytes used
@@ -191,7 +189,7 @@ struct Inner<'d, D: Driver<'d>> {
     bus: D::Bus,
 
     config: Config<'d>,
-    device_descriptor: &'d [u8],
+    device_descriptor: [u8; 18],
     config_descriptor: &'d [u8],
     bos_descriptor: &'d [u8],
     msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
@@ -217,7 +215,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         driver: D,
         config: Config<'d>,
         handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
-        device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
         msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
@@ -227,6 +224,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
         let (bus, control) = driver.start(config.max_packet_size_0 as u16);
+        let device_descriptor = descriptor::device_descriptor(&config);
 
         Self {
             control_buf,
@@ -256,7 +254,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     /// Useful for tuning buffer sizes for actual usage
     pub fn buffer_usage(&self) -> UsbBufferReport {
         UsbBufferReport {
-            device_descriptor_used: self.inner.device_descriptor.len(),
             config_descriptor_used: self.inner.config_descriptor.len(),
             bos_descriptor_used: self.inner.bos_descriptor.len(),
             msos_descriptor_used: self.inner.msos_descriptor.len(),
@@ -720,7 +717,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
         match dtype {
             descriptor_type::BOS => InResponse::Accepted(self.bos_descriptor),
-            descriptor_type::DEVICE => InResponse::Accepted(self.device_descriptor),
+            descriptor_type::DEVICE => InResponse::Accepted(&self.device_descriptor),
             descriptor_type::CONFIGURATION => InResponse::Accepted(self.config_descriptor),
             descriptor_type::STRING => {
                 if index == 0 {

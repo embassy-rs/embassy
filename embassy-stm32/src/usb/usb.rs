@@ -15,7 +15,7 @@ use embassy_usb_driver::{
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::RccPeripheral;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -107,14 +107,14 @@ const EP_COUNT: usize = 8;
 
 #[cfg(any(usbram_16x1_512, usbram_16x2_512))]
 const USBRAM_SIZE: usize = 512;
-#[cfg(usbram_16x2_1024)]
+#[cfg(any(usbram_16x2_1024, usbram_32_1024))]
 const USBRAM_SIZE: usize = 1024;
 #[cfg(usbram_32_2048)]
 const USBRAM_SIZE: usize = 2048;
 
-#[cfg(not(usbram_32_2048))]
+#[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
 const USBRAM_ALIGN: usize = 2;
-#[cfg(usbram_32_2048)]
+#[cfg(any(usbram_32_2048, usbram_32_1024))]
 const USBRAM_ALIGN: usize = 4;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
@@ -159,7 +159,7 @@ fn calc_out_len(len: u16) -> (u16, u16) {
     }
 }
 
-#[cfg(not(usbram_32_2048))]
+#[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
 mod btable {
     use super::*;
 
@@ -180,7 +180,7 @@ mod btable {
         USBRAM.mem(index * 4 + 3).read()
     }
 }
-#[cfg(usbram_32_2048)]
+#[cfg(any(usbram_32_2048, usbram_32_1024))]
 mod btable {
     use super::*;
 
@@ -224,9 +224,9 @@ impl<T: Instance> EndpointBuffer<T> {
             let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
             val[..n].copy_from_slice(&buf[i * USBRAM_ALIGN..][..n]);
 
-            #[cfg(not(usbram_32_2048))]
+            #[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
             let val = u16::from_le_bytes(val);
-            #[cfg(usbram_32_2048)]
+            #[cfg(any(usbram_32_2048, usbram_32_1024))]
             let val = u32::from_le_bytes(val);
             USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val);
         }
@@ -277,8 +277,8 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         #[cfg(not(stm32l1))]
         {
-            dp.set_as_af(dp.af_num(), crate::gpio::sealed::AFType::OutputPushPull);
-            dm.set_as_af(dm.af_num(), crate::gpio::sealed::AFType::OutputPushPull);
+            dp.set_as_af(dp.af_num(), crate::gpio::AFType::OutputPushPull);
+            dm.set_as_af(dm.af_num(), crate::gpio::AFType::OutputPushPull);
         }
         #[cfg(stm32l1)]
         let _ = (dp, dm); // suppress "unused" warnings.
@@ -1037,14 +1037,13 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::usb::Usb;
-    }
+trait SealedInstance {
+    fn regs() -> crate::pac::usb::Usb;
 }
 
 /// USB instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
     /// Interrupt for this USB instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -1055,7 +1054,7 @@ pin_trait!(DmPin, Instance);
 
 foreach_interrupt!(
     ($inst:ident, usb, $block:ident, LP, $irq:ident) => {
-        impl sealed::Instance for crate::peripherals::$inst {
+        impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::usb::Usb {
                 crate::pac::$inst
             }

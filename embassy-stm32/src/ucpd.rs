@@ -16,11 +16,12 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{AnyChannel, Request, Transfer, TransferOptions};
 use crate::interrupt;
@@ -57,7 +58,7 @@ pub(crate) fn init(
         })
     }
 
-    #[cfg(any(stm32h5, stm32u5))]
+    #[cfg(any(stm32h5, stm32u5, stm32h7rs))]
     {
         crate::pac::PWR.ucpdr().modify(|w| {
             w.set_ucpd_dbdis(!ucpd1_db_enable);
@@ -555,50 +556,47 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-/// UCPD instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral {}
+struct State {
+    waker: AtomicWaker,
+    // Inverted logic for a default state of 0 so that the data goes into the .bss section.
+    drop_not_ready: AtomicBool,
+}
 
-mod sealed {
-    use core::sync::atomic::AtomicBool;
-
-    use embassy_sync::waitqueue::AtomicWaker;
-
-    pub struct State {
-        pub waker: AtomicWaker,
-        // Inverted logic for a default state of 0 so that the data goes into the .bss section.
-        pub drop_not_ready: AtomicBool,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-                drop_not_ready: AtomicBool::new(false),
-            }
+impl State {
+    pub const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+            drop_not_ready: AtomicBool::new(false),
         }
     }
+}
 
-    pub trait Instance {
-        type Interrupt: crate::interrupt::typelevel::Interrupt;
-        const REGS: crate::pac::ucpd::Ucpd;
-        fn state() -> &'static crate::ucpd::sealed::State;
-    }
+trait SealedInstance {
+    const REGS: crate::pac::ucpd::Ucpd;
+    fn state() -> &'static State;
+}
+
+/// UCPD instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral {
+    /// Interrupt for this instance.
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 foreach_interrupt!(
     ($inst:ident, ucpd, UCPD, GLOBAL, $irq:ident) => {
-        impl sealed::Instance for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$irq;
-
+        impl SealedInstance for crate::peripherals::$inst {
             const REGS: crate::pac::ucpd::Ucpd = crate::pac::$inst;
 
-            fn state() -> &'static crate::ucpd::sealed::State {
-                static STATE: crate::ucpd::sealed::State = crate::ucpd::sealed::State::new();
+            fn state() -> &'static State {
+                static STATE: State = State::new();
                 &STATE
             }
         }
 
-        impl Instance for crate::peripherals::$inst {}
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
     };
 );
 

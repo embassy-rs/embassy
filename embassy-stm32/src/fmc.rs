@@ -3,8 +3,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::sealed::AFType;
-use crate::gpio::{Pull, Speed};
+use crate::gpio::{AFType, Pull, Speed};
 use crate::Peripheral;
 
 /// FMC driver
@@ -44,7 +43,7 @@ where
 
     /// Get the kernel clock currently in use for this FMC instance.
     pub fn source_clock_hz(&self) -> u32 {
-        <T as crate::rcc::sealed::RccPeripheral>::frequency().0
+        <T as crate::rcc::SealedRccPeripheral>::frequency().0
     }
 }
 
@@ -69,7 +68,7 @@ where
     }
 
     fn source_clock_hz(&self) -> u32 {
-        <T as crate::rcc::sealed::RccPeripheral>::frequency().0
+        <T as crate::rcc::SealedRccPeripheral>::frequency().0
     }
 }
 
@@ -201,18 +200,17 @@ impl<'d, T: Instance> Fmc<'d, T> {
     ));
 }
 
-pub(crate) mod sealed {
-    pub trait Instance: crate::rcc::sealed::RccPeripheral {
-        const REGS: crate::pac::fmc::Fmc;
-    }
+trait SealedInstance: crate::rcc::SealedRccPeripheral {
+    const REGS: crate::pac::fmc::Fmc;
 }
 
 /// FMC instance trait.
-pub trait Instance: sealed::Instance + 'static {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + 'static {}
 
 foreach_peripheral!(
     (fmc, $inst:ident) => {
-        impl crate::fmc::sealed::Instance for crate::peripherals::$inst {
+        impl crate::fmc::SealedInstance for crate::peripherals::$inst {
             const REGS: crate::pac::fmc::Fmc = crate::pac::$inst;
         }
         impl crate::fmc::Instance for crate::peripherals::$inst {}

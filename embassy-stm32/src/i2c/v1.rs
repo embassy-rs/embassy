@@ -13,7 +13,7 @@ use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
 
 use super::*;
-use crate::dma::Transfer;
+use crate::mode::Mode as PeriMode;
 use crate::pac::i2c;
 
 // /!\                      /!\
@@ -41,73 +41,37 @@ pub unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-/// Frame type in I2C transaction.
-///
-/// This tells each method what kind of framing to use, to generate a (repeated) start condition (ST
-/// or SR), and/or a stop condition (SP). For read operations, this also controls whether to send an
-/// ACK or NACK after the last byte received.
-///
-/// For write operations, the following options are identical because they differ only in the (N)ACK
-/// treatment relevant for read operations:
-///
-/// - `FirstFrame` and `FirstAndNextFrame`
-/// - `NextFrame` and `LastFrameNoStop`
-///
-/// Abbreviations used below:
-///
-/// - `ST` = start condition
-/// - `SR` = repeated start condition
-/// - `SP` = stop condition
-#[derive(Copy, Clone)]
-enum FrameOptions {
-    /// `[ST/SR]+[NACK]+[SP]` First frame (of this type) in operation and last frame overall in this
-    /// transaction.
-    FirstAndLastFrame,
-    /// `[ST/SR]+[NACK]` First frame of this type in transaction, last frame in a read operation but
-    /// not the last frame overall.
-    FirstFrame,
-    /// `[ST/SR]+[ACK]` First frame of this type in transaction, neither last frame overall nor last
-    /// frame in a read operation.
-    FirstAndNextFrame,
-    /// `[ACK]` Middle frame in a read operation (neither first nor last).
-    NextFrame,
-    /// `[NACK]+[SP]` Last frame overall in this transaction but not the first frame.
-    LastFrame,
-    /// `[NACK]` Last frame in a read operation but not last frame overall in this transaction.
-    LastFrameNoStop,
-}
-
-impl FrameOptions {
-    /// Sends start or repeated start condition before transfer.
-    fn send_start(self) -> bool {
-        match self {
-            Self::FirstAndLastFrame | Self::FirstFrame | Self::FirstAndNextFrame => true,
-            Self::NextFrame | Self::LastFrame | Self::LastFrameNoStop => false,
-        }
-    }
-
-    /// Sends stop condition after transfer.
-    fn send_stop(self) -> bool {
-        match self {
-            Self::FirstAndLastFrame | Self::LastFrame => true,
-            Self::FirstFrame | Self::FirstAndNextFrame | Self::NextFrame | Self::LastFrameNoStop => false,
-        }
-    }
-
-    /// Sends NACK after last byte received, indicating end of read operation.
-    fn send_nack(self) -> bool {
-        match self {
-            Self::FirstAndLastFrame | Self::FirstFrame | Self::LastFrame | Self::LastFrameNoStop => true,
-            Self::FirstAndNextFrame | Self::NextFrame => false,
-        }
-    }
-}
-
-impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
+impl<'d, T: Instance, M: PeriMode> I2c<'d, T, M> {
     pub(crate) fn init(&mut self, freq: Hertz, _config: Config) {
         T::regs().cr1().modify(|reg| {
             reg.set_pe(false);
             //reg.set_anfoff(false);
+        });
+
+        // Errata: "Start cannot be generated after a misplaced Stop"
+        //
+        // > If a master generates a misplaced Stop on the bus (bus error)
+        // > while the microcontroller I2C peripheral attempts to switch to
+        // > Master mode by setting the START bit, the Start condition is
+        // > not properly generated.
+        //
+        // This also can occur with falsely detected STOP events, for example
+        // if the SDA line is shorted to low.
+        //
+        // The workaround for this is to trigger the SWRST line AFTER power is
+        // enabled, AFTER PE is disabled and BEFORE making any other configuration.
+        //
+        // It COULD be possible to apply this workaround at runtime, instead of
+        // only on initialization, however this would require detecting the timeout
+        // or BUSY lockup condition, and re-configuring the peripheral after reset.
+        //
+        // This presents as an ~infinite hang on read or write, as the START condition
+        // is never generated, meaning the start event is never generated.
+        T::regs().cr1().modify(|reg| {
+            reg.set_swrst(true);
+        });
+        T::regs().cr1().modify(|reg| {
+            reg.set_swrst(false);
         });
 
         let timings = Timings::new(T::frequency(), freq);
@@ -199,17 +163,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 timeout.check()?;
             }
 
-            // Also wait until signalled we're master and everything is waiting for us
-            while {
-                Self::check_and_clear_error_flags()?;
-
-                let sr2 = T::regs().sr2().read();
-                !sr2.msl() && !sr2.busy()
-            } {
-                timeout.check()?;
+            // Check if we were the ones to generate START
+            if T::regs().cr1().read().start() || !T::regs().sr2().read().msl() {
+                return Err(Error::Arbitration);
             }
 
-            // Set up current address, we're trying to talk to
+            // Set up current address we're trying to talk to
             T::regs().dr().write(|reg| reg.set_dr(addr << 1));
 
             // Wait until address was sent
@@ -231,10 +190,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         if frame.send_stop() {
             // Send a STOP condition
             T::regs().cr1().modify(|reg| reg.set_stop(true));
-            // Wait for STOP condition to transmit.
-            while T::regs().cr1().read().stop() {
-                timeout.check()?;
-            }
         }
 
         // Fallthrough is success
@@ -301,15 +256,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 timeout.check()?;
             }
 
-            // Also wait until signalled we're master and everything is waiting for us
-            while {
-                let sr2 = T::regs().sr2().read();
-                !sr2.msl() && !sr2.busy()
-            } {
-                timeout.check()?;
+            // Check if we were the ones to generate START
+            if T::regs().cr1().read().start() || !T::regs().sr2().read().msl() {
+                return Err(Error::Arbitration);
             }
 
-            // Set up current address, we're trying to talk to
+            // Set up current address we're trying to talk to
             T::regs().dr().write(|reg| reg.set_dr((addr << 1) + 1));
 
             // Wait until address was sent
@@ -339,13 +291,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         // Receive last byte
         *last = self.recv_byte(timeout)?;
-
-        if frame.send_stop() {
-            // Wait for the STOP to be sent.
-            while T::regs().cr1().read().stop() {
-                timeout.check()?;
-            }
-        }
 
         // Fallthrough is success
         Ok(())
@@ -386,64 +331,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        // Check empty read buffer before starting transaction. Otherwise, we would not generate the
-        // stop condition below.
-        if operations.iter().any(|op| match op {
-            Operation::Read(read) => read.is_empty(),
-            Operation::Write(_) => false,
-        }) {
-            return Err(Error::Overrun);
-        }
-
         let timeout = self.timeout();
 
-        let mut operations = operations.iter_mut();
-
-        let mut prev_op: Option<&mut Operation<'_>> = None;
-        let mut next_op = operations.next();
-
-        while let Some(op) = next_op {
-            next_op = operations.next();
-
-            // Check if this is the first frame of this type. This is the case for the first overall
-            // frame in the transaction and whenever the type of operation changes.
-            let first_frame =
-                match (prev_op.as_ref(), &op) {
-                    (None, _) => true,
-                    (Some(Operation::Read(_)), Operation::Write(_))
-                    | (Some(Operation::Write(_)), Operation::Read(_)) => true,
-                    (Some(Operation::Read(_)), Operation::Read(_))
-                    | (Some(Operation::Write(_)), Operation::Write(_)) => false,
-                };
-
-            let frame = match (first_frame, next_op.as_ref()) {
-                // If this is the first frame of this type, we generate a (repeated) start condition
-                // but have to consider the next operation: if it is the last, we generate the final
-                // stop condition. Otherwise, we branch on the operation: with read operations, only
-                // the last byte overall (before a write operation or the end of the transaction) is
-                // to be NACK'd, i.e. if another read operation follows, we must ACK this last byte.
-                (true, None) => FrameOptions::FirstAndLastFrame,
-                // Make sure to keep sending ACK for last byte in read operation when it is followed
-                // by another consecutive read operation. If the current operation is write, this is
-                // identical to `FirstFrame`.
-                (true, Some(Operation::Read(_))) => FrameOptions::FirstAndNextFrame,
-                // Otherwise, send NACK for last byte (in read operation). (For write, this does not
-                // matter and could also be `FirstAndNextFrame`.)
-                (true, Some(Operation::Write(_))) => FrameOptions::FirstFrame,
-
-                // If this is not the first frame of its type, we do not generate a (repeated) start
-                // condition. Otherwise, we branch the same way as above.
-                (false, None) => FrameOptions::LastFrame,
-                (false, Some(Operation::Read(_))) => FrameOptions::NextFrame,
-                (false, Some(Operation::Write(_))) => FrameOptions::LastFrameNoStop,
-            };
-
+        for (op, frame) in operation_frames(operations)? {
             match op {
                 Operation::Read(read) => self.blocking_read_timeout(addr, read, timeout, frame)?,
                 Operation::Write(write) => self.write_bytes(addr, write, timeout, frame)?,
             }
-
-            prev_op = Some(op);
         }
 
         Ok(())
@@ -458,112 +352,108 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             w.set_itevten(true);
         });
     }
+}
 
-    async fn write_with_stop(&mut self, address: u8, write: &[u8], send_stop: bool) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        let dma_transfer = unsafe {
-            let regs = T::regs();
-            regs.cr2().modify(|w| {
-                // DMA mode can be enabled for transmission by setting the DMAEN bit in the I2C_CR2 register.
-                w.set_dmaen(true);
-                w.set_itbufen(false);
-            });
-            // Set the I2C_DR register address in the DMA_SxPAR register. The data will be moved to this address from the memory after each TxE event.
-            let dst = regs.dr().as_ptr() as *mut u8;
+impl<'d, T: Instance> I2c<'d, T, Async> {
+    async fn write_frame(&mut self, address: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error> {
+        T::regs().cr2().modify(|w| {
+            // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
+            // reception.
+            w.set_itbufen(false);
+            // DMA mode can be enabled for transmission by setting the DMAEN bit in the I2C_CR2
+            // register.
+            w.set_dmaen(true);
+            // Sending NACK is not necessary (nor possible) for write transfer.
+            w.set_last(false);
+        });
 
-            let ch = &mut self.tx_dma;
-            let request = ch.request();
-            Transfer::new_write(ch, request, write, dst, Default::default())
-        };
-
+        // Sentinel to disable transfer when an error occurs or future is canceled.
+        // TODO: Generate STOP condition on cancel?
         let on_drop = OnDrop::new(|| {
-            let regs = T::regs();
-            regs.cr2().modify(|w| {
+            T::regs().cr2().modify(|w| {
                 w.set_dmaen(false);
                 w.set_iterren(false);
                 w.set_itevten(false);
             })
         });
 
-        Self::enable_interrupts();
-
-        // Send a START condition
-        T::regs().cr1().modify(|reg| {
-            reg.set_start(true);
-        });
-
         let state = T::state();
 
-        // Wait until START condition was generated
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
+        if frame.send_start() {
+            // Send a START condition
+            T::regs().cr1().modify(|reg| {
+                reg.set_start(true);
+            });
 
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.start() {
-                        Poll::Ready(Ok(()))
-                    } else {
-                        Poll::Pending
+            // Wait until START condition was generated
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
+
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.start() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            // When pending, (re-)enable interrupts to wake us up.
+                            Self::enable_interrupts();
+                            Poll::Pending
+                        }
                     }
                 }
+            })
+            .await?;
+
+            // Check if we were the ones to generate START
+            if T::regs().cr1().read().start() || !T::regs().sr2().read().msl() {
+                return Err(Error::Arbitration);
             }
-        })
-        .await?;
 
-        // Also wait until signalled we're master and everything is waiting for us
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
+            // Set up current address we're trying to talk to
+            T::regs().dr().write(|reg| reg.set_dr(address << 1));
 
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(_) => {
-                    let sr2 = T::regs().sr2().read();
-                    if !sr2.msl() && !sr2.busy() {
-                        Poll::Pending
-                    } else {
-                        Poll::Ready(Ok(()))
+            // Wait for the address to be acknowledged
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
+
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.addr() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            // When pending, (re-)enable interrupts to wake us up.
+                            Self::enable_interrupts();
+                            Poll::Pending
+                        }
                     }
                 }
-            }
-        })
-        .await?;
+            })
+            .await?;
 
-        // Set up current address, we're trying to talk to
-        Self::enable_interrupts();
-        T::regs().dr().write(|reg| reg.set_dr(address << 1));
+            // Clear condition by reading SR2
+            T::regs().sr2().read();
+        }
 
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.addr() {
-                        // Clear the ADDR condition by reading SR2.
-                        T::regs().sr2().read();
-                        Poll::Ready(Ok(()))
-                    } else {
-                        // If we need to go around, then re-enable the interrupts, otherwise nothing
-                        // can wake us up and we'll hang.
-                        Self::enable_interrupts();
-                        Poll::Pending
-                    }
-                }
-            }
-        })
-        .await?;
-        Self::enable_interrupts();
+        let dma_transfer = unsafe {
+            // Set the I2C_DR register address in the DMA_SxPAR register. The data will be moved to
+            // this address from the memory after each TxE event.
+            let dst = T::regs().dr().as_ptr() as *mut u8;
+
+            self.tx_dma.as_mut().unwrap().write(write, dst, Default::default())
+        };
+
+        // Wait for bytes to be sent, or an error to occur.
         let poll_error = poll_fn(|cx| {
             state.waker.register(cx.waker());
 
             match Self::check_and_clear_error_flags() {
-                // Unclear why the Err turbofish is necessary here? The compiler didn’t require it in the other
-                // identical poll_fn check_and_clear matches.
-                Err(e) => Poll::Ready(Err::<T, Error>(e)),
-                Ok(_) => Poll::Pending,
+                Err(e) => Poll::Ready(Err::<(), Error>(e)),
+                Ok(_) => {
+                    // When pending, (re-)enable interrupts to wake us up.
+                    Self::enable_interrupts();
+                    Poll::Pending
+                }
             }
         });
 
@@ -573,38 +463,37 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             _ => Ok(()),
         }?;
 
-        // The I2C transfer itself will take longer than the DMA transfer, so wait for that to finish too.
-
-        // 18.3.8 “Master transmitter: In the interrupt routine after the EOT interrupt, disable DMA
-        // requests then wait for a BTF event before programming the Stop condition.”
-
-        // TODO: If this has to be done “in the interrupt routine after the EOT interrupt”, where to put it?
         T::regs().cr2().modify(|w| {
             w.set_dmaen(false);
         });
 
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
+        if frame.send_stop() {
+            // The I2C transfer itself will take longer than the DMA transfer, so wait for that to finish too.
 
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.btf() {
-                        if send_stop {
-                            T::regs().cr1().modify(|w| {
-                                w.set_stop(true);
-                            });
+            // 18.3.8 “Master transmitter: In the interrupt routine after the EOT interrupt, disable DMA
+            // requests then wait for a BTF event before programming the Stop condition.”
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
+
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.btf() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            // When pending, (re-)enable interrupts to wake us up.
+                            Self::enable_interrupts();
+                            Poll::Pending
                         }
-
-                        Poll::Ready(Ok(()))
-                    } else {
-                        Poll::Pending
                     }
                 }
-            }
-        })
-        .await?;
+            })
+            .await?;
+
+            T::regs().cr1().modify(|w| {
+                w.set_stop(true);
+            });
+        }
 
         drop(on_drop);
 
@@ -613,162 +502,155 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     /// Write.
-    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        self.write_with_stop(address, write, true).await?;
-
-        // Wait for STOP condition to transmit.
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-            // TODO: error interrupts are enabled here, should we additional check for and return errors?
-            if T::regs().cr1().read().stop() {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
-            }
-        })
-        .await?;
+    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+        self.write_frame(address, write, FrameOptions::FirstAndLastFrame)
+            .await?;
 
         Ok(())
     }
 
     /// Read.
-    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-    {
-        let state = T::state();
-        let buffer_len = buffer.len();
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.read_frame(address, buffer, FrameOptions::FirstAndLastFrame)
+            .await?;
 
-        let dma_transfer = unsafe {
-            let regs = T::regs();
-            regs.cr2().modify(|w| {
-                // DMA mode can be enabled for transmission by setting the DMAEN bit in the I2C_CR2 register.
-                w.set_itbufen(false);
-                w.set_dmaen(true);
-            });
-            // Set the I2C_DR register address in the DMA_SxPAR register. The data will be moved to this address from the memory after each TxE event.
-            let src = regs.dr().as_ptr() as *mut u8;
+        Ok(())
+    }
 
-            let ch = &mut self.rx_dma;
-            let request = ch.request();
-            Transfer::new_read(ch, request, src, buffer, Default::default())
-        };
+    async fn read_frame(&mut self, address: u8, buffer: &mut [u8], frame: FrameOptions) -> Result<(), Error> {
+        if buffer.is_empty() {
+            return Err(Error::Overrun);
+        }
 
+        // Some branches below depend on whether the buffer contains only a single byte.
+        let single_byte = buffer.len() == 1;
+
+        T::regs().cr2().modify(|w| {
+            // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
+            // reception.
+            w.set_itbufen(false);
+            // DMA mode can be enabled for transmission by setting the DMAEN bit in the I2C_CR2
+            // register.
+            w.set_dmaen(true);
+            // If, in the I2C_CR2 register, the LAST bit is set, I2C automatically sends a NACK
+            // after the next byte following EOT_1. The user can generate a Stop condition in
+            // the DMA Transfer Complete interrupt routine if enabled.
+            w.set_last(frame.send_nack() && !single_byte);
+        });
+
+        // Sentinel to disable transfer when an error occurs or future is canceled.
+        // TODO: Generate STOP condition on cancel?
         let on_drop = OnDrop::new(|| {
-            let regs = T::regs();
-            regs.cr2().modify(|w| {
+            T::regs().cr2().modify(|w| {
                 w.set_dmaen(false);
                 w.set_iterren(false);
                 w.set_itevten(false);
             })
         });
 
-        Self::enable_interrupts();
+        let state = T::state();
 
-        // Send a START condition and set ACK bit
-        T::regs().cr1().modify(|reg| {
-            reg.set_start(true);
-            reg.set_ack(true);
-        });
+        if frame.send_start() {
+            // Send a START condition and set ACK bit
+            T::regs().cr1().modify(|reg| {
+                reg.set_start(true);
+                reg.set_ack(true);
+            });
 
-        // Wait until START condition was generated
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
+            // Wait until START condition was generated
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
 
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.start() {
-                        Poll::Ready(Ok(()))
-                    } else {
-                        Poll::Pending
-                    }
-                }
-            }
-        })
-        .await?;
-
-        // Also wait until signalled we're master and everything is waiting for us
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-
-            // blocking read didn’t have a check_and_clear call here, but blocking write did so
-            // I’m adding it here in case that was an oversight.
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(_) => {
-                    let sr2 = T::regs().sr2().read();
-                    if !sr2.msl() && !sr2.busy() {
-                        Poll::Pending
-                    } else {
-                        Poll::Ready(Ok(()))
-                    }
-                }
-            }
-        })
-        .await?;
-
-        // Set up current address, we're trying to talk to
-        T::regs().dr().write(|reg| reg.set_dr((address << 1) + 1));
-
-        // Wait for the address to be acknowledged
-
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.addr() {
-                        // 18.3.8: When a single byte must be received: the NACK must be programmed during EV6
-                        // event, i.e. program ACK=0 when ADDR=1, before clearing ADDR flag.
-                        if buffer_len == 1 {
-                            T::regs().cr1().modify(|w| {
-                                w.set_ack(false);
-                            });
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.start() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            // When pending, (re-)enable interrupts to wake us up.
+                            Self::enable_interrupts();
+                            Poll::Pending
                         }
-                        Poll::Ready(Ok(()))
-                    } else {
-                        Poll::Pending
                     }
                 }
+            })
+            .await?;
+
+            // Check if we were the ones to generate START
+            if T::regs().cr1().read().start() || !T::regs().sr2().read().msl() {
+                return Err(Error::Arbitration);
             }
-        })
-        .await?;
 
-        // Clear ADDR condition by reading SR2
-        T::regs().sr2().read();
+            // Set up current address we're trying to talk to
+            T::regs().dr().write(|reg| reg.set_dr((address << 1) + 1));
 
-        // 18.3.8: When a single byte must be received: [snip] Then the
-        // user can program the STOP condition either after clearing ADDR flag, or in the
-        // DMA Transfer Complete interrupt routine.
-        if buffer_len == 1 {
+            // Wait for the address to be acknowledged
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
+
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.addr() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            // When pending, (re-)enable interrupts to wake us up.
+                            Self::enable_interrupts();
+                            Poll::Pending
+                        }
+                    }
+                }
+            })
+            .await?;
+
+            // 18.3.8: When a single byte must be received: the NACK must be programmed during EV6
+            // event, i.e. program ACK=0 when ADDR=1, before clearing ADDR flag.
+            if frame.send_nack() && single_byte {
+                T::regs().cr1().modify(|w| {
+                    w.set_ack(false);
+                });
+            }
+
+            // Clear condition by reading SR2
+            T::regs().sr2().read();
+        } else {
+            // Before starting reception of single byte (but without START condition, i.e. in case
+            // of continued frame), program NACK to emit at end of this byte.
+            if frame.send_nack() && single_byte {
+                T::regs().cr1().modify(|w| {
+                    w.set_ack(false);
+                });
+            }
+        }
+
+        // 18.3.8: When a single byte must be received: [snip] Then the user can program the STOP
+        // condition either after clearing ADDR flag, or in the DMA Transfer Complete interrupt
+        // routine.
+        if frame.send_stop() && single_byte {
             T::regs().cr1().modify(|w| {
                 w.set_stop(true);
             });
-        } else {
-            // If, in the I2C_CR2 register, the LAST bit is set, I2C
-            // automatically sends a NACK after the next byte following EOT_1. The user can
-            // generate a Stop condition in the DMA Transfer Complete interrupt routine if enabled.
-            T::regs().cr2().modify(|w| {
-                w.set_last(true);
-            })
         }
 
+        let dma_transfer = unsafe {
+            // Set the I2C_DR register address in the DMA_SxPAR register. The data will be moved
+            // from this address from the memory after each RxE event.
+            let src = T::regs().dr().as_ptr() as *mut u8;
+
+            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+        };
+
         // Wait for bytes to be received, or an error to occur.
-        Self::enable_interrupts();
         let poll_error = poll_fn(|cx| {
             state.waker.register(cx.waker());
 
             match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err::<T, Error>(e)),
-                _ => Poll::Pending,
+                Err(e) => Poll::Ready(Err::<(), Error>(e)),
+                _ => {
+                    // When pending, (re-)enable interrupts to wake us up.
+                    Self::enable_interrupts();
+                    Poll::Pending
+                }
             }
         });
 
@@ -777,18 +659,16 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             _ => Ok(()),
         }?;
 
-        // Wait for the STOP to be sent (STOP bit cleared).
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-            // TODO: error interrupts are enabled here, should we additional check for and return errors?
-            if T::regs().cr1().read().stop() {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
-            }
-        })
-        .await?;
+        T::regs().cr2().modify(|w| {
+            w.set_dmaen(false);
+        });
+
+        if frame.send_stop() && !single_byte {
+            T::regs().cr1().modify(|w| {
+                w.set_stop(true);
+            });
+        }
+
         drop(on_drop);
 
         // Fallthrough is success
@@ -796,17 +676,35 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     /// Write, restart, read.
-    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        self.write_with_stop(address, write, false).await?;
-        self.read(address, read).await
+    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        // Check empty read buffer before starting transaction. Otherwise, we would not generate the
+        // stop condition below.
+        if read.is_empty() {
+            return Err(Error::Overrun);
+        }
+
+        self.write_frame(address, write, FrameOptions::FirstFrame).await?;
+        self.read_frame(address, read, FrameOptions::FirstAndLastFrame).await
+    }
+
+    /// Transaction with operations.
+    ///
+    /// Consecutive operations of same type are merged. See [transaction contract] for details.
+    ///
+    /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        for (op, frame) in operation_frames(operations)? {
+            match op {
+                Operation::Read(read) => self.read_frame(addr, read, frame).await?,
+                Operation::Write(write) => self.write_frame(addr, write, frame).await?,
+            }
+        }
+
+        Ok(())
     }
 }
 
-impl<'d, T: Instance, TXDMA, RXDMA> Drop for I2c<'d, T, TXDMA, RXDMA> {
+impl<'d, T: Instance, M: PeriMode> Drop for I2c<'d, T, M> {
     fn drop(&mut self) {
         T::disable();
     }
@@ -912,7 +810,7 @@ impl Timings {
     }
 }
 
-impl<'d, T: Instance> SetConfig for I2c<'d, T> {
+impl<'d, T: Instance, M: PeriMode> SetConfig for I2c<'d, T, M> {
     type Config = Hertz;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {

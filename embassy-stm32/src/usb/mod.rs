@@ -6,7 +6,7 @@ mod _version;
 pub use _version::*;
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 
 /// clock, power initialization stuff that's common for USB and OTG.
 fn common_init<T: Instance>() {
@@ -23,7 +23,7 @@ fn common_init<T: Instance>() {
         )
     }
 
-    #[cfg(any(stm32l4, stm32l5, stm32wb))]
+    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32u0))]
     critical_section::with(|_| crate::pac::PWR.cr2().modify(|w| w.set_usv(true)));
 
     #[cfg(pwr_h5)]
@@ -65,5 +65,5 @@ fn common_init<T: Instance>() {
     T::Interrupt::unpend();
     unsafe { T::Interrupt::enable() };
 
-    <T as RccPeripheral>::enable_and_reset();
+    <T as SealedRccPeripheral>::enable_and_reset();
 }

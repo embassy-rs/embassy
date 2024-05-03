@@ -11,3 +11,4 @@ mv rust-toolchain-nightly.toml rust-toolchain.toml
 
 MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml
 MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml --features nightly
+MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-sync/Cargo.toml

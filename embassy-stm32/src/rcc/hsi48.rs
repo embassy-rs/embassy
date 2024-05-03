@@ -2,7 +2,7 @@
 
 use crate::pac::crs::vals::Syncsrc;
 use crate::pac::{CRS, RCC};
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 use crate::time::Hertz;
 
 /// HSI48 speed
@@ -33,9 +33,9 @@ pub(crate) fn init_hsi48(config: Hsi48Config) -> Hertz {
     });
 
     // Enable HSI48
-    #[cfg(not(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32u5, stm32wba, stm32f0)))]
+    #[cfg(not(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u5, stm32wba, stm32f0)))]
     let r = RCC.crrcr();
-    #[cfg(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32u5, stm32wba))]
+    #[cfg(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u5, stm32wba))]
     let r = RCC.cr();
     #[cfg(any(stm32f0))]
     let r = RCC.cr2();

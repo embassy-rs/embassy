@@ -51,6 +51,13 @@ async fn async_main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.ls = LsConfig::default_lse();
 
+    // System Clock seems cannot be greater than 16 MHz
+    #[cfg(any(feature = "stm32h563zi", feature = "stm32h503rb"))]
+    {
+        use embassy_stm32::rcc::HSIPrescaler;
+        config.rcc.hsi = Some(HSIPrescaler::DIV4); // 64 MHz HSI will need a /4
+    }
+
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 

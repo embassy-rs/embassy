@@ -277,6 +277,7 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim: Some(pclk2_tim),
         rtc: rtc,
         pll1_q: pll.q,
+        pll1_r: None, // TODO
 
         #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
         plli2s1_p: plli2s.p,
@@ -299,6 +300,8 @@ pub(crate) unsafe fn init(config: Config) {
         hsi_div488: hsi.map(|hsi| hsi/488u32),
         hsi_hse: None,
         afif: None,
+        #[cfg(any(stm32f4, stm32f7))]
+        dsi_phy: None, // TODO
     );
 }
 

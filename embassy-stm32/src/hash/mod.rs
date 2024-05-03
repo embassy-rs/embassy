@@ -17,7 +17,7 @@ use crate::dma::NoDma;
 use crate::dma::Transfer;
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::HASH;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 use crate::{interrupt, pac, peripherals, Peripheral};
 
 #[cfg(hash_v1)]
@@ -561,16 +561,13 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        fn regs() -> pac::hash::Hash;
-    }
+trait SealedInstance {
+    fn regs() -> pac::hash::Hash;
 }
 
 /// HASH instance trait.
-pub trait Instance: sealed::Instance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
     /// Interrupt for this HASH instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -581,7 +578,7 @@ foreach_interrupt!(
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
 
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> crate::pac::hash::Hash {
                 crate::pac::$inst
             }

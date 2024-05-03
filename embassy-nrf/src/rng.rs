@@ -2,13 +2,16 @@
 
 #![macro_use]
 
+use core::cell::{RefCell, RefMut};
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
 
+use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, Peripheral};
@@ -205,73 +208,61 @@ impl<'d, T: Instance> rand_core::RngCore for Rng<'d, T> {
 
 impl<'d, T: Instance> rand_core::CryptoRng for Rng<'d, T> {}
 
-pub(crate) mod sealed {
-    use core::cell::{Ref, RefCell, RefMut};
+/// Peripheral static state
+pub(crate) struct State {
+    inner: Mutex<RefCell<InnerState>>,
+}
 
-    use critical_section::{CriticalSection, Mutex};
-    use embassy_sync::waitqueue::WakerRegistration;
+struct InnerState {
+    ptr: *mut u8,
+    end: *mut u8,
+    waker: WakerRegistration,
+}
 
-    use super::*;
+unsafe impl Send for InnerState {}
 
-    /// Peripheral static state
-    pub struct State {
-        inner: Mutex<RefCell<InnerState>>,
-    }
-
-    pub struct InnerState {
-        pub ptr: *mut u8,
-        pub end: *mut u8,
-        pub waker: WakerRegistration,
-    }
-
-    unsafe impl Send for InnerState {}
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                inner: Mutex::new(RefCell::new(InnerState::new())),
-            }
-        }
-
-        pub fn borrow<'cs>(&'cs self, cs: CriticalSection<'cs>) -> Ref<'cs, InnerState> {
-            self.inner.borrow(cs).borrow()
-        }
-
-        pub fn borrow_mut<'cs>(&'cs self, cs: CriticalSection<'cs>) -> RefMut<'cs, InnerState> {
-            self.inner.borrow(cs).borrow_mut()
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            inner: Mutex::new(RefCell::new(InnerState::new())),
         }
     }
 
-    impl InnerState {
-        pub const fn new() -> Self {
-            Self {
-                ptr: ptr::null_mut(),
-                end: ptr::null_mut(),
-                waker: WakerRegistration::new(),
-            }
-        }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static crate::pac::rng::RegisterBlock;
-        fn state() -> &'static State;
+    fn borrow_mut<'cs>(&'cs self, cs: CriticalSection<'cs>) -> RefMut<'cs, InnerState> {
+        self.inner.borrow(cs).borrow_mut()
     }
 }
 
+impl InnerState {
+    const fn new() -> Self {
+        Self {
+            ptr: ptr::null_mut(),
+            end: ptr::null_mut(),
+            waker: WakerRegistration::new(),
+        }
+    }
+}
+
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static crate::pac::rng::RegisterBlock;
+    fn state() -> &'static State;
+}
+
 /// RNG peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_rng {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::rng::sealed::Instance for peripherals::$type {
+        impl crate::rng::SealedInstance for peripherals::$type {
             fn regs() -> &'static crate::pac::rng::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::rng::sealed::State {
-                static STATE: crate::rng::sealed::State = crate::rng::sealed::State::new();
+            fn state() -> &'static crate::rng::State {
+                static STATE: crate::rng::State = crate::rng::State::new();
                 &STATE
             }
         }

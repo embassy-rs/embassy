@@ -352,7 +352,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-pub(crate) fn set_up_i2c_pin<'d, P, T>(pin: &P)
+pub(crate) fn set_up_i2c_pin<P, T>(pin: &P)
 where
     P: core::ops::Deref<Target = T>,
     T: crate::gpio::Pin,
@@ -749,7 +749,7 @@ where
 
         let addr: u16 = address.into();
 
-        if operations.len() > 0 {
+        if !operations.is_empty() {
             Self::setup(addr)?;
         }
         let mut iterator = operations.iter_mut();
@@ -762,7 +762,7 @@ where
                     self.read_async_internal(buffer, false, last).await?;
                 }
                 Operation::Write(buffer) => {
-                    self.write_async_internal(buffer.into_iter().cloned(), last).await?;
+                    self.write_async_internal(buffer.iter().cloned(), last).await?;
                 }
             }
         }
@@ -784,34 +784,24 @@ pub fn i2c_reserved_addr(addr: u16) -> bool {
     ((addr & 0x78) == 0 || (addr & 0x78) == 0x78) && addr != 0
 }
 
-mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+pub(crate) trait SealedInstance {
+    const TX_DREQ: u8;
+    const RX_DREQ: u8;
 
-    use crate::interrupt;
-
-    pub trait Instance {
-        const TX_DREQ: u8;
-        const RX_DREQ: u8;
-
-        type Interrupt: interrupt::typelevel::Interrupt;
-
-        fn regs() -> crate::pac::i2c::I2c;
-        fn reset() -> crate::pac::resets::regs::Peripherals;
-        fn waker() -> &'static AtomicWaker;
-    }
-
-    pub trait Mode {}
-
-    pub trait SdaPin<T: Instance> {}
-    pub trait SclPin<T: Instance> {}
+    fn regs() -> crate::pac::i2c::I2c;
+    fn reset() -> crate::pac::resets::regs::Peripherals;
+    fn waker() -> &'static AtomicWaker;
 }
 
+trait SealedMode {}
+
 /// Driver mode.
-pub trait Mode: sealed::Mode {}
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
 
 macro_rules! impl_mode {
     ($name:ident) => {
-        impl sealed::Mode for $name {}
+        impl SealedMode for $name {}
         impl Mode for $name {}
     };
 }
@@ -825,15 +815,17 @@ impl_mode!(Blocking);
 impl_mode!(Async);
 
 /// I2C instance.
-pub trait Instance: sealed::Instance {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {
+    /// Interrupt for this peripheral.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 macro_rules! impl_instance {
     ($type:ident, $irq:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
-        impl sealed::Instance for peripherals::$type {
+        impl SealedInstance for peripherals::$type {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
-
-            type Interrupt = crate::interrupt::typelevel::$irq;
 
             #[inline]
             fn regs() -> pac::i2c::I2c {
@@ -854,7 +846,9 @@ macro_rules! impl_instance {
                 &WAKER
             }
         }
-        impl Instance for peripherals::$type {}
+        impl Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
     };
 }
 
@@ -862,13 +856,12 @@ impl_instance!(I2C0, I2C0_IRQ, set_i2c0, 32, 33);
 impl_instance!(I2C1, I2C1_IRQ, set_i2c1, 34, 35);
 
 /// SDA pin.
-pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + crate::gpio::Pin {}
+pub trait SdaPin<T: Instance>: crate::gpio::Pin {}
 /// SCL pin.
-pub trait SclPin<T: Instance>: sealed::SclPin<T> + crate::gpio::Pin {}
+pub trait SclPin<T: Instance>: crate::gpio::Pin {}
 
 macro_rules! impl_pin {
     ($pin:ident, $instance:ident, $function:ident) => {
-        impl sealed::$function<peripherals::$instance> for peripherals::$pin {}
         impl $function<peripherals::$instance> for peripherals::$pin {}
     };
 }

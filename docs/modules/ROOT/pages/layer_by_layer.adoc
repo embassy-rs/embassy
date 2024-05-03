@@ -63,7 +63,7 @@ Luckily, there is an elegant solution to this problem when using Embassy.
 
 == Async version
 
-It's time to use the Embassy capabilities to its fullest. At the core, Embassy has an async excecutor, or a runtime for async tasks if you will. The executor polls a set of tasks (defined at compile time), and whenever a task `blocks`, the executor will run another task, or put the microcontroller to sleep.
+It's time to use the Embassy capabilities to its fullest. At the core, Embassy has an async executor, or a runtime for async tasks if you will. The executor polls a set of tasks (defined at compile time), and whenever a task `blocks`, the executor will run another task, or put the microcontroller to sleep.
 
 [source,rust]
 ----

@@ -152,6 +152,13 @@ where
         self.channel.receive()
     }
 
+    /// Is a value ready to be received in the channel
+    ///
+    /// See [`Channel::ready_to_receive()`].
+    pub fn ready_to_receive(&self) -> ReceiveReadyFuture<'_, M, T, N> {
+        self.channel.ready_to_receive()
+    }
+
     /// Attempt to immediately receive the next value.
     ///
     /// See [`Channel::try_receive()`]
@@ -243,6 +250,26 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
         self.channel.poll_receive(cx)
+    }
+}
+
+/// Future returned by [`Channel::ready_to_receive`] and  [`Receiver::ready_to_receive`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct ReceiveReadyFuture<'ch, M, T, const N: usize>
+where
+    M: RawMutex,
+{
+    channel: &'ch Channel<M, T, N>,
+}
+
+impl<'ch, M, T, const N: usize> Future for ReceiveReadyFuture<'ch, M, T, N>
+where
+    M: RawMutex,
+{
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.channel.poll_ready_to_receive(cx)
     }
 }
 
@@ -449,6 +476,18 @@ impl<T, const N: usize> ChannelState<T, N> {
             Poll::Pending
         }
     }
+
+    fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    fn is_full(&self) -> bool {
+        self.queue.is_full()
+    }
 }
 
 /// A bounded channel for communicating between asynchronous tasks
@@ -565,12 +604,35 @@ where
         ReceiveFuture { channel: self }
     }
 
+    /// Is a value ready to be received in the channel
+    ///
+    /// If there are no messages in the channel's buffer, this method will
+    /// wait until there is at least one
+    pub fn ready_to_receive(&self) -> ReceiveReadyFuture<'_, M, T, N> {
+        ReceiveReadyFuture { channel: self }
+    }
+
     /// Attempt to immediately receive a message.
     ///
     /// This method will either receive a message from the channel immediately or return an error
     /// if the channel is empty.
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.lock(|c| c.try_receive())
+    }
+
+    /// Returns the number of elements currently in the channel.
+    pub fn len(&self) -> usize {
+        self.lock(|c| c.len())
+    }
+
+    /// Returns whether the channel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.lock(|c| c.is_empty())
+    }
+
+    /// Returns whether the channel is full.
+    pub fn is_full(&self) -> bool {
+        self.lock(|c| c.is_full())
     }
 }
 

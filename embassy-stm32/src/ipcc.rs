@@ -4,11 +4,12 @@ use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use self::sealed::Instance;
+use embassy_sync::waitqueue::AtomicWaker;
+
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::IPCC;
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::SealedRccPeripheral;
 
 /// Interrupt handler.
 pub struct ReceiveInterruptHandler {}
@@ -207,7 +208,7 @@ impl Ipcc {
     }
 }
 
-impl sealed::Instance for crate::peripherals::IPCC {
+impl SealedInstance for crate::peripherals::IPCC {
     fn regs() -> crate::pac::ipcc::Ipcc {
         crate::pac::IPCC
     }
@@ -216,58 +217,52 @@ impl sealed::Instance for crate::peripherals::IPCC {
         crate::pac::PWR.cr4().modify(|w| w.set_c2boot(enabled));
     }
 
-    fn state() -> &'static self::sealed::State {
-        static STATE: self::sealed::State = self::sealed::State::new();
+    fn state() -> &'static State {
+        static STATE: State = State::new();
         &STATE
     }
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+struct State {
+    rx_wakers: [AtomicWaker; 6],
+    tx_wakers: [AtomicWaker; 6],
+}
 
-    use super::*;
+impl State {
+    const fn new() -> Self {
+        const WAKER: AtomicWaker = AtomicWaker::new();
 
-    pub struct State {
-        rx_wakers: [AtomicWaker; 6],
-        tx_wakers: [AtomicWaker; 6],
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            const WAKER: AtomicWaker = AtomicWaker::new();
-
-            Self {
-                rx_wakers: [WAKER; 6],
-                tx_wakers: [WAKER; 6],
-            }
-        }
-
-        pub const fn rx_waker_for(&self, channel: IpccChannel) -> &AtomicWaker {
-            match channel {
-                IpccChannel::Channel1 => &self.rx_wakers[0],
-                IpccChannel::Channel2 => &self.rx_wakers[1],
-                IpccChannel::Channel3 => &self.rx_wakers[2],
-                IpccChannel::Channel4 => &self.rx_wakers[3],
-                IpccChannel::Channel5 => &self.rx_wakers[4],
-                IpccChannel::Channel6 => &self.rx_wakers[5],
-            }
-        }
-
-        pub const fn tx_waker_for(&self, channel: IpccChannel) -> &AtomicWaker {
-            match channel {
-                IpccChannel::Channel1 => &self.tx_wakers[0],
-                IpccChannel::Channel2 => &self.tx_wakers[1],
-                IpccChannel::Channel3 => &self.tx_wakers[2],
-                IpccChannel::Channel4 => &self.tx_wakers[3],
-                IpccChannel::Channel5 => &self.tx_wakers[4],
-                IpccChannel::Channel6 => &self.tx_wakers[5],
-            }
+        Self {
+            rx_wakers: [WAKER; 6],
+            tx_wakers: [WAKER; 6],
         }
     }
 
-    pub trait Instance: crate::rcc::RccPeripheral {
-        fn regs() -> crate::pac::ipcc::Ipcc;
-        fn set_cpu2(enabled: bool);
-        fn state() -> &'static State;
+    const fn rx_waker_for(&self, channel: IpccChannel) -> &AtomicWaker {
+        match channel {
+            IpccChannel::Channel1 => &self.rx_wakers[0],
+            IpccChannel::Channel2 => &self.rx_wakers[1],
+            IpccChannel::Channel3 => &self.rx_wakers[2],
+            IpccChannel::Channel4 => &self.rx_wakers[3],
+            IpccChannel::Channel5 => &self.rx_wakers[4],
+            IpccChannel::Channel6 => &self.rx_wakers[5],
+        }
     }
+
+    const fn tx_waker_for(&self, channel: IpccChannel) -> &AtomicWaker {
+        match channel {
+            IpccChannel::Channel1 => &self.tx_wakers[0],
+            IpccChannel::Channel2 => &self.tx_wakers[1],
+            IpccChannel::Channel3 => &self.tx_wakers[2],
+            IpccChannel::Channel4 => &self.tx_wakers[3],
+            IpccChannel::Channel5 => &self.tx_wakers[4],
+            IpccChannel::Channel6 => &self.tx_wakers[5],
+        }
+    }
+}
+
+trait SealedInstance: crate::rcc::RccPeripheral {
+    fn regs() -> crate::pac::ipcc::Ipcc;
+    fn set_cpu2(enabled: bool);
+    fn state() -> &'static State;
 }

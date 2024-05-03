@@ -4,7 +4,7 @@ use chrono::{Datelike, NaiveDate, Timelike, Weekday};
 #[cfg(any(feature = "defmt", feature = "time"))]
 use crate::peripherals::RTC;
 #[cfg(any(feature = "defmt", feature = "time"))]
-use crate::rtc::sealed::Instance;
+use crate::rtc::SealedInstance;
 
 /// Represents an instant in time that can be substracted to compute a duration
 pub struct RtcInstant {
@@ -148,9 +148,9 @@ impl DateTime {
     ) -> Result<Self, Error> {
         if year > 4095 {
             Err(Error::InvalidYear)
-        } else if month < 1 || month > 12 {
+        } else if !(1..=12).contains(&month) {
             Err(Error::InvalidMonth)
-        } else if day < 1 || day > 31 {
+        } else if !(1..=31).contains(&day) {
             Err(Error::InvalidDay)
         } else if hour > 23 {
             Err(Error::InvalidHour)

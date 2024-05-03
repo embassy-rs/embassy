@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use crate::can::bx::{ExtendedId, Fifo, FilterOwner, Id, Instance, MasterInstance, StandardId};
+use super::{ExtendedId, Fifo, FilterOwner, Id, Instance, MasterInstance, StandardId};
 
 const F32_RTR: u32 = 0b010; // set the RTR bit to match remote frames
 const F32_IDE: u32 = 0b100; // set the IDE bit to match extended identifiers
