@@ -1,17 +1,17 @@
-use embassy_futures::yield_now;
+use core::borrow::BorrowMut;
+use core::marker::PhantomData;
+
 use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_time::Timer;
 use embedded_hal_02::blocking::delay::DelayUs;
 use stm32_metapac::adc::vals;
 
 use crate::adc::{Adc, AdcPin, Instance, Resolution, RxDma, SampleTime};
-use crate::dma::{dma, Transfer};
+use crate::dma::ringbuffer::OverrunError;
+use crate::dma::{self, ReadableRingBuffer, Transfer};
+use crate::interrupt;
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
-const ADC_FREQ: Hertz = crate::rcc::HSI_FREQ;
-
-pub const VDDA_CALIB_MV: u32 = 3300;
-pub const ADC_MAX: u32 = (1 << 12) - 1;
-pub const VREF_INT: u32 = 1230;
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -21,6 +21,22 @@ pub const VREF_CALIB_MV: u32 = 3300;
 /// ADC turn-on time
 pub const ADC_POWERUP_TIME_US: u32 = 3;
 
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        if T::regs().sr().read().eoc() {
+            T::regs().sr().modify(|w| w.set_eoc(false));
+        } else {
+            return;
+        }
+        T::state().waker.wake();
+    }
+}
+
 pub struct VrefInt;
 impl AdcPin<ADC1> for VrefInt {}
 impl super::SealedAdcPin<ADC1> for VrefInt {
@@ -29,54 +45,10 @@ impl super::SealedAdcPin<ADC1> for VrefInt {
     }
 }
 
-impl<T: Instance> Vref<T> {
-    /// The value that vref would be if vdda was at 3000mv
-    pub fn calibrated_value(&self) -> u16 {
-        ADC_MAX as u16
-    }
-
-    pub async fn calibrate(&mut self, adc: &mut Adc<'static, T>) -> Calibration {
-        let vref_val = Adc::read(adc, self).await;
-        Calibration {
-            vref_cal: self.calibrated_value(),
-            vref_val,
-        }
-    }
-}
-
-pub struct Calibration {
-    vref_cal: u16,
-    vref_val: u16,
-}
-
-impl Calibration {
-    /// The millivolts that the calibration value was measured at
-    pub const CALIBRATION_UV: u32 = 3_000_000;
-
-    /// Returns the measured VddA in microvolts (uV)
-    pub fn vdda_uv(&self) -> u32 {
-        (Self::CALIBRATION_UV * self.vref_cal as u32) / self.vref_val as u32
-    }
-
-    /// Returns the measured VddA as an f32
-    pub fn vdda_f32(&self) -> f32 {
-        (Self::CALIBRATION_UV as f32 / 1_000.0) * (self.vref_cal as f32 / self.vref_val as f32)
-    }
-
-    /// Returns a calibrated voltage value as in microvolts (uV)
-    pub fn cal_uv(&self, raw: u16, resolution: super::Resolution) -> u32 {
-        (self.vdda_uv() / resolution.to_max_count()) * raw as u32
-    }
-
-    /// Returns a calibrated voltage value as an f32
-    pub fn cal_f32(&self, raw: u16, resolution: super::Resolution) -> f32 {
-        raw as f32 * self.vdda_f32() / resolution.to_max_count() as f32
-    }
-}
-
-impl<T: Instance> Drop for Vref<T> {
-    fn drop(&mut self) {
-        update_vref::<T>(-1)
+impl VrefInt {
+    /// Time needed for internal voltage reference to stabilize
+    pub fn start_time_us() -> u32 {
+        10
     }
 }
 
@@ -94,18 +66,78 @@ impl super::SealedAdcPin<ADC1> for Temperature {
     }
 }
 
-impl<T: Instance> Temperature<T> {
+impl Temperature {
     /// Time needed for temperature sensor readings to stabilize
     pub fn start_time_us() -> u32 {
         10
     }
 }
 
-/// The state of a continuously running sampler
-#[derive(PartialEq)]
-pub enum SamplerState {
-    Sampled,
-    Stopped,
+#[derive(PartialOrd, PartialEq, Debug, Clone, Copy)]
+pub enum Sequence {
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+    Six,
+    Seven,
+    Eight,
+    Nine,
+    Ten,
+    Eleven,
+    Twelve,
+    Thirteen,
+    Fourteen,
+    Fifteen,
+    Sixteen,
+}
+
+impl From<Sequence> for u8 {
+    fn from(s: Sequence) -> u8 {
+        match s {
+            Sequence::One => 0,
+            Sequence::Two => 1,
+            Sequence::Three => 2,
+            Sequence::Four => 3,
+            Sequence::Five => 4,
+            Sequence::Six => 5,
+            Sequence::Seven => 6,
+            Sequence::Eight => 7,
+            Sequence::Nine => 8,
+            Sequence::Ten => 9,
+            Sequence::Eleven => 10,
+            Sequence::Twelve => 11,
+            Sequence::Thirteen => 12,
+            Sequence::Fourteen => 13,
+            Sequence::Fifteen => 14,
+            Sequence::Sixteen => 15,
+        }
+    }
+}
+
+impl Into<Sequence> for u8 {
+    fn into(self) -> Sequence {
+        match self {
+            0 => Sequence::One,
+            1 => Sequence::Two,
+            2 => Sequence::Three,
+            3 => Sequence::Four,
+            4 => Sequence::Five,
+            5 => Sequence::Six,
+            6 => Sequence::Seven,
+            7 => Sequence::Eight,
+            8 => Sequence::Nine,
+            9 => Sequence::Ten,
+            10 => Sequence::Eleven,
+            11 => Sequence::Twelve,
+            12 => Sequence::Thirteen,
+            13 => Sequence::Fourteen,
+            14 => Sequence::Fifteen,
+            15 => Sequence::Sixteen,
+            _ => panic!("Invalid sequence number"),
+        }
+    }
 }
 
 pub struct Vbat;
@@ -141,12 +173,12 @@ impl Prescaler {
         }
     }
 
-    pub fn resolution(&self) -> Resolution {
-        match T::regs().cr1().read().res() {
-            crate::pac::adc::vals::Res::TWELVEBIT => Resolution::TwelveBit,
-            crate::pac::adc::vals::Res::TENBIT => Resolution::TenBit,
-            crate::pac::adc::vals::Res::EIGHTBIT => Resolution::EightBit,
-            crate::pac::adc::vals::Res::SIXBIT => Resolution::SixBit,
+    fn adcpre(&self) -> crate::pac::adccommon::vals::Adcpre {
+        match self {
+            Prescaler::Div2 => crate::pac::adccommon::vals::Adcpre::DIV2,
+            Prescaler::Div4 => crate::pac::adccommon::vals::Adcpre::DIV4,
+            Prescaler::Div6 => crate::pac::adccommon::vals::Adcpre::DIV6,
+            Prescaler::Div8 => crate::pac::adccommon::vals::Adcpre::DIV8,
         }
     }
 }
@@ -182,12 +214,30 @@ where
         self.convert()
     }
 
+    fn is_on() -> bool {
+        T::regs().cr2().read().adon()
+    }
+
+    fn stop_adc() {
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(false);
+        });
+    }
+
+    fn start_adc() {
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+        });
+
+        // Wait for ADC to power up
+        // delay.delay_us(ADC_POWERUP_TIME_US);
+    }
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
     /// [Adc::read_internal()] to perform conversion.
-    pub fn enable_vref(&self) -> Vref<T> {
-        update_vref::<T>(1);
+    pub fn enable_vref(&self) -> VrefInt {
+        // VrefInt
 
-        Vref::<T>(core::marker::PhantomData)
+        VrefInt
     }
 
     /// Enables internal temperature sensor and returns [Temperature], which can be used in
@@ -195,10 +245,10 @@ where
     ///
     /// On STM32F42 and STM32F43 this can not be used together with [Vbat]. If both are enabled,
     /// temperature sensor will return vbat value.
-    pub fn enable_temperature(&self) -> Temperature<T> {
+    pub fn enable_temperature(&self) -> Temperature {
         T::common_regs().ccr().modify(|w| w.set_tsvrefe(true));
 
-        Temperature::<T>(core::marker::PhantomData)
+        Temperature
     }
 
     /// Enables vbat input and returns [Vbat], which can be used in
@@ -211,22 +261,22 @@ where
     //     Vbat {}
     // }
 
-    pub async fn set_sample_time(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime) {
+    pub async fn set_pin_sample_time(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime) {
         if Self::get_channel_sample_time(pin.channel()) != sample_time {
             let was_on = Self::is_on();
             if was_on {
-                self.stop_adc().await;
+                Self::stop_adc();
             }
             unsafe {
                 Self::set_channel_sample_time(pin.channel(), sample_time);
-                trace!(
-                    "Set sample time for channel {} to {:?}",
-                    pin.channel(),
-                    Self::get_channel_sample_time(pin.channel())
-                );
+                // trace!(
+                // "Set sample time for channel {} to {:?}",
+                // pin.channel(),
+                // Self::get_channel_sample_time(pin.channel() as u8)
+                // );
             }
             if was_on {
-                self.start_adc().await;
+                Self::start_adc();
             }
             // This will make CI pass, but the struct field is no longer relevant as each channel will have an associated sample time.
             self.sample_time = sample_time;
@@ -264,22 +314,22 @@ where
     }
     pub async fn set_sample_sequence(
         &mut self,
-        sequence: config::Sequence,
+        sequence: Sequence,
         channel: &mut impl AdcPin<T>,
         sample_time: SampleTime,
     ) {
         let was_on = Self::is_on();
         if !was_on {
-            self.start_adc().await;
+            Self::start_adc();
         }
 
         //Check the sequence is long enough
         T::regs().sqr1().modify(|r| {
-            let prev: config::Sequence = r.l().into();
-            trace!("Previous sequence length: {:?}", prev);
+            let prev: Sequence = r.l().into();
+            trace!("Previous sequence length: {:?}", prev as u8);
             if prev < sequence {
-                let new_l: config::Sequence = sequence.into();
-                trace!("Setting sequence length to {:?}", new_l);
+                let new_l: Sequence = sequence.into();
+                trace!("Setting sequence length to {:?}", new_l as u8);
                 r.set_l(sequence.into())
             } else {
                 r.set_l(prev.into())
@@ -291,26 +341,26 @@ where
 
         //Set the channel in the right sequence field.
         match sequence {
-            config::Sequence::One => T::regs().sqr3().modify(|w| w.set_sq(0, channel.channel())),
-            config::Sequence::Two => T::regs().sqr3().modify(|w| w.set_sq(1, channel.channel())),
-            config::Sequence::Three => T::regs().sqr3().modify(|w| w.set_sq(2, channel.channel())),
-            config::Sequence::Four => T::regs().sqr3().modify(|w| w.set_sq(3, channel.channel())),
-            config::Sequence::Five => T::regs().sqr3().modify(|w| w.set_sq(4, channel.channel())),
-            config::Sequence::Six => T::regs().sqr3().modify(|w| w.set_sq(5, channel.channel())),
-            config::Sequence::Seven => T::regs().sqr2().modify(|w| w.set_sq(6, channel.channel())),
-            config::Sequence::Eight => T::regs().sqr2().modify(|w| w.set_sq(7, channel.channel())),
-            config::Sequence::Nine => T::regs().sqr2().modify(|w| w.set_sq(8, channel.channel())),
-            config::Sequence::Ten => T::regs().sqr2().modify(|w| w.set_sq(9, channel.channel())),
-            config::Sequence::Eleven => T::regs().sqr2().modify(|w| w.set_sq(10, channel.channel())),
-            config::Sequence::Twelve => T::regs().sqr2().modify(|w| w.set_sq(11, channel.channel())),
-            config::Sequence::Thirteen => T::regs().sqr1().modify(|w| w.set_sq(12, channel.channel())),
-            config::Sequence::Fourteen => T::regs().sqr1().modify(|w| w.set_sq(13, channel.channel())),
-            config::Sequence::Fifteen => T::regs().sqr1().modify(|w| w.set_sq(14, channel.channel())),
-            config::Sequence::Sixteen => T::regs().sqr1().modify(|w| w.set_sq(15, channel.channel())),
+            Sequence::One => T::regs().sqr3().modify(|w| w.set_sq(0, channel.channel())),
+            Sequence::Two => T::regs().sqr3().modify(|w| w.set_sq(1, channel.channel())),
+            Sequence::Three => T::regs().sqr3().modify(|w| w.set_sq(2, channel.channel())),
+            Sequence::Four => T::regs().sqr3().modify(|w| w.set_sq(3, channel.channel())),
+            Sequence::Five => T::regs().sqr3().modify(|w| w.set_sq(4, channel.channel())),
+            Sequence::Six => T::regs().sqr3().modify(|w| w.set_sq(5, channel.channel())),
+            Sequence::Seven => T::regs().sqr2().modify(|w| w.set_sq(6, channel.channel())),
+            Sequence::Eight => T::regs().sqr2().modify(|w| w.set_sq(7, channel.channel())),
+            Sequence::Nine => T::regs().sqr2().modify(|w| w.set_sq(8, channel.channel())),
+            Sequence::Ten => T::regs().sqr2().modify(|w| w.set_sq(9, channel.channel())),
+            Sequence::Eleven => T::regs().sqr2().modify(|w| w.set_sq(10, channel.channel())),
+            Sequence::Twelve => T::regs().sqr2().modify(|w| w.set_sq(11, channel.channel())),
+            Sequence::Thirteen => T::regs().sqr1().modify(|w| w.set_sq(12, channel.channel())),
+            Sequence::Fourteen => T::regs().sqr1().modify(|w| w.set_sq(13, channel.channel())),
+            Sequence::Fifteen => T::regs().sqr1().modify(|w| w.set_sq(14, channel.channel())),
+            Sequence::Sixteen => T::regs().sqr1().modify(|w| w.set_sq(15, channel.channel())),
         };
 
         if !was_on {
-            self.stop_adc().await;
+            Self::stop_adc();
         }
 
         self.set_channels_sample_time(&[channel.channel()], sample_time);
@@ -320,7 +370,7 @@ where
         assert!(sequence.len() <= 8);
         let was_on = Self::is_on();
         if !was_on {
-            self.start_adc().await;
+            Self::start_adc();
         }
         // trace!("Sequence Length: {}", sequence.len());
         let mut iter = sequence.iter();
@@ -337,59 +387,59 @@ where
         }
 
         if !was_on {
-            self.stop_adc().await;
+            Self::stop_adc();
         }
     }
 
     fn get_res_clks(res: Resolution) -> u32 {
         match res {
-            Resolution::TwelveBit => 12,
-            Resolution::TenBit => 11,
-            Resolution::EightBit => 9,
-            Resolution::SixBit => 7,
+            Resolution::BITS12 => 12,
+            Resolution::BITS10 => 11,
+            Resolution::BITS8 => 9,
+            Resolution::BITS6 => 7,
         }
     }
 
     fn get_sample_time_clks(sample_time: SampleTime) -> u32 {
         match sample_time {
-            SampleTime::Cycles3 => 3,
-            SampleTime::Cycles15 => 15,
-            SampleTime::Cycles28 => 28,
-            SampleTime::Cycles56 => 56,
-            SampleTime::Cycles84 => 84,
-            SampleTime::Cycles112 => 112,
-            SampleTime::Cycles144 => 144,
-            SampleTime::Cycles480 => 480,
+            SampleTime::CYCLES3 => 3,
+            SampleTime::CYCLES15 => 15,
+            SampleTime::CYCLES28 => 28,
+            SampleTime::CYCLES56 => 56,
+            SampleTime::CYCLES84 => 84,
+            SampleTime::CYCLES112 => 112,
+            SampleTime::CYCLES144 => 144,
+            SampleTime::CYCLES480 => 480,
         }
     }
 
-    pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
-        let res_clks = Self::get_res_clks(self.resolution());
-        let us_clks = us * Self::freq().0 / 1_000_000;
-        let clks = us_clks.saturating_sub(res_clks);
-        match clks {
-            0..=3 => SampleTime::Cycles3,
-            4..=15 => SampleTime::Cycles15,
-            16..=28 => SampleTime::Cycles28,
-            29..=56 => SampleTime::Cycles56,
-            57..=84 => SampleTime::Cycles84,
-            85..=112 => SampleTime::Cycles112,
-            113..=144 => SampleTime::Cycles144,
-            _ => SampleTime::Cycles480,
-        }
-    }
+    // pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
+    //     let res_clks = Self::get_res_clks(self.());
+    //     let us_clks = us * Self::freq().0 / 1_000_000;
+    //     let clks = us_clks.saturating_sub(res_clks);
+    //     match clks {
+    //         0..=3 => SampleTime::CYCLES3,
+    //         4..=15 => SampleTime::CYCLES15,
+    //         16..=28 => SampleTime::CYCLES28,
+    //         29..=56 => SampleTime::CYCLES56,
+    //         57..=84 => SampleTime::CYCLES84,
+    //         85..=112 => SampleTime::CYCLES112,
+    //         113..=144 => SampleTime::CYCLES144,
+    //         _ => SampleTime::CYCLES480,
+    //     }
+    // }
 
-    pub fn us_for_cfg(&self, res: Resolution, sample_time: SampleTime) -> u32 {
-        let res_clks = Self::get_res_clks(res);
-        let sample_clks = Self::get_sample_time_clks(sample_time);
-        (res_clks + sample_clks) * 1_000_000 / Self::freq().0
-    }
+    // pub fn us_for_cfg(&self, res: Resolution, sample_time: SampleTime) -> u32 {
+    //     let res_clks = Self::get_res_clks(res);
+    //     let sample_clks = Self::get_sample_time_clks(sample_time);
+    //     (res_clks + sample_clks) * 1_000_000 / Self::freq().0
+    // }
 
-    pub fn ns_for_cfg(&self, res: Resolution, sample_time: SampleTime) -> u64 {
-        let res_clks = Self::get_res_clks(res);
-        let sample_clks = Self::get_sample_time_clks(sample_time);
-        (res_clks + sample_clks) as u64 * 1_000_000_000 / Self::freq().0 as u64
-    }
+    // pub fn ns_for_cfg(&self, res: Resolution, sample_time: SampleTime) -> u64 {
+    //     let res_clks = Self::get_res_clks(res);
+    //     let sample_clks = Self::get_sample_time_clks(sample_time);
+    //     (res_clks + sample_clks) as u64 * 1_000_000_000 / Self::freq().0 as u64
+    // }
 
     /// Perform a single conversion.
     fn convert(&mut self) -> u16 {
@@ -417,24 +467,28 @@ where
     pub fn start_read_continuous(
         &mut self,
         rxdma: impl RxDma<T>,
-        data: &mut [u16],
-    ) -> Transfer<'static, impl dma::Channel> {
+        data: &'static mut [u16],
+    ) -> ReadableRingBuffer<'static, u16> {
         use crate::dma::{Burst, FlowControl, TransferOptions};
         let rx_src = T::regs().dr().as_ptr() as *mut u16;
-        let options = TransferOptions {
+        let options: TransferOptions = TransferOptions {
             pburst: Burst::Single,
             mburst: Burst::Single,
             flow_ctrl: FlowControl::Dma,
+            priority: dma::Priority::High,
             fifo_threshold: None,
             circular: true,
-            half_transfer_ir: false,
-            complete_transfer_ir: true,
+            half_transfer_ir: true,
+            complete_transfer_ir: false,
         };
-
         let req = rxdma.request();
-        let transfer = unsafe { dma::Transfer::new_read_raw(rxdma, req, rx_src, data, options) };
 
-        // while !transfer.is_running() {}
+        let mut transfer = unsafe { ReadableRingBuffer::new(rxdma, req, rx_src, data, options) };
+        transfer.start();
+        // let mut transfer = unsafe { dma::Transfer::new_read_raw(rxdma, req, rx_src, data, options) };
+        // transfer.
+
+        while !transfer.is_running() {}
 
         //Enable ADC
         let was_on = Self::is_on();
@@ -468,68 +522,43 @@ where
         return transfer;
     }
 
-    pub fn get_dma_buf<const N: usize>(
+    pub async fn get_dma_buf<const N: usize>(
         &self,
-        data: &mut [u16; N],
-        transfer: &mut Transfer<'static, impl dma::Channel>,
-    ) -> [u16; N] {
+        transfer: &mut ReadableRingBuffer<'static, u16>,
+    ) -> Result<[u16; N], OverrunError> {
         // info!("Getting DMA buffer");
-        // Stop DMA
 
-        // info!("DMA stopped");
-        // info!("Remaining transfers: {:?}", transfer.get_remaining_transfers());
-        // Stop ADC conversions
-        T::regs().cr2().modify(|reg| {
-            reg.set_swstart(false);
-            // reg.set_dma(false);
-        });
-        // info!(
-        //     "{}/{}",
-        //     transfer.get_complete_count(),
-        //     transfer.get_remaining_transfers()
-        // );
+        // while transfer.capacity() > N {
 
-        //TODO: consider a little loop here checking the remaining transfers after stopping the adc.
-
-        // info!("DMA requested stop");
-        // Wait for DMA to stop
-
-        // info!("Copying data {:#?}", data);
-        let mut buf: [u16; N] = [0; N];
-        // info!("Copying data2 {:#?}", data);
-        buf.copy_from_slice(&data[..]);
-
-        if !transfer.is_running() {
-            //     transfer.reset_complete_count();
-            transfer.request_restart();
-        }
-        //
-
-        // return buf;
+        //     Timer::after_micros(1).await;
+        //     // wait for data
         // }
-        // while !transfer.is_running() {}
         // info!("ADC stopped");
+        // Stop ADC conversions
+        // T::regs().cr2().modify(|reg| {
+        //     reg.set_adon(false);
+        //     reg.set_swstart(false);
+        //     reg.set_dma(false);
+        // });
 
-        // if transfer.get_remaining_transfers() < N as u16 {
+        // transfer.request_stop();
+        // transfer
+        // info!("{}", transfer.get_remaining_transfers());
+        // transfer.request_stop();
+        // while transfer.is_running() {}
 
-        // buf.copy_from_slice(&mut data[..]);
-
-        // transfer.request_restart();
-        // Restart ADC conversions
-
-        // transfer.request_restart();
-        // transfer.reset_complete_count();
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(true);
-            reg.set_swstart(true);
-            // reg.set_dma(true);
-        });
-
-        // while !transfer.is_running() {
-        //     info!("Waiting for DMA to restart");
-        // }
-
-        return buf;
+        let mut data_buf = [0u16; N];
+        loop {
+            match transfer.read_exact(&mut data_buf).await {
+                Ok(r) => {
+                    return Ok(data_buf);
+                }
+                Err(_) => {
+                    Timer::after_micros(1).await;
+                    transfer.clear();
+                }
+            }
+        }
     }
 
     pub async fn stop_continuous_conversion(&mut self) {

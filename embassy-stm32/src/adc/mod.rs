@@ -13,11 +13,11 @@
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5), path = "v3.rs")]
 #[cfg_attr(adc_v4, path = "v4.rs")]
 mod _version;
-dma_trait!(RxDma, Instance);
 
 #[allow(unused)]
 #[cfg(not(adc_f3_v2))]
 pub use _version::*;
+use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -26,6 +26,8 @@ pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
 
+#[cfg_attr(adc_v2, path = "v2.rs")]
+dma_trait!(RxDma, Instance);
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
@@ -34,14 +36,10 @@ pub struct Adc<'d, T: Instance> {
     sample_time: SampleTime,
 }
 
-pub(crate) mod sealed {
-    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1, adc_v2))]
-    use embassy_sync::waitqueue::AtomicWaker;
-
-    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1, adc_v2))]
-    pub struct State {
-        pub waker: AtomicWaker,
-    }
+#[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1, adc_v2))]
+pub struct State {
+    pub waker: AtomicWaker,
+}
 
 #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1, adc_v2))]
 impl State {
@@ -90,7 +88,6 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::R
 /// ADC pin.
 #[allow(private_bounds)]
 pub trait AdcPin<T: Instance>: SealedAdcPin<T> {}
-
 /// ADC internal channel.
 #[allow(private_bounds)]
 pub trait InternalChannel<T>: SealedInternalChannel<T> {}
@@ -107,7 +104,7 @@ foreach_adc!(
                 return crate::pac::$common_inst
             }
 
-            #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1, adc_v2))]
+            #[cfg(any(adc_f1, adc_f3, adc_v1, adc_v2, adc_l0, adc_f3_v1_1))]
             fn state() -> &'static State {
                 static STATE: State = State::new();
                 &STATE

@@ -1,23 +1,25 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
-
+#![feature(impl_trait_in_assoc_type)]
 use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{config, Adc, SampleTime};
-use embassy_stm32::usb_otg::In;
+use embassy_stm32::adc::{Adc, SampleTime, Sequence};
 use embassy_time::{Delay, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    const ADC_BUF_SIZE: usize = 132;
+    const ADC_BUF_SIZE: usize = 512;
     let mut p = embassy_stm32::init(Default::default());
-    info!("uwu");
-    let adc_data = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
-    let mut adc = Adc::new(p.ADC1, &mut Delay);
+    let adc_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
+    let adc2_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
 
+    // let mut data_buf: [u16; 64] = [0u16; 64];
+
+    let mut adc = Adc::new(p.ADC1, &mut Delay);
+    let mut adc2 = Adc::new(p.ADC2, &mut Delay);
     // let mut vref = adc.enable_vref();
 
     // let cal: embassy_stm32::adc::Calibration = vref.calibrate(&mut adc).await;
@@ -27,60 +29,47 @@ async fn main(_spawner: Spawner) {
     //     cal.cal_uv(4095, embassy_stm32::adc::Resolution::TwelveBit)
     // );
 
-    adc.set_sample_sequence(config::Sequence::One, &mut p.PA0, SampleTime::Cycles112)
+    adc.set_sample_sequence(Sequence::One, &mut p.PA0, SampleTime::CYCLES15)
         .await;
 
-    adc.set_sample_sequence(config::Sequence::Two, &mut p.PA1, SampleTime::Cycles112)
+    adc.set_sample_sequence(Sequence::Two, &mut p.PA1, SampleTime::CYCLES15)
         .await;
 
-    adc.set_sample_sequence(config::Sequence::Three, &mut p.PC0, SampleTime::Cycles112)
+    adc2.set_sample_sequence(Sequence::One, &mut p.PA2, SampleTime::CYCLES15)
+        .await;
+
+    adc2.set_sample_sequence(Sequence::Two, &mut p.PA3, SampleTime::CYCLES15)
         .await;
 
     let mut adc_dma = adc.start_read_continuous(p.DMA2_CH0, adc_data);
-    Timer::after_secs(1).await;
+    let mut adc_dma2 = adc2.start_read_continuous(p.DMA2_CH2, adc2_data);
+    // Timer::after_millis(10).await;
 
     let mut tic = Instant::now();
     loop {
-        let data = adc.get_dma_buf::<ADC_BUF_SIZE>(adc_data, &mut adc_dma);
+        let data = match adc.get_dma_buf::<256>(&mut adc_dma).await {
+            Ok(data) => data,
+            Err(e) => {
+                warn!("Error: {:?}", e);
+                continue;
+            }
+        };
+
+        let data2 = match adc2.get_dma_buf::<256>(&mut adc_dma2).await {
+            Ok(data) => data,
+            Err(e) => {
+                warn!("Error: {:?}", e);
+                continue;
+            }
+        };
         let toc = Instant::now();
-        info!(
-            "\n dt = {}",
-            // data,
-            (toc - tic).as_micros() //     // cal.cal_uv(data[0], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-                                    //     // cal.cal_uv(data[1], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-                                    //     // cal.cal_uv(data[2], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-                                    //     // cal.cal_uv(buf[3], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-                                    //     // cal.cal_uv(buf[4], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-                                    //     // cal.cal_uv(buf[5], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-        );
+        // info!(
+        //     "\n adc1: {}, adc2: {}, dt = {}",
+        //     data[0..2],
+        //     data2[0..2],
+        //     (toc - tic).as_micros()
+        // );
+        info!("{}", (toc - tic).as_micros());
         tic = toc;
-        Timer::after_millis(1).await;
     }
-    // adc.stop_continuous_conversion().await;
-
-    // adc.start_read_continuous();
-    // adc.set_sample_sequence(config::Sequence::One, &mut p.PA0, SampleTime::Cycles112)
-    //     .await;
-
-    // adc.set_sample_sequence(config::Sequence::Two, &mut p.PA1, SampleTime::Cycles112)
-    //     .await;
-
-    // adc.set_sample_sequence(config::Sequence::Three, &mut p.PC0, SampleTime::Cycles112)
-    //     .await;
-
-    // let mut buf1 = [0u16; 6];
-    // loop {
-    //     adc.get_dma_buf(&mut buf1);
-    //     info!(
-    //         "\n [{:?}mV, {:?}mV, {:?}mV] \n [{:?}mV, {:?}mV, {:?}mV] ",
-    //         cal.cal_uv(buf1[0], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-    //         cal.cal_uv(buf1[1], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-    //         cal.cal_uv(buf1[2], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-    //         cal.cal_uv(buf1[3], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-    //         cal.cal_uv(buf1[4], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-    //         cal.cal_uv(buf1[5], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-    //     );
-    //     Timer::after_millis(100).await;
-    // }
-    // continous_read(&mut adc, &mut pin).await;
 }

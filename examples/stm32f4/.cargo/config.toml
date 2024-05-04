@@ -1,9 +1,13 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # replace STM32F429ZITx with your chip as listed in `probe-rs chip list`
-runner = "probe-rs run --chip STM32F429ZITx"
+runner = "probe-rs run --chip STM32F405VGTx"
+
+[unstable]
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]
 
 [build]
-target = "thumbv7em-none-eabi"
+target = "thumbv7em-none-eabihf"
 
 [env]
 DEFMT_LOG = "trace"
