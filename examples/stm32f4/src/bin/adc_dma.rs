@@ -20,46 +20,49 @@ async fn main(_spawner: Spawner) {
     let mut adc = Adc::new(p.ADC1);
     let mut adc2 = Adc::new(p.ADC2);
 
-    adc.set_sample_sequence(Sequence::One, &mut p.PA0, SampleTime::CYCLES15)
+    adc.set_sample_sequence(Sequence::One, &mut p.PA0, SampleTime::CYCLES3)
         .await;
 
-    adc.set_sample_sequence(Sequence::Two, &mut p.PA1, SampleTime::CYCLES15)
+    adc.set_sample_sequence(Sequence::Two, &mut p.PA1, SampleTime::CYCLES3)
         .await;
 
-    adc2.set_sample_sequence(Sequence::One, &mut p.PA2, SampleTime::CYCLES15)
+    adc2.set_sample_sequence(Sequence::One, &mut p.PA2, SampleTime::CYCLES3)
         .await;
 
-    adc2.set_sample_sequence(Sequence::Two, &mut p.PA3, SampleTime::CYCLES15)
+    adc2.set_sample_sequence(Sequence::Two, &mut p.PA3, SampleTime::CYCLES3)
         .await;
 
     let mut adc_dma = adc.start_read_continuous(p.DMA2_CH0, adc_data);
     let mut adc_dma2 = adc2.start_read_continuous(p.DMA2_CH2, adc2_data);
 
     let mut tic = Instant::now();
+    let mut buffer1 = [0u16; 256];
+    let mut buffer2 = [0u16; 256];
     loop {
-        let data = match adc.get_dma_buf::<256>(&mut adc_dma).await {
-            Ok(data) => data,
+        
+        match adc.get_dma_buf(&mut adc_dma, &mut buffer1).await {
+            Ok(data) => {},//info!("adc1 sa: {}", data),
             Err(e) => {
                 warn!("Error: {:?}", e);
                 continue;
             }
-        };
+        }
 
-        let data2 = match adc2.get_dma_buf::<256>(&mut adc_dma2).await {
-            Ok(data) => data,
+        match adc2.get_dma_buf(&mut adc_dma2, &mut buffer2).await {
+            Ok(data2) => {},//info!("adc2 sa: {}", data2),
             Err(e) => {
                 warn!("Error: {:?}", e);
                 continue;
             }
-        };
+        }
         let toc = Instant::now();
-        info!(
-            "\n adc1: {}, adc2: {}, dt = {}",
-            data[0..56],
-            data2[0..56],
-            (toc - tic).as_micros()
-        );
-        // info!("{}", (toc - tic).as_micros());
+        // info!(
+        //     "\n adc1: {}, adc2: {}, dt = {}",
+        //     buffer1[0..56],
+        //     buffer2[0..56],
+        //     (toc - tic).as_micros()
+        // );
+        info!("{}", (toc - tic).as_micros());
         tic = toc;
     }
 }

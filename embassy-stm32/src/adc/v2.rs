@@ -521,11 +521,12 @@ where
     pub async fn get_dma_buf<const N: usize>(
         &self,
         transfer: &mut ReadableRingBuffer<'static, u16>,
-    ) -> Result<[u16; N], OverrunError> {
-        let mut data_buf = [0u16; N];
+        buf: &mut [u16; N],
+    ) -> Result<usize, OverrunError> {
+        // let mut data_buf = [0u16; N];
         loop {
-            match transfer.read_exact(&mut data_buf).await {
-                Ok(_) => return Ok(data_buf),
+            match transfer.read_exact(buf).await {
+                Ok(r) => return Ok(r),
                 Err(_) => {
                     Timer::after_micros(1).await;
                     transfer.clear();
