@@ -6,7 +6,7 @@ use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime, Sequence};
-use embassy_time::{Delay, Instant, Timer};
+use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -40,7 +40,7 @@ async fn main(_spawner: Spawner) {
     let mut buffer2 = [0u16; 256];
     loop {
         match adc.get_dma_buf(&mut adc_dma, &mut buffer1).await {
-            Ok(data) => {} //info!("adc1 sa: {}", data),
+            Ok(_data) => {} //info!("adc1 sa: {}", data),
             Err(e) => {
                 warn!("Error: {:?}", e);
                 continue;
@@ -48,20 +48,20 @@ async fn main(_spawner: Spawner) {
         }
 
         match adc2.get_dma_buf(&mut adc_dma2, &mut buffer2).await {
-            Ok(data2) => {} //info!("adc2 sa: {}", data2),
+            Ok(_data2) => {} //info!("adc2 sa: {}", data2),
             Err(e) => {
                 warn!("Error: {:?}", e);
                 continue;
             }
         }
         let toc = Instant::now();
-        // info!(
-        //     "\n adc1: {}, adc2: {}, dt = {}",
-        //     buffer1[0..56],
-        //     buffer2[0..56],
-        //     (toc - tic).as_micros()
-        // );
-        info!("{}", (toc - tic).as_micros());
+        info!(
+            "\n adc1: {}, adc2: {}, dt = {}",
+            buffer1[0..56],
+            buffer2[0..56],
+            (toc - tic).as_micros()
+        );
+        // info!("{}", (toc - tic).as_micros());
         tic = toc;
     }
 }

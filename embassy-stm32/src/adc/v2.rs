@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_time::Timer;
 use stm32_metapac::adc::vals;
@@ -7,7 +5,6 @@ use stm32_metapac::adc::vals;
 use crate::adc::{blocking_delay_us, Adc, AdcPin, Instance, RxDma, SampleTime};
 use crate::dma::ringbuffer::OverrunError;
 use crate::dma::{self, ReadableRingBuffer};
-use crate::interrupt;
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 
@@ -18,22 +15,6 @@ pub const VREF_CALIB_MV: u32 = 3300;
 
 /// ADC turn-on time
 pub const ADC_POWERUP_TIME_US: u32 = 3;
-
-/// Interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-    unsafe fn on_interrupt() {
-        if T::regs().sr().read().eoc() {
-            T::regs().sr().modify(|w| w.set_eoc(false));
-        } else {
-            return;
-        }
-        T::state().waker.wake();
-    }
-}
 
 pub struct VrefInt;
 impl AdcPin<ADC1> for VrefInt {}
