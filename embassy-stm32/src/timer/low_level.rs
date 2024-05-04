@@ -321,6 +321,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
             }
         }
     }
+
+    /// Get the clock frequency of the timer (before prescaler is applied).
+    pub fn get_clock_frequency(&self) -> Hertz {
+        T::frequency()
+    }
 }
 
 impl<'d, T: BasicNoCr2Instance> Timer<'d, T> {
