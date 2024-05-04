@@ -4,7 +4,7 @@ use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_time::Timer;
 use stm32_metapac::adc::vals;
 
-use crate::adc::{blocking_delay_us, Adc, AdcPin, Instance, Resolution, RxDma, SampleTime};
+use crate::adc::{blocking_delay_us, Adc, AdcPin, Instance, RxDma, SampleTime};
 use crate::dma::ringbuffer::OverrunError;
 use crate::dma::{self, ReadableRingBuffer};
 use crate::interrupt;
@@ -114,9 +114,9 @@ impl From<Sequence> for u8 {
     }
 }
 
-impl Into<Sequence> for u8 {
-    fn into(self) -> Sequence {
-        match self {
+impl From<u8> for Sequence {
+    fn from(val: u8) -> Self {
+        match val {
             0 => Sequence::One,
             1 => Sequence::Two,
             2 => Sequence::Three,
@@ -285,7 +285,6 @@ where
     /// ## SAFETY:
     /// - ADON == 0 i.e ADC must not be enabled when this is called.
     unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        let sample_time = sample_time.into();
         if ch <= 9 {
             T::regs().smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
@@ -325,7 +324,7 @@ where
             let prev: Sequence = r.l().into();
             trace!("Previous sequence length: {:?}", prev as u8);
             if prev < sequence {
-                let new_l: Sequence = sequence.into();
+                let new_l: Sequence = sequence;
                 trace!("Setting sequence length to {:?}", new_l as u8);
                 r.set_l(sequence.into())
             } else {
@@ -388,27 +387,27 @@ where
         }
     }
 
-    fn get_res_clks(res: Resolution) -> u32 {
-        match res {
-            Resolution::BITS12 => 12,
-            Resolution::BITS10 => 11,
-            Resolution::BITS8 => 9,
-            Resolution::BITS6 => 7,
-        }
-    }
+    // fn get_res_clks(res: Resolution) -> u32 {
+    //     match res {
+    //         Resolution::BITS12 => 12,
+    //         Resolution::BITS10 => 11,
+    //         Resolution::BITS8 => 9,
+    //         Resolution::BITS6 => 7,
+    //     }
+    // }
 
-    fn get_sample_time_clks(sample_time: SampleTime) -> u32 {
-        match sample_time {
-            SampleTime::CYCLES3 => 3,
-            SampleTime::CYCLES15 => 15,
-            SampleTime::CYCLES28 => 28,
-            SampleTime::CYCLES56 => 56,
-            SampleTime::CYCLES84 => 84,
-            SampleTime::CYCLES112 => 112,
-            SampleTime::CYCLES144 => 144,
-            SampleTime::CYCLES480 => 480,
-        }
-    }
+    // fn get_sample_time_clks(sample_time: SampleTime) -> u32 {
+    //     match sample_time {
+    //         SampleTime::CYCLES3 => 3,
+    //         SampleTime::CYCLES15 => 15,
+    //         SampleTime::CYCLES28 => 28,
+    //         SampleTime::CYCLES56 => 56,
+    //         SampleTime::CYCLES84 => 84,
+    //         SampleTime::CYCLES112 => 112,
+    //         SampleTime::CYCLES144 => 144,
+    //         SampleTime::CYCLES480 => 480,
+    //     }
+    // }
 
     // pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
     //     let res_clks = Self::get_res_clks(self.());
@@ -482,8 +481,6 @@ where
 
         let mut transfer = unsafe { ReadableRingBuffer::new(rxdma, req, rx_src, data, options) };
         transfer.start();
-        // let mut transfer = unsafe { dma::Transfer::new_read_raw(rxdma, req, rx_src, data, options) };
-        // transfer.
 
         while !transfer.is_running() {}
 
@@ -502,7 +499,7 @@ where
         });
 
         T::regs().cr2().modify(|reg| {
-            reg.set_cont(vals::Cont::CONTINUOUS); //Goes with circular DMA
+            reg.set_cont(vals::Cont::CONTINUOUS);
             reg.set_swstart(false);
             reg.set_dma(true);
             reg.set_dds(vals::Dds::CONTINUOUS);
@@ -522,7 +519,6 @@ where
         transfer: &mut ReadableRingBuffer<'static, u16>,
         buf: &mut [u16; N],
     ) -> Result<usize, OverrunError> {
-        // let mut data_buf = [0u16; N];
         loop {
             match transfer.read_exact(buf).await {
                 Ok(r) => return Ok(r),
