@@ -20,7 +20,6 @@ async fn main(_spawner: Spawner) {
     let mut adc = Adc::new(p.ADC1);
     let mut adc2 = Adc::new(p.ADC2);
 
-
     adc.set_sample_sequence(Sequence::One, &mut p.PA0, SampleTime::CYCLES15)
         .await;
 
@@ -33,10 +32,9 @@ async fn main(_spawner: Spawner) {
     adc2.set_sample_sequence(Sequence::Two, &mut p.PA3, SampleTime::CYCLES15)
         .await;
 
-
     let mut adc_dma = adc.start_read_continuous(p.DMA2_CH0, adc_data);
     let mut adc_dma2 = adc2.start_read_continuous(p.DMA2_CH2, adc2_data);
-    
+
     let mut tic = Instant::now();
     loop {
         let data = match adc.get_dma_buf::<256>(&mut adc_dma).await {
