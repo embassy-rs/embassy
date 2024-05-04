@@ -39,9 +39,8 @@ async fn main(_spawner: Spawner) {
     let mut buffer1 = [0u16; 256];
     let mut buffer2 = [0u16; 256];
     loop {
-        
         match adc.get_dma_buf(&mut adc_dma, &mut buffer1).await {
-            Ok(data) => {},//info!("adc1 sa: {}", data),
+            Ok(data) => {} //info!("adc1 sa: {}", data),
             Err(e) => {
                 warn!("Error: {:?}", e);
                 continue;
@@ -49,7 +48,7 @@ async fn main(_spawner: Spawner) {
         }
 
         match adc2.get_dma_buf(&mut adc_dma2, &mut buffer2).await {
-            Ok(data2) => {},//info!("adc2 sa: {}", data2),
+            Ok(data2) => {} //info!("adc2 sa: {}", data2),
             Err(e) => {
                 warn!("Error: {:?}", e);
                 continue;
