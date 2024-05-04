@@ -2,12 +2,11 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_time::Timer;
-use embedded_hal_02::blocking::delay::DelayUs;
 use stm32_metapac::adc::vals;
 
 use crate::adc::{blocking_delay_us, Adc, AdcPin, Instance, Resolution, RxDma, SampleTime};
 use crate::dma::ringbuffer::OverrunError;
-use crate::dma::{self, ReadableRingBuffer, Transfer};
+use crate::dma::{self, ReadableRingBuffer};
 use crate::interrupt;
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
