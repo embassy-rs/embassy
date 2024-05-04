@@ -1,4 +1,3 @@
-use core::borrow::BorrowMut;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};
@@ -6,7 +5,7 @@ use embassy_time::Timer;
 use embedded_hal_02::blocking::delay::DelayUs;
 use stm32_metapac::adc::vals;
 
-use crate::adc::{Adc, AdcPin, Instance, Resolution, RxDma, SampleTime};
+use crate::adc::{blocking_delay_us, Adc, AdcPin, Instance, Resolution, RxDma, SampleTime};
 use crate::dma::ringbuffer::OverrunError;
 use crate::dma::{self, ReadableRingBuffer, Transfer};
 use crate::interrupt;
@@ -187,7 +186,7 @@ impl<'d, T> Adc<'d, T>
 where
     T: Instance,
 {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
         T::enable_and_reset();
 
@@ -197,7 +196,7 @@ where
             reg.set_adon(true);
         });
 
-        delay.delay_us(ADC_POWERUP_TIME_US);
+        blocking_delay_us(3);
 
         Self {
             adc,
@@ -310,7 +309,6 @@ where
             10..=16 => T::regs().smpr1().read().smp(ch as usize - 10),
             _ => panic!("Invalid channel to sample"),
         }
-        .into()
     }
     pub async fn set_sample_sequence(
         &mut self,
@@ -454,10 +452,10 @@ where
             reg.set_swstart(true);
         });
 
-        while T::regs().sr().read().strt() == false {
+        while !T::regs().sr().read().strt() {
             // spin //wait for actual start
         }
-        while T::regs().sr().read().eoc() == false {
+        while !T::regs().sr().read().eoc() {
             // spin //wait for finish
         }
 
@@ -517,45 +515,21 @@ where
             reg.set_adon(true);
             reg.set_swstart(true);
         });
-
-        info!("ADC started");
-        return transfer;
+        transfer
     }
 
     pub async fn get_dma_buf<const N: usize>(
         &self,
         transfer: &mut ReadableRingBuffer<'static, u16>,
     ) -> Result<[u16; N], OverrunError> {
-        // info!("Getting DMA buffer");
-
-        // while transfer.capacity() > N {
-
-        //     Timer::after_micros(1).await;
-        //     // wait for data
-        // }
-        // info!("ADC stopped");
-        // Stop ADC conversions
-        // T::regs().cr2().modify(|reg| {
-        //     reg.set_adon(false);
-        //     reg.set_swstart(false);
-        //     reg.set_dma(false);
-        // });
-
-        // transfer.request_stop();
-        // transfer
-        // info!("{}", transfer.get_remaining_transfers());
-        // transfer.request_stop();
-        // while transfer.is_running() {}
-
         let mut data_buf = [0u16; N];
         loop {
             match transfer.read_exact(&mut data_buf).await {
-                Ok(r) => {
-                    return Ok(data_buf);
-                }
+                Ok(_) => return Ok(data_buf),
                 Err(_) => {
                     Timer::after_micros(1).await;
                     transfer.clear();
+                    continue;
                 }
             }
         }

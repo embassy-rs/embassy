@@ -26,7 +26,8 @@ bind_interrupts!(struct Irqs {
     feature = "stm32h563zi",
     feature = "stm32h503rb",
     feature = "stm32u5a5zj",
-    feature = "stm32u585ai"
+    feature = "stm32u585ai",
+    feature = "stm32h7s3l8"
 ))]
 bind_interrupts!(struct Irqs {
     HASH => hash::InterruptHandler<peripherals::HASH>;

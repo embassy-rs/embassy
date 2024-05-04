@@ -20,8 +20,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
-use crate::gpio::sealed::Pin;
-use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
+use crate::gpio::{AnyPin, Pin as GpioPin, PselBits, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::ppi::{
     self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
@@ -30,19 +29,15 @@ use crate::timer::{Instance as TimerInstance, Timer};
 use crate::uarte::{configure, drop_tx_rx, Config, Instance as UarteInstance};
 use crate::{interrupt, pac, Peripheral};
 
-mod sealed {
-    use super::*;
+pub(crate) struct State {
+    tx_buf: RingBuffer,
+    tx_count: AtomicUsize,
 
-    pub struct State {
-        pub tx_buf: RingBuffer,
-        pub tx_count: AtomicUsize,
-
-        pub rx_buf: RingBuffer,
-        pub rx_started: AtomicBool,
-        pub rx_started_count: AtomicU8,
-        pub rx_ended_count: AtomicU8,
-        pub rx_ppi_ch: AtomicU8,
-    }
+    rx_buf: RingBuffer,
+    rx_started: AtomicBool,
+    rx_started_count: AtomicU8,
+    rx_ended_count: AtomicU8,
+    rx_ppi_ch: AtomicU8,
 }
 
 /// UART error.
@@ -52,8 +47,6 @@ mod sealed {
 pub enum Error {
     // No errors for now
 }
-
-pub(crate) use sealed::State;
 
 impl State {
     pub(crate) const fn new() -> Self {

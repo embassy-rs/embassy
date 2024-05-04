@@ -2,6 +2,7 @@
 use embassy_hal_internal::into_ref;
 
 use crate::gpio::{AFType, AnyPin, SealedPin};
+use crate::mode::Async;
 use crate::pac::spi::vals;
 use crate::spi::{Config as SpiConfig, *};
 use crate::time::Hertz;
@@ -152,15 +153,15 @@ impl Default for Config {
 }
 
 /// I2S driver.
-pub struct I2S<'d, T: Instance, Tx, Rx> {
-    _peri: Spi<'d, T, Tx, Rx>,
+pub struct I2S<'d, T: Instance> {
+    _peri: Spi<'d, T, Async>,
     sd: Option<PeripheralRef<'d, AnyPin>>,
     ws: Option<PeripheralRef<'d, AnyPin>>,
     ck: Option<PeripheralRef<'d, AnyPin>>,
     mck: Option<PeripheralRef<'d, AnyPin>>,
 }
 
-impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
+impl<'d, T: Instance> I2S<'d, T> {
     /// Note: Full-Duplex modes are not supported at this time
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
@@ -168,8 +169,8 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         ws: impl Peripheral<P = impl WsPin<T>> + 'd,
         ck: impl Peripheral<P = impl CkPin<T>> + 'd,
         mck: impl Peripheral<P = impl MckPin<T>> + 'd,
-        txdma: impl Peripheral<P = Tx> + 'd,
-        rxdma: impl Peripheral<P = Rx> + 'd,
+        txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rxdma: impl Peripheral<P = impl RxDma<T>> + 'd,
         freq: Hertz,
         config: Config,
     ) -> Self {
@@ -265,24 +266,17 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
     }
 
     /// Write audio data.
-    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-    {
+    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
         self._peri.write(data).await
     }
 
     /// Read audio data.
-    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-        Rx: RxDma<T>,
-    {
+    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
         self._peri.read(data).await
     }
 }
 
-impl<'d, T: Instance, Tx, Rx> Drop for I2S<'d, T, Tx, Rx> {
+impl<'d, T: Instance> Drop for I2S<'d, T> {
     fn drop(&mut self) {
         self.sd.as_ref().map(|x| x.set_as_disconnected());
         self.ws.as_ref().map(|x| x.set_as_disconnected());

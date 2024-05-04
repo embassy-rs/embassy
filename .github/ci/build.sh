@@ -7,7 +7,7 @@ set -euo pipefail
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
-if [ -f /ci/secrets/teleprobe-token.txt ]; then 
+if [ -f /ci/secrets/teleprobe-token.txt ]; then
     echo Got teleprobe token!
     export TELEPROBE_HOST=https://teleprobe.embassy.dev
     export TELEPROBE_TOKEN=$(cat /ci/secrets/teleprobe-token.txt)

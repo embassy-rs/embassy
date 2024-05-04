@@ -2,7 +2,7 @@
 #![allow(async_fn_in_trait)]
 #![cfg_attr(
     docsrs,
-    doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-stm32'>browse the `embassy-stm32` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (STM32H755 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
+    doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-stm32'>browse the `embassy-stm32` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (stm32h7, stm32h7rs55 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
 )]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
@@ -15,8 +15,31 @@ mod fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // Utilities
+mod macros;
 pub mod time;
-mod traits;
+/// Operating modes for peripherals.
+pub mod mode {
+    trait SealedMode {}
+
+    /// Operating mode for a peripheral.
+    #[allow(private_bounds)]
+    pub trait Mode: SealedMode {}
+
+    macro_rules! impl_mode {
+        ($name:ident) => {
+            impl SealedMode for $name {}
+            impl Mode for $name {}
+        };
+    }
+
+    /// Blocking mode.
+    pub struct Blocking;
+    /// Async mode.
+    pub struct Async;
+
+    impl_mode!(Blocking);
+    impl_mode!(Async);
+}
 
 // Always-present hardware
 pub mod dma;
@@ -32,6 +55,9 @@ pub mod timer;
 pub mod adc;
 #[cfg(can)]
 pub mod can;
+// FIXME: Cordic driver cause stm32u5a5zj crash
+#[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
+pub mod cordic;
 #[cfg(crc)]
 pub mod crc;
 #[cfg(cryp)]
@@ -61,6 +87,8 @@ pub mod ipcc;
 pub mod low_power;
 #[cfg(opamp)]
 pub mod opamp;
+#[cfg(octospi)]
+pub mod ospi;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
@@ -168,9 +196,17 @@ pub struct Config {
 
     /// Enable debug during sleep and stop.
     ///
-    /// May incrase power consumption. Defaults to true.
+    /// May increase power consumption. Defaults to true.
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
+
+    /// On low-power boards (eg. `stm32l4`, `stm32l5` and `stm32u5`),
+    /// some GPIO pins are powered by an auxiliary, independent power supply (`VDDIO2`),
+    /// which needs to be enabled before these pins can be used.
+    ///
+    /// May increase power consumption. Defaults to true.
+    #[cfg(any(stm32l4, stm32l5, stm32u5))]
+    pub enable_independent_io_supply: bool,
 
     /// BDMA interrupt priority.
     ///
@@ -209,6 +245,8 @@ impl Default for Config {
             rcc: Default::default(),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
+            #[cfg(any(stm32l4, stm32l5, stm32u5))]
+            enable_independent_io_supply: true,
             #[cfg(bdma)]
             bdma_interrupt_priority: Priority::P0,
             #[cfg(dma)]
@@ -234,7 +272,7 @@ pub fn init(config: Config) -> Peripherals {
 
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
-            #[cfg(any(dbgmcu_h5))]
+            #[cfg(dbgmcu_h5)]
             {
                 cr.set_stop(config.enable_debug_during_sleep);
                 cr.set_standby(config.enable_debug_during_sleep);
@@ -265,10 +303,28 @@ pub fn init(config: Config) -> Peripherals {
 
         #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
         peripherals::SYSCFG::enable_and_reset_with_cs(cs);
-        #[cfg(not(any(stm32h5, stm32h7, stm32wb, stm32wl)))]
+        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
         peripherals::PWR::enable_and_reset_with_cs(cs);
-        #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
+        #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs)))]
         peripherals::FLASH::enable_and_reset_with_cs(cs);
+
+        // Enable the VDDIO2 power supply on chips that have it.
+        // Note that this requires the PWR peripheral to be enabled first.
+        #[cfg(any(stm32l4, stm32l5))]
+        {
+            crate::pac::PWR.cr2().modify(|w| {
+                // The official documentation states that we should ideally enable VDDIO2
+                // through the PVME2 bit, but it looks like this isn't required,
+                // and CubeMX itself skips this step.
+                w.set_iosv(config.enable_independent_io_supply);
+            });
+        }
+        #[cfg(stm32u5)]
+        {
+            crate::pac::PWR.svmcr().modify(|w| {
+                w.set_io2sv(config.enable_independent_io_supply);
+            });
+        }
 
         // dead battery functionality is still present on these
         // chips despite them not having UCPD- disable it

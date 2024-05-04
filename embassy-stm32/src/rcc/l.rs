@@ -49,6 +49,7 @@ pub struct Config {
     pub sys: Sysclk,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
+    #[cfg(not(stm32u0))]
     pub apb2_pre: APBPrescaler,
     #[cfg(any(stm32wl5x, stm32wb))]
     pub core2_ahb_pre: AHBPrescaler,
@@ -75,6 +76,7 @@ impl Default for Config {
             sys: Sysclk::MSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
+            #[cfg(not(stm32u0))]
             apb2_pre: APBPrescaler::DIV1,
             #[cfg(any(stm32wl5x, stm32wb))]
             core2_ahb_pre: AHBPrescaler::DIV1,
@@ -130,7 +132,7 @@ pub const WPAN_DEFAULT: Config = Config {
 };
 
 fn msi_enable(range: MSIRange) {
-    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
+    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
     RCC.cr().modify(|w| {
         #[cfg(not(stm32wb))]
         w.set_msirgsel(crate::pac::rcc::vals::Msirgsel::CR);
@@ -240,7 +242,7 @@ pub(crate) unsafe fn init(config: Config) {
     let pll_input = PllInput {
         hse,
         hsi,
-        #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
+        #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
         msi,
     };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
@@ -254,6 +256,10 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::HSI => hsi.unwrap(),
         Sysclk::MSI => msi.unwrap(),
         Sysclk::PLL1_R => pll.r.unwrap(),
+        #[cfg(stm32u0)]
+        Sysclk::LSI | Sysclk::LSE => todo!(),
+        #[cfg(stm32u0)]
+        Sysclk::_RESERVED_6 | Sysclk::_RESERVED_7 => unreachable!(),
     };
 
     #[cfg(rcc_l4plus)]
@@ -263,6 +269,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     let hclk1 = sys_clk / config.ahb_pre;
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk1, config.apb1_pre);
+    #[cfg(not(stm32u0))]
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk1, config.apb2_pre);
     #[cfg(any(stm32l4, stm32l5, stm32wlex))]
     let hclk2 = hclk1;
@@ -315,6 +322,13 @@ pub(crate) unsafe fn init(config: Config) {
         ..=64_000_000 => 3,
         _ => 4,
     };
+    #[cfg(stm32u0)]
+    let latency = match hclk1.0 {
+        // VOS RANGE1, others TODO.
+        ..=24_000_000 => 0,
+        ..=48_000_000 => 1,
+        _ => 2,
+    };
 
     #[cfg(stm32l1)]
     FLASH.acr().write(|w| w.set_acc64(true));
@@ -326,7 +340,11 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.cfgr().modify(|w| {
         w.set_sw(config.sys);
         w.set_hpre(config.ahb_pre);
+        #[cfg(stm32u0)]
+        w.set_ppre(config.apb1_pre);
+        #[cfg(not(stm32u0))]
         w.set_ppre1(config.apb1_pre);
+        #[cfg(not(stm32u0))]
         w.set_ppre2(config.apb2_pre);
     });
     while RCC.cfgr().read().sws() != config.sys {}
@@ -353,8 +371,10 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
         hclk3: Some(hclk3),
         pclk1: Some(pclk1),
+        #[cfg(not(stm32u0))]
         pclk2: Some(pclk2),
         pclk1_tim: Some(pclk1_tim),
+        #[cfg(not(stm32u0))]
         pclk2_tim: Some(pclk2_tim),
         #[cfg(stm32wl)]
         pclk3: Some(hclk3),
@@ -400,6 +420,8 @@ pub(crate) unsafe fn init(config: Config) {
         sai2_extclk: None,
         lsi: None,
         lse: None,
+        #[cfg(stm32l4)]
+        dsi_phy: None,
     );
 }
 
@@ -408,7 +430,7 @@ fn msirange_to_hertz(range: MSIRange) -> Hertz {
     Hertz(32_768 * (1 << (range as u8 + 1)))
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
+#[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
 fn msirange_to_hertz(range: MSIRange) -> Hertz {
     match range {
         MSIRange::RANGE100K => Hertz(100_000),
@@ -521,7 +543,7 @@ mod pll {
     }
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
+#[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
 mod pll {
     use super::{pll_enable, PllInstance};
     pub use crate::pac::rcc::vals::{

@@ -38,11 +38,12 @@ pub struct Config<'a> {
 
     /// Maximum packet size in bytes for the control endpoint 0.
     ///
-    /// Valid values are 8, 16, 32 and 64. There's generally no need to change this from the default
-    /// value of 8 bytes unless a class uses control transfers for sending large amounts of data, in
-    /// which case using a larger packet size may be more efficient.
+    /// Valid values depend on the speed at which the bus is enumerated.
+    /// - low speed: 8
+    /// - full speed: 8, 16, 32, or 64
+    /// - high speed: 64
     ///
-    /// Default: 8 bytes
+    /// Default: 64 bytes
     pub max_packet_size_0: u8,
 
     /// Manufacturer name string descriptor.
@@ -414,6 +415,11 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// classes care about the order.
     pub fn descriptor(&mut self, descriptor_type: u8, descriptor: &[u8]) {
         self.builder.config_descriptor.write(descriptor_type, descriptor);
+    }
+
+    /// Add a custom Binary Object Store (BOS) descriptor to this alternate setting.
+    pub fn bos_capability(&mut self, capability_type: u8, capability: &[u8]) {
+        self.builder.bos_descriptor.capability(capability_type, capability);
     }
 
     fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {

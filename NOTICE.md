@@ -12,5 +12,5 @@ listed source code repository logs.
 
 This program and the accompanying materials are made available under the terms
 of the Apache Software License 2.0 which is available at
-https://www.apache.org/licenses/LICENSE-2.0, or the MIT license which is 
+https://www.apache.org/licenses/LICENSE-2.0, or the MIT license which is
 available at https://opensource.org/licenses/MIT

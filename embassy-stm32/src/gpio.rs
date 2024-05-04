@@ -779,13 +779,6 @@ pub(crate) unsafe fn init(_cs: CriticalSection) {
     <crate::peripherals::AFIO as crate::rcc::SealedRccPeripheral>::enable_and_reset_with_cs(_cs);
 
     crate::_generated::init_gpio();
-
-    // Setting this bit is mandatory to use PG[15:2].
-    #[cfg(stm32u5)]
-    crate::pac::PWR.svmcr().modify(|w| {
-        w.set_io2sv(true);
-        w.set_io2vmen(true);
-    });
 }
 
 impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {

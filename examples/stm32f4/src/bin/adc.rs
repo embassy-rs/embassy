@@ -22,15 +22,16 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     interrupt::ADC.set_priority(Priority::P1);
     let mut delay = Delay;
-    let mut adc = Adc::new(p.ADC1, Irqs, &mut delay);
-    let mut pin2 = p.PC0;
-    let mut vrefint: Vref<embassy_stm32::peripherals::ADC1> = adc.enable_vref();
-    let mut temp: Temperature<embassy_stm32::peripherals::ADC1> = adc.enable_temperature();
-    adc.set_resolution(Resolution::TwelveBit).await;
+    let mut adc = Adc::new(p.ADC1);
+    let mut pin = p.PC1;
 
-    let samepletime = adc.ns_for_cfg(Resolution::TwelveBit, embassy_stm32::adc::SampleTime::Cycles3);
-    info!("Sample time: {} ns", samepletime);
-    // let vrefint_sample = adc.read(&mut vrefint).await;
+    let mut vrefint = adc.enable_vrefint();
+    let mut temp = adc.enable_temperature();
+
+    // Startup delay can be combined to the maximum of either
+    delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
+
+    let vrefint_sample = adc.read(&mut vrefint);
 
     // let convert_to_millivolts = |sample| {
     //     // From http://www.st.com/resource/en/datasheet/DM00071990.pdf

@@ -55,17 +55,18 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
-    assert!(sector.bank != FlashBank::Otp);
     assert!(sector.index_in_bank < 8);
 
     while busy() {}
 
     interrupt::free(|_| {
         pac::FLASH.nscr().modify(|w| {
-            w.set_bksel(match sector.bank {
-                FlashBank::Bank1 => Bksel::B_0X0,
-                FlashBank::Bank2 => Bksel::B_0X1,
-                _ => unreachable!(),
+            // BKSEL ignores SWAP_BANK, so we must take it into account here
+            w.set_bksel(match (sector.bank, banks_swapped()) {
+                (FlashBank::Bank1, false) => Bksel::BANK1,
+                (FlashBank::Bank2, true) => Bksel::BANK1,
+                (FlashBank::Bank2, false) => Bksel::BANK2,
+                (FlashBank::Bank1, true) => Bksel::BANK2,
             });
             w.set_snb(sector.index_in_bank);
             w.set_ser(true);
@@ -111,6 +112,47 @@ pub(crate) unsafe fn clear_all_err() {
         w.set_clr_strberr(true);
         w.set_clr_incerr(true);
     })
+}
+
+/// Get the current SWAP_BANK option.
+///
+/// This value is only loaded on system or power-on reset. `perform_bank_swap()`
+/// will not reflect here.
+pub fn banks_swapped() -> bool {
+    pac::FLASH.optcr().read().swap_bank()
+}
+
+/// Logical, persistent swap of flash banks 1 and 2.
+///
+/// This allows the application to write a new firmware blob into bank 2, then
+/// swap the banks and perform a reset, loading the new firmware.
+///
+/// Swap does not take effect until system or power-on reset.
+///
+/// PLEASE READ THE REFERENCE MANUAL - there are nuances to this feature. For
+/// instance, erase commands and interrupt enables which take a flash bank as a
+/// parameter ignore the swap!
+pub fn perform_bank_swap() {
+    while busy() {}
+
+    unsafe {
+        clear_all_err();
+    }
+
+    // unlock OPTLOCK
+    pac::FLASH.optkeyr().write(|w| *w = 0x0819_2A3B);
+    pac::FLASH.optkeyr().write(|w| *w = 0x4C5D_6E7F);
+    while pac::FLASH.optcr().read().optlock() {}
+
+    // toggle SWAP_BANK option
+    pac::FLASH.optsr_prg().modify(|w| w.set_swap_bank(!banks_swapped()));
+
+    // load option bytes
+    pac::FLASH.optcr().modify(|w| w.set_optstrt(true));
+    while pac::FLASH.optcr().read().optstrt() {}
+
+    // re-lock OPTLOCK
+    pac::FLASH.optcr().modify(|w| w.set_optlock(true));
 }
 
 fn sr_busy(sr: Nssr) -> bool {

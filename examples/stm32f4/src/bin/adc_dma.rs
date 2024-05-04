@@ -13,21 +13,13 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     const ADC_BUF_SIZE: usize = 512;
     let mut p = embassy_stm32::init(Default::default());
+
     let adc_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
     let adc2_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
 
-    // let mut data_buf: [u16; 64] = [0u16; 64];
+    let mut adc = Adc::new(p.ADC1);
+    let mut adc2 = Adc::new(p.ADC2);
 
-    let mut adc = Adc::new(p.ADC1, &mut Delay);
-    let mut adc2 = Adc::new(p.ADC2, &mut Delay);
-    // let mut vref = adc.enable_vref();
-
-    // let cal: embassy_stm32::adc::Calibration = vref.calibrate(&mut adc).await;
-    // info!("Calibration: {:?}", cal.vdda_uv());
-    // info!(
-    //     "Vref if 3000mV: {:?}",
-    //     cal.cal_uv(4095, embassy_stm32::adc::Resolution::TwelveBit)
-    // );
 
     adc.set_sample_sequence(Sequence::One, &mut p.PA0, SampleTime::CYCLES15)
         .await;
@@ -41,10 +33,10 @@ async fn main(_spawner: Spawner) {
     adc2.set_sample_sequence(Sequence::Two, &mut p.PA3, SampleTime::CYCLES15)
         .await;
 
+
     let mut adc_dma = adc.start_read_continuous(p.DMA2_CH0, adc_data);
     let mut adc_dma2 = adc2.start_read_continuous(p.DMA2_CH2, adc2_data);
-    // Timer::after_millis(10).await;
-
+    
     let mut tic = Instant::now();
     loop {
         let data = match adc.get_dma_buf::<256>(&mut adc_dma).await {
@@ -63,13 +55,13 @@ async fn main(_spawner: Spawner) {
             }
         };
         let toc = Instant::now();
-        // info!(
-        //     "\n adc1: {}, adc2: {}, dt = {}",
-        //     data[0..2],
-        //     data2[0..2],
-        //     (toc - tic).as_micros()
-        // );
-        info!("{}", (toc - tic).as_micros());
+        info!(
+            "\n adc1: {}, adc2: {}, dt = {}",
+            data[0..56],
+            data2[0..56],
+            (toc - tic).as_micros()
+        );
+        // info!("{}", (toc - tic).as_micros());
         tic = toc;
     }
 }

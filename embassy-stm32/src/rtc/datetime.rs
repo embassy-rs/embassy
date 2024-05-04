@@ -148,9 +148,9 @@ impl DateTime {
     ) -> Result<Self, Error> {
         if year > 4095 {
             Err(Error::InvalidYear)
-        } else if month < 1 || month > 12 {
+        } else if !(1..=12).contains(&month) {
             Err(Error::InvalidMonth)
-        } else if day < 1 || day > 31 {
+        } else if !(1..=31).contains(&day) {
             Err(Error::InvalidDay)
         } else if hour > 23 {
             Err(Error::InvalidHour)
