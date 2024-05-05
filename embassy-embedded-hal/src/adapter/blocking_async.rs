@@ -15,7 +15,7 @@ impl<T> BlockingAsync<T> {
         Self { wrapped }
     }
 }
-#[cfg(feature = "embedded_hal_02")]
+#[cfg(feature = "embedded-hal-02")]
 mod embedded_hal_02 {
     use embedded_hal_02::blocking;
 
@@ -105,7 +105,7 @@ mod embedded_hal_02 {
         }
     }
 }
-#[cfg(not(feature = "embedded_hal_02"))]
+#[cfg(not(feature = "embedded-hal-02"))]
 mod embedded_hal {
     use super::BlockingAsync;
 

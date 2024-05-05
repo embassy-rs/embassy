@@ -75,8 +75,14 @@ where
     }
 }
 
-#[cfg(feature = "embedded_hal_02")]
+#[cfg(feature = "embedded-hal-02")]
 mod embedded_hal_02 {
+    use embassy_sync::blocking_mutex::raw::RawMutex;
+
+    use crate::shared_bus::I2cDeviceError;
+
+    use super::I2cDevice;
+
     impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Write for I2cDevice<'_, M, BUS>
     where
         M: RawMutex,

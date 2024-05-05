@@ -43,8 +43,10 @@ impl embedded_hal_async::delay::DelayNs for Delay {
         Timer::after_millis(ms as _).await
     }
 }
-#[cfg(feature = "embedded_hal_02")]
+#[cfg(feature = "embedded-hal-02")]
 mod embedded_hal_02 {
+    use crate::{block_for, Delay, Duration};
+
     impl embedded_hal_02::blocking::delay::DelayMs<u8> for Delay {
         fn delay_ms(&mut self, ms: u8) {
             block_for(Duration::from_millis(ms as u64))
