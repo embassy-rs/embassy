@@ -78,9 +78,5 @@ embedded-io-async = { version = "0.6.1" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
 heapless = { version = "0.8", default-features = false }
-as-slice = "0.2.1"
-generic-array = { version = "0.14.4", default-features = false }
-stable_deref_trait = { version = "1.2.0", default-features = false }
-atomic-pool = "1.0"
 embedded-nal-async = { version = "0.7.1" }
 document-features = "0.2.7"
