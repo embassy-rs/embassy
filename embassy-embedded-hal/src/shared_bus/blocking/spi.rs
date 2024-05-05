@@ -95,9 +95,8 @@ mod embedded_hal_02 {
     use embassy_sync::blocking_mutex::raw::RawMutex;
     use embedded_hal_02::digital::v2::OutputPin;
 
-    use crate::shared_bus::SpiDeviceError;
-
     use super::SpiDevice;
+    use crate::shared_bus::SpiDeviceError;
 
     impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Transfer<u8> for SpiDevice<'_, M, BUS, CS>
     where
