@@ -17,8 +17,9 @@ impl<T> BlockingAsync<T> {
 }
 #[cfg(feature = "embedded_hal_02")]
 mod embedded_hal_02 {
-    use super::BlockingAsync;
     use embedded_hal_02::blocking;
+
+    use super::BlockingAsync;
     //
     // I2C implementations
     //
