@@ -24,6 +24,7 @@ target = "x86_64-unknown-linux-gnu"
 features = ["defmt", "std"]
 
 [features]
+default = ["embedded-hal-02"]
 std = ["tick-hz-1_000_000", "critical-section/std"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000"]
 
