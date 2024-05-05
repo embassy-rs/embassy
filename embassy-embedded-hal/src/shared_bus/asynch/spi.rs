@@ -27,8 +27,8 @@
 
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
-use embedded_hal_1::digital::OutputPin;
-use embedded_hal_1::spi::Operation;
+use embedded_hal::digital::OutputPin;
+use embedded_hal::spi::Operation;
 use embedded_hal_async::spi;
 
 use crate::shared_bus::SpiDeviceError;

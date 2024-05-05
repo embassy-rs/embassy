@@ -1,7 +1,7 @@
 //! Shared bus implementations
 use core::fmt::Debug;
 
-use embedded_hal_1::{i2c, spi};
+use embedded_hal::{i2c, spi};
 
 pub mod asynch;
 pub mod blocking;

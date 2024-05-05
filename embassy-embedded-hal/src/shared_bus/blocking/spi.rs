@@ -21,8 +21,8 @@ use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embedded_hal_1::digital::OutputPin;
-use embedded_hal_1::spi::{self, Operation, SpiBus};
+use embedded_hal::digital::OutputPin;
+use embedded_hal::spi::{self, Operation, SpiBus};
 
 use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
@@ -48,7 +48,7 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> embedded_hal_1::spi::SpiDevice for SpiDevice<'_, M, BUS, CS>
+impl<BUS, M, CS> embedded_hal::spi::SpiDevice for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: SpiBus,
@@ -90,44 +90,47 @@ where
     }
 }
 
-impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Transfer<u8> for SpiDevice<'_, M, BUS, CS>
-where
-    M: RawMutex,
-    BUS: embedded_hal_02::blocking::spi::Transfer<u8, Error = BusErr>,
-    CS: OutputPin<Error = CsErr>,
-{
-    type Error = SpiDeviceError<BusErr, CsErr>;
-    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        self.bus.lock(|bus| {
-            let mut bus = bus.borrow_mut();
-            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
-            let op_res = bus.transfer(words);
-            let cs_res = self.cs.set_high();
-            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
-            cs_res.map_err(SpiDeviceError::Cs)?;
-            Ok(op_res)
-        })
+#[cfg(feature = "embedded_hal_02")]
+mod embedded_hal_02 {
+    impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Transfer<u8> for SpiDevice<'_, M, BUS, CS>
+    where
+        M: RawMutex,
+        BUS: embedded_hal_02::blocking::spi::Transfer<u8, Error = BusErr>,
+        CS: OutputPin<Error = CsErr>,
+    {
+        type Error = SpiDeviceError<BusErr, CsErr>;
+        fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
+            self.bus.lock(|bus| {
+                let mut bus = bus.borrow_mut();
+                self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+                let op_res = bus.transfer(words);
+                let cs_res = self.cs.set_high();
+                let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+                cs_res.map_err(SpiDeviceError::Cs)?;
+                Ok(op_res)
+            })
+        }
     }
-}
 
-impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Write<u8> for SpiDevice<'_, M, BUS, CS>
-where
-    M: RawMutex,
-    BUS: embedded_hal_02::blocking::spi::Write<u8, Error = BusErr>,
-    CS: OutputPin<Error = CsErr>,
-{
-    type Error = SpiDeviceError<BusErr, CsErr>;
+    impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Write<u8> for SpiDevice<'_, M, BUS, CS>
+    where
+        M: RawMutex,
+        BUS: embedded_hal_02::blocking::spi::Write<u8, Error = BusErr>,
+        CS: OutputPin<Error = CsErr>,
+    {
+        type Error = SpiDeviceError<BusErr, CsErr>;
 
-    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        self.bus.lock(|bus| {
-            let mut bus = bus.borrow_mut();
-            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
-            let op_res = bus.write(words);
-            let cs_res = self.cs.set_high();
-            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
-            cs_res.map_err(SpiDeviceError::Cs)?;
-            Ok(op_res)
-        })
+        fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+            self.bus.lock(|bus| {
+                let mut bus = bus.borrow_mut();
+                self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+                let op_res = bus.write(words);
+                let cs_res = self.cs.set_high();
+                let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+                cs_res.map_err(SpiDeviceError::Cs)?;
+                Ok(op_res)
+            })
+        }
     }
 }
 
@@ -163,7 +166,7 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> embedded_hal_1::spi::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
+impl<BUS, M, CS> embedded_hal::spi::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: SpiBus + SetConfig,

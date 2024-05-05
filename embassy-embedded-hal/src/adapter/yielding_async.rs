@@ -18,9 +18,9 @@ impl<T> YieldingAsync<T> {
 //
 // I2C implementations
 //
-impl<T> embedded_hal_1::i2c::ErrorType for YieldingAsync<T>
+impl<T> embedded_hal::i2c::ErrorType for YieldingAsync<T>
 where
-    T: embedded_hal_1::i2c::ErrorType,
+    T: embedded_hal::i2c::ErrorType,
 {
     type Error = T::Error;
 }
@@ -50,7 +50,7 @@ where
     async fn transaction(
         &mut self,
         address: u8,
-        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+        operations: &mut [embedded_hal::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
         self.wrapped.transaction(address, operations).await?;
         yield_now().await;

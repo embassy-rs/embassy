@@ -26,14 +26,17 @@ std = []
 time = ["dep:embassy-time"]
 default = ["time"]
 
+#! Support legacy for embedded hal 0.2 traits 
+embedded-hal-02 = ["dep:embedded-hal-02"]
+
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
 embassy-time = { version = "0.3.0", path = "../embassy-time", optional = true }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",
-] }
-embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+], optional = true }
+embedded-hal = "1.0" 
 embedded-hal-async = { version = "1.0" }
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
