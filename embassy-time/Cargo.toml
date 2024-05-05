@@ -40,6 +40,9 @@ mock-driver = ["tick-hz-1_000_000"]
 ## To use this you must have a time driver provided.
 generic-queue = []
 
+#! Support legacy for embedded hal 0.2 traits 
+embedded-hal-02 = ["dep:embedded-hal-02"]
+
 #! The following features set how many timers are used for the generic queue. At most one
 #! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
 #!
@@ -404,8 +407,8 @@ embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-d
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
-embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", optional = true }
+embedded-hal = "1.0"
 embedded-hal-async = { version = "1.0" }
 
 futures-util = { version = "0.3.17", default-features = false }
