@@ -1,5 +1,8 @@
 //! Timers, PWM, quadrature decoder.
 
+use core::marker::PhantomData;
+use embassy_sync::waitqueue::AtomicWaker;
+
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
 pub mod input_capture;
@@ -46,8 +49,29 @@ pub enum TimerBits {
     Bits32,
 }
 
+struct State {
+    up_waker: AtomicWaker,
+    cc_waker: [AtomicWaker; 4],
+}
+
+impl State {
+    const fn new() -> Self {
+        const NEW_AW: AtomicWaker = AtomicWaker::new();
+        Self {
+            up_waker: NEW_AW,
+            cc_waker: [NEW_AW; 4],
+        }
+    }
+}
+
+trait SealedInstance: RccPeripheral {
+    /// Async state for this timer
+    fn state() -> &'static State;
+}
+
 /// Core timer instance.
-pub trait CoreInstance: RccPeripheral + 'static {
+#[allow(private_bounds)]
+pub trait CoreInstance: SealedInstance + 'static {
     /// Update Interrupt for this timer.
     type UpdateInterrupt: interrupt::typelevel::Interrupt;
 
@@ -144,6 +168,13 @@ dma_trait!(Ch4Dma, GeneralInstance4Channel);
 #[allow(unused)]
 macro_rules! impl_core_timer {
     ($inst:ident, $bits:expr) => {
+        impl SealedInstance for crate::peripherals::$inst {
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
+        }
+
         impl CoreInstance for crate::peripherals::$inst {
             type UpdateInterrupt = crate::_generated::peripheral_interrupts::$inst::UP;
 
@@ -285,4 +316,64 @@ foreach_interrupt! {
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
         impl AdvancedInstance4Channel for crate::peripherals::$inst {}
     };
+}
+
+/// Update interrupt handler.
+pub struct UpdateInterruptHandler<T: CoreInstance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for UpdateInterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        #[cfg(feature = "low-power")]
+        crate::low_power::on_wakeup_irq();
+
+        let regs = crate::pac::timer::TimCore::from_ptr(T::regs());
+
+        // Read TIM interrupt flags.
+        let sr = regs.sr().read();
+
+        // Mask relevant interrupts (UIE).
+        let bits = sr.0 & 0x00000001;
+
+        // Mask all the channels that fired.
+        regs.dier().modify(|w| w.0 &= !bits);
+
+        // Wake the tasks
+        if sr.uif() {
+            T::state().up_waker.wake();
+        }
+    }
+}
+
+/// Capture/Compare interrupt handler.
+pub struct CaptureCompareInterruptHandler<T: GeneralInstance1Channel> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompareInterrupt>
+    for CaptureCompareInterruptHandler<T>
+{
+    unsafe fn on_interrupt() {
+        #[cfg(feature = "low-power")]
+        crate::low_power::on_wakeup_irq();
+
+        let regs = crate::pac::timer::TimGp16::from_ptr(T::regs());
+
+        // Read TIM interrupt flags.
+        let sr = regs.sr().read();
+
+        // Mask relevant interrupts (CCIE).
+        let bits = sr.0 & 0x0000001E;
+
+        // Mask all the channels that fired.
+        regs.dier().modify(|w| w.0 &= !bits);
+
+        // Wake the tasks
+        for ch in 0..4 {
+            if sr.ccif(ch) {
+                T::state().cc_waker[ch].wake();
+            }
+        }
+    }
 }
