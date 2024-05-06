@@ -448,6 +448,11 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.regs_gp16().sr().modify(|r| r.set_ccif(channel.index(), false));
     }
 
+    /// Get input interrupt.
+    pub fn get_input_interrupt(&self, channel: Channel) -> bool {
+        self.regs_gp16().sr().read().ccif(channel.index())
+    }
+
     /// Enable input interrupt.
     pub fn enable_input_interrupt(&self, channel: Channel, enable: bool) {
         self.regs_gp16().dier().modify(|r| r.set_ccie(channel.index(), enable));
