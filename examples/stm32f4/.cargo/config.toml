@@ -1,17 +1,9 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # replace STM32F429ZITx with your chip as listed in `probe-rs chip list`
-# runner = "probe-rs run --chip STM32F429ZITx"
-runner = "arm-none-eabi-gdb -q -x openocd.gdb"
+runner = "probe-rs run --chip STM32F429ZITx"
 
 [build]
-# Pick ONE of these default compilation targets
-# target = "thumbv6m-none-eabi"        # Cortex-M0 and Cortex-M0+
-# target = "thumbv7m-none-eabi"        # Cortex-M3
-# target = "thumbv7em-none-eabi"       # Cortex-M4 and Cortex-M7 (no FPU)
-target = "thumbv7em-none-eabihf"     # Cortex-M4F and Cortex-M7F (with FPU)
-# target = "thumbv8m.base-none-eabi"   # Cortex-M23
-# target = "thumbv8m.main-none-eabi"   # Cortex-M33 (no FPU)
-# target = "thumbv8m.main-none-eabihf" # Cortex-M33 (with FPU)
+target = "thumbv7em-none-eabi"
 
 [env]
 DEFMT_LOG = "trace"
