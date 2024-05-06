@@ -1,6 +1,7 @@
 //! Timers, PWM, quadrature decoder.
 
 use core::marker::PhantomData;
+
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]

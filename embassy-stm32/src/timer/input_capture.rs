@@ -8,8 +8,10 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, Timer};
-use super::CaptureCompareInterruptHandler;
-use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
+use super::{
+    CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin,
+    GeneralInstance4Channel,
+};
 use crate::gpio::{AFType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;

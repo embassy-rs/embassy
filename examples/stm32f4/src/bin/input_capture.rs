@@ -3,12 +3,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
-use embassy_stm32::peripherals;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
 use embassy_stm32::timer::{self, Channel};
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
