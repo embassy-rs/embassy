@@ -3,17 +3,14 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::{
-    gpio::{self, Level, Output, Speed},
-    time::Hertz,
-};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::time::khz;
+use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
+use embassy_stm32::timer::Channel;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-use embassy_stm32::timer::{
-    input_capture::{CapturePin, InputCapture},
-    Channel,
-};
+/// Connect PB2 and PB10 with a 1k Ohm resistor
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -22,9 +19,11 @@ async fn main(_spawner: Spawner) {
 
     let mut led = Output::new(p.PB2, Level::High, Speed::Low);
 
-    let ic = CapturePin::new_ch3(p.PB10, gpio::Pull::None);
-    let drv = InputCapture::new(p.TIM2, None, None, Some(ic), None, Hertz::mhz(1), Default::default());
-    let mut _last: u32;
+    let ch3 = CapturePin::new_ch3(p.PB10, Pull::None);
+    let mut ic = InputCapture::new(p.TIM2, None, None, Some(ch3), None, khz(1000), Default::default());
+    ic.enable(Channel::Ch3);
+
+    let mut last = 0;
 
     loop {
         info!("high");
@@ -34,6 +33,12 @@ async fn main(_spawner: Spawner) {
         info!("low");
         led.set_low();
         Timer::after_millis(300).await;
-        _last = drv.get_capture_value(Channel::Ch1);
+
+        // Check for input capture
+        let cap = ic.get_capture_value(Channel::Ch3);
+        if cap != last {
+            info!("New capture!");
+            last = cap;
+        }
     }
 }

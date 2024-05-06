@@ -3,7 +3,6 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use embassy_sync::channel;
 
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, Timer};
 use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
