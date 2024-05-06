@@ -5,6 +5,7 @@ pub mod complementary_pwm;
 pub mod low_level;
 pub mod qei;
 pub mod simple_pwm;
+pub mod input_capture;
 
 use crate::interrupt;
 use crate::rcc::RccPeripheral;
