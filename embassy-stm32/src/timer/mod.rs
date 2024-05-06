@@ -2,10 +2,10 @@
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
+pub mod input_capture;
 pub mod low_level;
 pub mod qei;
 pub mod simple_pwm;
-pub mod input_capture;
 
 use crate::interrupt;
 use crate::rcc::RccPeripheral;
