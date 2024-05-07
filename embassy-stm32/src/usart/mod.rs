@@ -9,9 +9,9 @@ use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralRef;
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::{select, Either};
+use futures_util::future::{select, Either};
 
 use crate::dma::ChannelAndRequest;
 use crate::gpio::{AFType, AnyPin, SealedPin};
@@ -926,8 +926,9 @@ impl<'d, T: BasicInstance> Uart<'d, T, Async> {
 
     /// Create a single-wire half-duplex Uart transceiver on a single Tx pin.
     ///
-    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin.
-    /// There is no functional difference between these methods, as both allow bidirectional communication.
+    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin
+    /// (when it is available for your chip). There is no functional difference between these methods, as both
+    /// allow bidirectional communication.
     ///
     /// The pin is always released when no data is transmitted. Thus, it acts as a standard
     /// I/O in idle or in reception.
@@ -1079,8 +1080,9 @@ impl<'d, T: BasicInstance> Uart<'d, T, Blocking> {
 
     /// Create a single-wire half-duplex Uart transceiver on a single Tx pin.
     ///
-    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin.
-    /// There is no functional difference between these methods, as both allow bidirectional communication.
+    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin
+    /// (when it is available for your chip). There is no functional difference between these methods, as both
+    /// allow bidirectional communication.
     ///
     /// The pin is always released when no data is transmitted. Thus, it acts as a standard
     /// I/O in idle or in reception.
@@ -1270,8 +1272,14 @@ fn configure(
 
     let (mul, brr_min, brr_max) = match kind {
         #[cfg(any(usart_v3, usart_v4))]
-        Kind::Lpuart => (256, 0x300, 0x10_0000),
-        Kind::Uart => (1, 0x10, 0x1_0000),
+        Kind::Lpuart => {
+            trace!("USART: Kind::Lpuart");
+            (256, 0x300, 0x10_0000)
+        }
+        Kind::Uart => {
+            trace!("USART: Kind::Uart");
+            (1, 0x10, 0x1_0000)
+        }
     };
 
     fn calculate_brr(baud: u32, pclk: u32, presc: u32, mul: u32) -> u32 {
@@ -1374,21 +1382,35 @@ fn configure(
         // configure word size
         // if using odd or even parity it must be configured to 9bits
         w.set_m0(if config.parity != Parity::ParityNone {
+            trace!("USART: m0: vals::M0::BIT9");
             vals::M0::BIT9
         } else {
+            trace!("USART: m0: vals::M0::BIT8");
             vals::M0::BIT8
         });
         // configure parity
         w.set_pce(config.parity != Parity::ParityNone);
         w.set_ps(match config.parity {
-            Parity::ParityOdd => vals::Ps::ODD,
-            Parity::ParityEven => vals::Ps::EVEN,
-            _ => vals::Ps::EVEN,
+            Parity::ParityOdd => {
+                trace!("USART: set_ps: vals::Ps::ODD");
+                vals::Ps::ODD
+            }
+            Parity::ParityEven => {
+                trace!("USART: set_ps: vals::Ps::EVEN");
+                vals::Ps::EVEN
+            }
+            _ => {
+                trace!("USART: set_ps: vals::Ps::EVEN");
+                vals::Ps::EVEN
+            }
         });
         #[cfg(not(usart_v1))]
         w.set_over8(vals::Over8::from_bits(over8 as _));
         #[cfg(usart_v4)]
-        w.set_fifoen(true);
+        {
+            trace!("USART: set_fifoen: true (usart_v4)");
+            w.set_fifoen(true);
+        }
     });
 
     Ok(())

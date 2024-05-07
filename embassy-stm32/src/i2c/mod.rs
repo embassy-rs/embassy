@@ -2,7 +2,7 @@
 #![macro_use]
 
 #[cfg_attr(i2c_v1, path = "v1.rs")]
-#[cfg_attr(i2c_v2, path = "v2.rs")]
+#[cfg_attr(any(i2c_v2, i2c_v3), path = "v2.rs")]
 mod _version;
 
 use core::future::Future;
@@ -191,7 +191,7 @@ impl Timeout {
     fn with<R>(self, fut: impl Future<Output = Result<R, Error>>) -> impl Future<Output = Result<R, Error>> {
         #[cfg(feature = "time")]
         {
-            use futures::FutureExt;
+            use futures_util::FutureExt;
 
             embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).map(|r| match r {
                 embassy_futures::select::Either::First(_) => Err(Error::Timeout),

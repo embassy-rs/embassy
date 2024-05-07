@@ -85,7 +85,7 @@ async fn main(_spawner: Spawner) {
                    defmt::println!("Error {}", err);
                }
            }
-           i += 1;
+           i = i.wrapping_add(1);
        }
 
     */
@@ -135,6 +135,6 @@ async fn main(_spawner: Spawner) {
                 defmt::println!("Error {}", err);
             }
         }
-        i += 1;
+        i = i.wrapping_add(1);
     }
 }

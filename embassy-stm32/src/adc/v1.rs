@@ -9,7 +9,7 @@ use stm32_metapac::adc::vals::Ckmode;
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
-use crate::peripherals::ADC;
+use crate::peripherals::ADC1;
 use crate::{interrupt, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
@@ -36,26 +36,26 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 pub struct Vbat;
 
 #[cfg(not(adc_l0))]
-impl AdcPin<ADC> for Vbat {}
+impl AdcPin<ADC1> for Vbat {}
 
 #[cfg(not(adc_l0))]
-impl super::SealedAdcPin<ADC> for Vbat {
+impl super::SealedAdcPin<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
 }
 
 pub struct Vref;
-impl AdcPin<ADC> for Vref {}
-impl super::SealedAdcPin<ADC> for Vref {
+impl AdcPin<ADC1> for Vref {}
+impl super::SealedAdcPin<ADC1> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl AdcPin<ADC> for Temperature {}
-impl super::SealedAdcPin<ADC> for Temperature {
+impl AdcPin<ADC1> for Temperature {}
+impl super::SealedAdcPin<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
