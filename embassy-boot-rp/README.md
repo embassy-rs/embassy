@@ -8,5 +8,5 @@ NOTE: The applications using this bootloader should not link with the `link-rp.x
 
 ## Features
 
-* Configure bootloader partitions based on linker script.
-* Load applications from active partition.
+- Configure bootloader partitions based on linker script.
+- Load applications from active partition.

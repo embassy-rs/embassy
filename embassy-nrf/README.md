@@ -14,10 +14,10 @@ For a complete list of available peripherals and features, see the [embassy-nrf 
 
 The `embassy-nrf` HAL supports most variants of the nRF family:
 
-* nRF51 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf51))
-* nRF52 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf52840))
-* nRF53 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf5340))
-* nRF91 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf9160))
+- nRF51 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf51))
+- nRF52 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf52840))
+- nRF53 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf5340))
+- nRF91 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf9160))
 
 Most peripherals are supported, but can vary between chip families. To check what's available, make sure to pick the MCU you're targeting in the top menu in the [documentation](https://docs.embassy.dev/embassy-nrf).
 
@@ -64,6 +64,7 @@ assert!(result.is_ok());
 ```
 
 Each peripheral struct which uses EasyDMA ([`Spim`](spim::Spim), [`Uarte`](uarte::Uarte), [`Twim`](twim::Twim)) has two variants of their mutating functions:
+
 - Functions with the suffix (e.g. [`write_from_ram`](spim::Spim::write_from_ram), [`transfer_from_ram`](spim::Spim::transfer_from_ram)) will return an error if the passed slice does not reside in RAM.
 - Functions without the suffix (e.g. [`write`](spim::Spim::write), [`transfer`](spim::Spim::transfer)) will check whether the data is in RAM and copy it into memory prior to transmission.
 

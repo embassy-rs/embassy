@@ -3,9 +3,9 @@
 This crate contains the driver trait necessary for adding [`embassy-net`](https://crates.io/crates/embassy-net) support
 for a new hardware platform.
 
-If you want to *use* `embassy-net` with already made drivers, you should depend on the main `embassy-net` crate, not on this crate.
+If you want to _use_ `embassy-net` with already made drivers, you should depend on the main `embassy-net` crate, not on this crate.
 
-If you are writing a driver, you  should depend only on this crate, not on the main `embassy-net` crate.
+If you are writing a driver, you should depend only on this crate, not on the main `embassy-net` crate.
 This will allow your driver to continue working for newer `embassy-net` major versions, without needing an update,
 if the driver trait has not had breaking changes.
 

@@ -2,10 +2,10 @@
 
 The embassy-stm32 HAL aims to provide a safe, idiomatic hardware abstraction layer for all STM32 families. The HAL implements both blocking and async APIs for many peripherals. Where appropriate, traits from both blocking and asynchronous versions of [embedded-hal](https://docs.rs/embedded-hal/latest/embedded_hal/) v0.2 and v1.0 are implemented, as well as serial traits from embedded-io\[-async].
 
-* [embassy-stm32 on crates.io](https://crates.io/crates/embassy-stm32)
-* [Documentation](https://docs.embassy.dev/embassy-stm32/) (**Important:** use docs.embassy.dev rather than docs.rs to see the specific docs for the chip you’re using!)
-* [Source](https://github.com/embassy-rs/embassy/tree/main/embassy-stm32)
-* [Examples](https://github.com/embassy-rs/embassy/tree/main/examples)
+- [embassy-stm32 on crates.io](https://crates.io/crates/embassy-stm32)
+- [Documentation](https://docs.embassy.dev/embassy-stm32/) (**Important:** use docs.embassy.dev rather than docs.rs to see the specific docs for the chip you’re using!)
+- [Source](https://github.com/embassy-rs/embassy/tree/main/embassy-stm32)
+- [Examples](https://github.com/embassy-rs/embassy/tree/main/examples)
 
 ## embassy-stm32 supports all STM32 chip families
 
@@ -24,6 +24,7 @@ Be aware that, while embassy-stm32 strives to consistently support all periphera
 The `embassy-stm32` HAL implements the traits from [embedded-hal](https://crates.io/crates/embedded-hal) (v0.2 and 1.0) and [embedded-hal-async](https://crates.io/crates/embedded-hal-async), as well as [embedded-io](https://crates.io/crates/embedded-io) and [embedded-io-async](https://crates.io/crates/embedded-io-async).
 
 ## `embassy-time` time driver
+
 If a `time-driver-*` feature is enabled, embassy-stm32 provides a time driver for use with [embassy-time](https://docs.embassy.dev/embassy-time/). You can pick which hardware timer is used for this internally via the `time-driver-tim*` features, or let embassy pick with `time-driver-any`.
 
 embassy-time has a default tick rate of 1MHz, which is fast enough to cause problems with the 16-bit timers currently supported by the embassy-stm32 time driver (specifically, if a critical section delays an IRQ by more than 32ms). To avoid this, it’s recommended to pick a lower tick rate. 32.768kHz is a reasonable default for many purposes.

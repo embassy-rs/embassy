@@ -37,4 +37,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - nrf52840
   - nrf5340
   - nrf9160
-

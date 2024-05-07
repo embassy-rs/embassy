@@ -4,12 +4,11 @@ Example for STM32WL demonstrating the bootloader. The example consists of applic
 which allows you to press a button to start the DFU process, and 'b' which is the updated
 application.
 
-
 ## Prerequisites
 
-* `cargo-binutils`
-* `cargo-flash`
-* `embassy-boot-stm32`
+- `cargo-binutils`
+- `cargo-flash`
+- `embassy-boot-stm32`
 
 ## Usage
 

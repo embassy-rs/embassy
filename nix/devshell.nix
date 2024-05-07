@@ -3,7 +3,7 @@
     inputs.devshell.flakeModule
   ];
 
-  perSystem = { pkgs, system, ... }:
+  perSystem = { system, ... }:
     let
       overlays = [ (import inputs.rust-overlay) ];
       pkgs = import inputs.nixpkgs {
@@ -18,7 +18,7 @@
             package = pkgs.cachix;
           }
           {
-            package = (pkgs.callPackage ./probe-rs.nix { });
+            package = pkgs.callPackage ./probe-rs.nix { };
           }
           {
             package = rustToolchain;

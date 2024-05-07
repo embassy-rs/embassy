@@ -12,7 +12,7 @@ def feature(name, default, min, max, pow2=None):
     val = min
     while val <= max:
         vals.add(val)
-        if pow2 == True or (isinstance(pow2, int) and val >= pow2):
+        if pow2 is True or (isinstance(pow2, int) and val >= pow2):
             val *= 2
         else:
             val += 1
@@ -68,7 +68,6 @@ with open("build.rs", "r") as f:
     data = f.read()
 before, data = data.split(SEPARATOR_START, maxsplit=1)
 _, after = data.split(SEPARATOR_END, maxsplit=1)
-data = before + SEPARATOR_START + HELP + \
-    things + "    " + SEPARATOR_END + after
+data = before + SEPARATOR_START + HELP + things + "    " + SEPARATOR_END + after
 with open("build.rs", "w") as f:
     f.write(data)

@@ -4,16 +4,13 @@ Example for nRF demonstrating the bootloader. The example consists of applicatio
 which allows you to press a button to start the DFU process, and 'b' which is the updated
 application.
 
-
 ## Prerequisites
 
-* `cargo-binutils`
-* `cargo-flash`
-* `embassy-boot-nrf`
+- `cargo-binutils`
+- `cargo-flash`
+- `embassy-boot-nrf`
 
 ## Usage
-
-
 
 ```
 # Use bare metal linker script

@@ -6,4 +6,4 @@ Licensed under the [Infineon Permissive Binary License](./LICENSE-permissive-bin
 
 ## Changelog
 
-* 2023-07-28: synced with `ad3bad0` - Update 43439 fw from 7.95.55 ot 7.95.62
+- 2023-07-28: synced with `ad3bad0` - Update 43439 fw from 7.95.55 ot 7.95.62

@@ -7,9 +7,9 @@ NOTE: The 'b' binary does not mark the new binary as active, so if you reset the
 
 ## Prerequisites
 
-* `cargo-binutils`
-* `cargo-flash`
-* `embassy-boot-rp`
+- `cargo-binutils`
+- `cargo-flash`
+- `embassy-boot-rp`
 
 ## Usage
 

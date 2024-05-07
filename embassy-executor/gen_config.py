@@ -19,7 +19,7 @@ def feature(name, default, min=None, max=None, pow2=None, vals=None, factors=[])
             for f in factors:
                 if val * f <= max:
                     vals.add(val * f)
-            if (pow2 == True or (isinstance(pow2, int) and val >= pow2)) and val > 0:
+            if (pow2 is True or (isinstance(pow2, int) and val >= pow2)) and val > 0:
                 val *= 2
             else:
                 val += 1
@@ -50,7 +50,7 @@ for f in features:
             things += " (default)\n"
         else:
             things += "\n"
-            
+
         things += f"{name}-{val} = []"
         if val == f["default"]:
             things += " # Default"

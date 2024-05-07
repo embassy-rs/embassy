@@ -10,10 +10,10 @@ Async USB device stack for embedded devices in Rust.
 - USB composite devices.
 - Ergonomic descriptor builder.
 - Ready-to-use implementations for a few USB classes (note you can still implement any class yourself outside the crate).
-    - Serial ports (CDC ACM)
-    - Ethernet (CDC NCM)
-    - Human Interface Devices (HID)
-    - MIDI
+  - Serial ports (CDC ACM)
+  - Ethernet (CDC NCM)
+  - Human Interface Devices (HID)
+  - MIDI
 
 ## Adding support for new hardware
 
@@ -32,11 +32,11 @@ and counts of buffers.
 They can be set in two ways:
 
 - Via Cargo features: enable a feature like `<name>-<value>`. `name` must be in lowercase and
-use dashes instead of underscores. For example. `max-interface-count-3`. Only a selection of values
-is available, check `Cargo.toml` for the list.
+  use dashes instead of underscores. For example. `max-interface-count-3`. Only a selection of values
+  is available, check `Cargo.toml` for the list.
 - Via environment variables at build time: set the variable named `EMBASSY_USB_<value>`. For example
-`EMBASSY_USB_MAX_INTERFACE_COUNT=3 cargo build`. You can also set them in the `[env]` section of `.cargo/config.toml`.
-Any value can be set, unlike with Cargo features.
+  `EMBASSY_USB_MAX_INTERFACE_COUNT=3 cargo build`. You can also set them in the `[env]` section of `.cargo/config.toml`.
+  Any value can be set, unlike with Cargo features.
 
 Environment variables take precedence over Cargo features. If two Cargo features are enabled for the same setting
 with different values, compilation fails.

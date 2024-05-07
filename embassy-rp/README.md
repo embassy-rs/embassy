@@ -6,10 +6,10 @@ The embassy-rp HAL targets the Raspberry Pi RP2040 microcontroller. The HAL impl
 for many peripherals. The benefit of using the async APIs is that the HAL takes care of waiting for peripherals to
 complete operations in low power mode and handling interrupts, so that applications can focus on more important matters.
 
-* [embassy-rp on crates.io](https://crates.io/crates/embassy-rp)
-* [Documentation](https://docs.embassy.dev/embassy-rp/)
-* [Source](https://github.com/embassy-rs/embassy/tree/main/embassy-rp)
-* [Examples](https://github.com/embassy-rs/embassy/tree/main/examples/rp/src/bin)
+- [embassy-rp on crates.io](https://crates.io/crates/embassy-rp)
+- [Documentation](https://docs.embassy.dev/embassy-rp/)
+- [Source](https://github.com/embassy-rs/embassy/tree/main/embassy-rp)
+- [Examples](https://github.com/embassy-rs/embassy/tree/main/examples/rp/src/bin)
 
 ## `embassy-time` time driver
 

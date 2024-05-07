@@ -26,7 +26,7 @@ APL can be used in [`intrinsic safety applications/explosion hazardous areas`](h
 Both modes support with and without additional CRC.
 Currently only `Generic` SPI with or without CRC is supported.
 
-*NOTE:* SPI Mode is selected by the hardware pins `SPI_CFG0` and `SPI_CFG1`. Software can't detect nor change the mode.
+_NOTE:_ SPI Mode is selected by the hardware pins `SPI_CFG0` and `SPI_CFG1`. Software can't detect nor change the mode.
 
 ## Hardware
 
@@ -35,8 +35,8 @@ Currently only `Generic` SPI with or without CRC is supported.
 
 ## Other SPE chips
 
-* [`Analog ADIN2111`](https://www.analog.com/en/products/adin2111.html) 2 Port SPI version. Can work with this driver.
-* [`Analog ADIN1100`](https://www.analog.com/en/products/adin1100.html) RGMII version.
+- [`Analog ADIN2111`](https://www.analog.com/en/products/adin2111.html) 2 Port SPI version. Can work with this driver.
+- [`Analog ADIN1100`](https://www.analog.com/en/products/adin1100.html) RGMII version.
 
 ## Testing
 
@@ -49,6 +49,7 @@ $ `cargo test --target x86_64-unknown-linux-gnu`
 - Benchmarked on [`Analog Devices EVAL-ADIN1110EBZ`](https://www.analog.com/en/design-center/evaluation-hardware-and-software/evaluation-boards-kits/eval-adin1110.html), with [`spe_adin1110_http_server`](../examples/stm32l4/src/bin/spe_adin1110_http_server.rs) example.
 
 Basic `ping` benchmark
+
 ```rust,ignore
 # ping <IP> -c 60
 
@@ -62,6 +63,7 @@ rtt min/avg/max/mdev = 5.122/5.162/6.177/0.133 ms
 ```
 
 HTTP load generator benchmark with [`oha`](https://github.com/hatoo/oha)
+
 ```rust,ignore
 # oha -c 1 http://<IP> -z 60s
 Summary:

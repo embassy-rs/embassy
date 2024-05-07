@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.2.1 - 2023-10-31
 
 - Re-add impl_trait_projections
-- Fix: Reset DHCP socket when the link up is detected 
+- Fix: Reset DHCP socket when the link up is detected
 
 ## 0.2.0 - 2023-10-18
 

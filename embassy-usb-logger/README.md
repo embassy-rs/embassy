@@ -7,9 +7,9 @@ it will output all logging done through the `log` facade to the USB serial perip
 
 Add the following embassy task to your application. The `Driver` type is different depending on which HAL you use.
 
- ```rust
+```rust
 #[embassy_executor::task]
 async fn logger_task(driver: Driver<'static, USB>) {
-    embassy_usb_logger::run!(1024, log::LevelFilter::Info, driver);
+   embassy_usb_logger::run!(1024, log::LevelFilter::Info, driver);
 }
 ```

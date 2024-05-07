@@ -18,7 +18,6 @@ wasm-pack build --target web
 
 To run the example, start a webserver server the local folder:
 
-
 ```
 python -m http.server
 ```
