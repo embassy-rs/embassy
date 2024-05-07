@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use core::ops::Deref;
+use core::ops::{Deref, DerefMut};
 
 /// An exclusive reference to a peripheral.
 ///
@@ -155,7 +155,7 @@ pub trait Peripheral: Sized {
     }
 }
 
-impl<'b, T: Deref> Peripheral for T
+impl<'b, T: DerefMut> Peripheral for T
 where
     T::Target: Peripheral,
 {
@@ -163,6 +163,15 @@ where
 
     #[inline]
     unsafe fn clone_unchecked(&self) -> Self::P {
-        self.deref().clone_unchecked()
+        T::Target::clone_unchecked(self)
+    }
+}
+
+impl<'b, T: Peripheral> Peripheral for PeripheralRef<'_, T> {
+    type P = T::P;
+
+    #[inline]
+    unsafe fn clone_unchecked(&self) -> Self::P {
+        T::clone_unchecked(self)
     }
 }
