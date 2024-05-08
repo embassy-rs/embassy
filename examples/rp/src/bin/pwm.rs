@@ -7,8 +7,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp::pwm::builder::{ConfigureFrequency, ConfigurePhaseCorrect};
-use embassy_rp::pwm::v2::{AsPwmSlice as _, Frequency, Pwm};
+use embassy_rp::pwm::prelude::*;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 

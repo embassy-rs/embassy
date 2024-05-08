@@ -13,6 +13,8 @@ use crate::{pac, peripherals, RegExt};
 pub mod builder;
 /// PWM API v2.
 pub mod v2;
+/// Exports common traits and types for PWM.
+pub mod prelude;
 
 /// Minimum PWM frequency in Hz.
 pub const MIN_PWM_FREQ: f32 = 7.5;

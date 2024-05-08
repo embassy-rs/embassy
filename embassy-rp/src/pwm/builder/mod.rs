@@ -9,6 +9,8 @@ use crate::clocks::clk_sys_freq;
 pub mod free_running;
 /// Module containing the builders for configuring level- and edge-sensitive slices.
 pub mod level_edge_sensitive;
+/// Module containing the builders for configuring a 32-bit PWM counter using DMA.
+pub mod counter;
 
 /// Configuration object for a PWM slice.
 pub struct SliceConfig {
@@ -19,6 +21,7 @@ pub struct SliceConfig {
     phase_correct: bool,
     a: Option<ChannelConfig>,
     b: Option<ChannelConfig>,
+    enable_dma: bool,
 }
 
 impl Default for SliceConfig {
@@ -30,6 +33,7 @@ impl Default for SliceConfig {
             phase_correct: false,
             a: None,
             b: None,
+            enable_dma: false,
         }
     }
 }
@@ -126,6 +130,20 @@ where
     /// rate at which the counter increments.
     fn divider(mut self, div: u8) -> Self {
         self.get_config().div = div as u32;
+        self
+    }
+}
+
+/// Trait for configuring DMA for the slice.
+pub trait ConfigureDMA
+where
+    Self: Sized + BuilderState,
+{
+    /// Enable a DMA side-channel for this PWM slice. When enabled,
+    /// a DMA channel will be created and its 32-bit down-counter used to
+    /// measure the PWM signal on the input pin.
+    fn enable_dma(mut self) -> Self {
+        self.get_config().enable_dma = true;
         self
     }
 }

@@ -1,14 +1,19 @@
+use atomic_polyfill::{compiler_fence, Ordering};
 #[cfg(feature = "defmt")]
 use defmt::Format;
 use embassy_hal_internal::PeripheralRef;
+use embassy_time::Timer;
 use embedded_hal_1::pwm::ErrorKind;
 use num_traits::float::FloatCore;
-use rp_pac::pwm::regs::ChTop;
+use rp_pac::pwm::regs::{ChCtr, ChTop};
+use rp_pac::pwm::vals::Divmode;
 
 use super::builder::{DivMode, PwmBuilder, SliceConfig};
 use super::Slice;
 use crate::clocks::clk_sys_freq;
+use crate::dma::Channel as _;
 use crate::gpio::AnyPin;
+use crate::pwm::builder;
 use crate::RegExt;
 
 /// Error type for PWM operations.
@@ -24,6 +29,8 @@ pub enum PwmError {
     FrequencyOutOfRange(u32),
     /// The requested duty cycle is out of range.
     DutyCycleOutOfRange(f32),
+    /// The requested divider mode is invalid for the requested operation.
+    InvalidDivMode,
 }
 
 impl embedded_hal_1::pwm::Error for PwmError {
@@ -49,6 +56,7 @@ impl Format for PwmError {
                 "Duty cycle {}% is out of range. Duty cycle must be >= 0.0% and <= 100.0%.",
                 duty
             ),
+            PwmError::InvalidDivMode => defmt::write!(f, "Invalid divider mode for operation"),
         }
     }
 }
@@ -460,6 +468,125 @@ impl<'a, T: Slice> PwmInputOutputSlice<'a, T> {
     }
 }
 
+/// TODO
+pub struct PwmCounter<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize = 9> {
+    pub(crate) pwm_slice: PeripheralRef<'a, PWM>,
+    pub(crate) dma_channel: PeripheralRef<'a, DMA>,
+    pub(crate) pwm_pin: PeripheralRef<'a, AnyPin>,
+    pub(crate) time_data: [u32; SAMPLE_SIZE],
+    pub(crate) divider: u8,
+}
+
+impl<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize> PwmCounter<'a, PWM, DMA, SAMPLE_SIZE> {
+    pub(crate) fn new(
+        pwm_slice: PeripheralRef<'a, PWM>,
+        dma_channel: PeripheralRef<'a, DMA>,
+        pwm_pin: PeripheralRef<'a, AnyPin>,
+    ) -> PwmCounter::<'a, PWM, DMA, SAMPLE_SIZE> {
+        let time_data = [0u32; SAMPLE_SIZE];
+
+        let instance = PwmCounter::<PWM, DMA, SAMPLE_SIZE> {
+            pwm_slice,
+            dma_channel,
+            pwm_pin,
+            time_data,
+            divider: 1
+        };
+
+        instance
+    }
+
+    /// Enables both the PWM slice and DMA channel, starting the counter.
+    pub async fn enable(&mut self) {
+        let dma = &self.dma_channel.regs();
+        let pwm = &self.pwm_slice.regs();
+
+        self.time_data = [0; SAMPLE_SIZE];
+
+        // Abort the DMA channel before enabling the PWM slice to ensure that
+        // there are no currently running transfers.
+        trace!("Requesting DMA channel {} to abort.", self.dma_channel.number());
+        rp_pac::DMA.chan_abort().write(|w| {
+            w.set_chan_abort(1 << self.dma_channel.number());
+        });
+
+        // Wait for the DMA channel to abort before enabling the PWM slice,
+        // otherwise it is unsafe to start if there are any running transfers.
+        trace!("Waiting for DMA channel {} to abort.", self.dma_channel.number());
+        while rp_pac::DMA.chan_abort().read().chan_abort() != 0 {
+            Timer::after_micros(5).await;
+        }
+
+        // Enable the DMA channel.
+        dma.trans_count().write_value(SAMPLE_SIZE as u32);
+        dma.ctrl_trig().modify(|w| w.set_en(true));
+        debug!("Enabling DMA channel {} with write_addr={}.", self.dma_channel.number(), &mut self.time_data as *mut _ as *mut u32);
+        dma.al2_write_addr_trig().write_value(&mut self.time_data as *mut _ as *mut usize as u32);
+
+        // Enable the PWM slice.
+        trace!("Enabling PWM slice {}.", self.pwm_slice.number());
+        pwm.div().write(|w| {
+            w.set_int(self.divider);
+            w.set_frac(0);
+        });
+        pwm.ctr().write(|w| w.set_ctr(0));
+        pwm.csr().modify(|w| w.set_en(true));
+    }
+
+    /// Disables both the PWM slice and DMA channel, stopping the counter.
+    pub fn disable(&self) {
+        //self.dma_channel.regs().ctrl_trig().modify(|w| w.set_en(false));
+        self.pwm_slice.regs().csr().modify(|w| w.set_en(false));
+    }
+
+    /// Returns the current counter value.
+    pub fn counter(&self) -> u32 {
+        return SAMPLE_SIZE as u32 - self.dma_channel.regs().trans_count().read();
+    }
+
+    /// Returns the calculated frequency.
+    pub fn frequency(&mut self) -> f32 {
+        let time_data_ptr = &self.time_data as *const _ as *const usize;
+        let dreq_ct = self.dma_channel.regs().dbg_ctdreq().read().dbg_ctdreq();
+        let tcr = self.dma_channel.regs().dbg_tcr().read();
+        let raw_timer = unsafe { core::ptr::read((0x40054000 + 0x28) as *const u32) };
+
+        let count = self.counter() as usize;
+        let mut total = 0_u32;
+        let mut len = 0_u32;
+        for window in self.time_data.windows(2) {
+            if window[1] == 0 {
+                break;
+            }
+            trace!("{} - {}", window[1], window[0]);
+            total += window[1] - window[0];
+            len += 1;
+        }
+        let freq = if total != 0 {
+            (1e6 * len as f32 / total as f32) * self.divider as f32
+        } else {
+            0.0
+        };
+
+        const INCREMENT: u8 = 5;
+        if total as f32 / len as f32 <= 30.0 && self.divider < 255 - INCREMENT {
+            self.divider += INCREMENT;
+        }
+
+        // Debugging
+        let write_addr = self.dma_channel.regs().write_addr().read();
+        let write_err = self.dma_channel.regs().ctrl_trig().read().write_error();
+        let read_err = self.dma_channel.regs().ctrl_trig().read().read_error();
+        let raw_time_0 = unsafe { core::ptr::read(time_data_ptr) };
+        debug!("divider: {}, diff mean: {} µs, data: {:?}", self.divider, total / len, self.time_data);
+        trace!("write_addr: {:#X}, val: {}", write_addr, raw_time_0);
+        trace!("{} samples, total {} µs, freq: {} Hz, dreq_ct: {}, tcr: {}, raw timer: {}, timer_addr: {}, read err: {}, write err: {}, write_addr: {:#X}\ndata: {:?}", 
+            count, total, freq, dreq_ct, tcr, raw_timer, 0x40054000 + 0x28, read_err, write_err, write_addr, self.time_data);
+
+        freq
+    }
+}
+
 /// Trait encapsulating common logic for the different PWM slice implementations.
 pub trait AsPwmSlice<T: Slice> {
     /// Returns the slice instance.
@@ -488,6 +615,16 @@ pub trait AsPwmSlice<T: Slice> {
     /// Retards the phase of the counter by 1 count while it is still running.
     fn phase_retard(&self) {
         self.slice().regs().csr().modify(|w| w.set_ph_ret(true));
+    }
+
+    /// Returns the current counter value for the slice.
+    fn counter(&self) -> u16 {
+        self.slice().regs().ctr().read().ctr()
+    }
+
+    /// Sets the counter value for the slice.
+    fn set_counter(&self, counter: u16) {
+        self.slice().regs().ctr().write_value(ChCtr(counter as u32));
     }
 }
 
