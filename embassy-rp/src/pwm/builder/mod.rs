@@ -6,7 +6,7 @@ use super::v2::Frequency;
 use crate::clocks::clk_sys_freq;
 
 /// Module containing the builders for configuring a 32-bit PWM counter using DMA.
-pub mod counter;
+pub mod edge_timer;
 /// Module containing the builders for configuring free-running slices.
 pub mod free_running;
 /// Module containing the builders for configuring level- and edge-sensitive slices.

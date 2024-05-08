@@ -1,16 +1,21 @@
+//! PWM edge timer for measuring frequencies using DMA to achieve 32 bit
+//! timing resolution.
+//!
+//! Inspired largely by Jeremy P Bentham's work:
+//! https://iosoft.blog/2023/08/21/picofreq_python/
+//! https://github.com/jbentham/picofreq/blob/main/pico_timer.py
+
 use core::marker::PhantomData;
 
-use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_time::Timer;
 use rp_pac::dma::vals::{DataSize, TreqSel};
 use rp_pac::pwm::vals::Divmode;
 
 use super::{BuilderState, ConfigureDivider, ConfigurePhaseCorrect, DivMode, PwmBuilder, SliceConfig};
-use crate::builder_state;
 use crate::dma::Channel;
 use crate::gpio::SealedPin as _;
-use crate::pwm::v2::{PwmCounter, PwmError};
+use crate::pwm::v2::{PwmEdgeTimer, PwmError};
 use crate::pwm::{ChannelBPin, Slice};
 
 /// The Timer registers start at a base address of 0x40054000 (defined as TIMER_BASE in SDK).
@@ -42,6 +47,14 @@ impl ConfigureDivider for DmaEdgeTimer {}
 impl ConfigurePhaseCorrect for DmaEdgeTimer {}
 
 impl PwmBuilder<DivMode> {
+    /// Configure the PWM slice to operate as a 32-bit frequency timer using
+    /// DMA. Using 32 bits allows us to measure frequencies down to 1 Hz (one
+    /// clock cycle per second).
+    ///
+    /// This mode will measure the times between the rising or falling
+    /// edges of the input signal, filling the DMA buffer with the frequency
+    /// timing reciprocals. The frequency can then be retrieved using the
+    /// [`PwmEdgeTimer::frequency] method.
     pub fn edge_timer(self) -> PwmBuilder<DmaEdgeTimer> {
         PwmBuilder {
             config: SliceConfig {
@@ -75,7 +88,7 @@ impl<const SAMPLE_COUNT: usize> PwmBuilder<DmaEdgeTimer<SAMPLE_COUNT>> {
         pwm_slice: impl Peripheral<P = PWM> + 'static,
         dma_channel: impl Peripheral<P = DMA> + 'static,
         input_pin: impl Peripheral<P = impl ChannelBPin<PWM>> + 'static,
-    ) -> Result<PwmCounter<'a, PWM, DMA>, PwmError> {
+    ) -> Result<PwmEdgeTimer<'a, PWM, DMA>, PwmError> {
         if ![Divmode::RISE, Divmode::FALL].contains(&self.config.div_mode) {
             return Err(PwmError::InvalidDivMode);
         }
@@ -85,7 +98,7 @@ impl<const SAMPLE_COUNT: usize> PwmBuilder<DmaEdgeTimer<SAMPLE_COUNT>> {
         into_ref!(input_pin);
 
         let dma_channel_number = dma_channel.number();
-        let instance = PwmCounter::new(pwm_slice, dma_channel, input_pin.map_into());
+        let instance = PwmEdgeTimer::new(pwm_slice, dma_channel, input_pin.map_into());
 
         // Get an instance of the registers for the PWM slice, DMA channel and GPIO pin.
         let pwm_regs = instance.pwm_slice.regs();

@@ -1,4 +1,3 @@
-use atomic_polyfill::{compiler_fence, Ordering};
 #[cfg(feature = "defmt")]
 use defmt::Format;
 use embassy_hal_internal::PeripheralRef;
@@ -6,14 +5,11 @@ use embassy_time::Timer;
 use embedded_hal_1::pwm::ErrorKind;
 use num_traits::float::FloatCore;
 use rp_pac::pwm::regs::{ChCtr, ChTop};
-use rp_pac::pwm::vals::Divmode;
 
 use super::builder::{DivMode, PwmBuilder, SliceConfig};
 use super::Slice;
 use crate::clocks::clk_sys_freq;
-use crate::dma::Channel as _;
 use crate::gpio::AnyPin;
-use crate::pwm::builder;
 use crate::RegExt;
 
 /// Error type for PWM operations.
@@ -446,14 +442,12 @@ impl<'a, T: Slice> PwmFreeRunningSlice<'a, T> {
 }
 
 /// Represents a configured slice in level- or edge-sensitive mode.
-#[allow(dead_code)] // TODO: Temporary, to be used in level- and edge-sensitive slices
 pub struct PwmInputOutputSlice<'a, T: Slice> {
     inner: PeripheralRef<'a, T>,
     pub(crate) pin_a: Option<PeripheralRef<'a, AnyPin>>,
     pub(crate) pin_b: Option<PeripheralRef<'a, AnyPin>>,
 }
 
-#[allow(dead_code)] // TODO: Temporary, to be used in level- and edge-sensitive slices
 impl<'a, T: Slice> PwmInputOutputSlice<'a, T> {
     pub(crate) fn new(
         slice: PeripheralRef<'a, T>,
@@ -468,8 +462,11 @@ impl<'a, T: Slice> PwmInputOutputSlice<'a, T> {
     }
 }
 
-/// TODO
-pub struct PwmCounter<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize = 9> {
+/// Represents a PWM + DMA edge timer which measures the time between rising or
+/// falling edges of a PWM signal to calculate the frequency. This method is
+/// accurate down to ~1 Hz using a 32-bit clock signal, where traditional PWM
+/// inputs can only measure down to ~8 Hz.
+pub struct PwmEdgeTimer<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize = 9> {
     pub(crate) pwm_slice: PeripheralRef<'a, PWM>,
     pub(crate) dma_channel: PeripheralRef<'a, DMA>,
     pub(crate) pwm_pin: PeripheralRef<'a, AnyPin>,
@@ -477,15 +474,15 @@ pub struct PwmCounter<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZ
     pub(crate) divider: u8,
 }
 
-impl<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize> PwmCounter<'a, PWM, DMA, SAMPLE_SIZE> {
+impl<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize> PwmEdgeTimer<'a, PWM, DMA, SAMPLE_SIZE> {
     pub(crate) fn new(
         pwm_slice: PeripheralRef<'a, PWM>,
         dma_channel: PeripheralRef<'a, DMA>,
         pwm_pin: PeripheralRef<'a, AnyPin>,
-    ) -> PwmCounter<'a, PWM, DMA, SAMPLE_SIZE> {
+    ) -> PwmEdgeTimer<'a, PWM, DMA, SAMPLE_SIZE> {
         let time_data = [0u32; SAMPLE_SIZE];
 
-        let instance = PwmCounter::<PWM, DMA, SAMPLE_SIZE> {
+        let instance = PwmEdgeTimer::<PWM, DMA, SAMPLE_SIZE> {
             pwm_slice,
             dma_channel,
             pwm_pin,
