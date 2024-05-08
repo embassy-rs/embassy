@@ -520,7 +520,7 @@ impl<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize> PwmEdge
         debug!(
             "Enabling DMA channel {} with write_addr={}.",
             self.dma_channel.number(),
-            &mut self.time_data as *mut _ as *mut u32
+            &mut self.time_data as *mut _ as *mut u32 as u32
         );
         dma.al2_write_addr_trig()
             .write_value(&mut self.time_data as *mut _ as *mut usize as u32);

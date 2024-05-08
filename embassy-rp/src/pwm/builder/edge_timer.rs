@@ -83,6 +83,10 @@ impl<const SAMPLE_COUNT: usize> PwmBuilder<DmaEdgeTimer<SAMPLE_COUNT>> {
 
     /// Apply the configuration to the provided PWM slice, DMA channel and
     /// input pin.
+    /// 
+    /// **Note:** The input pin must be a valid PWM input pin (i.e. a `B` pin),
+    /// and the pin peripheral (i.e. [`PIN_0`](crate::peripherals::PIN_0)) refers to
+    /// the `GPIO` pin number and not necessarily the pin number on your pinout.
     pub async fn apply<'a, PWM: Slice, DMA: Channel>(
         self,
         pwm_slice: impl Peripheral<P = PWM> + 'static,
