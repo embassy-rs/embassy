@@ -6,12 +6,14 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::{bind_interrupts, i2c::{self, Config, InterruptHandler}, peripherals::I2C1};
+use embassy_rp::bind_interrupts;
+use embassy_rp::i2c::{self, Config, InterruptHandler};
+use embassy_rp::peripherals::I2C1;
 
 /// The ADS1115 chip have a 7 bit I2C address, default of 0x48 and addressing
 /// scheme that allows four different addresses using just one address pin
 /// named ADDR.
-/// 
+///
 /// To setup the address, connect the address pin as follows:
 /// - ADR -> GND0x48
 /// - ADR -> VDD0x49

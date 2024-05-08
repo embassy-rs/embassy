@@ -5,12 +5,12 @@ use rp_pac::pwm::vals::Divmode;
 use super::v2::Frequency;
 use crate::clocks::clk_sys_freq;
 
+/// Module containing the builders for configuring a 32-bit PWM counter using DMA.
+pub mod counter;
 /// Module containing the builders for configuring free-running slices.
 pub mod free_running;
 /// Module containing the builders for configuring level- and edge-sensitive slices.
 pub mod level_edge_sensitive;
-/// Module containing the builders for configuring a 32-bit PWM counter using DMA.
-pub mod counter;
 
 /// Configuration object for a PWM slice.
 pub struct SliceConfig {

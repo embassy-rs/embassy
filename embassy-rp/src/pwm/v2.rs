@@ -482,7 +482,7 @@ impl<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize> PwmCoun
         pwm_slice: PeripheralRef<'a, PWM>,
         dma_channel: PeripheralRef<'a, DMA>,
         pwm_pin: PeripheralRef<'a, AnyPin>,
-    ) -> PwmCounter::<'a, PWM, DMA, SAMPLE_SIZE> {
+    ) -> PwmCounter<'a, PWM, DMA, SAMPLE_SIZE> {
         let time_data = [0u32; SAMPLE_SIZE];
 
         let instance = PwmCounter::<PWM, DMA, SAMPLE_SIZE> {
@@ -490,7 +490,7 @@ impl<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize> PwmCoun
             dma_channel,
             pwm_pin,
             time_data,
-            divider: 1
+            divider: 1,
         };
 
         instance
@@ -520,8 +520,13 @@ impl<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize> PwmCoun
         // Enable the DMA channel.
         dma.trans_count().write_value(SAMPLE_SIZE as u32);
         dma.ctrl_trig().modify(|w| w.set_en(true));
-        debug!("Enabling DMA channel {} with write_addr={}.", self.dma_channel.number(), &mut self.time_data as *mut _ as *mut u32);
-        dma.al2_write_addr_trig().write_value(&mut self.time_data as *mut _ as *mut usize as u32);
+        debug!(
+            "Enabling DMA channel {} with write_addr={}.",
+            self.dma_channel.number(),
+            &mut self.time_data as *mut _ as *mut u32
+        );
+        dma.al2_write_addr_trig()
+            .write_value(&mut self.time_data as *mut _ as *mut usize as u32);
 
         // Enable the PWM slice.
         trace!("Enabling PWM slice {}.", self.pwm_slice.number());
@@ -578,7 +583,12 @@ impl<'a, PWM: Slice, DMA: crate::dma::Channel, const SAMPLE_SIZE: usize> PwmCoun
         let write_err = self.dma_channel.regs().ctrl_trig().read().write_error();
         let read_err = self.dma_channel.regs().ctrl_trig().read().read_error();
         let raw_time_0 = unsafe { core::ptr::read(time_data_ptr) };
-        debug!("divider: {}, diff mean: {} µs, data: {:?}", self.divider, total / len, self.time_data);
+        debug!(
+            "divider: {}, diff mean: {} µs, data: {:?}",
+            self.divider,
+            total / len,
+            self.time_data
+        );
         trace!("write_addr: {:#X}, val: {}", write_addr, raw_time_0);
         trace!("{} samples, total {} µs, freq: {} Hz, dreq_ct: {}, tcr: {}, raw timer: {}, timer_addr: {}, read err: {}, write err: {}, write_addr: {:#X}\ndata: {:?}", 
             count, total, freq, dreq_ct, tcr, raw_timer, 0x40054000 + 0x28, read_err, write_err, write_addr, self.time_data);

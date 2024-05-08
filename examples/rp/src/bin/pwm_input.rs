@@ -1,5 +1,5 @@
 //! This example shows how to use the PWM module to measure the frequency of an input signal.
-//! 
+//!
 //! Due to the u16 limitation of the `top` register value, the maximum frequency that can
 //! be reliably measured is 65.535 KHz. To measure higher frequencies you will either need
 //! to count the number of overflows (wraps) of the counter and calculate the frequency

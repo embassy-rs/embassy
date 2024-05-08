@@ -1,2 +1,2 @@
-pub use crate::pwm::v2::{Pwm, AsPwmSlice as _, EdgeSensitivity, Frequency, enable_pwm_slices, disable_pwm_slices};
 pub use crate::pwm::builder::{ConfigureFrequency, ConfigurePhaseCorrect};
+pub use crate::pwm::v2::{disable_pwm_slices, enable_pwm_slices, AsPwmSlice as _, EdgeSensitivity, Frequency, Pwm};

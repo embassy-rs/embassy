@@ -3,19 +3,15 @@ use core::marker::PhantomData;
 use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_time::Timer;
-use rp_pac::{dma::vals::{DataSize, TreqSel}, pwm::vals::Divmode};
-
-use crate::{
-    builder_state, 
-    gpio::SealedPin as _, 
-    dma::Channel, 
-    pwm::{
-        v2::{PwmCounter, PwmError}, 
-        ChannelBPin, 
-        Slice}
-    };
+use rp_pac::dma::vals::{DataSize, TreqSel};
+use rp_pac::pwm::vals::Divmode;
 
 use super::{BuilderState, ConfigureDivider, ConfigurePhaseCorrect, DivMode, PwmBuilder, SliceConfig};
+use crate::builder_state;
+use crate::dma::Channel;
+use crate::gpio::SealedPin as _;
+use crate::pwm::v2::{PwmCounter, PwmError};
+use crate::pwm::{ChannelBPin, Slice};
 
 /// The Timer registers start at a base address of 0x40054000 (defined as TIMER_BASE in SDK).
 const TIMER_BASE: u32 = 0x40054000;
@@ -30,27 +26,10 @@ const PWM_DREQ_BASE: u8 = 0x18;
 /// incremented by the slice number (i.e. the DREQ for slice 5 would be
 /// [`DREQ_PWM_WRAP0`] + 5).
 pub const DREQ_PWM_WRAP0: u8 = 0x18;
-
-
-impl PwmBuilder<DivMode> {
-    pub fn counter(self) -> PwmBuilder<DMACounter> {
-        PwmBuilder {
-            config: SliceConfig {
-                enable_dma: true,
-                div_mode: Divmode::RISE,
-                div: 250,
-                ..self.config
-            },
-            _phantom: PhantomData,
-        
-        }
-    }
-}
-
 /// DMACounter state object for the PWM builder.
-pub struct DMACounter<const SAMPLE_SIZE: u8 = 9>(SliceConfig);
+pub struct DmaEdgeTimer<const SAMPLE_COUNT: usize = 9>(SliceConfig);
 
-impl<const SAMPLE_SIZE: u8> BuilderState for DMACounter<SAMPLE_SIZE> {
+impl<const SAMPLE_COUNT: usize> BuilderState for DmaEdgeTimer<SAMPLE_COUNT> {
     fn get_config(&mut self) -> &mut SliceConfig {
         &mut self.0
     }
@@ -59,19 +38,40 @@ impl<const SAMPLE_SIZE: u8> BuilderState for DMACounter<SAMPLE_SIZE> {
     }
 }
 
-impl ConfigureDivider for DMACounter {}
-impl ConfigurePhaseCorrect for DMACounter {}
+impl ConfigureDivider for DmaEdgeTimer {}
+impl ConfigurePhaseCorrect for DmaEdgeTimer {}
 
-impl<const SAMPLE_SIZE: u8> PwmBuilder<DMACounter<SAMPLE_SIZE>> {
-    /// Set the sample size for the DMA counter. Pass the sample size as a
+impl PwmBuilder<DivMode> {
+    pub fn edge_timer(self) -> PwmBuilder<DmaEdgeTimer> {
+        PwmBuilder {
+            config: SliceConfig {
+                enable_dma: true,
+                div_mode: Divmode::RISE,
+                div: 250,
+                ..self.config
+            },
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<const SAMPLE_COUNT: usize> PwmBuilder<DmaEdgeTimer<SAMPLE_COUNT>> {
+    /// Set the sample count for the edge timer. Pass the sample size as a
     /// constant value, e.g. `.with_sample_size::<9>()`.
-    pub fn with_sample_size<const SIZE: u8>(self) -> PwmBuilder<DMACounter<SAMPLE_SIZE>> {
-        PwmBuilder::<DMACounter<SAMPLE_SIZE>> { ..self }
+    ///
+    /// Each sample is 32 bits wide, so the total size requirement will be
+    /// `SAMPLE_COUNT * 4` bytes.
+    pub fn with_sample_size<const SIZE: usize>(self) -> PwmBuilder<DmaEdgeTimer<SIZE>> {
+        PwmBuilder::<DmaEdgeTimer<SIZE>> {
+            _phantom: PhantomData,
+            config: self.config,
+        }
     }
 
-    /// TODO
+    /// Apply the configuration to the provided PWM slice, DMA channel and
+    /// input pin.
     pub async fn apply<'a, PWM: Slice, DMA: Channel>(
-        self, 
+        self,
         pwm_slice: impl Peripheral<P = PWM> + 'static,
         dma_channel: impl Peripheral<P = DMA> + 'static,
         input_pin: impl Peripheral<P = impl ChannelBPin<PWM>> + 'static,
@@ -146,7 +146,7 @@ impl<const SAMPLE_SIZE: u8> PwmBuilder<DMACounter<SAMPLE_SIZE>> {
             w.set_chain_to(dma_channel_number);
             w.set_en(true);
         });
-        dma_regs.trans_count().write_value(SAMPLE_SIZE as u32);
+        dma_regs.trans_count().write_value(SAMPLE_COUNT as u32);
 
         // Set the read address to the lower 32 bits of the 1 MHz timer.
         dma_regs.read_addr().write_value(TIMER_RAWL_ADDR);

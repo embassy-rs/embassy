@@ -3,9 +3,12 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, Peripheral};
 use rp_pac::pwm::vals::Divmode;
 
-use super::{BuilderState, ChannelConfig, ConfigureDMA, ConfigureDivider, ConfigurePhaseCorrect, DivMode, PwmBuilder, SliceConfig};
+use super::{
+    BuilderState, ChannelConfig, ConfigureDMA, ConfigureDivider, ConfigurePhaseCorrect, DivMode, PwmBuilder,
+    SliceConfig,
+};
 use crate::builder_state;
-use crate::gpio::{SealedPin, AnyPin};
+use crate::gpio::{AnyPin, SealedPin};
 use crate::pwm::v2::{EdgeSensitivity, PwmError, PwmInputOutputSlice};
 use crate::pwm::{ChannelAPin, ChannelBPin, Slice};
 
@@ -21,9 +24,7 @@ pub struct LevelEdgeSensitiveChannelConfig {
 
 impl Default for LevelEdgeSensitiveChannelConfig {
     fn default() -> Self {
-        LevelEdgeSensitiveChannelConfig {
-            invert: false,
-        }
+        LevelEdgeSensitiveChannelConfig { invert: false }
     }
 }
 
