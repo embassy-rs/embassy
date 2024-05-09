@@ -279,6 +279,14 @@ If you see errors that look like this:
 DMA: error on BDMA@1234ABCD channel 4
 ----
 
-You likely need to set up your linker script to define a special region for this area, and copy data to that region before using with BDMA.
+You need to set up your linker script to define a special region for this area, and copy data to that region before using with BDMA.
 
-TODO: show how to do that
+General steps:
+
+1. Find out which memory region BDMA has access to. You can get this information from the bus matrix and the memory mapping table in the STM32 datasheet.
+2. Add the memory region to `memory.x`, you can modify the generated one from https://github.com/embassy-rs/stm32-data-generated/tree/main/data/chips.
+3. You might need to modify `build.rs` to make cargo pick up the modified `memory.x`.
+4. In your code, access the defined memory region using `#[link_section = ".xxx"]`
+5. Copy data to that region before using BDMA.
+
+See link:/examples/stm32h7/src/bin/spi_bdma.rs[this example] for more details.

@@ -3,9 +3,9 @@
 //! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
 use core::future::poll_fn;
-use core::mem;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
+use core::{fmt, mem};
 
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
@@ -129,6 +129,42 @@ where
     }
 }
 
+impl<M: RawMutex, T> From<T> for Mutex<M, T> {
+    fn from(from: T) -> Self {
+        Self::new(from)
+    }
+}
+
+impl<M, T> Default for Mutex<M, T>
+where
+    M: RawMutex,
+    T: ?Sized + Default,
+{
+    fn default() -> Self {
+        Self::new(Default::default())
+    }
+}
+
+impl<M, T> fmt::Debug for Mutex<M, T>
+where
+    M: RawMutex,
+    T: ?Sized + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("Mutex");
+        match self.try_lock() {
+            Ok(value) => {
+                d.field("inner", &&*value);
+            }
+            Err(TryLockError) => {
+                d.field("inner", &format_args!("<locked>"));
+            }
+        }
+
+        d.finish_non_exhaustive()
+    }
+}
+
 /// Async mutex guard.
 ///
 /// Owning an instance of this type indicates having
@@ -199,6 +235,26 @@ where
         // Safety: the MutexGuard represents exclusive access to the contents
         // of the mutex, so it's OK to get it.
         unsafe { &mut *(self.mutex.inner.get()) }
+    }
+}
+
+impl<'a, M, T> fmt::Debug for MutexGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<'a, M, T> fmt::Display for MutexGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
     }
 }
 
@@ -283,6 +339,26 @@ where
     M: RawMutex + Sync,
     T: Sync + ?Sized,
 {
+}
+
+impl<'a, M, T> fmt::Debug for MappedMutexGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<'a, M, T> fmt::Display for MappedMutexGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
+    }
 }
 
 #[cfg(test)]
