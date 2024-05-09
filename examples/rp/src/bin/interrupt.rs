@@ -13,13 +13,13 @@ use core::cell::{Cell, RefCell};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Blocking};
+use embassy_rp::gpio::Pull;
 use embassy_rp::interrupt;
+use embassy_rp::peripherals::PWM_SLICE4;
 use embassy_rp::pwm::{Config, Pwm};
-use embassy_rp::{gpio::Pull, peripherals::PWM_SLICE4};
-use embassy_sync::{
-    blocking_mutex::{raw::CriticalSectionRawMutex, Mutex},
-    channel::Channel,
-};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Ticker};
 use portable_atomic::{AtomicU32, Ordering};
 use static_cell::StaticCell;
