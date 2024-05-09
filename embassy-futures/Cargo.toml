@@ -1,6 +1,6 @@
 [package]
 name = "embassy-futures"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 description = "no-std, no-alloc utilities for working with futures"
 repository = "https://github.com/embassy-rs/embassy"
@@ -13,6 +13,9 @@ categories = [
     "concurrency",
     "asynchronous",
 ]
+
+[lib]
+doctest = false
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-futures-v$VERSION/embassy-futures/src/"

@@ -1,6 +1,6 @@
 [package]
 name = "embassy-executor-macros"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "macros for creating the entry point and tasks for embassy-executor"
@@ -20,6 +20,7 @@ proc-macro2 = "1.0.29"
 
 [lib]
 proc-macro = true
+doctest = false
 
 [features]
 nightly = []

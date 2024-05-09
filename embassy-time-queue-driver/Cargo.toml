@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time-queue-driver"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Timer queue driver trait for embassy-time"
 repository = "https://github.com/embassy-rs/embassy"
@@ -19,6 +19,9 @@ categories = [
 # wrong delays if the time driver is using one copy and user code is using another.
 # This is especially common when mixing crates from crates.io and git.
 links = "embassy-time-queue"
+
+[lib]
+doctest = false
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-queue-driver-v$VERSION/embassy-time-queue-driver/src/"
