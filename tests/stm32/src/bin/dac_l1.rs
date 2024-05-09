@@ -19,7 +19,7 @@ use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    ADC1 => embassy_stm32::adc::InterruptHandler<peripherals::ADC>;
+    ADC1 => embassy_stm32::adc::InterruptHandler<peripherals::ADC1>;
 });
 
 #[embassy_executor::main]

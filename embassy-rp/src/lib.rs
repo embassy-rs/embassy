@@ -183,14 +183,14 @@ embassy_hal_internal::peripherals! {
     DMA_CH10,
     DMA_CH11,
 
-    PWM_CH0,
-    PWM_CH1,
-    PWM_CH2,
-    PWM_CH3,
-    PWM_CH4,
-    PWM_CH5,
-    PWM_CH6,
-    PWM_CH7,
+    PWM_SLICE0,
+    PWM_SLICE1,
+    PWM_SLICE2,
+    PWM_SLICE3,
+    PWM_SLICE4,
+    PWM_SLICE5,
+    PWM_SLICE6,
+    PWM_SLICE7,
 
     USB,
 

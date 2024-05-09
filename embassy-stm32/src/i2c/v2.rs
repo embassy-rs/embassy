@@ -7,7 +7,6 @@ use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
 
 use super::*;
-use crate::dma::Transfer;
 use crate::pac::i2c;
 
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
@@ -24,7 +23,7 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
+impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
     pub(crate) fn init(&mut self, freq: Hertz, _config: Config) {
         T::regs().cr1().modify(|reg| {
             reg.set_pe(false);
@@ -302,261 +301,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         result
     }
 
-    async fn write_dma_internal(
-        &mut self,
-        address: u8,
-        write: &[u8],
-        first_slice: bool,
-        last_slice: bool,
-        timeout: Timeout,
-    ) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        let total_len = write.len();
-
-        let dma_transfer = unsafe {
-            let regs = T::regs();
-            regs.cr1().modify(|w| {
-                w.set_txdmaen(true);
-                if first_slice {
-                    w.set_tcie(true);
-                }
-            });
-            let dst = regs.txdr().as_ptr() as *mut u8;
-
-            let ch = &mut self.tx_dma;
-            let request = ch.request();
-            Transfer::new_write(ch, request, write, dst, Default::default())
-        };
-
-        let state = T::state();
-        let mut remaining_len = total_len;
-
-        let on_drop = OnDrop::new(|| {
-            let regs = T::regs();
-            regs.cr1().modify(|w| {
-                if last_slice {
-                    w.set_txdmaen(false);
-                }
-                w.set_tcie(false);
-            })
-        });
-
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-
-            let isr = T::regs().isr().read();
-            if remaining_len == total_len {
-                if first_slice {
-                    Self::master_write(
-                        address,
-                        total_len.min(255),
-                        Stop::Software,
-                        (total_len > 255) || !last_slice,
-                        timeout,
-                    )?;
-                } else {
-                    Self::master_continue(total_len.min(255), (total_len > 255) || !last_slice, timeout)?;
-                    T::regs().cr1().modify(|w| w.set_tcie(true));
-                }
-            } else if !(isr.tcr() || isr.tc()) {
-                // poll_fn was woken without an interrupt present
-                return Poll::Pending;
-            } else if remaining_len == 0 {
-                return Poll::Ready(Ok(()));
-            } else {
-                let last_piece = (remaining_len <= 255) && last_slice;
-
-                if let Err(e) = Self::master_continue(remaining_len.min(255), !last_piece, timeout) {
-                    return Poll::Ready(Err(e));
-                }
-                T::regs().cr1().modify(|w| w.set_tcie(true));
-            }
-
-            remaining_len = remaining_len.saturating_sub(255);
-            Poll::Pending
-        })
-        .await?;
-
-        dma_transfer.await;
-
-        if last_slice {
-            // This should be done already
-            self.wait_tc(timeout)?;
-            self.master_stop();
-        }
-
-        drop(on_drop);
-
-        Ok(())
-    }
-
-    async fn read_dma_internal(
-        &mut self,
-        address: u8,
-        buffer: &mut [u8],
-        restart: bool,
-        timeout: Timeout,
-    ) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-    {
-        let total_len = buffer.len();
-
-        let dma_transfer = unsafe {
-            let regs = T::regs();
-            regs.cr1().modify(|w| {
-                w.set_rxdmaen(true);
-                w.set_tcie(true);
-            });
-            let src = regs.rxdr().as_ptr() as *mut u8;
-
-            let ch = &mut self.rx_dma;
-            let request = ch.request();
-            Transfer::new_read(ch, request, src, buffer, Default::default())
-        };
-
-        let state = T::state();
-        let mut remaining_len = total_len;
-
-        let on_drop = OnDrop::new(|| {
-            let regs = T::regs();
-            regs.cr1().modify(|w| {
-                w.set_rxdmaen(false);
-                w.set_tcie(false);
-            })
-        });
-
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-
-            let isr = T::regs().isr().read();
-            if remaining_len == total_len {
-                Self::master_read(
-                    address,
-                    total_len.min(255),
-                    Stop::Software,
-                    total_len > 255,
-                    restart,
-                    timeout,
-                )?;
-            } else if !(isr.tcr() || isr.tc()) {
-                // poll_fn was woken without an interrupt present
-                return Poll::Pending;
-            } else if remaining_len == 0 {
-                return Poll::Ready(Ok(()));
-            } else {
-                let last_piece = remaining_len <= 255;
-
-                if let Err(e) = Self::master_continue(remaining_len.min(255), !last_piece, timeout) {
-                    return Poll::Ready(Err(e));
-                }
-                T::regs().cr1().modify(|w| w.set_tcie(true));
-            }
-
-            remaining_len = remaining_len.saturating_sub(255);
-            Poll::Pending
-        })
-        .await?;
-
-        dma_transfer.await;
-
-        // This should be done already
-        self.wait_tc(timeout)?;
-        self.master_stop();
-
-        drop(on_drop);
-
-        Ok(())
-    }
-
-    // =========================
-    //  Async public API
-
-    /// Write.
-    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        let timeout = self.timeout();
-        if write.is_empty() {
-            self.write_internal(address, write, true, timeout)
-        } else {
-            timeout
-                .with(self.write_dma_internal(address, write, true, true, timeout))
-                .await
-        }
-    }
-
-    /// Write multiple buffers.
-    ///
-    /// The buffers are concatenated in a single write transaction.
-    pub async fn write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        let timeout = self.timeout();
-
-        if write.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
-        }
-        let mut iter = write.iter();
-
-        let mut first = true;
-        let mut current = iter.next();
-        while let Some(c) = current {
-            let next = iter.next();
-            let is_last = next.is_none();
-
-            let fut = self.write_dma_internal(address, c, first, is_last, timeout);
-            timeout.with(fut).await?;
-            first = false;
-            current = next;
-        }
-        Ok(())
-    }
-
-    /// Read.
-    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-    {
-        let timeout = self.timeout();
-
-        if buffer.is_empty() {
-            self.read_internal(address, buffer, false, timeout)
-        } else {
-            let fut = self.read_dma_internal(address, buffer, false, timeout);
-            timeout.with(fut).await
-        }
-    }
-
-    /// Write, restart, read.
-    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error>
-    where
-        TXDMA: super::TxDma<T>,
-        RXDMA: super::RxDma<T>,
-    {
-        let timeout = self.timeout();
-
-        if write.is_empty() {
-            self.write_internal(address, write, false, timeout)?;
-        } else {
-            let fut = self.write_dma_internal(address, write, true, true, timeout);
-            timeout.with(fut).await?;
-        }
-
-        if read.is_empty() {
-            self.read_internal(address, read, true, timeout)?;
-        } else {
-            let fut = self.read_dma_internal(address, read, true, timeout);
-            timeout.with(fut).await?;
-        }
-
-        Ok(())
-    }
-
     // =========================
     //  Blocking public API
 
@@ -669,7 +413,252 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 }
 
-impl<'d, T: Instance, TXDMA, RXDMA> Drop for I2c<'d, T, TXDMA, RXDMA> {
+impl<'d, T: Instance> I2c<'d, T, Async> {
+    async fn write_dma_internal(
+        &mut self,
+        address: u8,
+        write: &[u8],
+        first_slice: bool,
+        last_slice: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        let total_len = write.len();
+
+        let dma_transfer = unsafe {
+            let regs = T::regs();
+            regs.cr1().modify(|w| {
+                w.set_txdmaen(true);
+                if first_slice {
+                    w.set_tcie(true);
+                }
+            });
+            let dst = regs.txdr().as_ptr() as *mut u8;
+
+            self.tx_dma.as_mut().unwrap().write(write, dst, Default::default())
+        };
+
+        let state = T::state();
+        let mut remaining_len = total_len;
+
+        let on_drop = OnDrop::new(|| {
+            let regs = T::regs();
+            regs.cr1().modify(|w| {
+                if last_slice {
+                    w.set_txdmaen(false);
+                }
+                w.set_tcie(false);
+            })
+        });
+
+        poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            let isr = T::regs().isr().read();
+            if remaining_len == total_len {
+                if first_slice {
+                    Self::master_write(
+                        address,
+                        total_len.min(255),
+                        Stop::Software,
+                        (total_len > 255) || !last_slice,
+                        timeout,
+                    )?;
+                } else {
+                    Self::master_continue(total_len.min(255), (total_len > 255) || !last_slice, timeout)?;
+                    T::regs().cr1().modify(|w| w.set_tcie(true));
+                }
+            } else if !(isr.tcr() || isr.tc()) {
+                // poll_fn was woken without an interrupt present
+                return Poll::Pending;
+            } else if remaining_len == 0 {
+                return Poll::Ready(Ok(()));
+            } else {
+                let last_piece = (remaining_len <= 255) && last_slice;
+
+                if let Err(e) = Self::master_continue(remaining_len.min(255), !last_piece, timeout) {
+                    return Poll::Ready(Err(e));
+                }
+                T::regs().cr1().modify(|w| w.set_tcie(true));
+            }
+
+            remaining_len = remaining_len.saturating_sub(255);
+            Poll::Pending
+        })
+        .await?;
+
+        dma_transfer.await;
+
+        if last_slice {
+            // This should be done already
+            self.wait_tc(timeout)?;
+            self.master_stop();
+        }
+
+        drop(on_drop);
+
+        Ok(())
+    }
+
+    async fn read_dma_internal(
+        &mut self,
+        address: u8,
+        buffer: &mut [u8],
+        restart: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        let total_len = buffer.len();
+
+        let dma_transfer = unsafe {
+            let regs = T::regs();
+            regs.cr1().modify(|w| {
+                w.set_rxdmaen(true);
+                w.set_tcie(true);
+            });
+            let src = regs.rxdr().as_ptr() as *mut u8;
+
+            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+        };
+
+        let state = T::state();
+        let mut remaining_len = total_len;
+
+        let on_drop = OnDrop::new(|| {
+            let regs = T::regs();
+            regs.cr1().modify(|w| {
+                w.set_rxdmaen(false);
+                w.set_tcie(false);
+            })
+        });
+
+        poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            let isr = T::regs().isr().read();
+            if remaining_len == total_len {
+                Self::master_read(
+                    address,
+                    total_len.min(255),
+                    Stop::Software,
+                    total_len > 255,
+                    restart,
+                    timeout,
+                )?;
+            } else if !(isr.tcr() || isr.tc()) {
+                // poll_fn was woken without an interrupt present
+                return Poll::Pending;
+            } else if remaining_len == 0 {
+                return Poll::Ready(Ok(()));
+            } else {
+                let last_piece = remaining_len <= 255;
+
+                if let Err(e) = Self::master_continue(remaining_len.min(255), !last_piece, timeout) {
+                    return Poll::Ready(Err(e));
+                }
+                T::regs().cr1().modify(|w| w.set_tcie(true));
+            }
+
+            remaining_len = remaining_len.saturating_sub(255);
+            Poll::Pending
+        })
+        .await?;
+
+        dma_transfer.await;
+
+        // This should be done already
+        self.wait_tc(timeout)?;
+        self.master_stop();
+
+        drop(on_drop);
+
+        Ok(())
+    }
+
+    // =========================
+    //  Async public API
+
+    /// Write.
+    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+        let timeout = self.timeout();
+        if write.is_empty() {
+            self.write_internal(address, write, true, timeout)
+        } else {
+            timeout
+                .with(self.write_dma_internal(address, write, true, true, timeout))
+                .await
+        }
+    }
+
+    /// Write multiple buffers.
+    ///
+    /// The buffers are concatenated in a single write transaction.
+    pub async fn write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
+        let timeout = self.timeout();
+
+        if write.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        let mut iter = write.iter();
+
+        let mut first = true;
+        let mut current = iter.next();
+        while let Some(c) = current {
+            let next = iter.next();
+            let is_last = next.is_none();
+
+            let fut = self.write_dma_internal(address, c, first, is_last, timeout);
+            timeout.with(fut).await?;
+            first = false;
+            current = next;
+        }
+        Ok(())
+    }
+
+    /// Read.
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        let timeout = self.timeout();
+
+        if buffer.is_empty() {
+            self.read_internal(address, buffer, false, timeout)
+        } else {
+            let fut = self.read_dma_internal(address, buffer, false, timeout);
+            timeout.with(fut).await
+        }
+    }
+
+    /// Write, restart, read.
+    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        let timeout = self.timeout();
+
+        if write.is_empty() {
+            self.write_internal(address, write, false, timeout)?;
+        } else {
+            let fut = self.write_dma_internal(address, write, true, true, timeout);
+            timeout.with(fut).await?;
+        }
+
+        if read.is_empty() {
+            self.read_internal(address, read, true, timeout)?;
+        } else {
+            let fut = self.read_dma_internal(address, read, true, timeout);
+            timeout.with(fut).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Transaction with operations.
+    ///
+    /// Consecutive operations of same type are merged. See [transaction contract] for details.
+    ///
+    /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        let _ = addr;
+        let _ = operations;
+        todo!()
+    }
+}
+
+impl<'d, T: Instance, M: Mode> Drop for I2c<'d, T, M> {
     fn drop(&mut self) {
         T::disable();
     }
@@ -799,7 +788,7 @@ impl Timings {
     }
 }
 
-impl<'d, T: Instance> SetConfig for I2c<'d, T> {
+impl<'d, T: Instance, M: Mode> SetConfig for I2c<'d, T, M> {
     type Config = Hertz;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {

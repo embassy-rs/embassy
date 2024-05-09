@@ -6,7 +6,6 @@ mod common;
 use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
-use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
 
@@ -23,11 +22,11 @@ async fn main(_spawner: Spawner) {
     let mut spi_config = spi::Config::default();
     spi_config.frequency = Hertz(1_000_000);
 
-    let mut spi = Spi::new(
+    let mut spi = Spi::new_blocking(
         spi, sck,  // Arduino D13
         mosi, // Arduino D11
         miso, // Arduino D12
-        NoDma, NoDma, spi_config,
+        spi_config,
     );
 
     let data: [u8; 9] = [0x00, 0xFF, 0xAA, 0x55, 0xC0, 0xFF, 0xEE, 0xC0, 0xDE];

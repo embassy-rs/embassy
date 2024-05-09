@@ -3,8 +3,8 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
 
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
@@ -33,7 +33,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vref {
+impl<T: Instance> super::SealedAdcPin<T> for Vref {
     fn channel(&self) -> u8 {
         18
     }
@@ -48,7 +48,7 @@ impl Vref {
 
 pub struct Temperature;
 impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
+impl<T: Instance> super::SealedAdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
@@ -58,7 +58,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
         adc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        delay: &mut impl DelayUs<u32>,
     ) -> Self {
         use crate::pac::adc::vals;
 
@@ -71,7 +70,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::ENABLED));
 
         // Wait for the regulator to stabilize
-        delay.delay_us(10);
+        blocking_delay_us(10);
 
         assert!(!T::regs().cr().read().aden());
 
@@ -81,8 +80,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         while T::regs().cr().read().adcal() {}
 
-        // Wait more than 4 clock cycles after adcal is cleared (RM0364 p. 223)
-        delay.delay_us(1 + (6 * 1_000_000 / Self::freq().0));
+        // Wait more than 4 clock cycles after adcal is cleared (RM0364 p. 223).
+        blocking_delay_us((1_000_000 * 4) / Self::freq().0 + 1);
 
         // Enable the adc
         T::regs().cr().modify(|w| w.set_aden(true));
@@ -102,7 +101,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     fn freq() -> Hertz {
-        <T as crate::rcc::sealed::RccPeripheral>::frequency()
+        <T as crate::rcc::SealedRccPeripheral>::frequency()
     }
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
@@ -117,7 +116,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self, _delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vref(&self) -> Vref {
         T::common_regs().ccr().modify(|w| w.set_vrefen(true));
 
         Vref {}

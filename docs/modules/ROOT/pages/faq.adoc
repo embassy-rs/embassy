@@ -208,3 +208,85 @@ Tools like `cargo size` and `cargo nm` can tell you the size of any globals or o
 === For Max Stack Usage
 
 Check out link:https://github.com/Dirbaio/cargo-call-stack/[`cargo-call-stack`] for statically calculating worst-case stack usage. There are some caveats and inaccuracies possible with this, but this is a good way to get the general idea. See link:https://github.com/dirbaio/cargo-call-stack#known-limitations[the README] for more details.
+
+== The memory definition for my STM chip seems wrong, how do I define a `memory.x` file?
+
+It could happen that your project compiles, flashes but fails to run. The following situation can be true for your setup:
+
+The `memory.x` is generated automatically when enabling the `memory-x` feature on the `embassy-stm32` crate in the `Cargo.toml` file.
+This, in turn, uses `stm32-metapac` to generate the `memory.x` file for you. Unfortunately, more often than not this memory definition is not correct.
+
+You can override this by adding your own `memory.x` file. Such a file could look like this:
+```
+MEMORY
+{
+  FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 1024K
+  RAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 320K
+}
+
+_stack_start = ORIGIN(RAM) + LENGTH(RAM);
+```
+
+Please refer to the STM32 documentation for the specific values suitable for your board and setup. The STM32 Cube examples often contain a linker script `.ld` file. 
+Look for the `MEMORY` section and try to determine the FLASH and RAM sizes and section start.
+
+If you find a case where the memory.x is wrong, please report it on [this Github issue](https://github.com/embassy-rs/stm32-data/issues/301) so other users are not caught by surprise.
+
+== The USB examples are not working on my board, is there anything else I need to configure?
+
+If you are trying out the USB examples and your device doesn not connect, the most common issues are listed below.
+
+=== Incorrect RCC config
+
+Check your board and crystal/oscillator, in particular make sure that `HSE` is set to the correct value, e.g. `8_000_000` Hertz if your board does indeed run on a 8 MHz oscillator.
+
+=== VBUS detection on STM32 platform
+
+The USB specification requires that all USB devices monitor the bus for detection of plugging/unplugging actions. The devices must pull-up the D+ or D- lane as soon as the host supplies VBUS.
+
+See the docs, for example at link:https://docs.embassy.dev/embassy-stm32/git/stm32f401vc/usb/struct.Config.html[`usb/struct.Config.html`] for information on how to enable/disable `vbus_detection`.
+
+When the device is powered only from the USB bus that simultaneously serves as the data connection, this is optional. (If there's no power in VBUS the device would be off anyway, so it's safe to always assume there's power in VBUS, i.e. the USB cable is always plugged in). If your device doesn't have the required connections in place to allow VBUS sensing (see below), then this option needs to be set to `false` to work.
+
+When the device is powered from another power source and therefore can stay powered through USB cable plug/unplug events, then this must be implemented and `vbus_detection` MUST be set to `true`.
+
+If your board is powered from the USB and you are unsure whether it supports `vbus_detection`, consult the schematics of your board to see if VBUS is connected to PA9 for USB Full Speed or PB13 for USB High Speed, vice versa, possibly with a voltage divider. When designing your own hardware, see ST application note AN4879 (in particular section 2.6) and the reference manual of your specific chip for more details.
+
+== Known issues (details and/or mitigations)
+
+These are issues that are commonly reported. Help wanted fixing them, or improving the UX when possible!
+
+=== STM32H5 and STM32H7 power issues
+
+STM32 chips with built-in power management (SMPS and LDO) settings often cause user problems when the configuration does not match how the board was designed.
+
+Settings from the examples, or even from other working boards, may not work on YOUR board, because they are wired differently.
+
+Additionally, some PWR settings require a full device reboot (and enough time to discharge any power capacitors!), making this hard to troubleshoot. Also, some
+"wrong" power settings will ALMOST work, meaning it will sometimes work on some boots, or for a while, but crash unexpectedly.
+
+There is not a fix for this yet, as it is board/hardware dependant. See link:https://github.com/embassy-rs/embassy/issues/2806[this tracking issue] for more details
+
+=== STM32 BDMA only work out of some RAM regions
+
+The STM32 BDMA controller included in some chips (TODO: list which ones) has a limitation in that it only works out of certain regions of RAM (TODO: list which ones), otherwise the transfer
+will fail.
+
+If you see errors that look like this:
+
+[source,plain]
+----
+DMA: error on BDMA@1234ABCD channel 4
+----
+
+You need to set up your linker script to define a special region for this area, and copy data to that region before using with BDMA.
+
+General steps:
+
+1. Find out which memory region BDMA has access to. You can get this information from the bus matrix and the memory mapping table in the STM32 datasheet.
+2. Add the memory region to `memory.x`, you can modify the generated one from https://github.com/embassy-rs/stm32-data-generated/tree/main/data/chips.
+3. You might need to modify `build.rs` to make cargo pick up the modified `memory.x`.
+4. In your code, access the defined memory region using `#[link_section = ".xxx"]`
+5. Copy data to that region before using BDMA.
+
+See link:/examples/stm32h7/src/bin/spi_bdma.rs[this example] for more details.

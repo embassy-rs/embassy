@@ -210,13 +210,12 @@ unsafe impl Send for Event<'_> {}
 // ======================
 //       traits
 
-pub(crate) mod sealed {
-    pub trait Channel {}
-    pub trait Group {}
-}
+pub(crate) trait SealedChannel {}
+pub(crate) trait SealedGroup {}
 
 /// Interface for PPI channels.
-pub trait Channel: sealed::Channel + Peripheral<P = Self> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Channel: SealedChannel + Peripheral<P = Self> + Sized + 'static {
     /// Returns the number of the channel
     fn number(&self) -> usize;
 }
@@ -234,7 +233,8 @@ pub trait StaticChannel: Channel + Into<AnyStaticChannel> {
 }
 
 /// Interface for a group of PPI channels.
-pub trait Group: sealed::Group + Peripheral<P = Self> + Into<AnyGroup> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Group: SealedGroup + Peripheral<P = Self> + Into<AnyGroup> + Sized + 'static {
     /// Returns the number of the group.
     fn number(&self) -> usize;
     /// Convert into a type erased group.
@@ -254,7 +254,7 @@ pub struct AnyStaticChannel {
     pub(crate) number: u8,
 }
 impl_peripheral!(AnyStaticChannel);
-impl sealed::Channel for AnyStaticChannel {}
+impl SealedChannel for AnyStaticChannel {}
 impl Channel for AnyStaticChannel {
     fn number(&self) -> usize {
         self.number as usize
@@ -272,7 +272,7 @@ pub struct AnyConfigurableChannel {
     pub(crate) number: u8,
 }
 impl_peripheral!(AnyConfigurableChannel);
-impl sealed::Channel for AnyConfigurableChannel {}
+impl SealedChannel for AnyConfigurableChannel {}
 impl Channel for AnyConfigurableChannel {
     fn number(&self) -> usize {
         self.number as usize
@@ -287,7 +287,7 @@ impl ConfigurableChannel for AnyConfigurableChannel {
 #[cfg(not(feature = "nrf51"))]
 macro_rules! impl_ppi_channel {
     ($type:ident, $number:expr) => {
-        impl crate::ppi::sealed::Channel for peripherals::$type {}
+        impl crate::ppi::SealedChannel for peripherals::$type {}
         impl crate::ppi::Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number
@@ -338,7 +338,7 @@ pub struct AnyGroup {
     number: u8,
 }
 impl_peripheral!(AnyGroup);
-impl sealed::Group for AnyGroup {}
+impl SealedGroup for AnyGroup {}
 impl Group for AnyGroup {
     fn number(&self) -> usize {
         self.number as usize
@@ -347,7 +347,7 @@ impl Group for AnyGroup {
 
 macro_rules! impl_group {
     ($type:ident, $number:expr) => {
-        impl sealed::Group for peripherals::$type {}
+        impl SealedGroup for peripherals::$type {}
         impl Group for peripherals::$type {
             fn number(&self) -> usize {
                 $number

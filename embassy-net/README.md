@@ -13,8 +13,8 @@ memory management designed to work well for embedded systems, aiming for a more 
 - TCP, UDP, DNS, DHCPv4, IGMPv4
 - TCP sockets implement the `embedded-io` async traits.
 
-See the [`smoltcp`](https://github.com/smoltcp-rs/smoltcp) README for a detailed list of implemented and 
-unimplemented features of the network protocols. 
+See the [`smoltcp`](https://github.com/smoltcp-rs/smoltcp) README for a detailed list of implemented and
+unimplemented features of the network protocols.
 
 ## Hardware support
 

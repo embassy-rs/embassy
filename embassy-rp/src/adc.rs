@@ -8,8 +8,7 @@ use core::task::Poll;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::sealed::Pin as GpioPin;
-use crate::gpio::{self, AnyPin, Pull};
+use crate::gpio::{self, AnyPin, Pull, SealedPin as GpioPin};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::InterruptExt;
 use crate::peripherals::{ADC, ADC_TEMP_SENSOR};
@@ -19,13 +18,8 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 
 /// ADC config.
 #[non_exhaustive]
+#[derive(Default)]
 pub struct Config {}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 enum Source<'p> {
     Pin(PeripheralRef<'p, AnyPin>),
@@ -175,7 +169,7 @@ impl<'d, M: Mode> Adc<'d, M> {
         while !r.cs().read().ready() {}
         match r.cs().read().err() {
             true => Err(Error::ConversionFailed),
-            false => Ok(r.result().read().result().into()),
+            false => Ok(r.result().read().result()),
         }
     }
 }
@@ -221,7 +215,7 @@ impl<'d> Adc<'d, Async> {
         Self::wait_for_ready().await;
         match r.cs().read().err() {
             true => Err(Error::ConversionFailed),
-            false => Ok(r.result().read().result().into()),
+            false => Ok(r.result().read().result()),
         }
     }
 
@@ -339,29 +333,28 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ADC_IRQ_FIFO> for Inter
     }
 }
 
-mod sealed {
-    pub trait AdcSample: crate::dma::Word {}
-
-    pub trait AdcChannel {}
-}
+trait SealedAdcSample: crate::dma::Word {}
+trait SealedAdcChannel {}
 
 /// ADC sample.
-pub trait AdcSample: sealed::AdcSample {}
+#[allow(private_bounds)]
+pub trait AdcSample: SealedAdcSample {}
 
-impl sealed::AdcSample for u16 {}
+impl SealedAdcSample for u16 {}
 impl AdcSample for u16 {}
 
-impl sealed::AdcSample for u8 {}
+impl SealedAdcSample for u8 {}
 impl AdcSample for u8 {}
 
 /// ADC channel.
-pub trait AdcChannel: sealed::AdcChannel {}
+#[allow(private_bounds)]
+pub trait AdcChannel: SealedAdcChannel {}
 /// ADC pin.
 pub trait AdcPin: AdcChannel + gpio::Pin {}
 
 macro_rules! impl_pin {
     ($pin:ident, $channel:expr) => {
-        impl sealed::AdcChannel for peripherals::$pin {}
+        impl SealedAdcChannel for peripherals::$pin {}
         impl AdcChannel for peripherals::$pin {}
         impl AdcPin for peripherals::$pin {}
     };
@@ -372,5 +365,5 @@ impl_pin!(PIN_27, 1);
 impl_pin!(PIN_28, 2);
 impl_pin!(PIN_29, 3);
 
-impl sealed::AdcChannel for peripherals::ADC_TEMP_SENSOR {}
+impl SealedAdcChannel for peripherals::ADC_TEMP_SENSOR {}
 impl AdcChannel for peripherals::ADC_TEMP_SENSOR {}

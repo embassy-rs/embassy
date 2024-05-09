@@ -36,9 +36,9 @@ async fn main(_spawner: Spawner) {
     }
     let peripherals = embassy_stm32::init(config);
 
-    let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
+    let mut can = can::CanConfigurator::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
 
-    can.set_extended_filter(
+    can.properties().set_extended_filter(
         can::filter::ExtendedFilterSlot::_0,
         can::filter::ExtendedFilter::accept_all_into_fifo1(),
     );
@@ -56,21 +56,22 @@ async fn main(_spawner: Spawner) {
     info!("Configured");
 
     let mut can = can.start(match use_fd {
-        true => can::FdcanOperatingMode::InternalLoopbackMode,
-        false => can::FdcanOperatingMode::NormalOperationMode,
+        true => can::OperatingMode::InternalLoopbackMode,
+        false => can::OperatingMode::NormalOperationMode,
     });
 
     let mut i = 0;
     let mut last_read_ts = embassy_time::Instant::now();
 
     loop {
-        let frame = can::frame::ClassicFrame::new_extended(0x123456F, &[i; 8]).unwrap();
+        let frame = can::frame::Frame::new_extended(0x123456F, &[i; 8]).unwrap();
         info!("Writing frame");
 
         _ = can.write(&frame).await;
 
         match can.read().await {
-            Ok((rx_frame, ts)) => {
+            Ok(envelope) => {
+                let (ts, rx_frame) = (envelope.ts, envelope.frame);
                 let delta = (ts - last_read_ts).as_millis();
                 last_read_ts = ts;
                 info!(
@@ -105,7 +106,8 @@ async fn main(_spawner: Spawner) {
         }
 
         match can.read_fd().await {
-            Ok((rx_frame, ts)) => {
+            Ok(envelope) => {
+                let (ts, rx_frame) = (envelope.ts, envelope.frame);
                 let delta = (ts - last_read_ts).as_millis();
                 last_read_ts = ts;
                 info!(
@@ -126,15 +128,16 @@ async fn main(_spawner: Spawner) {
         }
     }
     i = 0;
-    let (mut tx, mut rx) = can.split();
+    let (mut tx, mut rx, _props) = can.split();
     // With split
     loop {
-        let frame = can::frame::ClassicFrame::new_extended(0x123456F, &[i; 8]).unwrap();
+        let frame = can::frame::Frame::new_extended(0x123456F, &[i; 8]).unwrap();
         info!("Writing frame");
         _ = tx.write(&frame).await;
 
         match rx.read().await {
-            Ok((rx_frame, ts)) => {
+            Ok(envelope) => {
+                let (ts, rx_frame) = (envelope.ts, envelope.frame);
                 let delta = (ts - last_read_ts).as_millis();
                 last_read_ts = ts;
                 info!(
@@ -156,7 +159,7 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    let can = can::Fdcan::join(tx, rx);
+    let can = can::Can::join(tx, rx);
 
     info!("\n\n\nBuffered\n");
     if use_fd {
@@ -173,7 +176,8 @@ async fn main(_spawner: Spawner) {
             _ = can.write(frame).await;
 
             match can.read().await {
-                Ok((rx_frame, ts)) => {
+                Ok(envelope) => {
+                    let (ts, rx_frame) = (envelope.ts, envelope.frame);
                     let delta = (ts - last_read_ts).as_millis();
                     last_read_ts = ts;
                     info!(
@@ -188,7 +192,7 @@ async fn main(_spawner: Spawner) {
 
             Timer::after_millis(250).await;
 
-            i += 1;
+            i = i.wrapping_add(1);
         }
     } else {
         static TX_BUF: StaticCell<can::TxBuf<8>> = StaticCell::new();
@@ -198,7 +202,7 @@ async fn main(_spawner: Spawner) {
             RX_BUF.init(can::RxBuf::<10>::new()),
         );
         loop {
-            let frame = can::frame::ClassicFrame::new_extended(0x123456F, &[i; 8]).unwrap();
+            let frame = can::frame::Frame::new_extended(0x123456F, &[i; 8]).unwrap();
             info!("Writing frame");
 
             // You can use any of these approaches to send. The writer makes it
@@ -208,7 +212,8 @@ async fn main(_spawner: Spawner) {
             can.writer().write(frame).await;
 
             match can.read().await {
-                Ok((rx_frame, ts)) => {
+                Ok(envelope) => {
+                    let (ts, rx_frame) = (envelope.ts, envelope.frame);
                     let delta = (ts - last_read_ts).as_millis();
                     last_read_ts = ts;
                     info!(
@@ -223,7 +228,7 @@ async fn main(_spawner: Spawner) {
 
             Timer::after_millis(250).await;
 
-            i += 1;
+            i = i.wrapping_add(1);
         }
     }
 }

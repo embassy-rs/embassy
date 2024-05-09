@@ -7,7 +7,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::sealed::AFType;
+use crate::gpio::AFType;
 use crate::gpio::Speed;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::tsc::regs::{Ier, Ioccr, Iogcsr, Iohcr, Ioscr};
@@ -348,7 +348,7 @@ pub(crate) mod sealed {
 }
 
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static {}
-pub trait TscPin<T: Instance>: sealed::TscPin<T> + crate::gpio::sealed::Pin {}
+pub trait TscPin<T: Instance>: sealed::TscPin<T> + crate::gpio::Pin {}
 
 pin_trait!(G1IO1Pin, Instance);
 pin_trait!(G1IO2Pin, Instance);

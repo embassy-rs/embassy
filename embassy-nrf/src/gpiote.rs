@@ -7,8 +7,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin};
+use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::InterruptExt;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, pac, peripherals};
@@ -446,14 +445,13 @@ impl<'d> Flex<'d> {
 
 // =======================
 
-mod sealed {
-    pub trait Channel {}
-}
+trait SealedChannel {}
 
 /// GPIOTE channel trait.
 ///
 /// Implemented by all GPIOTE channels.
-pub trait Channel: sealed::Channel + Into<AnyChannel> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Channel: SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Get the channel number.
     fn number(&self) -> usize;
 
@@ -478,7 +476,7 @@ pub struct AnyChannel {
     number: u8,
 }
 impl_peripheral!(AnyChannel);
-impl sealed::Channel for AnyChannel {}
+impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> usize {
         self.number as usize
@@ -487,7 +485,7 @@ impl Channel for AnyChannel {
 
 macro_rules! impl_channel {
     ($type:ident, $number:expr) => {
-        impl sealed::Channel for peripherals::$type {}
+        impl SealedChannel for peripherals::$type {}
         impl Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number as usize

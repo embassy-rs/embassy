@@ -16,11 +16,12 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{AnyChannel, Request, Transfer, TransferOptions};
 use crate::interrupt;
@@ -57,7 +58,7 @@ pub(crate) fn init(
         })
     }
 
-    #[cfg(any(stm32h5, stm32u5))]
+    #[cfg(any(stm32h5, stm32u5, stm32h7rs))]
     {
         crate::pac::PWR.ucpdr().modify(|w| {
             w.set_ucpd_dbdis(!ucpd1_db_enable);
@@ -337,7 +338,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
         let dma = unsafe {
             Transfer::new_read(
-                &self.rx_dma_ch,
+                &mut self.rx_dma_ch,
                 self.rx_dma_req,
                 r.rxdr().as_ptr() as *mut u8,
                 buf,
@@ -355,7 +356,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         r.cr().modify(|w| w.set_phyrxen(true));
         let _on_drop = OnDrop::new(|| {
             r.cr().modify(|w| w.set_phyrxen(false));
-            self.enable_rx_interrupt(false);
+            Self::enable_rx_interrupt(false);
         });
 
         poll_fn(|cx| {
@@ -376,7 +377,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 Poll::Ready(ret)
             } else {
                 T::state().waker.register(cx.waker());
-                self.enable_rx_interrupt(true);
+                Self::enable_rx_interrupt(true);
                 Poll::Pending
             }
         })
@@ -392,7 +393,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         Ok(r.rx_payszr().read().rxpaysz().into())
     }
 
-    fn enable_rx_interrupt(&self, enable: bool) {
+    fn enable_rx_interrupt(enable: bool) {
         T::REGS.imr().modify(|w| w.set_rxmsgendie(enable));
     }
 
@@ -404,7 +405,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         // might still be running because there is no way to abort an ongoing
         // message transmission. Wait for it to finish but ignore errors.
         if r.cr().read().txsend() {
-            if let Err(TxError::HardReset) = self.wait_tx_done().await {
+            if let Err(TxError::HardReset) = Self::wait_tx_done().await {
                 return Err(TxError::HardReset);
             }
         }
@@ -418,7 +419,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         // Start the DMA and let it do its thing in the background.
         let _dma = unsafe {
             Transfer::new_write(
-                &self.tx_dma_ch,
+                &mut self.tx_dma_ch,
                 self.tx_dma_req,
                 buf,
                 r.txdr().as_ptr() as *mut u8,
@@ -433,11 +434,11 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             w.set_txsend(true);
         });
 
-        self.wait_tx_done().await
+        Self::wait_tx_done().await
     }
 
-    async fn wait_tx_done(&self) -> Result<(), TxError> {
-        let _on_drop = OnDrop::new(|| self.enable_tx_interrupts(false));
+    async fn wait_tx_done() -> Result<(), TxError> {
+        let _on_drop = OnDrop::new(|| Self::enable_tx_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
@@ -452,14 +453,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 Poll::Ready(Ok(()))
             } else {
                 T::state().waker.register(cx.waker());
-                self.enable_tx_interrupts(true);
+                Self::enable_tx_interrupts(true);
                 Poll::Pending
             }
         })
         .await
     }
 
-    fn enable_tx_interrupts(&self, enable: bool) {
+    fn enable_tx_interrupts(enable: bool) {
         T::REGS.imr().modify(|w| {
             w.set_txmsgdiscie(enable);
             w.set_txmsgsentie(enable);
@@ -555,50 +556,47 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-/// UCPD instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral {}
+struct State {
+    waker: AtomicWaker,
+    // Inverted logic for a default state of 0 so that the data goes into the .bss section.
+    drop_not_ready: AtomicBool,
+}
 
-mod sealed {
-    use core::sync::atomic::AtomicBool;
-
-    use embassy_sync::waitqueue::AtomicWaker;
-
-    pub struct State {
-        pub waker: AtomicWaker,
-        // Inverted logic for a default state of 0 so that the data goes into the .bss section.
-        pub drop_not_ready: AtomicBool,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-                drop_not_ready: AtomicBool::new(false),
-            }
+impl State {
+    pub const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+            drop_not_ready: AtomicBool::new(false),
         }
     }
+}
 
-    pub trait Instance {
-        type Interrupt: crate::interrupt::typelevel::Interrupt;
-        const REGS: crate::pac::ucpd::Ucpd;
-        fn state() -> &'static crate::ucpd::sealed::State;
-    }
+trait SealedInstance {
+    const REGS: crate::pac::ucpd::Ucpd;
+    fn state() -> &'static State;
+}
+
+/// UCPD instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral {
+    /// Interrupt for this instance.
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 foreach_interrupt!(
     ($inst:ident, ucpd, UCPD, GLOBAL, $irq:ident) => {
-        impl sealed::Instance for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$irq;
-
+        impl SealedInstance for crate::peripherals::$inst {
             const REGS: crate::pac::ucpd::Ucpd = crate::pac::$inst;
 
-            fn state() -> &'static crate::ucpd::sealed::State {
-                static STATE: crate::ucpd::sealed::State = crate::ucpd::sealed::State::new();
+            fn state() -> &'static State {
+                static STATE: State = State::new();
                 &STATE
             }
         }
 
-        impl Instance for crate::peripherals::$inst {}
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
     };
 );
 

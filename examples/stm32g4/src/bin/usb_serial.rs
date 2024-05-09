@@ -3,13 +3,13 @@
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{self, Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
-use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -56,7 +56,6 @@ async fn main(_spawner: Spawner) {
     config.device_protocol = 0x01;
     config.composite_with_iads = true;
 
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
@@ -66,7 +65,6 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut [], // no msos descriptors

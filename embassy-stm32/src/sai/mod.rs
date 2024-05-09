@@ -6,12 +6,10 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use self::sealed::WhichSubBlock;
 pub use crate::dma::word;
 #[cfg(not(gpdma))]
 use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer};
-use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::AnyPin;
+use crate::gpio::{AFType, AnyPin, SealedPin as _};
 use crate::pac::sai::{vals, Sai as Regs};
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
@@ -1041,43 +1039,42 @@ impl<'d, T: Instance, W: word::Word> Drop for Sai<'d, T, W> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+trait SealedInstance {
+    const REGS: Regs;
+}
 
-    pub trait Instance {
-        const REGS: Regs;
-    }
+#[derive(Copy, Clone)]
+enum WhichSubBlock {
+    A = 0,
+    B = 1,
+}
 
-    #[derive(Copy, Clone)]
-    pub enum WhichSubBlock {
-        A = 0,
-        B = 1,
-    }
-
-    pub trait SubBlock {
-        const WHICH: WhichSubBlock;
-    }
+trait SealedSubBlock {
+    const WHICH: WhichSubBlock;
 }
 
 /// Sub-block instance trait.
-pub trait SubBlockInstance: sealed::SubBlock {}
+#[allow(private_bounds)]
+pub trait SubBlockInstance: SealedSubBlock {}
 
 /// Sub-block A.
 pub enum A {}
-impl sealed::SubBlock for A {
+impl SealedSubBlock for A {
     const WHICH: WhichSubBlock = WhichSubBlock::A;
 }
 impl SubBlockInstance for A {}
 
 /// Sub-block B.
 pub enum B {}
-impl sealed::SubBlock for B {
+impl SealedSubBlock for B {
     const WHICH: WhichSubBlock = WhichSubBlock::B;
 }
 impl SubBlockInstance for B {}
 
 /// SAI instance trait.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+
 pin_trait!(SckPin, Instance, SubBlockInstance);
 pin_trait!(FsPin, Instance, SubBlockInstance);
 pin_trait!(SdPin, Instance, SubBlockInstance);
@@ -1087,7 +1084,7 @@ dma_trait!(Dma, Instance, SubBlockInstance);
 
 foreach_peripheral!(
     (sai, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
+        impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
         }
 

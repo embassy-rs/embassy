@@ -31,7 +31,6 @@ pub use _version::*;
 use embassy_hal_internal::Peripheral;
 
 use crate::peripherals::RTC;
-use crate::rtc::sealed::Instance;
 
 #[allow(dead_code)]
 #[repr(u8)]
@@ -43,7 +42,7 @@ pub(crate) enum WakeupPrescaler {
     Div16 = 16,
 }
 
-#[cfg(any(stm32wb, stm32f4, stm32l0, stm32g4, stm32l5, stm32g0))]
+#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l5, stm32wb, stm32h5, stm32g0))]
 impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     fn from(val: WakeupPrescaler) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -57,7 +56,7 @@ impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     }
 }
 
-#[cfg(any(stm32wb, stm32f4, stm32l0, stm32g4, stm32l5, stm32g0))]
+#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l5, stm32wb, stm32h5, stm32g0))]
 impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -82,8 +81,7 @@ impl WakeupPrescaler {
             WakeupPrescaler::Div16,
         ]
         .iter()
-        .skip_while(|psc| **psc as u32 <= val)
-        .next()
+        .find(|psc| **psc as u32 > val)
         .unwrap_or(&WakeupPrescaler::Div16)
     }
 }
@@ -160,7 +158,7 @@ impl RtcTimeProvider {
             }
         }
 
-        return Err(RtcError::ReadFailure);
+        Err(RtcError::ReadFailure)
     }
 }
 
@@ -191,7 +189,7 @@ impl Default for RtcConfig {
 }
 
 /// Calibration cycle period.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Default, Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum RtcCalibrationCyclePeriod {
     /// 8-second calibration period
@@ -199,20 +197,15 @@ pub enum RtcCalibrationCyclePeriod {
     /// 16-second calibration period
     Seconds16,
     /// 32-second calibration period
+    #[default]
     Seconds32,
-}
-
-impl Default for RtcCalibrationCyclePeriod {
-    fn default() -> Self {
-        RtcCalibrationCyclePeriod::Seconds32
-    }
 }
 
 impl Rtc {
     /// Create a new RTC instance.
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
-        <RTC as crate::rcc::sealed::RccPeripheral>::enable_and_reset();
+        <RTC as crate::rcc::SealedRccPeripheral>::enable_and_reset();
 
         let mut this = Self {
             #[cfg(feature = "low-power")]
@@ -255,13 +248,13 @@ impl Rtc {
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
     pub fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
         self.write(true, |rtc| {
-            let (ht, hu) = byte_to_bcd2(t.hour() as u8);
-            let (mnt, mnu) = byte_to_bcd2(t.minute() as u8);
-            let (st, su) = byte_to_bcd2(t.second() as u8);
+            let (ht, hu) = byte_to_bcd2(t.hour());
+            let (mnt, mnu) = byte_to_bcd2(t.minute());
+            let (st, su) = byte_to_bcd2(t.second());
 
-            let (dt, du) = byte_to_bcd2(t.day() as u8);
-            let (mt, mu) = byte_to_bcd2(t.month() as u8);
-            let yr = t.year() as u16;
+            let (dt, du) = byte_to_bcd2(t.day());
+            let (mt, mu) = byte_to_bcd2(t.month());
+            let yr = t.year();
             let yr_offset = (yr - 2000_u16) as u8;
             let (yt, yu) = byte_to_bcd2(yr_offset);
 
@@ -339,7 +332,7 @@ impl Rtc {
     }
 
     #[cfg(feature = "low-power")]
-    /// start the wakeup alarm and wtih a duration that is as close to but less than
+    /// start the wakeup alarm and with a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
     pub(crate) fn start_wakeup_alarm(
         &self,
@@ -423,21 +416,16 @@ impl Rtc {
                 #[cfg(any(rtc_v3, rtc_v3u5, rtc_v3l5))]
                 regs.scr().write(|w| w.set_cwutf(Calrf::CLEAR));
 
-                #[cfg(all(stm32g0))]
-                crate::pac::EXTI
-                    .rpr(0)
-                    .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
-                #[cfg(all(not(stm32g0), not(stm32l5)))]
+                // Check RM for EXTI and/or NVIC section, "Event event input mapping" or "EXTI interrupt/event mapping" or something similar,
+                // there is a table for every "Event input" / "EXTI Line".
+                // If you find the EXTI line related to "RTC wakeup" marks as "Configurable" (not "Direct"),
+                // then write 1 to related field of Pending Register, to clean it's pending state.
+                #[cfg(any(exti_v1, stm32h7, stm32wb))]
                 crate::pac::EXTI
                     .pr(0)
                     .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
 
-                #[cfg(stm32l5)]
-                crate::pac::EXTI
-                    .fpr(0)
-                    .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
-
-                <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
+                <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
             });
         }
 
@@ -449,8 +437,8 @@ impl Rtc {
         use crate::interrupt::typelevel::Interrupt;
         use crate::pac::EXTI;
 
-        <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
-        unsafe { <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::enable() };
+        <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
+        unsafe { <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::enable() };
 
         EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
         EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
@@ -466,7 +454,7 @@ pub(crate) fn byte_to_bcd2(byte: u8) -> (u8, u8) {
         value -= 10;
     }
 
-    (bcd_high, ((bcd_high << 4) | value) as u8)
+    (bcd_high, ((bcd_high << 4) | value))
 }
 
 pub(crate) fn bcd2_to_byte(bcd: (u8, u8)) -> u8 {
@@ -477,34 +465,30 @@ pub(crate) fn bcd2_to_byte(bcd: (u8, u8)) -> u8 {
     tmp + (value & 0x0F)
 }
 
-pub(crate) mod sealed {
-    use crate::pac::rtc::Rtc;
+trait SealedInstance {
+    const BACKUP_REGISTER_COUNT: usize;
 
-    pub trait Instance {
-        const BACKUP_REGISTER_COUNT: usize;
+    #[cfg(feature = "low-power")]
+    const EXTI_WAKEUP_LINE: usize;
 
-        #[cfg(feature = "low-power")]
-        const EXTI_WAKEUP_LINE: usize;
+    #[cfg(feature = "low-power")]
+    type WakeupInterrupt: crate::interrupt::typelevel::Interrupt;
 
-        #[cfg(feature = "low-power")]
-        type WakeupInterrupt: crate::interrupt::typelevel::Interrupt;
-
-        fn regs() -> Rtc {
-            crate::pac::RTC
-        }
-
-        /// Read content of the backup register.
-        ///
-        /// The registers retain their values during wakes from standby mode or system resets. They also
-        /// retain their value when Vdd is switched off as long as V_BAT is powered.
-        fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32>;
-
-        /// Set content of the backup register.
-        ///
-        /// The registers retain their values during wakes from standby mode or system resets. They also
-        /// retain their value when Vdd is switched off as long as V_BAT is powered.
-        fn write_backup_register(rtc: &Rtc, register: usize, value: u32);
-
-        // fn apply_config(&mut self, rtc_config: RtcConfig);
+    fn regs() -> crate::pac::rtc::Rtc {
+        crate::pac::RTC
     }
+
+    /// Read content of the backup register.
+    ///
+    /// The registers retain their values during wakes from standby mode or system resets. They also
+    /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    fn read_backup_register(rtc: &crate::pac::rtc::Rtc, register: usize) -> Option<u32>;
+
+    /// Set content of the backup register.
+    ///
+    /// The registers retain their values during wakes from standby mode or system resets. They also
+    /// retain their value when Vdd is switched off as long as V_BAT is powered.
+    fn write_backup_register(rtc: &crate::pac::rtc::Rtc, register: usize, value: u32);
+
+    // fn apply_config(&mut self, rtc_config: RtcConfig);
 }

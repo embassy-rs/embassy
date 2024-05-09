@@ -326,9 +326,9 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         // If the destination address is already aligned, then we can just DMA directly
         if (bytes.as_ptr() as u32) % 4 == 0 {
             // Safety: alignment and size have been checked for compatibility
-            let mut buf: &mut [u32] =
+            let buf: &mut [u32] =
                 unsafe { core::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut u32, bytes.len() / 4) };
-            self.background_read(offset, &mut buf)?.await;
+            self.background_read(offset, buf)?.await;
             return Ok(());
         }
 
@@ -903,22 +903,22 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
     Ok(())
 }
 
-mod sealed {
-    pub trait Instance {}
-    pub trait Mode {}
-}
+trait SealedInstance {}
+trait SealedMode {}
 
 /// Flash instance.
-pub trait Instance: sealed::Instance {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {}
 /// Flash mode.
-pub trait Mode: sealed::Mode {}
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
 
-impl sealed::Instance for FLASH {}
+impl SealedInstance for FLASH {}
 impl Instance for FLASH {}
 
 macro_rules! impl_mode {
     ($name:ident) => {
-        impl sealed::Mode for $name {}
+        impl SealedMode for $name {}
         impl Mode for $name {}
     };
 }
