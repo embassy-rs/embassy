@@ -20,10 +20,10 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::{AnyChannel, Request, Transfer, TransferOptions};
+use crate::dma::{ChannelAndRequest, TransferOptions};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
@@ -179,10 +179,14 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             self.cc_phy,
             PdPhy {
                 _lifetime: PhantomData,
-                rx_dma_ch: rx_dma.map_into(),
-                rx_dma_req,
-                tx_dma_ch: tx_dma.map_into(),
-                tx_dma_req,
+                rx_dma: ChannelAndRequest {
+                    channel: rx_dma.map_into(),
+                    request: rx_dma_req,
+                },
+                tx_dma: ChannelAndRequest {
+                    channel: tx_dma.map_into(),
+                    request: tx_dma_req,
+                },
             },
         )
     }
@@ -309,10 +313,8 @@ pub enum TxError {
 /// Power Delivery (PD) PHY.
 pub struct PdPhy<'d, T: Instance> {
     _lifetime: PhantomData<&'d mut T>,
-    rx_dma_ch: PeripheralRef<'d, AnyChannel>,
-    rx_dma_req: Request,
-    tx_dma_ch: PeripheralRef<'d, AnyChannel>,
-    tx_dma_req: Request,
+    rx_dma: ChannelAndRequest<'d>,
+    tx_dma: ChannelAndRequest<'d>,
 }
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
@@ -337,13 +339,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         let r = T::REGS;
 
         let dma = unsafe {
-            Transfer::new_read(
-                &mut self.rx_dma_ch,
-                self.rx_dma_req,
-                r.rxdr().as_ptr() as *mut u8,
-                buf,
-                TransferOptions::default(),
-            )
+            self.rx_dma
+                .read(r.rxdr().as_ptr() as *mut u8, buf, TransferOptions::default())
         };
 
         // Clear interrupt flags (possibly set from last receive).
@@ -418,13 +415,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
         // Start the DMA and let it do its thing in the background.
         let _dma = unsafe {
-            Transfer::new_write(
-                &mut self.tx_dma_ch,
-                self.tx_dma_req,
-                buf,
-                r.txdr().as_ptr() as *mut u8,
-                TransferOptions::default(),
-            )
+            self.tx_dma
+                .write(buf, r.txdr().as_ptr() as *mut u8, TransferOptions::default())
         };
 
         // Configure and start the transmission.
