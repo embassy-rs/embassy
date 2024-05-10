@@ -13,7 +13,7 @@ use core::task::Poll;
 ///
 /// **Note**: this implementation uses a busy loop to poll the value,
 /// which is not as efficient as registering a dedicated `Waker`.
-/// However, the if the usecase for is to initialize a static variable
+/// However, if the usecase for it is to initialize a static variable
 /// relatively early in the program life cycle, it should be fine.
 ///
 /// # Example
