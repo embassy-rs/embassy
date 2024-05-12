@@ -11,8 +11,8 @@ embassy-executor = { version = "0.5.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.3.0", path = "../../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 
-riscv-rt = "0.11"
-riscv = { version = "0.10", features = ["critical-section-single-hart"] }
+riscv-rt = "0.12.2"
+riscv = { version = "0.11.1", features = ["critical-section-single-hart"] }
 
 
 [profile.dev]
