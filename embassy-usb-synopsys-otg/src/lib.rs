@@ -291,7 +291,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { vbus_detection: true }
+        Self { vbus_detection: false }
     }
 }
 
