@@ -52,6 +52,7 @@ trait SealedInstance {
     #[allow(unused)]
     fn regs() -> crate::pac::adc::Adc;
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
+    #[allow(unused)]
     fn common_regs() -> crate::pac::adccommon::AdcCommon;
     #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
     fn state() -> &'static State;
