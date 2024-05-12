@@ -43,6 +43,10 @@ async fn main(_spawner: Spawner) {
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
     let mut config = embassy_stm32::usb::Config::default();
+    // Do not enable vbus_detection. This is a safe default that works in all boards.
+    // However, if your USB device is self-powered (can stay powered on if USB is unplugged), you need
+    // to enable vbus_detection to comply with the USB spec. If you enable it, the board
+    // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
     config.vbus_detection = false;
     let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
 
