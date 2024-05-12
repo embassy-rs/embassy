@@ -969,17 +969,6 @@ fn finish_dma(regs: Regs) {
     });
 }
 
-trait RegsExt {
-    fn dr_ptr<W>(&self) -> *mut W;
-}
-
-impl RegsExt for Regs {
-    fn dr_ptr<W>(&self) -> *mut W {
-        let dr = self.dr();
-        dr.as_ptr() as *mut W
-    }
-}
-
 pub(crate) trait SealedInstance {
     const REGS: Regs;
 }
