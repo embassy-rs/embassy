@@ -290,3 +290,25 @@ General steps:
 5. Copy data to that region before using BDMA.
 
 See link:/examples/stm32h7/src/bin/spi_bdma.rs[this example] for more details.
+
+=== How do I switch to the `main` branch?
+
+Sometimes to test new changes or fixes, you'll want to switch your project to using a version from GitHub.
+
+You can add a section to your `Cargo.toml` file like this, you'll need to patch ALL embassy crates to the same revision:
+
+Using `patch` will replace all direct AND indirect dependencies.
+
+[source,toml]
+----
+[patch.crates-io]
+# make sure to get the latest git rev from github, you can see the latest one here:
+# https://github.com/embassy-rs/embassy/commits/main/
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-executor     = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-rp           = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-sync         = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-time         = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-usb          = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-usb-driver   = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+----
