@@ -47,6 +47,7 @@ trait SealedInstance {
     }
 
     /// Enable global interrupt
+    #[allow(unused)]
     fn enable_irq(&self) {
         Self::regs().csr().modify(|v| v.set_ien(true))
     }
