@@ -33,6 +33,7 @@ stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "rng", "stop"]
 stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "rng", "cordic", "hash"] # TODO: fdcan crashes, cryp dma hangs.
+stm32u083rc = ["embassy-stm32/stm32u083rc", "cm0", "rng", "chrono"]
 
 cryp = []
 hash = []
