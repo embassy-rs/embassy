@@ -248,6 +248,7 @@ cargo batch \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h7s3l8 --out-dir out/tests/stm32h7s3l8 \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f091rc --out-dir out/tests/stm32f091rc \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h503rb --out-dir out/tests/stm32h503rb \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u083rc --out-dir out/tests/stm32u083rc \
     --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/rpi-pico \
     --- build --release --manifest-path tests/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/tests/nrf52840-dk \
     --- build --release --manifest-path tests/nrf51422/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/nrf51-dk \
