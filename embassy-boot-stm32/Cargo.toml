@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "embassy-boot-stm32"
-version = "0.3.0"
+version = "0.2001.0"
 description = "Bootloader lib for STM32 chips"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
