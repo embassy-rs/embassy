@@ -242,10 +242,10 @@ unsafe fn debug_linked_list(mut p_node: *mut LinkedListNode) {
     let mut i = 0;
     loop {
         let current_node = ptr::read_volatile(p_current_node);
-        info!(
-            "node (prev, current, next): {:x}, {:x}, {:x}",
-            current_node.prev, p_current_node, current_node.next
-        );
+        // info!(
+        //     "node (prev, current, next): {:x}, {:x}, {:x}",
+        //     current_node.prev, p_current_node, current_node.next
+        // );
 
         i += 1;
         if i > 10 || current_node.next == p_node {
