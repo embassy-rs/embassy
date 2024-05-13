@@ -714,10 +714,6 @@ pub fn clk_rtc_freq() -> u16 {
 }
 
 fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
-    pac::XOSC
-        .ctrl()
-        .write(|w| w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ));
-
     let startup_delay = (((crystal_hz / 1000) * delay_multiplier) + 128) / 256;
     pac::XOSC.startup().write(|w| w.set_delay(startup_delay as u16));
     pac::XOSC.ctrl().write(|w| {
