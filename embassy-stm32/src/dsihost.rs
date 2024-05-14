@@ -171,7 +171,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
     /// Write long DCS or long Generic command.
     ///
-    /// `params` is expected to contain at least 3 elements. Use [`short_write`] for 2 or less.
+    /// `params` is expected to contain at least 2 elements. Use [`short_write`] for a single element.
     fn long_write(&mut self, channel_id: u8, packet_type: PacketType, address: u8, data: &[u8]) -> Result<(), Error> {
         // Must be a long packet if we do the long write, obviously.
         assert!(matches!(
@@ -343,15 +343,45 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         Err(Error::FifoTimeout)
     }
 
+    fn wait_command_fifo_not_full(&self) -> Result<(), Error> {
+        for _ in 1..1000 {
+            // Wait for Command FIFO not empty
+            if !T::regs().gpsr().read().cmdff() {
+                return Ok(());
+            }
+            blocking_delay_ms(1);
+        }
+        Err(Error::FifoTimeout)
+    }
+
+    fn wait_read_not_busy(&self) -> Result<(), Error> {
+        for _ in 1..1000 {
+            // Wait for read not busy
+            if !T::regs().gpsr().read().rcb() {
+                return Ok(());
+            }
+            blocking_delay_ms(1);
+        }
+        Err(Error::ReadTimeout)
+    }
+
     fn wait_payload_read_fifo_not_empty(&self) -> Result<(), Error> {
         for _ in 1..1000 {
-            // Wait for payload read FIFO empty
+            // Wait for payload read FIFO not empty
             if !T::regs().gpsr().read().prdfe() {
                 return Ok(());
             }
             blocking_delay_ms(1);
         }
         Err(Error::FifoTimeout)
+    }
+
+    fn packet_size_error(&self) -> bool {
+        T::regs().isr1().read().pse()
+    }
+
+    fn read_busy(&self) -> bool {
+        T::regs().gpsr().read().rcb()
     }
 }
 
@@ -365,6 +395,10 @@ pub enum Error {
     InvalidPacketType,
     /// Provided read size does not match the read buffer length
     InvalidReadSize,
+    /// Error during read
+    ReadError,
+    /// Read operation timed out
+    ReadTimeout,
 }
 
 impl<'d, T: Instance> Drop for DsiHost<'d, T> {
