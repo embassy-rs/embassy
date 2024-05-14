@@ -1023,7 +1023,7 @@ pub fn dormant_sleep() {
     let _stop_adc = set(pac::CLOCKS.clk_adc_ctrl(), |w| w.set_enable(false));
     let _stop_usb = set(pac::CLOCKS.clk_usb_ctrl(), |w| w.set_enable(false));
     let _stop_peri = set(pac::CLOCKS.clk_peri_ctrl(), |w| w.set_enable(false));
-    // set up rosc. we could ask the use to tell us which clock source to wake from like
+    // set up rosc. we could ask the user to tell us which clock source to wake from like
     // the C SDK does, but that seems rather unfriendly. we *may* disturb rtc by changing
     // rosc configuration if it's currently the rtc clock source, so we'll configure rosc
     // to the slowest frequency to minimize that impact.
