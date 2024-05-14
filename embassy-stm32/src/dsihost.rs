@@ -332,6 +332,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         */
         Ok(())
     }
+
     fn wait_command_fifo_empty(&self) -> Result<(), Error> {
         for _ in 1..1000 {
             // Wait for Command FIFO empty
@@ -357,7 +358,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     fn wait_read_not_busy(&self) -> Result<(), Error> {
         for _ in 1..1000 {
             // Wait for read not busy
-            if !T::regs().gpsr().read().rcb() {
+            if !self.read_busy() {
                 return Ok(());
             }
             blocking_delay_ms(1);
@@ -376,7 +377,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         Err(Error::FifoTimeout)
     }
 
-    fn packet_size_error(&self) -> bool {
+    fn _packet_size_error(&self) -> bool {
         T::regs().isr1().read().pse()
     }
 
