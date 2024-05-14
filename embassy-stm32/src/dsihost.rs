@@ -123,14 +123,17 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     }
 
     /// DCS or Generic short/long write command
-    pub fn write_cmd(&mut self, channel_id: u8, params: &[u8]) -> Result<(), Error> {
-        if params.len() <= 2 {
-            self.short_write(channel_id, PacketType::DcsShortPktWriteP1, params[0], params[1])
+    pub fn write_cmd(&mut self, channel_id: u8, address: u8, data: &[u8]) -> Result<(), Error> {
+        assert!(data.len() > 0);
+
+        if data.len() == 1 {
+            self.short_write(channel_id, PacketType::DcsShortPktWriteP1, address, data[0])
         } else {
             self.long_write(
                 channel_id,
                 PacketType::DcsLongPktWrite, // FIXME: This might be a generic long packet, as well...
-                params,
+                address,
+                data,
             )
         }
     }
@@ -169,15 +172,15 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     /// Write long DCS or long Generic command.
     ///
     /// `params` is expected to contain at least 3 elements. Use [`short_write`] for 2 or less.
-    fn long_write(&mut self, channel_id: u8, packet_type: PacketType, params: &[u8]) -> Result<(), Error> {
+    fn long_write(&mut self, channel_id: u8, packet_type: PacketType, address: u8, data: &[u8]) -> Result<(), Error> {
         // Must be a long packet if we do the long write, obviously.
         assert!(matches!(
             packet_type,
             PacketType::DcsLongPktWrite | PacketType::GenLongPktWrite
         ));
 
-        // params needs to have at least 3 elements, otherwise short_write should be used
-        assert!(params.len() >= 3);
+        // params needs to have at least 2 elements, otherwise short_write should be used
+        assert!(data.len() >= 2);
 
         #[cfg(feature = "defmt")]
         defmt::debug!("long_write: BEGIN wait for command fifo empty");
@@ -186,9 +189,6 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
         #[cfg(feature = "defmt")]
         defmt::debug!("long_write: DONE wait for command fifo empty");
-
-        let dcs_code = params[params.len() - 1]; // FIXME: DCS Code stored in the last element. Should probably be a separate argument.
-        let data = &params[0..params.len() - 1]; // data is all elements except for the dcs_code
 
         // Note: CubeMX example "NbParams" is always one LESS than params.len()
         // DCS code (last element of params) must be on payload byte 1 and if we have only 2 more params,
@@ -203,7 +203,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             w.set_data2(data[0]);
 
             // DCS Code
-            w.set_data1(dcs_code);
+            w.set_data1(address);
         });
 
         self.wait_command_fifo_empty()?;
@@ -247,8 +247,8 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         self.config_packet_header(
             channel_id,
             packet_type,
-            (params.len() & 0x00FF) as u8,
-            ((params.len() & 0xFF00) >> 8) as u8,
+            ((data.len() + 1) & 0x00FF) as u8,        // +1 to account for address byte
+            (((data.len() + 1) & 0xFF00) >> 8) as u8, // +1 to account for address byte
         );
 
         self.wait_command_fifo_empty()?;
@@ -277,8 +277,8 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             channel_id,
             PacketType::MaxReturnPktSize,
             (read_size & 0xFF) as u8,
-            ((read_size >> 8) & 0xFF) as u8,
-        );
+            ((read_size & 0xFF00) >> 8) as u8,
+        )?;
 
         // Set the packet header according to the packet_type
         use PacketType::*;
