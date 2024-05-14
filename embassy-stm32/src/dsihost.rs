@@ -193,6 +193,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             // data[0] and [1] have to exist if long_write is called.
             w.set_data3(data[1]);
             w.set_data2(data[0]);
+
             // DCS Code
             w.set_data1(dcs_code);
         });
@@ -301,6 +302,15 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             }
         }
 
+        /*
+        // Used this to check whether there are read errors. Does not seem like it.
+        if !self.read_busy() {
+            defmt::debug!("Read not busy!");
+            if self.packet_size_error() {
+                return Err(Error::ReadError);
+            }
+        }
+        */
         Ok(())
     }
     fn wait_command_fifo_empty(&self) -> Result<(), Error> {
