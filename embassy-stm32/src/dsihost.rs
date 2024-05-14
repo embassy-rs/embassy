@@ -123,7 +123,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     }
 
     /// DCS or Generic short/long write command
-    pub fn write_cmd(&mut self, channel_id: u8, params: &[u8]) {
+    pub fn write_cmd(&mut self, channel_id: u8, params: &[u8]) -> Result<(), Error> {
         if params.len() <= 2 {
             self.short_write(channel_id, PacketType::DcsShortPktWriteP1, params[0], params[1])
         } else {
@@ -135,18 +135,26 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         }
     }
 
-    fn short_write(&mut self, channel_id: u8, packet_type: PacketType, param1: u8, param2: u8) {
+    fn short_write(&mut self, channel_id: u8, packet_type: PacketType, param1: u8, param2: u8) -> Result<(), Error> {
         #[cfg(feature = "defmt")]
         defmt::debug!("short_write: BEGIN wait for command fifo empty");
 
         // Wait for Command FIFO empty
-        self.wait_command_fifo_empty().unwrap();
+        self.wait_command_fifo_empty()?;
         #[cfg(feature = "defmt")]
         defmt::debug!("short_write: END wait for command fifo empty");
 
         // Configure the packet to send a short DCS command with 0 or 1 parameters
         // Update the DSI packet header with new information
         self.config_packet_header(channel_id, packet_type, param1, param2);
+
+        self.wait_command_fifo_empty()?;
+
+        let status = T::regs().isr1().read().0;
+        if status != 0 {
+            error!("ISR1 after short_write(): {:b}", status);
+        }
+        Ok(())
     }
 
     fn config_packet_header(&mut self, channel_id: u8, packet_type: PacketType, param1: u8, param2: u8) {
@@ -161,7 +169,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     /// Write long DCS or long Generic command.
     ///
     /// `params` is expected to contain at least 3 elements. Use [`short_write`] for 2 or less.
-    fn long_write(&mut self, channel_id: u8, packet_type: PacketType, params: &[u8]) {
+    fn long_write(&mut self, channel_id: u8, packet_type: PacketType, params: &[u8]) -> Result<(), Error> {
         // Must be a long packet if we do the long write, obviously.
         assert!(matches!(
             packet_type,
@@ -174,7 +182,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         #[cfg(feature = "defmt")]
         defmt::debug!("long_write: BEGIN wait for command fifo empty");
 
-        self.wait_command_fifo_empty().unwrap();
+        self.wait_command_fifo_empty()?;
 
         #[cfg(feature = "defmt")]
         defmt::debug!("long_write: DONE wait for command fifo empty");
@@ -198,8 +206,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             w.set_data1(dcs_code);
         });
 
-        // FIXME: This probably should return an error
-        self.wait_command_fifo_empty().unwrap();
+        self.wait_command_fifo_empty()?;
 
         // These steps are only necessary if more than 1x 4 bytes need to go into the FIFO
         if data.len() >= 4 {
@@ -210,6 +217,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
             // Keep filling the buffer with remaining data
             for param in iter {
+                self.wait_command_fifo_not_full()?;
                 T::regs().gpdr().write(|w| {
                     w.set_data4(param[3]);
                     w.set_data3(param[2]);
@@ -222,6 +230,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
             // If the remaining data was not devisible by 4 we get a remainder
             if remainder.len() >= 1 {
+                self.wait_command_fifo_not_full()?;
                 T::regs().gpdr().write(|w| {
                     if let Some(x) = remainder.get(2) {
                         w.set_data3(*x);
@@ -235,12 +244,20 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             }
         }
         // Configure the packet to send a long DCS command
-        T::regs().ghcr().write(|w| {
-            w.set_dt(packet_type.into());
-            w.set_vcid(channel_id);
-            w.set_wclsb((params.len() & 0x00FF) as u8);
-            w.set_wcmsb((params.len() & 0xFF00 >> 8) as u8);
-        });
+        self.config_packet_header(
+            channel_id,
+            packet_type,
+            (params.len() & 0x00FF) as u8,
+            ((params.len() & 0xFF00) >> 8) as u8,
+        );
+
+        self.wait_command_fifo_empty()?;
+
+        let status = T::regs().isr1().read().0;
+        if status != 0 {
+            error!("ISR1 after long_write(): {:b}", status);
+        }
+        Ok(())
     }
 
     /// Read DSI Register
@@ -273,9 +290,11 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             _ => return Err(Error::InvalidPacketType),
         }
 
+        self.wait_read_not_busy()?;
+
         // Obtain chunks of 32-bit so the entire FIFO data register can be read
         for bytes in data.chunks_exact_mut(4) {
-            self.wait_payload_read_fifo_not_empty().unwrap();
+            self.wait_payload_read_fifo_not_empty()?;
 
             // Only perform a single read on the entire register to avoid unintended side-effects
             let gpdr = T::regs().gpdr().read();
@@ -288,7 +307,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         // Collect the remaining chunks and read the corresponding number of bytes from the FIFO
         let remainder = data.chunks_exact_mut(4).into_remainder();
         if !remainder.is_empty() {
-            self.wait_payload_read_fifo_not_empty().unwrap();
+            self.wait_payload_read_fifo_not_empty()?;
             // Only perform a single read on the entire register to avoid unintended side-effects
             let gpdr = T::regs().gpdr().read();
             if let Some(x) = remainder.get_mut(0) {
