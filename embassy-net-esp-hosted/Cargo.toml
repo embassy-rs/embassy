@@ -9,6 +9,10 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-net-esp-hosted"
 
+[features]
+defmt = [ "dep:defmt", "heapless/defmt-03" ]
+log = [ "dep:log" ]
+
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
