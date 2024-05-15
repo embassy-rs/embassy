@@ -680,7 +680,6 @@ pub(crate) trait SealedPin {
         self.block().ospeedr().modify(|w| w.set_ospeedr(pin, speed.into()));
     }
 
-
     /// Get the pull-up configuration.
     #[inline]
     fn pull(&self) -> Pull {
@@ -692,12 +691,14 @@ pub(crate) trait SealedPin {
                 let crlh = if n < 8 { 0 } else { 1 };
                 match r.cr(crlh).cnf(n % 8) {
                     vals::CnfIn::FLOATING => Pull::None,
-                    _ => if r.bsrr().read().bs(n % 8) {
-                        Pull::Up
-                    } else if r.bsrr().read().br(n % 8) {
-                        Pull::Down
-                    } else {
-                        Pull::None
+                    _ => {
+                        if r.bsrr().read().bs(n % 8) {
+                            Pull::Up
+                        } else if r.bsrr().read().br(n % 8) {
+                            Pull::Down
+                        } else {
+                            Pull::None
+                        }
                     }
                 }
             }

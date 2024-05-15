@@ -283,11 +283,12 @@ impl<'d, T: Instance, M: PeriMode> Spi<'d, T, M> {
 
         let miso_pullup = match &self.miso {
             None => false,
-            Some(pin) => 
-            if pin.pull() == Pull::Up {
-                true
-            } else {
-                false
+            Some(pin) => {
+                if pin.pull() == Pull::Up {
+                    true
+                } else {
+                    false
+                }
             }
         };
 
@@ -426,11 +427,15 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             peri,
             new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
             new_pin!(mosi, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(miso, AFType::Input, Speed::Input, 
+            new_pin!(
+                miso,
+                AFType::Input,
+                Speed::Input,
                 match config.miso_pullup {
                     true => Pull::Up,
                     false => Pull::None,
-                }),
+                }
+            ),
             None,
             None,
             config,
@@ -448,11 +453,15 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             peri,
             new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
             None,
-            new_pin!(miso, AFType::Input, Speed::Input, 
+            new_pin!(
+                miso,
+                AFType::Input,
+                Speed::Input,
                 match config.miso_pullup {
                     true => Pull::Up,
                     false => Pull::None,
-                }),
+                }
+            ),
             None,
             None,
             config,
