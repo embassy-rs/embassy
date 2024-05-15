@@ -50,6 +50,11 @@ pub struct Config {
     pub bit_order: BitOrder,
     /// Clock frequency.
     pub frequency: Hertz,
+    /// Enable internal pullup on MISO.
+    ///
+    /// There are some ICs that require a pull-up on the MISO pin for some applications.
+    /// If you  are unsure, you probably don't need this.
+    pub miso_pullup: bool,
 }
 
 impl Default for Config {
@@ -58,6 +63,7 @@ impl Default for Config {
             mode: MODE_0,
             bit_order: BitOrder::MsbFirst,
             frequency: Hertz(1_000_000),
+            miso_pullup: false,
         }
     }
 }
@@ -275,6 +281,16 @@ impl<'d, T: Instance, M: PeriMode> Spi<'d, T, M> {
             BitOrder::MsbFirst
         };
 
+        let miso_pullup = match &self.miso {
+            None => false,
+            Some(pin) => 
+            if pin.pull() == Pull::Up {
+                true
+            } else {
+                false
+            }
+        };
+
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
         let br = cfg.br();
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
@@ -287,6 +303,7 @@ impl<'d, T: Instance, M: PeriMode> Spi<'d, T, M> {
             mode: Mode { polarity, phase },
             bit_order,
             frequency,
+            miso_pullup,
         }
     }
 
@@ -409,7 +426,11 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             peri,
             new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
             new_pin!(mosi, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(miso, AFType::Input, Speed::VeryHigh),
+            new_pin!(miso, AFType::Input, Speed::Input, 
+                match config.miso_pullup {
+                    true => Pull::Up,
+                    false => Pull::None,
+                }),
             None,
             None,
             config,
@@ -427,7 +448,11 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             peri,
             new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
             None,
-            new_pin!(miso, AFType::Input, Speed::VeryHigh),
+            new_pin!(miso, AFType::Input, Speed::Input, 
+                match config.miso_pullup {
+                    true => Pull::Up,
+                    false => Pull::None,
+                }),
             None,
             None,
             config,

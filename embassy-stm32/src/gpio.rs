@@ -265,6 +265,7 @@ impl From<Pull> for vals::Pupdr {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Speed {
+    Input,
     Low,
     Medium,
     #[cfg(not(any(syscfg_f0, gpio_v1)))]
@@ -278,6 +279,7 @@ impl From<Speed> for vals::Mode {
         use Speed::*;
 
         match speed {
+            Input => vals::Mode::INPUT,
             Low => vals::Mode::OUTPUT2MHZ,
             Medium => vals::Mode::OUTPUT10MHZ,
             VeryHigh => vals::Mode::OUTPUT50MHZ,
@@ -291,6 +293,7 @@ impl From<Speed> for vals::Ospeedr {
         use Speed::*;
 
         match speed {
+            Input => vals::Ospeedr::LOWSPEED,
             Low => vals::Ospeedr::LOWSPEED,
             Medium => vals::Ospeedr::MEDIUMSPEED,
             #[cfg(not(syscfg_f0))]
@@ -675,6 +678,39 @@ pub(crate) trait SealedPin {
 
         #[cfg(gpio_v2)]
         self.block().ospeedr().modify(|w| w.set_ospeedr(pin, speed.into()));
+    }
+
+
+    /// Get the pull-up configuration.
+    #[inline]
+    fn pull(&self) -> Pull {
+        critical_section::with(|_| {
+            let r = self.block();
+            let n = self._pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let crlh = if n < 8 { 0 } else { 1 };
+                match r.cr(crlh).cnf(n % 8) {
+                    vals::CnfIn::FLOATING => Pull::None,
+                    _ => if r.bsrr().read().bs(n % 8) {
+                        Pull::Up
+                    } else if r.bsrr().read().br(n % 8) {
+                        Pull::Down
+                    } else {
+                        Pull::None
+                    }
+                }
+            }
+            #[cfg(gpio_v2)]
+            {
+                match r.pupdr().read().pupdr(n % 8) {
+                    vals::Pupdr::FLOATING => Pull::None,
+                    vals::Pupdr::PULLDOWN => Pull::Down,
+                    vals::Pupdr::PULLUP => Pull::Up,
+                    vals::Pupdr::_RESERVED_3 => Pull::None,
+                }
+            }
+        })
     }
 }
 
