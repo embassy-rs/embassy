@@ -1,6 +1,6 @@
 [package]
 name = "embassy-stm32-wpan"
-version = "0.1001.0"
+version = "0.1001.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Async STM32 WPAN stack for embedded devices in Rust."
@@ -34,7 +34,7 @@ aligned = "0.4.1"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { version = "0.17.0", optional = true }
+stm32wb-hci = { version = "0.1701.0", optional = true, registry = "artifactory"}
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
 
