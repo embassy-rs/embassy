@@ -9,7 +9,7 @@
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::ppi::{Event, Task};
-use crate::{pac, Peripheral};
+use crate::Peripheral;
 
 pub(crate) mod sealed {
 
