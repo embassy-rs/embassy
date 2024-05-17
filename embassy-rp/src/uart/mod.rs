@@ -231,7 +231,7 @@ impl<'d, T: Instance> UartTx<'d, T, Blocking> {
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
     ) -> BufferedUartTx<'d, T> {
-        buffered::init_buffers::<T>(irq, tx_buffer, &mut []);
+        buffered::init_buffers::<T>(irq, Some(tx_buffer), None);
 
         BufferedUartTx { phantom: PhantomData }
     }
@@ -352,7 +352,7 @@ impl<'d, T: Instance> UartRx<'d, T, Blocking> {
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx_buffer: &'d mut [u8],
     ) -> BufferedUartRx<'d, T> {
-        buffered::init_buffers::<T>(irq, &mut [], rx_buffer);
+        buffered::init_buffers::<T>(irq, None, Some(rx_buffer));
 
         BufferedUartRx { phantom: PhantomData }
     }
@@ -690,7 +690,7 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
     ) -> BufferedUart<'d, T> {
-        buffered::init_buffers::<T>(irq, tx_buffer, rx_buffer);
+        buffered::init_buffers::<T>(irq, Some(tx_buffer), Some(rx_buffer));
 
         BufferedUart {
             rx: BufferedUartRx { phantom: PhantomData },
@@ -860,7 +860,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         });
     }
 
-    /// sets baudrate on runtime    
+    /// sets baudrate on runtime
     pub fn set_baudrate(&mut self, baudrate: u32) {
         Self::set_baudrate_inner(baudrate);
     }
