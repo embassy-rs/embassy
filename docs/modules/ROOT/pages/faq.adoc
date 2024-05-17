@@ -291,7 +291,7 @@ General steps:
 
 See link:/examples/stm32h7/src/bin/spi_bdma.rs[this example] for more details.
 
-=== How do I switch to the `main` branch?
+== How do I switch to the `main` branch?
 
 Sometimes to test new changes or fixes, you'll want to switch your project to using a version from GitHub.
 
@@ -315,7 +315,7 @@ embassy-usb          = { git = "https://github.com/embassy-rs/embassy",     rev 
 embassy-usb-driver   = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
 ----
 
-=== How do I add support for a new microcontroller to embassy?
+== How do I add support for a new microcontroller to embassy?
 
 This is particularly for cortex-m, and potentially risc-v, where there is already support for basics like interrupt handling, or even already embassy-executor support for your architecture.
 
