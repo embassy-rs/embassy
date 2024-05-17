@@ -9,7 +9,7 @@
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::ppi::{Event, Task};
-use crate::{pac, Peripheral};
+use crate::{pac, Peripheral, chip};
 
 pub(crate) mod sealed {
 
@@ -18,7 +18,7 @@ pub(crate) mod sealed {
     pub trait Instance {
         /// The number of CC registers this instance has.
         const CCS: usize;
-        fn regs() -> &'static pac::timer0::RegisterBlock;
+        fn regs() -> &'static chip::TimerRegisterBlock;
     }
     pub trait ExtendedInstance {}
 
@@ -38,8 +38,8 @@ macro_rules! impl_timer {
     ($type:ident, $pac_type:ident, $irq:ident, $ccs:literal) => {
         impl crate::timer::sealed::Instance for peripherals::$type {
             const CCS: usize = $ccs;
-            fn regs() -> &'static pac::timer0::RegisterBlock {
-                unsafe { &*(pac::$pac_type::ptr() as *const pac::timer0::RegisterBlock) }
+            fn regs() -> &'static chip::TimerRegisterBlock {
+                unsafe { &*(pac::$pac_type::ptr() as *const chip::TimerRegisterBlock) }
             }
         }
         impl crate::timer::Instance for peripherals::$type {
