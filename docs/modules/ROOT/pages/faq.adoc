@@ -314,3 +314,22 @@ embassy-time         = { git = "https://github.com/embassy-rs/embassy",     rev 
 embassy-usb          = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
 embassy-usb-driver   = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
 ----
+
+=== How do I add support for a new microcontroller to embassy?
+
+This is particularly for cortex-m, and potentially risc-v, where there is already support for basics like interrupt handling, or even already embassy-executor support for your architecture.
+
+This is a *much harder path* than just using Embassy on an already supported chip. If you are a beginner, consider using embassy on an existing, well supported chip for a while, before you decide to write drivers from scratch. It's also worth reading the existing source of supported Embassy HALs, to get a feel for how drivers are implemented for various chips. You should already be comfortable reading and writing unsafe code, and understanding the responsibilities of writing safe abstractions for users of your HAL.
+
+This is not the only possible approach, but if you are looking for where to start, this is a reasonable way to tackle the task:
+
+1. First, drop by the Matrix room or search around to see if someone has already started writing drivers, either in Embassy or otherwise in Rust. You might not have to start from scratch!
+2. Make sure the target is supported in probe-rs, it likely is, and if not, there is likely a cmsis-pack you can use to add support so that flashing and debugging is possible. You will definitely appreciate being able to debug with SWD or JTAG when writing drivers!
+3. See if there is an SVD (or SVDs, if it's a family) available, if it is, run it through chiptool to create a PAC for low level register access. If not, there are other ways (like scraping the PDF datasheets or existing C header files), but these are more work than starting from the SVD file to define peripheral memory locations necessary for writing drivers.
+4. Either make a fork of embassy repo, and add your target there, or make a repo that just contains the PAC and an empty HAL. It doesn't necessarily have to live in the embassy repo at first.
+5. Get a hello world binary working on your chip, either with minimal HAL or just PAC access, use delays and blink a light or send some raw data on some interface, make sure it works and you can flash, debug with defmt + RTT, write a proper linker script, etc.
+6. Get basic timer operations and timer interrupts working, upgrade your blinking application to use hardware timers and interrupts, and ensure they are accurate (with a logic analyzer or oscilloscope, if possible).
+7. Implement the embassy-time driver API with your timer and timer interrupt code, so that you can use embassy-time operations in your drivers and applications.
+8. Then start implementing whatever peripherals you need, like GPIOs, UART, SPI, I2C, etc. This is the largest part of the work, and will likely continue for a while! Don't feel like you need 100% coverage of all peripherals at first, this is likely to be an ongoing process over time.
+9. Start implementing the embedded-hal, embedded-io, and embedded-hal-async traits on top of your HAL drivers, once you start having more features completed. This will allow users to use standard external device drivers (e.g. sensors, actuators, displays, etc.) with your HAL.
+10. Discuss upstreaming the PAC/HAL for embassy support, or make sure your drivers are added to the awesome-embedded-rust list so that people can find it.
