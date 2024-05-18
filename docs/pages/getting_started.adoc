@@ -137,7 +137,7 @@ If you’re still having problems, check the link:https://embassy.dev/book/dev/f
 
 Congratulations, you have your first Embassy application running! Here are some suggestions for where to go from here:
 
-* Read more about the xref:runtime.adoc[executor].
-* Read more about the xref:hal.adoc[HAL].
-* Start xref:basic_application.adoc[writing your application].
-* Learn how to xref:new_project.adoc[start a new embassy project by adapting an example].
+* Read more about the xref:_embassy_executor[executor].
+* Read more about the xref:_hardware_abstraction_layer_hal[HAL].
+* Start xref:_a_basic_embassy_application[writing your application].
+* Learn how to xref:_starting_a_new_project[start a new embassy project by adapting an example].

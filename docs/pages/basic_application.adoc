@@ -1,6 +1,6 @@
 = A basic Embassy application
 
-So you've got one of the xref:examples.adoc[examples] running, but what now? Let's go through a simple Embassy application for the nRF52 DK to understand it better.
+So you've got one of the examples running, but what now? Let's go through a simple Embassy application for the nRF52 DK to understand it better.
 
 == Main
 
