@@ -374,6 +374,11 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ReadNorFlash for Flash<'
 
 impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, M, FLASH_SIZE> {}
 
+impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::MultiwriteNorFlash
+    for Flash<'d, T, Async, FLASH_SIZE>
+{
+}
+
 impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, M, FLASH_SIZE> {
     const WRITE_SIZE: usize = WRITE_SIZE;
 
