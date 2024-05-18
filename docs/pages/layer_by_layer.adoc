@@ -16,7 +16,7 @@ The blinky app using PAC is shown below:
 
 [source,rust]
 ----
-include::example$layer-by-layer/blinky-pac/src/main.rs[]
+include::../examples/layer-by-layer/blinky-pac/src/main.rs[]
 ----
 
 As you can see, a lot of code is needed to enable the peripheral clocks and to configure the input pins and the output pins of the application.
@@ -35,7 +35,7 @@ The HAL example is shown below:
 
 [source,rust]
 ----
-include::example$layer-by-layer/blinky-hal/src/main.rs[]
+include::../examples/layer-by-layer/blinky-hal/src/main.rs[]
 ----
 
 As you can see, the application becomes a lot simpler, even without using any async code. The `Input` and `Output` types hide all the details of accessing the GPIO registers and allow you to use a much simpler API for querying the state of the button and toggling the LED output.
@@ -52,7 +52,7 @@ Given Embassy focus on async Rust (which we'll come back to after this example),
 
 [source,rust]
 ----
-include::example$layer-by-layer/blinky-irq/src/main.rs[lines="1..57"]
+include::../examples/layer-by-layer/blinky-irq/src/main.rs[lines="1..57"]
 ----
 
 The simple application is now more complex again, primarily because of the need to keep the button and LED states in the global scope where it is accessible by the main application loop, as well as the interrupt handler.
@@ -67,7 +67,7 @@ It's time to use the Embassy capabilities to its fullest. At the core, Embassy h
 
 [source,rust]
 ----
-include::example$layer-by-layer/blinky-async/src/main.rs[]
+include::../examples/layer-by-layer/blinky-async/src/main.rs[]
 ----
 
 The async version looks very similar to the HAL version, apart from a few minor details:

@@ -7,5 +7,5 @@ Main loop example
 
 [source,rust]
 ----
-include::example$examples/std/src/bin/tick.rs[]
+include::../examples/examples/std/src/bin/tick.rs[]
 ----
