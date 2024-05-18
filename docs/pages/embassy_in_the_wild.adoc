@@ -10,8 +10,8 @@ Here are known examples of real-world projects which make use of Embassy. Feel f
 * link:https://github.com/card-io-ecg/card-io-fw[Card/IO firmware] - firmware for an open source ECG device
 ** Targets the ESP32-S3 or ESP32-C6 MCU
 * The link:https://github.com/lora-rs/lora-rs[lora-rs] project includes link:https://github.com/lora-rs/lora-rs/tree/main/examples/stm32l0/src/bin[various standalone examples] for NRF52840, RP2040, STM32L0 and STM32WL
-** link:https://github.com/matoushybl/air-force-one[Air force one: A simple air quality monitoring system]
-*** Targets nRF52 and uses nrf-softdevice
+* link:https://github.com/matoushybl/air-force-one[Air force one: A simple air quality monitoring system]
+** Targets nRF52 and uses nrf-softdevice
 
 * link:https://github.com/schmettow/ylab-edge-go[YLab Edge Go] and link:https://github.com/schmettow/ylab-edge-pro[YLab Edge Pro] projects develop 
 firmware (RP2040, STM32) for capturing physiological data in behavioural science research. Included so far are:

@@ -1,8 +1,8 @@
 all:
-	asciidoctor -d book -D thebook/ index.adoc
-	cp -r images thebook
+	asciidoctor -d book -D book/ index.adoc
+	cp -r images book
 
 clean:
-	rm -rf thebook
+	rm -rf book
 
 .PHONY: all clean
