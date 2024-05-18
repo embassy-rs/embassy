@@ -1,6 +1,6 @@
 = Embassy in the wild!
 
-Here are known examples of real-world projects which make use of Embassy. Feel free to link:https://github.com/embassy-rs/embassy/blob/main/docs/modules/ROOT/pages/embassy_in_the_wild.adoc[add more]!
+Here are known examples of real-world projects which make use of Embassy. Feel free to link:https://github.com/embassy-rs/embassy/blob/main/docs/pages/embassy_in_the_wild.adoc[add more]!
 
 * link:https://github.com/haobogu/rmk/[RMK: A feature-rich Rust keyboard firmware]
 ** RMK has built-in layer support, wireless(BLE) support, real-time key editing support using vial, and more! 

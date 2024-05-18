@@ -2,7 +2,7 @@
 
 These are a list of unsorted, commonly asked questions and answers.
 
-Please feel free to add items to link:https://github.com/embassy-rs/embassy/edit/main/docs/modules/ROOT/pages/faq.adoc[this page], especially if someone in the chat answered a question for you!
+Please feel free to add items to link:https://github.com/embassy-rs/embassy/edit/main/docs/pages/faq.adoc[this page], especially if someone in the chat answered a question for you!
 
 == How to deploy to RP2040 without a debugging probe.
 
