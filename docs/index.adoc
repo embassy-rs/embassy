@@ -4,6 +4,7 @@
 :toc:
 :toc-placement: left
 :toclevels: 2
+:imagesdir: images
 
 # Embassy Book
 
