@@ -27,3 +27,48 @@ static_cell = "2.0.0"
 
 [profile.release]
 debug = 2
+
+[[bin]]
+name = "adc"
+test = false
+bench = false
+
+[[bin]]
+name = "blinky"
+test = false
+bench = false
+
+[[bin]]
+name = "button_exti"
+test = false
+bench = false
+
+[[bin]]
+name = "button"
+test = false
+bench = false
+
+[[bin]]
+name = "can"
+test = false
+bench = false
+
+[[bin]]
+name = "pll"
+test = false
+bench = false
+
+[[bin]]
+name = "pwm"
+test = false
+bench = false
+
+[[bin]]
+name = "usb_c_pd"
+test = false
+bench = false
+
+[[bin]]
+name = "usb_serial"
+test = false
+bench = false
