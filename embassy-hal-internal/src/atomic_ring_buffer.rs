@@ -123,6 +123,11 @@ impl RingBuffer {
         Some(Writer(self))
     }
 
+    /// Return if buffer is available.
+    pub fn is_available(&self) -> bool {
+        !self.buf.load(Ordering::Relaxed).is_null() && self.len.load(Ordering::Relaxed) != 0
+    }
+
     /// Return length of buffer.
     pub fn len(&self) -> usize {
         self.len.load(Ordering::Relaxed)
