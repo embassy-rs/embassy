@@ -620,6 +620,18 @@ where
         self.lock(|c| c.try_receive())
     }
 
+    /// Returns the maximum number of elements the channel can hold.
+    pub const fn capacity(&self) -> usize {
+        N
+    }
+
+    /// Returns the free capacity of the channel.
+    ///
+    /// This is equivalent to `capacity() - len()`
+    pub fn free_capacity(&self) -> usize {
+        N - self.len()
+    }
+
     /// Returns the number of elements currently in the channel.
     pub fn len(&self) -> usize {
         self.lock(|c| c.len())
