@@ -1,7 +1,9 @@
 #![macro_use]
 
 macro_rules! peri_trait {
-    () => {
+    (
+        $(irqs: [$($irq:ident),*],)?
+    ) => {
         #[allow(private_interfaces)]
         pub(crate) trait SealedInstance {
             #[allow(unused)]
@@ -10,9 +12,14 @@ macro_rules! peri_trait {
             fn state() -> &'static State;
         }
 
-        /// SPI instance trait.
+        /// Peripheral instance trait.
         #[allow(private_bounds)]
-        pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+        pub trait Instance: crate::Peripheral<P = Self> + SealedInstance + crate::rcc::RccPeripheral {
+            $($(
+                /// Interrupt for this peripheral.
+                type $irq: crate::interrupt::typelevel::Interrupt;
+            )*)?
+        }
     };
 }
 
