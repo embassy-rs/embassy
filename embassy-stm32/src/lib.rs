@@ -66,6 +66,8 @@ pub mod cryp;
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dsihost)]
+pub mod dsihost;
 #[cfg(eth)]
 pub mod eth;
 #[cfg(feature = "exti")]
@@ -85,6 +87,8 @@ pub mod i2s;
 pub mod ipcc;
 #[cfg(feature = "low-power")]
 pub mod low_power;
+#[cfg(ltdc)]
+pub mod ltdc;
 #[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
