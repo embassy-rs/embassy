@@ -5,25 +5,31 @@
 #![no_std]
 #![no_main]
 
-use defmt::*;
+use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp::pwm::{Config, Pwm};
-use embassy_time::Timer;
+use embassy_rp::pwm::prelude::*;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_rp::init(Default::default());
+    // Initialize peripherals
+    let peripherals = embassy_rp::init(Default::default());
 
-    let mut c: Config = Default::default();
-    c.top = 0x8000;
-    c.compare_b = 8;
-    let mut pwm = Pwm::new_output_b(p.PWM_SLICE4, p.PIN_25, c.clone());
+    let slice0 = Pwm::builder()
+        .free_running()
+        .frequency(Frequency::Hz(500))
+        .phase_correct(false)
+        .with_output_a(|a| a.duty_cycle(50.0))
+        .with_output_b(|b| b.duty_cycle(75.0))
+        .apply(peripherals.PWM_SLICE0, peripherals.PIN_16, peripherals.PIN_17)
+        .unwrap();
+
+    slice0.enable();
 
     loop {
-        info!("current LED duty cycle: {}/32768", c.compare_b);
-        Timer::after_secs(1).await;
-        c.compare_b = c.compare_b.rotate_left(4);
-        pwm.set_config(&c);
+        info!("tick!");
+        // Wait for a second
+        Timer::after(Duration::from_secs(5)).await;
     }
 }

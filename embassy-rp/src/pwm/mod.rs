@@ -9,6 +9,16 @@ use pac::pwm::vals::Divmode;
 use crate::gpio::{AnyPin, Pin as GpioPin, Pull, SealedPin as _};
 use crate::{pac, peripherals, RegExt};
 
+/// Builder for PWM slices.
+pub mod builder;
+/// Exports common traits and types for PWM.
+pub mod prelude;
+/// PWM API v2.
+pub mod v2;
+
+/// Minimum PWM frequency in Hz.
+pub const MIN_PWM_FREQ: f32 = 7.5;
+
 /// The configuration of a PWM slice.
 /// Note the period in clock cycles of a slice can be computed as:
 /// `(top + 1) * (phase_correct ? 1 : 2) * divider`
@@ -62,11 +72,11 @@ impl Default for Config {
 
 /// PWM input mode.
 pub enum InputMode {
-    /// Level mode.
+    /// The fractional divider operation is gated by the PWM B pin.
     Level,
-    /// Rising edge mode.
+    /// The counter advances with each rising edge of the PWM B pin.
     RisingEdge,
-    /// Falling edge mode.
+    /// The counter advances with each falling edge of the PWM B pin.
     FallingEdge,
 }
 
@@ -205,10 +215,12 @@ impl<'d, T: Slice> Pwm<'d, T> {
     }
 
     /// Set the PWM config.
+    #[inline]
     pub fn set_config(&mut self, config: &Config) {
         Self::configure(self.inner.regs(), config);
     }
 
+    #[inline]
     fn configure(p: pac::pwm::Channel, config: &Config) {
         if config.divider > FixedU16::<fixed::types::extra::U4>::from_bits(0xFFF) {
             panic!("Requested divider is too large");
@@ -279,6 +291,22 @@ impl<'d, T: Slice> Pwm<'d, T> {
         pac::PWM.intr().write_value(Intr(self.bit() as _));
     }
 
+    /// Enables the PWM counter for this slice. Note that enablement can only
+    /// be specified on the slice-level, so this affects both PWM channels
+    /// (A & B).
+    #[inline]
+    pub fn enable(&mut self) {
+        self.inner.regs().csr().write(|w| w.set_en(true));
+    }
+
+    /// Disables the PWM counter for this slice. Note that enablement can only
+    /// be specified on the slice-level, so this affects both PWM channels
+    /// (A & B).
+    #[inline]
+    pub fn disable(&mut self) {
+        self.inner.regs().csr().write(|w| w.set_en(false));
+    }
+
     #[inline]
     fn bit(&self) -> u32 {
         1 << self.inner.number() as usize
@@ -342,6 +370,7 @@ macro_rules! slice {
                 $num
             }
         }
+        //impl SealedSlice for PwmFreeRunningSlice<'_, peripherals::$name> {}
     };
 }
 
