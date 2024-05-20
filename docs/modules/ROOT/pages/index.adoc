@@ -30,6 +30,7 @@ The Embassy project maintains HALs for select hardware, but you can still use HA
 * link:https://docs.embassy.dev/embassy-nrf/[embassy-nrf], for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
 * link:https://docs.embassy.dev/embassy-rp/[embassy-rp], for the Raspberry Pi RP2040 microcontroller.
 * link:https://github.com/esp-rs[esp-rs], for the Espressif Systems ESP32 series of chips.
+* link:https://github.com/ch32-rs/ch32-hal[ch32-hal], for the WCH 32-bit RISC-V(CH32V) series of chips.
 
 NOTE: A common question is if one can use the Embassy HALs standalone. Yes, it is possible! There are no dependency on the executor within the HALs. You can even use them without async,
 as they implement both the link:https://github.com/rust-embedded/embedded-hal[Embedded HAL] blocking and async traits.
