@@ -181,7 +181,10 @@ where
         let read_bits = read.len() * 32 + 32 - 1;
 
         #[cfg(feature = "defmt")]
-        defmt::trace!("write={} read={}", write_bits, read_bits);
+        defmt::trace!("cmd_read write={} read={}", write_bits, read_bits);
+
+        #[cfg(feature = "defmt")]
+        defmt::trace!("cmd_read cmd = {:02x} len = {}", cmd, read.len());
 
         unsafe {
             instr::set_y(&mut self.sm, read_bits as u32);
@@ -201,6 +204,10 @@ where
             .rx()
             .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status))
             .await;
+
+        #[cfg(feature = "defmt")]
+        defmt::trace!("cmd_read cmd = {:02x} len = {} read = {:08x}", cmd, read.len(), read);
+
         status
     }
 }
