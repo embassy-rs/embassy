@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `capacity`, `free_capacity`, `len`, `is_empty` and `is_full` functions to `PriorityChannel`.
 - Add `capacity`, `free_capacity`, `len`, `is_empty` and `is_full` functions to `PubSubChannel`.
 - Made `PubSubBehavior` sealed
+  - If you called `.publish_immediate(...)` on the queue directly before, then now call `.immediate_publisher().publish_immediate(...)`
 
 ## 0.5.0 - 2023-12-04
 
