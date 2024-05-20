@@ -189,7 +189,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     }
 }
 
-impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubBehavior<T>
+impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> SealedPubSubBehavior<T>
     for PubSubChannel<M, T, CAP, SUBS, PUBS>
 {
     fn get_message_with_context(&self, next_message_id: &mut u64, cx: Option<&mut Context<'_>>) -> Poll<WaitResult<T>> {
@@ -421,7 +421,7 @@ pub enum Error {
 
 /// 'Middle level' behaviour of the pubsub channel.
 /// This trait is used so that Sub and Pub can be generic over the channel.
-pub trait PubSubBehavior<T> {
+trait SealedPubSubBehavior<T> {
     /// Try to get a message from the queue with the given message id.
     ///
     /// If the message is not yet present and a context is given, then its waker is registered in the subsriber wakers.
@@ -448,6 +448,13 @@ pub trait PubSubBehavior<T> {
     /// Let the channel know that a publisher has dropped
     fn unregister_publisher(&self);
 }
+
+/// 'Middle level' behaviour of the pubsub channel.
+/// This trait is used so that Sub and Pub can be generic over the channel.
+#[allow(private_bounds)]
+pub trait PubSubBehavior<T>: SealedPubSubBehavior<T> {}
+
+impl<T, C: SealedPubSubBehavior<T>> PubSubBehavior<T> for C {}
 
 /// The result of the subscriber wait procedure
 #[derive(Debug, Clone, PartialEq, Eq)]
