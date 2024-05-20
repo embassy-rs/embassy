@@ -15,7 +15,7 @@ embassy-usb = { version = "0.2.0", path = "../../embassy-usb", features = ["defm
 embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet"] }
 embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embassy-usb-logger = { version = "0.1.0", path = "../../embassy-usb-logger" }
+embassy-usb-logger = { version = "0.2.0", path = "../../embassy-usb-logger" }
 cyw43 = { version = "0.1.0", path = "../../cyw43", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { version = "0.1.0", path = "../../cyw43-pio", features = ["defmt", "overclock"] }
 
