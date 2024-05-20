@@ -13,7 +13,7 @@ use crate::dma::{slice_ptr_parts, word, ChannelAndRequest};
 use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{regs, vals, Spi as Regs};
-use crate::rcc::{ClockEnableBit, RccPeripheral};
+use crate::rcc::{ClockEnableBit, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -93,8 +93,7 @@ impl Config {
 }
 /// SPI driver.
 pub struct Spi<'d, M: PeriMode> {
-    pub(crate) regs: Regs,
-    enable_bit: ClockEnableBit,
+    pub(crate) info: &'static Info,
     kernel_clock: Hertz,
     sck: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
@@ -115,7 +114,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
-        let regs = T::INFO.regs;
+        let regs = T::info().regs;
         let kernel_clock = T::frequency();
         let br = compute_baud_rate(kernel_clock, config.frequency);
 
@@ -205,8 +204,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         }
 
         Self {
-            regs,
-            enable_bit: T::enable_bit(),
+            info: T::info(),
             kernel_clock,
             sck,
             mosi,
@@ -228,7 +226,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         let br = compute_baud_rate(self.kernel_clock, config.frequency);
 
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
-        self.regs.cr1().modify(|w| {
+        self.info.regs.cr1().modify(|w| {
             w.set_cpha(cpha);
             w.set_cpol(cpol);
             w.set_br(br);
@@ -237,12 +235,12 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         {
-            self.regs.cfg2().modify(|w| {
+            self.info.regs.cfg2().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
             });
-            self.regs.cfg1().modify(|w| {
+            self.info.regs.cfg1().modify(|w| {
                 w.set_mbr(br);
             });
         }
@@ -252,11 +250,11 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     /// Get current SPI configuration.
     pub fn get_current_config(&self) -> Config {
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
-        let cfg = self.regs.cr1().read();
+        let cfg = self.info.regs.cr1().read();
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        let cfg = self.regs.cfg2().read();
+        let cfg = self.info.regs.cfg2().read();
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        let cfg1 = self.regs.cfg1().read();
+        let cfg1 = self.info.regs.cfg1().read();
 
         let polarity = if cfg.cpol() == vals::Cpol::IDLELOW {
             Polarity::IdleLow
@@ -296,40 +294,40 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         #[cfg(any(spi_v1, spi_f1))]
         {
-            self.regs.cr1().modify(|reg| {
+            self.info.regs.cr1().modify(|reg| {
                 reg.set_spe(false);
                 reg.set_dff(word_size)
             });
-            self.regs.cr1().modify(|reg| {
+            self.info.regs.cr1().modify(|reg| {
                 reg.set_spe(true);
             });
         }
         #[cfg(spi_v2)]
         {
-            self.regs.cr1().modify(|w| {
+            self.info.regs.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            self.regs.cr2().modify(|w| {
+            self.info.regs.cr2().modify(|w| {
                 w.set_frxth(word_size.1);
                 w.set_ds(word_size.0);
             });
-            self.regs.cr1().modify(|w| {
+            self.info.regs.cr1().modify(|w| {
                 w.set_spe(true);
             });
         }
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         {
-            self.regs.cr1().modify(|w| {
+            self.info.regs.cr1().modify(|w| {
                 w.set_csusp(true);
             });
-            while self.regs.sr().read().eot() {}
-            self.regs.cr1().modify(|w| {
+            while self.info.regs.sr().read().eot() {}
+            self.info.regs.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            self.regs.cfg1().modify(|w| {
+            self.info.regs.cfg1().modify(|w| {
                 w.set_dsize(word_size);
             });
-            self.regs.cr1().modify(|w| {
+            self.info.regs.cr1().modify(|w| {
                 w.set_csusp(false);
                 w.set_spe(true);
             });
@@ -340,22 +338,22 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
     /// Blocking write.
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
-        self.regs.cr1().modify(|w| w.set_spe(true));
-        flush_rx_fifo(self.regs);
+        self.info.regs.cr1().modify(|w| w.set_spe(true));
+        flush_rx_fifo(self.info.regs);
         self.set_word_size(W::CONFIG);
         for word in words.iter() {
-            let _ = transfer_word(self.regs, *word)?;
+            let _ = transfer_word(self.info.regs, *word)?;
         }
         Ok(())
     }
 
     /// Blocking read.
     pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        self.regs.cr1().modify(|w| w.set_spe(true));
-        flush_rx_fifo(self.regs);
+        self.info.regs.cr1().modify(|w| w.set_spe(true));
+        flush_rx_fifo(self.info.regs);
         self.set_word_size(W::CONFIG);
         for word in words.iter_mut() {
-            *word = transfer_word(self.regs, W::default())?;
+            *word = transfer_word(self.info.regs, W::default())?;
         }
         Ok(())
     }
@@ -364,11 +362,11 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
     pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        self.regs.cr1().modify(|w| w.set_spe(true));
-        flush_rx_fifo(self.regs);
+        self.info.regs.cr1().modify(|w| w.set_spe(true));
+        flush_rx_fifo(self.info.regs);
         self.set_word_size(W::CONFIG);
         for word in words.iter_mut() {
-            *word = transfer_word(self.regs, *word)?;
+            *word = transfer_word(self.info.regs, *word)?;
         }
         Ok(())
     }
@@ -380,13 +378,13 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
     /// If `write` is shorter it is padded with zero bytes.
     pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
-        self.regs.cr1().modify(|w| w.set_spe(true));
-        flush_rx_fifo(self.regs);
+        self.info.regs.cr1().modify(|w| w.set_spe(true));
+        flush_rx_fifo(self.info.regs);
         self.set_word_size(W::CONFIG);
         let len = read.len().max(write.len());
         for i in 0..len {
             let wb = write.get(i).copied().unwrap_or_default();
-            let rb = transfer_word(self.regs, wb)?;
+            let rb = transfer_word(self.info.regs, wb)?;
             if let Some(r) = read.get_mut(i) {
                 *r = rb;
             }
@@ -588,25 +586,25 @@ impl<'d> Spi<'d, Async> {
         }
 
         self.set_word_size(W::CONFIG);
-        self.regs.cr1().modify(|w| {
+        self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
 
-        let tx_dst = self.regs.tx_ptr();
+        let tx_dst = self.info.regs.tx_ptr();
         let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
 
-        set_txdmaen(self.regs, true);
-        self.regs.cr1().modify(|w| {
+        set_txdmaen(self.info.regs, true);
+        self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        self.regs.cr1().modify(|w| {
+        self.info.regs.cr1().modify(|w| {
             w.set_cstart(true);
         });
 
         tx_f.await;
 
-        finish_dma(self.regs);
+        finish_dma(self.info.regs);
 
         Ok(())
     }
@@ -618,22 +616,22 @@ impl<'d> Spi<'d, Async> {
         }
 
         self.set_word_size(W::CONFIG);
-        self.regs.cr1().modify(|w| {
+        self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
 
         // SPIv3 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
-        flush_rx_fifo(self.regs);
+        flush_rx_fifo(self.info.regs);
 
-        set_rxdmaen(self.regs, true);
+        set_rxdmaen(self.info.regs, true);
 
         let clock_byte_count = data.len();
 
-        let rx_src = self.regs.rx_ptr();
+        let rx_src = self.info.regs.rx_ptr();
         let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read(rx_src, data, Default::default()) };
 
-        let tx_dst = self.regs.tx_ptr();
+        let tx_dst = self.info.regs.tx_ptr();
         let clock_byte = 0x00u8;
         let tx_f = unsafe {
             self.tx_dma
@@ -642,18 +640,18 @@ impl<'d> Spi<'d, Async> {
                 .write_repeated(&clock_byte, clock_byte_count, tx_dst, Default::default())
         };
 
-        set_txdmaen(self.regs, true);
-        self.regs.cr1().modify(|w| {
+        set_txdmaen(self.info.regs, true);
+        self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        self.regs.cr1().modify(|w| {
+        self.info.regs.cr1().modify(|w| {
             w.set_cstart(true);
         });
 
         join(tx_f, rx_f).await;
 
-        finish_dma(self.regs);
+        finish_dma(self.info.regs);
 
         Ok(())
     }
@@ -667,20 +665,20 @@ impl<'d> Spi<'d, Async> {
         }
 
         self.set_word_size(W::CONFIG);
-        self.regs.cr1().modify(|w| {
+        self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
 
         // SPIv3 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
-        flush_rx_fifo(self.regs);
+        flush_rx_fifo(self.info.regs);
 
-        set_rxdmaen(self.regs, true);
+        set_rxdmaen(self.info.regs, true);
 
-        let rx_src = self.regs.rx_ptr();
+        let rx_src = self.info.regs.rx_ptr();
         let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read_raw(rx_src, read, Default::default()) };
 
-        let tx_dst = self.regs.tx_ptr();
+        let tx_dst = self.info.regs.tx_ptr();
         let tx_f = unsafe {
             self.tx_dma
                 .as_mut()
@@ -688,18 +686,18 @@ impl<'d> Spi<'d, Async> {
                 .write_raw(write, tx_dst, Default::default())
         };
 
-        set_txdmaen(self.regs, true);
-        self.regs.cr1().modify(|w| {
+        set_txdmaen(self.info.regs, true);
+        self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        self.regs.cr1().modify(|w| {
+        self.info.regs.cr1().modify(|w| {
             w.set_cstart(true);
         });
 
         join(tx_f, rx_f).await;
 
-        finish_dma(self.regs);
+        finish_dma(self.info.regs);
 
         Ok(())
     }
@@ -728,7 +726,7 @@ impl<'d, M: PeriMode> Drop for Spi<'d, M> {
         self.mosi.as_ref().map(|x| x.set_as_disconnected());
         self.miso.as_ref().map(|x| x.set_as_disconnected());
 
-        self.enable_bit.disable();
+        self.info.enable_bit.disable();
     }
 }
 
@@ -1106,8 +1104,9 @@ mod word_impl {
     impl_word!(u32, 32 - 1);
 }
 
-struct Info {
-    regs: Regs,
+pub(crate) struct Info {
+    pub(crate) regs: Regs,
+    pub(crate) enable_bit: ClockEnableBit,
 }
 
 struct State {}
@@ -1134,6 +1133,7 @@ foreach_peripheral!(
     (spi, $inst:ident) => {
         peri_trait_impl!($inst, Info {
             regs: crate::pac::$inst,
+            enable_bit: crate::peripherals::$inst::ENABLE_BIT,
         });
     };
 );
