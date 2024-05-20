@@ -96,22 +96,16 @@ where
 /// This is like [`SpiDevice`], with an additional bus configuration that's applied
 /// to the bus before each use using [`SetConfig`]. This allows different
 /// devices on the same bus to use different communication settings.
-pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS, Word: Copy + 'static = u8> {
+pub struct SpiDeviceWithConfig<'a, M: RawMutex, BUS: SetConfig, CS> {
     bus: &'a Mutex<M, RefCell<BUS>>,
     cs: CS,
     config: BUS::Config,
-    _word: core::marker::PhantomData<Word>,
 }
 
 impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiDeviceWithConfig<'a, M, BUS, CS> {
     /// Create a new `SpiDeviceWithConfig`.
     pub fn new(bus: &'a Mutex<M, RefCell<BUS>>, cs: CS, config: BUS::Config) -> Self {
-        Self {
-            bus,
-            cs,
-            config,
-            _word: core::marker::PhantomData,
-        }
+        Self { bus, cs, config }
     }
 
     /// Change the device's config at runtime
@@ -120,17 +114,16 @@ impl<'a, M: RawMutex, BUS: SetConfig, CS> SpiDeviceWithConfig<'a, M, BUS, CS> {
     }
 }
 
-impl<'a, M, BUS, CS, Word> spi::ErrorType for SpiDeviceWithConfig<'a, M, BUS, CS, Word>
+impl<'a, M, BUS, CS> spi::ErrorType for SpiDeviceWithConfig<'a, M, BUS, CS>
 where
     M: RawMutex,
     BUS: spi::ErrorType + SetConfig,
     CS: OutputPin,
-    Word: Copy + 'static,
 {
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS, Word> embedded_hal_1::spi::SpiDevice<Word> for SpiDeviceWithConfig<'_, M, BUS, CS, Word>
+impl<BUS, M, CS, Word> embedded_hal_1::spi::SpiDevice<Word> for SpiDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex,
     BUS: SpiBus<Word> + SetConfig,
