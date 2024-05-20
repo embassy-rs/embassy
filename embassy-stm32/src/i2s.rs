@@ -1,12 +1,12 @@
 //! Inter-IC Sound (I2S)
 
 use embassy_hal_internal::into_ref;
+use stm32_metapac::spi::vals;
 
-use crate::dma::ChannelAndRequest;
+use crate::dma::{ringbuffer, ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::mode::Async;
-use crate::pac::spi::vals;
-use crate::spi::{Config as SpiConfig, *};
+use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
 use crate::{Peripheral, PeripheralRef};
 
@@ -17,6 +17,19 @@ pub enum Mode {
     Master,
     /// Slave mode
     Slave,
+}
+
+/// I2S function
+#[derive(Copy, Clone)]
+#[allow(dead_code)]
+enum Function {
+    /// Transmit audio data
+    Transmit,
+    /// Receive audio data
+    Receive,
+    #[cfg(spi_v3)]
+    /// Transmit and Receive audio data
+    FullDuplex,
 }
 
 /// I2C standard
@@ -32,6 +45,24 @@ pub enum Standard {
     PcmLongSync,
     /// PCM with short sync.
     PcmShortSync,
+}
+
+/// SAI error
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// `write` called on a SAI in receive mode.
+    NotATransmitter,
+    /// `read` called on a SAI in transmit mode.
+    NotAReceiver,
+    /// Overrun
+    Overrun,
+}
+
+impl From<ringbuffer::OverrunError> for Error {
+    fn from(_: ringbuffer::OverrunError) -> Self {
+        Self::Overrun
+    }
 }
 
 impl Standard {
@@ -143,29 +174,18 @@ impl Default for Config {
 }
 
 /// I2S driver.
-pub struct I2S<'d> {
-    _peri: Spi<'d, Async>,
+pub struct I2S<'d, W: Word> {
+    spi: Spi<'d, Async>,
     txsd: Option<PeripheralRef<'d, AnyPin>>,
     rxsd: Option<PeripheralRef<'d, AnyPin>>,
     ws: Option<PeripheralRef<'d, AnyPin>>,
     ck: Option<PeripheralRef<'d, AnyPin>>,
     mck: Option<PeripheralRef<'d, AnyPin>>,
+    tx_ring_buffer: Option<WritableRingBuffer<'d, W>>,
+    rx_ring_buffer: Option<ReadableRingBuffer<'d, W>>,
 }
 
-/// I2S function
-#[derive(Copy, Clone)]
-#[allow(dead_code)]
-enum Function {
-    /// Transmit audio data
-    Transmit,
-    /// Receive audio data
-    Receive,
-    #[cfg(spi_v3)]
-    /// Transmit and Receive audio data
-    FullDuplex,
-}
-
-impl<'d> I2S<'d> {
+impl<'d, W: Word> I2S<'d, W> {
     /// Create a transmitter driver
     pub fn new_txonly<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
@@ -174,10 +194,10 @@ impl<'d> I2S<'d> {
         ck: impl Peripheral<P = impl CkPin<T>> + 'd,
         mck: impl Peripheral<P = impl MckPin<T>> + 'd,
         txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        txdma_buf: &'d mut [W],
         freq: Hertz,
         config: Config,
     ) -> Self {
-        into_ref!(sd);
         Self::new_inner(
             peri,
             new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
@@ -185,7 +205,7 @@ impl<'d> I2S<'d> {
             ws,
             ck,
             mck,
-            new_dma!(txdma),
+            new_dma!(txdma).map(|d| (d, txdma_buf)),
             None,
             freq,
             config,
@@ -200,12 +220,11 @@ impl<'d> I2S<'d> {
         ws: impl Peripheral<P = impl WsPin<T>> + 'd,
         ck: impl Peripheral<P = impl CkPin<T>> + 'd,
         mck: impl Peripheral<P = impl MckPin<T>> + 'd,
-        #[cfg(not(spi_v3))] txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rxdma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        rxdma_buf: &'d mut [W],
         freq: Hertz,
         config: Config,
     ) -> Self {
-        into_ref!(sd);
         Self::new_inner(
             peri,
             None,
@@ -213,22 +232,16 @@ impl<'d> I2S<'d> {
             ws,
             ck,
             mck,
-            #[cfg(not(spi_v3))]
-            new_dma!(txdma),
-            #[cfg(spi_v3)]
             None,
-            new_dma!(rxdma),
+            new_dma!(rxdma).map(|d| (d, rxdma_buf)),
             freq,
             config,
-            #[cfg(not(spi_v3))]
-            Function::Transmit,
-            #[cfg(spi_v3)]
             Function::Receive,
         )
     }
 
     #[cfg(spi_v3)]
-    /// Create a full duplex transmitter driver
+    /// Create a full duplex driver
     pub fn new_full_duplex<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         txsd: impl Peripheral<P = impl MosiPin<T>> + 'd,
@@ -237,11 +250,12 @@ impl<'d> I2S<'d> {
         ck: impl Peripheral<P = impl CkPin<T>> + 'd,
         mck: impl Peripheral<P = impl MckPin<T>> + 'd,
         txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        txdma_buf: &'d mut [W],
         rxdma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        rxdma_buf: &'d mut [W],
         freq: Hertz,
         config: Config,
     ) -> Self {
-        into_ref!(txsd, rxsd);
         Self::new_inner(
             peri,
             new_pin!(txsd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
@@ -249,32 +263,62 @@ impl<'d> I2S<'d> {
             ws,
             ck,
             mck,
-            new_dma!(txdma),
-            new_dma!(rxdma),
+            new_dma!(txdma).map(|d| (d, txdma_buf)),
+            new_dma!(rxdma).map(|d| (d, rxdma_buf)),
             freq,
             config,
             Function::FullDuplex,
         )
     }
 
-    /// Write audio data.
-    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
-        self._peri.read(data).await
+    /// Start I2S driver
+    pub fn start(&mut self) {
+        self.spi.info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+        self.spi.set_word_size(W::CONFIG);
+        if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
+            tx_ring_buffer.start();
+
+            set_txdmaen(self.spi.info.regs, true);
+        }
+        if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
+            rx_ring_buffer.start();
+            // SPIv3 clears rxfifo on SPE=0
+            #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+            flush_rx_fifo(self.spi.info.regs);
+
+            set_rxdmaen(self.spi.info.regs, true);
+        }
+        self.spi.info.regs.cr1().modify(|w| {
+            w.set_spe(true);
+        });
+        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        self.spi.info.regs.cr1().modify(|w| {
+            w.set_cstart(true);
+        });
     }
 
-    /// Write audio data.
-    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
-        self._peri.write(data).await
+    /// Write data to the I2S ringbuffer.
+    /// This appends the data to the buffer and returns immediately. The data will be transmitted in the background.
+    /// If thfre’s no space in the buffer, this waits until there is.
+    pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {
+        match &mut self.tx_ring_buffer {
+            Some(ring) => ring.write_exact(data).await?,
+            _ => return Err(Error::NotATransmitter),
+        };
+        Ok(())
     }
 
-    /// Transfer audio data.
-    pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
-        self._peri.transfer(read, write).await
-    }
-
-    /// Transfer audio data in place.
-    pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
-        self._peri.transfer_in_place(data).await
+    /// Read data from the I2S ringbuffer.
+    /// SAI is always receiving data in the background. This function pops already-received data from the buffer.
+    /// If there’s less than data.len() data in the buffer, this waits until there is.
+    pub async fn read(&mut self, data: &mut [W]) -> Result<(), Error> {
+        match &mut self.rx_ring_buffer {
+            Some(ring) => ring.read_exact(data).await?,
+            _ => return Err(Error::NotAReceiver),
+        };
+        Ok(())
     }
 
     fn new_inner<T: Instance>(
@@ -284,8 +328,8 @@ impl<'d> I2S<'d> {
         ws: impl Peripheral<P = impl WsPin<T>> + 'd,
         ck: impl Peripheral<P = impl CkPin<T>> + 'd,
         mck: impl Peripheral<P = impl MckPin<T>> + 'd,
-        txdma: Option<ChannelAndRequest<'d>>,
-        rxdma: Option<ChannelAndRequest<'d>>,
+        txdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
+        rxdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
         freq: Hertz,
         config: Config,
         function: Function,
@@ -296,10 +340,11 @@ impl<'d> I2S<'d> {
         ck.set_as_af(ck.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
         mck.set_as_af(mck.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
-        let mut spi_cfg = SpiConfig::default();
-        spi_cfg.frequency = freq;
-
-        let spi = Spi::new_internal(peri, txdma, rxdma, spi_cfg);
+        let spi = Spi::new_internal(peri, None, None, {
+            let mut config = SpiConfig::default();
+            config.frequency = freq;
+            config
+        });
 
         let regs = T::info().regs;
 
@@ -390,22 +435,28 @@ impl<'d> I2S<'d> {
                 w.set_i2se(true);
             });
 
-            #[cfg(spi_v3)]
-            regs.cr1().modify(|w| w.set_spe(true));
-        }
+            let mut opts = TransferOptions::default();
+            opts.half_transfer_ir = true;
 
-        Self {
-            _peri: spi,
-            txsd: txsd.map(|w| w.map_into()),
-            rxsd: rxsd.map(|w| w.map_into()),
-            ws: Some(ws.map_into()),
-            ck: Some(ck.map_into()),
-            mck: Some(mck.map_into()),
+            Self {
+                spi,
+                txsd: txsd.map(|w| w.map_into()),
+                rxsd: rxsd.map(|w| w.map_into()),
+                ws: Some(ws.map_into()),
+                ck: Some(ck.map_into()),
+                mck: Some(mck.map_into()),
+                tx_ring_buffer: txdma.map(|(ch, buf)| unsafe {
+                    WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr(), buf, opts)
+                }),
+                rx_ring_buffer: rxdma.map(|(ch, buf)| unsafe {
+                    ReadableRingBuffer::new(ch.channel, ch.request, regs.rx_ptr(), buf, opts)
+                }),
+            }
         }
     }
 }
 
-impl<'d> Drop for I2S<'d> {
+impl<'d, W: Word> Drop for I2S<'d, W> {
     fn drop(&mut self) {
         self.txsd.as_ref().map(|x| x.set_as_disconnected());
         self.rxsd.as_ref().map(|x| x.set_as_disconnected());
