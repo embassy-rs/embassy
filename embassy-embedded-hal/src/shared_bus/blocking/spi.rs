@@ -48,13 +48,14 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> embedded_hal_1::spi::SpiDevice for SpiDevice<'_, M, BUS, CS>
+impl<BUS, M, CS, Word> embedded_hal_1::spi::SpiDevice<Word> for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
-    BUS: SpiBus,
+    BUS: SpiBus<Word>,
     CS: OutputPin,
+    Word: Copy + 'static,
 {
-    fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
+    fn transaction(&mut self, operations: &mut [embedded_hal_1::spi::Operation<'_, Word>]) -> Result<(), Self::Error> {
         if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
             return Err(SpiDeviceError::DelayNotSupported);
         }
@@ -85,47 +86,6 @@ where
             flush_res.map_err(SpiDeviceError::Spi)?;
             cs_res.map_err(SpiDeviceError::Cs)?;
 
-            Ok(op_res)
-        })
-    }
-}
-
-impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Transfer<u8> for SpiDevice<'_, M, BUS, CS>
-where
-    M: RawMutex,
-    BUS: embedded_hal_02::blocking::spi::Transfer<u8, Error = BusErr>,
-    CS: OutputPin<Error = CsErr>,
-{
-    type Error = SpiDeviceError<BusErr, CsErr>;
-    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
-        self.bus.lock(|bus| {
-            let mut bus = bus.borrow_mut();
-            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
-            let op_res = bus.transfer(words);
-            let cs_res = self.cs.set_high();
-            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
-            cs_res.map_err(SpiDeviceError::Cs)?;
-            Ok(op_res)
-        })
-    }
-}
-
-impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Write<u8> for SpiDevice<'_, M, BUS, CS>
-where
-    M: RawMutex,
-    BUS: embedded_hal_02::blocking::spi::Write<u8, Error = BusErr>,
-    CS: OutputPin<Error = CsErr>,
-{
-    type Error = SpiDeviceError<BusErr, CsErr>;
-
-    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        self.bus.lock(|bus| {
-            let mut bus = bus.borrow_mut();
-            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
-            let op_res = bus.write(words);
-            let cs_res = self.cs.set_high();
-            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
-            cs_res.map_err(SpiDeviceError::Cs)?;
             Ok(op_res)
         })
     }
@@ -163,13 +123,14 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<BUS, M, CS> embedded_hal_1::spi::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
+impl<BUS, M, CS, Word> embedded_hal_1::spi::SpiDevice<Word> for SpiDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex,
-    BUS: SpiBus + SetConfig,
+    BUS: SpiBus<Word> + SetConfig,
     CS: OutputPin,
+    Word: Copy + 'static,
 {
-    fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
+    fn transaction(&mut self, operations: &mut [embedded_hal_1::spi::Operation<'_, Word>]) -> Result<(), Self::Error> {
         if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
             return Err(SpiDeviceError::DelayNotSupported);
         }
