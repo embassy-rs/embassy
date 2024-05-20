@@ -7,6 +7,7 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
+use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, METADATA,
 };
@@ -359,12 +360,17 @@ fn main() {
 
     // ========
     // Extract the rcc registers
+
     let rcc_registers = METADATA
         .peripherals
         .iter()
         .filter_map(|p| p.registers.as_ref())
         .find(|r| r.kind == "rcc")
         .unwrap();
+    for b in rcc_registers.ir.blocks {
+        eprintln!("{}", b.name);
+    }
+    let rcc_block = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap();
 
     // ========
     // Generate RccPeripheral impls
@@ -540,6 +546,29 @@ fn main() {
             let pname = format_ident!("{}", p.name);
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+            let en_reg_offs = rcc_block
+                .items
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(en.register))
+                .unwrap()
+                .byte_offset;
+            let en_reg_offs: u8 = (en_reg_offs / 4).try_into().unwrap();
+
+            let en_bit_offs = &rcc_registers
+                .ir
+                .fieldsets
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(en.register))
+                .unwrap()
+                .fields
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(en.field))
+                .unwrap()
+                .bit_offset;
+            let BitOffset::Regular(en_bit_offs) = en_bit_offs else {
+                panic!("cursed bit offset")
+            };
+            let en_bit_offs: u8 = en_bit_offs.offset.try_into().unwrap();
 
             let refcount =
                 clock_gen.force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
@@ -623,6 +652,9 @@ fn main() {
                         #before_disable
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                         #decr_stop_refcount
+                    }
+                    fn enable_bit() -> crate::rcc::ClockEnableBit {
+                        unsafe { crate::rcc::ClockEnableBit::new(#en_reg_offs, #en_bit_offs) }
                     }
                 }
 
