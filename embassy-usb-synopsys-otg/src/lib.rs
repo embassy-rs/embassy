@@ -221,6 +221,12 @@ struct EpState {
     out_size: AtomicU16,
 }
 
+// SAFETY: The EndpointAllocator ensures that the buffer points to valid memory exclusive for each endpoint and is
+// large enough to hold the maximum packet size. Access to the buffer is synchronized between the USB interrupt and the
+// EndpointOut impl using the out_size atomic variable.
+unsafe impl Send for EpState {}
+unsafe impl Sync for EpState {}
+
 struct ControlPipeSetupState {
     /// Holds received SETUP packets. Available if [Ep0State::setup_ready] is true.
     setup_data: UnsafeCell<[u8; 8]>,
@@ -1034,7 +1040,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                     return Poll::Ready(Err(EndpointError::BufferOverflow));
                 }
 
-                // SAFETY: exclusive access ensured by `ep_out_size` atomic variable
+                // SAFETY: exclusive access ensured by `out_size` atomic variable
                 let data = unsafe { core::slice::from_raw_parts(*self.state.out_buffer.get(), len as usize) };
                 buf[..len as usize].copy_from_slice(data);
 
