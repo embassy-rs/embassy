@@ -189,7 +189,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     }
 }
 
-impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubBehavior<T>
+impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> SealedPubSubBehavior<T>
     for PubSubChannel<M, T, CAP, SUBS, PUBS>
 {
     fn get_message_with_context(&self, next_message_id: &mut u64, cx: Option<&mut Context<'_>>) -> Poll<WaitResult<T>> {
@@ -248,13 +248,6 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
         })
     }
 
-    fn space(&self) -> usize {
-        self.inner.lock(|s| {
-            let s = s.borrow();
-            s.queue.capacity() - s.queue.len()
-        })
-    }
-
     fn unregister_subscriber(&self, subscriber_next_message_id: u64) {
         self.inner.lock(|s| {
             let mut s = s.borrow_mut();
@@ -267,6 +260,26 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
             let mut s = s.borrow_mut();
             s.unregister_publisher()
         })
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity()
+    }
+
+    fn free_capacity(&self) -> usize {
+        self.free_capacity()
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn is_full(&self) -> bool {
+        self.is_full()
     }
 }
 
@@ -421,7 +434,7 @@ pub enum Error {
 
 /// 'Middle level' behaviour of the pubsub channel.
 /// This trait is used so that Sub and Pub can be generic over the channel.
-pub trait PubSubBehavior<T> {
+trait SealedPubSubBehavior<T> {
     /// Try to get a message from the queue with the given message id.
     ///
     /// If the message is not yet present and a context is given, then its waker is registered in the subsriber wakers.
@@ -439,8 +452,22 @@ pub trait PubSubBehavior<T> {
     /// Publish a message immediately
     fn publish_immediate(&self, message: T);
 
-    /// The amount of messages that can still be published without having to wait or without having to lag the subscribers
-    fn space(&self) -> usize;
+    /// Returns the maximum number of elements the channel can hold.
+    fn capacity(&self) -> usize;
+
+    /// Returns the free capacity of the channel.
+    ///
+    /// This is equivalent to `capacity() - len()`
+    fn free_capacity(&self) -> usize;
+
+    /// Returns the number of elements currently in the channel.
+    fn len(&self) -> usize;
+
+    /// Returns whether the channel is empty.
+    fn is_empty(&self) -> bool;
+
+    /// Returns whether the channel is full.
+    fn is_full(&self) -> bool;
 
     /// Let the channel know that a subscriber has dropped
     fn unregister_subscriber(&self, subscriber_next_message_id: u64);
@@ -448,6 +475,13 @@ pub trait PubSubBehavior<T> {
     /// Let the channel know that a publisher has dropped
     fn unregister_publisher(&self);
 }
+
+/// 'Middle level' behaviour of the pubsub channel.
+/// This trait is used so that Sub and Pub can be generic over the channel.
+#[allow(private_bounds)]
+pub trait PubSubBehavior<T>: SealedPubSubBehavior<T> {}
+
+impl<T, C: SealedPubSubBehavior<T>> PubSubBehavior<T> for C {}
 
 /// The result of the subscriber wait procedure
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -581,6 +615,7 @@ mod tests {
         assert_eq!(pub0.try_publish(0), Ok(()));
         assert_eq!(pub0.try_publish(0), Ok(()));
         assert_eq!(pub0.try_publish(0), Ok(()));
+        assert!(pub0.is_full());
         assert_eq!(pub0.try_publish(0), Err(0));
 
         drop(sub0);
@@ -613,32 +648,42 @@ mod tests {
     }
 
     #[futures_test::test]
-    async fn correct_space() {
+    async fn correct_len() {
         let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
 
         let mut sub0 = channel.subscriber().unwrap();
         let mut sub1 = channel.subscriber().unwrap();
         let pub0 = channel.publisher().unwrap();
 
-        assert_eq!(pub0.space(), 4);
+        assert!(sub0.is_empty());
+        assert!(sub1.is_empty());
+        assert!(pub0.is_empty());
+        assert_eq!(pub0.free_capacity(), 4);
+        assert_eq!(pub0.len(), 0);
 
         pub0.publish(42).await;
 
-        assert_eq!(pub0.space(), 3);
+        assert_eq!(pub0.free_capacity(), 3);
+        assert_eq!(pub0.len(), 1);
 
         pub0.publish(42).await;
 
-        assert_eq!(pub0.space(), 2);
+        assert_eq!(pub0.free_capacity(), 2);
+        assert_eq!(pub0.len(), 2);
 
         sub0.next_message().await;
         sub0.next_message().await;
 
-        assert_eq!(pub0.space(), 2);
+        assert_eq!(pub0.free_capacity(), 2);
+        assert_eq!(pub0.len(), 2);
 
         sub1.next_message().await;
-        assert_eq!(pub0.space(), 3);
+        assert_eq!(pub0.free_capacity(), 3);
+        assert_eq!(pub0.len(), 1);
+
         sub1.next_message().await;
-        assert_eq!(pub0.space(), 4);
+        assert_eq!(pub0.free_capacity(), 4);
+        assert_eq!(pub0.len(), 0);
     }
 
     #[futures_test::test]
@@ -649,29 +694,29 @@ mod tests {
         let mut sub0 = channel.subscriber().unwrap();
         let mut sub1 = channel.subscriber().unwrap();
 
-        assert_eq!(4, pub0.space());
+        assert_eq!(4, pub0.free_capacity());
 
         pub0.publish(1).await;
         pub0.publish(2).await;
 
-        assert_eq!(2, channel.space());
+        assert_eq!(2, channel.free_capacity());
 
         assert_eq!(1, sub0.try_next_message_pure().unwrap());
         assert_eq!(2, sub0.try_next_message_pure().unwrap());
 
-        assert_eq!(2, channel.space());
+        assert_eq!(2, channel.free_capacity());
 
         drop(sub0);
 
-        assert_eq!(2, channel.space());
+        assert_eq!(2, channel.free_capacity());
 
         assert_eq!(1, sub1.try_next_message_pure().unwrap());
 
-        assert_eq!(3, channel.space());
+        assert_eq!(3, channel.free_capacity());
 
         drop(sub1);
 
-        assert_eq!(4, channel.space());
+        assert_eq!(4, channel.free_capacity());
     }
 
     struct CloneCallCounter(usize);
