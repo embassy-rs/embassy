@@ -159,6 +159,13 @@ pub(crate) unsafe fn init(config: Config) {
         while RCC.cfgr().read().sws() != Sysclk::MSI {}
     }
 
+    #[cfg(stm32wl)]
+    {
+        // Set max latency
+        FLASH.acr().modify(|w| w.set_prften(true));
+        FLASH.acr().modify(|w| w.set_latency(2));
+    }
+
     // Set voltage scale
     #[cfg(any(stm32l0, stm32l1))]
     {
