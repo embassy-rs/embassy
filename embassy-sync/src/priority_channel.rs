@@ -33,7 +33,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Sender { channel: self.channel }
+        *self
     }
 }
 
@@ -101,7 +101,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Receiver { channel: self.channel }
+        *self
     }
 }
 

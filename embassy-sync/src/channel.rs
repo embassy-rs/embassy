@@ -42,7 +42,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Sender { channel: self.channel }
+        *self
     }
 }
 
@@ -81,7 +81,7 @@ pub struct DynamicSender<'ch, T> {
 
 impl<'ch, T> Clone for DynamicSender<'ch, T> {
     fn clone(&self) -> Self {
-        DynamicSender { channel: self.channel }
+        *self
     }
 }
 
@@ -135,7 +135,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Receiver { channel: self.channel }
+        *self
     }
 }
 
@@ -188,7 +188,7 @@ pub struct DynamicReceiver<'ch, T> {
 
 impl<'ch, T> Clone for DynamicReceiver<'ch, T> {
     fn clone(&self) -> Self {
-        DynamicReceiver { channel: self.channel }
+        *self
     }
 }
 
