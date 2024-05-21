@@ -18,6 +18,7 @@ my-project
 |- rust-toolchain.toml
 ----
 
+[discrete]
 == .cargo/config.toml
 
 This directory/file describes what platform you're on, and configures link:https://github.com/probe-rs/probe-rs[probe-rs] to deploy to your device.
@@ -36,21 +37,27 @@ target = "thumbv6m-none-eabi" # <-change for your platform
 DEFMT_LOG = "trace" # <- can change to info, warn, or error
 ----
 
+[discrete]
 == build.rs
 
 This is the build script for your project. It links defmt (what is link:https://defmt.ferrous-systems.com[defmt]?) and the `memory.x` file if needed. This file is pretty specific for each chipset, just copy and paste from the corresponding link:https://github.com/embassy-rs/embassy/tree/main/examples[example].
 
+[discrete]
 == Cargo.toml
 
 This is your manifest file, where you can configure all of the embassy components to use the features you need.
 
-==== Features
-===== Time
+[discrete]
+=== Features
+
+[discrete]
+==== Time
 - tick-hz-x: Configures the tick rate of `embassy-time`. Higher tick rate means higher precision, and higher CPU wakes.
 - defmt-timestamp-uptime: defmt log entries will display the uptime in seconds.
 
 ...more to come
 
+[discrete]
 == memory.x
 
 This file outlines the flash/ram usage of your program. It is especially useful when using link:https://github.com/embassy-rs/nrf-softdevice[nrf-softdevice] on an nRF5x.
@@ -68,6 +75,7 @@ MEMORY
 }
 ----
 
+[discrete]
 == rust-toolchain.toml
 
 This file configures the rust version and configuration to use.

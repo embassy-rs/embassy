@@ -1,4 +1,4 @@
-= Embassy
+= Introduction
 
 Embassy is a project to make async/await a first-class option for embedded development.
 
@@ -55,6 +55,20 @@ link:https://github.com/embassy-rs/embassy/tree/master/embassy-boot[embassy-boot
 For most I/O in embedded devices, the peripheral doesn't directly support the transmission of multiple bits at once, with CAN being a notable exception. Instead, the MCU must write each byte, one at a time, and then wait until the peripheral is ready to send the next. For high I/O rates, this can pose a problem if the MCU must devote an increasing portion of its time handling each byte. The solution to this problem is to use the Direct Memory Access controller.
 
 The Direct Memory Access controller (DMA) is a controller that is present in MCUs that Embassy supports, including stm32 and nrf. The DMA allows the MCU to set up a transfer, either send or receive, and then wait for the transfer to complete. With DMA, once started, no MCU intervention is required until the transfer is complete, meaning that the MCU can perform other computation, or set up other I/O while the transfer is in progress. For high I/O rates, DMA can cut the time that the MCU spends handling I/O by over half. However, because DMA is more complex to set-up, it is less widely used in the embedded community. Embassy aims to change that by making DMA the first choice rather than the last. Using Embassy, there's no additional tuning required once I/O rates increase because your application is already set-up to handle them.
+
+== Examples
+
+Embassy provides examples for all HALs supported. You can find them in the `examples/` folder.
+
+
+Main loop example
+
+[source,rust]
+----
+include::../examples/examples/std/src/bin/tick.rs[]
+----
+
+include::embassy_in_the_wild.adoc[leveloffset = 2]
 
 == Resources
 

@@ -1,17 +1,18 @@
-= Starting a new Embassy project
+= Starting a new project
 
 Once you’ve successfully xref:getting_started.adoc[run some example projects], the next step is to make a standalone Embassy project.
 
-There are some tools for generating Embassy projects: (WIP)
+== Tools for generating Embassy projects
 
-==== CLI
+=== CLI
 - link:https://github.com/adinack/cargo-embassy[cargo-embassy] (STM32 and NRF)
 
-==== cargo-generate
+=== cargo-generate
 - link:https://github.com/lulf/embassy-template[embassy-template] (STM32, NRF, and RP)
 - link:https://github.com/bentwire/embassy-rp2040-template[embassy-rp2040-template] (RP)
 
-But if you want to start from scratch:
+
+== Starting a project from scratch
 
 As an example, let’s create a new embassy project from scratch for a STM32G474. The same instructions are applicable for any supported chip with some minor changes.
 
@@ -35,7 +36,7 @@ stm32g474-example
 
 Looking in link:https://github.com/embassy-rs/embassy/tree/main/examples[the Embassy examples], we can see there’s a `stm32g4` folder. Find `src/blinky.rs` and copy its contents into our `src/main.rs`.
 
-== .cargo/config.toml
+=== The .cargo/config.toml
 
 Currently, we’d need to provide cargo with a target triple every time we run `cargo build` or `cargo run`. Let’s spare ourselves that work by copying `.cargo/config.toml` from `examples/stm32g4` into our project.
 
@@ -66,7 +67,7 @@ and copying `STM32G474RETx` into `.cargo/config.toml` as so:
 runner = "probe-rs run --chip STM32G474RETx"
 ----
 
-== Cargo.toml
+=== Cargo.toml
 
 Now that cargo knows what target to compile for (and probe-rs knows what chip to run it on), we’re ready to add some dependencies.
 
@@ -117,7 +118,7 @@ Finally, copy the `[profile.release]` section from the example `Cargo.toml` into
 debug = 2
 ----
 
-== rust-toolchain.toml
+=== rust-toolchain.toml
 
 Before we can build our project, we need to add an additional file to tell cargo to use the nightly toolchain. Copy the `rust-toolchain.toml` from the embassy repo to ours, and trim the list of targets down to only the target triple relevent for our project — in this case, `thumbv7em-none-eabi`:
 
@@ -142,7 +143,7 @@ components = [ "rust-src", "rustfmt", "llvm-tools", "miri" ]
 targets = ["thumbv7em-none-eabi"]
 ----
 
-== build.rs
+=== build.rs
 
 In order to produce a working binary for our target, cargo requires a custom build script. Copy `build.rs` from the example to our project:
 
@@ -158,7 +159,7 @@ stm32g474-example
     └── main.rs
 ----
 
-== Building and running
+=== Building and running
 
 At this point, we‘re finally ready to build and run our project! Connect your board via a debug probe and run:
 

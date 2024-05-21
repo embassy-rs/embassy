@@ -8,8 +8,8 @@ members = [
 ]
 
 [patch.crates-io]
-embassy-executor = { path = "../../../../../embassy-executor" }
-embassy-stm32 = { path = "../../../../../embassy-stm32" }
+embassy-executor = { path = "../../../embassy-executor" }
+embassy-stm32 = { path = "../../../embassy-stm32" }
 
 [profile.release]
 codegen-units = 1
