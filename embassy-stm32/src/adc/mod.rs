@@ -128,7 +128,7 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::R
 pub trait AdcPin<T: Instance>: AdcChannel<T> + SealedAdcPin<T> {}
 /// ADC internal channel.
 #[allow(private_bounds)]
-pub trait InternalChannel<T>: SealedInternalChannel<T> {}
+pub trait InternalChannel<T>: AdcChannel<T> + SealedInternalChannel<T> {}
 /// ADC channel.
 #[allow(private_bounds)]
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
