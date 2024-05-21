@@ -100,12 +100,7 @@ Examples are found in the `examples/` folder separated by the chip manufacturer 
 
 ### Running examples
 
-- Install `probe-rs`.
-
-```bash
-cargo install probe-rs --features cli
-```
-
+- Install `probe-rs` following the instructions at <https://probe.rs>.
 - Change directory to the sample's base directory. For example:
 
 ```bash
