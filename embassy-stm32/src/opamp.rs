@@ -198,7 +198,7 @@ macro_rules! impl_opamp_external_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
         foreach_adc!(
             ($adc, $common_inst:ident, $adc_clock:ident) => {
-                impl<'d> crate::adc::SealedAdcPin<crate::peripherals::$adc>
+                impl<'d> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
                     for OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                     fn channel(&self) -> u8 {
@@ -206,7 +206,7 @@ macro_rules! impl_opamp_external_output {
                     }
                 }
 
-                impl<'d> crate::adc::AdcPin<crate::peripherals::$adc>
+                impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
                     for OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                 }
@@ -244,7 +244,7 @@ macro_rules! impl_opamp_internal_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
         foreach_adc!(
             ($adc, $common_inst:ident, $adc_clock:ident) => {
-                impl<'d> crate::adc::SealedAdcPin<crate::peripherals::$adc>
+                impl<'d> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
                     for OpAmpInternalOutput<'d, crate::peripherals::$inst>
                 {
                     fn channel(&self) -> u8 {
@@ -252,7 +252,7 @@ macro_rules! impl_opamp_internal_output {
                     }
                 }
 
-                impl<'d> crate::adc::AdcPin<crate::peripherals::$adc>
+                impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
                     for OpAmpInternalOutput<'d, crate::peripherals::$inst>
                 {
                 }
