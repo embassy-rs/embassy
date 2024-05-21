@@ -79,6 +79,8 @@ pub mod fmc;
 pub mod hash;
 #[cfg(hrtim)]
 pub mod hrtim;
+#[cfg(hsem)]
+pub mod hsem;
 #[cfg(i2c)]
 pub mod i2c;
 #[cfg(all(spi_v1, rcc_f4))]
