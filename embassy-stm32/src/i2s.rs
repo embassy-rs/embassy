@@ -208,7 +208,7 @@ impl<'d> I2S<'d> {
             // rate to reach the proper audio sample frequency. The ODD bit in the SPI_I2SPR
             // register also has to be defined.
 
-            spi.regs.i2spr().modify(|w| {
+            spi.info.regs.i2spr().modify(|w| {
                 w.set_i2sdiv(div);
                 w.set_odd(match odd {
                     true => Odd::ODD,
@@ -235,7 +235,7 @@ impl<'d> I2S<'d> {
 
             // 5. The I2SE bit in SPI_I2SCFGR register must be set.
 
-            spi.regs.i2scfgr().modify(|w| {
+            spi.info.regs.i2scfgr().modify(|w| {
                 w.set_ckpol(config.clock_polarity.ckpol());
 
                 w.set_i2smod(true);

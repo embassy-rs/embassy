@@ -67,10 +67,11 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
 }
 
 pub(crate) trait SealedRccPeripheral {
+    const ENABLE_BIT: ClockEnableBit;
+
     fn frequency() -> Hertz;
     fn enable_and_reset_with_cs(cs: CriticalSection);
     fn disable_with_cs(cs: CriticalSection);
-    fn enable_bit() -> ClockEnableBit;
 
     fn enable_and_reset() {
         critical_section::with(|cs| Self::enable_and_reset_with_cs(cs))
@@ -151,7 +152,7 @@ pub(crate) struct ClockEnableBit {
 
 impl ClockEnableBit {
     /// Safety: offset+bit must correspond to a valid xxxEN bit.
-    pub(crate) unsafe fn new(offset: u8, bit: u8) -> Self {
+    pub(crate) const unsafe fn new(offset: u8, bit: u8) -> Self {
         Self { offset, bit }
     }
 

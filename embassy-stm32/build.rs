@@ -653,9 +653,9 @@ fn main() {
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                         #decr_stop_refcount
                     }
-                    fn enable_bit() -> crate::rcc::ClockEnableBit {
-                        unsafe { crate::rcc::ClockEnableBit::new(#en_reg_offs, #en_bit_offs) }
-                    }
+
+                    const ENABLE_BIT: crate::rcc::ClockEnableBit =
+                        unsafe { crate::rcc::ClockEnableBit::new(#en_reg_offs, #en_bit_offs) };
                 }
 
                 impl crate::rcc::RccPeripheral for peripherals::#pname {}
