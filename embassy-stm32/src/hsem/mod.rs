@@ -21,7 +21,7 @@ pub enum HsemError {
 /// chip family (i.e. stm32h747 see rm0399 table 95)
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 #[repr(u8)]
-#[derive(defmt::Format)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CoreId {
     #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757))]
     /// Cortex-M7, core 1.
@@ -36,7 +36,7 @@ pub enum CoreId {
     Core0 = 0x4,
 
     #[cfg(any(stm32wb, stm32wl))]
-    // Cortex-M0+, core 2.
+    /// Cortex-M0+, core 2.
     Core1 = 0x8,
 }
 
@@ -66,6 +66,7 @@ pub fn get_current_coreid() -> CoreId {
 fn core_id_to_index(core: CoreId) -> usize {
     match core {
         CoreId::Core0 => 0,
+        #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757, stm32wb, stm32wl))]
         CoreId::Core1 => 1,
     }
 }
