@@ -4,8 +4,9 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_stm32::mode::Async;
 use embassy_stm32::qspi::enums::{AddressSize, ChipSelectHighTime, FIFOThresholdLevel, MemorySize, *};
-use embassy_stm32::qspi::{Config as QspiCfg, Instance, Qspi, QuadDma, TransferConfig};
+use embassy_stm32::qspi::{Config as QspiCfg, Instance, Qspi, TransferConfig};
 use embassy_stm32::time::mhz;
 use embassy_stm32::Config as StmCfg;
 use {defmt_rtt as _, panic_probe as _};
@@ -43,12 +44,12 @@ const MEMORY_ADDR: u32 = 0x00000000u32;
 /// Implementation of access to flash chip.
 /// Chip commands are hardcoded as it depends on used chip.
 /// This implementation is using chip GD25Q64C from Giga Device
-pub struct FlashMemory<I: Instance, D: QuadDma<I>> {
-    qspi: Qspi<'static, I, D>,
+pub struct FlashMemory<I: Instance> {
+    qspi: Qspi<'static, I, Async>,
 }
 
-impl<I: Instance, D: QuadDma<I>> FlashMemory<I, D> {
-    pub fn new(qspi: Qspi<'static, I, D>) -> Self {
+impl<I: Instance> FlashMemory<I> {
+    pub fn new(qspi: Qspi<'static, I, Async>) -> Self {
         let mut memory = Self { qspi };
 
         memory.reset_memory();
@@ -279,7 +280,7 @@ async fn main(_spawner: Spawner) -> ! {
         cs_high_time: ChipSelectHighTime::_1Cycle,
         fifo_threshold: FIFOThresholdLevel::_16Bytes,
     };
-    let driver = Qspi::new_bk1(
+    let driver = Qspi::new_bank1(
         p.QUADSPI, p.PF8, p.PF9, p.PE2, p.PF6, p.PF10, p.PB10, p.DMA2_CH7, config,
     );
     let mut flash = FlashMemory::new(driver);
