@@ -335,7 +335,7 @@ where
 /// buffer is full, attempts to `send` new messages will wait until a message is
 /// received from the channel.
 ///
-/// Sent data may be reordered based on their priorty within the channel.
+/// Sent data may be reordered based on their priority within the channel.
 /// For example, in a [`Max`](heapless::binary_heap::Max) [`PriorityChannel`]
 /// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be received as `[3, 2, 1]`.
 pub struct PriorityChannel<M, T, K, const N: usize>
