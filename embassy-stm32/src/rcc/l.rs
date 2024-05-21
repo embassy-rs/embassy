@@ -589,7 +589,7 @@ mod pll {
         // Disable PLL
         pll_enable(instance, false);
 
-        let Some(pll) = config else { return PllOutput::default() };
+        if let Some(pll) = config {
 
         let pll_src = match pll.source {
             PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
@@ -656,5 +656,8 @@ mod pll {
         pll_enable(instance, true);
 
         PllOutput { p, q, r }
+    } else {
+        PllOutput { p: None, q: None, r: None }
+    }
     }
 }
