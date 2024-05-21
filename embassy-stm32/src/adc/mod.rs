@@ -61,7 +61,7 @@ trait SealedInstance {
 }
 
 pub(crate) trait SealedAdcPin<T: Instance> {}
-
+pub(crate) trait SealedInternalChannel<T> {}
 pub(crate) trait SealedAdcChannel<T> {
     #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4))]
     fn setup(&mut self) {}
@@ -126,6 +126,9 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::R
 /// ADC pin.
 #[allow(private_bounds)]
 pub trait AdcPin<T: Instance>: AdcChannel<T> + SealedAdcPin<T> {}
+/// ADC internal channel.
+#[allow(private_bounds)]
+pub trait InternalChannel<T>: SealedInternalChannel<T> {}
 /// ADC channel.
 #[allow(private_bounds)]
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {

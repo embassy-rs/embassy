@@ -6,7 +6,7 @@ use embassy_futures::yield_now;
 use embassy_hal_internal::into_ref;
 use embassy_time::Instant;
 
-use super::Resolution;
+use super::{InternalChannel, Resolution};
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
@@ -64,6 +64,8 @@ fn update_vref<T: Instance>(op: i8) {
 }
 
 pub struct Vref<T: Instance>(core::marker::PhantomData<T>);
+impl<T: Instance> InternalChannel<T> for Vref<T> {}
+impl<T: Instance> super::SealedInternalChannel<T> for Vref<T> {}
 impl<T: Instance> AdcChannel<T> for Vref<T> {}
 impl<T: Instance> super::SealedAdcChannel<T> for Vref<T> {
     fn channel(&self) -> u8 {
@@ -123,6 +125,8 @@ impl<T: Instance> Drop for Vref<T> {
 }
 
 pub struct Temperature<T: Instance>(core::marker::PhantomData<T>);
+impl<T: Instance> InternalChannel<T> for Temperature<T> {}
+impl<T: Instance> super::SealedInternalChannel<T> for Temperature<T> {}
 impl<T: Instance> AdcChannel<T> for Temperature<T> {}
 impl<T: Instance> super::SealedAdcChannel<T> for Temperature<T> {
     fn channel(&self) -> u8 {

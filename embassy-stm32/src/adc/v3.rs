@@ -1,7 +1,7 @@
 use cfg_if::cfg_if;
 use embassy_hal_internal::into_ref;
 
-use super::blocking_delay_us;
+use super::{blocking_delay_us, InternalChannel};
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::Peripheral;
 
@@ -11,6 +11,8 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 pub const VREF_CALIB_MV: u32 = 3000;
 
 pub struct VrefInt;
+impl<T: Instance> InternalChannel<T> for VrefInt {}
+impl<T: Instance> super::SealedInternalChannel<T> for VrefInt {}
 impl<T: Instance> AdcChannel<T> for VrefInt {}
 impl<T: Instance> super::SealedAdcChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
@@ -30,6 +32,8 @@ impl<T: Instance> super::SealedAdcChannel<T> for VrefInt {
 }
 
 pub struct Temperature;
+impl<T: Instance> InternalChannel<T> for Temperature {}
+impl<T: Instance> super::SealedInternalChannel<T> for Temperature {}
 impl<T: Instance> AdcChannel<T> for Temperature {}
 impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
     fn channel(&self) -> u8 {
@@ -49,6 +53,8 @@ impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
 }
 
 pub struct Vbat;
+impl<T: Instance> InternalChannel<T> for Vbat {}
+impl<T: Instance> super::SealedInternalChannel<T> for Vbat {}
 impl<T: Instance> AdcChannel<T> for Vbat {}
 impl<T: Instance> super::SealedAdcChannel<T> for Vbat {
     fn channel(&self) -> u8 {
@@ -70,6 +76,8 @@ impl<T: Instance> super::SealedAdcChannel<T> for Vbat {
 cfg_if! {
     if #[cfg(adc_h5)] {
         pub struct VddCore;
+        impl<T: Instance> InternalChannel<T> for VddCore {}
+        impl<T: Instance> super::SealedInternalChannel<T> for VddCore {}
         impl<T: Instance> AdcChannel<T> for VddCore {}
         impl<T: Instance> super::SealedAdcChannel<T> for VddCore {
             fn channel(&self) -> u8 {
@@ -82,6 +90,8 @@ cfg_if! {
 cfg_if! {
     if #[cfg(adc_u0)] {
         pub struct DacOut;
+        impl<T: Instance> InternalChannel<T> for DacOut {}
+        impl<T: Instance> super::SealedInternalChannel<T> for DacOut {}
         impl<T: Instance> AdcChannel<T> for DacOut {}
         impl<T: Instance> super::SealedAdcChannel<T> for DacOut {
             fn channel(&self) -> u8 {

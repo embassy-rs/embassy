@@ -2,7 +2,7 @@
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 use pac::adccommon::vals::Presc;
 
-use super::{blocking_delay_us, Adc, AdcChannel, Instance, Resolution, SampleTime};
+use super::{blocking_delay_us, Adc, AdcChannel, Instance, InternalChannel, Resolution, SampleTime};
 use crate::time::Hertz;
 use crate::{pac, Peripheral};
 
@@ -33,6 +33,8 @@ const VBAT_CHANNEL: u8 = 17;
 // NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
 /// Internal voltage reference channel.
 pub struct VrefInt;
+impl<T: Instance> InternalChannel<T> for VrefInt {}
+impl<T: Instance> super::SealedInternalChannel<T> for VrefInt {}
 impl<T: Instance> AdcChannel<T> for VrefInt {}
 impl<T: Instance> super::SealedAdcChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
@@ -42,6 +44,8 @@ impl<T: Instance> super::SealedAdcChannel<T> for VrefInt {
 
 /// Internal temperature channel.
 pub struct Temperature;
+impl<T: Instance> InternalChannel<T> for Temperature {}
+impl<T: Instance> super::SealedInternalChannel<T> for Temperature {}
 impl<T: Instance> AdcChannel<T> for Temperature {}
 impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
     fn channel(&self) -> u8 {
@@ -51,6 +55,8 @@ impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
 
 /// Internal battery voltage channel.
 pub struct Vbat;
+impl<T: Instance> InternalChannel<T> for Vbat {}
+impl<T: Instance> super::SealedInternalChannel<T> for Vbat {}
 impl<T: Instance> AdcChannel<T> for Vbat {}
 impl<T: Instance> super::SealedAdcChannel<T> for Vbat {
     fn channel(&self) -> u8 {
