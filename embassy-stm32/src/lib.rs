@@ -51,6 +51,10 @@ pub mod timer;
 
 // Sometimes-present hardware
 
+
+#[cfg(aes)]
+pub mod aes;
+
 #[cfg(adc)]
 pub mod adc;
 #[cfg(can)]
