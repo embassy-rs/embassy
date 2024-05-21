@@ -187,6 +187,7 @@ cargo batch \
     --- build --release --manifest-path examples/stm32f3/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f3 \
     --- build --release --manifest-path examples/stm32f334/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f334 \
     --- build --release --manifest-path examples/stm32f4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f4 \
+    --- build --release --manifest-path examples/stm32f469/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f469 \
     --- build --release --manifest-path examples/stm32f7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f7 \
     --- build --release --manifest-path examples/stm32c0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32c0 \
     --- build --release --manifest-path examples/stm32g0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32g0 \
