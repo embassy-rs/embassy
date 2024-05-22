@@ -1,6 +1,6 @@
 use embassy_hal_internal::into_ref;
 
-use super::{blocking_delay_us, InternalChannel};
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
@@ -12,8 +12,6 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 pub const VREF_CALIB_MV: u32 = 3300;
 
 pub struct VrefInt;
-impl InternalChannel<ADC1> for VrefInt {}
-impl super::SealedInternalChannel<ADC1> for VrefInt {}
 impl AdcChannel<ADC1> for VrefInt {}
 impl super::SealedAdcChannel<ADC1> for VrefInt {
     fn channel(&self) -> u8 {
@@ -29,8 +27,6 @@ impl VrefInt {
 }
 
 pub struct Temperature;
-impl InternalChannel<ADC1> for Temperature {}
-impl super::SealedInternalChannel<ADC1> for Temperature {}
 impl AdcChannel<ADC1> for Temperature {}
 impl super::SealedAdcChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
@@ -52,8 +48,6 @@ impl Temperature {
 }
 
 pub struct Vbat;
-impl InternalChannel<ADC1> for Vbat {}
-impl super::SealedInternalChannel<ADC1> for Vbat {}
 impl AdcChannel<ADC1> for Vbat {}
 impl super::SealedAdcChannel<ADC1> for Vbat {
     fn channel(&self) -> u8 {

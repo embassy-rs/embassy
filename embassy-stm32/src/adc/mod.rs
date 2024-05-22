@@ -60,8 +60,6 @@ trait SealedInstance {
     fn state() -> &'static State;
 }
 
-pub(crate) trait SealedAdcPin<T: Instance> {}
-pub(crate) trait SealedInternalChannel<T> {}
 pub(crate) trait SealedAdcChannel<T> {
     #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4))]
     fn setup(&mut self) {}
@@ -123,12 +121,6 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::R
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
-/// ADC pin.
-#[allow(private_bounds)]
-pub trait AdcPin<T: Instance>: AdcChannel<T> + SealedAdcPin<T> {}
-/// ADC internal channel.
-#[allow(private_bounds)]
-pub trait InternalChannel<T>: AdcChannel<T> + SealedInternalChannel<T> {}
 /// ADC channel.
 #[allow(private_bounds)]
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
@@ -187,9 +179,6 @@ foreach_adc!(
 
 macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::adc::AdcPin<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::adc::SealedAdcPin<peripherals::$inst> for crate::peripherals::$pin {}
-
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::peripherals::$pin {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::peripherals::$pin {
             #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4))]

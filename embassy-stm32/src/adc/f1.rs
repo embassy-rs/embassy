@@ -4,7 +4,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 
-use super::{blocking_delay_us, InternalChannel};
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::time::Hertz;
 use crate::{interrupt, Peripheral};
@@ -32,8 +32,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 pub struct Vref;
-impl<T: Instance> InternalChannel<T> for Vref {}
-impl<T: Instance> super::SealedInternalChannel<T> for Vref {}
 impl<T: Instance> AdcChannel<T> for Vref {}
 impl<T: Instance> super::SealedAdcChannel<T> for Vref {
     fn channel(&self) -> u8 {
@@ -42,8 +40,6 @@ impl<T: Instance> super::SealedAdcChannel<T> for Vref {
 }
 
 pub struct Temperature;
-impl<T: Instance> InternalChannel<T> for Temperature {}
-impl<T: Instance> super::SealedInternalChannel<T> for Temperature {}
 impl<T: Instance> AdcChannel<T> for Temperature {}
 impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
     fn channel(&self) -> u8 {

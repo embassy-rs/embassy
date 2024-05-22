@@ -6,7 +6,7 @@ use embassy_hal_internal::into_ref;
 #[cfg(adc_l0)]
 use stm32_metapac::adc::vals::Ckmode;
 
-use super::{blocking_delay_us, InternalChannel};
+use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC1;
@@ -36,12 +36,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 pub struct Vbat;
 
 #[cfg(not(adc_l0))]
-impl InternalChannel<ADC1> for Vbat {}
-
-#[cfg(not(adc_l0))]
-impl super::SealedInternalChannel<ADC1> for Vbat {}
-
-#[cfg(not(adc_l0))]
 impl AdcChannel<ADC1> for Vbat {}
 
 #[cfg(not(adc_l0))]
@@ -52,8 +46,6 @@ impl super::SealedAdcChannel<ADC1> for Vbat {
 }
 
 pub struct Vref;
-impl InternalChannel<ADC1> for Vref {}
-impl super::SealedInternalChannel<ADC1> for Vref {}
 impl AdcChannel<ADC1> for Vref {}
 impl super::SealedAdcChannel<ADC1> for Vref {
     fn channel(&self) -> u8 {
@@ -62,8 +54,6 @@ impl super::SealedAdcChannel<ADC1> for Vref {
 }
 
 pub struct Temperature;
-impl InternalChannel<ADC1> for Temperature {}
-impl super::SealedInternalChannel<ADC1> for Temperature {}
 impl AdcChannel<ADC1> for Temperature {}
 impl super::SealedAdcChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
