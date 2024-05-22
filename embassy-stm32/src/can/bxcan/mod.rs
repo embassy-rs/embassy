@@ -133,7 +133,7 @@ impl<T: Instance> CanConfig<'_, T> {
         self
     }
 
-    /// Enables or disables automatic retransmission of messages.
+    /// Enables or disables automatic retransmission of frames.
     ///
     /// If this is enabled, the CAN peripheral will automatically try to retransmit each frame
     /// until it can be sent. Otherwise, it will try only once to send each frame.
@@ -298,6 +298,23 @@ impl<'d, T: Instance> Can<'d, T> {
         T::regs().ier().modify(|i| i.set_slkie(false));
     }
 
+    /// Enable FIFO scheduling of outgoing frames.
+    ///
+    /// If this is enabled, frames will be transmitted in the order that they are passed to
+    /// [`write()`][Self::write] or [`try_write()`][Self::try_write()].
+    ///
+    /// If this is disabled, frames are transmitted in order of priority.
+    ///
+    /// FIFO scheduling is disabled by default.
+    pub fn set_tx_fifo_scheduling(&mut self, enabled: bool) {
+        Registers(T::regs()).set_tx_fifo_scheduling(enabled)
+    }
+
+    /// Checks if FIFO scheduling of outgoing frames is enabled.
+    pub fn tx_fifo_scheduling_enabled(&self) -> bool {
+        Registers(T::regs()).tx_fifo_scheduling_enabled()
+    }
+
     /// Queues the message to be sent.
     ///
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
@@ -318,6 +335,11 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     /// Waits until any of the transmit mailboxes become empty
+    ///
+    /// Note that [`Self::try_write()`] may fail with [`TryWriteError::Full`],
+    /// even after the future returned by this function completes.
+    /// This will happen if FIFO scheduling of outgoing frames is not enabled,
+    /// and a frame with equal priority is already queued for transmission.
     pub async fn flush_any(&self) {
         CanTx::<T>::flush_any_inner().await
     }
@@ -505,6 +527,11 @@ impl<'d, T: Instance> CanTx<'d, T> {
     }
 
     /// Waits until any of the transmit mailboxes become empty
+    ///
+    /// Note that [`Self::try_write()`] may fail with [`TryWriteError::Full`],
+    /// even after the future returned by this function completes.
+    /// This will happen if FIFO scheduling of outgoing frames is not enabled,
+    /// and a frame with equal priority is already queued for transmission.
     pub async fn flush_any(&self) {
         Self::flush_any_inner().await
     }
