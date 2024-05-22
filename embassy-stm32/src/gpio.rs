@@ -689,17 +689,19 @@ pub(crate) trait SealedPin {
             #[cfg(gpio_v1)]
             {
                 let crlh = if n < 8 { 0 } else { 1 };
-                match r.cr(crlh).cnf(n % 8) {
-                    vals::CnfIn::FLOATING => Pull::None,
-                    _ => {
-                        if r.bsrr().read().bs(n % 8) {
-                            Pull::Up
-                        } else if r.bsrr().read().br(n % 8) {
-                            Pull::Down
-                        } else {
-                            Pull::None
+                match r.cr(crlh).read().mode(n % 8) {
+                    vals::Mode::INPUT => {
+                        match r.cr(crlh).read().cnf_in(n % 8) {
+                            vals::CnfIn::PULL => {
+                                match r.odr().read().odr(n % 8) {
+                                    vals::Odr::LOW => Pull::Down,
+                                    vals::Odr::HIGH => Pull::Up
+                                }
+                            },
+                            _ => Pull::None
                         }
-                    }
+                    },
+                    _ => Pull::None
                 }
             }
             #[cfg(gpio_v2)]
