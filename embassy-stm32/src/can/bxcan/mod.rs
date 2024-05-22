@@ -324,7 +324,13 @@ impl<'d, T: Instance> Can<'d, T> {
 
     /// Attempts to transmit a frame without blocking.
     ///
-    /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
+    /// Returns [Err(TryWriteError::Full)] if the frame can not be queued for transmission now.
+    ///
+    /// If FIFO scheduling is enabled, any empty mailbox will be used.
+    ///
+    /// Otherwise, the frame will only be accepted if there is no frame with the same priority already queued.
+    /// This is done to work around a hardware limitation that could lead to out-of-order delivery
+    /// of frames with the same priority.
     pub fn try_write(&mut self, frame: &Frame) -> Result<TransmitStatus, TryWriteError> {
         self.split().0.try_write(frame)
     }
@@ -487,7 +493,13 @@ impl<'d, T: Instance> CanTx<'d, T> {
 
     /// Attempts to transmit a frame without blocking.
     ///
-    /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
+    /// Returns [Err(TryWriteError::Full)] if the frame can not be queued for transmission now.
+    ///
+    /// If FIFO scheduling is enabled, any empty mailbox will be used.
+    ///
+    /// Otherwise, the frame will only be accepted if there is no frame with the same priority already queued.
+    /// This is done to work around a hardware limitation that could lead to out-of-order delivery
+    /// of frames with the same priority.
     pub fn try_write(&mut self, frame: &Frame) -> Result<TransmitStatus, TryWriteError> {
         Registers(T::regs()).transmit(frame).map_err(|_| TryWriteError::Full)
     }

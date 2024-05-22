@@ -239,7 +239,7 @@ impl Registers {
             // Frames with identical priority should be transmitted in FIFO order,
             // but the controller schedules pending frames of same priority based on the
             // mailbox index. As a workaround check all pending mailboxes and only accept
-            // higher priority frames.
+            // frames with a different priority.
             self.check_priority(0, frame.id().into())?;
             self.check_priority(1, frame.id().into())?;
             self.check_priority(2, frame.id().into())?;
@@ -276,18 +276,16 @@ impl Registers {
     }
 
     /// Returns `Ok` when the mailbox is free or if it contains pending frame with a
-    /// lower priority (higher ID) than the identifier `id`.
+    /// different priority from the identifier `id`.
     fn check_priority(&self, idx: usize, id: IdReg) -> nb::Result<(), Infallible> {
         // Read the pending frame's id to check its priority.
         assert!(idx < 3);
         let tir = &self.0.tx(idx).tir().read();
-        //let tir = &can.tx[idx].tir.read();
 
         // Check the priority by comparing the identifiers. But first make sure the
         // frame has not finished the transmission (`TXRQ` == 0) in the meantime.
-        if tir.txrq() && id <= IdReg::from_register(tir.0) {
-            // There's a mailbox whose priority is higher or equal
-            // the priority of the new frame.
+        if tir.txrq() && id == IdReg::from_register(tir.0) {
+            // There's a mailbox whose priority is equal to the priority of the new frame.
             return Err(nb::Error::WouldBlock);
         }
 
