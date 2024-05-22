@@ -55,6 +55,11 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Pub<'a, PSB, T> {
         self.channel.free_capacity()
     }
 
+    /// Clears all elements in the ***channel***.
+    pub fn clear(&self) {
+        self.channel.clear();
+    }
+
     /// Returns the number of elements currently in the ***channel***.
     pub fn len(&self) -> usize {
         self.channel.len()
@@ -153,6 +158,11 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> ImmediatePub<'a, PSB, T> {
     /// This is equivalent to `capacity() - len()`
     pub fn free_capacity(&self) -> usize {
         self.channel.free_capacity()
+    }
+
+    /// Clears all elements in the ***channel***.
+    pub fn clear(&self) {
+        self.channel.clear();
     }
 
     /// Returns the number of elements currently in the ***channel***.

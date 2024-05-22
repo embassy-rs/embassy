@@ -315,6 +315,10 @@ where
         }
     }
 
+    fn clear(&mut self) {
+        self.queue.clear();
+    }
+
     fn len(&self) -> usize {
         self.queue.len()
     }
@@ -456,6 +460,11 @@ where
     /// This is equivalent to `capacity() - len()`
     pub fn free_capacity(&self) -> usize {
         N - self.len()
+    }
+
+    /// Clears all elements in the channel.
+    pub fn clear(&self) {
+        self.lock(|c| c.clear());
     }
 
     /// Returns the number of elements currently in the channel.

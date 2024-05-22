@@ -173,6 +173,11 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
         CAP - self.len()
     }
 
+    /// Clears all elements in the channel.
+    pub fn clear(&self) {
+        self.inner.lock(|inner| inner.borrow_mut().clear());
+    }
+
     /// Returns the number of elements currently in the channel.
     pub fn len(&self) -> usize {
         self.inner.lock(|inner| inner.borrow().len())
@@ -268,6 +273,10 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
 
     fn free_capacity(&self) -> usize {
         self.free_capacity()
+    }
+
+    fn clear(&self) {
+        self.clear();
     }
 
     fn len(&self) -> usize {
@@ -407,6 +416,10 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
         self.publisher_count -= 1;
     }
 
+    fn clear(&mut self) {
+        self.queue.clear();
+    }
+
     fn len(&self) -> usize {
         self.queue.len()
     }
@@ -459,6 +472,9 @@ trait SealedPubSubBehavior<T> {
     ///
     /// This is equivalent to `capacity() - len()`
     fn free_capacity(&self) -> usize;
+
+    /// Clears all elements in the channel.
+    fn clear(&self);
 
     /// Returns the number of elements currently in the channel.
     fn len(&self) -> usize;
