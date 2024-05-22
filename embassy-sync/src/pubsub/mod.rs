@@ -437,7 +437,7 @@ pub enum Error {
 trait SealedPubSubBehavior<T> {
     /// Try to get a message from the queue with the given message id.
     ///
-    /// If the message is not yet present and a context is given, then its waker is registered in the subsriber wakers.
+    /// If the message is not yet present and a context is given, then its waker is registered in the subscriber wakers.
     fn get_message_with_context(&self, next_message_id: &mut u64, cx: Option<&mut Context<'_>>) -> Poll<WaitResult<T>>;
 
     /// Get the amount of messages that are between the given the next_message_id and the most recent message.
