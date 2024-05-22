@@ -430,7 +430,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             new_pin!(
                 miso,
                 AFType::Input,
-                Speed::Input,
+                Speed::VeryHigh,
                 match config.miso_pullup {
                     true => Pull::Up,
                     false => Pull::None,
@@ -456,7 +456,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             new_pin!(
                 miso,
                 AFType::Input,
-                Speed::Input,
+                Speed::VeryHigh,
                 match config.miso_pullup {
                     true => Pull::Up,
                     false => Pull::None,

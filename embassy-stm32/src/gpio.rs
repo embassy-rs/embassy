@@ -265,7 +265,6 @@ impl From<Pull> for vals::Pupdr {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Speed {
-    Input,
     Low,
     Medium,
     #[cfg(not(any(syscfg_f0, gpio_v1)))]
@@ -279,7 +278,6 @@ impl From<Speed> for vals::Mode {
         use Speed::*;
 
         match speed {
-            Input => vals::Mode::INPUT,
             Low => vals::Mode::OUTPUT2MHZ,
             Medium => vals::Mode::OUTPUT10MHZ,
             VeryHigh => vals::Mode::OUTPUT50MHZ,
@@ -293,7 +291,6 @@ impl From<Speed> for vals::Ospeedr {
         use Speed::*;
 
         match speed {
-            Input => vals::Ospeedr::LOWSPEED,
             Low => vals::Ospeedr::LOWSPEED,
             Medium => vals::Ospeedr::MEDIUMSPEED,
             #[cfg(not(syscfg_f0))]
