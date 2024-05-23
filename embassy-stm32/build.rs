@@ -387,7 +387,6 @@ fn main() {
     struct ClockGen<'a> {
         rcc_registers: &'a PeripheralRegisters,
         chained_muxes: HashMap<&'a str, &'a PeripheralRccRegister>,
-        force_refcount: HashSet<&'a str>,
 
         refcount_statics: BTreeSet<Ident>,
         clock_names: BTreeSet<String>,
@@ -397,7 +396,6 @@ fn main() {
     let mut clock_gen = ClockGen {
         rcc_registers,
         chained_muxes: HashMap::new(),
-        force_refcount: HashSet::from(["usart"]),
 
         refcount_statics: BTreeSet::new(),
         clock_names: BTreeSet::new(),
@@ -542,7 +540,6 @@ fn main() {
                 None => (TokenStream::new(), TokenStream::new()),
             };
 
-            let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
@@ -570,8 +567,7 @@ fn main() {
             };
             let en_bit_offs: u8 = en_bit_offs.offset.try_into().unwrap();
 
-            let refcount =
-                clock_gen.force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
+            let refcount = *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
             let (before_enable, before_disable) = if refcount {
                 let refcount_static =
                     format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
