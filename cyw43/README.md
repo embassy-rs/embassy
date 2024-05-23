@@ -23,7 +23,7 @@ TODO:
 
 ## Running the examples
 
-- `cargo install probe-rs --features cli`
+- Install `probe-rs` following the instructions at <https://probe.rs>.
 - `cd examples/rp`
 ### Example 1: Scan the wifi stations
 - `cargo run --release --bin wifi_scan`

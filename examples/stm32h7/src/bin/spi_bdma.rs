@@ -9,7 +9,7 @@ use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{peripherals, spi, Config};
+use embassy_stm32::{spi, Config};
 use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -19,7 +19,7 @@ use {defmt_rtt as _, panic_probe as _};
 static mut RAM_D3: [u8; 64 * 1024] = [0u8; 64 * 1024];
 
 #[embassy_executor::task]
-async fn main_task(mut spi: spi::Spi<'static, peripherals::SPI6, Async>) {
+async fn main_task(mut spi: spi::Spi<'static, Async>) {
     let read_buffer = unsafe { &mut RAM_D3[0..128] };
     let write_buffer = unsafe { &mut RAM_D3[128..256] };
 

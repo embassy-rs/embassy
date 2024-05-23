@@ -72,9 +72,8 @@ impl<'d, T: BasicInstance> RingBufferedUartRx<'d, T> {
         Err(err)
     }
 
-    /// Cleanly stop and reconfigure the driver
+    /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        self.teardown_uart();
         reconfigure::<T>(config)
     }
 

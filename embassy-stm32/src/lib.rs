@@ -66,6 +66,8 @@ pub mod cryp;
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dsihost)]
+pub mod dsihost;
 #[cfg(eth)]
 pub mod eth;
 #[cfg(feature = "exti")]
@@ -77,6 +79,8 @@ pub mod fmc;
 pub mod hash;
 #[cfg(hrtim)]
 pub mod hrtim;
+#[cfg(hsem)]
+pub mod hsem;
 #[cfg(i2c)]
 pub mod i2c;
 #[cfg(all(spi_v1, rcc_f4))]
@@ -85,6 +89,8 @@ pub mod i2s;
 pub mod ipcc;
 #[cfg(feature = "low-power")]
 pub mod low_power;
+#[cfg(ltdc)]
+pub mod ltdc;
 #[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
@@ -101,6 +107,8 @@ pub mod sai;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(tsc)]
+pub mod tsc;
 #[cfg(ucpd)]
 pub mod ucpd;
 #[cfg(uid)]

@@ -7,6 +7,7 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
+use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
     MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, METADATA,
 };
@@ -359,12 +360,17 @@ fn main() {
 
     // ========
     // Extract the rcc registers
+
     let rcc_registers = METADATA
         .peripherals
         .iter()
         .filter_map(|p| p.registers.as_ref())
         .find(|r| r.kind == "rcc")
         .unwrap();
+    for b in rcc_registers.ir.blocks {
+        eprintln!("{}", b.name);
+    }
+    let rcc_block = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap();
 
     // ========
     // Generate RccPeripheral impls
@@ -540,6 +546,29 @@ fn main() {
             let pname = format_ident!("{}", p.name);
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+            let en_reg_offs = rcc_block
+                .items
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(en.register))
+                .unwrap()
+                .byte_offset;
+            let en_reg_offs: u8 = (en_reg_offs / 4).try_into().unwrap();
+
+            let en_bit_offs = &rcc_registers
+                .ir
+                .fieldsets
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(en.register))
+                .unwrap()
+                .fields
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(en.field))
+                .unwrap()
+                .bit_offset;
+            let BitOffset::Regular(en_bit_offs) = en_bit_offs else {
+                panic!("cursed bit offset")
+            };
+            let en_bit_offs: u8 = en_bit_offs.offset.try_into().unwrap();
 
             let refcount =
                 clock_gen.force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
@@ -624,6 +653,9 @@ fn main() {
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                         #decr_stop_refcount
                     }
+
+                    const ENABLE_BIT: crate::rcc::ClockEnableBit =
+                        unsafe { crate::rcc::ClockEnableBit::new(#en_reg_offs, #en_bit_offs) };
                 }
 
                 impl crate::rcc::RccPeripheral for peripherals::#pname {}
@@ -836,6 +868,35 @@ fn main() {
         (("dcmi", "HSYNC"), quote!(crate::dcmi::HSyncPin)),
         (("dcmi", "VSYNC"), quote!(crate::dcmi::VSyncPin)),
         (("dcmi", "PIXCLK"), quote!(crate::dcmi::PixClkPin)),
+        (("dsihost", "TE"), quote!(crate::dsihost::TePin)),
+        (("ltdc", "CLK"), quote!(crate::ltdc::ClkPin)),
+        (("ltdc", "HSYNC"), quote!(crate::ltdc::HsyncPin)),
+        (("ltdc", "VSYNC"), quote!(crate::ltdc::VsyncPin)),
+        (("ltdc", "DE"), quote!(crate::ltdc::DePin)),
+        (("ltdc", "R0"), quote!(crate::ltdc::R0Pin)),
+        (("ltdc", "R1"), quote!(crate::ltdc::R1Pin)),
+        (("ltdc", "R2"), quote!(crate::ltdc::R2Pin)),
+        (("ltdc", "R3"), quote!(crate::ltdc::R3Pin)),
+        (("ltdc", "R4"), quote!(crate::ltdc::R4Pin)),
+        (("ltdc", "R5"), quote!(crate::ltdc::R5Pin)),
+        (("ltdc", "R6"), quote!(crate::ltdc::R6Pin)),
+        (("ltdc", "R7"), quote!(crate::ltdc::R7Pin)),
+        (("ltdc", "G0"), quote!(crate::ltdc::G0Pin)),
+        (("ltdc", "G1"), quote!(crate::ltdc::G1Pin)),
+        (("ltdc", "G2"), quote!(crate::ltdc::G2Pin)),
+        (("ltdc", "G3"), quote!(crate::ltdc::G3Pin)),
+        (("ltdc", "G4"), quote!(crate::ltdc::G4Pin)),
+        (("ltdc", "G5"), quote!(crate::ltdc::G5Pin)),
+        (("ltdc", "G6"), quote!(crate::ltdc::G6Pin)),
+        (("ltdc", "G7"), quote!(crate::ltdc::G7Pin)),
+        (("ltdc", "B0"), quote!(crate::ltdc::B0Pin)),
+        (("ltdc", "B1"), quote!(crate::ltdc::B1Pin)),
+        (("ltdc", "B2"), quote!(crate::ltdc::B2Pin)),
+        (("ltdc", "B3"), quote!(crate::ltdc::B3Pin)),
+        (("ltdc", "B4"), quote!(crate::ltdc::B4Pin)),
+        (("ltdc", "B5"), quote!(crate::ltdc::B5Pin)),
+        (("ltdc", "B6"), quote!(crate::ltdc::B6Pin)),
+        (("ltdc", "B7"), quote!(crate::ltdc::B7Pin)),
         (("usb", "DP"), quote!(crate::usb::DpPin)),
         (("usb", "DM"), quote!(crate::usb::DmPin)),
         (("otg", "DP"), quote!(crate::usb::DpPin)),
@@ -1030,6 +1091,38 @@ fn main() {
         (("octospi", "NCS"), quote!(crate::ospi::NSSPin)),
         (("octospi", "CLK"), quote!(crate::ospi::SckPin)),
         (("octospi", "NCLK"), quote!(crate::ospi::NckPin)),
+        (("tsc", "G1_IO1"), quote!(crate::tsc::G1IO1Pin)),
+        (("tsc", "G1_IO2"), quote!(crate::tsc::G1IO2Pin)),
+        (("tsc", "G1_IO3"), quote!(crate::tsc::G1IO3Pin)),
+        (("tsc", "G1_IO4"), quote!(crate::tsc::G1IO4Pin)),
+        (("tsc", "G2_IO1"), quote!(crate::tsc::G2IO1Pin)),
+        (("tsc", "G2_IO2"), quote!(crate::tsc::G2IO2Pin)),
+        (("tsc", "G2_IO3"), quote!(crate::tsc::G2IO3Pin)),
+        (("tsc", "G2_IO4"), quote!(crate::tsc::G2IO4Pin)),
+        (("tsc", "G3_IO1"), quote!(crate::tsc::G3IO1Pin)),
+        (("tsc", "G3_IO2"), quote!(crate::tsc::G3IO2Pin)),
+        (("tsc", "G3_IO3"), quote!(crate::tsc::G3IO3Pin)),
+        (("tsc", "G3_IO4"), quote!(crate::tsc::G3IO4Pin)),
+        (("tsc", "G4_IO1"), quote!(crate::tsc::G4IO1Pin)),
+        (("tsc", "G4_IO2"), quote!(crate::tsc::G4IO2Pin)),
+        (("tsc", "G4_IO3"), quote!(crate::tsc::G4IO3Pin)),
+        (("tsc", "G4_IO4"), quote!(crate::tsc::G4IO4Pin)),
+        (("tsc", "G5_IO1"), quote!(crate::tsc::G5IO1Pin)),
+        (("tsc", "G5_IO2"), quote!(crate::tsc::G5IO2Pin)),
+        (("tsc", "G5_IO3"), quote!(crate::tsc::G5IO3Pin)),
+        (("tsc", "G5_IO4"), quote!(crate::tsc::G5IO4Pin)),
+        (("tsc", "G6_IO1"), quote!(crate::tsc::G6IO1Pin)),
+        (("tsc", "G6_IO2"), quote!(crate::tsc::G6IO2Pin)),
+        (("tsc", "G6_IO3"), quote!(crate::tsc::G6IO3Pin)),
+        (("tsc", "G6_IO4"), quote!(crate::tsc::G6IO4Pin)),
+        (("tsc", "G7_IO1"), quote!(crate::tsc::G7IO1Pin)),
+        (("tsc", "G7_IO2"), quote!(crate::tsc::G7IO2Pin)),
+        (("tsc", "G7_IO3"), quote!(crate::tsc::G7IO3Pin)),
+        (("tsc", "G7_IO4"), quote!(crate::tsc::G7IO4Pin)),
+        (("tsc", "G8_IO1"), quote!(crate::tsc::G8IO1Pin)),
+        (("tsc", "G8_IO2"), quote!(crate::tsc::G8IO2Pin)),
+        (("tsc", "G8_IO3"), quote!(crate::tsc::G8IO3Pin)),
+        (("tsc", "G8_IO4"), quote!(crate::tsc::G8IO4Pin)),
     ].into();
 
     for p in METADATA.peripherals {

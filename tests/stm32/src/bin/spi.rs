@@ -58,6 +58,14 @@ async fn main(_spawner: Spawner) {
     spi.blocking_read::<u8>(&mut []).unwrap();
     spi.blocking_write::<u8>(&[]).unwrap();
 
+    // Assert the RCC bit gets disabled on drop.
+    #[cfg(feature = "stm32f429zi")]
+    {
+        defmt::assert!(embassy_stm32::pac::RCC.apb2enr().read().spi1en());
+        drop(spi);
+        defmt::assert!(!embassy_stm32::pac::RCC.apb2enr().read().spi1en());
+    }
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }
