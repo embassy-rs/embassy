@@ -7,7 +7,7 @@ use embassy_hal_internal::into_ref;
 use stm32_metapac::adc::vals::Ckmode;
 
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC1;
 use crate::{interrupt, Peripheral};
@@ -36,26 +36,26 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 pub struct Vbat;
 
 #[cfg(not(adc_l0))]
-impl AdcPin<ADC1> for Vbat {}
+impl AdcChannel<ADC1> for Vbat {}
 
 #[cfg(not(adc_l0))]
-impl super::SealedAdcPin<ADC1> for Vbat {
+impl super::SealedAdcChannel<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
 }
 
 pub struct Vref;
-impl AdcPin<ADC1> for Vref {}
-impl super::SealedAdcPin<ADC1> for Vref {
+impl AdcChannel<ADC1> for Vref {}
+impl super::SealedAdcChannel<ADC1> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl AdcPin<ADC1> for Temperature {}
-impl super::SealedAdcPin<ADC1> for Temperature {
+impl AdcChannel<ADC1> for Temperature {}
+impl super::SealedAdcChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
@@ -155,12 +155,12 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr2().modify(|reg| reg.set_ckmode(ckmode));
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        let channel = pin.channel();
-        pin.set_as_analog();
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        let ch_num = channel.channel();
+        channel.setup();
 
         // A.7.5 Single conversion sequence code example - Software trigger
-        T::regs().chselr().write(|reg| reg.set_chselx(channel as usize, true));
+        T::regs().chselr().write(|reg| reg.set_chselx(ch_num as usize, true));
 
         self.convert().await
     }

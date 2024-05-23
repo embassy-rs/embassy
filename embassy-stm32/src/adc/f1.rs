@@ -5,7 +5,7 @@ use core::task::Poll;
 use embassy_hal_internal::into_ref;
 
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcPin, Instance, SampleTime};
+use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::time::Hertz;
 use crate::{interrupt, Peripheral};
 
@@ -32,16 +32,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 pub struct Vref;
-impl<T: Instance> AdcPin<T> for Vref {}
-impl<T: Instance> super::SealedAdcPin<T> for Vref {
+impl<T: Instance> AdcChannel<T> for Vref {}
+impl<T: Instance> super::SealedAdcChannel<T> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::SealedAdcPin<T> for Temperature {
+impl<T: Instance> AdcChannel<T> for Temperature {}
+impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
@@ -135,8 +135,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().0 as u16
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        Self::set_channel_sample_time(pin.channel(), self.sample_time);
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        Self::set_channel_sample_time(channel.channel(), self.sample_time);
         T::regs().cr1().modify(|reg| {
             reg.set_scan(false);
             reg.set_discen(false);
@@ -151,7 +151,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         // Configure the channel to sample
-        T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel()));
+        T::regs().sqr3().write(|reg| reg.set_sq(0, channel.channel()));
         self.convert().await
     }
 

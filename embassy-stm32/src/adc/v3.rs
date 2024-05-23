@@ -2,7 +2,7 @@ use cfg_if::cfg_if;
 use embassy_hal_internal::into_ref;
 
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::Peripheral;
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -11,8 +11,8 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 pub const VREF_CALIB_MV: u32 = 3000;
 
 pub struct VrefInt;
-impl<T: Instance> AdcPin<T> for VrefInt {}
-impl<T: Instance> super::SealedAdcPin<T> for VrefInt {
+impl<T: Instance> AdcChannel<T> for VrefInt {}
+impl<T: Instance> super::SealedAdcChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
         cfg_if! {
             if #[cfg(adc_g0)] {
@@ -30,8 +30,8 @@ impl<T: Instance> super::SealedAdcPin<T> for VrefInt {
 }
 
 pub struct Temperature;
-impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::SealedAdcPin<T> for Temperature {
+impl<T: Instance> AdcChannel<T> for Temperature {}
+impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
     fn channel(&self) -> u8 {
         cfg_if! {
             if #[cfg(adc_g0)] {
@@ -49,8 +49,8 @@ impl<T: Instance> super::SealedAdcPin<T> for Temperature {
 }
 
 pub struct Vbat;
-impl<T: Instance> AdcPin<T> for Vbat {}
-impl<T: Instance> super::SealedAdcPin<T> for Vbat {
+impl<T: Instance> AdcChannel<T> for Vbat {}
+impl<T: Instance> super::SealedAdcChannel<T> for Vbat {
     fn channel(&self) -> u8 {
         cfg_if! {
             if #[cfg(adc_g0)] {
@@ -70,8 +70,8 @@ impl<T: Instance> super::SealedAdcPin<T> for Vbat {
 cfg_if! {
     if #[cfg(adc_h5)] {
         pub struct VddCore;
-        impl<T: Instance> AdcPin<T> for VddCore {}
-        impl<T: Instance> super::SealedAdcPin<T> for VddCore {
+        impl<T: Instance> AdcChannel<T> for VddCore {}
+        impl<T: Instance> super::SealedAdcChannel<T> for VddCore {
             fn channel(&self) -> u8 {
                 6
             }
@@ -82,8 +82,8 @@ cfg_if! {
 cfg_if! {
     if #[cfg(adc_u0)] {
         pub struct DacOut;
-        impl<T: Instance> AdcPin<T> for DacOut {}
-        impl<T: Instance> super::SealedAdcPin<T> for DacOut {
+        impl<T: Instance> AdcChannel<T> for DacOut {}
+        impl<T: Instance> super::SealedAdcChannel<T> for DacOut {
             fn channel(&self) -> u8 {
                 19
             }
@@ -220,7 +220,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().0 as u16
     }
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
         // Make sure bits are off
         while T::regs().cr().read().addis() {
             // spin
@@ -241,18 +241,18 @@ impl<'d, T: Instance> Adc<'d, T> {
         // RM0492, RM0481, etc.
         // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
         #[cfg(adc_h5)]
-        if pin.channel() == 0 {
+        if channel.channel() == 0 {
             T::regs().or().modify(|reg| reg.set_op0(true));
         }
 
         // Configure channel
-        Self::set_channel_sample_time(pin.channel(), self.sample_time);
+        Self::set_channel_sample_time(channel.channel(), self.sample_time);
 
         // Select channel
         #[cfg(not(any(adc_g0, adc_u0)))]
-        T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
+        T::regs().sqr1().write(|reg| reg.set_sq(0, channel.channel()));
         #[cfg(any(adc_g0, adc_u0))]
-        T::regs().chselr().write(|reg| reg.set_chsel(1 << pin.channel()));
+        T::regs().chselr().write(|reg| reg.set_chsel(1 << channel.channel()));
 
         // Some models are affected by an erratum:
         // If we perform conversions slower than 1 kHz, the first read ADC value can be
@@ -270,7 +270,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         // RM0492, RM0481, etc.
         // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
         #[cfg(adc_h5)]
-        if pin.channel() == 0 {
+        if channel.channel() == 0 {
             T::regs().or().modify(|reg| reg.set_op0(false));
         }
 
