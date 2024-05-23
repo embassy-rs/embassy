@@ -371,9 +371,12 @@ impl<'d> UartTx<'d, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
 
-        // Disable Receiver for Half-Duplex mode
-        if r.cr3().read().hdsel() {
-            r.cr1().modify(|reg| reg.set_re(false));
+        // Enable Transmitter and disable Receiver for Half-Duplex mode
+        let mut cr1 = r.cr1().read();
+        if r.cr3().read().hdsel() && !cr1.te() {
+            cr1.set_te(true);
+            cr1.set_re(false);
+            r.cr1().write_value(cr1);
         }
 
         let ch = self.tx_dma.as_mut().unwrap();
@@ -474,9 +477,12 @@ impl<'d, M: Mode> UartTx<'d, M> {
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
 
-        // Disable Receiver for Half-Duplex mode
-        if r.cr3().read().hdsel() {
-            r.cr1().modify(|reg| reg.set_re(false));
+        // Enable Transmitter and disable Receiver for Half-Duplex mode
+        let mut cr1 = r.cr1().read();
+        if r.cr3().read().hdsel() && !cr1.te() {
+            cr1.set_te(true);
+            cr1.set_re(false);
+            r.cr1().write_value(cr1);
         }
 
         for &b in buffer {
@@ -561,8 +567,9 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<ReadCompletionEvent, Error> {
         let r = self.info.regs;
 
-        // Call flush for Half-Duplex mode. It prevents reading of bytes which have just been written.
-        if r.cr3().read().hdsel() {
+        // Call flush for Half-Duplex mode if some bytes were written and flush was not called.
+        // It prevents reading of bytes which have just been written.
+        if r.cr3().read().hdsel() && r.cr1().read().te() {
             blocking_flush(self.info)?;
         }
 
@@ -898,8 +905,9 @@ impl<'d, M: Mode> UartRx<'d, M> {
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         let r = self.info.regs;
 
-        // Call flush for Half-Duplex mode. It prevents reading of bytes which have just been written.
-        if r.cr3().read().hdsel() {
+        // Call flush for Half-Duplex mode if some bytes were written and flush was not called.
+        // It prevents reading of bytes which have just been written.
+        if r.cr3().read().hdsel() && r.cr1().read().te() {
             blocking_flush(self.info)?;
         }
 
@@ -1481,10 +1489,19 @@ fn configure(
     r.cr1().write(|w| {
         // enable uart
         w.set_ue(true);
-        // enable transceiver
-        w.set_te(enable_tx);
-        // enable receiver
-        w.set_re(enable_rx);
+
+        if config.half_duplex {
+            // The te and re bits will be set by write, read and flush methods.
+            // Receiver should be enabled by default for Half-Duplex.
+            w.set_te(false);
+            w.set_re(true);
+        } else {
+            // enable transceiver
+            w.set_te(enable_tx);
+            // enable receiver
+            w.set_re(enable_rx);
+        }
+
         // configure word size
         // if using odd or even parity it must be configured to 9bits
         w.set_m0(if config.parity != Parity::ParityNone {
