@@ -54,7 +54,7 @@ pub struct Config {
     ///
     /// There are some ICs that require a pull-up on the MISO pin for some applications.
     /// If you  are unsure, you probably don't need this.
-    pub miso_pullup: Pull,
+    pub miso_pull: Pull,
 }
 
 impl Default for Config {
@@ -63,7 +63,7 @@ impl Default for Config {
             mode: MODE_0,
             bit_order: BitOrder::MsbFirst,
             frequency: Hertz(1_000_000),
-            miso_pullup: Pull::None,
+            miso_pull: Pull::None,
         }
     }
 }
@@ -279,7 +279,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             BitOrder::MsbFirst
         };
 
-        let miso_pullup = match &self.miso {
+        let miso_pull = match &self.miso {
             None => Pull::None,
             Some(pin) => pin.pull(),
         };
@@ -295,7 +295,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             mode: Mode { polarity, phase },
             bit_order,
             frequency,
-            miso_pullup,
+            miso_pull,
         }
     }
 
@@ -418,7 +418,7 @@ impl<'d> Spi<'d, Blocking> {
             peri,
             new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
             new_pin!(mosi, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(miso, AFType::Input, Speed::VeryHigh, config.miso_pullup),
+            new_pin!(miso, AFType::Input, Speed::VeryHigh, config.miso_pull),
             None,
             None,
             config,
@@ -436,7 +436,7 @@ impl<'d> Spi<'d, Blocking> {
             peri,
             new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
             None,
-            new_pin!(miso, AFType::Input, Speed::VeryHigh, config.miso_pullup),
+            new_pin!(miso, AFType::Input, Speed::VeryHigh, config.miso_pull),
             None,
             None,
             config,
