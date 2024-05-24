@@ -176,6 +176,7 @@ cargo batch \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-hal/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-irq/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-async/Cargo.toml --target thumbv7em-none-eabi \
+    --- build --release --manifest-path examples/nrf52810/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52810 \
     --- build --release --manifest-path examples/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840 \
     --- build --release --manifest-path examples/nrf5340/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf5340 \
     --- build --release --manifest-path examples/nrf9160/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9160 \
