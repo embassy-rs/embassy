@@ -661,6 +661,11 @@ pub(crate) trait SealedPin {
         self.set_as_analog();
     }
 
+    /// Sets the speed of the output pin.
+    ///
+    /// This should never be called for AFType::Input on the STM32F1 series, since MODE and
+    /// CNF bits are not independent. If the CNF bits are altered afterwards as well, this
+    /// will put the pin into output mode.
     #[inline]
     fn set_speed(&self, speed: Speed) {
         let pin = self._pin() as usize;

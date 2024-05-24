@@ -106,7 +106,11 @@ macro_rules! new_pin {
     ($name:ident, $aftype:expr, $speed:expr, $pull:expr) => {{
         let pin = $name.into_ref();
         pin.set_as_af_pull(pin.af_num(), $aftype, $pull);
-        pin.set_speed($speed);
+        // Do not call set_speed on AFType::Input, as MODE and CNF bits are not independent
+        // for gpio_v1
+        if $aftype != crate::gpio::low_level::AFType::Input {
+            pin.set_speed($speed);
+        }
         Some(pin.map_into())
     }};
 }
