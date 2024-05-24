@@ -1,5 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# replace nRF82840_xxAA with your chip as listed in `probe-rs chip list`
+# replace nRF82810_xxAA with your chip as listed in `probe-rs chip list`
 runner = "probe-rs run --chip nRF52810_xxAA"
 
 [build]
