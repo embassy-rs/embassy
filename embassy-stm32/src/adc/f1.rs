@@ -7,7 +7,7 @@ use embassy_hal_internal::into_ref;
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::time::Hertz;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -50,7 +50,7 @@ impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
 
         // 11.4: Before starting a calibration, the ADC must have been in power-on state (ADON bit = ‘1’)
@@ -169,6 +169,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
         T::regs().cr2().modify(|reg| reg.set_adon(false));
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }

@@ -673,7 +673,7 @@ impl<'d> I2c<'d, Async> {
 
 impl<'d, M: Mode> Drop for I2c<'d, M> {
     fn drop(&mut self) {
-        self.info.enable_bit.disable();
+        self.info.rcc.disable();
     }
 }
 

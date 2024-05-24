@@ -2,7 +2,7 @@
 
 use crate::pac::crs::vals::Syncsrc;
 use crate::pac::{CRS, RCC};
-use crate::rcc::SealedRccPeripheral;
+use crate::rcc::{self, SealedRccPeripheral};
 use crate::time::Hertz;
 
 /// HSI48 speed
@@ -44,7 +44,7 @@ pub(crate) fn init_hsi48(config: Hsi48Config) -> Hertz {
     while r.read().hsi48rdy() == false {}
 
     if config.sync_from_usb {
-        crate::peripherals::CRS::enable_and_reset();
+        rcc::enable_and_reset::<crate::peripherals::CRS>();
 
         CRS.cfgr().modify(|w| {
             w.set_syncsrc(Syncsrc::USB);

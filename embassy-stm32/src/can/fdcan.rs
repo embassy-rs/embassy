@@ -11,7 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::can::fd::peripheral::Registers;
 use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
 
 pub(crate) mod fd;
@@ -180,7 +180,7 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
         rx.set_as_af(rx.af_num(), AFType::Input);
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         let mut config = crate::can::fd::config::FdCanConfig::default();
         config.timestamp_source = TimestampSource::Prescaler(TimestampPrescaler::_1);

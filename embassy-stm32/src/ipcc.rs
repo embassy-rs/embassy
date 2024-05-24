@@ -6,10 +6,9 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::IPCC;
-use crate::rcc::SealedRccPeripheral;
+use crate::{interrupt, rcc};
 
 /// Interrupt handler.
 pub struct ReceiveInterruptHandler {}
@@ -102,7 +101,7 @@ pub struct Ipcc;
 impl Ipcc {
     /// Enable IPCC.
     pub fn enable(_config: Config) {
-        IPCC::enable_and_reset();
+        rcc::enable_and_reset::<IPCC>();
         IPCC::set_cpu2(true);
 
         // set RF wake-up clock = LSE

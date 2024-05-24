@@ -10,6 +10,7 @@ use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
 use super::*;
 use crate::pac::timer::vals;
+use crate::rcc;
 use crate::time::Hertz;
 
 /// Input capture mode.
@@ -181,7 +182,7 @@ pub struct Timer<'d, T: CoreInstance> {
 
 impl<'d, T: CoreInstance> Drop for Timer<'d, T> {
     fn drop(&mut self) {
-        T::disable()
+        rcc::disable::<T>();
     }
 }
 
@@ -190,7 +191,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     pub fn new(tim: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(tim);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         Self { tim }
     }

@@ -10,7 +10,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use rand_core::{CryptoRng, RngCore};
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals, rcc, Peripheral};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -52,7 +52,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         inner: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         into_ref!(inner);
         let mut random = Self { _inner: inner };
         random.reset();

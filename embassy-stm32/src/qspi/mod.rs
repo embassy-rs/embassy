@@ -13,7 +13,7 @@ use crate::dma::ChannelAndRequest;
 use crate::gpio::{AFType, AnyPin, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::quadspi::Quadspi as Regs;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// QSPI transfer configuration.
@@ -102,7 +102,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     ) -> Self {
         into_ref!(peri);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         while T::REGS.sr().read().busy() {}
 

@@ -9,7 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::dma::Transfer;
 use crate::gpio::{AFType, Speed};
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -350,7 +350,7 @@ where
         use_embedded_synchronization: bool,
         edm: u8,
     ) -> Self {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         peri.regs().cr().modify(|r| {
             r.set_cm(true); // disable continuous mode (snapshot mode)

@@ -13,7 +13,7 @@ use crate::dma::{slice_ptr_parts, word, ChannelAndRequest};
 use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{regs, vals, Spi as Regs};
-use crate::rcc::{ClockEnableBit, SealedRccPeripheral};
+use crate::rcc::{self, RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -129,7 +129,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         let lsbfirst = config.raw_byte_order();
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         #[cfg(any(spi_v1, spi_f1))]
         {
@@ -738,7 +738,7 @@ impl<'d, M: PeriMode> Drop for Spi<'d, M> {
         self.mosi.as_ref().map(|x| x.set_as_disconnected());
         self.miso.as_ref().map(|x| x.set_as_disconnected());
 
-        self.info.enable_bit.disable();
+        self.info.rcc.disable();
     }
 }
 
@@ -1118,7 +1118,7 @@ mod word_impl {
 
 pub(crate) struct Info {
     pub(crate) regs: Regs,
-    pub(crate) enable_bit: ClockEnableBit,
+    pub(crate) rcc: RccInfo,
 }
 
 struct State {}
@@ -1145,7 +1145,7 @@ foreach_peripheral!(
     (spi, $inst:ident) => {
         peri_trait_impl!($inst, Info {
             regs: crate::pac::$inst,
-            enable_bit: crate::peripherals::$inst::ENABLE_BIT,
+            rcc: crate::peripherals::$inst::RCC_INFO,
         });
     };
 );

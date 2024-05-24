@@ -8,7 +8,7 @@ use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -63,7 +63,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         into_ref!(adc);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         // Enable the adc regulator
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::INTERMEDIATE));
@@ -188,6 +188,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::INTERMEDIATE));
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::DISABLED));
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }

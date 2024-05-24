@@ -10,7 +10,7 @@ use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC1;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const VREF_INT: u32 = 1230;
@@ -67,7 +67,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         into_ref!(adc);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         // Delay 1μs when using HSI14 as the ADC clock.
         //
@@ -199,6 +199,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
         T::regs().cr().modify(|reg| reg.set_addis(true));
         while T::regs().cr().read().aden() {}
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }

@@ -19,7 +19,7 @@ use super::util;
 use crate::can::enums::{BusError, TryReadError};
 use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
 
 /// Interrupt handler.
@@ -183,7 +183,7 @@ impl<'d, T: Instance> Can<'d, T> {
         rx.set_as_af(rx.af_num(), AFType::Input);
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         {
             T::regs().ier().write(|w| {
@@ -720,7 +720,7 @@ impl<'d, T: Instance> Drop for Can<'d, T> {
         // Cannot call `free()` because it moves the instance.
         // Manually reset the peripheral.
         T::regs().mcr().write(|w| w.set_reset(true));
-        T::disable();
+        rcc::disable::<T>();
     }
 }
 

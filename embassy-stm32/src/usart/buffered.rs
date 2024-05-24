@@ -18,6 +18,7 @@ use super::{
 use crate::gpio::AFType;
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, InterruptExt};
+use crate::rcc;
 use crate::time::Hertz;
 
 /// Interrupt handler.
@@ -206,7 +207,7 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
@@ -225,7 +226,7 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         into_ref!(cts, rts);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
         cts.set_as_af(cts.af_num(), AFType::Input);
@@ -251,7 +252,7 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         into_ref!(de);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         de.set_as_af(de.af_num(), AFType::OutputPushPull);
         T::info().regs.cr3().write(|w| {
@@ -545,7 +546,7 @@ fn drop_tx_rx(info: &Info, state: &State) {
         refcount == 1
     });
     if is_last_drop {
-        info.enable_bit.disable();
+        info.rcc.disable();
     }
 }
 

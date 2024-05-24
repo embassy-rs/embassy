@@ -28,7 +28,7 @@ use crate::pac::usart::Lpuart as Regs;
 #[cfg(any(usart_v1, usart_v2))]
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
-use crate::rcc::{ClockEnableBit, SealedRccPeripheral};
+use crate::rcc::{self, RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -429,7 +429,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
         tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         let info = T::info();
         let state = T::state();
@@ -775,7 +775,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         let info = T::info();
         let state = T::state();
@@ -916,7 +916,7 @@ fn drop_tx_rx(info: &Info, state: &State) {
         refcount == 1
     });
     if is_last_drop {
-        info.enable_bit.disable();
+        info.rcc.disable();
     }
 }
 
@@ -1228,7 +1228,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         let info = T::info();
         let state = T::state();
@@ -1718,7 +1718,7 @@ impl State {
 
 struct Info {
     regs: Regs,
-    enable_bit: ClockEnableBit,
+    rcc: RccInfo,
     interrupt: Interrupt,
     kind: Kind,
 }
@@ -1754,7 +1754,7 @@ macro_rules! impl_usart {
             fn info() -> &'static Info {
                 static INFO: Info = Info {
                     regs: unsafe { Regs::from_ptr(crate::pac::$inst.as_ptr()) },
-                    enable_bit: crate::peripherals::$inst::ENABLE_BIT,
+                    rcc: crate::peripherals::$inst::RCC_INFO,
                     interrupt: crate::interrupt::typelevel::$irq::IRQ,
                     kind: $kind,
                 };

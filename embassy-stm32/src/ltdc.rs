@@ -1,7 +1,7 @@
 //! LTDC
 use core::marker::PhantomData;
 
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// LTDC driver.
@@ -60,7 +60,7 @@ impl<'d, T: Instance> Ltdc<'d, T> {
                 .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
         });
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         //new_pin!(clk, AFType::OutputPushPull, Speed::VeryHigh,  Pull::None);
 
