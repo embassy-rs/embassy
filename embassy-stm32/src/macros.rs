@@ -109,8 +109,10 @@ macro_rules! new_pin {
         // Do not call set_speed on AFType::Input, as MODE and CNF bits are not independent
         // for gpio_v1
         match $aftype {
-            crate::gpio::AFType::Input => {},
-            _ => {pin.set_speed($speed);},
+            crate::gpio::AFType::Input => {}
+            _ => {
+                pin.set_speed($speed);
+            }
         };
         Some(pin.map_into())
     }};
