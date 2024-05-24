@@ -110,7 +110,7 @@ macro_rules! new_pin {
         // for gpio_v1
         match $aftype {
             crate::gpio::AFType::Input => {},
-            _ => pin.set_speed($speed);
+            _ => {pin.set_speed($speed);},
         };
         Some(pin.map_into())
     }};
