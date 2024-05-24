@@ -681,6 +681,38 @@ pub(crate) trait SealedPin {
         #[cfg(gpio_v2)]
         self.block().ospeedr().modify(|w| w.set_ospeedr(pin, speed.into()));
     }
+
+    /// Get the pull-up configuration.
+    #[inline]
+    fn pull(&self) -> Pull {
+        critical_section::with(|_| {
+            let r = self.block();
+            let n = self._pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let crlh = if n < 8 { 0 } else { 1 };
+                match r.cr(crlh).read().mode(n % 8) {
+                    vals::Mode::INPUT => match r.cr(crlh).read().cnf_in(n % 8) {
+                        vals::CnfIn::PULL => match r.odr().read().odr(n) {
+                            vals::Odr::LOW => Pull::Down,
+                            vals::Odr::HIGH => Pull::Up,
+                        },
+                        _ => Pull::None,
+                    },
+                    _ => Pull::None,
+                }
+            }
+            #[cfg(gpio_v2)]
+            {
+                match r.pupdr().read().pupdr(n) {
+                    vals::Pupdr::FLOATING => Pull::None,
+                    vals::Pupdr::PULLDOWN => Pull::Down,
+                    vals::Pupdr::PULLUP => Pull::Up,
+                    vals::Pupdr::_RESERVED_3 => Pull::None,
+                }
+            }
+        })
+    }
 }
 
 /// GPIO pin trait.
