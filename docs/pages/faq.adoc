@@ -333,3 +333,27 @@ This is not the only possible approach, but if you are looking for where to star
 8. Then start implementing whatever peripherals you need, like GPIOs, UART, SPI, I2C, etc. This is the largest part of the work, and will likely continue for a while! Don't feel like you need 100% coverage of all peripherals at first, this is likely to be an ongoing process over time.
 9. Start implementing the embedded-hal, embedded-io, and embedded-hal-async traits on top of your HAL drivers, once you start having more features completed. This will allow users to use standard external device drivers (e.g. sensors, actuators, displays, etc.) with your HAL.
 10. Discuss upstreaming the PAC/HAL for embassy support, or make sure your drivers are added to the awesome-embedded-rust list so that people can find it.
+
+== Multiple Tasks, or one task with multiple futures?
+
+Some examples end like this in main:
+
+[source,rust]
+----
+// Run everything concurrently.
+// If we had made everything `'static` above instead, we could do this using separate tasks instead.
+join(usb_fut, join(echo_fut, log_fut)).await;
+----
+
+There are two main ways to handle concurrency in Embassy:
+
+1. Spawn multiple tasks, e.g. with `#[embassy_executor::task]`
+2. Manage multiple futures inside ONE task using `join()` or `select()` (as shown above)
+
+In general, either of these approaches will work. The main differences of these approaches are:
+
+When using **separate tasks**, each task needs its own RAM allocation, so there's a little overhead for each task, so one task that does three things will likely be a little bit smaller than three tasks that do one thing (not a lot, probably a couple dozen bytes). In contrast, with **multiple futures in one task**, you don't need multiple task allocations, and it will generally be easier to share data, or use borrowed resources, inside of a single task.
+
+But when it comes to "waking" tasks, for example when a data transfer is complete or a button is pressed, it's faster to wake a dedicated task, because that task does not need to check which future is actually ready. `join` and `select` must check ALL of the futures they are managing to see which one (or which ones) are ready to do more work. This is because all Rust executors (like Embassy or Tokio) only have the ability to wake tasks, not specific futures. This means you will use slightly less CPU time juggling futures when using dedicated tasks.
+
+Practically, there's not a LOT of difference either way - so go with what makes it easier for you and your code first, but there will be some details that are slightly different in each case.
