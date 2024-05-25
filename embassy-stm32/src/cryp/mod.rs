@@ -744,7 +744,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Aes
             } else {
                 aad_header[0] = 0xFF;
                 aad_header[1] = 0xFE;
-                let aad_len_bytes: [u8; 4] = aad_len.to_be_bytes();
+                let aad_len_bytes: [u8; 4] = (aad_len as u32).to_be_bytes();
                 aad_header[2] = aad_len_bytes[0];
                 aad_header[3] = aad_len_bytes[1];
                 aad_header[4] = aad_len_bytes[2];
@@ -765,7 +765,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Aes
         block0[0] |= ((((TAG_SIZE as u8) - 2) >> 1) & 0x07) << 3;
         block0[0] |= ((15 - (iv.len() as u8)) - 1) & 0x07;
         block0[1..1 + iv.len()].copy_from_slice(iv);
-        let payload_len_bytes: [u8; 4] = payload_len.to_be_bytes();
+        let payload_len_bytes: [u8; 4] = (payload_len as u32).to_be_bytes();
         if iv.len() <= 11 {
             block0[12] = payload_len_bytes[0];
         } else if payload_len_bytes[0] > 0 {

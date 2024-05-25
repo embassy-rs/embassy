@@ -9,35 +9,16 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
-    MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, METADATA,
+    MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, ALL_CHIPS,
+    ALL_PERIPHERAL_VERSIONS, METADATA,
 };
 
+#[path = "../build_common.rs"]
+mod common;
+
 fn main() {
-    let target = env::var("TARGET").unwrap();
-
-    if target.starts_with("thumbv6m-") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv6m");
-    } else if target.starts_with("thumbv7m-") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv7m");
-    } else if target.starts_with("thumbv7em-") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv7m");
-        println!("cargo:rustc-cfg=armv7em"); // (not currently used)
-    } else if target.starts_with("thumbv8m.base") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv8m");
-        println!("cargo:rustc-cfg=armv8m_base");
-    } else if target.starts_with("thumbv8m.main") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv8m");
-        println!("cargo:rustc-cfg=armv8m_main");
-    }
-
-    if target.ends_with("-eabihf") {
-        println!("cargo:rustc-cfg=has_fpu");
-    }
+    let mut cfgs = common::CfgSet::new();
+    common::set_target_cfgs(&mut cfgs);
 
     let chip_name = match env::vars()
         .map(|(a, _)| a)
@@ -56,8 +37,15 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            println!("cargo:rustc-cfg={}", r.kind);
-            println!("cargo:rustc-cfg={}_{}", r.kind, r.version);
+            cfgs.enable(r.kind);
+            cfgs.enable(format!("{}_{}", r.kind, r.version));
+        }
+    }
+
+    for &(kind, versions) in ALL_PERIPHERAL_VERSIONS.iter() {
+        cfgs.declare(kind);
+        for &version in versions.iter() {
+            cfgs.declare(format!("{}_{}", kind, version));
         }
     }
 
@@ -67,7 +55,13 @@ fn main() {
     let mut singletons: Vec<String> = Vec::new();
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            println!("cargo:rustc-cfg=peri_{}", p.name.to_ascii_lowercase());
+            if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" {
+                // TODO: should we emit this for all peripherals? if so, we will need a list of all
+                // possible peripherals across all chips, so that we can declare the configs
+                // (replacing the hard-coded list of `peri_*` cfgs below)
+                cfgs.enable(format!("peri_{}", p.name.to_ascii_lowercase()));
+            }
+
             match r.kind {
                 // Generate singletons per pin, not per port
                 "gpio" => {
@@ -87,7 +81,7 @@ fn main() {
                         if pin.signal.starts_with("MCO") {
                             let name = pin.signal.replace('_', "").to_string();
                             if !singletons.contains(&name) {
-                                println!("cargo:rustc-cfg={}", name.to_ascii_lowercase());
+                                cfgs.enable(name.to_ascii_lowercase());
                                 singletons.push(name);
                             }
                         }
@@ -105,6 +99,20 @@ fn main() {
             }
         }
     }
+
+    cfgs.declare_all(&[
+        "peri_adc1_common",
+        "peri_adc3_common",
+        "peri_adc12_common",
+        "peri_adc34_common",
+        "peri_sai1",
+        "peri_sai2",
+        "peri_sai3",
+        "peri_sai4",
+        "peri_ucpd1",
+        "peri_ucpd2",
+    ]);
+    cfgs.declare_all(&["mco", "mco1", "mco2"]);
 
     // One singleton per EXTI line
     for pin_num in 0..16 {
@@ -221,7 +229,13 @@ fn main() {
     };
 
     if !time_driver_singleton.is_empty() {
-        println!("cargo:rustc-cfg=time_driver_{}", time_driver_singleton.to_lowercase());
+        cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
+    }
+    for tim in [
+        "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15", "tim20", "tim21", "tim22", "tim23",
+        "tim24",
+    ] {
+        cfgs.declare(format!("time_driver_{}", tim));
     }
 
     // ========
@@ -1593,54 +1607,65 @@ fn main() {
     rustfmt(&out_file);
 
     // ========
-    // Multicore
+    // Configs for multicore and for targeting groups of chips
 
-    let mut s = chip_name.split('_');
-    let mut chip_name: String = s.next().unwrap().to_string();
-    let core_name = if let Some(c) = s.next() {
-        if !c.starts_with("CM") {
-            chip_name.push('_');
-            chip_name.push_str(c);
+    fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
+        let mut cfgs = Vec::new();
+
+        // Multicore
+
+        let mut s = chip_name.split('_');
+        let mut chip_name: String = s.next().unwrap().to_string();
+        let core_name = if let Some(c) = s.next() {
+            if !c.starts_with("CM") {
+                chip_name.push('_');
+                chip_name.push_str(c);
+                None
+            } else {
+                Some(c)
+            }
+        } else {
             None
-        } else {
-            Some(c)
-        }
-    } else {
-        None
-    };
+        };
 
-    if let Some(core) = core_name {
-        println!("cargo:rustc-cfg={}_{}", &chip_name[..chip_name.len() - 2], core);
+        if let Some(core) = core_name {
+            cfgs.push(format!("{}_{}", &chip_name[..chip_name.len() - 2], core));
+        }
+
+        // Configs for targeting groups of chips
+        if &chip_name[..8] == "stm32wba" {
+            cfgs.push(chip_name[..8].to_owned()); // stm32wba
+            cfgs.push(chip_name[..10].to_owned()); // stm32wba52
+            cfgs.push(format!("package_{}", &chip_name[10..11]));
+            cfgs.push(format!("flashsize_{}", &chip_name[11..12]));
+        } else {
+            if &chip_name[..8] == "stm32h7r" || &chip_name[..8] == "stm32h7s" {
+                cfgs.push("stm32h7rs".to_owned());
+            } else {
+                cfgs.push(chip_name[..7].to_owned()); // stm32f4
+            }
+            cfgs.push(chip_name[..9].to_owned()); // stm32f429
+            cfgs.push(format!("{}x", &chip_name[..8])); // stm32f42x
+            cfgs.push(format!("{}x{}", &chip_name[..7], &chip_name[8..9])); // stm32f4x9
+            cfgs.push(format!("package_{}", &chip_name[9..10]));
+            cfgs.push(format!("flashsize_{}", &chip_name[10..11]));
+        }
+
+        // Mark the L4+ chips as they have many differences to regular L4.
+        if &chip_name[..7] == "stm32l4" {
+            if "pqrs".contains(&chip_name[7..8]) {
+                cfgs.push("stm32l4_plus".to_owned());
+            } else {
+                cfgs.push("stm32l4_nonplus".to_owned());
+            }
+        }
+
+        cfgs
     }
 
-    // =======
-    // Features for targeting groups of chips
-
-    if &chip_name[..8] == "stm32wba" {
-        println!("cargo:rustc-cfg={}", &chip_name[..8]); // stm32wba
-        println!("cargo:rustc-cfg={}", &chip_name[..10]); // stm32wba52
-        println!("cargo:rustc-cfg=package_{}", &chip_name[10..11]);
-        println!("cargo:rustc-cfg=flashsize_{}", &chip_name[11..12]);
-    } else {
-        if &chip_name[..8] == "stm32h7r" || &chip_name[..8] == "stm32h7s" {
-            println!("cargo:rustc-cfg=stm32h7rs");
-        } else {
-            println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
-        }
-        println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
-        println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
-        println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
-        println!("cargo:rustc-cfg=package_{}", &chip_name[9..10]);
-        println!("cargo:rustc-cfg=flashsize_{}", &chip_name[10..11]);
-    }
-
-    // Mark the L4+ chips as they have many differences to regular L4.
-    if &chip_name[..7] == "stm32l4" {
-        if "pqrs".contains(&chip_name[7..8]) {
-            println!("cargo:rustc-cfg=stm32l4_plus");
-        } else {
-            println!("cargo:rustc-cfg=stm32l4_nonplus");
-        }
+    cfgs.enable_all(&get_chip_cfgs(&chip_name));
+    for &chip_name in ALL_CHIPS.iter() {
+        cfgs.declare_all(&get_chip_cfgs(&chip_name.to_ascii_lowercase()));
     }
 
     println!("cargo:rerun-if-changed=build.rs");

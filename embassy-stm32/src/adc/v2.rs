@@ -31,7 +31,7 @@ impl AdcChannel<ADC1> for Temperature {}
 impl super::SealedAdcChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         cfg_if::cfg_if! {
-            if #[cfg(any(stm32f2, stm32f40, stm32f41))] {
+            if #[cfg(any(stm32f2, stm32f40x, stm32f41x))] {
                 16
             } else {
                 18

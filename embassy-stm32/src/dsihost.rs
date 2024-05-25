@@ -11,9 +11,9 @@ use crate::{peripherals, Peripheral};
 
 /// Performs a busy-wait delay for a specified number of microseconds.
 pub fn blocking_delay_ms(ms: u32) {
-    #[cfg(time)]
-    embassy_time::block_for(embassy_time::Duration::from_millis(ms));
-    #[cfg(not(time))]
+    #[cfg(feature = "time")]
+    embassy_time::block_for(embassy_time::Duration::from_millis(ms as u64));
+    #[cfg(not(feature = "time"))]
     cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 1_000 * ms);
 }
 
