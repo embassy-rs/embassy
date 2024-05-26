@@ -14,7 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::future::{select, Either};
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AFType, AnyPin, SealedPin};
+use crate::gpio::{AFType, AnyPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
@@ -1233,9 +1233,8 @@ impl<'d, M: Mode> Uart<'d, M> {
         let info = T::info();
         let state = T::state();
         let kernel_clock = T::frequency();
-        let r = info.regs;
 
-        r.cr3().write(|w| {
+        info.regs.cr3().write(|w| {
             w.set_rtse(rts.is_some());
             w.set_ctse(cts.is_some());
             #[cfg(not(any(usart_v1, usart_v2)))]

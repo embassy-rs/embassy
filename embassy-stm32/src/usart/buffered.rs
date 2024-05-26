@@ -6,7 +6,7 @@ use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
-use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_hal_internal::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(any(usart_v1, usart_v2)))]
@@ -15,7 +15,7 @@ use super::{
     clear_interrupt_flags, configure, rdr, reconfigure, sr, tdr, Config, ConfigError, CtsPin, Error, Info, Instance,
     Regs, RtsPin, RxPin, TxPin,
 };
-use crate::gpio::AFType;
+use crate::gpio::{AFType, AnyPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, InterruptExt};
 use crate::rcc;
@@ -156,7 +156,9 @@ pub struct BufferedUartTx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    _phantom: PhantomData<&'d mut ()>,
+    tx: Option<PeripheralRef<'d, AnyPin>>,
+    cts: Option<PeripheralRef<'d, AnyPin>>,
+    de: Option<PeripheralRef<'d, AnyPin>>,
 }
 
 /// Rx-only buffered UART
@@ -166,7 +168,8 @@ pub struct BufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    _phantom: PhantomData<&'d mut ()>,
+    rx: Option<PeripheralRef<'d, AnyPin>>,
+    rts: Option<PeripheralRef<'d, AnyPin>>,
 }
 
 impl<'d> SetConfig for BufferedUart<'d> {
@@ -207,9 +210,17 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        rcc::enable_and_reset::<T>();
-
-        Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
+        Self::new_inner(
+            peri,
+            new_pin!(rx, AFType::Input),
+            new_pin!(tx, AFType::OutputPushPull),
+            None,
+            None,
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
     }
 
     /// Create a new bidirectional buffered UART driver with request-to-send and clear-to-send pins
@@ -224,18 +235,17 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        into_ref!(cts, rts);
-
-        rcc::enable_and_reset::<T>();
-
-        rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
-        cts.set_as_af(cts.af_num(), AFType::Input);
-        T::info().regs.cr3().write(|w| {
-            w.set_rtse(true);
-            w.set_ctse(true);
-        });
-
-        Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
+        Self::new_inner(
+            peri,
+            new_pin!(rx, AFType::Input),
+            new_pin!(tx, AFType::OutputPushPull),
+            new_pin!(rts, AFType::OutputPushPull),
+            new_pin!(cts, AFType::Input),
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
     }
 
     /// Create a new bidirectional buffered UART driver with a driver-enable pin
@@ -250,27 +260,31 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        into_ref!(de);
-
-        rcc::enable_and_reset::<T>();
-
-        de.set_as_af(de.af_num(), AFType::OutputPushPull);
-        T::info().regs.cr3().write(|w| {
-            w.set_dem(true);
-        });
-
-        Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
+        Self::new_inner(
+            peri,
+            new_pin!(rx, AFType::Input),
+            new_pin!(tx, AFType::OutputPushPull),
+            None,
+            None,
+            new_pin!(de, AFType::OutputPushPull),
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
     }
 
     fn new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rx: Option<PeripheralRef<'d, AnyPin>>,
+        tx: Option<PeripheralRef<'d, AnyPin>>,
+        rts: Option<PeripheralRef<'d, AnyPin>>,
+        cts: Option<PeripheralRef<'d, AnyPin>>,
+        de: Option<PeripheralRef<'d, AnyPin>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        into_ref!(_peri, rx, tx);
+        rcc::enable_and_reset::<T>();
 
         let info = T::info();
         let state = T::buffered_state();
@@ -280,13 +294,15 @@ impl<'d> BufferedUart<'d> {
         let len = rx_buffer.len();
         unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
 
-        let r = info.regs;
-        rx.set_as_af(rx.af_num(), AFType::Input);
-        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-
+        info.regs.cr3().write(|w| {
+            w.set_rtse(rts.is_some());
+            w.set_ctse(cts.is_some());
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            w.set_dem(de.is_some());
+        });
         configure(info, kernel_clock, &config, true, true)?;
 
-        r.cr1().modify(|w| {
+        info.regs.cr1().modify(|w| {
             w.set_rxneie(true);
             w.set_idleie(true);
         });
@@ -301,13 +317,16 @@ impl<'d> BufferedUart<'d> {
                 info,
                 state,
                 kernel_clock,
-                _phantom: PhantomData,
+                rx,
+                rts,
             },
             tx: BufferedUartTx {
                 info,
                 state,
                 kernel_clock,
-                _phantom: PhantomData,
+                tx,
+                cts,
+                de,
             },
         })
     }
@@ -516,6 +535,8 @@ impl<'d> Drop for BufferedUartRx<'d> {
             }
         }
 
+        self.rx.as_ref().map(|x| x.set_as_disconnected());
+        self.rts.as_ref().map(|x| x.set_as_disconnected());
         drop_tx_rx(self.info, state);
     }
 }
@@ -533,6 +554,9 @@ impl<'d> Drop for BufferedUartTx<'d> {
             }
         }
 
+        self.tx.as_ref().map(|x| x.set_as_disconnected());
+        self.cts.as_ref().map(|x| x.set_as_disconnected());
+        self.de.as_ref().map(|x| x.set_as_disconnected());
         drop_tx_rx(self.info, state);
     }
 }
