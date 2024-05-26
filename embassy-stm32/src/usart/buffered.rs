@@ -16,9 +16,7 @@ use super::{
     Regs, RtsPin, RxPin, TxPin,
 };
 use crate::gpio::{AFType, AnyPin, SealedPin as _};
-use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, InterruptExt};
-use crate::rcc;
 use crate::time::Hertz;
 
 /// Interrupt handler.
@@ -284,35 +282,11 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        rcc::enable_and_reset::<T>();
-
         let info = T::info();
         let state = T::buffered_state();
         let kernel_clock = T::frequency();
-        let len = tx_buffer.len();
-        unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
-        let len = rx_buffer.len();
-        unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
 
-        info.regs.cr3().write(|w| {
-            w.set_rtse(rts.is_some());
-            w.set_ctse(cts.is_some());
-            #[cfg(not(any(usart_v1, usart_v2)))]
-            w.set_dem(de.is_some());
-        });
-        configure(info, kernel_clock, &config, true, true)?;
-
-        info.regs.cr1().modify(|w| {
-            w.set_rxneie(true);
-            w.set_idleie(true);
-        });
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        state.tx_rx_refcount.store(2, Ordering::Relaxed);
-
-        Ok(Self {
+        let mut this = Self {
             rx: BufferedUartRx {
                 info,
                 state,
@@ -328,7 +302,45 @@ impl<'d> BufferedUart<'d> {
                 cts,
                 de,
             },
-        })
+        };
+        this.enable_and_configure(tx_buffer, rx_buffer, &config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(
+        &mut self,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: &Config,
+    ) -> Result<(), ConfigError> {
+        let info = self.rx.info;
+        let state = self.rx.state;
+
+        info.rcc.enable_and_reset();
+
+        let len = tx_buffer.len();
+        unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
+        let len = rx_buffer.len();
+        unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
+
+        info.regs.cr3().write(|w| {
+            w.set_rtse(self.rx.rts.is_some());
+            w.set_ctse(self.tx.cts.is_some());
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            w.set_dem(self.tx.de.is_some());
+        });
+        configure(info, self.rx.kernel_clock, &config, true, true)?;
+
+        info.regs.cr1().modify(|w| {
+            w.set_rxneie(true);
+            w.set_idleie(true);
+        });
+
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
+
+        state.tx_rx_refcount.store(2, Ordering::Relaxed);
+        Ok(())
     }
 
     /// Split the driver into a Tx and Rx part (useful for sending to separate tasks)
