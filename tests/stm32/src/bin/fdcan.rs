@@ -15,6 +15,10 @@ use {defmt_rtt as _, panic_probe as _};
 mod can_common;
 use can_common::*;
 
+type Can<'d> = can::Can<'d>;
+type CanTx<'d> = can::CanTx<'d>;
+type CanRx<'d> = can::CanRx<'d>;
+
 bind_interrupts!(struct Irqs2 {
     FDCAN2_IT0 => can::IT0InterruptHandler<FDCAN2>;
     FDCAN2_IT1 => can::IT1InterruptHandler<FDCAN2>;

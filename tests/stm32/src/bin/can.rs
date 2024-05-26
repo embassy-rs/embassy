@@ -9,9 +9,7 @@ use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::filter::Mask32;
-use embassy_stm32::can::{
-    Can, Fifo, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler,
-};
+use embassy_stm32::can::{Fifo, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
 use embassy_time::Duration;
@@ -19,6 +17,10 @@ use {defmt_rtt as _, panic_probe as _};
 
 mod can_common;
 use can_common::*;
+
+type Can<'d> = embassy_stm32::can::Can<'d, embassy_stm32::peripherals::CAN1>;
+type CanTx<'d> = embassy_stm32::can::CanTx<'d, embassy_stm32::peripherals::CAN1>;
+type CanRx<'d> = embassy_stm32::can::CanRx<'d, embassy_stm32::peripherals::CAN1>;
 
 bind_interrupts!(struct Irqs {
     CAN1_RX0 => Rx0InterruptHandler<CAN1>;
