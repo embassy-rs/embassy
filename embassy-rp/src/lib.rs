@@ -383,25 +383,29 @@ unsafe fn pre_init() {
     //
     // The PSM order is SIO -> PROC0 -> PROC1.
     // So, we have to force-on PROC0 to prevent it from getting reset when resetting SIO.
-    pac::PSM.frce_on().write(|w| {
+    pac::PSM.frce_on().write_and_wait(|w| {
         w.set_proc0(true);
     });
     // Then reset SIO and PROC1.
-    pac::PSM.frce_off().write(|w| {
+    pac::PSM.frce_off().write_and_wait(|w| {
         w.set_sio(true);
         w.set_proc1(true);
     });
     // clear force_off first, force_on second. The other way around would reset PROC0.
-    pac::PSM.frce_off().write(|_| {});
-    pac::PSM.frce_on().write(|_| {});
+    pac::PSM.frce_off().write_and_wait(|_| {});
+    pac::PSM.frce_on().write_and_wait(|_| {});
 }
 
 /// Extension trait for PAC regs, adding atomic xor/bitset/bitclear writes.
+#[allow(unused)]
 trait RegExt<T: Copy> {
     #[allow(unused)]
     fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
+    fn write_and_wait<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: PartialEq;
 }
 
 impl<T: Default + Copy, A: pac::common::Write> RegExt<T> for pac::common::Reg<T, A> {
@@ -431,6 +435,19 @@ impl<T: Default + Copy, A: pac::common::Write> RegExt<T> for pac::common::Reg<T,
         unsafe {
             let ptr = (self.as_ptr() as *mut u8).add(0x3000) as *mut T;
             ptr.write_volatile(val);
+        }
+        res
+    }
+
+    fn write_and_wait<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: PartialEq,
+    {
+        let mut val = Default::default();
+        let res = f(&mut val);
+        unsafe {
+            self.as_ptr().write_volatile(val);
+            while self.as_ptr().read_volatile() != val {}
         }
         res
     }
