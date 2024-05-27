@@ -643,36 +643,40 @@ impl<'d> Spi<'d, Async> {
             return Ok(());
         }
 
-        self.info.regs.cr1().modify(|w| {
+        let regs = self.info.regs;
+
+        regs.cr1().modify(|w| {
             w.set_spe(false);
         });
 
-        let comm = self.info.regs.cfg2().modify(|w| {
+        let comm = regs.cfg2().modify(|w| {
             let prev = w.comm();
             w.set_comm(vals::Comm::RECEIVER);
             prev
         });
 
-        let i2scfg = self.info.regs.i2scfgr().modify(|w| {
-            let prev = w.i2scfg();
-            w.set_i2scfg(match prev {
-                vals::I2scfg::SLAVERX | vals::I2scfg::SLAVEFULLDUPLEX => vals::I2scfg::SLAVERX,
-                vals::I2scfg::MASTERRX | vals::I2scfg::MASTERFULLDUPLEX => vals::I2scfg::MASTERRX,
-                _ => panic!("unsupported configuration"),
-            });
-            prev
+        let i2scfg = regs.i2scfgr().modify(|w| {
+            w.i2smod().then(|| {
+                let prev = w.i2scfg();
+                w.set_i2scfg(match prev {
+                    vals::I2scfg::SLAVERX | vals::I2scfg::SLAVEFULLDUPLEX => vals::I2scfg::SLAVERX,
+                    vals::I2scfg::MASTERRX | vals::I2scfg::MASTERFULLDUPLEX => vals::I2scfg::MASTERRX,
+                    _ => panic!("unsupported configuration"),
+                });
+                prev
+            })
         });
 
-        let tsize = self.info.regs.cr2().read().tsize();
+        let tsize = regs.cr2().read().tsize();
 
-        let rx_src = self.info.regs.rx_ptr();
+        let rx_src = regs.rx_ptr();
 
         let mut read = 0;
         let mut remaining = data.len();
 
         loop {
             self.set_word_size(W::CONFIG);
-            set_rxdmaen(self.info.regs, true);
+            set_rxdmaen(regs, true);
 
             let transfer_size = remaining.min(u16::max_value().into());
 
@@ -683,21 +687,21 @@ impl<'d> Spi<'d, Async> {
                     .read(rx_src, &mut data[read..(read + transfer_size)], Default::default())
             };
 
-            self.info.regs.cr2().modify(|w| {
+            regs.cr2().modify(|w| {
                 w.set_tsize(transfer_size as u16);
             });
 
-            self.info.regs.cr1().modify(|w| {
+            regs.cr1().modify(|w| {
                 w.set_spe(true);
             });
 
-            self.info.regs.cr1().modify(|w| {
+            regs.cr1().modify(|w| {
                 w.set_cstart(true);
             });
 
             transfer.await;
 
-            finish_dma(self.info.regs);
+            finish_dma(regs);
 
             remaining -= transfer_size;
 
@@ -708,21 +712,23 @@ impl<'d> Spi<'d, Async> {
             read += transfer_size;
         }
 
-        self.info.regs.cr1().modify(|w| {
+        regs.cr1().modify(|w| {
             w.set_spe(false);
         });
 
-        self.info.regs.cfg2().modify(|w| {
+        regs.cfg2().modify(|w| {
             w.set_comm(comm);
         });
 
-        self.info.regs.cr2().modify(|w| {
+        regs.cr2().modify(|w| {
             w.set_tsize(tsize);
         });
 
-        self.info.regs.i2scfgr().modify(|w| {
-            w.set_i2scfg(i2scfg);
-        });
+        if let Some(i2scfg) = i2scfg {
+            regs.i2scfgr().modify(|w| {
+                w.set_i2scfg(i2scfg);
+            });
+        }
 
         Ok(())
     }
