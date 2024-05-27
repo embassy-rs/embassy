@@ -135,17 +135,18 @@ impl Default for Config {
 
 /// Initialize and Set the clock frequencies
 pub(crate) unsafe fn init(config: Config) {
+    // Turn on the HSI
+    RCC.cr().modify(|w| w.set_hsion(true));
+    while !RCC.cr().read().hsirdy() {}
+
+    // Use the HSI clock as system clock during the actual clock setup
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
+    while RCC.cfgr().read().sws() != Sysclk::HSI {}
+
     // Configure HSI
     let hsi = match config.hsi {
-        false => {
-            RCC.cr().modify(|w| w.set_hsion(false));
-            None
-        }
-        true => {
-            RCC.cr().modify(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
-            Some(HSI_FREQ)
-        }
+        false => None,
+        true => Some(HSI_FREQ),
     };
 
     // Configure HSE
@@ -296,6 +297,11 @@ pub(crate) unsafe fn init(config: Config) {
     // CFGR has been written before (PLL, PLL48, clock divider) don't overwrite these settings
     RCC.cfgr().modify(|w| w.set_sw(config.sys));
     while RCC.cfgr().read().sws() != config.sys {}
+
+    // Disable HSI if not used
+    if !config.hsi {
+        RCC.cr().modify(|w| w.set_hsion(false));
+    }
 
     let rtc = config.ls.init();
 
