@@ -590,74 +590,77 @@ mod pll {
         pll_enable(instance, false);
 
         if let Some(pll) = config {
-
-        let pll_src = match pll.source {
-            PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
-            PllSource::HSE => unwrap!(input.hse),
-            PllSource::HSI => unwrap!(input.hsi),
-            PllSource::MSI => unwrap!(input.msi),
-        };
-
-        let vco_freq = pll_src / pll.prediv * pll.mul;
-
-        let p = pll.divp.map(|div| vco_freq / div);
-        let q = pll.divq.map(|div| vco_freq / div);
-        let r = pll.divr.map(|div| vco_freq / div);
-
-        #[cfg(stm32l5)]
-        if instance == PllInstance::Pllsai2 {
-            assert!(q.is_none(), "PLLSAI2_Q is not available on L5");
-            assert!(r.is_none(), "PLLSAI2_R is not available on L5");
-        }
-
-        macro_rules! write_fields {
-            ($w:ident) => {
-                $w.set_plln(pll.mul);
-                if let Some(divp) = pll.divp {
-                    $w.set_pllp(divp);
-                    $w.set_pllpen(true);
-                }
-                if let Some(divq) = pll.divq {
-                    $w.set_pllq(divq);
-                    $w.set_pllqen(true);
-                }
-                if let Some(divr) = pll.divr {
-                    $w.set_pllr(divr);
-                    $w.set_pllren(true);
-                }
+            let pll_src = match pll.source {
+                PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
+                PllSource::HSE => unwrap!(input.hse),
+                PllSource::HSI => unwrap!(input.hsi),
+                PllSource::MSI => unwrap!(input.msi),
             };
+
+            let vco_freq = pll_src / pll.prediv * pll.mul;
+
+            let p = pll.divp.map(|div| vco_freq / div);
+            let q = pll.divq.map(|div| vco_freq / div);
+            let r = pll.divr.map(|div| vco_freq / div);
+
+            #[cfg(stm32l5)]
+            if instance == PllInstance::Pllsai2 {
+                assert!(q.is_none(), "PLLSAI2_Q is not available on L5");
+                assert!(r.is_none(), "PLLSAI2_R is not available on L5");
+            }
+
+            macro_rules! write_fields {
+                ($w:ident) => {
+                    $w.set_plln(pll.mul);
+                    if let Some(divp) = pll.divp {
+                        $w.set_pllp(divp);
+                        $w.set_pllpen(true);
+                    }
+                    if let Some(divq) = pll.divq {
+                        $w.set_pllq(divq);
+                        $w.set_pllqen(true);
+                    }
+                    if let Some(divr) = pll.divr {
+                        $w.set_pllr(divr);
+                        $w.set_pllren(true);
+                    }
+                };
+            }
+
+            match instance {
+                PllInstance::Pll => RCC.pllcfgr().write(|w| {
+                    w.set_pllm(pll.prediv);
+                    w.set_pllsrc(pll.source);
+                    write_fields!(w);
+                }),
+                #[cfg(any(stm32l4, stm32l5, stm32wb))]
+                PllInstance::Pllsai1 => RCC.pllsai1cfgr().write(|w| {
+                    #[cfg(any(rcc_l4plus, stm32l5))]
+                    w.set_pllm(pll.prediv);
+                    #[cfg(stm32l5)]
+                    w.set_pllsrc(pll.source);
+                    write_fields!(w);
+                }),
+                #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
+                PllInstance::Pllsai2 => RCC.pllsai2cfgr().write(|w| {
+                    #[cfg(any(rcc_l4plus, stm32l5))]
+                    w.set_pllm(pll.prediv);
+                    #[cfg(stm32l5)]
+                    w.set_pllsrc(pll.source);
+                    write_fields!(w);
+                }),
+            }
+
+            // Enable PLL
+            pll_enable(instance, true);
+
+            PllOutput { p, q, r }
+        } else {
+            PllOutput {
+                p: None,
+                q: None,
+                r: None,
+            }
         }
-
-        match instance {
-            PllInstance::Pll => RCC.pllcfgr().write(|w| {
-                w.set_pllm(pll.prediv);
-                w.set_pllsrc(pll.source);
-                write_fields!(w);
-            }),
-            #[cfg(any(stm32l4, stm32l5, stm32wb))]
-            PllInstance::Pllsai1 => RCC.pllsai1cfgr().write(|w| {
-                #[cfg(any(rcc_l4plus, stm32l5))]
-                w.set_pllm(pll.prediv);
-                #[cfg(stm32l5)]
-                w.set_pllsrc(pll.source);
-                write_fields!(w);
-            }),
-            #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
-            PllInstance::Pllsai2 => RCC.pllsai2cfgr().write(|w| {
-                #[cfg(any(rcc_l4plus, stm32l5))]
-                w.set_pllm(pll.prediv);
-                #[cfg(stm32l5)]
-                w.set_pllsrc(pll.source);
-                write_fields!(w);
-            }),
-        }
-
-        // Enable PLL
-        pll_enable(instance, true);
-
-        PllOutput { p, q, r }
-    } else {
-        PllOutput { p: None, q: None, r: None }
-    }
     }
 }

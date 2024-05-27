@@ -2,10 +2,12 @@
 #[cfg(aes_v3b)]
 use core::cmp::min;
 use core::marker::PhantomData;
+use core::ops::DerefMut;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::aes::vals::Datatype;
+use rand_core::block;
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac, peripherals, Peripheral};
@@ -73,7 +75,7 @@ pub trait CipherAuthenticated<const TAG_SIZE: usize> {
 /// AES-CCM Cipher Mode
 pub struct AesCcm<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> {
     key: &'c [u8; KEY_SIZE],
-    aad_header: [u8; 6],
+    aad_header: [u8; 32],
     aad_header_len: usize,
     block0: [u8; 16],
     ctr: [u8; 16],
@@ -82,7 +84,7 @@ pub struct AesCcm<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZ
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> AesCcm<'c, KEY_SIZE, TAG_SIZE, IV_SIZE> {
     /// Constructs a new AES-CCM cipher for a cry.ptographic operation.
     pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; IV_SIZE], aad_len: usize, payload_len: usize) -> Self {
-        let mut aad_header: [u8; 6] = [0; 6];
+        let mut aad_header: [u8; 32] = [0; 32];
         let mut aad_header_len = 0;
         let mut block0: [u8; 16] = [0; 16];
         if aad_len != 0 {
@@ -106,13 +108,13 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Aes
         if aad_padding_len == 16 {
             aad_padding_len = 0;
         }
-        aad_header_len += aad_padding_len;
-        let total_aad_len_padded = aad_header_len + aad_len;
+        let total_aad_len_padded = aad_header_len + aad_len + aad_padding_len;
         if total_aad_len_padded > 0 {
             block0[0] = 0x40;
         }
         block0[0] |= ((((TAG_SIZE as u8) - 2) >> 1) & 0x07) << 3;
         block0[0] |= ((15 - (iv.len() as u8)) - 1) & 0x07;
+        defmt::info!("Block 0: {=u8:x}", block0[0]);
         block0[1..1 + iv.len()].copy_from_slice(iv);
         let payload_len_bytes: [u8; 4] = payload_len.to_be_bytes();
         if iv.len() <= 11 {
@@ -152,7 +154,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
     }
 
     fn iv(&self) -> &[u8] {
-        self.ctr.as_slice()
+        self.block0.as_slice()
     }
 
     async fn init_phase<T: Instance>(&self, p: &pac::aes::Aes, aes: &mut Aes<'_, T>) {}
@@ -258,6 +260,8 @@ pub struct Aes<'d, T> {
 impl<'d, T: Instance> Aes<'d, T> {
     /// Create a new AES driver.
     pub fn new(peri: impl Peripheral<P = T> + 'd) -> Self {
+        #[cfg(feature = "defmt")]
+        defmt::info!("point1");
         T::enable_and_reset();
         into_ref!(peri);
         let instance = Self { _peripheral: peri };
@@ -286,14 +290,15 @@ impl<'d, T: Instance> Aes<'d, T> {
             aad_buffer: [0; 16],
             aad_buffer_len: 0,
         };
-
+        defmt::info!("CR: {=u32:b}", T::regs().cr().read().0);
+        defmt::info!("22223123123123");
         // 1 test-ready
         T::regs().cr().modify(|w| w.set_en(false));
 
         // 2 test-ready
         T::regs().cr().modify(|w| w.set_chmod10(00));
         T::regs().cr().modify(|w| w.set_chmod2(true));
-
+        defmt::info!("CR: {=u32:b}", T::regs().cr().read().0);
         // Set data type to 8-bit. This will match software implementations.
         T::regs().cr().modify(|w| w.set_datatype(Datatype::BYTE));
 
@@ -315,22 +320,24 @@ impl<'d, T: Instance> Aes<'d, T> {
         self.load_keyr(key);
 
         //  test-ready - IV calculation is NOT verified.
-        let iv = ctx.cipher.iv();
+        let iv: &[u8] = ctx.cipher.iv();
         let mut full_iv: [u8; 16] = [0; 16];
         full_iv[0..iv.len()].copy_from_slice(iv);
+        defmt::info!("FULL IV:{=u128:x}", u128::from_be_bytes(full_iv));
+
         let mut iv_idx = 0;
         let mut iv_word: [u8; 4] = [0; 4];
         iv_word.copy_from_slice(&full_iv[iv_idx..iv_idx + 4]);
         iv_idx += 4;
-        T::regs().ivr(3).modify(|w| w.set_ivi(u32::from_be_bytes(iv_word)));
+        T::regs().ivr(3).modify(|w| w.set_ivi(u32::from_le_bytes(iv_word)));
         iv_word.copy_from_slice(&full_iv[iv_idx..iv_idx + 4]);
         iv_idx += 4;
-        T::regs().ivr(2).modify(|w| w.set_ivi(u32::from_be_bytes(iv_word)));
+        T::regs().ivr(2).modify(|w| w.set_ivi(u32::from_le_bytes(iv_word)));
         iv_word.copy_from_slice(&full_iv[iv_idx..iv_idx + 4]);
         iv_idx += 4;
-        T::regs().ivr(1).modify(|w| w.set_ivi(u32::from_be_bytes(iv_word)));
+        T::regs().ivr(1).modify(|w| w.set_ivi(u32::from_le_bytes(iv_word)));
         iv_word.copy_from_slice(&full_iv[iv_idx..iv_idx + 4]);
-        T::regs().ivr(0).modify(|w| w.set_ivi(u32::from_be_bytes(iv_word)));
+        T::regs().ivr(0).modify(|w| w.set_ivi(u32::from_le_bytes(iv_word)));
 
         // 6 test-ready
         T::regs().cr().modify(|w| w.set_en(true));
@@ -340,6 +347,26 @@ impl<'d, T: Instance> Aes<'d, T> {
 
         // 8 test-ready
         T::regs().cr().write(|w| w.set_ccfc(true));
+        #[cfg(feature = "defmt")]
+        defmt::info!(" start SR:{=u32:b}", T::regs().sr().read().0);
+        #[cfg(feature = "defmt")]
+        defmt::info!("CR: {=u32:b}", T::regs().cr().read().0);
+        #[cfg(feature = "defmt")]
+        defmt::info!("keyr0: {=u32:x}", T::regs().keyr(0).read().0);
+        #[cfg(feature = "defmt")]
+        defmt::info!("keyr1: {=u32:x}", T::regs().keyr(1).read().0);
+        #[cfg(feature = "defmt")]
+        defmt::info!("keyr2: {=u32:x}", T::regs().keyr(2).read().0);
+        #[cfg(feature = "defmt")]
+        defmt::info!("keyr3: {=u32:x}", T::regs().keyr(3).read().0);
+        #[cfg(feature = "defmt")]
+        defmt::info!("ivr0: {=u32:x}", T::regs().ivr(0).read().0);
+        #[cfg(feature = "defmt")]
+        defmt::info!("ivr1: {=u32:x}", T::regs().ivr(1).read().0);
+        #[cfg(feature = "defmt")]
+        defmt::info!("ivr2: {=u32:x}", T::regs().ivr(2).read().0);
+        #[cfg(feature = "defmt")]
+        defmt::info!("ivr3: {=u32:x}", T::regs().ivr(3).read().0);
 
         ctx
     }
@@ -364,7 +391,6 @@ impl<'d, T: Instance> Aes<'d, T> {
         if ctx.aad_complete {
             panic!("Cannot update AAD after starting payload!")
         }
-
         ctx.header_len += aad.len() as u64;
 
         // 1 test-ready
@@ -384,7 +410,7 @@ impl<'d, T: Instance> Aes<'d, T> {
             ctx.aad_buffer_len += header.len();
         }
 
-        // Fill the header block to make a full block.
+        // Fill the head er block to make a full block.
         let len_to_copy = core::cmp::min(aad.len(), C::BLOCK_SIZE - ctx.aad_buffer_len);
         ctx.aad_buffer[ctx.aad_buffer_len..ctx.aad_buffer_len + len_to_copy].copy_from_slice(&aad[..len_to_copy]);
         ctx.aad_buffer_len += len_to_copy;
@@ -394,18 +420,12 @@ impl<'d, T: Instance> Aes<'d, T> {
         if ctx.aad_buffer_len < C::BLOCK_SIZE {
             // The buffer isn't full and this is the last buffer, so process it as is (already padded).
             if last_aad_block {
-                self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer);
-                while !T::regs().sr().read().ccf() {}
-                T::regs().cr().write(|w| w.set_ccfc(true));
+                self.write_bytes_blocking_no_read(C::BLOCK_SIZE, &ctx.aad_buffer);
+
                 // TODO: should not be needed?
                 // assert_eq!(T::regs().sr().read().ifem(), true);
 
                 // Switch to payload phase.
-                ctx.aad_complete = true;
-                T::regs().cr().modify(|w| w.set_en(false));
-                T::regs()
-                    .cr()
-                    .modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::PAYLOADPHASE));
                 // TODO: should not be needed?
                 // T::regs().cr().modify(|w| w.fflush());
             } else {
@@ -414,9 +434,7 @@ impl<'d, T: Instance> Aes<'d, T> {
             }
         } else {
             // Load the full block from the buffer.
-            self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer);
-            while !T::regs().sr().read().ccf() {}
-            T::regs().cr().write(|w| w.set_ccfc(true));
+            self.write_bytes_blocking_no_read(C::BLOCK_SIZE, &ctx.aad_buffer);
         }
 
         // Handle a partial block that is passed in.
@@ -432,23 +450,25 @@ impl<'d, T: Instance> Aes<'d, T> {
         let num_full_blocks = aad_len_remaining / C::BLOCK_SIZE;
         let start_index = len_to_copy;
         let end_index = start_index + (C::BLOCK_SIZE * num_full_blocks);
-        self.write_bytes_blocking(C::BLOCK_SIZE, &aad[start_index..end_index]);
-        while !T::regs().sr().read().ccf() {}
-        T::regs().cr().write(|w| w.set_ccfc(true));
+
+        self.write_bytes_blocking_no_read(C::BLOCK_SIZE, &aad[start_index..end_index]);
 
         if last_aad_block {
             if leftovers > 0 {
-                self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer);
-                while !T::regs().sr().read().ccf() {}
-                T::regs().cr().write(|w| w.set_ccfc(true));
+                self.write_bytes_blocking_no_read(C::BLOCK_SIZE, &ctx.aad_buffer);
             }
+
+            ctx.aad_complete = true;
+            T::regs()
+                .cr()
+                .modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::PAYLOADPHASE));
             // Switch to payload phase.
 
             // todo: should not be needed
             // T::regs().cr().modify(|w| w.fflush());
         }
 
-        self.store_context(ctx);
+        // self.store_context(ctx);
     }
 
     /// Performs encryption/decryption on the provided context.
@@ -467,19 +487,14 @@ impl<'d, T: Instance> Aes<'d, T> {
         last_block: bool,
     ) {
         // self.load_context(ctx);
-
+        defmt::info!("CR: {=u32:b}", T::regs().cr().read().0);
         let last_block_remainder = input.len() % C::BLOCK_SIZE;
 
+        T::regs().cr().modify(|w| w.set_en(true));
+        defmt::info!("Payload 1");
         // Perform checks for correctness.
         if !ctx.aad_complete && ctx.header_len > 0 {
             panic!("Additional associated data must be processed first!");
-        } else if !ctx.aad_complete {
-            {
-                ctx.aad_complete = true;
-                T::regs()
-                    .cr()
-                    .modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::PAYLOADPHASE));
-            }
         }
         if ctx.last_block_processed {
             panic!("The last block has already been processed!");
@@ -507,40 +522,36 @@ impl<'d, T: Instance> Aes<'d, T> {
             let index = block * C::BLOCK_SIZE;
             // Read block out
             // Write block in
-            self.write_bytes_blocking(C::BLOCK_SIZE, &input[index..index + C::BLOCK_SIZE]);
-            // Read block out
-            while !T::regs().sr().read().ccf() {}
-            self.read_bytes_blocking(C::BLOCK_SIZE, &mut output[index..index + C::BLOCK_SIZE]);
-            T::regs().cr().write(|w| w.set_ccfc(true));
+            self.write_then_read_bytes(
+                C::BLOCK_SIZE,
+                &input[index..index + C::BLOCK_SIZE],
+                &mut output[index..index + C::BLOCK_SIZE],
+            );
         }
 
+        defmt::info!("Payload 2");
         // Handle the final block, which is incomplete.
         if last_block_remainder > 0 {
+            defmt::info!("Payload 3");
             let padding_len = C::BLOCK_SIZE - last_block_remainder;
             let temp1 = ctx.cipher.pre_final(&T::regs(), ctx.dir, padding_len);
 
             let mut intermediate_data: [u8; AES_BLOCK_SIZE] = [0; AES_BLOCK_SIZE];
             let mut last_block: [u8; AES_BLOCK_SIZE] = [0; AES_BLOCK_SIZE];
             last_block[..last_block_remainder].copy_from_slice(&input[input.len() - last_block_remainder..input.len()]);
-            self.write_bytes_blocking(C::BLOCK_SIZE, &last_block);
-            while !T::regs().sr().read().ccf() {}
-            self.read_bytes_blocking(C::BLOCK_SIZE, &mut intermediate_data);
-            T::regs().cr().write(|w| w.set_ccfc(true));
+            defmt::info!("Payload 4");
+
+            self.write_then_read_bytes(C::BLOCK_SIZE, &last_block, &mut intermediate_data);
+
             // Handle the last block depending on mode.
             let output_len = output.len();
             output[output_len - last_block_remainder..output_len]
                 .copy_from_slice(&intermediate_data[0..last_block_remainder]);
-
-            let mut mask: [u8; 16] = [0; 16];
-            mask[..last_block_remainder].fill(0xFF);
-            ctx.cipher
-                .post_final(&T::regs(), self, ctx.dir, &mut intermediate_data, temp1, mask)
-                .await;
         }
 
         ctx.payload_len += input.len() as u64;
 
-        self.store_context(ctx);
+        // self.store_context(ctx);
     }
 
     // Generates an authentication tag for authenticated ciphers including GCM, CCM, and GMAC.
@@ -553,14 +564,17 @@ impl<'d, T: Instance> Aes<'d, T> {
         &mut self,
         mut ctx: Context<'c, C>,
     ) -> [u8; TAG_SIZE] {
-        self.load_context(&mut ctx);
+        defmt::info!("finish 1");
 
         T::regs()
             .cr()
             .modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::FINALPHASE));
 
         let mut full_tag: [u8; 16] = [0; 16];
-        while !T::regs().sr().read().ccf() {}
+        defmt::info!("{=u32:b}", T::regs().sr().read().0);
+
+        defmt::info!("finish 2");
+
         self.read_bytes_blocking(C::BLOCK_SIZE, &mut full_tag);
         T::regs().cr().write(|w| w.set_ccfc(true));
 
@@ -581,70 +595,83 @@ impl<'d, T: Instance> Aes<'d, T> {
         if keylen > 64 {
             keyword.copy_from_slice(&key[keyidx..keyidx + 4]);
             keyidx += 4;
-            T::regs().keyr(3).modify(|w| w.set_key(u32::from_be_bytes(keyword)));
+            T::regs().keyr(3).modify(|w| w.set_key(u32::from_le_bytes(keyword)));
             keyword.copy_from_slice(&key[keyidx..keyidx + 4]);
             keyidx += 4;
-            T::regs().keyr(2).modify(|w| w.set_key(u32::from_be_bytes(keyword)));
+            T::regs().keyr(2).modify(|w| w.set_key(u32::from_le_bytes(keyword)));
         }
         keyword.copy_from_slice(&key[keyidx..keyidx + 4]);
         keyidx += 4;
-        T::regs().keyr(1).modify(|w| w.set_key(u32::from_be_bytes(keyword)));
+        T::regs().keyr(1).modify(|w| w.set_key(u32::from_le_bytes(keyword)));
         keyword = [0; 4];
         keyword[0..key.len() - keyidx].copy_from_slice(&key[keyidx..key.len()]);
-        T::regs().keyr(0).modify(|w| w.set_key(u32::from_be_bytes(keyword)));
+        T::regs().keyr(0).modify(|w| w.set_key(u32::from_le_bytes(keyword)));
     }
 
-    // STATUS: should be good. assess endianness of IV
-    fn store_context<'c, C: Cipher<'c> + CipherSized>(&self, ctx: &mut Context<'c, C>) {
-        // Wait for data block processing to finish.
-        while !T::regs().sr().read().ccf() {}
-        T::regs().cr().write(|w| w.set_ccfc(true));
-
-        // Save the peripheral state.
-        //TODO assess endianness
-        // ctx.cr = T::regs().cr().read().0;
-        // ctx.iv[0] = T::regs().ivr(3).read().ivi();
-        // ctx.iv[1] = T::regs().ivr(2).read().ivi();
-        // ctx.iv[2] = T::regs().ivr(1).read().ivi();
-        // ctx.iv[3] = T::regs().ivr(0).read().ivi();
-
-        // TODO: replace this with suspend/resume logic
-        // for i in 0..8 {
-        //     ctx.csgcmccm[i] = T::regs().csgcmccmr(i).read();
-        //     ctx.csgcm[i] = T::regs().csgcmr(i).read();
-        // }
-    }
-
-    fn load_context<'c, C: Cipher<'c> + CipherSized>(&self, ctx: &Context<'c, C>) {
-        // Reload state registers.
-        // T::regs().cr().write(|w| w.0 = ctx.cr);
-        // T::regs().ivr(3).write(|w| w.set_ivi(ctx.iv[0]));
-        // T::regs().ivr(2).write(|w| w.set_ivi(ctx.iv[1]));
-        // T::regs().ivr(1).write(|w| w.set_ivi(ctx.iv[2]));
-        // T::regs().ivr(0).write(|w| w.set_ivi(ctx.iv[3]));
-
-        // self.load_keyr(ctx.cipher.keyr());
-
-        // T::regs().cr().write(|w| w.0 = ctx.cr);
-    }
-
-    fn write_bytes_blocking(&self, block_size: usize, blocks: &[u8]) {
+    fn write_then_read_bytes(&self, block_size: usize, blocks_in: &[u8], blocks_out: &mut [u8]) {
+        const BYTES_IN_WORD: usize = 4;
         // Ensure input is a multiple of block size.
-        assert_eq!(blocks.len() % block_size, 0);
-        let mut index = 0;
-        let end_index = blocks.len();
+        assert_eq!(blocks_in.len() % block_size, 0);
+        assert_eq!(blocks_in.len(), blocks_out.len());
+        let mut index: usize = 0;
+        let end_index = blocks_in.len();
         while index < end_index {
-            let mut in_word: [u8; 4] = [0; 4];
-            in_word.copy_from_slice(&blocks[index..index + 4]);
-            T::regs().dinr().write(|w| w.set_din(u32::from_ne_bytes(in_word)));
-            index += 4;
+            let mut in_word: [u8; 4] = [0; BYTES_IN_WORD];
+            in_word.copy_from_slice(&blocks_in[index..index + BYTES_IN_WORD]);
+            T::regs().dinr().write(|w| w.set_din(u32::from_be_bytes(in_word)));
+            index += BYTES_IN_WORD;
             if index % block_size == 0 {
+                // wait until coputation clear flag appears
+                #[cfg(feature = "defmt")]
+                defmt::info!("before flag");
+                #[cfg(feature = "defmt")]
+                defmt::info!("{=u32:b}", T::regs().sr().read().0);
+
+                while !T::regs().sr().read().ccf() {}
+                #[cfg(feature = "defmt")]
+                defmt::info!("after flag");
+                let num_reads = block_size / BYTES_IN_WORD;
+                for k in 0..num_reads {
+                    let out_word = T::regs().doutr().read().dout();
+                    blocks_out[k * BYTES_IN_WORD..(k + 1) * BYTES_IN_WORD].copy_from_slice(&out_word.to_be_bytes())
+                }
+                // clear computation complete flag
+                T::regs().cr().write(|w| w.set_ccfc(true));
+
                 // Block until input FIFO is empty.
             }
         }
     }
 
+    fn write_bytes_blocking_no_read(&self, block_size: usize, blocks: &[u8]) {
+        if blocks.len() == 0 {
+            return;
+        }
+        // Ensure input is a multiple of block size.
+        assert_eq!(blocks.len() % block_size, 0);
+        let mut index: usize = 0;
+        let end_index = blocks.len();
+        while index < end_index {
+            let mut in_word: [u8; 4] = [0; 4];
+            in_word.copy_from_slice(&blocks[index..index + 4]);
+            T::regs().dinr().write(|w| w.set_din(u32::from_be_bytes(in_word)));
+            index += 4;
+            if index % block_size == 0 {
+                #[cfg(feature = "defmt")]
+                #[cfg(feature = "defmt")]
+                defmt::info!("Before readonly flag");
+                while !T::regs().sr().read().ccf() {}
+                #[cfg(feature = "defmt")]
+                defmt::info!("after readonly flag");
+                T::regs().cr().write(|w| w.set_ccfc(true));
+            }
+        }
+    }
+
     fn write_words_blocking(&self, block_size: usize, blocks: &[u32]) {
+        if blocks.len() == 0 {
+            return;
+        }
         assert_eq!((blocks.len() * 4) % block_size, 0);
         let mut byte_counter: usize = 0;
         for word in blocks {
@@ -666,7 +693,7 @@ impl<'d, T: Instance> Aes<'d, T> {
         let end_index = blocks.len();
         while index < end_index {
             let out_word: u32 = T::regs().doutr().read().dout();
-            blocks[index..index + 4].copy_from_slice(u32::to_ne_bytes(out_word).as_slice());
+            blocks[index..index + 4].copy_from_slice(u32::to_be_bytes(out_word).as_slice());
             index += 4;
         }
     }
@@ -695,7 +722,6 @@ foreach_interrupt!(
         }
     };
 );
-
 
 dma_trait!(DmaIn, Instance);
 dma_trait!(DmaOut, Instance);
