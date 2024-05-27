@@ -508,7 +508,7 @@ impl<'d> Spi<'d, Async> {
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        #[cfg(not(spi_v3))] tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        #[cfg(any(spi_v1, spi_f1))] tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -517,9 +517,9 @@ impl<'d> Spi<'d, Async> {
             new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
             None,
             new_pin!(miso, AFType::Input, Speed::VeryHigh),
-            #[cfg(not(spi_v3))]
+            #[cfg(any(spi_v1, spi_f1))]
             new_dma!(tx_dma),
-            #[cfg(spi_v3)]
+            #[cfg(any(spi_v2, spi_v3, spi_v4, spi_v5))]
             None,
             new_dma!(rx_dma),
             config,
@@ -626,19 +626,8 @@ impl<'d> Spi<'d, Async> {
     }
 
     /// SPI read, using DMA.
+    #[cfg(any(spi_v2, spi_v3, spi_v4, spi_v5))]
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
-        #[cfg(not(spi_v3))]
-        {
-            self.transmission_read(data).await
-        }
-        #[cfg(spi_v3)]
-        {
-            self.tsize_read(data).await
-        }
-    }
-
-    #[cfg(spi_v3)]
-    async fn tsize_read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
         if data.is_empty() {
             return Ok(());
         }
@@ -733,8 +722,9 @@ impl<'d> Spi<'d, Async> {
         Ok(())
     }
 
-    #[cfg(not(spi_v3))]
-    async fn transmission_read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+    /// SPI read, using DMA.
+    #[cfg(any(spi_v1, spi_f1))]
+    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
         if data.is_empty() {
             return Ok(());
         }
