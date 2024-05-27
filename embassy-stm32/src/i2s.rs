@@ -169,7 +169,7 @@ impl<'d> I2S<'d> {
         ws: impl Peripheral<P = impl WsPin<T>> + 'd,
         ck: impl Peripheral<P = impl CkPin<T>> + 'd,
         mck: impl Peripheral<P = impl MckPin<T>> + 'd,
-        txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        #[cfg(not(spi_v3))] txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rxdma: impl Peripheral<P = impl RxDma<T>> + 'd,
         freq: Hertz,
         config: Config,
@@ -190,7 +190,15 @@ impl<'d> I2S<'d> {
 
         let mut spi_cfg = SpiConfig::default();
         spi_cfg.frequency = freq;
-        let spi = Spi::new_internal(peri, txdma, rxdma, spi_cfg);
+        let spi = Spi::new_internal(
+            peri,
+            #[cfg(not(spi_v3))]
+            new_dma!(txdma),
+            #[cfg(spi_v3)]
+            None,
+            new_dma!(rxdma),
+            spi_cfg,
+        );
 
         // TODO move i2s to the new mux infra.
         //#[cfg(all(rcc_f4, not(stm32f410)))]

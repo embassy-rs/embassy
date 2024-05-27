@@ -508,6 +508,7 @@ impl<'d> Spi<'d, Async> {
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        #[cfg(not(spi_v3))] tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
     ) -> Self {
@@ -516,6 +517,9 @@ impl<'d> Spi<'d, Async> {
             new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh, config.sck_pull_mode()),
             None,
             new_pin!(miso, AFType::Input, Speed::VeryHigh),
+            #[cfg(not(spi_v3))]
+            new_dma!(tx_dma),
+            #[cfg(spi_v3)]
             None,
             new_dma!(rx_dma),
             config,
@@ -584,11 +588,11 @@ impl<'d> Spi<'d, Async> {
     #[allow(dead_code)]
     pub(crate) fn new_internal<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        tx_dma: Option<ChannelAndRequest<'d>>,
+        rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(peri, None, None, None, new_dma!(tx_dma), new_dma!(rx_dma), config)
+        Self::new_inner(peri, None, None, None, tx_dma, rx_dma, config)
     }
 
     /// SPI write, using DMA.
@@ -623,11 +627,114 @@ impl<'d> Spi<'d, Async> {
 
     /// SPI read, using DMA.
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        #[cfg(not(spi_v3))]
+        {
+            self.transmission_read(data).await
+        }
+        #[cfg(spi_v3)]
+        {
+            self.tsize_read(data).await
+        }
+    }
+
+    #[cfg(spi_v3)]
+    async fn tsize_read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        self.info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+
+        let comm = self.info.regs.cfg2().modify(|w| {
+            let prev = w.comm();
+            w.set_comm(vals::Comm::RECEIVER);
+            prev
+        });
+
+        let i2scfg = self.info.regs.i2scfgr().modify(|w| {
+            let prev = w.i2scfg();
+            w.set_i2scfg(match prev {
+                vals::I2scfg::SLAVERX | vals::I2scfg::SLAVEFULLDUPLEX => vals::I2scfg::SLAVERX,
+                vals::I2scfg::MASTERRX | vals::I2scfg::MASTERFULLDUPLEX => vals::I2scfg::MASTERRX,
+                _ => panic!("unsupported configuration"),
+            });
+            prev
+        });
+
+        let tsize = self.info.regs.cr2().read().tsize();
+
+        let rx_src = self.info.regs.rx_ptr();
+
+        let mut read = 0;
+        let mut remaining = data.len();
+
+        loop {
+            self.set_word_size(W::CONFIG);
+            set_rxdmaen(self.info.regs, true);
+
+            let transfer_size = remaining.min(u16::max_value().into());
+
+            let transfer = unsafe {
+                self.rx_dma
+                    .as_mut()
+                    .unwrap()
+                    .read(rx_src, &mut data[read..(read + transfer_size)], Default::default())
+            };
+
+            self.info.regs.cr2().modify(|w| {
+                w.set_tsize(transfer_size as u16);
+            });
+
+            self.info.regs.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+
+            self.info.regs.cr1().modify(|w| {
+                w.set_cstart(true);
+            });
+
+            transfer.await;
+
+            finish_dma(self.info.regs);
+
+            remaining -= transfer_size;
+
+            if remaining == 0 {
+                break;
+            }
+
+            read += transfer_size;
+        }
+
+        self.info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+
+        self.info.regs.cfg2().modify(|w| {
+            w.set_comm(comm);
+        });
+
+        self.info.regs.cr2().modify(|w| {
+            w.set_tsize(tsize);
+        });
+
+        self.info.regs.i2scfgr().modify(|w| {
+            w.set_i2scfg(i2scfg);
+        });
+
+        Ok(())
+    }
+
+    #[cfg(not(spi_v3))]
+    async fn transmission_read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
         if data.is_empty() {
             return Ok(());
         }
 
         self.set_word_size(W::CONFIG);
+
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -907,7 +1014,13 @@ fn finish_dma(regs: Regs) {
     while regs.sr().read().ftlvl().to_bits() > 0 {}
 
     #[cfg(any(spi_v3, spi_v4, spi_v5))]
-    while !regs.sr().read().txc() {}
+    {
+        if regs.cr2().read().tsize() == 0 {
+            while !regs.sr().read().txc() {}
+        } else {
+            while !regs.sr().read().eot() {}
+        }
+    }
     #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
     while regs.sr().read().bsy() {}
 
