@@ -155,7 +155,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
         self.ctr.as_slice()
     }
 
-    async fn init_phase<T: Instance, DmaIn, DmaOut>(&self, p: &pac::aes::Aes, aes: &mut Aes<'_, T>) {}
+    async fn init_phase<T: Instance>(&self, p: &pac::aes::Aes, aes: &mut Aes<'_, T>) {}
 
     fn get_header_block(&self) -> &[u8] {
         return &self.aad_header[0..self.aad_header_len];
@@ -259,6 +259,7 @@ impl<'d, T: Instance> Aes<'d, T> {
     /// Create a new AES driver.
     pub fn new(peri: impl Peripheral<P = T> + 'd) -> Self {
         T::enable_and_reset();
+        into_ref!(peri);
         let instance = Self { _peripheral: peri };
 
         T::Interrupt::unpend();
@@ -694,3 +695,7 @@ foreach_interrupt!(
         }
     };
 );
+
+
+dma_trait!(DmaIn, Instance);
+dma_trait!(DmaOut, Instance);
