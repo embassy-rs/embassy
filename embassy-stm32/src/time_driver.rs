@@ -261,8 +261,8 @@ fn regs_gp16() -> TimGp16 {
 //
 // `period` is a 32bit integer, so It overflows on 2^32 * 2^15 / 32768 seconds of uptime, which is 136 years.
 fn calc_now(period: u32, counter: u16, overflow: bool) -> u64 {
-    let period = period + if overflow { 1 } else {0};
-    ((period as u64) << 16) + (counter as u32  as u64)
+    let period = period + if overflow { 1 } else { 0 };
+    ((period as u64) << 16) + (counter as u32 as u64)
 }
 
 struct AlarmState {
@@ -585,7 +585,7 @@ impl Driver for RtcDriver {
             if timestamp <= t {
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                r.dier().modify(|w| w.set_ccie(n , false));
+                r.dier().modify(|w| w.set_ccie(n, false));
 
                 alarm.timestamp.set(u64::MAX);
 

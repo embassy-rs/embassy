@@ -1,34 +1,18 @@
-//! Cry.pto Accelerator (CRYP)
+//! Cry.pto Accelerator (AES)
 #[cfg(aes_v3b)]
 use core::cmp::min;
 use core::marker::PhantomData;
-use core::ptr;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use pac::aes::vals::{ Datatype};
+use pac::aes::vals::Datatype;
 
-use crate::dma::{NoDma, Transfer, TransferOptions};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac, peripherals, Peripheral};
 
 const AES_BLOCK_SIZE: usize = 16; // 128 bits
 
 static AES_WAKER: AtomicWaker = AtomicWaker::new();
-
-/// CRYP interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-    unsafe fn on_interrupt() {
-        if T::regs().sr().read().ccf() {
-            T::regs().cr().write(|w| w.set_ccfc(true));
-            AES_WAKER.wake();
-        }
-    }
-}
 
 /// This trait encapsulates all cipher-specific behavior/
 pub trait Cipher<'c> {
@@ -48,14 +32,8 @@ pub trait Cipher<'c> {
     /// Performs any key preparation within the processor, if necessary.
     fn prepare_keyr(&self, _p: &pac::aes::Aes) {}
 
-
     /// Performs any cipher-specific initialization.
-    async fn init_phase<T: Instance, DmaIn, DmaOut>(&self, _p: &pac::aes::Aes, _aes: &mut Aes<'_, T, DmaIn, DmaOut>)
-    where
-        DmaIn: crate::aes::DmaIn<T>,
-        DmaOut: crate::aes::DmaOut<T>,
-    {
-    }
+    async fn init_phase<T: Instance>(&self, _p: &pac::aes::Aes, _aes: &mut Aes<'_, T>) {}
 
     /// Called prior to processing the last data block for cipher-specific operations.
     fn pre_final(&self, _p: &pac::aes::Aes, _dir: Direction, _padding_len: usize) -> [u32; 4] {
@@ -63,18 +41,15 @@ pub trait Cipher<'c> {
     }
 
     /// Called after processing the last data block for cipher-specific operations.
-    async fn post_final<T: Instance, DmaIn, DmaOut>(
+    async fn post_final<T: Instance>(
         &self,
         _p: &pac::aes::Aes,
-        _aes: &mut Aes<'_, T, DmaIn, DmaOut>,
+        _aes: &mut Aes<'_, T>,
         _dir: Direction,
         _int_data: &mut [u8; AES_BLOCK_SIZE],
         _temp1: [u32; 4],
         _padding_mask: [u8; 16],
-    ) where
-        DmaIn: crate::aes::DmaIn<T>,
-        DmaOut: crate::aes::DmaOut<T>,
-    {
+    ) {
     }
 
     /// Returns the AAD header block as required by the cipher.
@@ -180,25 +155,11 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
         self.ctr.as_slice()
     }
 
-
-
-    async fn init_phase<T: Instance, DmaIn, DmaOut>(&self, p: &pac::aes::Aes, aes: &mut Aes<'_, T, DmaIn, DmaOut>)
-    where
-        DmaIn: crate::aes::DmaIn<T>,
-        DmaOut: crate::aes::DmaOut<T>,
-    {
-        // TODO: validate whole method
-        Aes::<T, DmaIn, DmaOut>::write_bytes(&mut aes.indma, Self::BLOCK_SIZE, &self.block0).await;
-
-        p.cr().modify(|w| w.set_en(true));
-        while !p.sr().read().ccf() {}
-        p.cr().modify(|w| w.set_ccfc(true))
-    }
+    async fn init_phase<T: Instance, DmaIn, DmaOut>(&self, p: &pac::aes::Aes, aes: &mut Aes<'_, T>) {}
 
     fn get_header_block(&self) -> &[u8] {
         return &self.aad_header[0..self.aad_header_len];
     }
-
 
     fn pre_final(&self, p: &pac::aes::Aes, _dir: Direction, padding_len: usize) -> [u32; 4] {
         //Handle special GCM partial block process.
@@ -206,46 +167,44 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
         [0; 4]
     }
 
-    
-
-//     async fn post_final<T: Instance, DmaIn, DmaOut>(
-//         &self,
-//         p: &pac::aes::Aes,
-//         aes: &mut Aes<'_, T, DmaIn, DmaOut>,
-//         dir: Direction,
-//         int_data: &mut [u8; AES_BLOCK_SIZE],
-//         temp1: [u32; 4],
-//         padding_mask: [u8; 16],
-//     ) where
-//         DmaIn: crate::aes::DmaIn<T>,
-//         DmaOut: crate::aes::DmaOut<T>,
-//     {
-//         if dir == Direction::Decrypt {
-//             //Handle special CCM partial block process.
-//             let mut temp2 = [0; 4];
-//             temp2[0] = p.csgcmccmr(0).read().swap_bytes();
-//             temp2[1] = p.csgcmccmr(1).read().swap_bytes();
-//             temp2[2] = p.csgcmccmr(2).read().swap_bytes();
-//             temp2[3] = p.csgcmccmr(3).read().swap_bytes();
-//             p.cr().modify(|w| w.set_algomode3(true));
-//             p.cr().modify(|w| w.set_algomode0(1));
-//             p.cr().modify(|w| w.set_gcm_ccmph(3));
-//             // Header phase
-//             p.cr().modify(|w| w.set_gcm_ccmph(1));
-//             for i in 0..AES_BLOCK_SIZE {
-//                 int_data[i] = int_data[i] & padding_mask[i];
-//             }
-//             let mut in_data: [u32; 4] = [0; 4];
-//             for i in 0..in_data.len() {
-//                 let mut int_bytes: [u8; 4] = [0; 4];
-//                 int_bytes.copy_from_slice(&int_data[(i * 4)..(i * 4) + 4]);
-//                 let int_word = u32::from_le_bytes(int_bytes);
-//                 in_data[i] = int_word;
-//                 in_data[i] = in_data[i] ^ temp1[i] ^ temp2[i];
-//             }
-//             Aes::<T, DmaIn, DmaOut>::write_words(&mut aes.indma, Self::BLOCK_SIZE, &in_data).await;
-//         }
-//     }
+    //     async fn post_final<T: Instance, DmaIn, DmaOut>(
+    //         &self,
+    //         p: &pac::aes::Aes,
+    //         aes: &mut Aes<'_, T, DmaIn, DmaOut>,
+    //         dir: Direction,
+    //         int_data: &mut [u8; AES_BLOCK_SIZE],
+    //         temp1: [u32; 4],
+    //         padding_mask: [u8; 16],
+    //     ) where
+    //         DmaIn: crate::aes::DmaIn<T>,
+    //         DmaOut: crate::aes::DmaOut<T>,
+    //     {
+    //         if dir == Direction::Decrypt {
+    //             //Handle special CCM partial block process.
+    //             let mut temp2 = [0; 4];
+    //             temp2[0] = p.csgcmccmr(0).read().swap_bytes();
+    //             temp2[1] = p.csgcmccmr(1).read().swap_bytes();
+    //             temp2[2] = p.csgcmccmr(2).read().swap_bytes();
+    //             temp2[3] = p.csgcmccmr(3).read().swap_bytes();
+    //             p.cr().modify(|w| w.set_algomode3(true));
+    //             p.cr().modify(|w| w.set_algomode0(1));
+    //             p.cr().modify(|w| w.set_gcm_ccmph(3));
+    //             // Header phase
+    //             p.cr().modify(|w| w.set_gcm_ccmph(1));
+    //             for i in 0..AES_BLOCK_SIZE {
+    //                 int_data[i] = int_data[i] & padding_mask[i];
+    //             }
+    //             let mut in_data: [u32; 4] = [0; 4];
+    //             for i in 0..in_data.len() {
+    //                 let mut int_bytes: [u8; 4] = [0; 4];
+    //                 int_bytes.copy_from_slice(&int_data[(i * 4)..(i * 4) + 4]);
+    //                 let int_word = u32::from_le_bytes(int_bytes);
+    //                 in_data[i] = int_word;
+    //                 in_data[i] = in_data[i] ^ temp1[i] ^ temp2[i];
+    //             }
+    //             Aes::<T, DmaIn, DmaOut>::write_words(&mut aes.indma, Self::BLOCK_SIZE, &in_data).await;
+    //         }
+    //     }
 }
 
 impl<'c, const TAG_SIZE: usize, const IV_SIZE: usize> CipherSized for AesCcm<'c, { 128 / 8 }, TAG_SIZE, IV_SIZE> {}
@@ -292,27 +251,15 @@ pub enum Direction {
 }
 
 /// Cry.pto Accelerator Driver
-pub struct Aes<'d, T: Instance, DmaIn = NoDma, DmaOut = NoDma> {
+pub struct Aes<'d, T> {
     _peripheral: PeripheralRef<'d, T>,
-    indma: PeripheralRef<'d, DmaIn>,
-    outdma: PeripheralRef<'d, DmaOut>,
 }
 
-impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
-    /// Create a new CRYP driver.
-    pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
-        indma: impl Peripheral<P = DmaIn> + 'd,
-        outdma: impl Peripheral<P = DmaOut> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+impl<'d, T: Instance> Aes<'d, T> {
+    /// Create a new AES driver.
+    pub fn new(peri: impl Peripheral<P = T> + 'd) -> Self {
         T::enable_and_reset();
-        into_ref!(peri, indma, outdma);
-        let instance = Self {
-            _peripheral: peri,
-            indma: indma,
-            outdma: outdma,
-        };
+        let instance = Self { _peripheral: peri };
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -320,18 +267,12 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         instance
     }
 
-
-
     /// Start a new encrypt or decrypt operation for the given cipher.
     pub async fn start<'c, C: Cipher<'c> + CipherSized + IVSized>(
         &mut self,
         cipher: &'c C,
         dir: Direction,
-    ) -> Context<'c, C>
-    where
-        DmaIn: crate::aes::DmaIn<T>,
-        DmaOut: crate::aes::DmaOut<T>,
-    {
+    ) -> Context<'c, C> {
         let mut ctx: Context<'c, C> = Context {
             dir,
             last_block_processed: false,
@@ -345,35 +286,34 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
             aad_buffer_len: 0,
         };
 
-        // done
+        // 1 test-ready
         T::regs().cr().modify(|w| w.set_en(false));
 
+        // 2 test-ready
         T::regs().cr().modify(|w| w.set_chmod10(00));
         T::regs().cr().modify(|w| w.set_chmod2(true));
-        T::regs().cr().modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::INITPHASE));
 
         // Set data type to 8-bit. This will match software implementations.
         T::regs().cr().modify(|w| w.set_datatype(Datatype::BYTE));
 
+        // 3 test-ready
+        T::regs().cr().modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::INITPHASE));
 
+        // 4 test-ready
         if dir == Direction::Encrypt {
             T::regs().cr().modify(|w| w.set_mode(pac::aes::vals::Mode::MODE1));
         } else {
             T::regs().cr().modify(|w| w.set_mode(pac::aes::vals::Mode::MODE3));
         }
-        // TODO: set up key
+
+        // 5 test-ready
         let key = ctx.cipher.keyr();
-
-
         // Assumption: 128 bits
         T::regs().cr().modify(|w| w.set_keysize(false));
-
         //TODO: set up key
         self.load_keyr(key);
 
-
-        // TODO prepare IV in cipher
-        // Endianness and writes SHOULD be OK
+        //  test-ready - IV calculation is NOT verified.
         let iv = ctx.cipher.iv();
         let mut full_iv: [u8; 16] = [0; 16];
         full_iv[0..iv.len()].copy_from_slice(iv);
@@ -391,38 +331,33 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         iv_word.copy_from_slice(&full_iv[iv_idx..iv_idx + 4]);
         T::regs().ivr(0).modify(|w| w.set_ivi(u32::from_be_bytes(iv_word)));
 
-        // Flush in/out FIFOs
-        // TODO assess aes counterpart - should not be needed
-        // T::regs().cr().modify(|w| w.fflush());
+        // 6 test-ready
+        T::regs().cr().modify(|w| w.set_en(true));
 
+        // 7 test-ready
+        while !T::regs().sr().read().ccf() {}
 
-        // self.store_context(&mut ctx);
-
-        while !T::regs().sr().read().ccf(){}
+        // 8 test-ready
         T::regs().cr().write(|w| w.set_ccfc(true));
 
         ctx
     }
-
 
     /// Controls the header phase of cipher processing.
     /// This function is only valid for authenticated ciphers including GCM, CCM, and GMAC.
     /// All additional associated data (AAD) must be supplied to this function prior to starting the payload phase with `payload`.
     /// The AAD must be supplied in multiples of the block size (128-bits for AES, 64-bits for DES), except when supplying the last block.
     /// When supplying the last block of AAD, `last_aad_block` must be `true`.
-    pub async fn aad<'c, const TAG_SIZE: usize, C: Cipher<'c> + CipherSized + IVSized + CipherAuthenticated<TAG_SIZE>>(
+    pub async fn aad<
+        'c,
+        const TAG_SIZE: usize,
+        C: Cipher<'c> + CipherSized + IVSized + CipherAuthenticated<TAG_SIZE>,
+    >(
         &mut self,
         ctx: &mut Context<'c, C>,
         aad: &[u8],
         last_aad_block: bool,
-    ) where
-        DmaIn: crate::aes::DmaIn<T>,
-        DmaOut: crate::aes::DmaOut<T>,
-    {
-
-        // TODO: this context thing
-        self.load_context(ctx);
-
+    ) {
         // Perform checks for correctness.
         // TODO: ?
         if ctx.aad_complete {
@@ -431,12 +366,15 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
 
         ctx.header_len += aad.len() as u64;
 
-        // Header phase
-        // TODO should not be needed but also won't hurt
-        T::regs().cr().modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::HEADERPHASE));
+        // 1 test-ready
+        T::regs()
+            .cr()
+            .modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::HEADERPHASE));
 
+        // 2 test-ready
         T::regs().cr().modify(|w| w.set_en(true));
 
+        // 3 test-ready - make sure blocking vs async difference don't affect anything in testing
         // First write the header B1 block if not yet written.
         if !ctx.header_processed {
             ctx.header_processed = true;
@@ -455,15 +393,18 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         if ctx.aad_buffer_len < C::BLOCK_SIZE {
             // The buffer isn't full and this is the last buffer, so process it as is (already padded).
             if last_aad_block {
-                Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &ctx.aad_buffer).await;
+                self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer);
+                while !T::regs().sr().read().ccf() {}
+                T::regs().cr().write(|w| w.set_ccfc(true));
                 // TODO: should not be needed?
                 // assert_eq!(T::regs().sr().read().ifem(), true);
-
 
                 // Switch to payload phase.
                 ctx.aad_complete = true;
                 T::regs().cr().modify(|w| w.set_en(false));
-                T::regs().cr().modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::PAYLOADPHASE));
+                T::regs()
+                    .cr()
+                    .modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::PAYLOADPHASE));
                 // TODO: should not be needed?
                 // T::regs().cr().modify(|w| w.fflush());
             } else {
@@ -472,9 +413,9 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
             }
         } else {
             // Load the full block from the buffer.
-            Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &ctx.aad_buffer).await;
-                // TODO: should not be needed?
-            // assert_eq!(T::regs().sr().read().ifem(), true);
+            self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer);
+            while !T::regs().sr().read().ccf() {}
+            T::regs().cr().write(|w| w.set_ccfc(true));
         }
 
         // Handle a partial block that is passed in.
@@ -490,26 +431,24 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         let num_full_blocks = aad_len_remaining / C::BLOCK_SIZE;
         let start_index = len_to_copy;
         let end_index = start_index + (C::BLOCK_SIZE * num_full_blocks);
-        Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &aad[start_index..end_index]).await;
+        self.write_bytes_blocking(C::BLOCK_SIZE, &aad[start_index..end_index]);
+        while !T::regs().sr().read().ccf() {}
+        T::regs().cr().write(|w| w.set_ccfc(true));
 
         if last_aad_block {
             if leftovers > 0 {
-                Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &ctx.aad_buffer).await;
-                assert_eq!(T::regs().sr().read().ifem(), true);
+                self.write_bytes_blocking(C::BLOCK_SIZE, &ctx.aad_buffer);
+                while !T::regs().sr().read().ccf() {}
+                T::regs().cr().write(|w| w.set_ccfc(true));
             }
             // Switch to payload phase.
-            ctx.aad_complete = true;
-            T::regs().cr().modify(|w| w.set_en(false));
 
-            T::regs().cr().modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::PAYLOADPHASE));
             // todo: should not be needed
             // T::regs().cr().modify(|w| w.fflush());
         }
 
         self.store_context(ctx);
     }
-
-    
 
     /// Performs encryption/decryption on the provided context.
     /// The context determines algorithm, mode, and state of the cry.pto accelerator.
@@ -525,10 +464,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         input: &[u8],
         output: &mut [u8],
         last_block: bool,
-    ) where
-        DmaIn: crate::aes::DmaIn<T>,
-        DmaOut: crate::aes::DmaOut<T>,
-    {
+    ) {
         // self.load_context(ctx);
 
         let last_block_remainder = input.len() % C::BLOCK_SIZE;
@@ -539,11 +475,9 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         } else if !ctx.aad_complete {
             {
                 ctx.aad_complete = true;
-                T::regs().cr().modify(|w| w.set_en(false));
-                T::regs().cr().modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::PAYLOADPHASE));
-                // todo: should not be needed
-                // T::regs().cr().modify(|w| w.fflush());
-                T::regs().cr().modify(|w| w.set_en(true));
+                T::regs()
+                    .cr()
+                    .modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::PAYLOADPHASE));
             }
         }
         if ctx.last_block_processed {
@@ -571,14 +505,12 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         for block in 0..num_full_blocks {
             let index = block * C::BLOCK_SIZE;
             // Read block out
-            let read = Self::read_bytes(
-                &mut self.outdma,
-                C::BLOCK_SIZE,
-                &mut output[index..index + C::BLOCK_SIZE],
-            );
             // Write block in
-            let write = Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &input[index..index + C::BLOCK_SIZE]);
-            embassy_futures::join::join(read, write).await;
+            self.write_bytes_blocking(C::BLOCK_SIZE, &input[index..index + C::BLOCK_SIZE]);
+            // Read block out
+            while !T::regs().sr().read().ccf() {}
+            self.read_bytes_blocking(C::BLOCK_SIZE, &mut output[index..index + C::BLOCK_SIZE]);
+            T::regs().cr().write(|w| w.set_ccfc(true));
         }
 
         // Handle the final block, which is incomplete.
@@ -589,10 +521,10 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
             let mut intermediate_data: [u8; AES_BLOCK_SIZE] = [0; AES_BLOCK_SIZE];
             let mut last_block: [u8; AES_BLOCK_SIZE] = [0; AES_BLOCK_SIZE];
             last_block[..last_block_remainder].copy_from_slice(&input[input.len() - last_block_remainder..input.len()]);
-            let read = Self::read_bytes(&mut self.outdma, C::BLOCK_SIZE, &mut intermediate_data);
-            let write = Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &last_block);
-            embassy_futures::join::join(read, write).await;
-
+            self.write_bytes_blocking(C::BLOCK_SIZE, &last_block);
+            while !T::regs().sr().read().ccf() {}
+            self.read_bytes_blocking(C::BLOCK_SIZE, &mut intermediate_data);
+            T::regs().cr().write(|w| w.set_ccfc(true));
             // Handle the last block depending on mode.
             let output_len = output.len();
             output[output_len - last_block_remainder..output_len]
@@ -610,8 +542,6 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         self.store_context(ctx);
     }
 
-    
-
     // Generates an authentication tag for authenticated ciphers including GCM, CCM, and GMAC.
     /// Called after the all data has been encrypted/decrypted by `payload`.
     pub async fn finish<
@@ -621,30 +551,17 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
     >(
         &mut self,
         mut ctx: Context<'c, C>,
-    ) -> [u8; TAG_SIZE]
-    where
-        DmaIn: crate::aes::DmaIn<T>,
-        DmaOut: crate::aes::DmaOut<T>,
-    {
+    ) -> [u8; TAG_SIZE] {
         self.load_context(&mut ctx);
 
-        T::regs().cr().modify(|w| w.set_en(false));
-        T::regs().cr().modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::FINALPHASE));
-        T::regs().cr().modify(|w| w.set_en(true));
-
-        let headerlen1: u32 = ((ctx.header_len * 8) >> 32) as u32;
-        let headerlen2: u32 = (ctx.header_len * 8) as u32;
-        let payloadlen1: u32 = ((ctx.payload_len * 8) >> 32) as u32;
-        let payloadlen2: u32 = (ctx.payload_len * 8) as u32;
-        
-        let footer: [u32; 4] = [headerlen1, headerlen2, payloadlen1, payloadlen2];
-
-        let write = Self::write_words(&mut self.indma, C::BLOCK_SIZE, &footer);
+        T::regs()
+            .cr()
+            .modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::FINALPHASE));
 
         let mut full_tag: [u8; 16] = [0; 16];
-        let read = Self::read_bytes(&mut self.outdma, C::BLOCK_SIZE, &mut full_tag);
-
-        embassy_futures::join::join(read, write).await;
+        while !T::regs().sr().read().ccf() {}
+        self.read_bytes_blocking(C::BLOCK_SIZE, &mut full_tag);
+        T::regs().cr().write(|w| w.set_ccfc(true));
 
         let mut tag: [u8; TAG_SIZE] = [0; TAG_SIZE];
         tag.copy_from_slice(&full_tag[0..TAG_SIZE]);
@@ -676,11 +593,10 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         T::regs().keyr(0).modify(|w| w.set_key(u32::from_be_bytes(keyword)));
     }
 
-
     // STATUS: should be good. assess endianness of IV
     fn store_context<'c, C: Cipher<'c> + CipherSized>(&self, ctx: &mut Context<'c, C>) {
         // Wait for data block processing to finish.
-        while !T::regs().sr().read().ccf(){}
+        while !T::regs().sr().read().ccf() {}
         T::regs().cr().write(|w| w.set_ccfc(true));
 
         // Save the peripheral state.
@@ -709,88 +625,49 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         // self.load_keyr(ctx.cipher.keyr());
 
         // T::regs().cr().write(|w| w.0 = ctx.cr);
-
     }
 
-
-
-    async fn write_bytes(dma: &mut PeripheralRef<'_, DmaIn>, block_size: usize, blocks: &[u8])
-    where
-        DmaIn: crate::aes::DmaIn<T>,
-    {
-        if blocks.len() == 0 {
-            return;
-        }
+    fn write_bytes_blocking(&self, block_size: usize, blocks: &[u8]) {
         // Ensure input is a multiple of block size.
         assert_eq!(blocks.len() % block_size, 0);
-        // Configure DMA to transfer input to cry.pto core.
-        let dma_request = dma.request();
-        let dst_ptr = T::regs().dinr().as_ptr();
-        let num_words = blocks.len() / 4;
-        let src_ptr = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
-        let options = TransferOptions {
-            #[cfg(not(gpdma))]
-            priority: crate::dma::Priority::High,
-            ..Default::default()
-        };
-        let dma_transfer = unsafe { Transfer::new_write_raw(dma, dma_request, src_ptr, dst_ptr, options) };
-        T::regs().cr().modify(|w| w.set_dmainen(true));
-        // Wait for the transfer to complete.
-        dma_transfer.await;
+        let mut index = 0;
+        let end_index = blocks.len();
+        while index < end_index {
+            let mut in_word: [u8; 4] = [0; 4];
+            in_word.copy_from_slice(&blocks[index..index + 4]);
+            T::regs().dinr().write(|w| w.set_din(u32::from_ne_bytes(in_word)));
+            index += 4;
+            if index % block_size == 0 {
+                // Block until input FIFO is empty.
+            }
+        }
     }
 
-
-
-    async fn write_words(dma: &mut PeripheralRef<'_, DmaIn>, block_size: usize, blocks: &[u32])
-    where
-        DmaIn: crate::aes::DmaIn<T>,
-    {
-        if blocks.len() == 0 {
-            return;
-        }
-        // Ensure input is a multiple of block size.
+    fn write_words_blocking(&self, block_size: usize, blocks: &[u32]) {
         assert_eq!((blocks.len() * 4) % block_size, 0);
-        // Configure DMA to transfer input to cry.pto core.
-        let dma_request = dma.request();
-        let dst_ptr = T::regs().dinr().as_ptr();
-        let num_words = blocks.len();
-        let src_ptr = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
-        let options = TransferOptions {
-            #[cfg(not(gpdma))]
-            priority: crate::dma::Priority::High,
-            ..Default::default()
-        };
-        let dma_transfer = unsafe { Transfer::new_write_raw(dma, dma_request, src_ptr, dst_ptr, options) };
-        T::regs().cr().modify(|w| w.set_dmainen(true));
-        // Wait for the transfer to complete.
-        dma_transfer.await;
+        let mut byte_counter: usize = 0;
+        for word in blocks {
+            T::regs().dinr().write(|w| w.set_din(*word));
+            byte_counter += 4;
+            if byte_counter % block_size == 0 {
+                // while !T::regs().sr().read().ccf() {}
+                // T::regs().cr().write(|w| w.set_ccfc(true))
+            }
+        }
     }
 
-
-
-    async fn read_bytes(dma: &mut PeripheralRef<'_, DmaOut>, block_size: usize, blocks: &mut [u8])
-    where
-        DmaOut: crate::aes::DmaOut<T>,
-    {
-        if blocks.len() == 0 {
-            return;
-        }
+    fn read_bytes_blocking(&self, block_size: usize, blocks: &mut [u8]) {
+        // Block until there is output to read.
         // Ensure input is a multiple of block size.
         assert_eq!(blocks.len() % block_size, 0);
-        // Configure DMA to get output from cry.pto core.
-        let dma_request = dma.request();
-        let src_ptr = T::regs().doutr().as_ptr();
-        let num_words = blocks.len() / 4;
-        let dst_ptr = ptr::slice_from_raw_parts_mut(blocks.as_mut_ptr().cast(), num_words);
-        let options = TransferOptions {
-            #[cfg(not(gpdma))]
-            priority: crate::dma::Priority::VeryHigh,
-            ..Default::default()
-        };
-        let dma_transfer = unsafe { Transfer::new_read_raw(dma, dma_request, src_ptr, dst_ptr, options) };
-        T::regs().cr().modify(|w| w.set_dmaouten(true));
-        // Wait for the transfer to complete.
-        dma_transfer.await;
+        // Read block out
+        let mut index = 0;
+        let end_index = blocks.len();
+        while index < end_index {
+            let out_word: u32 = T::regs().doutr().read().dout();
+            blocks[index..index + 4].copy_from_slice(u32::to_ne_bytes(out_word).as_slice());
+            index += 4;
+        }
     }
 }
 
@@ -798,10 +675,9 @@ trait SealedInstance {
     fn regs() -> pac::aes::Aes;
 }
 
-/// CRYP instance trait.
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
-    /// Interrupt for this CRYP instance.
+    /// Interrupt for this AES instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
@@ -818,10 +694,3 @@ foreach_interrupt!(
         }
     };
 );
-
-dma_trait!(DmaIn, Instance);
-dma_trait!(DmaOut, Instance);
-
-
-// Assumptions:
-// Datatype is byte (10)
