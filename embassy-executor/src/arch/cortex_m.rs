@@ -68,6 +68,9 @@ mod thread {
     pub struct Executor {
         inner: raw::Executor,
         not_send: PhantomData<*mut ()>,
+
+        #[cfg(feature = "measure-cpu-load")]
+        measure: Option<fn(u64, u64)>,
     }
 
     impl Executor {
@@ -76,7 +79,28 @@ mod thread {
             Self {
                 inner: raw::Executor::new(THREAD_PENDER as *mut ()),
                 not_send: PhantomData,
+
+                #[cfg(feature = "measure-cpu-load")]
+                measure: None,
             }
+        }
+
+        #[cfg(feature = "measure-cpu-load")]
+        /// Create a new Executor with a given CPU load measurement function.
+        pub fn new_with_cpu_load(f: fn(u64, u64)) -> Self {
+            Self {
+                inner: raw::Executor::new(THREAD_PENDER as *mut ()),
+                not_send: PhantomData,
+
+                #[cfg(feature = "measure-cpu-load")]
+                measure: Some(f),
+            }
+        }
+
+        #[cfg(feature = "measure-cpu-load")]
+        /// Sets the CPU load measurement function.
+        pub fn measure_cpu_load(&mut self, f: fn(u64, u64)) {
+            self.measure = Some(f);
         }
 
         /// Run the executor.
@@ -100,9 +124,33 @@ mod thread {
         pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
             init(self.inner.spawner());
 
+            #[cfg(feature = "measure-cpu-load")]
+            let mut previous = embassy_time_driver::now();
+
+            #[cfg(feature = "measure-cpu-load")]
+            let mut wakeup = previous;
+
             loop {
                 unsafe {
+                    #[cfg(feature = "measure-cpu-load")]
+                    if self.measure.is_some() {
+                        wakeup = embassy_time_driver::now();
+                    }
+
                     self.inner.poll();
+
+                    #[cfg(feature = "measure-cpu-load")]
+                    if let Some(f) = self.measure {
+                        let sleep = embassy_time_driver::now();
+
+                        let tc = sleep - previous;
+                        let ts = wakeup - previous;
+
+                        f(ts, tc);
+
+                        previous = sleep;
+                    }
+
                     asm!("wfe");
                 };
             }
