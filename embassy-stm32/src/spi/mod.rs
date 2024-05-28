@@ -657,28 +657,23 @@ impl<'d> Spi<'d, Async> {
             })
         });
 
-        let tsize = regs.cr2().read().tsize();
-
         let rx_src = regs.rx_ptr();
 
-        let mut read = 0;
-        let mut remaining = data.len();
-
-        loop {
+        for mut chunk in data.chunks_mut(u16::max_value().into()) {
             self.set_word_size(W::CONFIG);
             set_rxdmaen(regs, true);
 
-            let transfer_size = remaining.min(u16::max_value().into());
+            let tsize = chunk.len();
 
             let transfer = unsafe {
                 self.rx_dma
                     .as_mut()
                     .unwrap()
-                    .read(rx_src, &mut data[read..(read + transfer_size)], Default::default())
+                    .read(rx_src, &mut chunk, Default::default())
             };
 
             regs.cr2().modify(|w| {
-                w.set_tsize(transfer_size as u16);
+                w.set_tsize(tsize as u16);
             });
 
             regs.cr1().modify(|w| {
@@ -692,14 +687,6 @@ impl<'d> Spi<'d, Async> {
             transfer.await;
 
             finish_dma(regs);
-
-            remaining -= transfer_size;
-
-            if remaining == 0 {
-                break;
-            }
-
-            read += transfer_size;
         }
 
         regs.cr1().modify(|w| {
@@ -711,7 +698,7 @@ impl<'d> Spi<'d, Async> {
         });
 
         regs.cr2().modify(|w| {
-            w.set_tsize(tsize);
+            w.set_tsize(0);
         });
 
         #[cfg(spi_v3)]
