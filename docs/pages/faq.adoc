@@ -267,10 +267,10 @@ Additionally, some PWR settings require a full device reboot (and enough time to
 
 There is not a fix for this yet, as it is board/hardware dependant. See link:https://github.com/embassy-rs/embassy/issues/2806[this tracking issue] for more details
 
-=== STM32 BDMA only work out of some RAM regions
+=== STM32 BDMA only working out of some RAM regions
 
-The STM32 BDMA controller included in some chips (TODO: list which ones) has a limitation in that it only works out of certain regions of RAM (TODO: list which ones), otherwise the transfer
-will fail.
+The STM32 BDMA controller included in some STM32H7 chips has to be configured to use only certain regions of RAM,
+otherwise the transfer will fail.
 
 If you see errors that look like this:
 
@@ -279,7 +279,7 @@ If you see errors that look like this:
 DMA: error on BDMA@1234ABCD channel 4
 ----
 
-You need to set up your linker script to define a special region for this area, and copy data to that region before using with BDMA.
+You need to set up your linker script to define a special region for this area and copy data to that region before using with BDMA.
 
 General steps:
 
@@ -289,7 +289,7 @@ General steps:
 4. In your code, access the defined memory region using `#[link_section = ".xxx"]`
 5. Copy data to that region before using BDMA.
 
-See link:/examples/stm32h7/src/bin/spi_bdma.rs[this example] for more details.
+See link:https://github.com/embassy-rs/embassy/blob/main/examples/stm32h7/src/bin/spi_bdma.rs[SMT32H7 SPI BDMA example] for more details.
 
 == How do I switch to the `main` branch?
 
