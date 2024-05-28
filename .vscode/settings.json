@@ -20,6 +20,7 @@
     "unstable-pac",
     "exti",
     "rt",
+    "defmt",
   ],
   "rust-analyzer.linkedProjects": [
     // Uncomment ONE line for the chip you want to work on.
