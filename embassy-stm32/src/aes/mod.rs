@@ -297,7 +297,7 @@ impl<'d, T: Instance> Aes<'d, T> {
         T::regs().cr().modify(|w| w.set_chmod2(true));
         defmt::info!("CR: {=u32:b}", T::regs().cr().read().0);
         // Set data type to 8-bit. This will match software implementations.
-        T::regs().cr().modify(|w| w.set_datatype(Datatype::NONE));
+        T::regs().cr().modify(|w| w.set_datatype(Datatype::BYTE));
 
         // 3 test-ready
         T::regs().cr().modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::INITPHASE));
@@ -413,10 +413,10 @@ impl<'d, T: Instance> Aes<'d, T> {
         ctx.aad_buffer_len += len_to_copy;
         ctx.aad_buffer[ctx.aad_buffer_len..].fill(0);
         let mut aad_len_remaining = aad.len() - len_to_copy;
-
         if ctx.aad_buffer_len < C::BLOCK_SIZE {
             // The buffer isn't full and this is the last buffer, so process it as is (already padded).
             if last_aad_block {
+                defmt::info!("Writing1.....");
                 self.write_bytes_blocking_no_read(C::BLOCK_SIZE, &ctx.aad_buffer);
 
                 // TODO: should not be needed?
@@ -431,6 +431,7 @@ impl<'d, T: Instance> Aes<'d, T> {
             }
         } else {
             // Load the full block from the buffer.
+            defmt::info!("Writing2.....");
             self.write_bytes_blocking_no_read(C::BLOCK_SIZE, &ctx.aad_buffer);
         }
 
@@ -452,6 +453,8 @@ impl<'d, T: Instance> Aes<'d, T> {
 
         if last_aad_block {
             if leftovers > 0 {
+             defmt::info!("Writing3.....");
+
                 self.write_bytes_blocking_no_read(C::BLOCK_SIZE, &ctx.aad_buffer);
               defmt::info!("after last aad write");
 
@@ -574,7 +577,7 @@ impl<'d, T: Instance> Aes<'d, T> {
         let mut full_tag: [u8; 16] = [0; 16];
         defmt::info!("{=u32:b}", T::regs().sr().read().0);
 
-
+        while !T::regs().sr().read().ccf() {}
         self.read_bytes_blocking(C::BLOCK_SIZE, &mut full_tag);
         T::regs().cr().modify(|w| w.set_ccfc(true));
 
