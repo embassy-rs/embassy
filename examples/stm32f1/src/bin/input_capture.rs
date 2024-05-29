@@ -11,10 +11,10 @@ use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-/// Connect PB2 and PB10 with a 1k Ohm resistor
+/// Connect PA2 and PC13 with a 1k Ohm resistor
 
 #[embassy_executor::task]
-async fn blinky(led: peripherals::PB2) {
+async fn blinky(led: peripherals::PC13) {
     let mut led = Output::new(led, Level::High, Speed::Low);
 
     loop {
@@ -37,9 +37,9 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    unwrap!(spawner.spawn(blinky(p.PB2)));
+    unwrap!(spawner.spawn(blinky(p.PC13)));
 
-    let ch3 = CapturePin::new_ch3(p.PB10, Pull::None);
+    let ch3 = CapturePin::new_ch3(p.PA2, Pull::None);
     let mut ic = InputCapture::new(p.TIM2, None, None, Some(ch3), None, Irqs, khz(1000), Default::default());
 
     loop {
