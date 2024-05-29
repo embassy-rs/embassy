@@ -26,10 +26,6 @@ pub enum Ch3 {}
 /// Channel 4 marker type.
 pub enum Ch4 {}
 
-fn regs_gp16(ptr: *mut ()) -> crate::pac::timer::TimGp16 {
-    unsafe { crate::pac::timer::TimGp16::from_ptr(ptr) }
-}
-
 /// Capture pin wrapper.
 ///
 /// This wraps a pin to make it usable with capture.
@@ -80,6 +76,10 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
+        Self::new_inner(tim, freq, counting_mode)
+    }
+
+    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
         let mut this = Self { inner: Timer::new(tim) };
 
         this.inner.set_counting_mode(counting_mode);
@@ -150,6 +150,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     fn new_future(&self, channel: Channel, mode: InputCaptureMode, tisel: InputTISelection) -> InputCaptureFuture<T> {
         use stm32_metapac::timer::vals::FilterValue;
 
+        // Configuration steps from ST RM0390 chapter 17.3.5 Input Capture Mode
         self.inner.set_input_ti_selection(channel, tisel);
         self.inner.set_input_capture_filter(channel, FilterValue::NOFILTER);
         self.inner.set_input_capture_mode(channel, mode);
@@ -198,6 +199,11 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.new_future(channel, InputCaptureMode::BothEdges, InputTISelection::Alternate)
             .await
     }
+}
+
+/// Convert pointer to TIM instance to TimGp16 object
+fn regs_gp16(ptr: *mut ()) -> crate::pac::timer::TimGp16 {
+    unsafe { crate::pac::timer::TimGp16::from_ptr(ptr) }
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
