@@ -46,6 +46,9 @@ async fn main(spawner: Spawner) {
         let period = pwm_input.get_period_ticks();
         let width = pwm_input.get_width_ticks();
         let duty_cycle = pwm_input.get_duty_cycle();
-        info!("period ticks: {} width ticks: {} duty cycle: {}", period, width, duty_cycle);
+        info!(
+            "period ticks: {} width ticks: {} duty cycle: {}",
+            period, width, duty_cycle
+        );
     }
 }
