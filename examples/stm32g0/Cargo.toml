@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 # Change stm32g0b1re to your chip name, if necessary.
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32g0b1re", "memory-x", "unstable-pac", "exti"]  }
-embassy-sync = { version = "0.5.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-sync = { version = "0.6.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-usb = { version = "0.2.0", path = "../../embassy-usb", default-features = false, features = ["defmt"] }

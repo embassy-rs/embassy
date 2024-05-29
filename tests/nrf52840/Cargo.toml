@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 teleprobe-meta = "1"
 
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embassy-sync = { version = "0.5.0", path = "../../embassy-sync", features = ["defmt", ] }
+embassy-sync = { version = "0.6.0", path = "../../embassy-sync", features = ["defmt", ] }
 embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "task-arena-size-16384", "integrated-timers"] }
 embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["defmt",  "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt",  "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }

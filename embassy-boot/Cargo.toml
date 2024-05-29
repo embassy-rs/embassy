@@ -29,7 +29,7 @@ digest = "0.10"
 log = { version = "0.4", optional = true }
 ed25519-dalek = { version = "2", default_features = false, features = ["digest"], optional = true }
 embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 salty = { version = "0.3", optional = true }

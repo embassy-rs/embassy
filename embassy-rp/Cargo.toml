@@ -81,7 +81,7 @@ boot2-w25q080 = []
 boot2-w25x10cl = []
 
 [dependencies]
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
 embassy-time = { version = "0.3.0", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }

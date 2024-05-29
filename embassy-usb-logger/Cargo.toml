@@ -16,6 +16,6 @@ target = "thumbv7em-none-eabi"
 
 [dependencies]
 embassy-usb = { version = "0.2.0", path = "../embassy-usb" }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 log = "0.4"
