@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `capacity`, `free_capacity`, `clear`, `len`, `is_empty` and `is_full` functions to `PubSubChannel`.
 - Made `PubSubBehavior` sealed
   - If you called `.publish_immediate(...)` on the queue directly before, then now call `.immediate_publisher().publish_immediate(...)`
+- Add OnceLock sync primitive.
+- Add constructor for DynamicChannel
+- Add ready_to_receive functions to Channel and Receiver.
+- Add clear function to all channels.
 
 ## 0.5.0 - 2023-12-04
 
