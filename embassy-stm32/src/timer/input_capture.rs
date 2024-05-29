@@ -80,18 +80,18 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 
     fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut inner = Timer::new(tim);
 
-        this.inner.set_counting_mode(counting_mode);
-        this.set_tick_freq(freq);
-        this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
-        this.inner.start();
+        inner.set_counting_mode(counting_mode);
+        inner.set_tick_freq(freq);
+        inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
+        inner.start();
 
         // enable NVIC interrupt
         T::CaptureCompareInterrupt::unpend();
         unsafe { T::CaptureCompareInterrupt::enable() };
 
-        this
+        Self { inner }
     }
 
     /// Enable the given channel.
@@ -107,24 +107,6 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     /// Check whether given channel is enabled
     pub fn is_enabled(&self, channel: Channel) -> bool {
         self.inner.get_channel_enable_state(channel)
-    }
-
-    /// Set tick frequency.
-    ///
-    /// Note: when you call this, the max period value changes
-    pub fn set_tick_freq(&mut self, freq: Hertz) {
-        let f = freq;
-        assert!(f.0 > 0);
-        let timer_f = self.inner.get_clock_frequency();
-
-        let pclk_ticks_per_timer_period = timer_f / f;
-        let psc: u16 = unwrap!((pclk_ticks_per_timer_period - 1).try_into());
-
-        let regs = self.inner.regs_core();
-        regs.psc().write_value(psc);
-
-        // Generate an Update Request
-        regs.egr().write(|r| r.set_ug(true));
     }
 
     /// Set the input capture mode for a given channel.
@@ -150,7 +132,8 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     fn new_future(&self, channel: Channel, mode: InputCaptureMode, tisel: InputTISelection) -> InputCaptureFuture<T> {
         use stm32_metapac::timer::vals::FilterValue;
 
-        // Configuration steps from ST RM0390 chapter 17.3.5 Input Capture Mode
+        // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
+        // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
         self.inner.set_input_ti_selection(channel, tisel);
         self.inner.set_input_capture_filter(channel, FilterValue::NOFILTER);
         self.inner.set_input_capture_mode(channel, mode);

@@ -273,6 +273,22 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         }
     }
 
+    /// Set tick frequency.
+    pub fn set_tick_freq(&mut self, freq: Hertz) {
+        let f = freq;
+        assert!(f.0 > 0);
+        let timer_f = self.get_clock_frequency();
+
+        let pclk_ticks_per_timer_period = timer_f / f;
+        let psc: u16 = unwrap!((pclk_ticks_per_timer_period - 1).try_into());
+
+        let regs = self.regs_core();
+        regs.psc().write_value(psc);
+
+        // Generate an Update Request
+        regs.egr().write(|r| r.set_ug(true));
+    }
+
     /// Clear update interrupt.
     ///
     /// Returns whether the update interrupt flag was set.
