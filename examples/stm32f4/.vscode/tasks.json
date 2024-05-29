@@ -9,7 +9,7 @@
 			],
 			"args": [
 				"--bin",
-				"multiprio"
+				"pwm_input"
 			],
 			"group": {
 				"kind": "build",
