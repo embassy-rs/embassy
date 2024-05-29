@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use cortex_m::asm;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
@@ -38,7 +39,8 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(blinky(p.PC13)));
 
-    let pwm_input = PwmInput::new(p.TIM2, p.PA0, Pull::None, khz(1000));
+    let mut pwm_input = PwmInput::new(p.TIM2, p.PA0, Pull::None, khz(10));
+    pwm_input.enable();
 
     loop {
         Timer::after_millis(500).await;
