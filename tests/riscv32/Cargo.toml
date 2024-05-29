@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 critical-section = { version = "1.1.1", features = ["restore-state-bool"] }
-embassy-sync = { version = "0.5.0", path = "../../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../../embassy-sync" }
 embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["arch-riscv32", "executor-thread"] }
 embassy-time = { version = "0.3.0", path = "../../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }

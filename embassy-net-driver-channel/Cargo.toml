@@ -25,6 +25,6 @@ features = ["defmt"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }

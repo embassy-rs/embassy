@@ -18,7 +18,7 @@ target = "thumbv7em-none-eabi"
 [dependencies]
 critical-section = "1.1"
 
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
 
 defmt = { version = "0.3", optional = true }
