@@ -148,52 +148,14 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 
     fn new_future(&self, channel: Channel, mode: InputCaptureMode, tisel: InputTISelection) -> InputCaptureFuture<T> {
-        use stm32_metapac::timer::vals::*;
+        use stm32_metapac::timer::vals::FilterValue;
 
-        let regs = regs_gp16(T::regs());
-        let idx = channel.index();
-
-        // Select the active input: TIMx_CCR1 must be linked to the TI1 input, so write the CC1S
-        // bits to 01 in the TIMx_CCMR1 register. As soon as CC1S becomes different from 00,
-        // the channel is configured in input and the TIMx_CCR1 register becomes read-only.
-        regs.ccmr_input(idx / 2)
-            .modify(|r| r.set_ccs(idx % 2, CcmrInputCcs::from(tisel)));
-
-        // Program the appropriate input filter duration in relation with the signal connected to the
-        // timer (by programming the ICxF bits in the TIMx_CCMRx register if the input is one of
-        // the TIx inputs). Let’s imagine that, when toggling, the input signal is not stable during at
-        // must 5 internal clock cycles. We must program a filter duration longer than these 5
-        // clock cycles. We can validate a transition on TI1 when 8 consecutive samples with the
-        // new level have been detected (sampled at fDTS frequency). Then write IC1F bits to
-        // 0011 in the TIMx_CCMR1 register.
-        regs.ccmr_input(idx / 2)
-            .modify(|r| r.set_icf(idx % 2, FilterValue::NOFILTER));
-
-        // Select the edge of the active transition on the TI1 channel by writing the CC1P and
-        // CC1NP bits to 00 in the TIMx_CCER register (rising edge in this case).
-        let ccpnp = match mode {
-            InputCaptureMode::Rising => (false, false),
-            InputCaptureMode::Falling => (false, true),
-            InputCaptureMode::BothEdges => (true, true),
-        };
-        regs.ccer().modify(|r| {
-            r.set_ccp(idx, ccpnp.0);
-            r.set_ccnp(idx, ccpnp.1);
-        });
-
-        // Program the input prescaler. In our example, we wish the capture to be performed at
-        // each valid transition, so the prescaler is disabled (write IC1PS bits to 00 in the
-        // TIMx_CCMR1 register).
-        regs.ccmr_input(idx / 2).modify(|r| r.set_icpsc(idx % 2, 0));
-
-        // Enable capture from the counter into the capture register by setting the CC1E bit in the
-        // TIMx_CCER register.
-        regs.ccer().modify(|r| r.set_cce(idx, true));
-
-        // If needed, enable the related interrupt request by setting the CC1IE bit in the
-        // TIMx_DIER register, and/or the DMA request by setting the CC1DE bit in the
-        // TIMx_DIER register.
-        regs.dier().modify(|r| r.set_ccie(idx, true));
+        self.inner.set_input_ti_selection(channel, tisel);
+        self.inner.set_input_capture_filter(channel, FilterValue::NOFILTER);
+        self.inner.set_input_capture_mode(channel, mode);
+        self.inner.set_input_capture_prescaler(channel, 0);
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_input_interrupt(channel, true);
 
         InputCaptureFuture {
             channel,
