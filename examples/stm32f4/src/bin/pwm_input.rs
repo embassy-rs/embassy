@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-use cortex_m::asm;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
@@ -44,9 +43,9 @@ async fn main(spawner: Spawner) {
 
     loop {
         Timer::after_millis(500).await;
-        let _per = pwm_input.get_period_ticks();
-        let _dc = pwm_input.get_duty_ticks();
-        let _pc = pwm_input.get_duty_cycle();
-        asm::nop();
+        let period = pwm_input.get_period_ticks();
+        let width = pwm_input.get_width_ticks();
+        let duty_cycle = pwm_input.get_duty_cycle();
+        info!("period ticks: {} width ticks: {} duty cycle: {}", period, width, duty_cycle);
     }
 }

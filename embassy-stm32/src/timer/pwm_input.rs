@@ -114,8 +114,8 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         self.inner.get_capture_value(self.channel)
     }
 
-    /// Get the duty tick count
-    pub fn get_duty_ticks(&self) -> u32 {
+    /// Get the pulse width tick count
+    pub fn get_width_ticks(&self) -> u32 {
         self.inner.get_capture_value(match self.channel {
             Channel::Ch1 => Channel::Ch2,
             Channel::Ch2 => Channel::Ch1,
@@ -129,6 +129,6 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         if period == 0 {
             return 0.;
         }
-        100. * (self.get_duty_ticks() as f32) / (period as f32)
+        100. * (self.get_width_ticks() as f32) / (period as f32)
     }
 }
