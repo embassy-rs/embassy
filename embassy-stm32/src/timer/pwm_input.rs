@@ -1,4 +1,4 @@
-//! Input capture driver.
+//! PWM Input driver.
 
 use embassy_hal_internal::into_ref;
 
@@ -8,7 +8,7 @@ use crate::gpio::{AFType, Pull};
 use crate::time::Hertz;
 use crate::Peripheral;
 
-/// Input capture driver.
+/// PWM Input driver.
 pub struct PwmInput<'d, T: GeneralInstance4Channel> {
     channel: Channel,
     inner: Timer<'d, T>,
@@ -20,7 +20,7 @@ fn regs_gp16(ptr: *mut ()) -> crate::pac::timer::TimGp16 {
 }
 
 impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
-    /// Create a new input capture driver.
+    /// Create a new PWM input driver.
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
@@ -37,7 +37,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         Self::new_inner(tim, freq, Channel::Ch1, Channel::Ch2)
     }
 
-    /// Create a new input capture driver.
+    /// Create a new PWM input driver.
     pub fn new_alt(
         tim: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl Channel2Pin<T>> + 'd,

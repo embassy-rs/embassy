@@ -11,7 +11,7 @@ use embassy_stm32::{bind_interrupts, peripherals, timer};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-/// Connect PB2 and PB10 with a 1k Ohm resistor
+/// Connect PB2 and PA6 with a 1k Ohm resistor
 
 #[embassy_executor::task]
 async fn blinky(led: peripherals::PB2) {

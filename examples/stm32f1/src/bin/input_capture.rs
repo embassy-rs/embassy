@@ -43,7 +43,7 @@ async fn main(spawner: Spawner) {
     let mut ic = InputCapture::new(p.TIM2, None, None, Some(ch3), None, Irqs, khz(1000), Default::default());
 
     loop {
-        info!("wait for risign edge");
+        info!("wait for rising edge");
         ic.wait_for_rising_edge(Channel::Ch3).await;
 
         let capture_value = ic.get_capture_value(Channel::Ch3);
