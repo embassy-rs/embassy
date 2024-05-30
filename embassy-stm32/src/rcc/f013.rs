@@ -276,7 +276,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Set prescalers
     // CFGR has been written before (PLL, PLL48) don't overwrite these settings
-    RCC.cfgr().modify(|w: &mut stm32_metapac::rcc::regs::Cfgr| {
+    RCC.cfgr().modify(|w| {
         #[cfg(not(stm32f0))]
         {
             w.set_ppre1(config.apb1_pre);

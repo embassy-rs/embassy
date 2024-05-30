@@ -508,7 +508,7 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
 }
 
 trait SealedInstance {
-    fn regs() -> &'static crate::pac::dac::Dac;
+    fn regs() -> crate::pac::dac::Dac;
 }
 
 /// DAC instance.
@@ -523,8 +523,8 @@ pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 foreach_peripheral!(
     (dac, $inst:ident) => {
         impl crate::dac::SealedInstance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::dac::Dac {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::dac::Dac {
+                crate::pac::$inst
             }
         }
 

@@ -93,7 +93,7 @@ impl<'d, T: Instance> Drop for Ltdc<'d, T> {
 }
 
 trait SealedInstance: crate::rcc::SealedRccPeripheral {
-    fn regs() -> &'static crate::pac::ltdc::Ltdc;
+    fn regs() -> crate::pac::ltdc::Ltdc;
 }
 
 /// DSI instance trait.
@@ -132,8 +132,8 @@ pin_trait!(B7Pin, Instance);
 foreach_peripheral!(
     (ltdc, $inst:ident) => {
         impl crate::ltdc::SealedInstance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::ltdc::Ltdc {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::ltdc::Ltdc {
+                crate::pac::$inst
             }
         }
 

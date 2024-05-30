@@ -320,7 +320,7 @@ impl Rtc {
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
     pub fn read_backup_register(&self, register: usize) -> Option<u32> {
-        RTC::read_backup_register(&RTC::regs(), register)
+        RTC::read_backup_register(RTC::regs(), register)
     }
 
     /// Set content of the backup register.
@@ -328,7 +328,7 @@ impl Rtc {
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
     pub fn write_backup_register(&self, register: usize, value: u32) {
-        RTC::write_backup_register(&RTC::regs(), register, value)
+        RTC::write_backup_register(RTC::regs(), register, value)
     }
 
     #[cfg(feature = "low-power")]
@@ -482,13 +482,13 @@ trait SealedInstance {
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
-    fn read_backup_register(rtc: &crate::pac::rtc::Rtc, register: usize) -> Option<u32>;
+    fn read_backup_register(rtc: crate::pac::rtc::Rtc, register: usize) -> Option<u32>;
 
     /// Set content of the backup register.
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
-    fn write_backup_register(rtc: &crate::pac::rtc::Rtc, register: usize, value: u32);
+    fn write_backup_register(rtc: crate::pac::rtc::Rtc, register: usize, value: u32);
 
     // fn apply_config(&mut self, rtc_config: RtcConfig);
 }

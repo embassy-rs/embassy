@@ -20,8 +20,9 @@ enum LoopbackMode {
 }
 
 pub struct Registers {
-    pub regs: &'static crate::pac::can::Fdcan,
-    pub msgram: &'static crate::pac::fdcanram::Fdcanram,
+    pub regs: crate::pac::can::Fdcan,
+    pub msgram: crate::pac::fdcanram::Fdcanram,
+    #[allow(dead_code)]
     pub msg_ram_offset: usize,
 }
 
