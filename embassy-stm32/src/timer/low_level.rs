@@ -12,6 +12,10 @@ use super::*;
 use crate::pac::timer::vals;
 use crate::time::Hertz;
 
+pub use stm32_metapac::timer::vals::FilterValue;
+pub use stm32_metapac::timer::vals::Sms as SlaveMode;
+pub use stm32_metapac::timer::vals::Ts as TriggerSource;
+
 /// Input capture mode.
 #[derive(Clone, Copy)]
 pub enum InputCaptureMode {
@@ -587,6 +591,16 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set capture compare DMA enable state
     pub fn set_cc_dma_enable_state(&self, channel: Channel, ccde: bool) {
         self.regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
+    }
+
+    /// Set Timer Slave Mode
+    pub fn set_slave_mode(&self, sms: SlaveMode) {
+        self.regs_gp16().smcr().modify(|r| r.set_sms(sms));
+    }
+
+    /// Set Timer Trigger Source
+    pub fn set_trigger_source(&self, ts: TriggerSource) {
+        self.regs_gp16().smcr().modify(|r| r.set_ts(ts));
     }
 }
 

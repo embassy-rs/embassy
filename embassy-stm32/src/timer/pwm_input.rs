@@ -2,7 +2,7 @@
 
 use embassy_hal_internal::into_ref;
 
-use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, Timer};
+use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
 use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
 use crate::gpio::{AFType, Pull};
 use crate::time::Hertz;
@@ -14,11 +14,6 @@ pub struct PwmInput<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
 }
 
-/// Convert pointer to TIM instance to TimGp16 object
-fn regs_gp16(ptr: *mut ()) -> crate::pac::timer::TimGp16 {
-    unsafe { crate::pac::timer::TimGp16::from_ptr(ptr) }
-}
-
 impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     /// Create a new PWM input driver.
     pub fn new(
@@ -28,11 +23,8 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         freq: Hertz,
     ) -> Self {
         into_ref!(pin);
-        critical_section::with(|_| {
-            pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
-            #[cfg(gpio_v2)]
-            pin.set_speed(crate::gpio::Speed::VeryHigh);
-        });
+
+        pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
 
         Self::new_inner(tim, freq, Channel::Ch1, Channel::Ch2)
     }
@@ -45,18 +37,13 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         freq: Hertz,
     ) -> Self {
         into_ref!(pin);
-        critical_section::with(|_| {
-            pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
-            #[cfg(gpio_v2)]
-            pin.set_speed(crate::gpio::Speed::VeryHigh);
-        });
+
+        pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
 
         Self::new_inner(tim, freq, Channel::Ch2, Channel::Ch1)
     }
 
     fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, ch1: Channel, ch2: Channel) -> Self {
-        use stm32_metapac::timer::vals::{Sms, Ts};
-
         let mut inner = Timer::new(tim);
 
         inner.set_counting_mode(CountingMode::EdgeAlignedUp);
@@ -72,20 +59,13 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         inner.set_input_ti_selection(ch2, InputTISelection::Alternate);
         inner.set_input_capture_mode(ch2, InputCaptureMode::Falling);
 
-        let regs = regs_gp16(T::regs());
-        regs.smcr().modify(|r| {
-            // Select the valid trigger input: write the TS bits to 101 in the TIMx_SMCR register
-            // (TI1FP1 selected).
-            r.set_ts(match ch1 {
-                Channel::Ch1 => Ts::TI1FP1,
-                Channel::Ch2 => Ts::TI2FP2,
-                _ => panic!("Invalid channel for PWM input"),
-            });
-
-            // Configure the slave mode controller in reset mode: write the SMS bits to 100 in the
-            // TIMx_SMCR register.
-            r.set_sms(Sms::RESET_MODE);
+        inner.set_trigger_source(match ch1 {
+            Channel::Ch1 => TriggerSource::TI1FP1,
+            Channel::Ch2 => TriggerSource::TI2FP2,
+            _ => panic!("Invalid channel for PWM input"),
         });
+
+        inner.set_slave_mode(SlaveMode::RESET_MODE);
 
         // Must call the `enable` function after
 

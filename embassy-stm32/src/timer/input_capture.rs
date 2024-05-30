@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, Timer};
+use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
 use super::{
     CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin,
     GeneralInstance4Channel,
@@ -40,11 +40,9 @@ macro_rules! channel_impl {
             #[doc = concat!("Create a new ", stringify!($channel), " capture pin instance.")]
             pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, pull_type: Pull) -> Self {
                 into_ref!(pin);
-                critical_section::with(|_| {
-                    pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
-                });
+
+                pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
+
                 CapturePin {
                     _pin: pin.map_into(),
                     phantom: PhantomData,
@@ -130,8 +128,6 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 
     fn new_future(&self, channel: Channel, mode: InputCaptureMode, tisel: InputTISelection) -> InputCaptureFuture<T> {
-        use stm32_metapac::timer::vals::FilterValue;
-
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
         // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
         self.inner.set_input_ti_selection(channel, tisel);
@@ -184,11 +180,6 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 }
 
-/// Convert pointer to TIM instance to TimGp16 object
-fn regs_gp16(ptr: *mut ()) -> crate::pac::timer::TimGp16 {
-    unsafe { crate::pac::timer::TimGp16::from_ptr(ptr) }
-}
-
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputCaptureFuture<T: GeneralInstance4Channel> {
     channel: Channel,
@@ -198,7 +189,7 @@ struct InputCaptureFuture<T: GeneralInstance4Channel> {
 impl<T: GeneralInstance4Channel> Drop for InputCaptureFuture<T> {
     fn drop(&mut self) {
         critical_section::with(|_| {
-            let regs = regs_gp16(T::regs());
+            let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
 
             // disable interrupt enable
             regs.dier().modify(|w| w.set_ccie(self.channel.index(), false));
@@ -212,7 +203,7 @@ impl<T: GeneralInstance4Channel> Future for InputCaptureFuture<T> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         T::state().cc_waker[self.channel.index()].register(cx.waker());
 
-        let regs = regs_gp16(T::regs());
+        let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
 
         let dier = regs.dier().read();
         if !dier.ccie(self.channel.index()) {
