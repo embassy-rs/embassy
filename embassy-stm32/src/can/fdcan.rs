@@ -265,6 +265,7 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
         });
         T::registers().into_mode(self.config, mode);
         Can {
+            _phantom: PhantomData,
             config: self.config,
             info: self.info,
             state: self.state,
@@ -292,10 +293,11 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
 
 /// FDCAN Instance
 pub struct Can<'d> {
+    _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     info: &'static Info,
     state: &'static State,
-    instance: &'d crate::pac::can::Fdcan,
+    instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
     properties: Properties,
 }
@@ -354,6 +356,7 @@ impl<'d> Can<'d> {
     pub fn split(self) -> (CanTx<'d>, CanRx<'d>, Properties) {
         (
             CanTx {
+                _phantom: PhantomData,
                 info: self.info,
                 state: self.state,
                 config: self.config,
@@ -361,6 +364,7 @@ impl<'d> Can<'d> {
                 _mode: self._mode,
             },
             CanRx {
+                _phantom: PhantomData,
                 info: self.info,
                 state: self.state,
                 _instance: self.instance,
@@ -372,6 +376,7 @@ impl<'d> Can<'d> {
     /// Join split rx and tx portions back together
     pub fn join(tx: CanTx<'d>, rx: CanRx<'d>) -> Self {
         Can {
+            _phantom: PhantomData,
             config: tx.config,
             info: tx.info,
             state: tx.state,
@@ -408,9 +413,10 @@ pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, 
 
 /// Buffered FDCAN Instance
 pub struct BufferedCan<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+    _phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
-    _instance: &'d crate::pac::can::Fdcan,
+    _instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
@@ -421,12 +427,13 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
     fn new(
         info: &'static Info,
         state: &'static State,
-        _instance: &'d crate::pac::can::Fdcan,
+        _instance: crate::pac::can::Fdcan,
         _mode: OperatingMode,
         tx_buf: &'static TxBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxBuf<RX_BUF_SIZE>,
     ) -> Self {
         BufferedCan {
+            _phantom: PhantomData,
             info,
             state,
             _instance,
@@ -539,9 +546,10 @@ pub type BufferedFdCanReceiver = DynamicReceiver<'static, Result<FdEnvelope, Bus
 
 /// Buffered FDCAN Instance
 pub struct BufferedCanFd<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+    _phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
-    _instance: &'d crate::pac::can::Fdcan,
+    _instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
@@ -552,12 +560,13 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
     fn new(
         info: &'static Info,
         state: &'static State,
-        _instance: &'d crate::pac::can::Fdcan,
+        _instance: crate::pac::can::Fdcan,
         _mode: OperatingMode,
         tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
     ) -> Self {
         BufferedCanFd {
+            _phantom: PhantomData,
             info,
             state,
             _instance,
@@ -634,9 +643,10 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop for Buffer
 
 /// FDCAN Rx only Instance
 pub struct CanRx<'d> {
+    _phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
-    _instance: &'d crate::pac::can::Fdcan,
+    _instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
 }
 
@@ -654,10 +664,11 @@ impl<'d> CanRx<'d> {
 
 /// FDCAN Tx only Instance
 pub struct CanTx<'d> {
+    _phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
     config: crate::can::fd::config::FdCanConfig,
-    _instance: &'d crate::pac::can::Fdcan,
+    _instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
 }
 
@@ -966,7 +977,6 @@ trait SealedInstance {
     const MSG_RAM_OFFSET: usize;
 
     fn info() -> &'static Info;
-    //fn regs() -> &'static crate::pac::can::Fdcan;
     fn registers() -> crate::can::fd::peripheral::Registers;
     fn state() -> &'static State;
     unsafe fn mut_state() -> &'static mut State;
@@ -994,7 +1004,7 @@ macro_rules! impl_fdcan {
 
             fn info() -> &'static Info {
                 static INFO: Info = Info {
-                    regs: Registers{regs: &crate::pac::$inst, msgram: &crate::pac::$msg_ram_inst, msg_ram_offset: $msg_ram_offset},
+                    regs: Registers{regs: crate::pac::$inst, msgram: crate::pac::$msg_ram_inst, msg_ram_offset: $msg_ram_offset},
                     interrupt0: crate::_generated::peripheral_interrupts::$inst::IT0::IRQ,
                     _interrupt1: crate::_generated::peripheral_interrupts::$inst::IT1::IRQ,
                     tx_waker: crate::_generated::peripheral_interrupts::$inst::IT0::pend,
@@ -1002,7 +1012,7 @@ macro_rules! impl_fdcan {
                 &INFO
             }
             fn registers() -> Registers {
-                Registers{regs: &crate::pac::$inst, msgram: &crate::pac::$msg_ram_inst, msg_ram_offset: Self::MSG_RAM_OFFSET}
+                Registers{regs: crate::pac::$inst, msgram: crate::pac::$msg_ram_inst, msg_ram_offset: Self::MSG_RAM_OFFSET}
             }
             unsafe fn mut_state() -> &'static mut State {
                 static mut STATE: State = State::new();
