@@ -12,9 +12,7 @@ use super::*;
 use crate::pac::timer::vals;
 use crate::time::Hertz;
 
-pub use stm32_metapac::timer::vals::FilterValue;
-pub use stm32_metapac::timer::vals::Sms as SlaveMode;
-pub use stm32_metapac::timer::vals::Ts as TriggerSource;
+pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
 
 /// Input capture mode.
 #[derive(Clone, Copy)]
