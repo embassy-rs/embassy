@@ -156,7 +156,6 @@ impl<T: Instance> Drop for CanConfig<'_, T> {
 /// CAN driver
 pub struct Can<'d, T: Instance> {
     _peri: PeripheralRef<'d, T>,
-    instance: &'d crate::pac::can::Can,
     info: &'static Info,
     state: &'static State,
 }
@@ -228,7 +227,6 @@ impl<'d, T: Instance> Can<'d, T> {
 
         Self {
             _peri: peri,
-            instance: &T::info().regs.0,
             info: T::info(),
             state: T::state(),
         }
@@ -346,7 +344,7 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Waits for a specific transmit mailbox to become empty
     pub async fn flush(&self, mb: Mailbox) {
         CanTx {
-            _instance: &self.instance,
+            _phantom: PhantomData,
             info: self.info,
             state: self.state,
         }
@@ -362,7 +360,7 @@ impl<'d, T: Instance> Can<'d, T> {
     /// and a frame with equal priority is already queued for transmission.
     pub async fn flush_any(&self) {
         CanTx {
-            _instance: &self.instance,
+            _phantom: PhantomData,
             info: self.info,
             state: self.state,
         }
@@ -373,7 +371,7 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Waits until all of the transmit mailboxes become empty
     pub async fn flush_all(&self) {
         CanTx {
-            _instance: &self.instance,
+            _phantom: PhantomData,
             info: self.info,
             state: self.state,
         }
@@ -424,12 +422,12 @@ impl<'d, T: Instance> Can<'d, T> {
     pub fn split<'c>(&'c mut self) -> (CanTx<'d>, CanRx<'d>) {
         (
             CanTx {
-                _instance: &self.instance,
+                _phantom: PhantomData,
                 info: self.info,
                 state: self.state,
             },
             CanRx {
-                instance: &self.instance,
+                _phantom: PhantomData,
                 info: self.info,
                 state: self.state,
             },
@@ -502,7 +500,7 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
 
 /// CAN driver, transmit half.
 pub struct CanTx<'d> {
-    _instance: &'d crate::pac::can::Can,
+    _phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
 }
@@ -695,7 +693,7 @@ impl<'d, const TX_BUF_SIZE: usize> Drop for BufferedCanTx<'d, TX_BUF_SIZE> {
 /// CAN driver, receive half.
 #[allow(dead_code)]
 pub struct CanRx<'d> {
-    instance: &'d crate::pac::can::Can,
+    _phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
 }
