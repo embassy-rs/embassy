@@ -131,7 +131,7 @@ impl Registers {
     /// Note that this will not trigger [`Interrupt::Wakeup`], only reception of an incoming CAN
     /// frame will cause that interrupt.
     #[allow(dead_code)]
-    pub fn wakeup(&mut self) {
+    pub fn wakeup(&self) {
         self.0.mcr().modify(|reg| {
             reg.set_sleep(false);
             reg.set_inrq(false);
@@ -216,7 +216,7 @@ impl Registers {
     /// If FIFO scheduling is enabled, frames are transmitted in the order that they are passed to this function.
     ///
     /// If all transmit mailboxes are full, this function returns [`nb::Error::WouldBlock`].
-    pub fn transmit(&mut self, frame: &Frame) -> nb::Result<TransmitStatus, Infallible> {
+    pub fn transmit(&self, frame: &Frame) -> nb::Result<TransmitStatus, Infallible> {
         // Check if FIFO scheduling is enabled.
         let fifo_scheduling = self.0.mcr().read().txfp();
 
@@ -292,7 +292,7 @@ impl Registers {
         Ok(())
     }
 
-    fn write_mailbox(&mut self, idx: usize, frame: &Frame) {
+    fn write_mailbox(&self, idx: usize, frame: &Frame) {
         debug_assert!(idx < 3);
 
         let mb = self.0.tx(idx);
@@ -309,7 +309,7 @@ impl Registers {
         });
     }
 
-    fn read_pending_mailbox(&mut self, idx: usize) -> Option<Frame> {
+    fn read_pending_mailbox(&self, idx: usize) -> Option<Frame> {
         if self.abort_by_index(idx) {
             debug_assert!(idx < 3);
 
@@ -332,7 +332,7 @@ impl Registers {
     }
 
     /// Tries to abort a pending frame. Returns `true` when aborted.
-    fn abort_by_index(&mut self, idx: usize) -> bool {
+    fn abort_by_index(&self, idx: usize) -> bool {
         self.0.tsr().write(|reg| reg.set_abrq(idx, true));
 
         // Wait for the abort request to be finished.
@@ -351,7 +351,7 @@ impl Registers {
     ///
     /// If there is a frame in the provided mailbox, and it is canceled successfully, this function
     /// returns `true`.
-    pub fn abort(&mut self, mailbox: Mailbox) -> bool {
+    pub fn abort(&self, mailbox: Mailbox) -> bool {
         // If the mailbox is empty, the value of TXOKx depends on what happened with the previous
         // frame in that mailbox. Only call abort_by_index() if the mailbox is not empty.
         let tsr = self.0.tsr().read();

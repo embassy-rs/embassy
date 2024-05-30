@@ -19,8 +19,8 @@ mod can_common;
 use can_common::*;
 
 type Can<'d> = embassy_stm32::can::Can<'d, embassy_stm32::peripherals::CAN1>;
-type CanTx<'d> = embassy_stm32::can::CanTx<'d, embassy_stm32::peripherals::CAN1>;
-type CanRx<'d> = embassy_stm32::can::CanRx<'d, embassy_stm32::peripherals::CAN1>;
+type CanTx<'d> = embassy_stm32::can::CanTx<'d>;
+type CanRx<'d> = embassy_stm32::can::CanRx<'d>;
 
 bind_interrupts!(struct Irqs {
     CAN1_RX0 => Rx0InterruptHandler<CAN1>;
