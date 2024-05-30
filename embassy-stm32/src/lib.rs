@@ -83,7 +83,7 @@ pub mod hrtim;
 pub mod hsem;
 #[cfg(i2c)]
 pub mod i2c;
-#[cfg(all(spi_v1, rcc_f4))]
+#[cfg(any(all(spi_v1, rcc_f4), spi_v3))]
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
