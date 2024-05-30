@@ -8,11 +8,12 @@
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
+// Re-export useful enums
+pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
+
 use super::*;
 use crate::pac::timer::vals;
 use crate::time::Hertz;
-
-pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
 
 /// Input capture mode.
 #[derive(Clone, Copy)]
