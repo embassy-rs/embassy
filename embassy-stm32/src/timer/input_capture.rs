@@ -78,18 +78,18 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 
     fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
-        let mut inner = Timer::new(tim);
+        let mut this = Self { inner: Timer::new(tim) };
 
-        inner.set_counting_mode(counting_mode);
-        inner.set_tick_freq(freq);
-        inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
-        inner.start();
+        this.inner.set_counting_mode(counting_mode);
+        this.inner.set_tick_freq(freq);
+        this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
+        this.inner.start();
 
         // enable NVIC interrupt
         T::CaptureCompareInterrupt::unpend();
         unsafe { T::CaptureCompareInterrupt::enable() };
 
-        Self { inner }
+        this
     }
 
     /// Enable the given channel.
