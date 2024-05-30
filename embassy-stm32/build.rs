@@ -13,7 +13,7 @@ use stm32_metapac::metadata::{
     ALL_PERIPHERAL_VERSIONS, METADATA,
 };
 
-#[path = "../build_common.rs"]
+#[path = "./build_common.rs"]
 mod common;
 
 fn main() {

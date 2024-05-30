@@ -3,7 +3,7 @@ use std::fmt::Write;
 use std::path::PathBuf;
 use std::{env, fs};
 
-#[path = "../build_common.rs"]
+#[path = "./build_common.rs"]
 mod common;
 
 static CONFIGS: &[(&str, usize)] = &[

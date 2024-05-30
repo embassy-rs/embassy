@@ -1,3 +1,11 @@
+// NOTE: this file is copy-pasted between several Embassy crates, because there is no
+// straightforward way to share this code:
+// - it cannot be placed into the root of the repo and linked from each build.rs using `#[path =
+// "../build_common.rs"]`, because `cargo publish` requires that all files published with a crate
+// reside in the crate's directory,
+// - it cannot be symlinked from `embassy-xxx/build_common.rs` to `../build_common.rs`, because
+// symlinks don't work on Windows.
+
 use std::collections::HashSet;
 use std::env;
 use std::ffi::OsString;
