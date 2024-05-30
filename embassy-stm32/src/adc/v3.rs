@@ -3,7 +3,7 @@ use embassy_hal_internal::into_ref;
 
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -94,7 +94,7 @@ cfg_if! {
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         T::regs().cr().modify(|reg| {
             #[cfg(not(any(adc_g0, adc_u0)))]
             reg.set_deeppwd(false);

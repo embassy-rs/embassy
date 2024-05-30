@@ -9,7 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{NoDma, Transfer, TransferOptions};
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals, rcc, Peripheral};
 
 const DES_BLOCK_SIZE: usize = 8; // 64 bits
 const AES_BLOCK_SIZE: usize = 16; // 128 bits
@@ -1021,7 +1021,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         outdma: impl Peripheral<P = DmaOut> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         into_ref!(peri, indma, outdma);
         let instance = Self {
             _peripheral: peri,

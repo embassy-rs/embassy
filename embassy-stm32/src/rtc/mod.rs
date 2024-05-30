@@ -142,7 +142,7 @@ impl Rtc {
     /// Create a new RTC instance.
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
-        <RTC as crate::rcc::SealedRccPeripheral>::enable_and_reset();
+        crate::rcc::enable_and_reset::<RTC>();
 
         let mut this = Self {
             #[cfg(feature = "low-power")]

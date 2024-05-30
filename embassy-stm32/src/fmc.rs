@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::into_ref;
 
 use crate::gpio::{AFType, Pull, Speed};
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
@@ -27,7 +27,7 @@ where
 
     /// Enable the FMC peripheral and reset it.
     pub fn enable(&mut self) {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
     }
 
     /// Enable the memory controller on applicable chips.
@@ -54,7 +54,7 @@ where
     const REGISTERS: *const () = T::REGS.as_ptr() as *const _;
 
     fn enable(&mut self) {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
     }
 
     fn memory_controller_enable(&mut self) {
@@ -200,7 +200,7 @@ impl<'d, T: Instance> Fmc<'d, T> {
     ));
 }
 
-trait SealedInstance: crate::rcc::SealedRccPeripheral {
+trait SealedInstance: crate::rcc::RccPeripheral {
     const REGS: crate::pac::fmc::Fmc;
 }
 

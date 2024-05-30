@@ -6,7 +6,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 //use crate::gpio::{AnyPin, SealedPin};
 use crate::gpio::{AFType, AnyPin, Pull, Speed};
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// Performs a busy-wait delay for a specified number of microseconds.
@@ -77,7 +77,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     pub fn new(_peri: impl Peripheral<P = T> + 'd, te: impl Peripheral<P = impl TePin<T>> + 'd) -> Self {
         into_ref!(te);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         // Set Tearing Enable pin according to CubeMx example
         te.set_as_af_pull(te.af_num(), AFType::OutputPushPull, Pull::None);

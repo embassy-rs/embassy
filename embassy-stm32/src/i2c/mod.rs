@@ -18,7 +18,7 @@ use crate::dma::ChannelAndRequest;
 use crate::gpio::{AFType, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
-use crate::rcc::{ClockEnableBit, SealedRccPeripheral};
+use crate::rcc::{self, RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals};
 
@@ -128,7 +128,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     ) -> Self {
         into_ref!(scl, sda);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         scl.set_as_af_pull(
             scl.af_num(),
@@ -224,7 +224,7 @@ impl State {
 
 struct Info {
     regs: crate::pac::i2c::I2c,
-    pub(crate) enable_bit: ClockEnableBit,
+    rcc: RccInfo,
 }
 
 peri_trait!(
@@ -265,7 +265,7 @@ foreach_peripheral!(
             fn info() -> &'static Info {
                 static INFO: Info = Info{
                     regs: crate::pac::$inst,
-                    enable_bit: crate::peripherals::$inst::ENABLE_BIT,
+                    rcc: crate::peripherals::$inst::RCC_INFO,
                 };
                 &INFO
             }

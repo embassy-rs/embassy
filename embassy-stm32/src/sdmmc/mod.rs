@@ -16,7 +16,7 @@ use crate::dma::NoDma;
 use crate::gpio::{AFType, AnyPin, Pull, SealedPin, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals, Peripheral};
 
@@ -468,7 +468,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     ) -> Self {
         into_ref!(sdmmc, dma);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };

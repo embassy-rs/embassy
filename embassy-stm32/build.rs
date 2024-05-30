@@ -367,9 +367,6 @@ fn main() {
         .filter_map(|p| p.registers.as_ref())
         .find(|r| r.kind == "rcc")
         .unwrap();
-    for b in rcc_registers.ir.blocks {
-        eprintln!("{}", b.name);
-    }
     let rcc_block = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap();
 
     // ========
@@ -388,7 +385,6 @@ fn main() {
         rcc_registers: &'a PeripheralRegisters,
         chained_muxes: HashMap<&'a str, &'a PeripheralRccRegister>,
 
-        refcount_statics: BTreeSet<Ident>,
         clock_names: BTreeSet<String>,
         muxes: BTreeSet<(Ident, Ident, Ident)>,
     }
@@ -397,7 +393,6 @@ fn main() {
         rcc_registers,
         chained_muxes: HashMap::new(),
 
-        refcount_statics: BTreeSet::new(),
         clock_names: BTreeSet::new(),
         muxes: BTreeSet::new(),
     };
@@ -516,80 +511,64 @@ fn main() {
         }
     }
 
+    let mut refcount_idxs = HashMap::new();
+
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
             continue;
         }
 
         if let Some(rcc) = &p.rcc {
-            let en = rcc.enable.as_ref().unwrap();
-
-            let (start_rst, end_rst) = match &rcc.reset {
-                Some(rst) => {
-                    let rst_reg = format_ident!("{}", rst.register.to_ascii_lowercase());
-                    let set_rst_field = format_ident!("set_{}", rst.field.to_ascii_lowercase());
-                    (
-                        quote! {
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
-                        },
-                        quote! {
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
-                        },
-                    )
-                }
-                None => (TokenStream::new(), TokenStream::new()),
-            };
-
+            let rst_reg = rcc.reset.as_ref();
+            let en_reg = rcc.enable.as_ref().unwrap();
             let pname = format_ident!("{}", p.name);
-            let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
-            let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
-            let en_reg_offs = rcc_block
-                .items
-                .iter()
-                .find(|i| i.name.eq_ignore_ascii_case(en.register))
-                .unwrap()
-                .byte_offset;
-            let en_reg_offs: u8 = (en_reg_offs / 4).try_into().unwrap();
 
-            let en_bit_offs = &rcc_registers
-                .ir
-                .fieldsets
-                .iter()
-                .find(|i| i.name.eq_ignore_ascii_case(en.register))
-                .unwrap()
-                .fields
-                .iter()
-                .find(|i| i.name.eq_ignore_ascii_case(en.field))
-                .unwrap()
-                .bit_offset;
-            let BitOffset::Regular(en_bit_offs) = en_bit_offs else {
-                panic!("cursed bit offset")
+            let get_offset_and_bit = |reg: &PeripheralRccRegister| -> TokenStream {
+                let reg_offset = rcc_block
+                    .items
+                    .iter()
+                    .find(|i| i.name.eq_ignore_ascii_case(reg.register))
+                    .unwrap()
+                    .byte_offset;
+                let reg_offset: u8 = (reg_offset / 4).try_into().unwrap();
+
+                let bit_offset = &rcc_registers
+                    .ir
+                    .fieldsets
+                    .iter()
+                    .find(|i| i.name.eq_ignore_ascii_case(reg.register))
+                    .unwrap()
+                    .fields
+                    .iter()
+                    .find(|i| i.name.eq_ignore_ascii_case(reg.field))
+                    .unwrap()
+                    .bit_offset;
+                let BitOffset::Regular(bit_offset) = bit_offset else {
+                    panic!("cursed bit offset")
+                };
+                let bit_offset: u8 = bit_offset.offset.try_into().unwrap();
+
+                quote! { (#reg_offset, #bit_offset) }
             };
-            let en_bit_offs: u8 = en_bit_offs.offset.try_into().unwrap();
 
-            let refcount = *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
-            let (before_enable, before_disable) = if refcount {
-                let refcount_static =
-                    format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
+            let reset_offset_and_bit = match rst_reg {
+                Some(rst_reg) => {
+                    let reset_offset_and_bit = get_offset_and_bit(rst_reg);
+                    quote! { Some(#reset_offset_and_bit) }
+                }
+                None => quote! { None },
+            };
+            let enable_offset_and_bit = get_offset_and_bit(en_reg);
 
-                clock_gen.refcount_statics.insert(refcount_static.clone());
-
-                (
-                    quote! {
-                        unsafe { refcount_statics::#refcount_static += 1 };
-                        if unsafe { refcount_statics::#refcount_static } > 1 {
-                            return;
-                        }
-                    },
-                    quote! {
-                        unsafe { refcount_statics::#refcount_static -= 1 };
-                        if unsafe { refcount_statics::#refcount_static } > 0  {
-                            return;
-                        }
-                    },
-                )
+            let needs_refcount = *rcc_field_count.get(&(en_reg.register, en_reg.field)).unwrap() > 1;
+            let refcount_idx = if needs_refcount {
+                let next_refcount_idx = refcount_idxs.len() as u8;
+                let refcount_idx = *refcount_idxs
+                    .entry((en_reg.register, en_reg.field))
+                    .or_insert(next_refcount_idx);
+                quote! { Some(#refcount_idx) }
             } else {
-                (TokenStream::new(), TokenStream::new())
+                quote! { None }
             };
 
             let clock_frequency = match &rcc.kernel_clock {
@@ -599,24 +578,10 @@ fn main() {
 
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
-            let stop_refcount = match rcc.stop_mode {
-                StopMode::Standby => None,
-                StopMode::Stop2 => Some(quote! { REFCOUNT_STOP2 }),
-                StopMode::Stop1 => Some(quote! { REFCOUNT_STOP1 }),
-            };
-
-            let (incr_stop_refcount, decr_stop_refcount) = match stop_refcount {
-                Some(stop_refcount) => (
-                    quote! {
-                        #[cfg(feature = "low-power")]
-                        unsafe { crate::rcc::#stop_refcount += 1 };
-                    },
-                    quote! {
-                        #[cfg(feature = "low-power")]
-                        unsafe { crate::rcc::#stop_refcount -= 1 };
-                    },
-                ),
-                None => (TokenStream::new(), TokenStream::new()),
+            let stop_mode = match rcc.stop_mode {
+                StopMode::Standby => quote! { crate::rcc::StopMode::Standby },
+                StopMode::Stop2 => quote! { crate::rcc::StopMode::Stop2 },
+                StopMode::Stop1 => quote! { crate::rcc::StopMode::Stop1 },
             };
 
             g.extend(quote! {
@@ -624,40 +589,30 @@ fn main() {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
                     }
-                    fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
-                        #before_enable
-                        #incr_stop_refcount
 
-                        #start_rst
-
-                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-
-                        // we must wait two peripheral clock cycles before the clock is active
-                        // this seems to work, but might be incorrect
-                        // see http://efton.sk/STM32/gotcha/g183.html
-
-                        // dummy read (like in the ST HALs)
-                        let _ = crate::pac::RCC.#en_reg().read();
-
-                        // DSB for good measure
-                        cortex_m::asm::dsb();
-
-                        #end_rst
-                    }
-                    fn disable_with_cs(_cs: critical_section::CriticalSection) {
-                        #before_disable
-                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
-                        #decr_stop_refcount
-                    }
-
-                    const ENABLE_BIT: crate::rcc::ClockEnableBit =
-                        unsafe { crate::rcc::ClockEnableBit::new(#en_reg_offs, #en_bit_offs) };
+                    const RCC_INFO: crate::rcc::RccInfo = unsafe {
+                        crate::rcc::RccInfo::new(
+                            #reset_offset_and_bit,
+                            #enable_offset_and_bit,
+                            #refcount_idx,
+                            #[cfg(feature = "low-power")]
+                            #stop_mode,
+                        )
+                    };
                 }
 
                 impl crate::rcc::RccPeripheral for peripherals::#pname {}
             });
         }
     }
+
+    g.extend({
+        let refcounts_len = refcount_idxs.len();
+        let refcount_zeros: TokenStream = refcount_idxs.iter().map(|_| quote! { 0u8, }).collect();
+        quote! {
+            pub(crate) static mut REFCOUNTS: [u8; #refcounts_len] = [#refcount_zeros];
+        }
+    });
 
     let struct_fields: Vec<_> = clock_gen
         .muxes
@@ -761,22 +716,6 @@ fn main() {
             };
         }
     );
-
-    let refcount_mod: TokenStream = clock_gen
-        .refcount_statics
-        .iter()
-        .map(|refcount_static| {
-            quote! {
-                pub(crate) static mut #refcount_static: u8 = 0;
-            }
-        })
-        .collect();
-
-    g.extend(quote! {
-        mod refcount_statics {
-            #refcount_mod
-        }
-    });
 
     // ========
     // Generate fns to enable GPIO, DMA in RCC

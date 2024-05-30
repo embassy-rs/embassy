@@ -28,7 +28,7 @@ use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, TypecVstateCc as CcVState};
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 
 pub(crate) fn init(
     _cs: critical_section::CriticalSection,
@@ -103,7 +103,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         cc1.set_as_analog();
         cc2.set_as_analog();
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
@@ -212,7 +212,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
             drop_not_ready.store(true, Ordering::Relaxed);
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
-            T::disable();
+            rcc::disable::<T>();
             T::Interrupt::disable();
         }
     }
@@ -325,7 +325,7 @@ impl<'d, T: Instance> Drop for PdPhy<'d, T> {
             drop_not_ready.store(true, Ordering::Relaxed);
         } else {
             T::REGS.cfgr1().write(|w| w.set_ucpden(false));
-            T::disable();
+            rcc::disable::<T>();
             T::Interrupt::disable();
         }
     }

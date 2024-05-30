@@ -10,7 +10,7 @@ use super::Resolution;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 const ADC_FREQ: Hertz = crate::rcc::HSI_FREQ;
 
@@ -143,7 +143,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) -> Self {
         into_ref!(adc);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         //let r = T::regs();
         //r.cr2().write(|w| w.set_align(true));
@@ -403,6 +403,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
 
         T::regs().cr2().modify(|w| w.set_adon(false));
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }
