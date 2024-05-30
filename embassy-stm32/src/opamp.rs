@@ -110,6 +110,32 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         OpAmpOutput { _inner: self }
     }
+    /// Configure the OpAmp as a buffer for the DAC it is connected to,
+    /// outputting to the provided output pin, and enable the opamp.
+    ///
+    /// The output pin is held within the returned [`OpAmpOutput`] struct,
+    /// preventing it being used elsewhere. The `OpAmpOutput` can then be
+    /// directly used as an ADC input. The opamp will be disabled when the
+    /// [`OpAmpOutput`] is dropped.
+    #[cfg(opamp_g4)]
+    pub fn buffer_dac(
+        &'d mut self,
+        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin> + 'd,
+    ) -> OpAmpOutput<'d, T> {
+        into_ref!(out_pin);
+        out_pin.set_as_analog();
+
+        T::regs().csr().modify(|w| {
+            use crate::pac::opamp::vals::*;
+
+            w.set_vm_sel(VmSel::OUTPUT);
+            w.set_vp_sel(VpSel::DAC3_CH1);
+            w.set_opaintoen(Opaintoen::OUTPUTPIN);
+            w.set_opampen(true);
+        });
+
+        OpAmpOutput { _inner: self }
+    }
 
     /// Configure the OpAmp as a buffer for the provided input pin,
     /// with the output only used internally, and enable the opamp.
