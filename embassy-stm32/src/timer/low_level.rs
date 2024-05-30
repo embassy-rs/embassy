@@ -7,7 +7,6 @@
 //! The available functionality depends on the timer type.
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
-
 // Re-export useful enums
 pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
 
