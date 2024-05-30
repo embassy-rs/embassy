@@ -28,7 +28,7 @@ default = ["time"]
 
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time = { version = "0.3.0", path = "../embassy-time", optional = true }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",

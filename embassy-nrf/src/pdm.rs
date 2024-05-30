@@ -1,4 +1,4 @@
-//! Pulse Density Modulation (PDM) mirophone driver
+//! Pulse Density Modulation (PDM) microphone driver
 
 #![macro_use]
 

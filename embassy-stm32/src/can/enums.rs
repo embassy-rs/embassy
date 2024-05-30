@@ -29,6 +29,24 @@ pub enum BusError {
     BusWarning,
 }
 
+/// Bus error modes.
+///
+/// Contrary to the `BusError` enum which also includes last-seen acute protocol
+/// errors, this enum includes only the mutually exclusive bus error modes.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum BusErrorMode {
+    /// Error active mode (default). Controller will transmit an active error
+    /// frame upon protocol error.
+    ErrorActive,
+    /// Error passive mode. An error counter exceeded 127. Controller will
+    /// transmit a passive error frame upon protocol error.
+    ErrorPassive,
+    /// Bus off mode. The transmit error counter exceeded 255. Controller is not
+    /// participating in bus traffic.
+    BusOff,
+}
+
 /// Frame Create Errors
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

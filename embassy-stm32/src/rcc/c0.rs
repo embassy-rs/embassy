@@ -76,25 +76,29 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // Turn on the HSI
+    match config.hsi {
+        None => RCC.cr().modify(|w| w.set_hsion(true)),
+        Some(hsi) => RCC.cr().modify(|w| {
+            w.set_hsidiv(hsi.sys_div);
+            w.set_hsikerdiv(hsi.ker_div);
+            w.set_hsion(true);
+        }),
+    }
+    while !RCC.cr().read().hsirdy() {}
+
+    // Use the HSI clock as system clock during the actual clock setup
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSISYS));
+    while RCC.cfgr().read().sws() != Sysclk::HSISYS {}
+
     // Configure HSI
     let (hsi, hsisys, hsiker) = match config.hsi {
-        None => {
-            RCC.cr().modify(|w| w.set_hsion(false));
-            (None, None, None)
-        }
-        Some(hsi) => {
-            RCC.cr().modify(|w| {
-                w.set_hsidiv(hsi.sys_div);
-                w.set_hsikerdiv(hsi.ker_div);
-                w.set_hsion(true);
-            });
-            while !RCC.cr().read().hsirdy() {}
-            (
-                Some(HSI_FREQ),
-                Some(HSI_FREQ / hsi.sys_div),
-                Some(HSI_FREQ / hsi.ker_div),
-            )
-        }
+        None => (None, None, None),
+        Some(hsi) => (
+            Some(HSI_FREQ),
+            Some(HSI_FREQ / hsi.sys_div),
+            Some(HSI_FREQ / hsi.ker_div),
+        ),
     };
 
     // Configure HSE
@@ -150,6 +154,12 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_hpre(config.ahb_pre);
         w.set_ppre(config.apb1_pre);
     });
+    while RCC.cfgr().read().sws() != config.sys {}
+
+    // Disable HSI if not used
+    if config.hsi.is_none() {
+        RCC.cr().modify(|w| w.set_hsion(false));
+    }
 
     let rtc = config.ls.init();
 

@@ -24,13 +24,14 @@ pub use hsi48::*;
 #[cfg_attr(stm32c0, path = "c0.rs")]
 #[cfg_attr(stm32g0, path = "g0.rs")]
 #[cfg_attr(stm32g4, path = "g4.rs")]
-#[cfg_attr(any(stm32h5, stm32h7), path = "h.rs")]
-#[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl), path = "l.rs")]
+#[cfg_attr(any(stm32h5, stm32h7, stm32h7rs), path = "h.rs")]
+#[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
 #[cfg_attr(stm32u5, path = "u5.rs")]
 #[cfg_attr(stm32wba, path = "wba.rs")]
 mod _version;
 
 pub use _version::*;
+use stm32_metapac::RCC;
 
 pub use crate::_generated::{mux, Clocks};
 use crate::time::Hertz;
@@ -66,7 +67,9 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
 }
 
 pub(crate) trait SealedRccPeripheral {
-    fn frequency() -> crate::time::Hertz;
+    const ENABLE_BIT: ClockEnableBit;
+
+    fn frequency() -> Hertz;
     fn enable_and_reset_with_cs(cs: CriticalSection);
     fn disable_with_cs(cs: CriticalSection);
 
@@ -118,4 +121,68 @@ mod util {
 /// Panics if the clock is not active.
 pub fn frequency<T: RccPeripheral>() -> Hertz {
     T::frequency()
+}
+
+/// Enables and resets peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+pub unsafe fn enable_and_reset<T: RccPeripheral>() {
+    T::enable_and_reset();
+}
+
+/// Disables peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+pub unsafe fn disable<T: RccPeripheral>() {
+    T::disable();
+}
+
+/// Struct representing some clock enable bit (xxxENR.xxEN), only known at runtime.
+#[derive(Clone, Copy)]
+pub(crate) struct ClockEnableBit {
+    /// offset in 32bit words of the xxxENR register into the RCC register block.
+    offset: u8,
+    /// bit within the register (0..=31)
+    bit: u8,
+}
+
+impl ClockEnableBit {
+    /// Safety: offset+bit must correspond to a valid xxxEN bit.
+    pub(crate) const unsafe fn new(offset: u8, bit: u8) -> Self {
+        Self { offset, bit }
+    }
+
+    fn ptr(self) -> *mut u32 {
+        unsafe { (RCC.as_ptr() as *mut u32).add(self.offset as _) }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn enable_with_cs(self, _cs: CriticalSection) {
+        let p = self.ptr();
+        unsafe {
+            let val = p.read_volatile();
+            p.write_volatile(val | 1u32 << self.bit);
+        }
+    }
+
+    pub(crate) fn disable_with_cs(self, _cs: CriticalSection) {
+        let p = self.ptr();
+        unsafe {
+            let val = p.read_volatile();
+            p.write_volatile(val & !(1u32 << self.bit));
+        }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn enable(self) {
+        critical_section::with(|cs| self.enable_with_cs(cs))
+    }
+
+    pub(crate) fn disable(self) {
+        critical_section::with(|cs| self.disable_with_cs(cs))
+    }
 }

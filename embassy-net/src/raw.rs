@@ -91,7 +91,7 @@ impl<'a> RawSocket<'a> {
     /// Send a datagram.
     ///
     /// This method will wait until the datagram has been sent.`
-    pub async fn send<T>(&self, buf: &[u8]) -> Result<(), raw::SendError> {
+    pub async fn send(&self, buf: &[u8]) {
         poll_fn(move |cx| self.poll_send(buf, cx)).await
     }
 
@@ -101,10 +101,10 @@ impl<'a> RawSocket<'a> {
     ///
     /// When the socket's send buffer is full, this method will return `Poll::Pending`
     /// and register the current task to be notified when the buffer has space available.
-    pub fn poll_send(&self, buf: &[u8], cx: &mut Context<'_>) -> Poll<Result<(), raw::SendError>> {
+    pub fn poll_send(&self, buf: &[u8], cx: &mut Context<'_>) -> Poll<()> {
         self.with_mut(|s, _| match s.send_slice(buf) {
             // Entire datagram has been sent
-            Ok(()) => Poll::Ready(Ok(())),
+            Ok(()) => Poll::Ready(()),
             Err(raw::SendError::BufferFull) => {
                 s.register_send_waker(cx.waker());
                 Poll::Pending

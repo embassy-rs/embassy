@@ -7,7 +7,7 @@ use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{adc, bind_interrupts, Config};
-use embassy_time::{Delay, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -38,13 +38,13 @@ async fn main(_spawner: Spawner) -> ! {
 
     info!("create adc...");
 
-    let mut adc = Adc::new(p.ADC1, Irqs, &mut Delay);
+    let mut adc = Adc::new(p.ADC1, Irqs);
 
     adc.set_sample_time(SampleTime::CYCLES601_5);
 
     info!("enable vrefint...");
 
-    let mut vrefint = adc.enable_vref(&mut Delay);
+    let mut vrefint = adc.enable_vref();
     let mut temperature = adc.enable_temperature();
 
     loop {

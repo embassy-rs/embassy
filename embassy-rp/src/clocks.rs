@@ -714,10 +714,6 @@ pub fn clk_rtc_freq() -> u16 {
 }
 
 fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
-    pac::XOSC
-        .ctrl()
-        .write(|w| w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ));
-
     let startup_delay = (((crystal_hz / 1000) * delay_multiplier) + 128) / 256;
     pac::XOSC.startup().write(|w| w.set_delay(startup_delay as u16));
     pac::XOSC.ctrl().write(|w| {
@@ -1027,7 +1023,7 @@ pub fn dormant_sleep() {
     let _stop_adc = set(pac::CLOCKS.clk_adc_ctrl(), |w| w.set_enable(false));
     let _stop_usb = set(pac::CLOCKS.clk_usb_ctrl(), |w| w.set_enable(false));
     let _stop_peri = set(pac::CLOCKS.clk_peri_ctrl(), |w| w.set_enable(false));
-    // set up rosc. we could ask the use to tell us which clock source to wake from like
+    // set up rosc. we could ask the user to tell us which clock source to wake from like
     // the C SDK does, but that seems rather unfriendly. we *may* disturb rtc by changing
     // rosc configuration if it's currently the rtc clock source, so we'll configure rosc
     // to the slowest frequency to minimize that impact.

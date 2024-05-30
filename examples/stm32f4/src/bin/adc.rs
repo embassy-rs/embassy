@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut delay = Delay;
-    let mut adc = Adc::new(p.ADC1, &mut delay);
+    let mut adc = Adc::new(p.ADC1);
     let mut pin = p.PC1;
 
     let mut vrefint = adc.enable_vrefint();

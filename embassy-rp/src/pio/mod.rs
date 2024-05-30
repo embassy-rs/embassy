@@ -324,6 +324,10 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
     }
 
     /// Pull data from RX FIFO.
+    ///
+    /// This function doesn't check if there is data available to be read.
+    /// If the rx FIFO is empty, an undefined value is returned. If you only
+    /// want to pull if data is available, use `try_pull` instead.
     pub fn pull(&mut self) -> u32 {
         PIO::PIO.rxf(SM).read()
     }

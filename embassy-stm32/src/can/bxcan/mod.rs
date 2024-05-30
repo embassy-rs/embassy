@@ -67,12 +67,23 @@ pub struct SceInterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterruptHandler<T> {
     unsafe fn on_interrupt() {
-        // info!("sce irq");
+        info!("sce irq");
         let msr = T::regs().msr();
         let msr_val = msr.read();
 
-        if msr_val.erri() {
-            msr.modify(|v| v.set_erri(true));
+        if msr_val.slaki() {
+            msr.modify(|m| m.set_slaki(true));
+            T::state().err_waker.wake();
+        } else if msr_val.erri() {
+            info!("Error interrupt");
+            // Disable the interrupt, but don't acknowledge the error, so that it can be
+            // forwarded off the the bus message consumer. If we don't provide some way for
+            // downstream code to determine that it has already provided this bus error instance
+            // to the bus message consumer, we are doomed to re-provide a single error instance for
+            // an indefinite amount of time.
+            let ier = T::regs().ier();
+            ier.modify(|i| i.set_errie(false));
+
             T::state().err_waker.wake();
         }
     }
@@ -122,7 +133,7 @@ impl<T: Instance> CanConfig<'_, T> {
         self
     }
 
-    /// Enables or disables automatic retransmission of messages.
+    /// Enables or disables automatic retransmission of frames.
     ///
     /// If this is enabled, the CAN peripheral will automatically try to retransmit each frame
     /// until it can be sent. Otherwise, it will try only once to send each frame.
@@ -180,6 +191,10 @@ impl<'d, T: Instance> Can<'d, T> {
                 w.set_fmpie(0, true);
                 w.set_fmpie(1, true);
                 w.set_tmeie(true);
+                w.set_bofie(true);
+                w.set_epvie(true);
+                w.set_ewgie(true);
+                w.set_lecie(true);
             });
 
             T::regs().mcr().write(|w| {
@@ -239,6 +254,67 @@ impl<'d, T: Instance> Can<'d, T> {
         }
     }
 
+    /// Enables or disables the peripheral from automatically wakeup when a SOF is detected on the bus
+    /// while the peripheral is in sleep mode
+    pub fn set_automatic_wakeup(&mut self, enabled: bool) {
+        Registers(T::regs()).set_automatic_wakeup(enabled);
+    }
+
+    /// Manually wake the peripheral from sleep mode.
+    ///
+    /// Waking the peripheral manually does not trigger a wake-up interrupt.
+    /// This will wait until the peripheral has acknowledged it has awoken from sleep mode
+    pub fn wakeup(&mut self) {
+        Registers(T::regs()).wakeup()
+    }
+
+    /// Check if the peripheral is currently in sleep mode
+    pub fn is_sleeping(&self) -> bool {
+        T::regs().msr().read().slak()
+    }
+
+    /// Put the peripheral in sleep mode
+    ///
+    /// When the peripherial is in sleep mode, messages can still be queued for transmission
+    /// and any previously received messages can be read from the receive FIFOs, however
+    /// no messages will be transmitted and no additional messages will be received.
+    ///
+    /// If the peripheral has automatic wakeup enabled, when a Start-of-Frame is detected
+    /// the peripheral will automatically wake and receive the incoming message.
+    pub async fn sleep(&mut self) {
+        T::regs().ier().modify(|i| i.set_slkie(true));
+        T::regs().mcr().modify(|m| m.set_sleep(true));
+
+        poll_fn(|cx| {
+            T::state().err_waker.register(cx.waker());
+            if self.is_sleeping() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        T::regs().ier().modify(|i| i.set_slkie(false));
+    }
+
+    /// Enable FIFO scheduling of outgoing frames.
+    ///
+    /// If this is enabled, frames will be transmitted in the order that they are passed to
+    /// [`write()`][Self::write] or [`try_write()`][Self::try_write()].
+    ///
+    /// If this is disabled, frames are transmitted in order of priority.
+    ///
+    /// FIFO scheduling is disabled by default.
+    pub fn set_tx_fifo_scheduling(&mut self, enabled: bool) {
+        Registers(T::regs()).set_tx_fifo_scheduling(enabled)
+    }
+
+    /// Checks if FIFO scheduling of outgoing frames is enabled.
+    pub fn tx_fifo_scheduling_enabled(&self) -> bool {
+        Registers(T::regs()).tx_fifo_scheduling_enabled()
+    }
+
     /// Queues the message to be sent.
     ///
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
@@ -248,7 +324,13 @@ impl<'d, T: Instance> Can<'d, T> {
 
     /// Attempts to transmit a frame without blocking.
     ///
-    /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
+    /// Returns [Err(TryWriteError::Full)] if the frame can not be queued for transmission now.
+    ///
+    /// If FIFO scheduling is enabled, any empty mailbox will be used.
+    ///
+    /// Otherwise, the frame will only be accepted if there is no frame with the same priority already queued.
+    /// This is done to work around a hardware limitation that could lead to out-of-order delivery
+    /// of frames with the same priority.
     pub fn try_write(&mut self, frame: &Frame) -> Result<TransmitStatus, TryWriteError> {
         self.split().0.try_write(frame)
     }
@@ -259,6 +341,11 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     /// Waits until any of the transmit mailboxes become empty
+    ///
+    /// Note that [`Self::try_write()`] may fail with [`TryWriteError::Full`],
+    /// even after the future returned by this function completes.
+    /// This will happen if FIFO scheduling of outgoing frames is not enabled,
+    /// and a frame with equal priority is already queued for transmission.
     pub async fn flush_any(&self) {
         CanTx::<T>::flush_any_inner().await
     }
@@ -406,7 +493,13 @@ impl<'d, T: Instance> CanTx<'d, T> {
 
     /// Attempts to transmit a frame without blocking.
     ///
-    /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
+    /// Returns [Err(TryWriteError::Full)] if the frame can not be queued for transmission now.
+    ///
+    /// If FIFO scheduling is enabled, any empty mailbox will be used.
+    ///
+    /// Otherwise, the frame will only be accepted if there is no frame with the same priority already queued.
+    /// This is done to work around a hardware limitation that could lead to out-of-order delivery
+    /// of frames with the same priority.
     pub fn try_write(&mut self, frame: &Frame) -> Result<TransmitStatus, TryWriteError> {
         Registers(T::regs()).transmit(frame).map_err(|_| TryWriteError::Full)
     }
@@ -446,6 +539,11 @@ impl<'d, T: Instance> CanTx<'d, T> {
     }
 
     /// Waits until any of the transmit mailboxes become empty
+    ///
+    /// Note that [`Self::try_write()`] may fail with [`TryWriteError::Full`],
+    /// even after the future returned by this function completes.
+    /// This will happen if FIFO scheduling of outgoing frames is not enabled,
+    /// and a frame with equal priority is already queued for transmission.
     pub async fn flush_any(&self) {
         Self::flush_any_inner().await
     }

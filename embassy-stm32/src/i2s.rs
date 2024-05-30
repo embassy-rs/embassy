@@ -2,6 +2,7 @@
 use embassy_hal_internal::into_ref;
 
 use crate::gpio::{AFType, AnyPin, SealedPin};
+use crate::mode::Async;
 use crate::pac::spi::vals;
 use crate::spi::{Config as SpiConfig, *};
 use crate::time::Hertz;
@@ -152,24 +153,24 @@ impl Default for Config {
 }
 
 /// I2S driver.
-pub struct I2S<'d, T: Instance, Tx, Rx> {
-    _peri: Spi<'d, T, Tx, Rx>,
+pub struct I2S<'d> {
+    _peri: Spi<'d, Async>,
     sd: Option<PeripheralRef<'d, AnyPin>>,
     ws: Option<PeripheralRef<'d, AnyPin>>,
     ck: Option<PeripheralRef<'d, AnyPin>>,
     mck: Option<PeripheralRef<'d, AnyPin>>,
 }
 
-impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
+impl<'d> I2S<'d> {
     /// Note: Full-Duplex modes are not supported at this time
-    pub fn new(
+    pub fn new<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         sd: impl Peripheral<P = impl MosiPin<T>> + 'd,
         ws: impl Peripheral<P = impl WsPin<T>> + 'd,
         ck: impl Peripheral<P = impl CkPin<T>> + 'd,
         mck: impl Peripheral<P = impl MckPin<T>> + 'd,
-        txdma: impl Peripheral<P = Tx> + 'd,
-        rxdma: impl Peripheral<P = Rx> + 'd,
+        txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rxdma: impl Peripheral<P = impl RxDma<T>> + 'd,
         freq: Hertz,
         config: Config,
     ) -> Self {
@@ -207,7 +208,7 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
             // rate to reach the proper audio sample frequency. The ODD bit in the SPI_I2SPR
             // register also has to be defined.
 
-            T::REGS.i2spr().modify(|w| {
+            spi.info.regs.i2spr().modify(|w| {
                 w.set_i2sdiv(div);
                 w.set_odd(match odd {
                     true => Odd::ODD,
@@ -234,7 +235,7 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
 
             // 5. The I2SE bit in SPI_I2SCFGR register must be set.
 
-            T::REGS.i2scfgr().modify(|w| {
+            spi.info.regs.i2scfgr().modify(|w| {
                 w.set_ckpol(config.clock_polarity.ckpol());
 
                 w.set_i2smod(true);
@@ -265,24 +266,17 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
     }
 
     /// Write audio data.
-    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-    {
+    pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
         self._peri.write(data).await
     }
 
     /// Read audio data.
-    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
-    where
-        Tx: TxDma<T>,
-        Rx: RxDma<T>,
-    {
+    pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
         self._peri.read(data).await
     }
 }
 
-impl<'d, T: Instance, Tx, Rx> Drop for I2S<'d, T, Tx, Rx> {
+impl<'d> Drop for I2S<'d> {
     fn drop(&mut self) {
         self.sd.as_ref().map(|x| x.set_as_disconnected());
         self.ws.as_ref().map(|x| x.set_as_disconnected());

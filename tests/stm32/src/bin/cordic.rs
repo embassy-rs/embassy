@@ -67,7 +67,12 @@ async fn main(_spawner: Spawner) {
     #[cfg(feature = "stm32g491re")]
     let (mut write_dma, mut read_dma) = (dp.DMA1_CH4, dp.DMA1_CH5);
 
-    #[cfg(any(feature = "stm32h563zi", feature = "stm32u585ai", feature = "stm32u5a5zj"))]
+    #[cfg(any(
+        feature = "stm32h563zi",
+        feature = "stm32u585ai",
+        feature = "stm32u5a5zj",
+        feature = "stm32h7s3l8"
+    ))]
     let (mut write_dma, mut read_dma) = (dp.GPDMA1_CH0, dp.GPDMA1_CH1);
 
     // calculate first result using blocking mode

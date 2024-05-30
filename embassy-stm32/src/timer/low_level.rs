@@ -257,7 +257,10 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
             TimerBits::Bits32 => {
                 let pclk_ticks_per_timer_period = (timer_f / f) as u64;
                 let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 32)).try_into());
-                let arr: u32 = unwrap!((pclk_ticks_per_timer_period / (psc as u64 + 1)).try_into());
+                let divide_by = pclk_ticks_per_timer_period / (u64::from(psc) + 1);
+
+                // the timer counts `0..=arr`, we want it to count `0..divide_by`
+                let arr: u32 = unwrap!(u32::try_from(divide_by - 1));
 
                 let regs = self.regs_gp32_unchecked();
                 regs.psc().write_value(psc);
@@ -317,6 +320,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
                 timer_f / arr / (psc + 1)
             }
         }
+    }
+
+    /// Get the clock frequency of the timer (before prescaler is applied).
+    pub fn get_clock_frequency(&self) -> Hertz {
+        T::frequency()
     }
 }
 
@@ -438,6 +446,11 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Clear input interrupt.
     pub fn clear_input_interrupt(&self, channel: Channel) {
         self.regs_gp16().sr().modify(|r| r.set_ccif(channel.index(), false));
+    }
+
+    /// Get input interrupt.
+    pub fn get_input_interrupt(&self, channel: Channel) -> bool {
+        self.regs_gp16().sr().read().ccif(channel.index())
     }
 
     /// Enable input interrupt.
