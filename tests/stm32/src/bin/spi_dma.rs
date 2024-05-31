@@ -6,34 +6,32 @@ mod common;
 use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{into_ref, Peripheral as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config());
     info!("Hello World!");
 
-    let spi_peri = peri!(p, SPI);
-    let sck = peri!(p, SPI_SCK);
-    let mosi = peri!(p, SPI_MOSI);
-    let miso = peri!(p, SPI_MISO);
-    let tx_dma = peri!(p, SPI_TX_DMA);
-    let rx_dma = peri!(p, SPI_RX_DMA);
-
-    into_ref!(spi_peri, sck, mosi, miso, tx_dma, rx_dma);
+    let mut spi_peri = peri!(p, SPI);
+    let mut sck = peri!(p, SPI_SCK);
+    let mut mosi = peri!(p, SPI_MOSI);
+    let mut miso = peri!(p, SPI_MISO);
+    let mut tx_dma = peri!(p, SPI_TX_DMA);
+    let mut rx_dma = peri!(p, SPI_RX_DMA);
 
     let mut spi_config = spi::Config::default();
     spi_config.frequency = Hertz(1_000_000);
 
     let mut spi = Spi::new(
-        spi_peri.reborrow(),
-        sck.reborrow(),  // Arduino D13
-        mosi.reborrow(), // Arduino D11
-        miso.reborrow(), // Arduino D12
-        tx_dma.reborrow(),
-        rx_dma.reborrow(),
+        &mut spi_peri,
+        &mut sck,  // Arduino D13
+        &mut mosi, // Arduino D11
+        &mut miso, // Arduino D12
+        &mut tx_dma,
+        &mut rx_dma,
         spi_config,
     );
 
@@ -85,51 +83,36 @@ async fn main(_spawner: Spawner) {
     core::mem::drop(spi);
 
     // test rx-only configuration
+    let mut spi = Spi::new_rxonly(
+        &mut spi_peri,
+        &mut sck,
+        &mut miso,
+        // SPIv1/f1 requires txdma even if rxonly.
+        #[cfg(not(any(
+            feature = "stm32h503rb",
+            feature = "stm32h563zi",
+            feature = "stm32h753zi",
+            feature = "stm32h755zi",
+            feature = "stm32h7a3zi",
+            feature = "stm32h7s3l8",
+            feature = "stm32u585ai",
+            feature = "stm32u5a5zj",
+            feature = "stm32wba52cg",
+        )))]
+        &mut tx_dma,
+        &mut rx_dma,
+        spi_config,
+    );
 
-    // stm32f207zg - spi_v1
-    // stm32f103c8 - spi_f1
-    // stm32g491re - spi_v2
-    // stm32h753zi - spi_v3
-    // stm32h563zi - spi_v4
-    // stm32wba52cg - spi_v5
+    let mut mosi = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
 
-    #[cfg(any(stm32f207zg, stm32f103c8, stm32g491re, stm32h753zi, stm32h563zi, stm32wba52cg))]
-    {
-        let mut spi = {
-            #[cfg(stm32f207zg, stm32f103c8, stm32g491re)]
-            {
-                Spi::new_rxonly(
-                    spi_peri.reborrow(),
-                    sck.reborrow(),
-                    miso.reborrow(),
-                    tx_dma.reborrow(),
-                    rx_dma.reborrow(),
-                    spi_config,
-                )
-            }
-            #[cfg(stm32h753zi, stm32h563zi, stm32wba52cg)]
-            {
-                Spi::new_rxonly(
-                    spi_peri.reborrow(),
-                    sck.reborrow(),
-                    miso.reborrow(),
-                    rx_dma.reborrow(),
-                    spi_config,
-                )
-            }
-        };
+    mosi.set_high();
+    spi.read(&mut buf).await.unwrap();
+    assert_eq!(buf, [0xff; 9]);
 
-        use embassy_stm32::gpio;
-        let mut mosi = gpio::Output::new(mosi.reborrow(), gpio::Level::Low, gpio::Speed::Low);
-
-        mosi.set_high();
-        spi.read(&mut buf).await.unwrap();
-        assert_eq!(buf, [0xff; 9]);
-
-        mosi.set_low();
-        spi.read(&mut buf).await.unwrap();
-        assert_eq!(buf, [0x00; 9]);
-    };
+    mosi.set_low();
+    spi.read(&mut buf).await.unwrap();
+    assert_eq!(buf, [0x00; 9]);
 
     info!("Test OK");
     cortex_m::asm::bkpt();

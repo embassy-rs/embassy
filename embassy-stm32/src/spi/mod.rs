@@ -148,9 +148,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 w.set_ssm(true);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
-                if mosi.is_none() {
-                    w.set_rxonly(vals::Rxonly::OUTPUTDISABLED);
-                }
+                // we're doing "fake rxonly", by actually writing one
+                // byte to TXDR for each byte we want to receive. if we
+                // set OUTPUTDISABLED here, this hangs.
+                w.set_rxonly(vals::Rxonly::FULLDUPLEX);
                 w.set_dff(<u8 as SealedWord>::CONFIG)
             });
         }
