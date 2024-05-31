@@ -19,13 +19,13 @@ cfg-if = "1.0.0"
 [features]
 defmt = [
     "dep:defmt",
+    "dep:defmt-rtt",
     "embassy-boot-nrf/defmt",
     "embassy-nrf/defmt",
 ]
 softdevice = [
     "embassy-boot-nrf/softdevice",
 ]
-debug = ["defmt-rtt", "defmt"]
 
 [profile.dev]
 debug = 2

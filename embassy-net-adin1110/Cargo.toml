@@ -29,7 +29,6 @@ critical-section = { version = "1.1.2", features = ["std"] }
 futures-test = "0.3.28"
 
 [features]
-default = [ ]
 defmt = [ "dep:defmt", "embedded-hal-1/defmt-03" ]
 log = ["dep:log"]
 

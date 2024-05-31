@@ -24,12 +24,12 @@ embassy-futures = { version = "0.1.1", path = "../../../../embassy-futures" }
 [features]
 defmt = [
     "dep:defmt",
+    "dep:defmt-rtt",
     "embassy-boot-stm32/defmt",
     "embassy-stm32/defmt",
     "embassy-usb/defmt",
     "embassy-usb-dfu/defmt"
 ]
-debug = ["defmt-rtt", "defmt"]
 
 [profile.dev]
 debug = 2
