@@ -166,7 +166,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
                 $pin.conf().write(|w| {
                     w.dir().output();
                     w.drive().h0h1();
-                    #[cfg(feature = "_nrf5340-s")]
+                    #[cfg(all(feature = "_nrf5340", feature = "_s"))]
                     w.mcusel().peripheral();
                     w
                 });
