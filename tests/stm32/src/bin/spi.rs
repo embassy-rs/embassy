@@ -62,27 +62,51 @@ async fn main(_spawner: Spawner) {
 
     // Assert the RCC bit gets disabled on drop.
     #[cfg(feature = "stm32f429zi")]
-    {
-        defmt::assert!(embassy_stm32::pac::RCC.apb2enr().read().spi1en());
-        drop(spi);
-        defmt::assert!(!embassy_stm32::pac::RCC.apb2enr().read().spi1en());
-    }
-
-    #[cfg(not(feature = "stm32f429zi"))]
-    core::mem::drop(spi);
+    defmt::assert!(embassy_stm32::pac::RCC.apb2enr().read().spi1en());
+    drop(spi);
+    #[cfg(feature = "stm32f429zi")]
+    defmt::assert!(!embassy_stm32::pac::RCC.apb2enr().read().spi1en());
 
     // test rx-only configuration
     let mut spi = Spi::new_blocking_rxonly(&mut spi_peri, &mut sck, &mut miso, spi_config);
-
-    let mut mosi = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
-
-    mosi.set_high();
+    let mut mosi_out = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
+    mosi_out.set_high();
     spi.blocking_read(&mut buf).unwrap();
     assert_eq!(buf, [0xff; 9]);
-
-    mosi.set_low();
+    mosi_out.set_low();
     spi.blocking_read(&mut buf).unwrap();
     assert_eq!(buf, [0x00; 9]);
+    spi.blocking_read::<u8>(&mut []).unwrap();
+    spi.blocking_read::<u8>(&mut []).unwrap();
+    drop(mosi_out);
+    drop(spi);
+
+    // Test tx-only. Just check it doesn't hang, not much else we can do without using SPI slave.
+    let mut spi = Spi::new_blocking_txonly(&mut spi_peri, &mut sck, &mut mosi, spi_config);
+    spi.blocking_transfer(&mut buf, &data).unwrap();
+    spi.blocking_transfer_in_place(&mut buf).unwrap();
+    spi.blocking_write(&buf).unwrap();
+    spi.blocking_read(&mut buf).unwrap();
+    spi.blocking_transfer::<u8>(&mut [], &[]).unwrap();
+    spi.blocking_transfer_in_place::<u8>(&mut []).unwrap();
+    spi.blocking_read::<u8>(&mut []).unwrap();
+    spi.blocking_write::<u8>(&[]).unwrap();
+    drop(spi);
+
+    // Test tx-only nosck.
+    #[cfg(feature = "spi-v1")]
+    {
+        let mut spi = Spi::new_blocking_txonly_nosck(&mut spi_peri, &mut mosi, spi_config);
+        spi.blocking_transfer(&mut buf, &data).unwrap();
+        spi.blocking_transfer_in_place(&mut buf).unwrap();
+        spi.blocking_write(&buf).unwrap();
+        spi.blocking_read(&mut buf).unwrap();
+        spi.blocking_transfer::<u8>(&mut [], &[]).unwrap();
+        spi.blocking_transfer_in_place::<u8>(&mut []).unwrap();
+        spi.blocking_read::<u8>(&mut []).unwrap();
+        spi.blocking_write::<u8>(&[]).unwrap();
+        drop(spi);
+    }
 
     info!("Test OK");
     cortex_m::asm::bkpt();

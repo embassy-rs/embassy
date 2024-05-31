@@ -63,8 +63,12 @@ async fn main(_spawner: Spawner) {
     spi.transfer_in_place::<u8>(&mut []).await.unwrap();
     spi.read::<u8>(&mut []).await.unwrap();
     spi.write::<u8>(&[]).await.unwrap();
+    spi.blocking_transfer::<u8>(&mut [], &[]).unwrap();
+    spi.blocking_transfer_in_place::<u8>(&mut []).unwrap();
+    spi.blocking_read::<u8>(&mut []).unwrap();
+    spi.blocking_write::<u8>(&[]).unwrap();
 
-    // === Check mixing blocking with async.
+    // Check mixing blocking with async.
     spi.blocking_transfer(&mut buf, &data).unwrap();
     assert_eq!(buf, data);
     spi.transfer(&mut buf, &data).await.unwrap();
@@ -88,31 +92,59 @@ async fn main(_spawner: Spawner) {
         &mut sck,
         &mut miso,
         // SPIv1/f1 requires txdma even if rxonly.
-        #[cfg(not(any(
-            feature = "stm32h503rb",
-            feature = "stm32h563zi",
-            feature = "stm32h753zi",
-            feature = "stm32h755zi",
-            feature = "stm32h7a3zi",
-            feature = "stm32h7s3l8",
-            feature = "stm32u585ai",
-            feature = "stm32u5a5zj",
-            feature = "stm32wba52cg",
-        )))]
+        #[cfg(not(feature = "spi-v345"))]
         &mut tx_dma,
         &mut rx_dma,
         spi_config,
     );
-
-    let mut mosi = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
-
-    mosi.set_high();
+    let mut mosi_out = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
+    mosi_out.set_high();
     spi.read(&mut buf).await.unwrap();
     assert_eq!(buf, [0xff; 9]);
-
-    mosi.set_low();
+    spi.blocking_read(&mut buf).unwrap();
+    assert_eq!(buf, [0xff; 9]);
+    spi.read(&mut buf).await.unwrap();
+    assert_eq!(buf, [0xff; 9]);
+    spi.read(&mut buf).await.unwrap();
+    assert_eq!(buf, [0xff; 9]);
+    spi.blocking_read(&mut buf).unwrap();
+    assert_eq!(buf, [0xff; 9]);
+    spi.blocking_read(&mut buf).unwrap();
+    assert_eq!(buf, [0xff; 9]);
+    mosi_out.set_low();
     spi.read(&mut buf).await.unwrap();
     assert_eq!(buf, [0x00; 9]);
+    spi.read::<u8>(&mut []).await.unwrap();
+    spi.blocking_read::<u8>(&mut []).unwrap();
+    drop(mosi_out);
+    drop(spi);
+
+    // Test tx-only. Just check it doesn't hang, not much else we can do without using SPI slave.
+    let mut spi = Spi::new_txonly(&mut spi_peri, &mut sck, &mut mosi, &mut tx_dma, spi_config);
+    spi.blocking_write(&buf).unwrap();
+    spi.write(&buf).await.unwrap();
+    spi.blocking_write(&buf).unwrap();
+    spi.blocking_write(&buf).unwrap();
+    spi.write(&buf).await.unwrap();
+    spi.write(&buf).await.unwrap();
+    spi.write::<u8>(&[]).await.unwrap();
+    spi.blocking_write::<u8>(&[]).unwrap();
+    drop(spi);
+
+    // Test tx-only nosck.
+    #[cfg(feature = "spi-v1")]
+    {
+        let mut spi = Spi::new_txonly_nosck(&mut spi_peri, &mut mosi, &mut tx_dma, spi_config);
+        spi.blocking_write(&buf).unwrap();
+        spi.write(&buf).await.unwrap();
+        spi.blocking_write(&buf).unwrap();
+        spi.blocking_write(&buf).unwrap();
+        spi.write(&buf).await.unwrap();
+        spi.write(&buf).await.unwrap();
+        spi.write::<u8>(&[]).await.unwrap();
+        spi.blocking_write::<u8>(&[]).unwrap();
+        drop(spi);
+    }
 
     info!("Test OK");
     cortex_m::asm::bkpt();
