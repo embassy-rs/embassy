@@ -76,6 +76,8 @@ async fn main(_spawner: Spawner) {
     mosi_out.set_low();
     spi.blocking_read(&mut buf).unwrap();
     assert_eq!(buf, [0x00; 9]);
+    spi.blocking_read::<u8>(&mut []).unwrap();
+    spi.blocking_read::<u8>(&mut []).unwrap();
     drop(mosi_out);
     drop(spi);
 

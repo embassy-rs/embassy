@@ -63,8 +63,12 @@ async fn main(_spawner: Spawner) {
     spi.transfer_in_place::<u8>(&mut []).await.unwrap();
     spi.read::<u8>(&mut []).await.unwrap();
     spi.write::<u8>(&[]).await.unwrap();
+    spi.blocking_transfer::<u8>(&mut [], &[]).unwrap();
+    spi.blocking_transfer_in_place::<u8>(&mut []).unwrap();
+    spi.blocking_read::<u8>(&mut []).unwrap();
+    spi.blocking_write::<u8>(&[]).unwrap();
 
-    // === Check mixing blocking with async.
+    // Check mixing blocking with async.
     spi.blocking_transfer(&mut buf, &data).unwrap();
     assert_eq!(buf, data);
     spi.transfer(&mut buf, &data).await.unwrap();
@@ -110,6 +114,8 @@ async fn main(_spawner: Spawner) {
     mosi_out.set_low();
     spi.read(&mut buf).await.unwrap();
     assert_eq!(buf, [0x00; 9]);
+    spi.read::<u8>(&mut []).await.unwrap();
+    spi.blocking_read::<u8>(&mut []).unwrap();
     drop(mosi_out);
     drop(spi);
 
@@ -121,6 +127,8 @@ async fn main(_spawner: Spawner) {
     spi.blocking_write(&buf).unwrap();
     spi.write(&buf).await.unwrap();
     spi.write(&buf).await.unwrap();
+    spi.write::<u8>(&[]).await.unwrap();
+    spi.blocking_write::<u8>(&[]).unwrap();
     drop(spi);
 
     // Test tx-only nosck.
@@ -133,6 +141,8 @@ async fn main(_spawner: Spawner) {
         spi.blocking_write(&buf).unwrap();
         spi.write(&buf).await.unwrap();
         spi.write(&buf).await.unwrap();
+        spi.write::<u8>(&[]).await.unwrap();
+        spi.blocking_write::<u8>(&[]).unwrap();
         drop(spi);
     }
 
