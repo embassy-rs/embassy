@@ -25,3 +25,10 @@ cortex-m-rt = "0.7.0"
 ed25519-dalek = ["embassy-boot/ed25519-dalek"]
 ed25519-salty = ["embassy-boot/ed25519-salty"]
 skip-include = []
+defmt = [
+      "dep:defmt",
+      "dep:defmt-rtt",
+      "embassy-nrf/defmt",
+      "embassy-boot-nrf/defmt",
+      "embassy-sync/defmt",
+]

@@ -22,7 +22,6 @@ target = "thumbv7em-none-eabi"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
-defmt-rtt = { version = "0.4", optional = true }
 log = { version = "0.4", optional = true }
 
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
@@ -37,7 +36,6 @@ cfg-if = "1.0.0"
 [features]
 defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-stm32/defmt"]
 log = ["dep:log", "embassy-boot/log", "embassy-stm32/log"]
-debug = ["defmt-rtt"]
 
 [profile.dev]
 debug = 2

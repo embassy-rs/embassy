@@ -23,10 +23,10 @@ cfg-if = "1.0.0"
 [features]
 defmt = [
     "dep:defmt",
+    "dep:defmt-rtt",
     "embassy-boot-rp/defmt",
     "embassy-rp/defmt",
 ]
-debug = ["defmt-rtt", "defmt"]
 
 [profile.release]
 debug = true

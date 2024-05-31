@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         feature = "stm32c031c6",
         feature = "stm32wb55rg",
         feature = "stm32l073rz",
+        feature = "stm32h503rb",
         // wrong ram size in stm32-data
         feature = "stm32wl55jc",
         feature = "stm32u5a5zj",
