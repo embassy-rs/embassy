@@ -465,6 +465,7 @@ impl<'d> Spi<'d, Blocking> {
     /// Create a new SPI driver, in TX-only mode, without SCK pin.
     ///
     /// This can be useful for bit-banging non-SPI protocols.
+    #[cfg(any(spi_v1, spi_f1))] // no SCK pin causes it to hang on spiv2+ for unknown reasons.
     pub fn new_blocking_txonly_nosck<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
@@ -549,6 +550,7 @@ impl<'d> Spi<'d, Async> {
     /// Create a new SPI driver, in TX-only mode, without SCK pin.
     ///
     /// This can be useful for bit-banging non-SPI protocols.
+    #[cfg(any(spi_v1, spi_f1))] // no SCK pin causes it to hang on spiv2+ for unknown reasons.
     pub fn new_txonly_nosck<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
