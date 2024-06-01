@@ -17,7 +17,7 @@ mod dmamux;
 pub(crate) use dmamux::*;
 
 mod util;
-pub(crate) use util::*;
+pub use util::ChannelAndRequest;
 
 pub(crate) mod ringbuffer;
 pub mod word;
