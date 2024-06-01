@@ -10,7 +10,7 @@ use embassy_usb_synopsys_otg::{
     PhyType, State,
 };
 
-use crate::gpio::AFType;
+use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
@@ -39,9 +39,7 @@ macro_rules! config_ulpi_pins {
         into_ref!($($pin),*);
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                #[cfg(gpio_v2)]
-                $pin.set_speed(crate::gpio::Speed::VeryHigh);
+                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -77,8 +75,8 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         into_ref!(dp, dm);
 
-        dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
-        dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
+        dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         let regs = T::regs();
 

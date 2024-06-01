@@ -9,7 +9,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use crate::dma::word;
 #[cfg(not(gpdma))]
 use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer};
-use crate::gpio::{AFType, AnyPin, SealedPin as _};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::pac::sai::{vals, Sai as Regs};
 use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
@@ -656,17 +656,17 @@ fn dr<W: word::Word>(w: crate::pac::sai::Sai, sub_block: WhichSubBlock) -> *mut 
 }
 
 // return the type for (sd, sck)
-fn get_af_types(mode: Mode, tx_rx: TxRx) -> (AFType, AFType) {
+fn get_af_types(mode: Mode, tx_rx: TxRx) -> (AfType, AfType) {
     (
         //sd is defined by tx/rx mode
         match tx_rx {
-            TxRx::Transmitter => AFType::OutputPushPull,
-            TxRx::Receiver => AFType::Input,
+            TxRx::Transmitter => AfType::output(OutputType::PushPull, Speed::VeryHigh),
+            TxRx::Receiver => AfType::input(Pull::None),
         },
         //clocks (mclk, sck and fs) are defined by master/slave
         match mode {
-            Mode::Master => AFType::OutputPushPull,
-            Mode::Slave => AFType::Input,
+            Mode::Master => AfType::output(OutputType::PushPull, Speed::VeryHigh),
+            Mode::Slave => AfType::input(Pull::None),
         },
     )
 }
@@ -768,9 +768,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         into_ref!(mclk);
 
         let (_sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
-
         mclk.set_as_af(mclk.af_num(), ck_af_type);
-        mclk.set_speed(crate::gpio::Speed::VeryHigh);
 
         if config.master_clock_divider == MasterClockDivider::MasterClockDisabled {
             config.master_clock_divider = MasterClockDivider::Div1;
@@ -796,12 +794,8 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
 
         let (sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
         sd.set_as_af(sd.af_num(), sd_af_type);
-        sd.set_speed(crate::gpio::Speed::VeryHigh);
-
         sck.set_as_af(sck.af_num(), ck_af_type);
-        sck.set_speed(crate::gpio::Speed::VeryHigh);
         fs.set_as_af(fs.af_num(), ck_af_type);
-        fs.set_speed(crate::gpio::Speed::VeryHigh);
 
         let sub_block = S::WHICH;
         let request = dma.request();
@@ -834,9 +828,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         into_ref!(dma, peri, sd);
 
         let (sd_af_type, _ck_af_type) = get_af_types(config.mode, config.tx_rx);
-
         sd.set_as_af(sd.af_num(), sd_af_type);
-        sd.set_speed(crate::gpio::Speed::VeryHigh);
 
         let sub_block = S::WHICH;
         let request = dma.request();

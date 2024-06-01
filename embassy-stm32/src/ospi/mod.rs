@@ -13,7 +13,7 @@ pub use enums::*;
 use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
 use crate::dma::{word, ChannelAndRequest};
-use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::octospi::{vals, Octospi as Regs};
 use crate::rcc::{self, RccPeripheral};
@@ -548,16 +548,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::Input, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::input(Pull::None)),
             None,
             None,
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -577,16 +580,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             None,
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -608,16 +614,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -643,16 +652,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d4, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d5, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d6, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d7, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -678,16 +690,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d4, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d5, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d6, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d7, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -710,16 +725,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::Input, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::input(Pull::None)),
             None,
             None,
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,
@@ -740,16 +758,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             None,
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,
@@ -772,16 +793,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,
@@ -808,16 +832,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d4, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d5, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d6, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d7, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,
@@ -844,16 +871,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d4, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d5, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d6, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d7, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,

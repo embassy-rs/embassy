@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::{AFType, Pull, Speed};
+use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::{rcc, Peripheral};
 
 /// FMC driver
@@ -76,8 +76,7 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         into_ref!($($pin),*);
         $(
-            $pin.set_as_af_pull($pin.af_num(), AFType::OutputPushPull, Pull::Up);
-            $pin.set_speed(Speed::VeryHigh);
+            $pin.set_as_af($pin.af_num(), AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
         )*
     };
 }
