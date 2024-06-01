@@ -23,7 +23,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         tim: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
         pull_type: Pull,
-        _irq: impl Binding<T::CaptureCompareInterrupt, InterruptHandler<T>> + 'd,
+        _irq: impl Binding<T::UpdateInterrupt, InterruptHandler<T>> + 'd,
         freq: Hertz,
     ) -> Self {
         into_ref!(pin);
@@ -38,7 +38,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         tim: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
         pull_type: Pull,
-        _irq: impl Binding<T::CaptureCompareInterrupt, InterruptHandler<T>> + 'd,
+        _irq: impl Binding<T::UpdateInterrupt, InterruptHandler<T>> + 'd,
         freq: Hertz,
     ) -> Self {
         into_ref!(pin);

@@ -65,7 +65,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         _ch2: Option<CapturePin<'d, T, Ch2>>,
         _ch3: Option<CapturePin<'d, T, Ch3>>,
         _ch4: Option<CapturePin<'d, T, Ch4>>,
-        _irq: impl Binding<T::CaptureCompareInterrupt, InterruptHandler<T>> + 'd,
+        _irq: impl Binding<T::UpdateInterrupt, InterruptHandler<T>> + 'd,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
