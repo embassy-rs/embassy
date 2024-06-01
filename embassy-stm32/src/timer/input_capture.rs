@@ -1,17 +1,12 @@
 //! Input capture driver.
 
-use core::future::Future;
 use core::marker::PhantomData;
-use core::pin::Pin;
-use core::task::{Context, Poll};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
+use super::ll_async::InputCaptureFuture;
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
-use super::{
-    CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin,
-    GeneralInstance4Channel,
-};
+use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, InterruptHandler};
 use crate::gpio::{AFType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
@@ -70,7 +65,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         _ch2: Option<CapturePin<'d, T, Ch2>>,
         _ch3: Option<CapturePin<'d, T, Ch3>>,
         _ch4: Option<CapturePin<'d, T, Ch4>>,
-        _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
+        _irq: impl Binding<T::CaptureCompareInterrupt, InterruptHandler<T>> + 'd,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
@@ -135,12 +130,8 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.set_input_capture_mode(channel, mode);
         self.inner.set_input_capture_prescaler(channel, 0);
         self.inner.enable_channel(channel, true);
-        self.inner.enable_input_interrupt(channel, true);
 
-        InputCaptureFuture {
-            channel,
-            phantom: PhantomData,
-        }
+        InputCaptureFuture::new(T::regs(), channel.into())
     }
 
     /// Asynchronously wait until the pin sees a rising edge.
@@ -177,40 +168,5 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     pub async fn wait_for_any_edge_alternate(&mut self, channel: Channel) -> u32 {
         self.new_future(channel, InputCaptureMode::BothEdges, InputTISelection::Alternate)
             .await
-    }
-}
-
-#[must_use = "futures do nothing unless you `.await` or poll them"]
-struct InputCaptureFuture<T: GeneralInstance4Channel> {
-    channel: Channel,
-    phantom: PhantomData<T>,
-}
-
-impl<T: GeneralInstance4Channel> Drop for InputCaptureFuture<T> {
-    fn drop(&mut self) {
-        critical_section::with(|_| {
-            let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
-
-            // disable interrupt enable
-            regs.dier().modify(|w| w.set_ccie(self.channel.index(), false));
-        });
-    }
-}
-
-impl<T: GeneralInstance4Channel> Future for InputCaptureFuture<T> {
-    type Output = u32;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        T::state().cc_waker[self.channel.index()].register(cx.waker());
-
-        let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
-
-        let dier = regs.dier().read();
-        if !dier.ccie(self.channel.index()) {
-            let val = regs.ccr(self.channel.index()).read().0;
-            Poll::Ready(val)
-        } else {
-            Poll::Pending
-        }
     }
 }
