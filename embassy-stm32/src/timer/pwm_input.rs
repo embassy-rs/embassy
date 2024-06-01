@@ -124,6 +124,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         self.inner.clear_input_interrupt(self.channel);
         self.inner.enable_input_interrupt(self.channel, true);
 
+        // Rising edge is always on the main channel
         let future: TimerEventFuture<T> = TimerEventFuture::new(self.channel.into());
         future.await
     }
@@ -133,6 +134,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         self.inner.clear_input_interrupt(self.channel);
         self.inner.enable_input_interrupt(self.channel, true);
 
+        // Falling edge is always on the alternate channel
         let ch = match self.channel {
             Channel::Ch1 => Channel::Ch2,
             Channel::Ch2 => Channel::Ch1,
