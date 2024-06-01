@@ -4,8 +4,7 @@ use embassy_hal_internal::into_ref;
 
 use super::ll_async::TimerEventFuture;
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
-use super::InterruptHandler;
-use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
+use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel, InterruptHandler};
 use crate::gpio::{AFType, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;

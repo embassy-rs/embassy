@@ -327,7 +327,7 @@ impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for Inte
         #[cfg(feature = "low-power")]
         crate::low_power::on_wakeup_irq();
 
-        let regs = crate::pac::timer::TimGp16::from_ptr(T::regs());
+        let regs = crate::pac::timer::TimCore::from_ptr(T::regs());
 
         // Read TIM interrupt flags.
         let sr = regs.sr().read();
