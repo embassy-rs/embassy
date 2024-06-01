@@ -19,16 +19,16 @@ async fn blinky(led: peripherals::PC13) {
     loop {
         info!("high");
         led.set_high();
-        Timer::after_millis(300).await;
+        Timer::after_millis(100).await;
 
         info!("low");
         led.set_low();
-        Timer::after_millis(300).await;
+        Timer::after_millis(400).await;
     }
 }
 
 bind_interrupts!(struct Irqs {
-    TIM2 => timer::CaptureCompareInterruptHandler<peripherals::TIM2>;
+    TIM2 => timer::InterruptHandler<peripherals::TIM2>;
 });
 
 #[embassy_executor::main]
@@ -38,7 +38,7 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(blinky(p.PC13)));
 
-    let mut pwm_input = PwmInput::new(p.TIM2, p.PA0, Pull::None, khz(10));
+    let mut pwm_input = PwmInput::new(p.TIM2, p.PA0, Pull::None, Irqs, khz(10));
     pwm_input.enable();
 
     loop {
