@@ -6,3 +6,4 @@ third_party
 /Cargo.toml
 out/
 .zed
+Session.vim
