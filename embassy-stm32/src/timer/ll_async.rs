@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use super::{Channel, GeneralInstance4Channel, TimerBits};
+use super::{Channel, GeneralInstance4Channel};
 
 /// All timer interrupts
 #[derive(Clone, Copy)]
@@ -30,25 +30,24 @@ pub enum InterruptFlag {
 
 /// Timer future
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct InputCaptureFuture<T: GeneralInstance4Channel> {
-    regs: crate::pac::timer::TimGp32,
+pub struct TimerEventFuture<T: GeneralInstance4Channel> {
     flag: InterruptFlag,
     phantom: PhantomData<T>,
 }
 
-impl<T: GeneralInstance4Channel> InputCaptureFuture<T> {
+impl<T: GeneralInstance4Channel> TimerEventFuture<T> {
     /// Enable the interrupt source and returns a new instance of Future
-    pub fn new(regs: *mut (), flag: InterruptFlag) -> Self {
+    pub fn new(flag: InterruptFlag) -> Self {
         let this = Self {
-            regs: unsafe { crate::pac::timer::TimGp32::from_ptr(regs) },
             flag,
             phantom: PhantomData,
         };
 
-        // set interrupt enable
-        this.regs.dier().modify(|w| w.0 |= 1u32 << flag as u32);
-
         this
+    }
+
+    fn regs(&self) -> crate::pac::timer::TimGp16 {
+        unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) }
     }
 }
 
@@ -63,30 +62,30 @@ impl From<Channel> for InterruptFlag {
     }
 }
 
-impl<T: GeneralInstance4Channel> Drop for InputCaptureFuture<T> {
+impl<T: GeneralInstance4Channel> Drop for TimerEventFuture<T> {
     fn drop(&mut self) {
         critical_section::with(|_| {
             // clear interrupt enable
-            self.regs.dier().modify(|w| w.0 &= !(1u32 << self.flag as u32));
+            self.regs().dier().modify(|w| w.0 &= !(1u32 << self.flag as u32));
         });
     }
 }
 
-impl<T: GeneralInstance4Channel> Future for InputCaptureFuture<T> {
+impl<T: GeneralInstance4Channel> Future for TimerEventFuture<T> {
     type Output = u32;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         T::state().wakers[self.flag as usize].register(cx.waker());
 
         // if interrupt enable is cleared, this means the interrupt handler executed, thus we can return the value
-        let dier = self.regs.dier().read();
+        let dier = self.regs().dier().read();
         if (dier.0 & (1u32 << self.flag as u32)) == 0 {
             let val = match self.flag {
-                InterruptFlag::CaptureCompare1 => self.regs.ccr(Channel::Ch1.index()).read(),
-                InterruptFlag::CaptureCompare2 => self.regs.ccr(Channel::Ch2.index()).read(),
-                InterruptFlag::CaptureCompare3 => self.regs.ccr(Channel::Ch3.index()).read(),
-                InterruptFlag::CaptureCompare4 => self.regs.ccr(Channel::Ch4.index()).read(),
-                _ => self.regs.cnt().read(), // return the counter value
+                InterruptFlag::CaptureCompare1 => self.regs().ccr(Channel::Ch1.index()).read().0,
+                InterruptFlag::CaptureCompare2 => self.regs().ccr(Channel::Ch2.index()).read().0,
+                InterruptFlag::CaptureCompare3 => self.regs().ccr(Channel::Ch3.index()).read().0,
+                InterruptFlag::CaptureCompare4 => self.regs().ccr(Channel::Ch4.index()).read().0,
+                _ => self.regs().cnt().read().0, // return the counter value
             };
             Poll::Ready(val)
         } else {
