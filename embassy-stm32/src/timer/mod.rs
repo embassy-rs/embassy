@@ -318,11 +318,11 @@ foreach_interrupt! {
 }
 
 /// Global interrupt handler.
-pub struct InterruptHandler<T: GeneralInstance1Channel> {
+pub struct InterruptHandler<T: CoreInstance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompareInterrupt> for InterruptHandler<T> {
+impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         #[cfg(feature = "low-power")]
         crate::low_power::on_wakeup_irq();
