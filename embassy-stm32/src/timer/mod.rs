@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 
 use embassy_sync::waitqueue::AtomicWaker;
 
+pub mod bare;
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
 pub mod input_capture;
@@ -13,7 +14,7 @@ pub mod qei;
 pub mod simple_pwm;
 
 use crate::interrupt;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{RccInfo, RccPeripheral, SealedRccPeripheral};
 
 /// Timer channel.
 #[derive(Clone, Copy)]
@@ -66,14 +67,23 @@ impl State {
     }
 }
 
-trait SealedInstance: RccPeripheral {
+struct Info {
+    regs: *mut (),
+    rcc: RccInfo,
+    bits: TimerBits,
+}
+
+unsafe impl Sync for Info {}
+
+trait SealedInstance {
+    fn info() -> &'static Info;
     /// Async state for this timer
     fn state() -> &'static State;
 }
 
 /// Core timer instance.
 #[allow(private_bounds)]
-pub trait CoreInstance: SealedInstance + 'static {
+pub trait CoreInstance: SealedInstance + RccPeripheral + 'static {
     /// Update Interrupt for this timer.
     type UpdateInterrupt: interrupt::typelevel::Interrupt;
 
@@ -85,6 +95,7 @@ pub trait CoreInstance: SealedInstance + 'static {
     /// This is a raw pointer to the register block. The actual register block layout varies depending on the timer type.
     fn regs() -> *mut ();
 }
+
 /// Cut-down basic timer instance.
 pub trait BasicNoCr2Instance: CoreInstance {}
 /// Basic timer instance.
@@ -104,7 +115,7 @@ pub trait GeneralInstance2Channel: GeneralInstance1Channel {
 
 // This trait add *extra* methods to GeneralInstance4Channel,
 // that GeneralInstance4Channel doesn't use, but the "AdvancedInstance"s need.
-// And it's a private trait, so it's content won't leak to outer namespace.
+// And it's a private trait, so its content won't leak to outer namespace.
 //
 // If you want to add a new method to it, please leave a detail comment to explain it.
 trait General4ChBlankSealed {
@@ -171,6 +182,15 @@ dma_trait!(Ch4Dma, GeneralInstance4Channel);
 macro_rules! impl_core_timer {
     ($inst:ident, $bits:expr) => {
         impl SealedInstance for crate::peripherals::$inst {
+            fn info() -> &'static Info {
+                static INFO: Info = Info {
+                    regs: crate::pac::$inst.as_ptr(),
+                    rcc: crate::peripherals::$inst::RCC_INFO,
+                    bits: $bits,
+                };
+                &INFO
+            }
+
             fn state() -> &'static State {
                 static STATE: State = State::new();
                 &STATE
