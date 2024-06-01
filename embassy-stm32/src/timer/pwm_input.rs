@@ -2,9 +2,12 @@
 
 use embassy_hal_internal::into_ref;
 
+use super::ll_async::InputCaptureFuture;
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
+use super::InterruptHandler;
 use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
 use crate::gpio::{AFType, Pull};
+use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -20,6 +23,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         tim: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
         pull_type: Pull,
+        _irq: impl Binding<T::CaptureCompareInterrupt, InterruptHandler<T>> + 'd,
         freq: Hertz,
     ) -> Self {
         into_ref!(pin);
@@ -34,6 +38,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         tim: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
         pull_type: Pull,
+        _irq: impl Binding<T::CaptureCompareInterrupt, InterruptHandler<T>> + 'd,
         freq: Hertz,
     ) -> Self {
         into_ref!(pin);
@@ -67,7 +72,9 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
         inner.set_slave_mode(SlaveMode::RESET_MODE);
 
-        // Must call the `enable` function after
+        // enable NVIC interrupt
+        T::CaptureCompareInterrupt::unpend();
+        unsafe { T::CaptureCompareInterrupt::enable() };
 
         Self { channel: ch1, inner }
     }
@@ -110,5 +117,22 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
             return 0.;
         }
         100. * (self.get_width_ticks() as f32) / (period as f32)
+    }
+
+    /// Asynchronously wait until the pin sees a rising edge (period measurement).
+    pub async fn wait_for_rising_edge(&self) -> u32 {
+        let future: InputCaptureFuture<T> = InputCaptureFuture::new(T::regs(), self.channel.into());
+        future.await
+    }
+
+    /// Asynchronously wait until the pin sees a falling edge (width measurement).
+    pub async fn wait_for_falling_edge(&self) -> u32 {
+        let ch = match self.channel {
+            Channel::Ch1 => Channel::Ch2,
+            Channel::Ch2 => Channel::Ch1,
+            _ => panic!("Invalid channel for PWM input"),
+        };
+        let future: InputCaptureFuture<T> = InputCaptureFuture::new(T::regs(), ch.into());
+        future.await
     }
 }

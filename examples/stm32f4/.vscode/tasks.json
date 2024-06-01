@@ -9,7 +9,7 @@
 			],
 			"args": [
 				"--bin",
-				"input_capture"
+				"pwm_input"
 			],
 			"group": {
 				"kind": "build",
