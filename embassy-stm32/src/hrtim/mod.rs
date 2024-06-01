@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use traits::Instance;
 
-use crate::gpio::{AFType, AnyPin};
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
 use crate::{rcc, Peripheral};
 
@@ -80,9 +80,10 @@ macro_rules! advanced_channel_impl {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                    pin.set_as_af(
+                        pin.af_num(),
+                        AfType::output(OutputType::PushPull, Speed::VeryHigh),
+                    );
                 });
                 PwmPin {
                     _pin: pin.map_into(),
@@ -97,9 +98,10 @@ macro_rules! advanced_channel_impl {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                    pin.set_as_af(
+                        pin.af_num(),
+                        AfType::output(OutputType::PushPull, Speed::VeryHigh),
+                    );
                 });
                 ComplementaryPwmPin {
                     _pin: pin.map_into(),
