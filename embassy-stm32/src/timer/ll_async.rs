@@ -45,6 +45,7 @@ impl<T: GeneralInstance4Channel> InputCaptureFuture<T> {
             phantom: PhantomData,
         };
 
+        // set interrupt enable
         this.regs.dier().modify(|w| w.0 |= 1u32 << flag as u32);
 
         this
@@ -65,7 +66,7 @@ impl From<Channel> for InterruptFlag {
 impl<T: GeneralInstance4Channel> Drop for InputCaptureFuture<T> {
     fn drop(&mut self) {
         critical_section::with(|_| {
-            // disable interrupt enable
+            // clear interrupt enable
             self.regs.dier().modify(|w| w.0 &= !(1u32 << self.flag as u32));
         });
     }
@@ -77,6 +78,7 @@ impl<T: GeneralInstance4Channel> Future for InputCaptureFuture<T> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         T::state().wakers[self.flag as usize].register(cx.waker());
 
+        // if interrupt enable is cleared, this means the interrupt handler executed, thus we can return the value
         let dier = self.regs.dier().read();
         if (dier.0 & (1u32 << self.flag as u32)) == 0 {
             let val = match self.flag {
@@ -84,11 +86,7 @@ impl<T: GeneralInstance4Channel> Future for InputCaptureFuture<T> {
                 InterruptFlag::CaptureCompare2 => self.regs.ccr(Channel::Ch2.index()).read(),
                 InterruptFlag::CaptureCompare3 => self.regs.ccr(Channel::Ch3.index()).read(),
                 InterruptFlag::CaptureCompare4 => self.regs.ccr(Channel::Ch4.index()).read(),
-                _ => self.regs.cnt().read(),
-            };
-            let val = match T::BITS {
-                TimerBits::Bits16 => val & u16::MAX as u32, // ensure value is only 16 bits
-                TimerBits::Bits32 => val,
+                _ => self.regs.cnt().read(), // return the counter value
             };
             Poll::Ready(val)
         } else {
