@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use super::ll_async::InputCaptureFuture;
+use super::ll_async::TimerEventFuture;
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
 use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, InterruptHandler};
 use crate::gpio::{AFType, AnyPin, Pull};
@@ -122,7 +122,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.get_input_interrupt(channel)
     }
 
-    fn new_future(&self, channel: Channel, mode: InputCaptureMode, tisel: InputTISelection) -> InputCaptureFuture<T> {
+    fn new_future(&self, channel: Channel, mode: InputCaptureMode, tisel: InputTISelection) -> TimerEventFuture<T> {
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
         // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
         self.inner.set_input_ti_selection(channel, tisel);
@@ -130,8 +130,10 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.set_input_capture_mode(channel, mode);
         self.inner.set_input_capture_prescaler(channel, 0);
         self.inner.enable_channel(channel, true);
+        self.inner.clear_input_interrupt(channel);
+        self.inner.enable_input_interrupt(channel, true);
 
-        InputCaptureFuture::new(T::regs(), channel.into())
+        TimerEventFuture::new(channel.into())
     }
 
     /// Asynchronously wait until the pin sees a rising edge.

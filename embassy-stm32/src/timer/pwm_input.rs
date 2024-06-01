@@ -2,7 +2,7 @@
 
 use embassy_hal_internal::into_ref;
 
-use super::ll_async::InputCaptureFuture;
+use super::ll_async::TimerEventFuture;
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
 use super::InterruptHandler;
 use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
@@ -121,18 +121,25 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
     /// Asynchronously wait until the pin sees a rising edge (period measurement).
     pub async fn wait_for_rising_edge(&self) -> u32 {
-        let future: InputCaptureFuture<T> = InputCaptureFuture::new(T::regs(), self.channel.into());
+        self.inner.clear_input_interrupt(self.channel);
+        self.inner.enable_input_interrupt(self.channel, true);
+
+        let future: TimerEventFuture<T> = TimerEventFuture::new(self.channel.into());
         future.await
     }
 
     /// Asynchronously wait until the pin sees a falling edge (width measurement).
     pub async fn wait_for_falling_edge(&self) -> u32 {
+        self.inner.clear_input_interrupt(self.channel);
+        self.inner.enable_input_interrupt(self.channel, true);
+
         let ch = match self.channel {
             Channel::Ch1 => Channel::Ch2,
             Channel::Ch2 => Channel::Ch1,
             _ => panic!("Invalid channel for PWM input"),
         };
-        let future: InputCaptureFuture<T> = InputCaptureFuture::new(T::regs(), ch.into());
+
+        let future: TimerEventFuture<T> = TimerEventFuture::new(ch.into());
         future.await
     }
 }
