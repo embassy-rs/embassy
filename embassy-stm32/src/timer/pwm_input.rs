@@ -130,15 +130,16 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
     /// Asynchronously wait until the pin sees a falling edge (width measurement).
     pub async fn wait_for_falling_edge(&self) -> u32 {
-        self.inner.clear_input_interrupt(self.channel);
-        self.inner.enable_input_interrupt(self.channel, true);
-
         // Falling edge is always on the alternate channel
         let ch = match self.channel {
             Channel::Ch1 => Channel::Ch2,
             Channel::Ch2 => Channel::Ch1,
             _ => panic!("Invalid channel for PWM input"),
         };
+
+        self.inner.clear_input_interrupt(ch);
+        self.inner.enable_input_interrupt(ch, true);
+
 
         let future: TimerEventFuture<T> = TimerEventFuture::new(ch.into());
         future.await
