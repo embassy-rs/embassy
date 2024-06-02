@@ -14,10 +14,13 @@ use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
+#[link_section = ".ram_d3"]
+static mut RAM_D3: [u8; 256] = [0u8; 256];
+
 #[embassy_executor::task]
 async fn main_task(mut spi: spi::Spi<'static, Async>) {
-    let mut read_buffer = [0; 128];
-    let mut write_buffer = [0; 128];
+    let read_buffer = unsafe { &mut RAM_D3[0..128] };
+    let write_buffer = unsafe { &mut RAM_D3[128..256] };
 
     for n in 0u32.. {
         let mut write: String<128> = String::new();
