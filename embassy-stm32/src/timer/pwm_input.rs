@@ -140,7 +140,6 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         self.inner.clear_input_interrupt(ch);
         self.inner.enable_input_interrupt(ch, true);
 
-
         let future: TimerEventFuture<T> = TimerEventFuture::new(ch.into());
         future.await
     }
