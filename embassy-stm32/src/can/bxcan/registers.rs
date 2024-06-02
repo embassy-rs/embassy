@@ -11,7 +11,7 @@ use crate::can::frame::{Envelope, Frame, Header};
 pub(crate) struct Registers(pub crate::pac::can::Can);
 
 impl Registers {
-    pub fn enter_init_mode(&mut self) {
+    pub fn enter_init_mode(&self) {
         self.0.mcr().modify(|reg| {
             reg.set_sleep(false);
             reg.set_inrq(true);
@@ -25,7 +25,7 @@ impl Registers {
     }
 
     // Leaves initialization mode, enters sleep mode.
-    pub fn leave_init_mode(&mut self) {
+    pub fn leave_init_mode(&self) {
         self.0.mcr().modify(|reg| {
             reg.set_sleep(true);
             reg.set_inrq(false);
@@ -38,7 +38,7 @@ impl Registers {
         }
     }
 
-    pub fn set_bit_timing(&mut self, bt: crate::can::util::NominalBitTiming) {
+    pub fn set_bit_timing(&self, bt: crate::can::util::NominalBitTiming) {
         let prescaler = u16::from(bt.prescaler) & 0x1FF;
         let seg1 = u8::from(bt.seg1);
         let seg2 = u8::from(bt.seg2) & 0x7F;
@@ -84,7 +84,7 @@ impl Registers {
     /// receive the frame. If enabled, [`Interrupt::Wakeup`] will also be triggered by the incoming
     /// frame.
     #[allow(dead_code)]
-    pub fn set_automatic_wakeup(&mut self, enabled: bool) {
+    pub fn set_automatic_wakeup(&self, enabled: bool) {
         self.0.mcr().modify(|reg| reg.set_awum(enabled));
     }
 
@@ -96,7 +96,7 @@ impl Registers {
     /// If this returns [`WouldBlock`][nb::Error::WouldBlock], the peripheral will enable itself
     /// in the background. The peripheral is enabled and ready to use when this method returns
     /// successfully.
-    pub fn enable_non_blocking(&mut self) -> nb::Result<(), Infallible> {
+    pub fn enable_non_blocking(&self) -> nb::Result<(), Infallible> {
         let msr = self.0.msr().read();
         if msr.slak() {
             self.0.mcr().modify(|reg| {
@@ -186,7 +186,7 @@ impl Registers {
     /// If this is enabled, mailboxes are scheduled based on the time when the transmit request bit of the mailbox was set.
     ///
     /// If this is disabled, mailboxes are scheduled based on the priority of the frame in the mailbox.
-    pub fn set_tx_fifo_scheduling(&mut self, enabled: bool) {
+    pub fn set_tx_fifo_scheduling(&self, enabled: bool) {
         self.0.mcr().modify(|w| w.set_txfp(enabled))
     }
 

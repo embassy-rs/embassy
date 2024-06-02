@@ -45,7 +45,7 @@ async fn main(spawner: Spawner) {
     let rx_pin = Input::new(&mut p.PA15, Pull::Up);
     core::mem::forget(rx_pin);
 
-    static CAN: StaticCell<Can<'static, CAN3>> = StaticCell::new();
+    static CAN: StaticCell<Can<'static>> = StaticCell::new();
     let can = CAN.init(Can::new(p.CAN3, p.PA8, p.PA15, Irqs));
     can.modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
