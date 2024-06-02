@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{AnyPin, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
 use embassy_stm32::timer::{self, Channel};
@@ -14,7 +14,7 @@ use {defmt_rtt as _, panic_probe as _};
 /// Connect PA2 and PC13 with a 1k Ohm resistor
 
 #[embassy_executor::task]
-async fn blinky(led: peripherals::PC13) {
+async fn blinky(led: AnyPin) {
     let mut led = Output::new(led, Level::High, Speed::Low);
 
     loop {
@@ -37,16 +37,14 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    unwrap!(spawner.spawn(blinky(p.PC13)));
+    unwrap!(spawner.spawn(blinky(p.PC13.degrade())));
 
     let ch3 = CapturePin::new_ch3(p.PA2, Pull::None);
     let mut ic = InputCapture::new(p.TIM2, None, None, Some(ch3), None, Irqs, khz(1000), Default::default());
 
     loop {
         info!("wait for rising edge");
-        ic.wait_for_rising_edge(Channel::Ch3).await;
-
-        let capture_value = ic.get_capture_value(Channel::Ch3);
+        let capture_value = ic.wait_for_rising_edge(Channel::Ch3).await;
         info!("new capture! {}", capture_value);
     }
 }
