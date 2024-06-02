@@ -351,17 +351,46 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
     /// Blocking write.
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
+        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
         self.set_word_size(W::CONFIG);
         for word in words.iter() {
-            let _ = transfer_word(self.info.regs, *word)?;
+            // this cannot use `transfer_word` because on SPIv2 and higher,
+            // the SPI RX state machine hangs if no physical pin is connected to the SCK AF.
+            // This is the case when the SPI has been created with `new_(blocking_?)txonly_nosck`.
+            // See https://github.com/embassy-rs/embassy/issues/2902
+            // This is not documented as an errata by ST, and I've been unable to find anything online...
+            #[cfg(not(any(spi_v1, spi_f1)))]
+            write_word(self.info.regs, *word)?;
+
+            // if we're doing tx only, after writing the last byte to FIFO we have to wait
+            // until it's actually sent. On SPIv1 you're supposed to use the BSY flag for this
+            // but apparently it's broken, it clears too soon. Workaround is to wait for RXNE:
+            // when it gets set you know the transfer is done, even if you don't care about rx.
+            // Luckily this doesn't affect SPIv2+.
+            // See http://efton.sk/STM32/gotcha/g68.html
+            // ST doesn't seem to document this in errata sheets (?)
+            #[cfg(any(spi_v1, spi_f1))]
+            transfer_word(self.info.regs, *word)?;
         }
+
+        // wait until last word is transmitted. (except on v1, see above)
+        #[cfg(not(any(spi_v1, spi_f1, spi_v2)))]
+        while !self.info.regs.sr().read().txc() {}
+        #[cfg(spi_v2)]
+        while self.info.regs.sr().read().bsy() {}
+
         Ok(())
     }
 
     /// Blocking read.
     pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
+        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
         self.set_word_size(W::CONFIG);
@@ -375,6 +404,9 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
     pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
+        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
         self.set_word_size(W::CONFIG);
@@ -391,6 +423,9 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
     /// If `write` is shorter it is padded with zero bytes.
     pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
+        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
         self.set_word_size(W::CONFIG);
@@ -465,7 +500,6 @@ impl<'d> Spi<'d, Blocking> {
     /// Create a new SPI driver, in TX-only mode, without SCK pin.
     ///
     /// This can be useful for bit-banging non-SPI protocols.
-    #[cfg(any(spi_v1, spi_f1))] // no SCK pin causes it to hang on spiv2+ for unknown reasons.
     pub fn new_blocking_txonly_nosck<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
@@ -550,7 +584,6 @@ impl<'d> Spi<'d, Async> {
     /// Create a new SPI driver, in TX-only mode, without SCK pin.
     ///
     /// This can be useful for bit-banging non-SPI protocols.
-    #[cfg(any(spi_v1, spi_f1))] // no SCK pin causes it to hang on spiv2+ for unknown reasons.
     pub fn new_txonly_nosck<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
@@ -900,8 +933,8 @@ impl RegsExt for Regs {
     }
 }
 
-fn check_error_flags(sr: regs::Sr) -> Result<(), Error> {
-    if sr.ovr() {
+fn check_error_flags(sr: regs::Sr, ovr: bool) -> Result<(), Error> {
+    if sr.ovr() && ovr {
         return Err(Error::Overrun);
     }
     #[cfg(not(any(spi_f1, spi_v3, spi_v4, spi_v5)))]
@@ -927,11 +960,11 @@ fn check_error_flags(sr: regs::Sr) -> Result<(), Error> {
     Ok(())
 }
 
-fn spin_until_tx_ready(regs: Regs) -> Result<(), Error> {
+fn spin_until_tx_ready(regs: Regs, ovr: bool) -> Result<(), Error> {
     loop {
         let sr = regs.sr().read();
 
-        check_error_flags(sr)?;
+        check_error_flags(sr, ovr)?;
 
         #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
         if sr.txe() {
@@ -948,7 +981,7 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     loop {
         let sr = regs.sr().read();
 
-        check_error_flags(sr)?;
+        check_error_flags(sr, true)?;
 
         #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
         if sr.rxne() {
@@ -1032,7 +1065,7 @@ fn finish_dma(regs: Regs) {
 }
 
 fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
-    spin_until_tx_ready(regs)?;
+    spin_until_tx_ready(regs, true)?;
 
     unsafe {
         ptr::write_volatile(regs.tx_ptr(), tx_word);
@@ -1045,6 +1078,21 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
 
     let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
     Ok(rx_word)
+}
+
+#[allow(unused)] // unused in SPIv1
+fn write_word<W: Word>(regs: Regs, tx_word: W) -> Result<(), Error> {
+    // for write, we intentionally ignore the rx fifo, which will cause
+    // overrun errors that we have to ignore.
+    spin_until_tx_ready(regs, false)?;
+
+    unsafe {
+        ptr::write_volatile(regs.tx_ptr(), tx_word);
+
+        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        regs.cr1().modify(|reg| reg.set_cstart(true));
+    }
+    Ok(())
 }
 
 // Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with

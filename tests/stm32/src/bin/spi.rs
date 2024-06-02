@@ -94,19 +94,11 @@ async fn main(_spawner: Spawner) {
     drop(spi);
 
     // Test tx-only nosck.
-    #[cfg(feature = "spi-v1")]
-    {
-        let mut spi = Spi::new_blocking_txonly_nosck(&mut spi_peri, &mut mosi, spi_config);
-        spi.blocking_transfer(&mut buf, &data).unwrap();
-        spi.blocking_transfer_in_place(&mut buf).unwrap();
-        spi.blocking_write(&buf).unwrap();
-        spi.blocking_read(&mut buf).unwrap();
-        spi.blocking_transfer::<u8>(&mut [], &[]).unwrap();
-        spi.blocking_transfer_in_place::<u8>(&mut []).unwrap();
-        spi.blocking_read::<u8>(&mut []).unwrap();
-        spi.blocking_write::<u8>(&[]).unwrap();
-        drop(spi);
-    }
+    let mut spi = Spi::new_blocking_txonly_nosck(&mut spi_peri, &mut mosi, spi_config);
+    spi.blocking_write(&buf).unwrap();
+    spi.blocking_write::<u8>(&[]).unwrap();
+    spi.blocking_write(&buf).unwrap();
+    drop(spi);
 
     info!("Test OK");
     cortex_m::asm::bkpt();
