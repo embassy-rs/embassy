@@ -15,7 +15,7 @@
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.cargo.features": [
-    "stm32f446re",
+    "stm32wb55vg",
     "time-driver-any",
     "unstable-pac",
     "exti",
