@@ -231,7 +231,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
     }
 
     fn set_byte_datatype(&self) {
-        T::regs().cr().modify(|w| w.set_datatype(Datatype::NONE));
+        T::regs().cr().modify(|w| w.set_datatype(Datatype::BYTE));
     }
 
     fn setup_direction(&self, dir: Direction) {
@@ -271,7 +271,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
 
         iv_word.copy_from_slice(&full_iv[iv_idx..iv_idx + 4]);
         #[cfg(feature = "defmt")]
-        defmt::info!("LAST IV WORD:{=u32:x}", u32::from_le_bytes(iv_word));
+        defmt::info!("LAST IV WORD:{=u32:x}", u32::from_be_bytes(iv_word));
         T::regs().ivr(0).modify(|w| w.set_ivi(u32::from_be_bytes(iv_word)));
     }
 
@@ -454,17 +454,27 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
             // Copy remaining message to the front, the rest SHOULD be 0s
             let mut in_buffer: [u8; 16] = [0; 16];
             in_buffer[..remaining_input_len].copy_from_slice(&input[idx..idx + remaining_input_len]);
-
+            defmt::info!("in_buffer: {=[u8]:x}", in_buffer);
+            
+            let  in_buffer_words= in_buffer.chunks_exact_mut(4);
+            for word in in_buffer_words{
+                word.reverse();
+            }
+            defmt::info!("in_buffer inverted: {=[u8]:x}", in_buffer);
             let mut out_buffer = [0; 16];
 
             // We're falling back to polling data transfer,
             // so CCF needs to be manually reset in case it was set before
             // by DMA
             self.clear_calculation_complete_flag();
-
             self.write_then_read_bytes(C::BLOCK_SIZE, &in_buffer, &mut out_buffer);
 
+            let  out_buffer_words= out_buffer.chunks_exact_mut(4);
+            for word in out_buffer_words{
+                word.reverse();
+            }
             output[idx..idx + remaining_input_len].copy_from_slice(&out_buffer[..remaining_input_len]);
+
         }
     }
 
@@ -489,9 +499,15 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
 
         let mut full_tag: [u8; 16] = [0; 16];
 
+
         self.wait_until_calculation_complete();
         self.read_bytes_blocking(C::BLOCK_SIZE, &mut full_tag);
         self.clear_calculation_complete_flag();
+
+        let  full_tag_words= full_tag.chunks_exact_mut(4);
+        for word in full_tag_words{
+            word.reverse();
+        }
 
         let mut tag: [u8; TAG_SIZE] = [0; TAG_SIZE];
         tag.copy_from_slice(&full_tag[0..TAG_SIZE]);
@@ -535,7 +551,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
             let mut in_word: [u8; 4] = [0; BYTES_IN_WORD];
             in_word.copy_from_slice(&blocks_in[index..index + BYTES_IN_WORD]);
             #[cfg(feature = "defmt")]
-            defmt::info!("WRITE :{=u32:x}", u32::from_be_bytes(in_word));
+            defmt::info!("WRITE0 :{=u32:x}", u32::from_be_bytes(in_word));
             T::regs().dinr().write(|w| w.set_din(u32::from_be_bytes(in_word)));
             index += BYTES_IN_WORD;
             if index % block_size == 0 {
@@ -545,7 +561,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
                 for k in 0..num_reads {
                     let out_word = T::regs().doutr().read().dout();
                     #[cfg(feature = "defmt")]
-                    defmt::info!("READ:{=u32:x}", out_word);
+                    defmt::info!("READ0:{=u32:x}", out_word);
                     blocks_out[k * BYTES_IN_WORD..(k + 1) * BYTES_IN_WORD].copy_from_slice(&out_word.to_be_bytes())
                 }
                 // clear computation complete flag
@@ -639,10 +655,10 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         DmaOut: crate::aes::DmaOut<T>,
         DmaIn: crate::aes::DmaIn<T>,
     {
-        let write_dma = Self::write_bytes_dma(&mut self.dma_in, block_size, blocks_in).await;
-        let read_dma = Self::read_bytes_dma(&mut self.dma_out, block_size, blocks_out).await;
+        let write_dma = Self::write_bytes_dma(&mut self.dma_in, block_size, blocks_in);
+        let read_dma = Self::read_bytes_dma(&mut self.dma_out, block_size, blocks_out);
 
-        // embassy_futures::join::join(write_dma, read_dma).await;
+        embassy_futures::join::join(write_dma, read_dma).await;
         defmt::info!("DMA done, blocks in: {=[u8]:x}", blocks_in);
         defmt::info!("DMA done, blocks out: {=[u8]:x}", blocks_out);
     }
@@ -665,8 +681,8 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         let num_words = blocks.len() / 4;
         let src_ptr = core::ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
         let options = crate::dma::TransferOptions {
-            // #[cfg(not(gpdma))]
-            // priority: crate::dma::Priority::High,
+            #[cfg(not(gpdma))]
+            priority: crate::dma::Priority::High,
             ..Default::default()
         };
         let dma_transfer =
@@ -694,8 +710,8 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         let num_words = blocks.len() / 4;
         let dst_ptr = core::ptr::slice_from_raw_parts_mut(blocks.as_mut_ptr().cast(), num_words);
         let options = crate::dma::TransferOptions {
-            // #[cfg(not(gpdma))]
-            // priority: crate::dma::Priority::VeryHigh,
+            #[cfg(not(gpdma))]
+            priority: crate::dma::Priority::VeryHigh,
             ..Default::default()
         };
         let dma_transfer =
