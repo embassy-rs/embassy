@@ -446,6 +446,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
     fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
         let info = self.info;
         let state = self.state;
+        state.tx_rx_refcount.store(1, Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
 
@@ -454,7 +455,6 @@ impl<'d, M: Mode> UartTx<'d, M> {
         });
         configure(info, self.kernel_clock, config, false, true)?;
 
-        state.tx_rx_refcount.store(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -798,6 +798,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
     fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
         let info = self.info;
         let state = self.state;
+        state.tx_rx_refcount.store(1, Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
 
@@ -809,7 +810,6 @@ impl<'d, M: Mode> UartRx<'d, M> {
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };
 
-        state.tx_rx_refcount.store(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -1271,6 +1271,7 @@ impl<'d, M: Mode> Uart<'d, M> {
     fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
         let info = self.rx.info;
         let state = self.rx.state;
+        state.tx_rx_refcount.store(2, Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
 
@@ -1285,7 +1286,6 @@ impl<'d, M: Mode> Uart<'d, M> {
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };
 
-        state.tx_rx_refcount.store(2, Ordering::Relaxed);
         Ok(())
     }
 

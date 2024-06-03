@@ -315,6 +315,7 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<(), ConfigError> {
         let info = self.rx.info;
         let state = self.rx.state;
+        state.tx_rx_refcount.store(2, Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
 
@@ -339,7 +340,6 @@ impl<'d> BufferedUart<'d> {
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };
 
-        state.tx_rx_refcount.store(2, Ordering::Relaxed);
         Ok(())
     }
 
