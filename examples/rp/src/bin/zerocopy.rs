@@ -1,3 +1,6 @@
+//! This example shows how to use `zerocopy_channel` from `embassy_sync` for
+//! sending large values between two tasks without copying.
+//! The example also shows how to use the RP2040 ADC with DMA.
 #![no_std]
 #![no_main]
 
