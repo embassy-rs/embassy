@@ -26,12 +26,14 @@ flavors = [
 features = ["defmt", "cortex-m", "dfu"]
 
 [dependencies]
+defmt = { version = "0.3.5", optional = true }
+log = { version = "0.4.17", optional = true }
+
 bitflags = "2.4.1"
 cortex-m = { version = "0.7.7", features = ["inline-asm"], optional = true }
-defmt = { version = "0.3.5", optional = true }
 embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
 embassy-futures = { version = "0.1.1", path = "../embassy-futures" }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time = { version = "0.3.0", path = "../embassy-time" }
 embassy-usb = { version = "0.2.0", path = "../embassy-usb", default-features = false }
 embedded-storage = { version = "0.3.1" }

@@ -12,7 +12,7 @@ defmt-rtt = { version = "0.4", optional = true }
 embassy-stm32 = { path = "../../../../embassy-stm32", features = [] }
 embassy-boot-stm32 = { path = "../../../../embassy-boot-stm32" }
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
-embassy-sync = { version = "0.5.0", path = "../../../../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../../../../embassy-sync" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.0"
@@ -24,12 +24,12 @@ embassy-futures = { version = "0.1.1", path = "../../../../embassy-futures" }
 [features]
 defmt = [
     "dep:defmt",
+    "dep:defmt-rtt",
     "embassy-boot-stm32/defmt",
     "embassy-stm32/defmt",
     "embassy-usb/defmt",
     "embassy-usb-dfu/defmt"
 ]
-debug = ["defmt-rtt", "defmt"]
 
 [profile.dev]
 debug = 2

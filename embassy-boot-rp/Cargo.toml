@@ -21,10 +21,9 @@ target = "thumbv6m-none-eabi"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
-defmt-rtt = { version = "0.4", optional = true }
 log = { version = "0.4", optional = true }
 
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-rp = { version = "0.1.0", path = "../embassy-rp", default-features = false }
 embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
 embassy-time = { version = "0.3.0", path = "../embassy-time" }
@@ -46,7 +45,6 @@ log = [
     "embassy-boot/log",
     "embassy-rp/log",
 ]
-debug = ["defmt-rtt"]
 
 [profile.dev]
 debug = 2

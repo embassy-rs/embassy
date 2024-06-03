@@ -123,6 +123,11 @@ impl RingBuffer {
         Some(Writer(self))
     }
 
+    /// Return if buffer is available.
+    pub fn is_available(&self) -> bool {
+        !self.buf.load(Ordering::Relaxed).is_null() && self.len.load(Ordering::Relaxed) != 0
+    }
+
     /// Return length of buffer.
     pub fn len(&self) -> usize {
         self.len.load(Ordering::Relaxed)
@@ -478,8 +483,12 @@ mod tests {
 
     #[test]
     fn zero_len() {
+        let mut b = [0; 0];
+
         let rb = RingBuffer::new();
         unsafe {
+            rb.init(b.as_mut_ptr(), b.len());
+
             assert_eq!(rb.is_empty(), true);
             assert_eq!(rb.is_full(), true);
 

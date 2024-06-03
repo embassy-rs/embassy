@@ -2,7 +2,7 @@
 
 Embassy is the next-generation framework for embedded applications. Write safe, correct and energy-efficient embedded code faster, using the Rust programming language, its async facilities, and the Embassy libraries.
 
-## <a href="https://embassy.dev/book/dev/index.html">Documentation</a> - <a href="https://docs.embassy.dev/">API reference</a> - <a href="https://embassy.dev/">Website</a> - <a href="https://matrix.to/#/#embassy-rs:matrix.org">Chat</a>
+## <a href="https://embassy.dev/book/index.html">Documentation</a> - <a href="https://docs.embassy.dev/">API reference</a> - <a href="https://embassy.dev/">Website</a> - <a href="https://matrix.to/#/#embassy-rs:matrix.org">Chat</a>
 ## Rust + async ❤️ embedded
 
 The Rust programming language is blazingly fast and memory-efficient, with no runtime, garbage collector or OS. It catches a wide variety of bugs at compile time, thanks to its full memory- and thread-safety, and expressive type system. 
@@ -18,6 +18,7 @@ Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows 
   - <a href="https://github.com/esp-rs">esp-rs</a>, for the Espressif Systems ESP32 series of chips.
     - Embassy HAL support for Espressif chips is being developed in the [esp-rs/esp-hal](https://github.com/esp-rs/esp-hal) repository.
     - Async WiFi, Bluetooth and ESP-NOW is being developed in the [esp-rs/esp-wifi](https://github.com/esp-rs/esp-wifi) repository.
+  - <a href="https://github.com/ch32-rs/ch32-hal">ch32-hal</a>, for the WCH 32-bit RISC-V(CH32V) series of chips.
 
 - **Time that Just Works** - 
 No more messing with hardware timers. <a href="https://docs.embassy.dev/embassy-time">embassy_time</a> provides Instant, Duration and Timer types that are globally available and never overflow.
@@ -99,12 +100,7 @@ Examples are found in the `examples/` folder separated by the chip manufacturer 
 
 ### Running examples
 
-- Install `probe-rs`.
-
-```bash
-cargo install probe-rs --features cli
-```
-
+- Install `probe-rs` following the instructions at <https://probe.rs>.
 - Change directory to the sample's base directory. For example:
 
 ```bash

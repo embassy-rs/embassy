@@ -1,5 +1,45 @@
 #![macro_use]
 
+macro_rules! peri_trait {
+    (
+        $(irqs: [$($irq:ident),*],)?
+    ) => {
+        #[allow(private_interfaces)]
+        pub(crate) trait SealedInstance {
+            #[allow(unused)]
+            fn info() -> &'static Info;
+            #[allow(unused)]
+            fn state() -> &'static State;
+        }
+
+        /// Peripheral instance trait.
+        #[allow(private_bounds)]
+        pub trait Instance: crate::Peripheral<P = Self> + SealedInstance + crate::rcc::RccPeripheral {
+            $($(
+                /// Interrupt for this peripheral.
+                type $irq: crate::interrupt::typelevel::Interrupt;
+            )*)?
+        }
+    };
+}
+
+macro_rules! peri_trait_impl {
+    ($instance:ident, $info:expr) => {
+        #[allow(private_interfaces)]
+        impl SealedInstance for crate::peripherals::$instance {
+            fn info() -> &'static Info {
+                static INFO: Info = $info;
+                &INFO
+            }
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
+        }
+        impl Instance for crate::peripherals::$instance {}
+    };
+}
+
 macro_rules! pin_trait {
     ($signal:ident, $instance:path $(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " pin trait")]
@@ -66,7 +106,14 @@ macro_rules! new_pin {
     ($name:ident, $aftype:expr, $speed:expr, $pull:expr) => {{
         let pin = $name.into_ref();
         pin.set_as_af_pull(pin.af_num(), $aftype, $pull);
-        pin.set_speed($speed);
+        // Do not call set_speed on AFType::Input, as MODE and CNF bits are not independent
+        // for gpio_v1
+        match $aftype {
+            crate::gpio::AFType::Input => {}
+            _ => {
+                pin.set_speed($speed);
+            }
+        };
         Some(pin.map_into())
     }};
 }

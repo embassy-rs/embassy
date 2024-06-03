@@ -9,9 +9,7 @@ use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::filter::Mask32;
-use embassy_stm32::can::{
-    Can, Fifo, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler,
-};
+use embassy_stm32::can::{Fifo, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
 use embassy_time::Duration;
@@ -48,7 +46,7 @@ async fn main(_spawner: Spawner) {
     let rx_pin = Input::new(&mut rx, Pull::Up);
     core::mem::forget(rx_pin);
 
-    let mut can = Can::new(can, rx, tx, Irqs);
+    let mut can = embassy_stm32::can::Can::new(can, rx, tx, Irqs);
 
     info!("Configuring can...");
 

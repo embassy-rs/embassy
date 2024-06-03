@@ -42,7 +42,7 @@ features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h7
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time = { version = "0.3.0", path = "../embassy-time", optional = true }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
@@ -72,7 +72,7 @@ rand_core = "0.6.3"
 sdio-host = "0.5.0"
 critical-section = "1.1"
 #stm32-metapac = { version = "15" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-f1297385e91f061fcb6134bb25f51e12d8abff93" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-59b1f65bd109c3ef35782e6c44062208d0ef3d0e" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -89,7 +89,6 @@ volatile-register = { version = "0.2.1" }
 bitflags = "2.4.2"
 
 
-
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
 
@@ -98,7 +97,7 @@ proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
 #stm32-metapac = { version = "15", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-f1297385e91f061fcb6134bb25f51e12d8abff93", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-59b1f65bd109c3ef35782e6c44062208d0ef3d0e", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]

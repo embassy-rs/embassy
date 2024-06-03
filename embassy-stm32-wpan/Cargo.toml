@@ -20,7 +20,7 @@ features = ["stm32wb55rg"]
 
 [dependencies]
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32" }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time = { version = "0.3.0", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.1.0", path = "../embassy-hal-internal" }
@@ -28,6 +28,8 @@ embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver", optional=true }
 
 defmt = { version = "0.3", optional = true }
+log = { version = "0.4.17", optional = true }
+
 cortex-m = "0.7.6"
 heapless = "0.8"
 aligned = "0.4.1"

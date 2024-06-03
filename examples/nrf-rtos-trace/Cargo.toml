@@ -15,7 +15,7 @@ log = [
 ]
 
 [dependencies]
-embassy-sync = { version = "0.5.0", path = "../../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../../embassy-sync" }
 embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "rtos-trace", "integrated-timers"] }
 embassy-time = { version = "0.3.0", path = "../../embassy-time" }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }

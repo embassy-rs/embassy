@@ -9,7 +9,7 @@ pub use traits::Instance;
 
 use crate::gpio::{AFType, AnyPin};
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// HRTIM burst controller instance.
 pub struct BurstController<T: Instance> {
@@ -172,7 +172,7 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
     fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(tim);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         #[cfg(stm32f334)]
         if crate::pac::RCC.cfgr3().read().hrtim1sw() == crate::pac::rcc::vals::Timsw::PLL1_P {

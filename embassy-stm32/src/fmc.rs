@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::into_ref;
 
 use crate::gpio::{AFType, Pull, Speed};
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
@@ -27,7 +27,7 @@ where
 
     /// Enable the FMC peripheral and reset it.
     pub fn enable(&mut self) {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
     }
 
     /// Enable the memory controller on applicable chips.
@@ -35,7 +35,7 @@ where
         // fmc v1 and v2 does not have the fmcen bit
         // fsmc v1, v2 and v3 does not have the fmcen bit
         // This is a "not" because it is expected that all future versions have this bit
-        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fsmc_v2x3, fsmc_v3x1, fmc_v4)))]
+        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fmc_v4)))]
         T::REGS.bcr1().modify(|r| r.set_fmcen(true));
         #[cfg(any(fmc_v4))]
         T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
@@ -54,14 +54,14 @@ where
     const REGISTERS: *const () = T::REGS.as_ptr() as *const _;
 
     fn enable(&mut self) {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
     }
 
     fn memory_controller_enable(&mut self) {
         // fmc v1 and v2 does not have the fmcen bit
         // fsmc v1, v2 and v3 does not have the fmcen bit
         // This is a "not" because it is expected that all future versions have this bit
-        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fsmc_v2x3, fsmc_v3x1, fmc_v4)))]
+        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fmc_v4)))]
         T::REGS.bcr1().modify(|r| r.set_fmcen(true));
         #[cfg(any(fmc_v4))]
         T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
@@ -200,7 +200,7 @@ impl<'d, T: Instance> Fmc<'d, T> {
     ));
 }
 
-trait SealedInstance: crate::rcc::SealedRccPeripheral {
+trait SealedInstance: crate::rcc::RccPeripheral {
     const REGS: crate::pac::fmc::Fmc;
 }
 

@@ -1,0 +1,359 @@
+= Frequently Asked Questions
+
+These are a list of unsorted, commonly asked questions and answers.
+
+Please feel free to add items to link:https://github.com/embassy-rs/embassy/edit/main/docs/pages/faq.adoc[this page], especially if someone in the chat answered a question for you!
+
+== How to deploy to RP2040 without a debugging probe.
+
+Install link:https://github.com/JoNil/elf2uf2-rs[elf2uf2-rs] for converting the generated elf binary into a uf2 file.
+
+Configure the runner to use this tool, add this to `.cargo/config.toml`:
+[source,toml]
+----
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "elf2uf2-rs --deploy --serial --verbose"
+----
+
+The command-line parameters `--deploy` will detect your device and upload the binary, `--serial` starts a serial connection. See the documentation for more info.
+
+== Missing main macro
+
+If you see an error like this:
+
+[source,rust]
+----
+#[embassy_executor::main]
+|                   ^^^^ could not find `main` in `embassy_executor`
+----
+
+You are likely missing some features of the `embassy-executor` crate.
+
+For Cortex-M targets, check whether ALL of the following features are enabled in your `Cargo.toml` for the `embassy-executor` crate:
+
+* `arch-cortex-m`
+* `executor-thread`
+
+For ESP32, consider using the executors and `#[main]` macro provided by your appropriate link:https://crates.io/crates/esp-hal-common[HAL crate].
+
+== Why is my binary so big?
+
+The first step to managing your binary size is to set up your link:https://doc.rust-lang.org/cargo/reference/profiles.html[profiles].
+
+[source,toml]
+----
+[profile.release]
+lto = true
+opt-level = "s"
+incremental = false
+codegen-units = 1
+# note: debug = true is okay - debuginfo isn't flashed to the device!
+debug = true
+----
+
+All of these flags are elaborated on in the Rust Book page linked above.
+
+=== My binary is still big... filled with `std::fmt` stuff!
+
+This means your code is sufficiently complex that `panic!` invocation's formatting requirements could not be optimized out, despite your usage of `panic-halt` or `panic-reset`.
+
+You can remedy this by adding the following to your `.cargo/config.toml`:
+
+[source,toml]
+----
+[unstable]
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]
+----
+
+This replaces all panics with a `UDF` (undefined) instruction.
+
+Depending on your chipset, this will exhibit different behavior.
+
+Refer to the spec for your chipset, but for `thumbv6m`, it results in a hardfault. Which can be configured like so:
+
+[source,rust]
+----
+#[exception]
+unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {
+    SCB::sys_reset() // <- you could do something other than reset
+}
+----
+
+Refer to cortex-m's link:https://docs.rs/cortex-m-rt/latest/cortex_m_rt/attr.exception.html[exception handling] for more info.
+
+== `embassy-time` throws linker errors
+
+If you see linker error like this:
+
+[source,text]
+----
+  = note: rust-lld: error: undefined symbol: _embassy_time_now
+          >>> referenced by driver.rs:127 (src/driver.rs:127)
+          >>>               embassy_time-846f66f1620ad42c.embassy_time.4f6a638abb75dd4c-cgu.0.rcgu.o:(embassy_time::driver::now::hefb1f99d6e069842) in archive Devel/Embedded/pogodyna/target/thumbv7em-none-eabihf/debug/deps/libembassy_time-846f66f1620ad42c.rlib
+
+          rust-lld: error: undefined symbol: _embassy_time_allocate_alarm
+          >>> referenced by driver.rs:134 (src/driver.rs:134)
+          >>>               embassy_time-846f66f1620ad42c.embassy_time.4f6a638abb75dd4c-cgu.0.rcgu.o:(embassy_time::driver::allocate_alarm::hf5145b6bd46706b2) in archive Devel/Embedded/pogodyna/target/thumbv7em-none-eabihf/debug/deps/libembassy_time-846f66f1620ad42c.rlib
+
+          rust-lld: error: undefined symbol: _embassy_time_set_alarm_callback
+          >>> referenced by driver.rs:139 (src/driver.rs:139)
+          >>>               embassy_time-846f66f1620ad42c.embassy_time.4f6a638abb75dd4c-cgu.0.rcgu.o:(embassy_time::driver::set_alarm_callback::h24f92388d96eafd2) in archive Devel/Embedded/pogodyna/target/thumbv7em-none-eabihf/debug/deps/libembassy_time-846f66f1620ad42c.rlib
+
+          rust-lld: error: undefined symbol: _embassy_time_set_alarm
+          >>> referenced by driver.rs:144 (src/driver.rs:144)
+          >>>               embassy_time-846f66f1620ad42c.embassy_time.4f6a638abb75dd4c-cgu.0.rcgu.o:(embassy_time::driver::set_alarm::h530a5b1f444a6d5b) in archive Devel/Embedded/pogodyna/target/thumbv7em-none-eabihf/debug/deps/libembassy_time-846f66f1620ad42c.rlib
+----
+
+You probably need to enable a time driver for your HAL (not in `embassy-time`!). For example with `embassy-stm32`, you might need to enable `time-driver-any`:
+
+[source,toml]
+----
+[dependencies.embassy-stm32]
+version = "0.1.0"
+features = [
+    # ...
+    "time-driver-any", # Add this line!
+    # ...
+]
+----
+
+If you are in the early project setup phase and not using anything from the HAL, make sure the HAL is explicitly used to prevent the linker removing it as dead code by adding this line to your source:
+
+[source,rust]
+----
+use embassy_stm32 as _;
+----
+
+== Error: `Only one package in the dependency graph may specify the same links value.`
+
+You have multiple versions of the same crate in your dependency tree. This means that some of your
+embassy crates are coming from crates.io, and some from git, each of them pulling in a different set
+of dependencies.
+
+To resolve this issue, make sure to only use a single source for all your embassy crates!
+To do this, you should patch your dependencies to use git sources using `[patch.crates.io]`
+and maybe `[patch.'https://github.com/embassy-rs/embassy.git']`.
+
+Example:
+
+[source,toml]
+----
+[patch.crates-io]
+embassy-time-queue-driver = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+embassy-time-driver = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+# embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+----
+
+Note that the git revision should match any other embassy patches or git dependencies that you are using!
+
+== How can I optimize the speed of my embassy-stm32 program?
+
+* Make sure RCC is set up to go as fast as possible
+* Make sure link:https://docs.rs/cortex-m/latest/cortex_m/peripheral/struct.SCB.html[flash cache] is enabled
+* build with `--release`
+* Set the following keys for the release profile in your `Cargo.toml`:
+    ** `opt-level = "s"`
+    ** `lto = "fat"`
+* Set the following keys in the `[unstable]` section of your `.cargo/config.toml`
+    ** `build-std = ["core"]`
+    ** `build-std-features = ["panic_immediate_abort"]`
+* Enable feature `embassy-time/generic-queue`, disable feature `embassy-executor/integrated-timers`
+* When using `InterruptExecutor`:
+    ** disable `executor-thread`
+    ** make `main`` spawn everything, then enable link:https://docs.rs/cortex-m/latest/cortex_m/peripheral/struct.SCB.html#method.set_sleeponexit[SCB.SLEEPONEXIT] and `loop { cortex_m::asm::wfi() }`
+    ** *Note:*  If you need 2 priority levels, using 2 interrupt executors is better than 1 thread executor + 1 interrupt executor.
+
+== How do I set up the task arenas on stable?
+
+When you aren't using the `nightly` feature of `embassy-executor`, the executor uses a bump allocator, which may require configuration.
+
+Something like this error will occur at **compile time** if the task arena is *too large* for the target's RAM:
+
+[source,plain]
+----
+rust-lld: error: section '.bss' will not fit in region 'RAM': overflowed by _ bytes
+rust-lld: error: section '.uninit' will not fit in region 'RAM': overflowed by _ bytes
+----
+
+And this message will appear at **runtime** if the task arena is *too small* for the tasks running:
+
+[source,plain]
+----
+ERROR panicked at 'embassy-executor: task arena is full. You must increase the arena size, see the documentation for details: https://docs.embassy.dev/embassy-executor/'
+----
+
+NOTE: If all tasks are spawned at startup, this panic will occur immediately.
+
+Check out link:https://docs.embassy.dev/embassy-executor/git/cortex-m/index.html#task-arena[Task Arena Documentation] for more details.
+
+== Can I use manual ISRs alongside Embassy?
+
+Yes! This can be useful if you need to respond to an event as fast as possible, and the latency caused by the usual “ISR, wake, return from ISR, context switch to woken task” flow is too much for your application. Simply define a `#[interrupt] fn INTERRUPT_NAME() {}` handler as you would link:https://docs.rust-embedded.org/book/start/interrupts.html[in any other embedded rust project].
+
+== How can I measure resource usage (CPU, RAM, etc.)?
+
+=== For CPU Usage:
+
+There are a couple techniques that have been documented, generally you want to measure how long you are spending in the idle or low priority loop.
+
+We need to document specifically how to do this in embassy, but link:https://blog.japaric.io/cpu-monitor/[this older post] describes the general process.
+
+If you end up doing this, please update this section with more specific examples!
+
+=== For Static Memory Usage
+
+Tools like `cargo size` and `cargo nm` can tell you the size of any globals or other static usage. Specifically you will want to see the size of the `.data` and `.bss` sections, which together make up the total global/static memory usage.
+
+=== For Max Stack Usage
+
+Check out link:https://github.com/Dirbaio/cargo-call-stack/[`cargo-call-stack`] for statically calculating worst-case stack usage. There are some caveats and inaccuracies possible with this, but this is a good way to get the general idea. See link:https://github.com/dirbaio/cargo-call-stack#known-limitations[the README] for more details.
+
+== The memory definition for my STM chip seems wrong, how do I define a `memory.x` file?
+
+It could happen that your project compiles, flashes but fails to run. The following situation can be true for your setup:
+
+The `memory.x` is generated automatically when enabling the `memory-x` feature on the `embassy-stm32` crate in the `Cargo.toml` file.
+This, in turn, uses `stm32-metapac` to generate the `memory.x` file for you. Unfortunately, more often than not this memory definition is not correct.
+
+You can override this by adding your own `memory.x` file. Such a file could look like this:
+```
+MEMORY
+{
+  FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 1024K
+  RAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 320K
+}
+
+_stack_start = ORIGIN(RAM) + LENGTH(RAM);
+```
+
+Please refer to the STM32 documentation for the specific values suitable for your board and setup. The STM32 Cube examples often contain a linker script `.ld` file. 
+Look for the `MEMORY` section and try to determine the FLASH and RAM sizes and section start.
+
+If you find a case where the memory.x is wrong, please report it on [this Github issue](https://github.com/embassy-rs/stm32-data/issues/301) so other users are not caught by surprise.
+
+== The USB examples are not working on my board, is there anything else I need to configure?
+
+If you are trying out the USB examples and your device doesn not connect, the most common issues are listed below.
+
+=== Incorrect RCC config
+
+Check your board and crystal/oscillator, in particular make sure that `HSE` is set to the correct value, e.g. `8_000_000` Hertz if your board does indeed run on a 8 MHz oscillator.
+
+=== VBUS detection on STM32 platform
+
+The USB specification requires that all USB devices monitor the bus for detection of plugging/unplugging actions. The devices must pull-up the D+ or D- lane as soon as the host supplies VBUS.
+
+See the docs, for example at link:https://docs.embassy.dev/embassy-stm32/git/stm32f401vc/usb/struct.Config.html[`usb/struct.Config.html`] for information on how to enable/disable `vbus_detection`.
+
+When the device is powered only from the USB bus that simultaneously serves as the data connection, this is optional. (If there's no power in VBUS the device would be off anyway, so it's safe to always assume there's power in VBUS, i.e. the USB cable is always plugged in). If your device doesn't have the required connections in place to allow VBUS sensing (see below), then this option needs to be set to `false` to work.
+
+When the device is powered from another power source and therefore can stay powered through USB cable plug/unplug events, then this must be implemented and `vbus_detection` MUST be set to `true`.
+
+If your board is powered from the USB and you are unsure whether it supports `vbus_detection`, consult the schematics of your board to see if VBUS is connected to PA9 for USB Full Speed or PB13 for USB High Speed, vice versa, possibly with a voltage divider. When designing your own hardware, see ST application note AN4879 (in particular section 2.6) and the reference manual of your specific chip for more details.
+
+== Known issues (details and/or mitigations)
+
+These are issues that are commonly reported. Help wanted fixing them, or improving the UX when possible!
+
+=== STM32H5 and STM32H7 power issues
+
+STM32 chips with built-in power management (SMPS and LDO) settings often cause user problems when the configuration does not match how the board was designed.
+
+Settings from the examples, or even from other working boards, may not work on YOUR board, because they are wired differently.
+
+Additionally, some PWR settings require a full device reboot (and enough time to discharge any power capacitors!), making this hard to troubleshoot. Also, some
+"wrong" power settings will ALMOST work, meaning it will sometimes work on some boots, or for a while, but crash unexpectedly.
+
+There is not a fix for this yet, as it is board/hardware dependant. See link:https://github.com/embassy-rs/embassy/issues/2806[this tracking issue] for more details
+
+=== STM32 BDMA only working out of some RAM regions
+
+The STM32 BDMA controller included in some STM32H7 chips has to be configured to use only certain regions of RAM,
+otherwise the transfer will fail.
+
+If you see errors that look like this:
+
+[source,plain]
+----
+DMA: error on BDMA@1234ABCD channel 4
+----
+
+You need to set up your linker script to define a special region for this area and copy data to that region before using with BDMA.
+
+General steps:
+
+1. Find out which memory region BDMA has access to. You can get this information from the bus matrix and the memory mapping table in the STM32 datasheet.
+2. Add the memory region to `memory.x`, you can modify the generated one from https://github.com/embassy-rs/stm32-data-generated/tree/main/data/chips.
+3. You might need to modify `build.rs` to make cargo pick up the modified `memory.x`.
+4. In your code, access the defined memory region using `#[link_section = ".xxx"]`
+5. Copy data to that region before using BDMA.
+
+See link:https://github.com/embassy-rs/embassy/blob/main/examples/stm32h7/src/bin/spi_bdma.rs[SMT32H7 SPI BDMA example] for more details.
+
+== How do I switch to the `main` branch?
+
+Sometimes to test new changes or fixes, you'll want to switch your project to using a version from GitHub.
+
+You can add a section to your `Cargo.toml` file like this, you'll need to patch ALL embassy crates to the same revision:
+
+Using `patch` will replace all direct AND indirect dependencies.
+
+See the link:https://embassy.dev/book/dev/new_project.html#_cargo_toml[new project docs] for more details on this approach.
+
+[source,toml]
+----
+[patch.crates-io]
+# make sure to get the latest git rev from github, you can see the latest one here:
+# https://github.com/embassy-rs/embassy/commits/main/
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-executor     = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-rp           = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-sync         = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-time         = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-usb          = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+embassy-usb-driver   = { git = "https://github.com/embassy-rs/embassy",     rev = "4cade64ebd34bf93458f17cfe85c5f710d0ff13c" }
+----
+
+== How do I add support for a new microcontroller to embassy?
+
+This is particularly for cortex-m, and potentially risc-v, where there is already support for basics like interrupt handling, or even already embassy-executor support for your architecture.
+
+This is a *much harder path* than just using Embassy on an already supported chip. If you are a beginner, consider using embassy on an existing, well supported chip for a while, before you decide to write drivers from scratch. It's also worth reading the existing source of supported Embassy HALs, to get a feel for how drivers are implemented for various chips. You should already be comfortable reading and writing unsafe code, and understanding the responsibilities of writing safe abstractions for users of your HAL.
+
+This is not the only possible approach, but if you are looking for where to start, this is a reasonable way to tackle the task:
+
+1. First, drop by the Matrix room or search around to see if someone has already started writing drivers, either in Embassy or otherwise in Rust. You might not have to start from scratch!
+2. Make sure the target is supported in probe-rs, it likely is, and if not, there is likely a cmsis-pack you can use to add support so that flashing and debugging is possible. You will definitely appreciate being able to debug with SWD or JTAG when writing drivers!
+3. See if there is an SVD (or SVDs, if it's a family) available, if it is, run it through chiptool to create a PAC for low level register access. If not, there are other ways (like scraping the PDF datasheets or existing C header files), but these are more work than starting from the SVD file to define peripheral memory locations necessary for writing drivers.
+4. Either make a fork of embassy repo, and add your target there, or make a repo that just contains the PAC and an empty HAL. It doesn't necessarily have to live in the embassy repo at first.
+5. Get a hello world binary working on your chip, either with minimal HAL or just PAC access, use delays and blink a light or send some raw data on some interface, make sure it works and you can flash, debug with defmt + RTT, write a proper linker script, etc.
+6. Get basic timer operations and timer interrupts working, upgrade your blinking application to use hardware timers and interrupts, and ensure they are accurate (with a logic analyzer or oscilloscope, if possible).
+7. Implement the embassy-time driver API with your timer and timer interrupt code, so that you can use embassy-time operations in your drivers and applications.
+8. Then start implementing whatever peripherals you need, like GPIOs, UART, SPI, I2C, etc. This is the largest part of the work, and will likely continue for a while! Don't feel like you need 100% coverage of all peripherals at first, this is likely to be an ongoing process over time.
+9. Start implementing the embedded-hal, embedded-io, and embedded-hal-async traits on top of your HAL drivers, once you start having more features completed. This will allow users to use standard external device drivers (e.g. sensors, actuators, displays, etc.) with your HAL.
+10. Discuss upstreaming the PAC/HAL for embassy support, or make sure your drivers are added to the awesome-embedded-rust list so that people can find it.
+
+== Multiple Tasks, or one task with multiple futures?
+
+Some examples end like this in main:
+
+[source,rust]
+----
+// Run everything concurrently.
+// If we had made everything `'static` above instead, we could do this using separate tasks instead.
+join(usb_fut, join(echo_fut, log_fut)).await;
+----
+
+There are two main ways to handle concurrency in Embassy:
+
+1. Spawn multiple tasks, e.g. with `#[embassy_executor::task]`
+2. Manage multiple futures inside ONE task using `join()` or `select()` (as shown above)
+
+In general, either of these approaches will work. The main differences of these approaches are:
+
+When using **separate tasks**, each task needs its own RAM allocation, so there's a little overhead for each task, so one task that does three things will likely be a little bit smaller than three tasks that do one thing (not a lot, probably a couple dozen bytes). In contrast, with **multiple futures in one task**, you don't need multiple task allocations, and it will generally be easier to share data, or use borrowed resources, inside of a single task.
+
+But when it comes to "waking" tasks, for example when a data transfer is complete or a button is pressed, it's faster to wake a dedicated task, because that task does not need to check which future is actually ready. `join` and `select` must check ALL of the futures they are managing to see which one (or which ones) are ready to do more work. This is because all Rust executors (like Embassy or Tokio) only have the ability to wake tasks, not specific futures. This means you will use slightly less CPU time juggling futures when using dedicated tasks.
+
+Practically, there's not a LOT of difference either way - so go with what makes it easier for you and your code first, but there will be some details that are slightly different in each case.

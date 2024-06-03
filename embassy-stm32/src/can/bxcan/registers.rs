@@ -11,7 +11,7 @@ use crate::can::frame::{Envelope, Frame, Header};
 pub(crate) struct Registers(pub crate::pac::can::Can);
 
 impl Registers {
-    pub fn enter_init_mode(&mut self) {
+    pub fn enter_init_mode(&self) {
         self.0.mcr().modify(|reg| {
             reg.set_sleep(false);
             reg.set_inrq(true);
@@ -25,7 +25,7 @@ impl Registers {
     }
 
     // Leaves initialization mode, enters sleep mode.
-    pub fn leave_init_mode(&mut self) {
+    pub fn leave_init_mode(&self) {
         self.0.mcr().modify(|reg| {
             reg.set_sleep(true);
             reg.set_inrq(false);
@@ -38,7 +38,7 @@ impl Registers {
         }
     }
 
-    pub fn set_bit_timing(&mut self, bt: crate::can::util::NominalBitTiming) {
+    pub fn set_bit_timing(&self, bt: crate::can::util::NominalBitTiming) {
         let prescaler = u16::from(bt.prescaler) & 0x1FF;
         let seg1 = u8::from(bt.seg1);
         let seg2 = u8::from(bt.seg2) & 0x7F;
@@ -84,7 +84,7 @@ impl Registers {
     /// receive the frame. If enabled, [`Interrupt::Wakeup`] will also be triggered by the incoming
     /// frame.
     #[allow(dead_code)]
-    pub fn set_automatic_wakeup(&mut self, enabled: bool) {
+    pub fn set_automatic_wakeup(&self, enabled: bool) {
         self.0.mcr().modify(|reg| reg.set_awum(enabled));
     }
 
@@ -96,7 +96,7 @@ impl Registers {
     /// If this returns [`WouldBlock`][nb::Error::WouldBlock], the peripheral will enable itself
     /// in the background. The peripheral is enabled and ready to use when this method returns
     /// successfully.
-    pub fn enable_non_blocking(&mut self) -> nb::Result<(), Infallible> {
+    pub fn enable_non_blocking(&self) -> nb::Result<(), Infallible> {
         let msr = self.0.msr().read();
         if msr.slak() {
             self.0.mcr().modify(|reg| {
@@ -131,7 +131,7 @@ impl Registers {
     /// Note that this will not trigger [`Interrupt::Wakeup`], only reception of an incoming CAN
     /// frame will cause that interrupt.
     #[allow(dead_code)]
-    pub fn wakeup(&mut self) {
+    pub fn wakeup(&self) {
         self.0.mcr().modify(|reg| {
             reg.set_sleep(false);
             reg.set_inrq(false);
@@ -181,46 +181,85 @@ impl Registers {
         None
     }
 
+    /// Enables or disables FIFO scheduling of outgoing mailboxes.
+    ///
+    /// If this is enabled, mailboxes are scheduled based on the time when the transmit request bit of the mailbox was set.
+    ///
+    /// If this is disabled, mailboxes are scheduled based on the priority of the frame in the mailbox.
+    pub fn set_tx_fifo_scheduling(&self, enabled: bool) {
+        self.0.mcr().modify(|w| w.set_txfp(enabled))
+    }
+
+    /// Checks if FIFO scheduling of outgoing mailboxes is enabled.
+    pub fn tx_fifo_scheduling_enabled(&self) -> bool {
+        self.0.mcr().read().txfp()
+    }
+
     /// Puts a CAN frame in a transmit mailbox for transmission on the bus.
     ///
-    /// Frames are transmitted to the bus based on their priority (see [`FramePriority`]).
-    /// Transmit order is preserved for frames with identical priority.
+    /// The behavior of this function depends on wheter or not FIFO scheduling is enabled.
+    /// See [`Self::set_tx_fifo_scheduling()`] and [`Self::tx_fifo_scheduling_enabled()`].
+    ///
+    /// # Priority based scheduling
+    ///
+    /// If FIFO scheduling is disabled, frames are transmitted to the bus based on their
+    /// priority (see [`FramePriority`]). Transmit order is preserved for frames with identical
+    /// priority.
     ///
     /// If all transmit mailboxes are full, and `frame` has a higher priority than the
     /// lowest-priority message in the transmit mailboxes, transmission of the enqueued frame is
     /// cancelled and `frame` is enqueued instead. The frame that was replaced is returned as
     /// [`TransmitStatus::dequeued_frame`].
-    pub fn transmit(&mut self, frame: &Frame) -> nb::Result<TransmitStatus, Infallible> {
+    ///
+    /// # FIFO scheduling
+    ///
+    /// If FIFO scheduling is enabled, frames are transmitted in the order that they are passed to this function.
+    ///
+    /// If all transmit mailboxes are full, this function returns [`nb::Error::WouldBlock`].
+    pub fn transmit(&self, frame: &Frame) -> nb::Result<TransmitStatus, Infallible> {
+        // Check if FIFO scheduling is enabled.
+        let fifo_scheduling = self.0.mcr().read().txfp();
+
         // Get the index of the next free mailbox or the one with the lowest priority.
         let tsr = self.0.tsr().read();
         let idx = tsr.code() as usize;
 
         let frame_is_pending = !tsr.tme(0) || !tsr.tme(1) || !tsr.tme(2);
-        let pending_frame = if frame_is_pending {
-            // High priority frames are transmitted first by the mailbox system.
-            // Frames with identical identifier shall be transmitted in FIFO order.
-            // The controller schedules pending frames of same priority based on the
-            // mailbox index instead. As a workaround check all pending mailboxes
-            // and only accept higher priority frames.
+        let all_frames_are_pending = !tsr.tme(0) && !tsr.tme(1) && !tsr.tme(2);
+
+        let pending_frame;
+        if fifo_scheduling && all_frames_are_pending {
+            // FIFO scheduling is enabled and all mailboxes are full.
+            // We will not drop a lower priority frame, we just report WouldBlock.
+            return Err(nb::Error::WouldBlock);
+        } else if !fifo_scheduling && frame_is_pending {
+            // Priority scheduling is enabled and alteast one mailbox is full.
+            //
+            // In this mode, the peripheral transmits high priority frames first.
+            // Frames with identical priority should be transmitted in FIFO order,
+            // but the controller schedules pending frames of same priority based on the
+            // mailbox index. As a workaround check all pending mailboxes and only accept
+            // frames with a different priority.
             self.check_priority(0, frame.id().into())?;
             self.check_priority(1, frame.id().into())?;
             self.check_priority(2, frame.id().into())?;
 
-            let all_frames_are_pending = !tsr.tme(0) && !tsr.tme(1) && !tsr.tme(2);
             if all_frames_are_pending {
                 // No free mailbox is available. This can only happen when three frames with
                 // ascending priority (descending IDs) were requested for transmission and all
                 // of them are blocked by bus traffic with even higher priority.
                 // To prevent a priority inversion abort and replace the lowest priority frame.
-                self.read_pending_mailbox(idx)
+                pending_frame = self.read_pending_mailbox(idx);
             } else {
                 // There was a free mailbox.
-                None
+                pending_frame = None;
             }
         } else {
-            // All mailboxes are available: Send frame without performing any checks.
-            None
-        };
+            // Either we have FIFO scheduling and at-least one free mailbox,
+            // or we have priority scheduling and all mailboxes are free.
+            // No further checks are needed.
+            pending_frame = None
+        }
 
         self.write_mailbox(idx, frame);
 
@@ -237,25 +276,23 @@ impl Registers {
     }
 
     /// Returns `Ok` when the mailbox is free or if it contains pending frame with a
-    /// lower priority (higher ID) than the identifier `id`.
+    /// different priority from the identifier `id`.
     fn check_priority(&self, idx: usize, id: IdReg) -> nb::Result<(), Infallible> {
         // Read the pending frame's id to check its priority.
         assert!(idx < 3);
         let tir = &self.0.tx(idx).tir().read();
-        //let tir = &can.tx[idx].tir.read();
 
         // Check the priority by comparing the identifiers. But first make sure the
         // frame has not finished the transmission (`TXRQ` == 0) in the meantime.
-        if tir.txrq() && id <= IdReg::from_register(tir.0) {
-            // There's a mailbox whose priority is higher or equal
-            // the priority of the new frame.
+        if tir.txrq() && id == IdReg::from_register(tir.0) {
+            // There's a mailbox whose priority is equal to the priority of the new frame.
             return Err(nb::Error::WouldBlock);
         }
 
         Ok(())
     }
 
-    fn write_mailbox(&mut self, idx: usize, frame: &Frame) {
+    fn write_mailbox(&self, idx: usize, frame: &Frame) {
         debug_assert!(idx < 3);
 
         let mb = self.0.tx(idx);
@@ -272,7 +309,7 @@ impl Registers {
         });
     }
 
-    fn read_pending_mailbox(&mut self, idx: usize) -> Option<Frame> {
+    fn read_pending_mailbox(&self, idx: usize) -> Option<Frame> {
         if self.abort_by_index(idx) {
             debug_assert!(idx < 3);
 
@@ -295,7 +332,7 @@ impl Registers {
     }
 
     /// Tries to abort a pending frame. Returns `true` when aborted.
-    fn abort_by_index(&mut self, idx: usize) -> bool {
+    fn abort_by_index(&self, idx: usize) -> bool {
         self.0.tsr().write(|reg| reg.set_abrq(idx, true));
 
         // Wait for the abort request to be finished.
@@ -314,7 +351,7 @@ impl Registers {
     ///
     /// If there is a frame in the provided mailbox, and it is canceled successfully, this function
     /// returns `true`.
-    pub fn abort(&mut self, mailbox: Mailbox) -> bool {
+    pub fn abort(&self, mailbox: Mailbox) -> bool {
         // If the mailbox is empty, the value of TXOKx depends on what happened with the previous
         // frame in that mailbox. Only call abort_by_index() if the mailbox is not empty.
         let tsr = self.0.tsr().read();

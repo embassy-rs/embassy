@@ -55,13 +55,14 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<M, BUS, CS> spi::SpiDevice for SpiDevice<'_, M, BUS, CS>
+impl<M, BUS, CS, Word> spi::SpiDevice<Word> for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
-    BUS: spi::SpiBus,
+    BUS: spi::SpiBus<Word>,
     CS: OutputPin,
+    Word: Copy + 'static,
 {
-    async fn transaction(&mut self, operations: &mut [spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+    async fn transaction(&mut self, operations: &mut [spi::Operation<'_, Word>]) -> Result<(), Self::Error> {
         if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
             return Err(SpiDeviceError::DelayNotSupported);
         }
@@ -138,13 +139,14 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<M, BUS, CS> spi::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
+impl<M, BUS, CS, Word> spi::SpiDevice<Word> for SpiDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex,
-    BUS: spi::SpiBus + SetConfig,
+    BUS: spi::SpiBus<Word> + SetConfig,
     CS: OutputPin,
+    Word: Copy + 'static,
 {
-    async fn transaction(&mut self, operations: &mut [spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+    async fn transaction(&mut self, operations: &mut [spi::Operation<'_, Word>]) -> Result<(), Self::Error> {
         if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
             return Err(SpiDeviceError::DelayNotSupported);
         }

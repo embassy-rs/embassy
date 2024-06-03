@@ -1,65 +1,6 @@
 #[cfg(feature = "chrono")]
 use chrono::{Datelike, NaiveDate, Timelike, Weekday};
 
-#[cfg(any(feature = "defmt", feature = "time"))]
-use crate::peripherals::RTC;
-#[cfg(any(feature = "defmt", feature = "time"))]
-use crate::rtc::SealedInstance;
-
-/// Represents an instant in time that can be substracted to compute a duration
-pub struct RtcInstant {
-    /// 0..59
-    pub second: u8,
-    /// 0..256
-    pub subsecond: u16,
-}
-
-impl RtcInstant {
-    #[cfg(not(rtc_v2f2))]
-    pub(super) const fn from(second: u8, subsecond: u16) -> Result<Self, Error> {
-        if second > 59 {
-            Err(Error::InvalidSecond)
-        } else {
-            Ok(Self { second, subsecond })
-        }
-    }
-}
-
-#[cfg(feature = "defmt")]
-impl defmt::Format for RtcInstant {
-    fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(
-            fmt,
-            "{}:{}",
-            self.second,
-            RTC::regs().prer().read().prediv_s() - self.subsecond,
-        )
-    }
-}
-
-#[cfg(feature = "time")]
-impl core::ops::Sub for RtcInstant {
-    type Output = embassy_time::Duration;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        use embassy_time::{Duration, TICK_HZ};
-
-        let second = if self.second < rhs.second {
-            self.second + 60
-        } else {
-            self.second
-        };
-
-        let psc = RTC::regs().prer().read().prediv_s() as u32;
-
-        let self_ticks = second as u32 * (psc + 1) + (psc - self.subsecond as u32);
-        let other_ticks = rhs.second as u32 * (psc + 1) + (psc - rhs.subsecond as u32);
-        let rtc_ticks = self_ticks - other_ticks;
-
-        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / (psc + 1)) as u64)
-    }
-}
-
 /// Errors regarding the [`DateTime`] struct.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {

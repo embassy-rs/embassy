@@ -8,7 +8,6 @@ use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Blocking;
-use embassy_stm32::peripherals::SPI3;
 use embassy_stm32::spi;
 use embassy_stm32::time::mhz;
 use heapless::String;
@@ -16,7 +15,7 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
-async fn main_task(mut spi: spi::Spi<'static, SPI3, Blocking>) {
+async fn main_task(mut spi: spi::Spi<'static, Blocking>) {
     for n in 0u32.. {
         let mut write: String<128> = String::new();
         core::write!(&mut write, "Hello DMA World {}!\r\n", n).unwrap();

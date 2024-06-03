@@ -7,10 +7,10 @@ use embassy_hal_internal::into_ref;
 use embassy_time::Instant;
 
 use super::Resolution;
-use crate::adc::{Adc, AdcPin, Instance, SampleTime};
+use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 const ADC_FREQ: Hertz = crate::rcc::HSI_FREQ;
 
@@ -64,8 +64,8 @@ fn update_vref<T: Instance>(op: i8) {
 }
 
 pub struct Vref<T: Instance>(core::marker::PhantomData<T>);
-impl<T: Instance> AdcPin<T> for Vref<T> {}
-impl<T: Instance> super::SealedAdcPin<T> for Vref<T> {
+impl<T: Instance> AdcChannel<T> for Vref<T> {}
+impl<T: Instance> super::SealedAdcChannel<T> for Vref<T> {
     fn channel(&self) -> u8 {
         17
     }
@@ -123,8 +123,8 @@ impl<T: Instance> Drop for Vref<T> {
 }
 
 pub struct Temperature<T: Instance>(core::marker::PhantomData<T>);
-impl<T: Instance> AdcPin<T> for Temperature<T> {}
-impl<T: Instance> super::SealedAdcPin<T> for Temperature<T> {
+impl<T: Instance> AdcChannel<T> for Temperature<T> {}
+impl<T: Instance> super::SealedAdcChannel<T> for Temperature<T> {
     fn channel(&self) -> u8 {
         16
     }
@@ -143,7 +143,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) -> Self {
         into_ref!(adc);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         //let r = T::regs();
         //r.cr2().write(|w| w.set_align(true));
@@ -271,8 +271,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        self.set_sample_sequence(&[pin.channel()]).await;
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        self.set_sample_sequence(&[channel.channel()]).await;
         self.convert().await
     }
 
@@ -283,18 +283,18 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub async fn set_sample_time(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime) {
-        if Self::get_channel_sample_time(pin.channel()) != sample_time {
+    pub async fn set_sample_time(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
+        if Self::get_channel_sample_time(channel.channel()) != sample_time {
             self.stop_adc().await;
             unsafe {
-                Self::set_channel_sample_time(pin.channel(), sample_time);
+                Self::set_channel_sample_time(channel.channel(), sample_time);
             }
             self.start_adc().await;
         }
     }
 
-    pub fn get_sample_time(&self, pin: &impl AdcPin<T>) -> SampleTime {
-        Self::get_channel_sample_time(pin.channel())
+    pub fn get_sample_time(&self, channel: &impl AdcChannel<T>) -> SampleTime {
+        Self::get_channel_sample_time(channel.channel())
     }
 
     /// Sets the channel sample time
@@ -403,6 +403,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
 
         T::regs().cr2().modify(|w| w.set_adon(false));
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }
