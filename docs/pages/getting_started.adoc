@@ -131,7 +131,7 @@ If you’re using a raspberry pi pico-w, make sure you’re running `+cargo run 
 
 If you’re using an rp2040 debug probe (e.g. the pico probe) and are having issues after running `probe-rs info`, unplug and reconnect the probe, letting it power cycle. Running `probe-rs info` is link:https://github.com/probe-rs/probe-rs/issues/1849[known to put the pico probe into an unusable state].
 
-If you’re still having problems, check the link:https://embassy.dev/book/dev/faq.html[FAQ], or ask for help in the link:https://matrix.to/#/#embassy-rs:matrix.org[Embassy Chat Room].
+If you’re still having problems, check the link:https://embassy.dev/book/#_frequently_asked_questions[FAQ], or ask for help in the link:https://matrix.to/#/#embassy-rs:matrix.org[Embassy Chat Room].
 
 == What's next?
 
