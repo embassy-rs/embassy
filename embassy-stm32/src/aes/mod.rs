@@ -66,7 +66,7 @@ pub struct AesCcm<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZ
     aad_header: [u8; 32],
     aad_header_len: usize,
     block0: [u8; 16],
-    ctr: [u8; 16],
+    payload_len: usize,
 }
 
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> AesCcm<'c, KEY_SIZE, TAG_SIZE, IV_SIZE> {
@@ -128,7 +128,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Aes
             aad_header: aad_header,
             aad_header_len: aad_header_len,
             block0: block0,
-            ctr: ctr,
+            payload_len,
         };
     }
 }
@@ -395,7 +395,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
             // fill the remaining space with 0s.
             aad_buffer[aad_buffer_idx..].fill(0);
 
-            Self::write_bytes_dma(&mut self.dma_in, C::BLOCK_SIZE, &aad_buffer).await;
+            Self::write_bytes_dma(&mut self.dma_in, C::BLOCK_SIZE, &mut aad_buffer).await;
 
             // Reset the buffer idx for the next block processing
             aad_buffer_idx = 0;
@@ -414,6 +414,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         &mut self,
         ctx: &mut Context<'c, C>,
         input: &[u8],
+        input_len: usize,
         output: &mut [u8],
     ) where
         DmaIn: crate::aes::DmaIn<T>,
@@ -431,19 +432,17 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         // Only useful when there's no AAD beforehand.
         self.enable_aes();
 
-        let full_blocks = input.len() / C::BLOCK_SIZE;
         let mut idx: usize = 0;
-        for _ in 0..full_blocks {
-            self.write_read_bytes_dma(
-                C::BLOCK_SIZE,
-                &input[idx..idx + C::BLOCK_SIZE],
-                &mut output[idx..idx + C::BLOCK_SIZE],
-            )
-            .await;
+        let full_blocks_len= (input_len/C::BLOCK_SIZE)*C::BLOCK_SIZE;
+        self.write_read_bytes_dma(
+            C::BLOCK_SIZE,
+            &input[idx..idx + full_blocks_len],
+            &mut output[idx..idx + full_blocks_len],
+        )
+        .await;
 
-            idx += C::BLOCK_SIZE;
-        }
-        let remaining_input_len = input.len() % C::BLOCK_SIZE;
+            idx += full_blocks_len;
+        let remaining_input_len = input_len % C::BLOCK_SIZE;
         if remaining_input_len > 0 {
             // Set up npblb so that AES knows to skip some trailing bytes
             if ctx.dir == Direction::Decrypt {
@@ -460,6 +459,14 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
             for word in in_buffer_words{
                 word.reverse();
             }
+            // let four_remainder = remaining_input_len%4;
+            // if four_remainder > 0 {
+            //     let  in_buffer_words= in_buffer[remaining_input_len/4*4..].chunks_exact_mut(four_remainder);
+            //     for word in in_buffer_words{
+            //         word.reverse();
+            //     }
+            // }
+
             defmt::info!("in_buffer inverted: {=[u8]:x}", in_buffer);
             let mut out_buffer = [0; 16];
 
@@ -473,6 +480,12 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
             for word in out_buffer_words{
                 word.reverse();
             }
+            // if four_remainder > 0 {
+            //     let  out_buffer_words= out_buffer[remaining_input_len/4*4..].chunks_exact_mut(remaining_input_len%4);
+            //     for word in out_buffer_words{
+            //         word.reverse();
+            //     }
+            // }
             output[idx..idx + remaining_input_len].copy_from_slice(&out_buffer[..remaining_input_len]);
 
         }
@@ -645,7 +658,6 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
                     }
                 })
                 .await;
-                let bits = T::regs().sr().read();
             }
         }
     }
@@ -660,6 +672,9 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
 
         embassy_futures::join::join(write_dma, read_dma).await;
         defmt::info!("DMA done, blocks in: {=[u8]:x}", blocks_in);
+        defmt::info!("DMA done, blocks in: {=[u8]:x}", blocks_in);
+
+        defmt::info!("DMA done, blocks out: {=[u8]:x}", blocks_out);
         defmt::info!("DMA done, blocks out: {=[u8]:x}", blocks_out);
     }
 
@@ -670,8 +685,6 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         if blocks.len() == 0 {
             return;
         }
-        // #[cfg(feature = "defmt")]
-        // defmt::info!("Requesting DMA IN: {=[u8]:x}", blocks);
 
         // Ensure input is a multiple of block size.
         assert_eq!(blocks.len() % block_size, 0);
@@ -690,6 +703,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         T::regs().cr().modify(|w| w.set_dmainen(true));
         // Wait for the transfer to complete.
         dma_transfer.await;
+        T::regs().cr().modify(|w| w.set_dmaouten(false));
     }
 
     async fn read_bytes_dma(dma_out: &mut PeripheralRef<'d, DmaOut>, block_size: usize, blocks: &mut [u8])
@@ -720,6 +734,14 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
 
         // Wait for the transfer to complete.
         dma_transfer.await;
+        T::regs().cr().modify(|w| w.set_dmaouten(false));
+
+        defmt::info!("DMAOUTEN:{}", T::regs().cr().read().dmaouten());
+        // let  block_words= blocks.chunks_exact_mut(4);
+        // for word in block_words {
+        //     word.reverse();
+        // }
+        
     }
 }
 
