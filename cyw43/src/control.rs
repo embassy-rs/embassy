@@ -393,6 +393,7 @@ impl<'a> Control<'a> {
         self.set_iovar_u32x2("bss", 0, 1).await; // bss = BSS_UP
     }
 
+    /// Closes access point.
     pub async fn close_ap(&mut self) {
         // Stop AP
         self.set_iovar_u32x2("bss", 0, 0).await; // bss = BSS_DOWN
