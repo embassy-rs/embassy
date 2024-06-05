@@ -393,6 +393,23 @@ impl<'a> Control<'a> {
         self.set_iovar_u32x2("bss", 0, 1).await; // bss = BSS_UP
     }
 
+    pub async fn close_ap(&mut self) {
+        // Stop AP
+        self.set_iovar_u32x2("bss", 0, 0).await; // bss = BSS_DOWN
+
+        // Turn off AP mode
+        self.ioctl_set_u32(IOCTL_CMD_SET_AP, 0, 0).await;
+
+        // Temporarily set wifi down
+        self.down().await;
+
+        // Turn on APSTA mode
+        self.set_iovar_u32("apsta", 1).await;
+
+        // Set wifi up again
+        self.up().await;
+    }
+
     /// Add specified address to the list of hardware addresses the device
     /// listens on. The address must be a Group address (I/G bit set). Up
     /// to 10 addresses are supported by the firmware. Returns the number of
