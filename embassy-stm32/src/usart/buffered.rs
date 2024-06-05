@@ -6,7 +6,7 @@ use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
-use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_hal_internal::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(any(usart_v1, usart_v2)))]
@@ -15,8 +15,7 @@ use super::{
     clear_interrupt_flags, configure, rdr, reconfigure, sr, tdr, Config, ConfigError, CtsPin, Error, Info, Instance,
     Regs, RtsPin, RxPin, TxPin,
 };
-use crate::gpio::AFType;
-use crate::interrupt::typelevel::Interrupt as _;
+use crate::gpio::{AFType, AnyPin, SealedPin as _};
 use crate::interrupt::{self, InterruptExt};
 use crate::time::Hertz;
 
@@ -155,7 +154,9 @@ pub struct BufferedUartTx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    _phantom: PhantomData<&'d mut ()>,
+    tx: Option<PeripheralRef<'d, AnyPin>>,
+    cts: Option<PeripheralRef<'d, AnyPin>>,
+    de: Option<PeripheralRef<'d, AnyPin>>,
 }
 
 /// Rx-only buffered UART
@@ -165,7 +166,8 @@ pub struct BufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    _phantom: PhantomData<&'d mut ()>,
+    rx: Option<PeripheralRef<'d, AnyPin>>,
+    rts: Option<PeripheralRef<'d, AnyPin>>,
 }
 
 impl<'d> SetConfig for BufferedUart<'d> {
@@ -206,9 +208,17 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable_and_reset();
-
-        Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
+        Self::new_inner(
+            peri,
+            new_pin!(rx, AFType::Input),
+            new_pin!(tx, AFType::OutputPushPull),
+            None,
+            None,
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
     }
 
     /// Create a new bidirectional buffered UART driver with request-to-send and clear-to-send pins
@@ -223,18 +233,17 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        into_ref!(cts, rts);
-
-        T::enable_and_reset();
-
-        rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
-        cts.set_as_af(cts.af_num(), AFType::Input);
-        T::info().regs.cr3().write(|w| {
-            w.set_rtse(true);
-            w.set_ctse(true);
-        });
-
-        Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
+        Self::new_inner(
+            peri,
+            new_pin!(rx, AFType::Input),
+            new_pin!(tx, AFType::OutputPushPull),
+            new_pin!(rts, AFType::OutputPushPull),
+            new_pin!(cts, AFType::Input),
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
     }
 
     /// Create a new bidirectional buffered UART driver with a driver-enable pin
@@ -249,66 +258,89 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        into_ref!(de);
-
-        T::enable_and_reset();
-
-        de.set_as_af(de.af_num(), AFType::OutputPushPull);
-        T::info().regs.cr3().write(|w| {
-            w.set_dem(true);
-        });
-
-        Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
+        Self::new_inner(
+            peri,
+            new_pin!(rx, AFType::Input),
+            new_pin!(tx, AFType::OutputPushPull),
+            None,
+            None,
+            new_pin!(de, AFType::OutputPushPull),
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
     }
 
     fn new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rx: Option<PeripheralRef<'d, AnyPin>>,
+        tx: Option<PeripheralRef<'d, AnyPin>>,
+        rts: Option<PeripheralRef<'d, AnyPin>>,
+        cts: Option<PeripheralRef<'d, AnyPin>>,
+        de: Option<PeripheralRef<'d, AnyPin>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
-        into_ref!(_peri, rx, tx);
-
         let info = T::info();
         let state = T::buffered_state();
         let kernel_clock = T::frequency();
-        let len = tx_buffer.len();
-        unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
-        let len = rx_buffer.len();
-        unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
 
-        let r = info.regs;
-        rx.set_as_af(rx.af_num(), AFType::Input);
-        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-
-        configure(info, kernel_clock, &config, true, true)?;
-
-        r.cr1().modify(|w| {
-            w.set_rxneie(true);
-            w.set_idleie(true);
-        });
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        state.tx_rx_refcount.store(2, Ordering::Relaxed);
-
-        Ok(Self {
+        let mut this = Self {
             rx: BufferedUartRx {
                 info,
                 state,
                 kernel_clock,
-                _phantom: PhantomData,
+                rx,
+                rts,
             },
             tx: BufferedUartTx {
                 info,
                 state,
                 kernel_clock,
-                _phantom: PhantomData,
+                tx,
+                cts,
+                de,
             },
-        })
+        };
+        this.enable_and_configure(tx_buffer, rx_buffer, &config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(
+        &mut self,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: &Config,
+    ) -> Result<(), ConfigError> {
+        let info = self.rx.info;
+        let state = self.rx.state;
+        state.tx_rx_refcount.store(2, Ordering::Relaxed);
+
+        info.rcc.enable_and_reset();
+
+        let len = tx_buffer.len();
+        unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
+        let len = rx_buffer.len();
+        unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
+
+        info.regs.cr3().write(|w| {
+            w.set_rtse(self.rx.rts.is_some());
+            w.set_ctse(self.tx.cts.is_some());
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            w.set_dem(self.tx.de.is_some());
+        });
+        configure(info, self.rx.kernel_clock, &config, true, true)?;
+
+        info.regs.cr1().modify(|w| {
+            w.set_rxneie(true);
+            w.set_idleie(true);
+        });
+
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
+
+        Ok(())
     }
 
     /// Split the driver into a Tx and Rx part (useful for sending to separate tasks)
@@ -515,6 +547,8 @@ impl<'d> Drop for BufferedUartRx<'d> {
             }
         }
 
+        self.rx.as_ref().map(|x| x.set_as_disconnected());
+        self.rts.as_ref().map(|x| x.set_as_disconnected());
         drop_tx_rx(self.info, state);
     }
 }
@@ -532,6 +566,9 @@ impl<'d> Drop for BufferedUartTx<'d> {
             }
         }
 
+        self.tx.as_ref().map(|x| x.set_as_disconnected());
+        self.cts.as_ref().map(|x| x.set_as_disconnected());
+        self.de.as_ref().map(|x| x.set_as_disconnected());
         drop_tx_rx(self.info, state);
     }
 }
@@ -545,7 +582,7 @@ fn drop_tx_rx(info: &Info, state: &State) {
         refcount == 1
     });
     if is_last_drop {
-        info.enable_bit.disable();
+        info.rcc.disable();
     }
 }
 

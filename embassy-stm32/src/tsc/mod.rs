@@ -72,7 +72,7 @@ pub use enums::*;
 
 use crate::gpio::{AFType, AnyPin};
 use crate::pac::tsc::Tsc as Regs;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 #[cfg(tsc_v1)]
@@ -649,7 +649,7 @@ impl<'d, T: Instance> Tsc<'d, T> {
     ) -> Self {
         into_ref!(peri);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         T::REGS.cr().modify(|w| {
             w.set_tsce(true);
@@ -880,7 +880,7 @@ impl<'d, T: Instance> Tsc<'d, T> {
 
 impl<'d, T: Instance> Drop for Tsc<'d, T> {
     fn drop(&mut self) {
-        T::disable();
+        rcc::disable::<T>();
     }
 }
 

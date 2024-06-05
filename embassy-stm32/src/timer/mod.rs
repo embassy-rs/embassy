@@ -8,6 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub mod complementary_pwm;
 pub mod input_capture;
 pub mod low_level;
+pub mod pwm_input;
 pub mod qei;
 pub mod simple_pwm;
 

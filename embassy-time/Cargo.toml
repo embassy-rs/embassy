@@ -27,9 +27,17 @@ features = ["defmt", "std"]
 std = ["tick-hz-1_000_000", "critical-section/std"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000"]
 
-## Display a timestamp of the number of seconds since startup next to defmt log messages
+## Display the time since startup next to defmt log messages.
+## At most 1 `defmt-timestamp-uptime-*` feature can be used.
+## `defmt-timestamp-uptime` is provided for backwards compatibility (provides the same format as `uptime-us`).
 ## To use this you must have a time driver provided.
 defmt-timestamp-uptime = ["defmt"]
+defmt-timestamp-uptime-s = ["defmt"]
+defmt-timestamp-uptime-ms = ["defmt"]
+defmt-timestamp-uptime-us = ["defmt"]
+defmt-timestamp-uptime-ts = ["defmt"]
+defmt-timestamp-uptime-tms = ["defmt"]
+defmt-timestamp-uptime-tus = ["defmt"]
 
 ## Create a `MockDriver` that can be manually advanced for testing purposes.
 mock-driver = ["tick-hz-1_000_000"]

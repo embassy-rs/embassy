@@ -9,35 +9,16 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
-    MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, METADATA,
+    MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, ALL_CHIPS,
+    ALL_PERIPHERAL_VERSIONS, METADATA,
 };
 
+#[path = "./build_common.rs"]
+mod common;
+
 fn main() {
-    let target = env::var("TARGET").unwrap();
-
-    if target.starts_with("thumbv6m-") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv6m");
-    } else if target.starts_with("thumbv7m-") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv7m");
-    } else if target.starts_with("thumbv7em-") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv7m");
-        println!("cargo:rustc-cfg=armv7em"); // (not currently used)
-    } else if target.starts_with("thumbv8m.base") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv8m");
-        println!("cargo:rustc-cfg=armv8m_base");
-    } else if target.starts_with("thumbv8m.main") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv8m");
-        println!("cargo:rustc-cfg=armv8m_main");
-    }
-
-    if target.ends_with("-eabihf") {
-        println!("cargo:rustc-cfg=has_fpu");
-    }
+    let mut cfgs = common::CfgSet::new();
+    common::set_target_cfgs(&mut cfgs);
 
     let chip_name = match env::vars()
         .map(|(a, _)| a)
@@ -56,8 +37,15 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            println!("cargo:rustc-cfg={}", r.kind);
-            println!("cargo:rustc-cfg={}_{}", r.kind, r.version);
+            cfgs.enable(r.kind);
+            cfgs.enable(format!("{}_{}", r.kind, r.version));
+        }
+    }
+
+    for &(kind, versions) in ALL_PERIPHERAL_VERSIONS.iter() {
+        cfgs.declare(kind);
+        for &version in versions.iter() {
+            cfgs.declare(format!("{}_{}", kind, version));
         }
     }
 
@@ -67,7 +55,13 @@ fn main() {
     let mut singletons: Vec<String> = Vec::new();
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            println!("cargo:rustc-cfg=peri_{}", p.name.to_ascii_lowercase());
+            if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" {
+                // TODO: should we emit this for all peripherals? if so, we will need a list of all
+                // possible peripherals across all chips, so that we can declare the configs
+                // (replacing the hard-coded list of `peri_*` cfgs below)
+                cfgs.enable(format!("peri_{}", p.name.to_ascii_lowercase()));
+            }
+
             match r.kind {
                 // Generate singletons per pin, not per port
                 "gpio" => {
@@ -87,7 +81,7 @@ fn main() {
                         if pin.signal.starts_with("MCO") {
                             let name = pin.signal.replace('_', "").to_string();
                             if !singletons.contains(&name) {
-                                println!("cargo:rustc-cfg={}", name.to_ascii_lowercase());
+                                cfgs.enable(name.to_ascii_lowercase());
                                 singletons.push(name);
                             }
                         }
@@ -105,6 +99,20 @@ fn main() {
             }
         }
     }
+
+    cfgs.declare_all(&[
+        "peri_adc1_common",
+        "peri_adc3_common",
+        "peri_adc12_common",
+        "peri_adc34_common",
+        "peri_sai1",
+        "peri_sai2",
+        "peri_sai3",
+        "peri_sai4",
+        "peri_ucpd1",
+        "peri_ucpd2",
+    ]);
+    cfgs.declare_all(&["mco", "mco1", "mco2"]);
 
     // One singleton per EXTI line
     for pin_num in 0..16 {
@@ -221,7 +229,13 @@ fn main() {
     };
 
     if !time_driver_singleton.is_empty() {
-        println!("cargo:rustc-cfg=time_driver_{}", time_driver_singleton.to_lowercase());
+        cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
+    }
+    for tim in [
+        "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15", "tim20", "tim21", "tim22", "tim23",
+        "tim24",
+    ] {
+        cfgs.declare(format!("time_driver_{}", tim));
     }
 
     // ========
@@ -367,9 +381,6 @@ fn main() {
         .filter_map(|p| p.registers.as_ref())
         .find(|r| r.kind == "rcc")
         .unwrap();
-    for b in rcc_registers.ir.blocks {
-        eprintln!("{}", b.name);
-    }
     let rcc_block = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap();
 
     // ========
@@ -388,7 +399,6 @@ fn main() {
         rcc_registers: &'a PeripheralRegisters,
         chained_muxes: HashMap<&'a str, &'a PeripheralRccRegister>,
 
-        refcount_statics: BTreeSet<Ident>,
         clock_names: BTreeSet<String>,
         muxes: BTreeSet<(Ident, Ident, Ident)>,
     }
@@ -397,7 +407,6 @@ fn main() {
         rcc_registers,
         chained_muxes: HashMap::new(),
 
-        refcount_statics: BTreeSet::new(),
         clock_names: BTreeSet::new(),
         muxes: BTreeSet::new(),
     };
@@ -516,80 +525,64 @@ fn main() {
         }
     }
 
+    let mut refcount_idxs = HashMap::new();
+
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
             continue;
         }
 
         if let Some(rcc) = &p.rcc {
-            let en = rcc.enable.as_ref().unwrap();
-
-            let (start_rst, end_rst) = match &rcc.reset {
-                Some(rst) => {
-                    let rst_reg = format_ident!("{}", rst.register.to_ascii_lowercase());
-                    let set_rst_field = format_ident!("set_{}", rst.field.to_ascii_lowercase());
-                    (
-                        quote! {
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
-                        },
-                        quote! {
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
-                        },
-                    )
-                }
-                None => (TokenStream::new(), TokenStream::new()),
-            };
-
+            let rst_reg = rcc.reset.as_ref();
+            let en_reg = rcc.enable.as_ref().unwrap();
             let pname = format_ident!("{}", p.name);
-            let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
-            let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
-            let en_reg_offs = rcc_block
-                .items
-                .iter()
-                .find(|i| i.name.eq_ignore_ascii_case(en.register))
-                .unwrap()
-                .byte_offset;
-            let en_reg_offs: u8 = (en_reg_offs / 4).try_into().unwrap();
 
-            let en_bit_offs = &rcc_registers
-                .ir
-                .fieldsets
-                .iter()
-                .find(|i| i.name.eq_ignore_ascii_case(en.register))
-                .unwrap()
-                .fields
-                .iter()
-                .find(|i| i.name.eq_ignore_ascii_case(en.field))
-                .unwrap()
-                .bit_offset;
-            let BitOffset::Regular(en_bit_offs) = en_bit_offs else {
-                panic!("cursed bit offset")
+            let get_offset_and_bit = |reg: &PeripheralRccRegister| -> TokenStream {
+                let reg_offset = rcc_block
+                    .items
+                    .iter()
+                    .find(|i| i.name.eq_ignore_ascii_case(reg.register))
+                    .unwrap()
+                    .byte_offset;
+                let reg_offset: u8 = (reg_offset / 4).try_into().unwrap();
+
+                let bit_offset = &rcc_registers
+                    .ir
+                    .fieldsets
+                    .iter()
+                    .find(|i| i.name.eq_ignore_ascii_case(reg.register))
+                    .unwrap()
+                    .fields
+                    .iter()
+                    .find(|i| i.name.eq_ignore_ascii_case(reg.field))
+                    .unwrap()
+                    .bit_offset;
+                let BitOffset::Regular(bit_offset) = bit_offset else {
+                    panic!("cursed bit offset")
+                };
+                let bit_offset: u8 = bit_offset.offset.try_into().unwrap();
+
+                quote! { (#reg_offset, #bit_offset) }
             };
-            let en_bit_offs: u8 = en_bit_offs.offset.try_into().unwrap();
 
-            let refcount = *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
-            let (before_enable, before_disable) = if refcount {
-                let refcount_static =
-                    format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
+            let reset_offset_and_bit = match rst_reg {
+                Some(rst_reg) => {
+                    let reset_offset_and_bit = get_offset_and_bit(rst_reg);
+                    quote! { Some(#reset_offset_and_bit) }
+                }
+                None => quote! { None },
+            };
+            let enable_offset_and_bit = get_offset_and_bit(en_reg);
 
-                clock_gen.refcount_statics.insert(refcount_static.clone());
-
-                (
-                    quote! {
-                        unsafe { refcount_statics::#refcount_static += 1 };
-                        if unsafe { refcount_statics::#refcount_static } > 1 {
-                            return;
-                        }
-                    },
-                    quote! {
-                        unsafe { refcount_statics::#refcount_static -= 1 };
-                        if unsafe { refcount_statics::#refcount_static } > 0  {
-                            return;
-                        }
-                    },
-                )
+            let needs_refcount = *rcc_field_count.get(&(en_reg.register, en_reg.field)).unwrap() > 1;
+            let refcount_idx = if needs_refcount {
+                let next_refcount_idx = refcount_idxs.len() as u8;
+                let refcount_idx = *refcount_idxs
+                    .entry((en_reg.register, en_reg.field))
+                    .or_insert(next_refcount_idx);
+                quote! { Some(#refcount_idx) }
             } else {
-                (TokenStream::new(), TokenStream::new())
+                quote! { None }
             };
 
             let clock_frequency = match &rcc.kernel_clock {
@@ -599,24 +592,10 @@ fn main() {
 
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
-            let stop_refcount = match rcc.stop_mode {
-                StopMode::Standby => None,
-                StopMode::Stop2 => Some(quote! { REFCOUNT_STOP2 }),
-                StopMode::Stop1 => Some(quote! { REFCOUNT_STOP1 }),
-            };
-
-            let (incr_stop_refcount, decr_stop_refcount) = match stop_refcount {
-                Some(stop_refcount) => (
-                    quote! {
-                        #[cfg(feature = "low-power")]
-                        unsafe { crate::rcc::#stop_refcount += 1 };
-                    },
-                    quote! {
-                        #[cfg(feature = "low-power")]
-                        unsafe { crate::rcc::#stop_refcount -= 1 };
-                    },
-                ),
-                None => (TokenStream::new(), TokenStream::new()),
+            let stop_mode = match rcc.stop_mode {
+                StopMode::Standby => quote! { crate::rcc::StopMode::Standby },
+                StopMode::Stop2 => quote! { crate::rcc::StopMode::Stop2 },
+                StopMode::Stop1 => quote! { crate::rcc::StopMode::Stop1 },
             };
 
             g.extend(quote! {
@@ -624,40 +603,30 @@ fn main() {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
                     }
-                    fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
-                        #before_enable
-                        #incr_stop_refcount
 
-                        #start_rst
-
-                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-
-                        // we must wait two peripheral clock cycles before the clock is active
-                        // this seems to work, but might be incorrect
-                        // see http://efton.sk/STM32/gotcha/g183.html
-
-                        // dummy read (like in the ST HALs)
-                        let _ = crate::pac::RCC.#en_reg().read();
-
-                        // DSB for good measure
-                        cortex_m::asm::dsb();
-
-                        #end_rst
-                    }
-                    fn disable_with_cs(_cs: critical_section::CriticalSection) {
-                        #before_disable
-                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
-                        #decr_stop_refcount
-                    }
-
-                    const ENABLE_BIT: crate::rcc::ClockEnableBit =
-                        unsafe { crate::rcc::ClockEnableBit::new(#en_reg_offs, #en_bit_offs) };
+                    const RCC_INFO: crate::rcc::RccInfo = unsafe {
+                        crate::rcc::RccInfo::new(
+                            #reset_offset_and_bit,
+                            #enable_offset_and_bit,
+                            #refcount_idx,
+                            #[cfg(feature = "low-power")]
+                            #stop_mode,
+                        )
+                    };
                 }
 
                 impl crate::rcc::RccPeripheral for peripherals::#pname {}
             });
         }
     }
+
+    g.extend({
+        let refcounts_len = refcount_idxs.len();
+        let refcount_zeros: TokenStream = refcount_idxs.iter().map(|_| quote! { 0u8, }).collect();
+        quote! {
+            pub(crate) static mut REFCOUNTS: [u8; #refcounts_len] = [#refcount_zeros];
+        }
+    });
 
     let struct_fields: Vec<_> = clock_gen
         .muxes
@@ -761,22 +730,6 @@ fn main() {
             };
         }
     );
-
-    let refcount_mod: TokenStream = clock_gen
-        .refcount_statics
-        .iter()
-        .map(|refcount_static| {
-            quote! {
-                pub(crate) static mut #refcount_static: u8 = 0;
-            }
-        })
-        .collect();
-
-    g.extend(quote! {
-        mod refcount_statics {
-            #refcount_mod
-        }
-    });
 
     // ========
     // Generate fns to enable GPIO, DMA in RCC
@@ -1654,54 +1607,65 @@ fn main() {
     rustfmt(&out_file);
 
     // ========
-    // Multicore
+    // Configs for multicore and for targeting groups of chips
 
-    let mut s = chip_name.split('_');
-    let mut chip_name: String = s.next().unwrap().to_string();
-    let core_name = if let Some(c) = s.next() {
-        if !c.starts_with("CM") {
-            chip_name.push('_');
-            chip_name.push_str(c);
+    fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
+        let mut cfgs = Vec::new();
+
+        // Multicore
+
+        let mut s = chip_name.split('_');
+        let mut chip_name: String = s.next().unwrap().to_string();
+        let core_name = if let Some(c) = s.next() {
+            if !c.starts_with("CM") {
+                chip_name.push('_');
+                chip_name.push_str(c);
+                None
+            } else {
+                Some(c)
+            }
+        } else {
             None
-        } else {
-            Some(c)
-        }
-    } else {
-        None
-    };
+        };
 
-    if let Some(core) = core_name {
-        println!("cargo:rustc-cfg={}_{}", &chip_name[..chip_name.len() - 2], core);
+        if let Some(core) = core_name {
+            cfgs.push(format!("{}_{}", &chip_name[..chip_name.len() - 2], core));
+        }
+
+        // Configs for targeting groups of chips
+        if &chip_name[..8] == "stm32wba" {
+            cfgs.push(chip_name[..8].to_owned()); // stm32wba
+            cfgs.push(chip_name[..10].to_owned()); // stm32wba52
+            cfgs.push(format!("package_{}", &chip_name[10..11]));
+            cfgs.push(format!("flashsize_{}", &chip_name[11..12]));
+        } else {
+            if &chip_name[..8] == "stm32h7r" || &chip_name[..8] == "stm32h7s" {
+                cfgs.push("stm32h7rs".to_owned());
+            } else {
+                cfgs.push(chip_name[..7].to_owned()); // stm32f4
+            }
+            cfgs.push(chip_name[..9].to_owned()); // stm32f429
+            cfgs.push(format!("{}x", &chip_name[..8])); // stm32f42x
+            cfgs.push(format!("{}x{}", &chip_name[..7], &chip_name[8..9])); // stm32f4x9
+            cfgs.push(format!("package_{}", &chip_name[9..10]));
+            cfgs.push(format!("flashsize_{}", &chip_name[10..11]));
+        }
+
+        // Mark the L4+ chips as they have many differences to regular L4.
+        if &chip_name[..7] == "stm32l4" {
+            if "pqrs".contains(&chip_name[7..8]) {
+                cfgs.push("stm32l4_plus".to_owned());
+            } else {
+                cfgs.push("stm32l4_nonplus".to_owned());
+            }
+        }
+
+        cfgs
     }
 
-    // =======
-    // Features for targeting groups of chips
-
-    if &chip_name[..8] == "stm32wba" {
-        println!("cargo:rustc-cfg={}", &chip_name[..8]); // stm32wba
-        println!("cargo:rustc-cfg={}", &chip_name[..10]); // stm32wba52
-        println!("cargo:rustc-cfg=package_{}", &chip_name[10..11]);
-        println!("cargo:rustc-cfg=flashsize_{}", &chip_name[11..12]);
-    } else {
-        if &chip_name[..8] == "stm32h7r" || &chip_name[..8] == "stm32h7s" {
-            println!("cargo:rustc-cfg=stm32h7rs");
-        } else {
-            println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
-        }
-        println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
-        println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
-        println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
-        println!("cargo:rustc-cfg=package_{}", &chip_name[9..10]);
-        println!("cargo:rustc-cfg=flashsize_{}", &chip_name[10..11]);
-    }
-
-    // Mark the L4+ chips as they have many differences to regular L4.
-    if &chip_name[..7] == "stm32l4" {
-        if "pqrs".contains(&chip_name[7..8]) {
-            println!("cargo:rustc-cfg=stm32l4_plus");
-        } else {
-            println!("cargo:rustc-cfg=stm32l4_nonplus");
-        }
+    cfgs.enable_all(&get_chip_cfgs(&chip_name));
+    for &chip_name in ALL_CHIPS.iter() {
+        cfgs.declare_all(&get_chip_cfgs(&chip_name.to_ascii_lowercase()));
     }
 
     println!("cargo:rerun-if-changed=build.rs");

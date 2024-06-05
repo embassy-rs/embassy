@@ -6,14 +6,14 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 //use crate::gpio::{AnyPin, SealedPin};
 use crate::gpio::{AFType, AnyPin, Pull, Speed};
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// Performs a busy-wait delay for a specified number of microseconds.
 pub fn blocking_delay_ms(ms: u32) {
-    #[cfg(time)]
-    embassy_time::block_for(embassy_time::Duration::from_millis(ms));
-    #[cfg(not(time))]
+    #[cfg(feature = "time")]
+    embassy_time::block_for(embassy_time::Duration::from_millis(ms as u64));
+    #[cfg(not(feature = "time"))]
     cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 1_000 * ms);
 }
 
@@ -77,7 +77,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     pub fn new(_peri: impl Peripheral<P = T> + 'd, te: impl Peripheral<P = impl TePin<T>> + 'd) -> Self {
         into_ref!(te);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         // Set Tearing Enable pin according to CubeMx example
         te.set_as_af_pull(te.af_num(), AFType::OutputPushPull, Pull::None);
@@ -407,7 +407,7 @@ impl<'d, T: Instance> Drop for DsiHost<'d, T> {
 }
 
 trait SealedInstance: crate::rcc::SealedRccPeripheral {
-    fn regs() -> &'static crate::pac::dsihost::Dsihost;
+    fn regs() -> crate::pac::dsihost::Dsihost;
 }
 
 /// DSI instance trait.
@@ -419,8 +419,8 @@ pin_trait!(TePin, Instance);
 foreach_peripheral!(
     (dsihost, $inst:ident) => {
         impl crate::dsihost::SealedInstance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::dsihost::Dsihost {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::dsihost::Dsihost {
+                crate::pac::$inst
             }
         }
 

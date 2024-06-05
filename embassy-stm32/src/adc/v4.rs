@@ -4,7 +4,7 @@ use pac::adccommon::vals::Presc;
 
 use super::{blocking_delay_us, Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::time::Hertz;
-use crate::{pac, Peripheral};
+use crate::{pac, rcc, Peripheral};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -130,7 +130,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         embassy_hal_internal::into_ref!(adc);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         let prescaler = Prescaler::from_ker_ck(T::frequency());
 

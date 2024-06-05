@@ -46,5 +46,20 @@ pub(crate) const GCD_1K: u64 = gcd(TICK_HZ, 1_000);
 pub(crate) const GCD_1M: u64 = gcd(TICK_HZ, 1_000_000);
 pub(crate) const GCD_1G: u64 = gcd(TICK_HZ, 1_000_000_000);
 
-#[cfg(feature = "defmt-timestamp-uptime")]
+#[cfg(feature = "defmt-timestamp-uptime-s")]
+defmt::timestamp! {"{=u64}", Instant::now().as_secs() }
+
+#[cfg(feature = "defmt-timestamp-uptime-ms")]
+defmt::timestamp! {"{=u64:ms}", Instant::now().as_millis() }
+
+#[cfg(any(feature = "defmt-timestamp-uptime", feature = "defmt-timestamp-uptime-us"))]
 defmt::timestamp! {"{=u64:us}", Instant::now().as_micros() }
+
+#[cfg(feature = "defmt-timestamp-uptime-ts")]
+defmt::timestamp! {"{=u64:ts}", Instant::now().as_secs() }
+
+#[cfg(feature = "defmt-timestamp-uptime-tms")]
+defmt::timestamp! {"{=u64:tms}", Instant::now().as_millis() }
+
+#[cfg(feature = "defmt-timestamp-uptime-tus")]
+defmt::timestamp! {"{=u64:tus}", Instant::now().as_micros() }

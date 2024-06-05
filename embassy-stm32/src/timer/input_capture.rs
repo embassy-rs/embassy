@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, Timer};
+use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
 use super::{
     CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin,
     GeneralInstance4Channel,
@@ -40,11 +40,9 @@ macro_rules! channel_impl {
             #[doc = concat!("Create a new ", stringify!($channel), " capture pin instance.")]
             pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, pull_type: Pull) -> Self {
                 into_ref!(pin);
-                critical_section::with(|_| {
-                    pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
-                });
+
+                pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
+
                 CapturePin {
                     _pin: pin.map_into(),
                     phantom: PhantomData,
@@ -83,7 +81,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         let mut this = Self { inner: Timer::new(tim) };
 
         this.inner.set_counting_mode(counting_mode);
-        this.set_tick_freq(freq);
+        this.inner.set_tick_freq(freq);
         this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
         this.inner.start();
 
@@ -109,24 +107,6 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.inner.get_channel_enable_state(channel)
     }
 
-    /// Set tick frequency.
-    ///
-    /// Note: when you call this, the max period value changes
-    pub fn set_tick_freq(&mut self, freq: Hertz) {
-        let f = freq;
-        assert!(f.0 > 0);
-        let timer_f = self.inner.get_clock_frequency();
-
-        let pclk_ticks_per_timer_period = timer_f / f;
-        let psc: u16 = unwrap!((pclk_ticks_per_timer_period - 1).try_into());
-
-        let regs = self.inner.regs_core();
-        regs.psc().write_value(psc);
-
-        // Generate an Update Request
-        regs.egr().write(|r| r.set_ug(true));
-    }
-
     /// Set the input capture mode for a given channel.
     pub fn set_input_capture_mode(&mut self, channel: Channel, mode: InputCaptureMode) {
         self.inner.set_input_capture_mode(channel, mode);
@@ -148,10 +128,13 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 
     fn new_future(&self, channel: Channel, mode: InputCaptureMode, tisel: InputTISelection) -> InputCaptureFuture<T> {
-        self.inner.enable_channel(channel, true);
-        self.inner.set_input_capture_mode(channel, mode);
+        // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
+        // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
         self.inner.set_input_ti_selection(channel, tisel);
-        self.inner.clear_input_interrupt(channel);
+        self.inner.set_input_capture_filter(channel, FilterValue::NOFILTER);
+        self.inner.set_input_capture_mode(channel, mode);
+        self.inner.set_input_capture_prescaler(channel, 0);
+        self.inner.enable_channel(channel, true);
         self.inner.enable_input_interrupt(channel, true);
 
         InputCaptureFuture {

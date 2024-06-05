@@ -33,7 +33,7 @@ pub enum LseDrive {
 }
 
 // All families but these have the LSEDRV register
-#[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f400, rcc_f410, rcc_l1)))]
+#[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1)))]
 impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     fn from(value: LseDrive) -> Self {
         use crate::pac::rcc::vals::Lsedrv;
@@ -186,7 +186,7 @@ impl LsConfig {
         }
         ok &= reg.lseon() == lse_en;
         ok &= reg.lsebyp() == lse_byp;
-        #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f400, rcc_f410, rcc_l1)))]
+        #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1)))]
         if let Some(lse_drv) = lse_drv {
             ok &= reg.lsedrv() == lse_drv.into();
         }
@@ -224,7 +224,7 @@ impl LsConfig {
 
         if lse_en {
             bdcr().modify(|w| {
-                #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f400, rcc_f410, rcc_l1)))]
+                #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1)))]
                 if let Some(lse_drv) = lse_drv {
                     w.set_lsedrv(lse_drv.into());
                 }

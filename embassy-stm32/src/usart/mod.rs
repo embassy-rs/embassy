@@ -14,7 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::future::{select, Either};
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AFType, AnyPin, SealedPin};
+use crate::gpio::{AFType, AnyPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
@@ -28,7 +28,7 @@ use crate::pac::usart::Lpuart as Regs;
 #[cfg(any(usart_v1, usart_v2))]
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
-use crate::rcc::{ClockEnableBit, SealedRccPeripheral};
+use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -429,29 +429,33 @@ impl<'d, M: Mode> UartTx<'d, M> {
         tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable_and_reset();
-
-        let info = T::info();
-        let state = T::state();
-        let kernel_clock = T::frequency();
-        let r = info.regs;
-        r.cr3().modify(|w| {
-            w.set_ctse(cts.is_some());
-        });
-        configure(info, kernel_clock, &config, false, true)?;
-
-        state.tx_rx_refcount.store(1, Ordering::Relaxed);
-
-        Ok(Self {
-            info,
-            state,
-            kernel_clock,
+        let mut this = Self {
+            info: T::info(),
+            state: T::state(),
+            kernel_clock: T::frequency(),
             tx,
             cts,
             de: None,
             tx_dma,
             _phantom: PhantomData,
-        })
+        };
+        this.enable_and_configure(&config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+        let info = self.info;
+        let state = self.state;
+        state.tx_rx_refcount.store(1, Ordering::Relaxed);
+
+        info.rcc.enable_and_reset();
+
+        info.regs.cr3().modify(|w| {
+            w.set_ctse(self.cts.is_some());
+        });
+        configure(info, self.kernel_clock, config, false, true)?;
+
+        Ok(())
     }
 
     /// Reconfigure the driver
@@ -775,34 +779,38 @@ impl<'d, M: Mode> UartRx<'d, M> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable_and_reset();
-
-        let info = T::info();
-        let state = T::state();
-        let kernel_clock = T::frequency();
-        let r = info.regs;
-        r.cr3().write(|w| {
-            w.set_rtse(rts.is_some());
-        });
-        configure(info, kernel_clock, &config, true, false)?;
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        state.tx_rx_refcount.store(1, Ordering::Relaxed);
-
-        Ok(Self {
+        let mut this = Self {
             _phantom: PhantomData,
-            info,
-            state,
-            kernel_clock,
+            info: T::info(),
+            state: T::state(),
+            kernel_clock: T::frequency(),
             rx,
             rts,
             rx_dma,
             detect_previous_overrun: config.detect_previous_overrun,
             #[cfg(any(usart_v1, usart_v2))]
             buffered_sr: stm32_metapac::usart::regs::Sr(0),
-        })
+        };
+        this.enable_and_configure(&config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+        let info = self.info;
+        let state = self.state;
+        state.tx_rx_refcount.store(1, Ordering::Relaxed);
+
+        info.rcc.enable_and_reset();
+
+        info.regs.cr3().write(|w| {
+            w.set_rtse(self.rts.is_some());
+        });
+        configure(info, self.kernel_clock, &config, true, false)?;
+
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
+
+        Ok(())
     }
 
     /// Reconfigure the driver
@@ -916,7 +924,7 @@ fn drop_tx_rx(info: &Info, state: &State) {
         refcount == 1
     });
     if is_last_drop {
-        info.enable_bit.disable();
+        info.rcc.disable();
     }
 }
 
@@ -1228,27 +1236,11 @@ impl<'d, M: Mode> Uart<'d, M> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable_and_reset();
-
         let info = T::info();
         let state = T::state();
         let kernel_clock = T::frequency();
-        let r = info.regs;
 
-        r.cr3().write(|w| {
-            w.set_rtse(rts.is_some());
-            w.set_ctse(cts.is_some());
-            #[cfg(not(any(usart_v1, usart_v2)))]
-            w.set_dem(de.is_some());
-        });
-        configure(info, kernel_clock, &config, true, true)?;
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        state.tx_rx_refcount.store(2, Ordering::Relaxed);
-
-        Ok(Self {
+        let mut this = Self {
             tx: UartTx {
                 _phantom: PhantomData,
                 info,
@@ -1271,7 +1263,30 @@ impl<'d, M: Mode> Uart<'d, M> {
                 #[cfg(any(usart_v1, usart_v2))]
                 buffered_sr: stm32_metapac::usart::regs::Sr(0),
             },
-        })
+        };
+        this.enable_and_configure(&config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+        let info = self.rx.info;
+        let state = self.rx.state;
+        state.tx_rx_refcount.store(2, Ordering::Relaxed);
+
+        info.rcc.enable_and_reset();
+
+        info.regs.cr3().write(|w| {
+            w.set_rtse(self.rx.rts.is_some());
+            w.set_ctse(self.tx.cts.is_some());
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            w.set_dem(self.tx.de.is_some());
+        });
+        configure(info, self.rx.kernel_clock, config, true, true)?;
+
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
+
+        Ok(())
     }
 
     /// Perform a blocking write
@@ -1718,7 +1733,7 @@ impl State {
 
 struct Info {
     regs: Regs,
-    enable_bit: ClockEnableBit,
+    rcc: RccInfo,
     interrupt: Interrupt,
     kind: Kind,
 }
@@ -1754,7 +1769,7 @@ macro_rules! impl_usart {
             fn info() -> &'static Info {
                 static INFO: Info = Info {
                     regs: unsafe { Regs::from_ptr(crate::pac::$inst.as_ptr()) },
-                    enable_bit: crate::peripherals::$inst::ENABLE_BIT,
+                    rcc: crate::peripherals::$inst::RCC_INFO,
                     interrupt: crate::interrupt::typelevel::$irq::IRQ,
                     kind: $kind,
                 };

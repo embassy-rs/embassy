@@ -1,7 +1,7 @@
 //! LTDC
 use core::marker::PhantomData;
 
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// LTDC driver.
@@ -60,7 +60,7 @@ impl<'d, T: Instance> Ltdc<'d, T> {
                 .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
         });
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         //new_pin!(clk, AFType::OutputPushPull, Speed::VeryHigh,  Pull::None);
 
@@ -93,7 +93,7 @@ impl<'d, T: Instance> Drop for Ltdc<'d, T> {
 }
 
 trait SealedInstance: crate::rcc::SealedRccPeripheral {
-    fn regs() -> &'static crate::pac::ltdc::Ltdc;
+    fn regs() -> crate::pac::ltdc::Ltdc;
 }
 
 /// DSI instance trait.
@@ -132,8 +132,8 @@ pin_trait!(B7Pin, Instance);
 foreach_peripheral!(
     (ltdc, $inst:ident) => {
         impl crate::ltdc::SealedInstance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::ltdc::Ltdc {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::ltdc::Ltdc {
+                crate::pac::$inst
             }
         }
 

@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-#[cfg(feature = "defmt-rtt")]
+#[cfg(feature = "defmt")]
 use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;

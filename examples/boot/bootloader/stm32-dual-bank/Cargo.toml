@@ -22,8 +22,7 @@ embedded-storage-async = "0.4.0"
 cfg-if = "1.0.0"
 
 [features]
-defmt = ["dep:defmt", "embassy-boot-stm32/defmt", "embassy-stm32/defmt"]
-debug = ["defmt-rtt", "defmt"]
+defmt = ["dep:defmt", "dep:defmt-rtt", "embassy-boot-stm32/defmt", "embassy-stm32/defmt"]
 
 [profile.dev]
 debug = 2

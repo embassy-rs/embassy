@@ -7,9 +7,12 @@
 //! The available functionality depends on the timer type.
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+// Re-export useful enums
+pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
 use crate::pac::timer::vals;
+use crate::rcc;
 use crate::time::Hertz;
 
 /// Input capture mode.
@@ -181,7 +184,7 @@ pub struct Timer<'d, T: CoreInstance> {
 
 impl<'d, T: CoreInstance> Drop for Timer<'d, T> {
     fn drop(&mut self) {
-        T::disable()
+        rcc::disable::<T>();
     }
 }
 
@@ -190,7 +193,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     pub fn new(tim: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(tim);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         Self { tim }
     }
@@ -271,6 +274,22 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
                 regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
             }
         }
+    }
+
+    /// Set tick frequency.
+    pub fn set_tick_freq(&mut self, freq: Hertz) {
+        let f = freq;
+        assert!(f.0 > 0);
+        let timer_f = self.get_clock_frequency();
+
+        let pclk_ticks_per_timer_period = timer_f / f;
+        let psc: u16 = unwrap!((pclk_ticks_per_timer_period - 1).try_into());
+
+        let regs = self.regs_core();
+        regs.psc().write_value(psc);
+
+        // Generate an Update Request
+        regs.egr().write(|r| r.set_ug(true));
     }
 
     /// Clear update interrupt.
@@ -571,6 +590,16 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set capture compare DMA enable state
     pub fn set_cc_dma_enable_state(&self, channel: Channel, ccde: bool) {
         self.regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
+    }
+
+    /// Set Timer Slave Mode
+    pub fn set_slave_mode(&self, sms: SlaveMode) {
+        self.regs_gp16().smcr().modify(|r| r.set_sms(sms));
+    }
+
+    /// Set Timer Trigger Source
+    pub fn set_trigger_source(&self, ts: TriggerSource) {
+        self.regs_gp16().smcr().modify(|r| r.set_ts(ts));
     }
 }
 

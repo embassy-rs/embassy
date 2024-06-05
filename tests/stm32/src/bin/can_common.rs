@@ -8,7 +8,8 @@ pub struct TestOptions {
     pub max_buffered: u8,
 }
 
-pub async fn run_can_tests<'d, T: can::Instance>(can: &mut can::Can<'d, T>, options: &TestOptions) {
+pub async fn run_can_tests<'d>(can: &mut can::Can<'d>, options: &TestOptions) {
+    //pub async fn run_can_tests<'d, T: can::Instance>(can: &mut can::Can<'d, T>, options: &TestOptions) {
     let mut i: u8 = 0;
     loop {
         //let tx_frame = can::frame::Frame::new_standard(0x123, &[i, 0x12 as u8, 0x34 as u8, 0x56 as u8, 0x78 as u8, 0x9A as u8, 0xBC as u8 ]).unwrap();
@@ -79,11 +80,7 @@ pub async fn run_can_tests<'d, T: can::Instance>(can: &mut can::Can<'d, T>, opti
     }
 }
 
-pub async fn run_split_can_tests<'d, T: can::Instance>(
-    tx: &mut can::CanTx<'d, T>,
-    rx: &mut can::CanRx<'d, T>,
-    options: &TestOptions,
-) {
+pub async fn run_split_can_tests<'d>(tx: &mut can::CanTx<'d>, rx: &mut can::CanRx<'d>, options: &TestOptions) {
     for i in 0..options.max_buffered {
         // Try filling up the RX FIFO0 buffers
         //let tx_frame = if 0 != (i & 0x01) {

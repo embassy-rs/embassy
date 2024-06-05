@@ -20,8 +20,9 @@ enum LoopbackMode {
 }
 
 pub struct Registers {
-    pub regs: &'static crate::pac::can::Fdcan,
-    pub msgram: &'static crate::pac::fdcanram::Fdcanram,
+    pub regs: crate::pac::can::Fdcan,
+    pub msgram: crate::pac::fdcanram::Fdcanram,
+    #[allow(dead_code)]
     pub msg_ram_offset: usize,
 }
 
@@ -72,7 +73,6 @@ impl Registers {
 
     pub fn put_tx_frame(&self, bufidx: usize, header: &Header, buffer: &[u8]) {
         let mailbox = self.tx_buffer_element(bufidx);
-
         mailbox.reset();
         put_tx_header(mailbox, header);
         put_tx_data(mailbox, &buffer[..header.len() as usize]);
@@ -244,12 +244,12 @@ impl Registers {
     }
 
     #[inline]
-    fn reset_msg_ram(&mut self) {
+    fn reset_msg_ram(&self) {
         self.msg_ram_mut().reset();
     }
 
     #[inline]
-    fn enter_init_mode(&mut self) {
+    fn enter_init_mode(&self) {
         self.regs.cccr().modify(|w| w.set_init(true));
         while false == self.regs.cccr().read().init() {}
         self.regs.cccr().modify(|w| w.set_cce(true));
@@ -258,7 +258,7 @@ impl Registers {
     /// Enables or disables loopback mode: Internally connects the TX and RX
     /// signals together.
     #[inline]
-    fn set_loopback_mode(&mut self, mode: LoopbackMode) {
+    fn set_loopback_mode(&self, mode: LoopbackMode) {
         let (test, mon, lbck) = match mode {
             LoopbackMode::None => (false, false, false),
             LoopbackMode::Internal => (true, true, true),
@@ -273,34 +273,34 @@ impl Registers {
 
     /// Enables or disables silent mode: Disconnects the TX signal from the pin.
     #[inline]
-    fn set_bus_monitoring_mode(&mut self, enabled: bool) {
+    fn set_bus_monitoring_mode(&self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_mon(enabled));
     }
 
     #[inline]
-    fn set_restricted_operations(&mut self, enabled: bool) {
+    fn set_restricted_operations(&self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_asm(enabled));
     }
 
     #[inline]
-    fn set_normal_operations(&mut self, _enabled: bool) {
+    fn set_normal_operations(&self, _enabled: bool) {
         self.set_loopback_mode(LoopbackMode::None);
     }
 
     #[inline]
-    fn set_test_mode(&mut self, enabled: bool) {
+    fn set_test_mode(&self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_test(enabled));
     }
 
     #[inline]
-    fn set_power_down_mode(&mut self, enabled: bool) {
+    fn set_power_down_mode(&self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_csr(enabled));
         while self.regs.cccr().read().csa() != enabled {}
     }
 
     /// Moves out of PoweredDownMode and into ConfigMode
     #[inline]
-    pub fn into_config_mode(mut self, _config: FdCanConfig) {
+    pub fn into_config_mode(self, _config: FdCanConfig) {
         self.set_power_down_mode(false);
         self.enter_init_mode();
         self.reset_msg_ram();
@@ -327,7 +327,7 @@ impl Registers {
 
     /// Applies the settings of a new FdCanConfig See [`FdCanConfig`]
     #[inline]
-    pub fn apply_config(&mut self, config: FdCanConfig) {
+    pub fn apply_config(&self, config: FdCanConfig) {
         self.set_tx_buffer_mode(config.tx_buffer_mode);
 
         // set standard filters list size to 28
@@ -388,7 +388,7 @@ impl Registers {
     }
 
     #[inline]
-    fn leave_init_mode(&mut self, config: FdCanConfig) {
+    fn leave_init_mode(&self, config: FdCanConfig) {
         self.apply_config(config);
 
         self.regs.cccr().modify(|w| w.set_cce(false));
@@ -398,7 +398,7 @@ impl Registers {
 
     /// Moves out of ConfigMode and into specified mode
     #[inline]
-    pub fn into_mode(mut self, config: FdCanConfig, mode: crate::can::_version::OperatingMode) {
+    pub fn into_mode(&self, config: FdCanConfig, mode: crate::can::_version::OperatingMode) {
         match mode {
             crate::can::OperatingMode::InternalLoopbackMode => self.set_loopback_mode(LoopbackMode::Internal),
             crate::can::OperatingMode::ExternalLoopbackMode => self.set_loopback_mode(LoopbackMode::External),
@@ -422,7 +422,7 @@ impl Registers {
     /// Then copy the `CAN_BUS_TIME` register value from the table and pass it as the `btr`
     /// parameter to this method.
     #[inline]
-    pub fn set_nominal_bit_timing(&mut self, btr: NominalBitTiming) {
+    pub fn set_nominal_bit_timing(&self, btr: NominalBitTiming) {
         self.regs.nbtp().write(|w| {
             w.set_nbrp(btr.nbrp() - 1);
             w.set_ntseg1(btr.ntseg1() - 1);
@@ -434,7 +434,7 @@ impl Registers {
     /// Configures the data bit timings for the FdCan Variable Bitrates.
     /// This is not used when frame_transmit is set to anything other than AllowFdCanAndBRS.
     #[inline]
-    pub fn set_data_bit_timing(&mut self, btr: DataBitTiming) {
+    pub fn set_data_bit_timing(&self, btr: DataBitTiming) {
         self.regs.dbtp().write(|w| {
             w.set_dbrp(btr.dbrp() - 1);
             w.set_dtseg1(btr.dtseg1() - 1);
@@ -450,39 +450,39 @@ impl Registers {
     ///
     /// Automatic retransmission is enabled by default.
     #[inline]
-    pub fn set_automatic_retransmit(&mut self, enabled: bool) {
+    pub fn set_automatic_retransmit(&self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_dar(!enabled));
     }
 
     /// Configures the transmit pause feature. See
     /// [`FdCanConfig::set_transmit_pause`]
     #[inline]
-    pub fn set_transmit_pause(&mut self, enabled: bool) {
+    pub fn set_transmit_pause(&self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_txp(!enabled));
     }
 
     /// Configures non-iso mode. See [`FdCanConfig::set_non_iso_mode`]
     #[inline]
-    pub fn set_non_iso_mode(&mut self, enabled: bool) {
+    pub fn set_non_iso_mode(&self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_niso(enabled));
     }
 
     /// Configures edge filtering. See [`FdCanConfig::set_edge_filtering`]
     #[inline]
-    pub fn set_edge_filtering(&mut self, enabled: bool) {
+    pub fn set_edge_filtering(&self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_efbi(enabled));
     }
 
     /// Configures TX Buffer Mode
     #[inline]
-    pub fn set_tx_buffer_mode(&mut self, tbm: TxBufferMode) {
+    pub fn set_tx_buffer_mode(&self, tbm: TxBufferMode) {
         self.regs.txbc().write(|w| w.set_tfqm(tbm.into()));
     }
 
     /// Configures frame transmission mode. See
     /// [`FdCanConfig::set_frame_transmit`]
     #[inline]
-    pub fn set_frame_transmit(&mut self, fts: FrameTransmissionConfig) {
+    pub fn set_frame_transmit(&self, fts: FrameTransmissionConfig) {
         let (fdoe, brse) = match fts {
             FrameTransmissionConfig::ClassicCanOnly => (false, false),
             FrameTransmissionConfig::AllowFdCan => (true, false),
@@ -500,14 +500,14 @@ impl Registers {
 
     /// Sets the protocol exception handling on/off
     #[inline]
-    pub fn set_protocol_exception_handling(&mut self, enabled: bool) {
+    pub fn set_protocol_exception_handling(&self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_pxhd(!enabled));
     }
 
     /// Configures and resets the timestamp counter
     #[inline]
     #[allow(unused)]
-    pub fn set_timestamp_counter_source(&mut self, select: TimestampSource) {
+    pub fn set_timestamp_counter_source(&self, select: TimestampSource) {
         #[cfg(can_fdcan_h7)]
         let (tcp, tss) = match select {
             TimestampSource::None => (0, 0),
@@ -531,7 +531,7 @@ impl Registers {
     #[cfg(not(can_fdcan_h7))]
     /// Configures the global filter settings
     #[inline]
-    pub fn set_global_filter(&mut self, filter: GlobalFilter) {
+    pub fn set_global_filter(&self, filter: GlobalFilter) {
         let anfs = match filter.handle_standard_frames {
             crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => stm32_metapac::can::vals::Anfs::ACCEPT_FIFO_0,
             crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => stm32_metapac::can::vals::Anfs::ACCEPT_FIFO_1,
@@ -554,7 +554,7 @@ impl Registers {
     #[cfg(can_fdcan_h7)]
     /// Configures the global filter settings
     #[inline]
-    pub fn set_global_filter(&mut self, filter: GlobalFilter) {
+    pub fn set_global_filter(&self, filter: GlobalFilter) {
         let anfs = match filter.handle_standard_frames {
             crate::can::fd::config::NonMatchingFilter::IntoRxFifo0 => 0,
             crate::can::fd::config::NonMatchingFilter::IntoRxFifo1 => 1,
@@ -576,10 +576,10 @@ impl Registers {
     }
 
     #[cfg(not(can_fdcan_h7))]
-    fn configure_msg_ram(&mut self) {}
+    fn configure_msg_ram(&self) {}
 
     #[cfg(can_fdcan_h7)]
-    fn configure_msg_ram(&mut self) {
+    fn configure_msg_ram(&self) {
         let r = self.regs;
 
         use crate::can::fd::message_ram::*;

@@ -671,12 +671,6 @@ impl<'d> I2c<'d, Async> {
     }
 }
 
-impl<'d, M: Mode> Drop for I2c<'d, M> {
-    fn drop(&mut self) {
-        self.info.enable_bit.disable();
-    }
-}
-
 /// I2C Stop Configuration
 ///
 /// Peripheral options for generating the STOP condition

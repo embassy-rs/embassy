@@ -16,7 +16,7 @@ use crate::dma::{word, ChannelAndRequest};
 use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::octospi::{vals, Octospi as Regs};
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// OPSI driver config.
@@ -198,7 +198,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         into_ref!(peri);
 
         // System configuration
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         while T::REGS.sr().read().busy() {}
 
         // Device configuration
@@ -1013,7 +1013,7 @@ impl<'d, T: Instance, M: PeriMode> Drop for Ospi<'d, T, M> {
         self.nss.as_ref().map(|x| x.set_as_disconnected());
         self.dqs.as_ref().map(|x| x.set_as_disconnected());
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }
 

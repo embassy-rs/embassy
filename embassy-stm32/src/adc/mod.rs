@@ -71,9 +71,9 @@ pub(crate) trait SealedAdcChannel<T> {
 /// Performs a busy-wait delay for a specified number of microseconds.
 #[allow(unused)]
 pub(crate) fn blocking_delay_us(us: u32) {
-    #[cfg(time)]
-    embassy_time::block_for(embassy_time::Duration::from_micros(us));
-    #[cfg(not(time))]
+    #[cfg(feature = "time")]
+    embassy_time::block_for(embassy_time::Duration::from_micros(us as u64));
+    #[cfg(not(feature = "time"))]
     {
         let freq = unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 as u64;
         let us = us as u64;

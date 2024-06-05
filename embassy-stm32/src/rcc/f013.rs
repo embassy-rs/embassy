@@ -95,7 +95,7 @@ pub struct Config {
 
     #[cfg(all(stm32f3, not(rcc_f37)))]
     pub adc: AdcClockSource,
-    #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
+    #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
     pub adc34: AdcClockSource,
 
     /// Per-peripheral kernel clock selection muxes
@@ -125,7 +125,7 @@ impl Default for Config {
 
             #[cfg(all(stm32f3, not(rcc_f37)))]
             adc: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
-            #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
+            #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
 
             mux: Default::default(),
@@ -276,7 +276,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Set prescalers
     // CFGR has been written before (PLL, PLL48) don't overwrite these settings
-    RCC.cfgr().modify(|w: &mut stm32_metapac::rcc::regs::Cfgr| {
+    RCC.cfgr().modify(|w| {
         #[cfg(not(stm32f0))]
         {
             w.set_ppre1(config.apb1_pre);
@@ -339,7 +339,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
+    #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
     let adc34 = {
         #[cfg(peri_adc3_common)]
         let common = crate::pac::ADC3_COMMON;
@@ -404,7 +404,7 @@ pub(crate) unsafe fn init(config: Config) {
         hclk1: Some(hclk),
         #[cfg(all(stm32f3, not(rcc_f37)))]
         adc: Some(adc),
-        #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
+        #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
         adc34: Some(adc34),
         rtc: rtc,
         hsi48: hsi48,

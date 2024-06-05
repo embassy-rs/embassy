@@ -4,7 +4,7 @@ use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -31,7 +31,7 @@ impl AdcChannel<ADC1> for Temperature {}
 impl super::SealedAdcChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         cfg_if::cfg_if! {
-            if #[cfg(any(stm32f2, stm32f40, stm32f41))] {
+            if #[cfg(any(stm32f2, stm32f40x, stm32f41x))] {
                 16
             } else {
                 18
@@ -96,7 +96,7 @@ where
 {
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         let presc = Prescaler::from_pclk2(T::frequency());
         T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
@@ -206,6 +206,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
             reg.set_adon(false);
         });
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }
