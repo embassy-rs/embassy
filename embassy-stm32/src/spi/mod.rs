@@ -18,7 +18,7 @@ use crate::time::Hertz;
 use crate::Peripheral;
 
 /// SPI error.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Invalid framing.

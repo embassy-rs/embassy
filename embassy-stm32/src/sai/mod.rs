@@ -15,7 +15,7 @@ use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// SAI error
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// `write` called on a SAI in receive mode.
