@@ -7,10 +7,10 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralRef;
 
-use super::{AdvancedInstance4Channel, Channel, CoreInstance, GeneralInstance4Channel, Info, TimerBits};
+use super::{AdvancedInstance4Channel, BasicInstance, Channel, CoreInstance, GeneralInstance4Channel, Info, TimerBits};
 use crate::gpio::{AfType, AnyPin, Pin, SealedPin};
 use crate::time::Hertz;
-use crate::{into_ref, pac, rcc, Peripheral};
+use crate::{dma, into_ref, pac, rcc, Peripheral};
 
 trait TimerPinMarkerSealed {}
 
@@ -31,13 +31,13 @@ pub trait TimerPin<T: CoreInstance, M: TimerPinMarker>: Pin {
     fn af_num(&self) -> u8;
 }
 
-/// Marker type for channel 1 pin.
+/// Marker type for channel 1.
 pub enum Ch1 {}
-/// Marker type for channel 2 pin.
+/// Marker type for channel 2.
 pub enum Ch2 {}
-/// Marker type for channel 3 pin.
+/// Marker type for channel 3.
 pub enum Ch3 {}
-/// Marker type for channel 4 pin.
+/// Marker type for channel 4.
 pub enum Ch4 {}
 /// Marker type for external trigger pin.
 pub enum Etr {}
@@ -136,6 +136,68 @@ impl_channel!(Ch1, Channel::Ch1);
 impl_channel!(Ch2, Channel::Ch2);
 impl_channel!(Ch3, Channel::Ch3);
 impl_channel!(Ch4, Channel::Ch4);
+
+/// Timer channel DMA trait.
+///
+/// If a DMA channel implements `TimerChannelDma<T, C>`, it means that it can be used with the DMA
+/// request for channel `C` of timer `T`. For example, `TimerChannelDma<TIM2, Ch1>` is implemented
+/// for DMA channels that can be used with DMA request of channel 1 on timer TIM2.
+///
+/// This trait is equivalent to the pin-specific traits defined in the [`timer`][super] module; for
+/// example, `TimerChannelDma<T, Ch1>` is equivalent to [`timer::Ch1Dma`][super::Ch1Dma].
+pub trait TimerChannelDma<T: CoreInstance, C: TimerChannelMarker>: dma::Channel {
+    /// Get the DMA request number needed to use this DMA channel as DMA request for channel `C` of
+    /// timer peripheral `T`.
+    ///
+    /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
+    /// `embassy-stm32` always uses the "channel" and "request number" names.
+    fn request(&self) -> dma::Request;
+}
+
+macro_rules! impl_dma {
+    ($channel_ty:ident, $t:ident, $dma_trait:path) => {
+        impl<$t: GeneralInstance4Channel, D> TimerChannelDma<$t, $channel_ty> for D
+        where
+            D: $dma_trait,
+        {
+            fn request(&self) -> dma::Request {
+                <D as $dma_trait>::request(self)
+            }
+        }
+    };
+}
+
+impl_dma!(Ch1, T, super::Ch1Dma<T>);
+impl_dma!(Ch2, T, super::Ch2Dma<T>);
+impl_dma!(Ch3, T, super::Ch3Dma<T>);
+impl_dma!(Ch4, T, super::Ch4Dma<T>);
+
+/// Get type-erased DMA request and channel that can be used as the update DMA for timer `T`.
+pub fn up_dma<'d, T>(dma: impl Peripheral<P = impl super::UpDma<T>> + 'd) -> dma::ChannelAndRequest<'d>
+where
+    T: BasicInstance,
+{
+    into_ref!(dma);
+    let request = dma.request();
+    dma::ChannelAndRequest {
+        channel: dma.map_into(),
+        request,
+    }
+}
+
+/// Get type-erased DMA request and channel that can be used as the DMA for channel `C` of timer `T`.
+pub fn channel_dma<'d, T, C>(dma: impl Peripheral<P = impl TimerChannelDma<T, C>> + 'd) -> dma::ChannelAndRequest<'d>
+where
+    T: GeneralInstance4Channel,
+    C: TimerChannelMarker,
+{
+    into_ref!(dma);
+    let request = dma.request();
+    dma::ChannelAndRequest {
+        channel: dma.map_into(),
+        request,
+    }
+}
 
 /// Type-erased timer pin.
 ///
