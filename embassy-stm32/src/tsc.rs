@@ -7,12 +7,10 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::AFType;
-use crate::gpio::Speed;
+use crate::gpio::{AFType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::tsc::regs::{Ier, Ioccr, Iogcsr, Iohcr, Ioscr};
-use crate::peripherals;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, peripherals, Peripheral};
 
 /// Touch Sensor Controller driver.
 pub struct Tsc<'d, T: Instance> {
