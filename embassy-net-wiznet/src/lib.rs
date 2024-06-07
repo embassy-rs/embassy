@@ -29,7 +29,7 @@ pub type Device<'d> = embassy_net_driver_channel::Device<'d, MTU>;
 /// send packet queue. With a the ethernet MTU of _1514_ this takes up `N_RX +
 /// NTX * 1514` bytes. While setting these both to 1 is the minimum this might
 /// hurt performance as a packet can not be received while processing another.
-/// 
+///
 /// # Warning
 /// On devices with a small amount of ram (think ~64k) watch out with the size
 /// of there parameters. They will quickly use too much RAM.

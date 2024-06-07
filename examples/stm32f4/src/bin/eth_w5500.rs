@@ -5,17 +5,18 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Stack, StackResources};
-use embassy_net_wiznet::{chip::W5500, Device, Runner, State};
-use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_net_wiznet::chip::W5500;
+use embassy_net_wiznet::{Device, Runner, State};
 use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::mode::Async;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::spi::Spi;
-use embassy_stm32::mode::Async;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, peripherals, rng, spi, Config};
-use embassy_time::{Timer, Delay};
-use embedded_io_async::Write;
+use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
+use embedded_io_async::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -25,9 +26,7 @@ bind_interrupts!(struct Irqs {
 
 type EthernetSPI = ExclusiveDevice<Spi<'static, Async>, Output<'static>, Delay>;
 #[embassy_executor::task]
-async fn ethernet_task(
-    runner: Runner<'static, W5500, EthernetSPI, ExtiInput<'static>, Output<'static>>,
-) -> ! {
+async fn ethernet_task(runner: Runner<'static, W5500, EthernetSPI, ExtiInput<'static>, Output<'static>>) -> ! {
     runner.run().await
 }
 
