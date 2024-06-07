@@ -17,7 +17,6 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    
     let config = Config::default();
     let p = embassy_stm32::init(config);
 

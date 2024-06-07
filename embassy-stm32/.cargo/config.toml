@@ -35,6 +35,3 @@ registry = "sparse+https://tokenizeinc.jfrog.io/artifactory/api/cargo/cargo-remo
 # Replace crates.io with our artifactory remote.
 [source.crates-io]
 replace-with = "artifactory-remote"
-
-[build]
-target = "thumbv7em-none-eabihf"

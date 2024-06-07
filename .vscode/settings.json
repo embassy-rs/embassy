@@ -15,12 +15,11 @@
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.cargo.features": [
-    "stm32wb55vg",
+    "stm32f446re",
     "time-driver-any",
     "unstable-pac",
     "exti",
     "rt",
-    "defmt",
   ],
   "rust-analyzer.linkedProjects": [
     // Uncomment ONE line for the chip you want to work on.

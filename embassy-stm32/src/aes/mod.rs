@@ -7,6 +7,7 @@ use core::task::Poll;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::aes::vals::Datatype;
+use static_assertions::const_assert_eq;
 use stm32_metapac::aes::vals::Gcmph;
 
 use crate::dma::NoDma;
@@ -29,7 +30,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             T::regs().cr().modify(|w| w.set_ccfie(false));
             AES_WAKER.wake();
         }
-        // TODO: also implement error interrupts/flags handling
     }
 }
 
@@ -211,8 +211,7 @@ impl<'c, 'd, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize,
     /// - Output buffer must be at least as long as the input buffer.
     /// - `aad` should be called beforehand, if `aad_len` has been set to nonzero value.
     ///
-    /// ## Panics
-    /// TODO fill out if decided to panic
+    /// **Panics** if either of them is not upheld.
     pub async fn payload(&mut self, input: &[u8], output: &mut [u8])
     where
         Self: CipherSized + IVSized,
@@ -222,10 +221,8 @@ impl<'c, 'd, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize,
         if input.len() > output.len() {
             panic!("Output buffer length must match input length.");
         }
-        // TODO there was a check that made sure that AAD was processed if its len was configured as more than 0. Bring it back
         if !self.aad_processed && self.aad_header_len > 0 {
-            // TODO: error handling?
-            panic!("")
+            panic!("AES payload processing failed: AAD was supposed to be processed first")
         }
 
         self.aes.set_algorithm_phase(Gcmph::PAYLOADPHASE);
@@ -301,8 +298,8 @@ impl<'c, 'd, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize,
     }
 
     fn reverse_bytes_in_words<const SIZE: usize>(block: &mut [u8; SIZE]) {
-        // TODO: try to make this assertion constant
-        assert!(SIZE % 4 == 0);
+        assert_eq!(SIZE % 4, 0);
+        
         let words = block.array_chunks_mut::<4>();
         for word in words {
             word.reverse();
@@ -516,7 +513,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
     fn write_and_read_bytes_blocking(&mut self, blocks_in: &[u8], blocks_out: &mut [u8]) {
         // Ensure input is a multiple of block size.
         assert_eq!(blocks_in.len() % AES_BLOCK_SIZE, 0);
-        assert!(blocks_in.len() =< blocks_out.len());
+        assert!(blocks_in.len() <= blocks_out.len());
 
         for (block_in, block_out) in blocks_in
             .array_chunks::<AES_BLOCK_SIZE>()
@@ -587,6 +584,10 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         }
     }
 
+
+    /// Performs writing to DINR, and awaits without blocking,
+    /// due to using AES CCF interrupts.
+    #[allow(unused)]
     async fn write_bytes_interrupt(&mut self, blocks_in: &[u8]) {
         assert_eq!(blocks_in.len() % AES_BLOCK_SIZE, 0);
 
@@ -606,7 +607,6 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
 
                 // Need to check condition **after** `register` to avoid a race
                 // condition that would result in lost notifications.
-                // TODO: confirm it's absolutely necessary.
                 if T::regs().sr().read().ccf() {
                     self.clear_computation_complete_flag();
                     Poll::Ready(())
@@ -623,14 +623,14 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
     /// - read `blocks_out` from `DOUTR`.
     ///
     /// ## Contracts
-    /// - `blocks_in.len() =< blocks_out.len()`
+    /// - `blocks_in.len() <= blocks_out.len()`
     /// - Also, Refer to `write_bytes_dma` and `read_bytes_dma` methods.
     async fn write_read_bytes_dma(&mut self, blocks_in: &[u8], blocks_out: &mut [u8])
     where
         DmaOut: crate::aes::DmaOut<T>,
         DmaIn: crate::aes::DmaIn<T>,
     {
-        assert!(blocks_in.len() =< blocks_out.len());
+        assert!(blocks_in.len() <= blocks_out.len());
 
         let write_dma = Self::write_bytes_dma(&mut self.dma_in, blocks_in);
         let read_dma = Self::read_bytes_dma(&mut self.dma_out, blocks_out);
@@ -646,17 +646,22 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
     where
         DmaIn: crate::aes::DmaIn<T>,
     {
+        assert!(blocks.as_ptr().is_aligned_to(4));
         if blocks.len() == 0 {
             return;
         }
-
+        
         // Ensure input is a multiple of block size.
         assert_eq!(blocks.len() % AES_BLOCK_SIZE, 0);
         // Configure DMA to transfer input to crypto core.
         let dma_request = dma_in.request();
-        let dst_ptr = T::regs().dinr().as_ptr() as *mut u32;
+        let dst_ptr =T::regs().dinr().as_ptr() as *mut u32;
+
+
+
         let num_words = blocks.len() / 4;
         let src_ptr = core::ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
+
         let options = crate::dma::TransferOptions {
             #[cfg(not(gpdma))]
             priority: crate::dma::Priority::High,
@@ -674,7 +679,6 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
     ///
     /// ## Contracts
     /// - Input slice **must** be aligned to u32. Otherwise the output data will be shifted.
-    ///     TODO: find compile time assert for above contract.
     /// - Length must be multiple of `AES_BLOCK_SIZE`.
     async fn read_bytes_dma(dma_out: &mut PeripheralRef<'d, DmaOut>, blocks: &mut [u8])
     where
@@ -691,6 +695,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         let src_ptr = T::regs().doutr().as_ptr() as *mut u32;
         let num_words = blocks.len() / 4;
         let dst_ptr = core::ptr::slice_from_raw_parts_mut(blocks.as_mut_ptr().cast(), num_words);
+
         let options = crate::dma::TransferOptions {
             #[cfg(not(gpdma))]
             priority: crate::dma::Priority::VeryHigh,
