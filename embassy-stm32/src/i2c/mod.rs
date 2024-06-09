@@ -23,7 +23,7 @@ use crate::time::Hertz;
 use crate::{interrupt, peripherals};
 
 /// I2C error.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Bus error

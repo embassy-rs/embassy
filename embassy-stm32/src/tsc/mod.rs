@@ -83,7 +83,7 @@ const TSC_NUM_GROUPS: u32 = 7;
 const TSC_NUM_GROUPS: u32 = 8;
 
 /// Error type defined for TSC
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Test error for TSC
