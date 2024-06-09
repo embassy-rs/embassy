@@ -495,7 +495,11 @@ impl AnyChannel {
                 let ch = r.ch(info.num);
                 let en = ch.cr().read().en();
                 let circular = ch.cr().read().circ();
-                let tcif = state.complete_count.load(Ordering::Acquire) != 0;
+                let isr = r.isr().read();
+                let cr = r.ch(info.num).cr();
+                let tcif =
+                    state.complete_count.load(Ordering::Acquire) != 0 || (isr.tcif(info.num) && cr.read().tcie());
+
                 en && (circular || !tcif)
             }
         }
