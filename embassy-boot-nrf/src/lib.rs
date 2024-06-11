@@ -3,6 +3,16 @@
 #![doc = include_str!("../README.md")]
 mod fmt;
 
+#[allow(unused)]
+#[macro_use(assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, todo, unreachable, panic, trace, debug, info, warn, error, unwrap)]
+#[cfg(feature = "defmt")]
+extern crate defmt;
+
+#[allow(unused)]
+#[macro_use(trace, debug, info, warn, error)]
+#[cfg(feature = "log")]
+extern crate log;
+
 pub use embassy_boot::{
     AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
     FirmwareUpdater, FirmwareUpdaterConfig,
