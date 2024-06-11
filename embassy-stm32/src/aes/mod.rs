@@ -7,7 +7,6 @@ use core::task::Poll;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::aes::vals::Datatype;
-use static_assertions::const_assert_eq;
 use stm32_metapac::aes::vals::Gcmph;
 
 use crate::dma::NoDma;
@@ -542,6 +541,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
     /// ## Contracts:
     /// - CCF must be cleared when invoking this method
     /// - `blocks_in` length must be multiple of `AES_BLOCK_SIZE`
+    #[allow(unused)]
     fn write_bytes_blocking(&mut self, blocks_in: &[u8]) {
         const BYTES_IN_WORD: usize = 4;
         // Ensure input is a multiple of block size.
