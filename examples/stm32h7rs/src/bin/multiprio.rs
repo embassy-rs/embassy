@@ -97,7 +97,7 @@ async fn run_low() {
         info!("[low] Starting long computation");
 
         // Spin-wait to simulate a long CPU computation
-cortex_m::asm::delay(256_000_000); // At least 256_000_000 CPU cycles (could be ~2 seconds)
+        cortex_m::asm::delay(256_000_000); // At least 256_000_000 CPU cycles (could be ~2 seconds)
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
