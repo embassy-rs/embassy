@@ -1,0 +1,19 @@
+[package]
+name = "embassy-fmt"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/embassy-rs/embassy"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+categories = [
+    "embedded",
+    "no-std",
+]
+
+[features]
+defmt = ["dep:defmt"]
+log = ["dep:log"]
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }

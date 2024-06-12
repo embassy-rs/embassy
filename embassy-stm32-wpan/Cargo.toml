@@ -20,6 +20,7 @@ features = ["stm32wb55rg"]
 
 [dependencies]
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32" }
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time = { version = "0.3.1", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
@@ -41,8 +42,8 @@ futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
 
 [features]
-defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "stm32wb-hci?/defmt"]
-
+defmt = ["dep:defmt", "embassy-fmt/defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "stm32wb-hci?/defmt"]
+log = ["dep:log", "embassy-fmt/log"]
 ble = ["dep:stm32wb-hci"]
 mac = ["dep:bitflags", "dep:embassy-net-driver" ]
 

@@ -32,7 +32,7 @@ features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.2", optional = true }
-
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 embassy-executor-macros = { version = "0.4.0", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver", optional = true }
@@ -61,6 +61,9 @@ critical-section = { version = "1.1", features = ["std"] }
 
 ## Enable nightly-only features
 nightly = ["embassy-executor-macros/nightly"]
+
+defmt = ["dep:defmt", "embassy-fmt/defmt"]
+log = ["dep:log", "embassy-fmt/log"]
 
 # Enables turbo wakers, which requires patching core. Not surfaced in the docs by default due to
 # being an complicated advanced and undocumented feature.

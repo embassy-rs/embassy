@@ -1,9 +1,12 @@
-#![macro_use]
-#![allow(unused)]
+#![no_std]
 
 use core::fmt::{Debug, Display, LowerHex};
 
+#[cfg(all(feature = "defmt", feature = "log"))]
+compile_error!("You may not enable both `defmt` and `log` features.");
+
 #[cfg(not(any(feature = "log", feature = "defmt")))]
+#[macro_export]
 macro_rules! trace {
     ($s:literal $(, $x:expr)* $(,)?) => {
         {
@@ -13,6 +16,7 @@ macro_rules! trace {
 }
 
 #[cfg(not(any(feature = "log", feature = "defmt")))]
+#[macro_export]
 macro_rules! debug {
     ($s:literal $(, $x:expr)* $(,)?) => {
         {
@@ -22,6 +26,7 @@ macro_rules! debug {
 }
 
 #[cfg(not(any(feature = "log", feature = "defmt")))]
+#[macro_export]
 macro_rules! info {
     ($s:literal $(, $x:expr)* $(,)?) => {
         {
@@ -32,6 +37,7 @@ macro_rules! info {
 }
 
 #[cfg(not(any(feature = "log", feature = "defmt")))]
+#[macro_export]
 macro_rules! warn {
     ($s:literal $(, $x:expr)* $(,)?) => {
         {
@@ -41,6 +47,7 @@ macro_rules! warn {
 }
 
 #[cfg(not(any(feature = "log", feature = "defmt")))]
+#[macro_export]
 macro_rules! error {
     ($s:literal $(, $x:expr)* $(,)?) => {
         {
@@ -50,6 +57,7 @@ macro_rules! error {
 }
 
 #[cfg(not(feature = "defmt"))]
+#[macro_export]
 macro_rules! unwrap {
     ($arg:expr) => {
         match $crate::fmt::Try::into_result($arg) {
@@ -98,7 +106,7 @@ impl<T, E> Try for Result<T, E> {
     }
 }
 
-pub(crate) struct Bytes<'a>(pub &'a [u8]);
+pub struct Bytes<'a>(pub &'a [u8]);
 
 impl<'a> Debug for Bytes<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

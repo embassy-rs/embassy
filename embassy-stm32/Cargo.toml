@@ -42,6 +42,7 @@ features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h7
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time = { version = "0.3.1", path = "../embassy-time", optional = true }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
@@ -106,7 +107,9 @@ default = ["rt"]
 rt = ["stm32-metapac/rt"]
 
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
-defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async/defmt-03", "embassy-usb-driver/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
+defmt = ["dep:defmt", "embassy-fmt/defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async/defmt-03", "embassy-usb-driver/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
+
+log = ["dep:log", "embassy-fmt/log"]
 
 exti = []
 low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]

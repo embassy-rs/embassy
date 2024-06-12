@@ -10,11 +10,28 @@
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
-// This must go FIRST so that all the other modules see its macros.
-mod fmt;
+#[allow(unused)]
+#[macro_use]
+extern crate embassy_fmt;
 
 #[allow(unused)]
-#[macro_use(assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, todo, unreachable, panic, trace, debug, info, warn, error, unwrap)]
+#[macro_use(
+    assert,
+    assert_eq,
+    assert_ne,
+    debug_assert,
+    debug_assert_eq,
+    debug_assert_ne,
+    todo,
+    unreachable,
+    panic,
+    trace,
+    debug,
+    info,
+    warn,
+    error,
+    unwrap
+)]
 #[cfg(feature = "defmt")]
 extern crate defmt;
 

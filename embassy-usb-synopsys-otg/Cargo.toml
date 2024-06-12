@@ -18,8 +18,13 @@ target = "thumbv7em-none-eabi"
 [dependencies]
 critical-section = "1.1"
 
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
+
+[features]
+defmt = ["dep:defmt", "embassy-fmt/defmt"]
+log = ["dep:log", "embassy-fmt/log"]

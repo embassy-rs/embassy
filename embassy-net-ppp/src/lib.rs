@@ -2,8 +2,9 @@
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 
-// must be first
-mod fmt;
+#[allow(unused)]
+#[macro_use]
+extern crate embassy_fmt;
 
 #[allow(unused)]
 #[macro_use(assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, todo, unreachable, panic, trace, debug, info, warn, error, unwrap)]

@@ -29,6 +29,7 @@ digest = "0.10"
 log = { version = "0.4", optional = true }
 ed25519-dalek = { version = "2", default_features = false, features = ["digest"], optional = true }
 embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
@@ -47,6 +48,8 @@ ed25519-dalek = { version = "2", default_features = false, features = ["std", "r
 [features]
 ed25519-dalek = ["dep:ed25519-dalek", "_verify"]
 ed25519-salty = ["dep:salty", "_verify"]
+defmt = ["dep:defmt", "embassy-fmt/defmt"]
+log = ["dep:log", "embassy-fmt/log"]
 
 #Internal features
 _verify = []

@@ -33,11 +33,28 @@ compile_error!("feature `reset-pin-as-gpio` is only valid for nRF52 series chips
 #[cfg(all(feature = "nfc-pins-as-gpio", not(any(feature = "_nrf52", feature = "_nrf5340-app"))))]
 compile_error!("feature `nfc-pins-as-gpio` is only valid for nRF52, or nRF53's application core.");
 
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
+#[allow(unused)]
+#[macro_use]
+extern crate embassy_fmt;
 
 #[allow(unused)]
-#[macro_use(assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, todo, unreachable, panic, trace, debug, info, warn, error, unwrap)]
+#[macro_use(
+    assert,
+    assert_eq,
+    assert_ne,
+    debug_assert,
+    debug_assert_eq,
+    debug_assert_ne,
+    todo,
+    unreachable,
+    panic,
+    trace,
+    debug,
+    info,
+    warn,
+    error,
+    unwrap
+)]
 #[cfg(feature = "defmt")]
 extern crate defmt;
 

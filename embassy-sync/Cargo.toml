@@ -22,11 +22,13 @@ target = "thumbv7em-none-eabi"
 [features]
 std = ["critical-section/std"]
 turbowakers = []
+defmt = ["dep:defmt", "embassy-fmt/defmt"]
+log = ["dep:log", "embassy-fmt/log"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
-
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 futures-util = { version = "0.3.17", default-features = false }
 critical-section = "1.1"
 heapless = "0.8"

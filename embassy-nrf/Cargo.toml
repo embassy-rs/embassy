@@ -46,7 +46,10 @@ rt = [
 time = ["dep:embassy-time"]
 
 ## Enable defmt
-defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-embedded-hal/defmt"]
+defmt = ["dep:defmt", "embassy-fmt/defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-embedded-hal/defmt"]
+
+## Enable log
+log = ["dep:log", "embassy-fmt/log"]
 
 ## Reexport the PAC for the currently enabled chip at `embassy_nrf::pac` (unstable)
 unstable-pac = []
@@ -124,6 +127,7 @@ _gpio-p1 = []
 _nrf52832_anomaly_109 = []
 
 [dependencies]
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
 embassy-time = { version = "0.3.1", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }

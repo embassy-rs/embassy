@@ -23,6 +23,7 @@ target = "thumbv6m-none-eabi"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4", optional = true }
 
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-rp = { version = "0.1.0", path = "../embassy-rp", default-features = false }
 embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
@@ -38,11 +39,13 @@ cfg-if = "1.0.0"
 defmt = [
     "dep:defmt",
     "embassy-boot/defmt",
+    "embassy-fmt/defmt",
     "embassy-rp/defmt",
 ]
 log = [
     "dep:log",
     "embassy-boot/log",
+    "embassy-fmt/log",
     "embassy-rp/log",
 ]
 

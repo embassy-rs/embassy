@@ -26,7 +26,9 @@ default = [ "rt" ]
 rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
-defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "embassy-fmt/defmt"]
+
+log = ["dep:log", "embassy-fmt/log"]
 
 ## Configure the critical section crate to use an implementation that is safe for multicore use on rp2040.
 critical-section-impl = ["critical-section/restore-state-u8"]
@@ -81,6 +83,7 @@ boot2-w25q080 = []
 boot2-w25x10cl = []
 
 [dependencies]
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
 embassy-time = { version = "0.3.1", path = "../embassy-time" }

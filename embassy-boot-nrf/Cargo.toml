@@ -24,6 +24,7 @@ target = "thumbv7em-none-eabi"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.17", optional = true }
 
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", default-features = false }
 embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
@@ -39,8 +40,10 @@ nrf-softdevice-mbr = { version = "0.2.0", optional = true }
 defmt = [
     "dep:defmt",
     "embassy-boot/defmt",
+    "embassy-fmt/defmt",
     "embassy-nrf/defmt",
 ]
+log = ["dep:log", "embassy-fmt/log"]
 softdevice = [
     "nrf-softdevice-mbr",
 ]

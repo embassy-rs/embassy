@@ -13,6 +13,8 @@ categories = [
 ]
 
 [features]
+defmt = ["dep:defmt", "embassy-fmt/defmt"]
+log = ["dep:log", "embassy-fmt/log"]
 
 # Define the number of NVIC priority bits.
 prio-bits-0 = []
@@ -30,6 +32,7 @@ cortex-m = ["dep:cortex-m", "dep:critical-section"]
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
+embassy-fmt = {version = "0.1.0", path = "../embassy-fmt" }
 
 num-traits = { version = "0.2.14", default-features = false }
 

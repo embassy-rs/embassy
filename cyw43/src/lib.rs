@@ -5,11 +5,28 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
+#[allow(unused)]
+#[macro_use]
+extern crate embassy_fmt;
 
 #[allow(unused)]
-#[macro_use(assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, todo, unreachable, panic, trace, debug, info, warn, error, unwrap)]
+#[macro_use(
+    assert,
+    assert_eq,
+    assert_ne,
+    debug_assert,
+    debug_assert_eq,
+    debug_assert_ne,
+    todo,
+    unreachable,
+    panic,
+    trace,
+    debug,
+    info,
+    warn,
+    error,
+    unwrap
+)]
 #[cfg(feature = "defmt")]
 extern crate defmt;
 
