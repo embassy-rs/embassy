@@ -129,7 +129,7 @@ impl<'d> Pwm<'d> {
         Self::new_inner(slice.number(), None, None, Pull::None, config, Divmode::DIV)
     }
 
-    /// Create PWM driver with a single 'a' as output.
+    /// Create PWM driver with a single 'a' pin as output.
     #[inline]
     pub fn new_output_a<T: Slice>(
         slice: impl Peripheral<P = T> + 'd,
