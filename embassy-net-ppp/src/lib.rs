@@ -7,7 +7,23 @@
 extern crate embassy_fmt;
 
 #[allow(unused)]
-#[macro_use(assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, todo, unreachable, panic, trace, debug, info, warn, error, unwrap)]
+#[macro_use(
+    assert,
+    assert_eq,
+    assert_ne,
+    debug_assert,
+    debug_assert_eq,
+    debug_assert_ne,
+    todo,
+    unreachable,
+    panic,
+    trace,
+    debug,
+    info,
+    warn,
+    error,
+    unwrap
+)]
 #[cfg(feature = "defmt")]
 extern crate defmt;
 
