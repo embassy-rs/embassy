@@ -5,7 +5,9 @@ use core::fmt::{Debug, Display, LowerHex};
 #[cfg(all(feature = "defmt", feature = "log"))]
 compile_error!("You may not enable both `defmt` and `log` features.");
 
-#[cfg(not(any(feature = "log", feature = "defmt")))]
+// TODO: Figure out why does this work without the cfg conditions
+
+// #[cfg(not(any(feature = "log", feature = "defmt")))]
 #[macro_export]
 macro_rules! trace {
     ($s:literal $(, $x:expr)* $(,)?) => {
@@ -15,7 +17,7 @@ macro_rules! trace {
     };
 }
 
-#[cfg(not(any(feature = "log", feature = "defmt")))]
+// #[cfg(not(any(feature = "log", feature = "defmt")))]
 #[macro_export]
 macro_rules! debug {
     ($s:literal $(, $x:expr)* $(,)?) => {
@@ -25,7 +27,7 @@ macro_rules! debug {
     };
 }
 
-#[cfg(not(any(feature = "log", feature = "defmt")))]
+// #[cfg(not(any(feature = "log", feature = "defmt")))]
 #[macro_export]
 macro_rules! info {
     ($s:literal $(, $x:expr)* $(,)?) => {
@@ -35,7 +37,7 @@ macro_rules! info {
     };
 }
 
-#[cfg(not(any(feature = "log", feature = "defmt")))]
+// #[cfg(not(any(feature = "log", feature = "defmt")))]
 #[macro_export]
 macro_rules! warn {
     ($s:literal $(, $x:expr)* $(,)?) => {
@@ -45,7 +47,7 @@ macro_rules! warn {
     };
 }
 
-#[cfg(not(any(feature = "log", feature = "defmt")))]
+// #[cfg(not(any(feature = "log", feature = "defmt")))]
 #[macro_export]
 macro_rules! error {
     ($s:literal $(, $x:expr)* $(,)?) => {
@@ -55,7 +57,7 @@ macro_rules! error {
     };
 }
 
-#[cfg(not(feature = "defmt"))]
+// #[cfg(not(feature = "defmt"))]
 #[macro_export]
 macro_rules! unwrap {
     ($arg:expr) => {
