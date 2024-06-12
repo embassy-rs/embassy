@@ -577,7 +577,7 @@ impl<'d, T: Instance> Twis<'d, T> {
                 trace!("Copying TWIS tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
-                self.setup_respond_from_ram(&tx_ram_buf, inten)
+                self.setup_respond_from_ram(tx_ram_buf, inten)
             }
             Err(error) => Err(error),
         }
@@ -754,41 +754,38 @@ impl<'a, T: Instance> Drop for Twis<'a, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+pub(crate) struct State {
+    waker: AtomicWaker,
+}
 
-    pub struct State {
-        pub waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static pac::twis0::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::twis0::RegisterBlock;
+    fn state() -> &'static State;
+}
+
 /// TWIS peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_twis {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::twis::sealed::Instance for peripherals::$type {
+        impl crate::twis::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::twis0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::twis::sealed::State {
-                static STATE: crate::twis::sealed::State = crate::twis::sealed::State::new();
+            fn state() -> &'static crate::twis::State {
+                static STATE: crate::twis::State = crate::twis::State::new();
                 &STATE
             }
         }

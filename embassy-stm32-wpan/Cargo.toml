@@ -3,6 +3,11 @@ name = "embassy-stm32-wpan"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Async STM32 WPAN stack for embedded devices in Rust."
+keywords = ["embedded", "async", "stm32", "ble", "wpan"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-stm32-wpan"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-wpan-v$VERSION/embassy-stm32-wpan/src/"
@@ -10,24 +15,29 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32
 target = "thumbv7em-none-eabihf"
 features = ["stm32wb55rg"]
 
+[package.metadata.docs.rs]
+features = ["stm32wb55rg"]
+
 [dependencies]
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32" }
-embassy-sync = { version = "0.3.0", path = "../embassy-sync" }
-embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
+embassy-time = { version = "0.3.1", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.1.0", path = "../embassy-hal-internal" }
 embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver", optional=true }
 
 defmt = { version = "0.3", optional = true }
+log = { version = "0.4.17", optional = true }
+
 cortex-m = "0.7.6"
-heapless = "0.7.16"
+heapless = "0.8"
 aligned = "0.4.1"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { version = "0.1.4", optional = true }
-futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
+stm32wb-hci = { version = "0.17.0", optional = true }
+futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
 
 [features]
@@ -35,6 +45,8 @@ defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embas
 
 ble = ["dep:stm32wb-hci"]
 mac = ["dep:bitflags", "dep:embassy-net-driver" ]
+
+extended = []
 
 stm32wb10cc = [ "embassy-stm32/stm32wb10cc" ]
 stm32wb15cc = [ "embassy-stm32/stm32wb15cc" ]

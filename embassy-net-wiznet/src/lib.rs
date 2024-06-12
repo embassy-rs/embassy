@@ -1,6 +1,7 @@
 #![no_std]
-#![feature(async_fn_in_trait)]
+#![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 pub mod chip;
 mod device;
@@ -16,12 +17,22 @@ use embedded_hal_async::spi::SpiDevice;
 use crate::chip::Chip;
 use crate::device::WiznetDevice;
 
+// If you change this update the docs of State
 const MTU: usize = 1514;
 
 /// Type alias for the embassy-net driver.
 pub type Device<'d> = embassy_net_driver_channel::Device<'d, MTU>;
 
 /// Internal state for the embassy-net integration.
+///
+/// The two generic arguments `N_RX` and `N_TX` set the size of the receive and
+/// send packet queue. With a the ethernet MTU of _1514_ this takes up `N_RX +
+/// NTX * 1514` bytes. While setting these both to 1 is the minimum this might
+/// hurt performance as a packet can not be received while processing another.
+///
+/// # Warning
+/// On devices with a small amount of ram (think ~64k) watch out with the size
+/// of there parameters. They will quickly use too much RAM.
 pub struct State<const N_RX: usize, const N_TX: usize> {
     ch_state: ch::State<MTU, N_RX, N_TX>,
 }
@@ -47,6 +58,7 @@ pub struct Runner<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> {
 
 /// You must call this in a background task for the driver to operate.
 impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, INT, RST> {
+    /// Run the driver.
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
         let mut tick = Ticker::every(Duration::from_millis(500));

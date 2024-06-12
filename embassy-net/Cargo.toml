@@ -1,10 +1,11 @@
 [package]
 name = "embassy-net"
-version = "0.2.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Async TCP/IP network stack for embedded systems"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-net"
 categories = [
     "embedded",
     "no-std",
@@ -15,30 +16,49 @@ categories = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["nightly", "defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["nightly", "defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
 
 [features]
 default = []
 std = []
 
-defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt"]
+## Enable defmt
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03"]
 
-nightly = ["dep:embedded-io-async", "dep:embedded-nal-async"]
+## Trace all raw received and transmitted packets using defmt or log.
+packet-trace = []
 
+#! Many of the following feature flags are re-exports of smoltcp feature flags. See 
+#! the [smoltcp feature flag documentation](https://github.com/smoltcp-rs/smoltcp#feature-flags)
+#! for more details
+
+## Enable UDP support
 udp = ["smoltcp/socket-udp"]
+## Enable Raw support
+raw = ["smoltcp/socket-raw"]
+## Enable TCP support
 tcp = ["smoltcp/socket-tcp"]
+## Enable DNS support
 dns = ["smoltcp/socket-dns", "smoltcp/proto-dns"]
+## Enable DHCPv4 support
 dhcpv4 = ["proto-ipv4", "medium-ethernet", "smoltcp/socket-dhcpv4"]
+## Enable DHCPv4 support with hostname
 dhcpv4-hostname = ["dhcpv4"]
+## Enable IPv4 support
 proto-ipv4 = ["smoltcp/proto-ipv4"]
+## Enable IPv6 support
 proto-ipv6 = ["smoltcp/proto-ipv6"]
+## Enable the Ethernet medium
 medium-ethernet = ["smoltcp/medium-ethernet"]
+## Enable the IP medium
 medium-ip = ["smoltcp/medium-ip"]
+## Enable the IEEE 802.15.4 medium
 medium-ieee802154 = ["smoltcp/medium-ieee802154"]
+## Enable IGMP support
 igmp = ["smoltcp/proto-igmp"]
 
 [dependencies]
@@ -46,21 +66,17 @@ igmp = ["smoltcp/proto-igmp"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { version = "0.10.0", default-features = false, features = [
+smoltcp = { version = "0.11.0", default-features = false, features = [
   "socket",
   "async",
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.1.5", path = "../embassy-time" }
-embassy-sync = { version = "0.3.0", path = "../embassy-sync" }
-embedded-io-async = { version = "0.6.0", optional = true }
+embassy-time = { version = "0.3.1", path = "../embassy-time" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
+embedded-io-async = { version = "0.6.1" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
-heapless = { version = "0.7.5", default-features = false }
-as-slice = "0.2.1"
-generic-array = { version = "0.14.4", default-features = false }
-stable_deref_trait = { version = "1.2.0", default-features = false }
-futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
-atomic-pool = "1.0"
-embedded-nal-async = { version = "0.6.0", optional = true }
+heapless = { version = "0.8", default-features = false }
+embedded-nal-async = { version = "0.7.1" }
+document-features = "0.2.7"

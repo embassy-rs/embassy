@@ -7,6 +7,7 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 512;
 pub const FLASH_SIZE: usize = 256 * 1024;
 
 pub const RESET_PIN: u32 = 18;
+pub const APPROTECT_MIN_BUILD_CODE: u8 = b'D';
 
 embassy_hal_internal::peripherals! {
     // USB
@@ -129,9 +130,11 @@ embassy_hal_internal::peripherals! {
 
     // QDEC
     QDEC,
+
+    // Radio
+    RADIO,
 }
 
-#[cfg(feature = "nightly")]
 impl_usb!(USBD, USBD, USBD);
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
@@ -223,6 +226,8 @@ impl_ppi_channel!(PPI_CH28, 28 => static);
 impl_ppi_channel!(PPI_CH29, 29 => static);
 impl_ppi_channel!(PPI_CH30, 30 => static);
 impl_ppi_channel!(PPI_CH31, 31 => static);
+
+impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,

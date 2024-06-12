@@ -104,8 +104,10 @@ where
 }
 
 /// NOR flash wrapper
-use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
-use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
+use embedded_storage::nor_flash::{ErrorType, MultiwriteNorFlash, NorFlash, ReadNorFlash};
+use embedded_storage_async::nor_flash::{
+    MultiwriteNorFlash as AsyncMultiwriteNorFlash, NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash,
+};
 
 impl<T> ErrorType for BlockingAsync<T>
 where
@@ -143,3 +145,5 @@ where
         self.wrapped.capacity()
     }
 }
+
+impl<T> AsyncMultiwriteNorFlash for BlockingAsync<T> where T: MultiwriteNorFlash {}

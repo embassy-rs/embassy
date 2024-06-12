@@ -2,34 +2,63 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::sealed::AFType;
-use crate::gpio::Speed;
-#[cfg(not(stm32f1))]
+use crate::gpio::{AFType, Speed};
+#[cfg(not(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37)))]
 pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
-#[cfg(not(any(rcc_f2, rcc_f410, rcc_f4, rcc_f7, rcc_h50, rcc_h5, rcc_h7ab, rcc_h7rm0433, rcc_h7)))]
+#[cfg(not(any(
+    rcc_f2,
+    rcc_f410,
+    rcc_f4,
+    rcc_f7,
+    rcc_h50,
+    rcc_h5,
+    rcc_h7ab,
+    rcc_h7rm0433,
+    rcc_h7,
+    rcc_h7rs
+)))]
 pub use crate::pac::rcc::vals::Mcosel as McoSource;
-#[cfg(any(rcc_f2, rcc_f410, rcc_f4, rcc_f7, rcc_h50, rcc_h5, rcc_h7ab, rcc_h7rm0433, rcc_h7))]
+#[cfg(any(
+    rcc_f2,
+    rcc_f410,
+    rcc_f4,
+    rcc_f7,
+    rcc_h50,
+    rcc_h5,
+    rcc_h7ab,
+    rcc_h7rm0433,
+    rcc_h7,
+    rcc_h7rs
+))]
 pub use crate::pac::rcc::vals::{Mco1sel as Mco1Source, Mco2sel as Mco2Source};
 use crate::pac::RCC;
 use crate::{peripherals, Peripheral};
 
-pub(crate) mod sealed {
-    pub trait McoInstance {
-        type Source;
-        unsafe fn apply_clock_settings(source: Self::Source, #[cfg(not(stm32f1))] prescaler: super::McoPrescaler);
-    }
+#[cfg(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37))]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum McoPrescaler {
+    DIV1,
 }
 
-pub trait McoInstance: sealed::McoInstance + 'static {}
+pub(crate) trait SealedMcoInstance {}
+
+#[allow(private_bounds)]
+pub trait McoInstance: SealedMcoInstance + 'static {
+    type Source;
+
+    #[doc(hidden)]
+    unsafe fn _apply_clock_settings(source: Self::Source, prescaler: super::McoPrescaler);
+}
 
 pin_trait!(McoPin, McoInstance);
 
 macro_rules! impl_peri {
     ($peri:ident, $source:ident, $set_source:ident, $set_prescaler:ident) => {
-        impl sealed::McoInstance for peripherals::$peri {
+        impl SealedMcoInstance for peripherals::$peri {}
+        impl McoInstance for peripherals::$peri {
             type Source = $source;
 
-            unsafe fn apply_clock_settings(source: Self::Source, #[cfg(not(stm32f1))] prescaler: McoPrescaler) {
+            unsafe fn _apply_clock_settings(source: Self::Source, _prescaler: McoPrescaler) {
                 #[cfg(not(any(stm32u5, stm32wba)))]
                 let r = RCC.cfgr();
                 #[cfg(any(stm32u5, stm32wba))]
@@ -37,17 +66,15 @@ macro_rules! impl_peri {
 
                 r.modify(|w| {
                     w.$set_source(source);
-                    #[cfg(not(stm32f1))]
-                    w.$set_prescaler(prescaler);
+                    #[cfg(not(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37)))]
+                    w.$set_prescaler(_prescaler);
                 });
             }
         }
-
-        impl McoInstance for peripherals::$peri {}
     };
 }
 
-#[cfg(any(rcc_c0, rcc_g0))]
+#[cfg(any(rcc_c0, rcc_g0, rcc_u0))]
 #[allow(unused_imports)]
 use self::{McoSource as Mco1Source, McoSource as Mco2Source};
 
@@ -68,16 +95,12 @@ impl<'d, T: McoInstance> Mco<'d, T> {
         _peri: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl McoPin<T>> + 'd,
         source: T::Source,
-        #[cfg(not(stm32f1))] prescaler: McoPrescaler,
+        prescaler: McoPrescaler,
     ) -> Self {
         into_ref!(pin);
 
         critical_section::with(|_| unsafe {
-            T::apply_clock_settings(
-                source,
-                #[cfg(not(stm32f1))]
-                prescaler,
-            );
+            T::_apply_clock_settings(source, prescaler);
             pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
             pin.set_speed(Speed::VeryHigh);
         });

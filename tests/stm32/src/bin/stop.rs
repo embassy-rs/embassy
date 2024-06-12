@@ -2,7 +2,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 #[path = "../common.rs"]
 mod common;
 
@@ -10,12 +9,12 @@ use chrono::NaiveDate;
 use common::*;
 use cortex_m_rt::entry;
 use embassy_executor::Spawner;
-use embassy_stm32::low_power::{stop_with_rtc, Executor};
-use embassy_stm32::rcc::{low_power_ready, LsConfig};
+use embassy_stm32::low_power::{stop_ready, stop_with_rtc, Executor, StopMode};
+use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
 use embassy_time::Timer;
-use static_cell::make_static;
+use static_cell::StaticCell;
 
 #[entry]
 fn main() -> ! {
@@ -28,7 +27,7 @@ fn main() -> ! {
 async fn task_1() {
     for _ in 0..9 {
         info!("task 1: waiting for 500ms...");
-        defmt::assert!(low_power_ready());
+        defmt::assert!(stop_ready(StopMode::Stop2));
         Timer::after_millis(500).await;
     }
 }
@@ -37,7 +36,7 @@ async fn task_1() {
 async fn task_2() {
     for _ in 0..5 {
         info!("task 2: waiting for 1000ms...");
-        defmt::assert!(low_power_ready());
+        defmt::assert!(stop_ready(StopMode::Stop2));
         Timer::after_millis(1000).await;
     }
 
@@ -52,6 +51,13 @@ async fn async_main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.ls = LsConfig::default_lse();
 
+    // System Clock seems cannot be greater than 16 MHz
+    #[cfg(any(feature = "stm32h563zi", feature = "stm32h503rb"))]
+    {
+        use embassy_stm32::rcc::HSIPrescaler;
+        config.rcc.hsi = Some(HSIPrescaler::DIV4); // 64 MHz HSI will need a /4
+    }
+
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
@@ -64,7 +70,8 @@ async fn async_main(spawner: Spawner) {
 
     rtc.set_datetime(now.into()).expect("datetime not set");
 
-    let rtc = make_static!(rtc);
+    static RTC: StaticCell<Rtc> = StaticCell::new();
+    let rtc = RTC.init(rtc);
 
     stop_with_rtc(rtc);
 

@@ -63,12 +63,15 @@ where
     }
 
     /// Make a query for a given name and return the corresponding IP addresses.
-    pub async fn query(&self, name: &str, qtype: DnsQueryType) -> Result<Vec<IpAddress, 1>, Error> {
+    pub async fn query(
+        &self,
+        name: &str,
+        qtype: DnsQueryType,
+    ) -> Result<Vec<IpAddress, { smoltcp::config::DNS_MAX_RESULT_COUNT }>, Error> {
         self.stack.dns_query(name, qtype).await
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<'a, D> embedded_nal_async::Dns for DnsSocket<'a, D>
 where
     D: Driver + 'static,
@@ -81,11 +84,26 @@ where
         addr_type: embedded_nal_async::AddrType,
     ) -> Result<embedded_nal_async::IpAddr, Self::Error> {
         use embedded_nal_async::{AddrType, IpAddr};
-        let qtype = match addr_type {
-            AddrType::IPv6 => DnsQueryType::Aaaa,
-            _ => DnsQueryType::A,
+        let (qtype, secondary_qtype) = match addr_type {
+            AddrType::IPv4 => (DnsQueryType::A, None),
+            AddrType::IPv6 => (DnsQueryType::Aaaa, None),
+            AddrType::Either => {
+                #[cfg(not(feature = "proto-ipv6"))]
+                let v6_first = false;
+                #[cfg(feature = "proto-ipv6")]
+                let v6_first = self.stack.config_v6().is_some();
+                match v6_first {
+                    true => (DnsQueryType::Aaaa, Some(DnsQueryType::A)),
+                    false => (DnsQueryType::A, Some(DnsQueryType::Aaaa)),
+                }
+            }
         };
-        let addrs = self.query(host, qtype).await?;
+        let mut addrs = self.query(host, qtype).await?;
+        if addrs.is_empty() {
+            if let Some(qtype) = secondary_qtype {
+                addrs = self.query(host, qtype).await?
+            }
+        }
         if let Some(first) = addrs.get(0) {
             Ok(match first {
                 #[cfg(feature = "proto-ipv4")]
@@ -101,7 +119,8 @@ where
     async fn get_host_by_address(
         &self,
         _addr: embedded_nal_async::IpAddr,
-    ) -> Result<heapless::String<256>, Self::Error> {
+        _result: &mut [u8],
+    ) -> Result<usize, Self::Error> {
         todo!()
     }
 }

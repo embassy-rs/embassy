@@ -3,12 +3,17 @@ name = "embassy-stm32"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for ST STM32 series microcontrollers"
+keywords = ["embedded", "async", "stm32", "hal", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-stm32"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-v$VERSION/embassy-stm32/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32/src/"
 
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "time"]
+features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time"]
 flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
@@ -18,57 +23,71 @@ flavors = [
     { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
-    { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi" },
-    { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
+    { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
-    { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
+    { regex_feature = "stm32u0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32wba.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wl.*", target = "thumbv7em-none-eabi" },
 ]
 
+[package.metadata.docs.rs]
+features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
-embassy-sync = { version = "0.3.0", path = "../embassy-sync" }
-embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
+embassy-time = { version = "0.3.1", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
-embassy-executor = { version = "0.3.0", path = "../embassy-executor", optional = true }
+embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
+embassy-usb-synopsys-otg = {version = "0.1.0", path = "../embassy-usb-synopsys-otg" }
+embassy-executor = { version = "0.5.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1", optional = true}
-embedded-hal-async = { version = "=1.0.0-rc.1", optional = true}
-embedded-hal-nb = { version = "=1.0.0-rc.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-nb = { version = "1.0" }
+embedded-can = "0.4"
 
-embedded-storage = "0.3.0"
-embedded-storage-async = { version = "0.4.0", optional = true }
+embedded-storage = "0.3.1"
+embedded-storage-async = { version = "0.4.1" }
+
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
-futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
+futures-util = { version = "0.3.30", default-features = false }
 rand_core = "0.6.3"
 sdio-host = "0.5.0"
-embedded-sdmmc = { git = "https://github.com/embassy-rs/embedded-sdmmc-rs", rev = "a4f293d3a6f72158385f79c98634cb8a14d0d2fc", optional = true }
 critical-section = "1.1"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-bcc9b6bf9fa195e91625849efc4ba473d9ace4e9" }
+#stm32-metapac = { version = "15" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-59b1f65bd109c3ef35782e6c44062208d0ef3d0e" }
+
 vcell = "0.1.3"
-bxcan = "0.7.0"
 nb = "1.0.0"
 stm32-fmc = "0.3.0"
 cfg-if = "1.0.0"
 embedded-io = { version = "0.6.0" }
-embedded-io-async = { version = "0.6.0", optional = true }
+embedded-io-async = { version = "0.6.1" }
 chrono = { version = "^0.4", default-features = false, optional = true}
 bit_field = "0.10.2"
 document-features = "0.2.7"
+
+static_assertions = { version = "1.1" }
+volatile-register = { version = "0.2.1" }
+bitflags = "2.4.2"
+
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
@@ -76,8 +95,9 @@ critical-section = { version = "1.1", features = ["std"] }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-bcc9b6bf9fa195e91625849efc4ba473d9ace4e9", default-features = false, features = ["metadata"]}
 
+#stm32-metapac = { version = "15", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-59b1f65bd109c3ef35782e6c44062208d0ef3d0e", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -86,27 +106,23 @@ default = ["rt"]
 rt = ["stm32-metapac/rt"]
 
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
-defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async?/defmt-03", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
+defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async/defmt-03", "embassy-usb-driver/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
 
 exti = []
-low-power = [ "dep:embassy-executor", "embassy-executor/arch-cortex-m" ]
-embassy-executor = []
+low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]
+low-power-debug-with-sleep = []
 
 ## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
 memory-x = ["stm32-metapac/memory-x"]
 
-## Enable nightly-only features
-nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io-async", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
+## Use secure registers when TrustZone is enabled
+trustzone-secure = []
 
 ## Re-export stm32-metapac at `embassy_stm32::pac`.
 ## This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
 ## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
 ## There are no plans to make this stable.
 unstable-pac = []
-
-## Implement embedded-hal 1.0 alpha traits.
-## Implement embedded-hal-async traits if `nightly` is set as well.
-unstable-traits = ["embedded-hal-1", "dep:embedded-hal-nb"]
 
 #! ## Time
 
@@ -115,10 +131,12 @@ time = ["dep:embassy-time"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
-_time-driver = ["time"]
+_time-driver = ["dep:embassy-time-driver", "time"]
 
 ## Use any time driver
 time-driver-any = ["_time-driver"]
+## Use TIM1 as time driver
+time-driver-tim1 = ["_time-driver"]
 ## Use TIM2 as time driver
 time-driver-tim2 = ["_time-driver"]
 ## Use TIM3 as time driver
@@ -127,10 +145,24 @@ time-driver-tim3 = ["_time-driver"]
 time-driver-tim4 = ["_time-driver"]
 ## Use TIM5 as time driver
 time-driver-tim5 = ["_time-driver"]
+## Use TIM8 as time driver
+time-driver-tim8 = ["_time-driver"]
+## Use TIM9 as time driver
+time-driver-tim9 = ["_time-driver"]
 ## Use TIM12 as time driver
 time-driver-tim12 = ["_time-driver"]
 ## Use TIM15 as time driver
 time-driver-tim15 = ["_time-driver"]
+## Use TIM20 as time driver
+time-driver-tim20 = ["_time-driver"]
+## Use TIM21 as time driver
+time-driver-tim21 = ["_time-driver"]
+## Use TIM22 as time driver
+time-driver-tim22 = ["_time-driver"]
+## Use TIM23 as time driver
+time-driver-tim23 = ["_time-driver"]
+## Use TIM24 as time driver
+time-driver-tim24 = ["_time-driver"]
 
 
 #! ## Analog Switch Pins (Pxy_C) on STM32H7 series
@@ -882,6 +914,20 @@ stm32h503cb = [ "stm32-metapac/stm32h503cb" ]
 stm32h503eb = [ "stm32-metapac/stm32h503eb" ]
 stm32h503kb = [ "stm32-metapac/stm32h503kb" ]
 stm32h503rb = [ "stm32-metapac/stm32h503rb" ]
+stm32h523cc = [ "stm32-metapac/stm32h523cc" ]
+stm32h523ce = [ "stm32-metapac/stm32h523ce" ]
+stm32h523he = [ "stm32-metapac/stm32h523he" ]
+stm32h523rc = [ "stm32-metapac/stm32h523rc" ]
+stm32h523re = [ "stm32-metapac/stm32h523re" ]
+stm32h523vc = [ "stm32-metapac/stm32h523vc" ]
+stm32h523ve = [ "stm32-metapac/stm32h523ve" ]
+stm32h523zc = [ "stm32-metapac/stm32h523zc" ]
+stm32h523ze = [ "stm32-metapac/stm32h523ze" ]
+stm32h533ce = [ "stm32-metapac/stm32h533ce" ]
+stm32h533he = [ "stm32-metapac/stm32h533he" ]
+stm32h533re = [ "stm32-metapac/stm32h533re" ]
+stm32h533ve = [ "stm32-metapac/stm32h533ve" ]
+stm32h533ze = [ "stm32-metapac/stm32h533ze" ]
 stm32h562ag = [ "stm32-metapac/stm32h562ag" ]
 stm32h562ai = [ "stm32-metapac/stm32h562ai" ]
 stm32h562ig = [ "stm32-metapac/stm32h562ig" ]
@@ -1048,6 +1094,26 @@ stm32h7b3qi = [ "stm32-metapac/stm32h7b3qi" ]
 stm32h7b3ri = [ "stm32-metapac/stm32h7b3ri" ]
 stm32h7b3vi = [ "stm32-metapac/stm32h7b3vi" ]
 stm32h7b3zi = [ "stm32-metapac/stm32h7b3zi" ]
+stm32h7r3a8 = [ "stm32-metapac/stm32h7r3a8" ]
+stm32h7r3i8 = [ "stm32-metapac/stm32h7r3i8" ]
+stm32h7r3l8 = [ "stm32-metapac/stm32h7r3l8" ]
+stm32h7r3r8 = [ "stm32-metapac/stm32h7r3r8" ]
+stm32h7r3v8 = [ "stm32-metapac/stm32h7r3v8" ]
+stm32h7r3z8 = [ "stm32-metapac/stm32h7r3z8" ]
+stm32h7r7a8 = [ "stm32-metapac/stm32h7r7a8" ]
+stm32h7r7i8 = [ "stm32-metapac/stm32h7r7i8" ]
+stm32h7r7l8 = [ "stm32-metapac/stm32h7r7l8" ]
+stm32h7r7z8 = [ "stm32-metapac/stm32h7r7z8" ]
+stm32h7s3a8 = [ "stm32-metapac/stm32h7s3a8" ]
+stm32h7s3i8 = [ "stm32-metapac/stm32h7s3i8" ]
+stm32h7s3l8 = [ "stm32-metapac/stm32h7s3l8" ]
+stm32h7s3r8 = [ "stm32-metapac/stm32h7s3r8" ]
+stm32h7s3v8 = [ "stm32-metapac/stm32h7s3v8" ]
+stm32h7s3z8 = [ "stm32-metapac/stm32h7s3z8" ]
+stm32h7s7a8 = [ "stm32-metapac/stm32h7s7a8" ]
+stm32h7s7i8 = [ "stm32-metapac/stm32h7s7i8" ]
+stm32h7s7l8 = [ "stm32-metapac/stm32h7s7l8" ]
+stm32h7s7z8 = [ "stm32-metapac/stm32h7s7z8" ]
 stm32l010c6 = [ "stm32-metapac/stm32l010c6" ]
 stm32l010f4 = [ "stm32-metapac/stm32l010f4" ]
 stm32l010k4 = [ "stm32-metapac/stm32l010k4" ]
@@ -1391,6 +1457,38 @@ stm32l562qe = [ "stm32-metapac/stm32l562qe" ]
 stm32l562re = [ "stm32-metapac/stm32l562re" ]
 stm32l562ve = [ "stm32-metapac/stm32l562ve" ]
 stm32l562ze = [ "stm32-metapac/stm32l562ze" ]
+stm32u031c6 = [ "stm32-metapac/stm32u031c6" ]
+stm32u031c8 = [ "stm32-metapac/stm32u031c8" ]
+stm32u031f4 = [ "stm32-metapac/stm32u031f4" ]
+stm32u031f6 = [ "stm32-metapac/stm32u031f6" ]
+stm32u031f8 = [ "stm32-metapac/stm32u031f8" ]
+stm32u031g6 = [ "stm32-metapac/stm32u031g6" ]
+stm32u031g8 = [ "stm32-metapac/stm32u031g8" ]
+stm32u031k4 = [ "stm32-metapac/stm32u031k4" ]
+stm32u031k6 = [ "stm32-metapac/stm32u031k6" ]
+stm32u031k8 = [ "stm32-metapac/stm32u031k8" ]
+stm32u031r6 = [ "stm32-metapac/stm32u031r6" ]
+stm32u031r8 = [ "stm32-metapac/stm32u031r8" ]
+stm32u073c8 = [ "stm32-metapac/stm32u073c8" ]
+stm32u073cb = [ "stm32-metapac/stm32u073cb" ]
+stm32u073cc = [ "stm32-metapac/stm32u073cc" ]
+stm32u073h8 = [ "stm32-metapac/stm32u073h8" ]
+stm32u073hb = [ "stm32-metapac/stm32u073hb" ]
+stm32u073hc = [ "stm32-metapac/stm32u073hc" ]
+stm32u073k8 = [ "stm32-metapac/stm32u073k8" ]
+stm32u073kb = [ "stm32-metapac/stm32u073kb" ]
+stm32u073kc = [ "stm32-metapac/stm32u073kc" ]
+stm32u073m8 = [ "stm32-metapac/stm32u073m8" ]
+stm32u073mb = [ "stm32-metapac/stm32u073mb" ]
+stm32u073mc = [ "stm32-metapac/stm32u073mc" ]
+stm32u073r8 = [ "stm32-metapac/stm32u073r8" ]
+stm32u073rb = [ "stm32-metapac/stm32u073rb" ]
+stm32u073rc = [ "stm32-metapac/stm32u073rc" ]
+stm32u083cc = [ "stm32-metapac/stm32u083cc" ]
+stm32u083hc = [ "stm32-metapac/stm32u083hc" ]
+stm32u083kc = [ "stm32-metapac/stm32u083kc" ]
+stm32u083mc = [ "stm32-metapac/stm32u083mc" ]
+stm32u083rc = [ "stm32-metapac/stm32u083rc" ]
 stm32u535cb = [ "stm32-metapac/stm32u535cb" ]
 stm32u535cc = [ "stm32-metapac/stm32u535cc" ]
 stm32u535ce = [ "stm32-metapac/stm32u535ce" ]
@@ -1446,6 +1544,7 @@ stm32u599vj = [ "stm32-metapac/stm32u599vj" ]
 stm32u599zi = [ "stm32-metapac/stm32u599zi" ]
 stm32u599zj = [ "stm32-metapac/stm32u599zj" ]
 stm32u5a5aj = [ "stm32-metapac/stm32u5a5aj" ]
+stm32u5a5qi = [ "stm32-metapac/stm32u5a5qi" ]
 stm32u5a5qj = [ "stm32-metapac/stm32u5a5qj" ]
 stm32u5a5rj = [ "stm32-metapac/stm32u5a5rj" ]
 stm32u5a5vj = [ "stm32-metapac/stm32u5a5vj" ]
@@ -1454,6 +1553,19 @@ stm32u5a9bj = [ "stm32-metapac/stm32u5a9bj" ]
 stm32u5a9nj = [ "stm32-metapac/stm32u5a9nj" ]
 stm32u5a9vj = [ "stm32-metapac/stm32u5a9vj" ]
 stm32u5a9zj = [ "stm32-metapac/stm32u5a9zj" ]
+stm32u5f7vi = [ "stm32-metapac/stm32u5f7vi" ]
+stm32u5f7vj = [ "stm32-metapac/stm32u5f7vj" ]
+stm32u5f9bj = [ "stm32-metapac/stm32u5f9bj" ]
+stm32u5f9nj = [ "stm32-metapac/stm32u5f9nj" ]
+stm32u5f9vi = [ "stm32-metapac/stm32u5f9vi" ]
+stm32u5f9vj = [ "stm32-metapac/stm32u5f9vj" ]
+stm32u5f9zi = [ "stm32-metapac/stm32u5f9zi" ]
+stm32u5f9zj = [ "stm32-metapac/stm32u5f9zj" ]
+stm32u5g7vj = [ "stm32-metapac/stm32u5g7vj" ]
+stm32u5g9bj = [ "stm32-metapac/stm32u5g9bj" ]
+stm32u5g9nj = [ "stm32-metapac/stm32u5g9nj" ]
+stm32u5g9vj = [ "stm32-metapac/stm32u5g9vj" ]
+stm32u5g9zj = [ "stm32-metapac/stm32u5g9zj" ]
 stm32wb10cc = [ "stm32-metapac/stm32wb10cc" ]
 stm32wb15cc = [ "stm32-metapac/stm32wb15cc" ]
 stm32wb30ce = [ "stm32-metapac/stm32wb30ce" ]
@@ -1470,10 +1582,22 @@ stm32wb55vc = [ "stm32-metapac/stm32wb55vc" ]
 stm32wb55ve = [ "stm32-metapac/stm32wb55ve" ]
 stm32wb55vg = [ "stm32-metapac/stm32wb55vg" ]
 stm32wb55vy = [ "stm32-metapac/stm32wb55vy" ]
+stm32wba50ke = [ "stm32-metapac/stm32wba50ke" ]
+stm32wba50kg = [ "stm32-metapac/stm32wba50kg" ]
 stm32wba52ce = [ "stm32-metapac/stm32wba52ce" ]
 stm32wba52cg = [ "stm32-metapac/stm32wba52cg" ]
 stm32wba52ke = [ "stm32-metapac/stm32wba52ke" ]
 stm32wba52kg = [ "stm32-metapac/stm32wba52kg" ]
+stm32wba54ce = [ "stm32-metapac/stm32wba54ce" ]
+stm32wba54cg = [ "stm32-metapac/stm32wba54cg" ]
+stm32wba54ke = [ "stm32-metapac/stm32wba54ke" ]
+stm32wba54kg = [ "stm32-metapac/stm32wba54kg" ]
+stm32wba55ce = [ "stm32-metapac/stm32wba55ce" ]
+stm32wba55cg = [ "stm32-metapac/stm32wba55cg" ]
+stm32wba55he = [ "stm32-metapac/stm32wba55he" ]
+stm32wba55hg = [ "stm32-metapac/stm32wba55hg" ]
+stm32wba55ue = [ "stm32-metapac/stm32wba55ue" ]
+stm32wba55ug = [ "stm32-metapac/stm32wba55ug" ]
 stm32wl54cc-cm4 = [ "stm32-metapac/stm32wl54cc-cm4" ]
 stm32wl54cc-cm0p = [ "stm32-metapac/stm32wl54cc-cm0p" ]
 stm32wl54jc-cm4 = [ "stm32-metapac/stm32wl54jc-cm4" ]

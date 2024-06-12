@@ -38,6 +38,9 @@ pub(crate) unsafe fn init() {
     interrupt::DMA_IRQ_0.enable();
 }
 
+/// DMA read.
+///
+/// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn read<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const W,
@@ -57,6 +60,9 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
     )
 }
 
+/// DMA write.
+///
+/// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn write<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const [W],
@@ -79,6 +85,9 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
 // static mut so that this is allocated in RAM.
 static mut DUMMY: u32 = 0;
 
+/// DMA repeated write.
+///
+/// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     to: *mut W,
@@ -87,7 +96,7 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
-        &mut DUMMY as *const u32,
+        core::ptr::addr_of_mut!(DUMMY) as *const u32,
         to as *mut u32,
         len,
         W::size(),
@@ -97,6 +106,9 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
     )
 }
 
+/// DMA copy between slices.
+///
+/// SAFETY: Slices must point to locations reachable by DMA.
 pub unsafe fn copy<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: &[W],
@@ -152,6 +164,7 @@ fn copy_inner<'a, C: Channel>(
     Transfer::new(ch)
 }
 
+/// DMA transfer driver.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a, C: Channel> {
     channel: PeripheralRef<'a, C>,
@@ -195,56 +208,62 @@ pub(crate) const CHANNEL_COUNT: usize = 12;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 
-mod sealed {
-    pub trait Channel {}
+trait SealedChannel {}
+trait SealedWord {}
 
-    pub trait Word {}
-}
-
-pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + Sized + 'static {
+/// DMA channel interface.
+#[allow(private_bounds)]
+pub trait Channel: Peripheral<P = Self> + SealedChannel + Into<AnyChannel> + Sized + 'static {
+    /// Channel number.
     fn number(&self) -> u8;
 
+    /// Channel registry block.
     fn regs(&self) -> pac::dma::Channel {
         pac::DMA.ch(self.number() as _)
     }
 
+    /// Convert into type-erased [AnyChannel].
     fn degrade(self) -> AnyChannel {
         AnyChannel { number: self.number() }
     }
 }
 
-pub trait Word: sealed::Word {
+/// DMA word.
+#[allow(private_bounds)]
+pub trait Word: SealedWord {
+    /// Word size.
     fn size() -> vals::DataSize;
 }
 
-impl sealed::Word for u8 {}
+impl SealedWord for u8 {}
 impl Word for u8 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_BYTE
     }
 }
 
-impl sealed::Word for u16 {}
+impl SealedWord for u16 {}
 impl Word for u16 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_HALFWORD
     }
 }
 
-impl sealed::Word for u32 {}
+impl SealedWord for u32 {}
 impl Word for u32 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_WORD
     }
 }
 
+/// Type erased DMA channel.
 pub struct AnyChannel {
     number: u8,
 }
 
 impl_peripheral!(AnyChannel);
 
-impl sealed::Channel for AnyChannel {}
+impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> u8 {
         self.number
@@ -253,7 +272,7 @@ impl Channel for AnyChannel {
 
 macro_rules! channel {
     ($name:ident, $num:expr) => {
-        impl sealed::Channel for peripherals::$name {}
+        impl SealedChannel for peripherals::$name {}
         impl Channel for peripherals::$name {
             fn number(&self) -> u8 {
                 $num

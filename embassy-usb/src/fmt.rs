@@ -1,5 +1,5 @@
 #![macro_use]
-#![allow(unused_macros)]
+#![allow(unused)]
 
 use core::fmt::{Debug, Display, LowerHex};
 
@@ -229,7 +229,6 @@ impl<T, E> Try for Result<T, E> {
     }
 }
 
-#[allow(unused)]
 pub(crate) struct Bytes<'a>(pub &'a [u8]);
 
 impl<'a> Debug for Bytes<'a> {

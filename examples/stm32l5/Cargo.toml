@@ -6,14 +6,14 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Change stm32l552ze to your chip name, if necessary.
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "stm32l552ze", "time-driver-any", "exti", "unstable-traits", "memory-x"]  }
-embassy-sync = { version = "0.3.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.3.0", path = "../../embassy-executor", features = ["nightly", "arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.1.5", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
-embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "dhcpv4", "medium-ethernet"] }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l552ze", "time-driver-any", "exti", "memory-x", "low-power"]  }
+embassy-sync = { version = "0.6.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.3.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-usb = { version = "0.2.0", path = "../../embassy-usb", features = ["defmt"] }
+embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt",  "tcp", "dhcpv4", "medium-ethernet"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-usbd-hid = "0.6.0"
+usbd-hid = "0.7.0"
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -22,11 +22,14 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
-futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
-heapless = { version = "0.7.5", default-features = false }
+heapless = { version = "0.8", default-features = false }
 rand_core = { version = "0.6.3", default-features = false }
-embedded-io-async = { version = "0.6.0" }
-static_cell = { version = "1.1", features = ["nightly"]}
+embedded-io-async = { version = "0.6.1" }
+static_cell = "2"
 
 [profile.release]
 debug = 2
+
+[[bin]]
+name = "stop"
+default-features = ["embassy-stm32/low-power"]

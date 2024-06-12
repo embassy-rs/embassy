@@ -1,36 +1,38 @@
 #![no_std]
-#![allow(incomplete_features)]
-#![feature(async_fn_in_trait)]
+#![allow(async_fn_in_trait)]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 use core::slice;
 
 use cyw43::SpiBusCyw43;
 use embassy_rp::dma::Channel;
-use embassy_rp::gpio::{Drive, Level, Output, Pin, Pull, SlewRate};
-use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
-use embassy_rp::{pio_instr_util, Peripheral, PeripheralRef};
+use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
+use embassy_rp::pio::{instr, Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
+use embassy_rp::{Peripheral, PeripheralRef};
 use fixed::FixedU32;
 use pio_proc::pio_asm;
 
-pub struct PioSpi<'d, CS: Pin, PIO: Instance, const SM: usize, DMA> {
-    cs: Output<'d, CS>,
+/// SPI comms driven by PIO.
+pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA> {
+    cs: Output<'d>,
     sm: StateMachine<'d, PIO, SM>,
     irq: Irq<'d, PIO, 0>,
     dma: PeripheralRef<'d, DMA>,
     wrap_target: u8,
 }
 
-impl<'d, CS, PIO, const SM: usize, DMA> PioSpi<'d, CS, PIO, SM, DMA>
+impl<'d, PIO, const SM: usize, DMA> PioSpi<'d, PIO, SM, DMA>
 where
     DMA: Channel,
-    CS: Pin,
     PIO: Instance,
 {
+    /// Create a new instance of PioSpi.
     pub fn new<DIO, CLK>(
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
         irq: Irq<'d, PIO, 0>,
-        cs: Output<'d, CS>,
+        cs: Output<'d>,
         dio: DIO,
         clk: CLK,
         dma: impl Peripheral<P = DMA> + 'd,
@@ -144,6 +146,7 @@ where
         }
     }
 
+    /// Write data to peripheral and return status.
     pub async fn write(&mut self, write: &[u32]) -> u32 {
         self.sm.set_enable(false);
         let write_bits = write.len() * 32 - 1;
@@ -153,10 +156,10 @@ where
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
         unsafe {
-            pio_instr_util::set_x(&mut self.sm, write_bits as u32);
-            pio_instr_util::set_y(&mut self.sm, read_bits as u32);
-            pio_instr_util::set_pindir(&mut self.sm, 0b1);
-            pio_instr_util::exec_jmp(&mut self.sm, self.wrap_target);
+            instr::set_x(&mut self.sm, write_bits as u32);
+            instr::set_y(&mut self.sm, read_bits as u32);
+            instr::set_pindir(&mut self.sm, 0b1);
+            instr::exec_jmp(&mut self.sm, self.wrap_target);
         }
 
         self.sm.set_enable(true);
@@ -171,6 +174,7 @@ where
         status
     }
 
+    /// Send command and read response into buffer.
     pub async fn cmd_read(&mut self, cmd: u32, read: &mut [u32]) -> u32 {
         self.sm.set_enable(false);
         let write_bits = 31;
@@ -180,10 +184,10 @@ where
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
         unsafe {
-            pio_instr_util::set_y(&mut self.sm, read_bits as u32);
-            pio_instr_util::set_x(&mut self.sm, write_bits as u32);
-            pio_instr_util::set_pindir(&mut self.sm, 0b1);
-            pio_instr_util::exec_jmp(&mut self.sm, self.wrap_target);
+            instr::set_y(&mut self.sm, read_bits as u32);
+            instr::set_x(&mut self.sm, write_bits as u32);
+            instr::set_pindir(&mut self.sm, 0b1);
+            instr::exec_jmp(&mut self.sm, self.wrap_target);
         }
 
         // self.cs.set_low();
@@ -201,9 +205,8 @@ where
     }
 }
 
-impl<'d, CS, PIO, const SM: usize, DMA> SpiBusCyw43 for PioSpi<'d, CS, PIO, SM, DMA>
+impl<'d, PIO, const SM: usize, DMA> SpiBusCyw43 for PioSpi<'d, PIO, SM, DMA>
 where
-    CS: Pin,
     PIO: Instance,
     DMA: Channel,
 {

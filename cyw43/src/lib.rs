@@ -1,8 +1,9 @@
 #![no_std]
 #![no_main]
-#![allow(incomplete_features)]
-#![feature(async_fn_in_trait, type_alias_impl_trait, concat_bytes)]
+#![allow(async_fn_in_trait)]
 #![deny(unused_must_use)]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -27,7 +28,7 @@ use ioctl::IoctlState;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
-pub use crate::control::{Control, Error as ControlError, Scanner};
+pub use crate::control::{AddMulticastAddressError, Control, Error as ControlError, Scanner};
 pub use crate::runner::Runner;
 pub use crate::structs::BssInfo;
 
@@ -103,6 +104,7 @@ const CHIP: Chip = Chip {
     chanspec_ctl_sb_mask: 0x0700,
 };
 
+/// Driver state.
 pub struct State {
     ioctl_state: IoctlState,
     ch: ch::State<MTU, 4, 4>,
@@ -110,6 +112,7 @@ pub struct State {
 }
 
 impl State {
+    /// Create new driver state holder.
     pub fn new() -> Self {
         Self {
             ioctl_state: IoctlState::new(),
@@ -119,6 +122,7 @@ impl State {
     }
 }
 
+/// Power management modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PowerManagementMode {
     /// Custom, officially unsupported mode. Use at your own risk.
@@ -204,8 +208,13 @@ impl PowerManagementMode {
     }
 }
 
+/// Embassy-net driver.
 pub type NetDriver<'a> = ch::Device<'a, MTU>;
 
+/// Create a new instance of the CYW43 driver.
+///
+/// Returns a handle to the network device, control handle and a runner for driving the low level
+/// stack.
 pub async fn new<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,

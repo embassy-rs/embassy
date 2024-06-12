@@ -14,7 +14,7 @@ for f in sorted(glob('./src/bin/*.rs')):
     with open(f, 'r') as f:
         for line in f:
             if line.startswith('// required-features:'):
-                features = line.split(':', 2)[1].strip().split(',')
+                features = [feature.strip() for feature in line.split(':', 2)[1].strip().split(',')]
 
     tests[name] = features
 

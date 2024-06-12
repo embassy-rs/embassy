@@ -23,7 +23,7 @@ TODO:
 
 ## Running the examples
 
-- `cargo install probe-rs --features cli`
+- Install `probe-rs` following the instructions at <https://probe.rs>.
 - `cd examples/rp`
 ### Example 1: Scan the wifi stations
 - `cargo run --release --bin wifi_scan`
@@ -44,14 +44,3 @@ This example implements a TCP echo server on port 1234. You can try connecting t
 nc 192.168.0.250 1234
 ```
 Send it some data, you should see it echoed back and printed in the firmware's logs.
-
-## License
-
-This work is licensed under either of
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
-  <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
-
-at your option.
-

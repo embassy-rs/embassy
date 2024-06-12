@@ -1,209 +1,52 @@
+//! Reset and Clock Control (RCC)
+
 #![macro_use]
+#![allow(missing_docs)] // TODO
 
 use core::mem::MaybeUninit;
 
-use crate::time::Hertz;
-
 mod bd;
-mod mco;
 pub use bd::*;
+
+#[cfg(any(mco, mco1, mco2))]
+mod mco;
+use critical_section::CriticalSection;
+#[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
-#[cfg_attr(rcc_f0, path = "f0.rs")]
-#[cfg_attr(any(rcc_f1, rcc_f100, rcc_f1cl), path = "f1.rs")]
-#[cfg_attr(rcc_f2, path = "f2.rs")]
-#[cfg_attr(any(rcc_f3, rcc_f3_v2), path = "f3.rs")]
-#[cfg_attr(any(rcc_f4, rcc_f410, rcc_f7), path = "f4f7.rs")]
-#[cfg_attr(rcc_c0, path = "c0.rs")]
-#[cfg_attr(rcc_g0, path = "g0.rs")]
-#[cfg_attr(rcc_g4, path = "g4.rs")]
-#[cfg_attr(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab), path = "h.rs")]
-#[cfg_attr(any(rcc_l0, rcc_l0_v2, rcc_l1), path = "l0l1.rs")]
-#[cfg_attr(any(rcc_l4, rcc_l4plus, rcc_l5, rcc_wl5, rcc_wle, rcc_wb), path = "l4l5.rs")]
-#[cfg_attr(rcc_u5, path = "u5.rs")]
-#[cfg_attr(rcc_wba, path = "wba.rs")]
+#[cfg(crs)]
+mod hsi48;
+#[cfg(crs)]
+pub use hsi48::*;
+
+#[cfg_attr(any(stm32f0, stm32f1, stm32f3), path = "f013.rs")]
+#[cfg_attr(any(stm32f2, stm32f4, stm32f7), path = "f247.rs")]
+#[cfg_attr(stm32c0, path = "c0.rs")]
+#[cfg_attr(stm32g0, path = "g0.rs")]
+#[cfg_attr(stm32g4, path = "g4.rs")]
+#[cfg_attr(any(stm32h5, stm32h7, stm32h7rs), path = "h.rs")]
+#[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
+#[cfg_attr(stm32u5, path = "u5.rs")]
+#[cfg_attr(stm32wba, path = "wba.rs")]
 mod _version;
-#[cfg(feature = "low-power")]
-use core::sync::atomic::{AtomicU32, Ordering};
 
 pub use _version::*;
+use stm32_metapac::RCC;
 
-//  Model Clock Configuration
-//
-//  pub struct Clocks {
-//      hse: Option<Hertz>,
-//      hsi: bool,
-//      lse: Option<Hertz>,
-//      lsi: bool,
-//      rtc: RtcSource,
-//  }
-
-#[derive(Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Clocks {
-    pub sys: Hertz,
-
-    // APB
-    pub pclk1: Hertz,
-    pub pclk1_tim: Hertz,
-    #[cfg(not(any(rcc_c0, rcc_g0)))]
-    pub pclk2: Hertz,
-    #[cfg(not(any(rcc_c0, rcc_g0)))]
-    pub pclk2_tim: Hertz,
-    #[cfg(any(rcc_wl5, rcc_wle, rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab, rcc_u5))]
-    pub pclk3: Hertz,
-    #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7ab, stm32h5))]
-    pub pclk4: Hertz,
-    #[cfg(any(rcc_wba))]
-    pub pclk7: Hertz,
-
-    // AHB
-    pub hclk1: Hertz,
-    #[cfg(any(
-        rcc_l4,
-        rcc_l4plus,
-        rcc_l5,
-        rcc_f2,
-        rcc_f4,
-        rcc_f410,
-        rcc_f7,
-        rcc_h5,
-        rcc_h50,
-        rcc_h7,
-        rcc_h7rm0433,
-        rcc_h7ab,
-        rcc_g4,
-        rcc_u5,
-        rcc_wb,
-        rcc_wba,
-        rcc_wl5,
-        rcc_wle
-    ))]
-    pub hclk2: Hertz,
-    #[cfg(any(
-        rcc_l4,
-        rcc_l4plus,
-        rcc_l5,
-        rcc_f2,
-        rcc_f4,
-        rcc_f410,
-        rcc_f7,
-        rcc_h5,
-        rcc_h50,
-        rcc_h7,
-        rcc_h7rm0433,
-        rcc_h7ab,
-        rcc_u5,
-        rcc_wb,
-        rcc_wl5,
-        rcc_wle
-    ))]
-    pub hclk3: Hertz,
-    #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab, rcc_wba))]
-    pub hclk4: Hertz,
-
-    #[cfg(all(rcc_f4, not(stm32f410)))]
-    pub plli2s1_q: Option<Hertz>,
-    #[cfg(all(rcc_f4, not(stm32f410)))]
-    pub plli2s1_r: Option<Hertz>,
-
-    #[cfg(rcc_l4)]
-    pub pllsai1_p: Option<Hertz>,
-    #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
-    pub pllsai1_q: Option<Hertz>,
-    #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
-    pub pllsai1_r: Option<Hertz>,
-    #[cfg(rcc_l4)]
-    pub pllsai2_p: Option<Hertz>,
-
-    #[cfg(any(stm32g4, rcc_l4))]
-    pub pll1_p: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7, rcc_f2, rcc_f4, rcc_f410, rcc_f7, rcc_l4))]
-    pub pll1_q: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
-    pub pll2_p: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
-    pub pll2_q: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
-    pub pll2_r: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
-    pub pll3_p: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
-    pub pll3_q: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
-    pub pll3_r: Option<Hertz>,
-
-    #[cfg(any(
-        rcc_f1,
-        rcc_f100,
-        rcc_f1cl,
-        rcc_h5,
-        rcc_h50,
-        rcc_h7,
-        rcc_h7rm0433,
-        rcc_h7ab,
-        rcc_f3,
-        rcc_g4
-    ))]
-    pub adc: Option<Hertz>,
-
-    #[cfg(any(rcc_f3, rcc_g4))]
-    pub adc34: Option<Hertz>,
-
-    #[cfg(stm32f334)]
-    pub hrtim: Option<Hertz>,
-
-    pub rtc: Option<Hertz>,
-
-    #[cfg(any(stm32h5, stm32h7, rcc_l4, rcc_c0))]
-    pub hsi: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub hsi48: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub lsi: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
-    pub csi: Option<Hertz>,
-
-    #[cfg(any(stm32h5, stm32h7, rcc_l4, rcc_c0))]
-    pub lse: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
-    pub hse: Option<Hertz>,
-
-    #[cfg(stm32h5)]
-    pub audioclk: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
-    pub per: Option<Hertz>,
-
-    #[cfg(stm32h7)]
-    pub rcc_pclk_d3: Option<Hertz>,
-    #[cfg(rcc_l4)]
-    pub sai1_extclk: Option<Hertz>,
-    #[cfg(rcc_l4)]
-    pub sai2_extclk: Option<Hertz>,
-}
+pub use crate::_generated::{mux, Clocks};
+use crate::time::Hertz;
 
 #[cfg(feature = "low-power")]
-static CLOCK_REFCOUNT: AtomicU32 = AtomicU32::new(0);
+/// Must be written within a critical section
+///
+/// May be read without a critical section
+pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 
 #[cfg(feature = "low-power")]
-pub fn low_power_ready() -> bool {
-    // trace!("clock refcount: {}", CLOCK_REFCOUNT.load(Ordering::SeqCst));
-    CLOCK_REFCOUNT.load(Ordering::SeqCst) == 0
-}
-
-#[cfg(feature = "low-power")]
-pub(crate) fn clock_refcount_add(_cs: critical_section::CriticalSection) {
-    // We don't check for overflow because constructing more than u32 peripherals is unlikely
-    let n = CLOCK_REFCOUNT.load(Ordering::Relaxed);
-    CLOCK_REFCOUNT.store(n + 1, Ordering::Relaxed);
-}
-
-#[cfg(feature = "low-power")]
-pub(crate) fn clock_refcount_sub(_cs: critical_section::CriticalSection) {
-    let n = CLOCK_REFCOUNT.load(Ordering::Relaxed);
-    assert!(n != 0);
-    CLOCK_REFCOUNT.store(n - 1, Ordering::Relaxed);
-}
+/// Must be written within a critical section
+///
+/// May be read without a critical section
+pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
 /// Frozen clock frequencies
 ///
@@ -223,29 +66,185 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
     CLOCK_FREQS.assume_init_ref()
 }
 
-#[cfg(feature = "unstable-pac")]
-pub mod low_level {
-    pub use super::sealed::*;
+pub(crate) trait SealedRccPeripheral {
+    fn frequency() -> Hertz;
+    const RCC_INFO: RccInfo;
 }
 
-pub(crate) mod sealed {
-    use critical_section::CriticalSection;
+#[allow(private_bounds)]
+pub trait RccPeripheral: SealedRccPeripheral + 'static {}
 
-    pub trait RccPeripheral {
-        fn frequency() -> crate::time::Hertz;
-        fn enable_and_reset_with_cs(cs: CriticalSection);
-        fn disable_with_cs(cs: CriticalSection);
+/// Runtime information necessary to reset, enable and disable a peripheral.
+pub(crate) struct RccInfo {
+    /// Offset in 32-bit words of the xxxRSTR register into the RCC register block, or 0xff if the
+    /// peripheral has no reset bit (we don't use an `Option` to save one byte of storage).
+    reset_offset_or_0xff: u8,
+    /// Position of the xxxRST bit within the xxxRSTR register (0..=31).
+    reset_bit: u8,
+    /// Offset in 32-bit words of the xxxENR register into the RCC register block.
+    enable_offset: u8,
+    /// Position of the xxxEN bit within the xxxENR register (0..=31).
+    enable_bit: u8,
+    /// If this peripheral shares the same xxxRSTR bit and xxxEN bit with other peripherals, we
+    /// maintain a refcount in `crate::_generated::REFCOUNTS` at this index. If the bit is not
+    /// shared, this is 0xff (we don't use an `Option` to save one byte of storage).
+    refcount_idx_or_0xff: u8,
+    /// Stop mode of the peripheral, used to maintain `REFCOUNT_STOP1` and `REFCOUNT_STOP2`.
+    #[cfg(feature = "low-power")]
+    stop_mode: StopMode,
+}
 
-        fn enable_and_reset() {
-            critical_section::with(|cs| Self::enable_and_reset_with_cs(cs))
-        }
-        fn disable() {
-            critical_section::with(|cs| Self::disable_with_cs(cs))
+#[cfg(feature = "low-power")]
+#[allow(dead_code)]
+pub(crate) enum StopMode {
+    Standby,
+    Stop2,
+    Stop1,
+}
+
+impl RccInfo {
+    /// Safety:
+    /// - `reset_offset_and_bit`, if set, must correspond to valid xxxRST bit
+    /// - `enable_offset_and_bit` must correspond to valid xxxEN bit
+    /// - `refcount_idx`, if set, must correspond to valid refcount in `_generated::REFCOUNTS`
+    /// - `stop_mode` must be valid
+    pub(crate) const unsafe fn new(
+        reset_offset_and_bit: Option<(u8, u8)>,
+        enable_offset_and_bit: (u8, u8),
+        refcount_idx: Option<u8>,
+        #[cfg(feature = "low-power")] stop_mode: StopMode,
+    ) -> Self {
+        let (reset_offset_or_0xff, reset_bit) = match reset_offset_and_bit {
+            Some((offset, bit)) => (offset, bit),
+            None => (0xff, 0xff),
+        };
+        let (enable_offset, enable_bit) = enable_offset_and_bit;
+        let refcount_idx_or_0xff = match refcount_idx {
+            Some(idx) => idx,
+            None => 0xff,
+        };
+        Self {
+            reset_offset_or_0xff,
+            reset_bit,
+            enable_offset,
+            enable_bit,
+            refcount_idx_or_0xff,
+            #[cfg(feature = "low-power")]
+            stop_mode,
         }
     }
-}
 
-pub trait RccPeripheral: sealed::RccPeripheral + 'static {}
+    // TODO: should this be `unsafe`?
+    pub(crate) fn enable_and_reset_with_cs(&self, _cs: CriticalSection) {
+        if self.refcount_idx_or_0xff != 0xff {
+            let refcount_idx = self.refcount_idx_or_0xff as usize;
+            unsafe {
+                crate::_generated::REFCOUNTS[refcount_idx] += 1;
+            }
+            if unsafe { crate::_generated::REFCOUNTS[refcount_idx] } > 1 {
+                return;
+            }
+        }
+
+        #[cfg(feature = "low-power")]
+        match self.stop_mode {
+            StopMode::Standby => {}
+            StopMode::Stop2 => unsafe {
+                REFCOUNT_STOP2 += 1;
+            },
+            StopMode::Stop1 => unsafe {
+                REFCOUNT_STOP1 += 1;
+            },
+        }
+
+        // set the xxxRST bit
+        let reset_ptr = self.reset_ptr();
+        if let Some(reset_ptr) = reset_ptr {
+            unsafe {
+                let val = reset_ptr.read_volatile();
+                reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
+            }
+        }
+
+        // set the xxxEN bit
+        let enable_ptr = self.enable_ptr();
+        unsafe {
+            let val = enable_ptr.read_volatile();
+            enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
+        }
+
+        // we must wait two peripheral clock cycles before the clock is active
+        // this seems to work, but might be incorrect
+        // see http://efton.sk/STM32/gotcha/g183.html
+
+        // dummy read (like in the ST HALs)
+        let _ = unsafe { enable_ptr.read_volatile() };
+
+        // DSB for good measure
+        cortex_m::asm::dsb();
+
+        // clear the xxxRST bit
+        if let Some(reset_ptr) = reset_ptr {
+            unsafe {
+                let val = reset_ptr.read_volatile();
+                reset_ptr.write_volatile(val & !(1u32 << self.reset_bit));
+            }
+        }
+    }
+
+    // TODO: should this be `unsafe`?
+    pub(crate) fn disable_with_cs(&self, _cs: CriticalSection) {
+        if self.refcount_idx_or_0xff != 0xff {
+            let refcount_idx = self.refcount_idx_or_0xff as usize;
+            unsafe {
+                crate::_generated::REFCOUNTS[refcount_idx] -= 1;
+            }
+            if unsafe { crate::_generated::REFCOUNTS[refcount_idx] } > 0 {
+                return;
+            }
+        }
+
+        #[cfg(feature = "low-power")]
+        match self.stop_mode {
+            StopMode::Standby => {}
+            StopMode::Stop2 => unsafe {
+                REFCOUNT_STOP2 -= 1;
+            },
+            StopMode::Stop1 => unsafe {
+                REFCOUNT_STOP1 -= 1;
+            },
+        }
+
+        // clear the xxxEN bit
+        let enable_ptr = self.enable_ptr();
+        unsafe {
+            let val = enable_ptr.read_volatile();
+            enable_ptr.write_volatile(val & !(1u32 << self.enable_bit));
+        }
+    }
+
+    // TODO: should this be `unsafe`?
+    pub(crate) fn enable_and_reset(&self) {
+        critical_section::with(|cs| self.enable_and_reset_with_cs(cs))
+    }
+
+    // TODO: should this be `unsafe`?
+    pub(crate) fn disable(&self) {
+        critical_section::with(|cs| self.disable_with_cs(cs))
+    }
+
+    fn reset_ptr(&self) -> Option<*mut u32> {
+        if self.reset_offset_or_0xff != 0xff {
+            Some(unsafe { (RCC.as_ptr() as *mut u32).add(self.reset_offset_or_0xff as _) })
+        } else {
+            None
+        }
+    }
+
+    fn enable_ptr(&self) -> *mut u32 {
+        unsafe { (RCC.as_ptr() as *mut u32).add(self.enable_offset as _) }
+    }
+}
 
 #[allow(unused)]
 mod util {
@@ -275,4 +274,53 @@ mod util {
         }
         Ok(Some(x))
     }
+}
+
+/// Get the kernel clock frequency of the peripheral `T`.
+///
+/// # Panics
+///
+/// Panics if the clock is not active.
+pub fn frequency<T: RccPeripheral>() -> Hertz {
+    T::frequency()
+}
+
+/// Enables and resets peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+// TODO: should this be `unsafe`?
+pub fn enable_and_reset_with_cs<T: RccPeripheral>(cs: CriticalSection) {
+    T::RCC_INFO.enable_and_reset_with_cs(cs);
+}
+
+/// Disables peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+// TODO: should this be `unsafe`?
+pub fn disable_with_cs<T: RccPeripheral>(cs: CriticalSection) {
+    T::RCC_INFO.disable_with_cs(cs);
+}
+
+/// Enables and resets peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+// TODO: should this be `unsafe`?
+pub fn enable_and_reset<T: RccPeripheral>() {
+    T::RCC_INFO.enable_and_reset();
+}
+
+/// Disables peripheral `T`.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+// TODO: should this be `unsafe`?
+pub fn disable<T: RccPeripheral>() {
+    T::RCC_INFO.disable();
 }

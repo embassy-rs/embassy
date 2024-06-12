@@ -17,6 +17,7 @@ use crate::{interrupt, Peripheral};
 pub(super) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 impl<'d> Flash<'d, Async> {
+    /// Create a new flash driver with async capabilities.
     pub fn new(
         p: impl Peripheral<P = FLASH> + 'd,
         _irq: impl interrupt::typelevel::Binding<crate::interrupt::typelevel::FLASH, InterruptHandler> + 'd,
@@ -32,15 +33,26 @@ impl<'d> Flash<'d, Async> {
         }
     }
 
+    /// Split this flash driver into one instance per flash memory region.
+    ///
+    /// See module-level documentation for details on how memory regions work.
     pub fn into_regions(self) -> FlashLayout<'d, Async> {
         assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 
+    /// Async write.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
+    /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
     pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         unsafe { write_chunked(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes).await }
     }
 
+    /// Async erase.
+    ///
+    /// NOTE: `from` and `to` are offsets from the flash start, NOT an absolute address.
+    /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
     pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         unsafe { erase_sectored(FLASH_BASE as u32, from, to).await }
     }
@@ -55,12 +67,11 @@ impl interrupt::typelevel::Handler<crate::interrupt::typelevel::FLASH> for Inter
     }
 }
 
-#[cfg(feature = "nightly")]
 impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_, Async> {
     const READ_SIZE: usize = super::READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(offset, bytes)
+        self.blocking_read(offset, bytes)
     }
 
     fn capacity(&self) -> usize {
@@ -68,7 +79,6 @@ impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_, Async> {
     }
 }
 
-#[cfg(feature = "nightly")]
 impl embedded_storage_async::nor_flash::NorFlash for Flash<'_, Async> {
     const WRITE_SIZE: usize = WRITE_SIZE;
     const ERASE_SIZE: usize = super::MAX_ERASE_SIZE;
@@ -143,23 +153,27 @@ pub(super) async unsafe fn erase_sectored(base: u32, from: u32, to: u32) -> Resu
 foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl crate::_generated::flash_regions::$type_name<'_, Async> {
+            /// Async read.
+            ///
+            /// Note: reading from flash can't actually block, so this is the same as `blocking_read`.
             pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 blocking_read(self.0.base, self.0.size, offset, bytes)
             }
 
+            /// Async write.
             pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                 let _guard = REGION_ACCESS.lock().await;
                 unsafe { write_chunked(self.0.base, self.0.size, offset, bytes).await }
             }
 
+            /// Async erase.
             pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
                 let _guard = REGION_ACCESS.lock().await;
                 unsafe { erase_sectored(self.0.base, from, to).await }
             }
         }
 
-        #[cfg(feature = "nightly")]
-        impl embedded_storage_async::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
+                impl embedded_storage_async::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
             const READ_SIZE: usize = super::READ_SIZE;
 
             async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -171,8 +185,7 @@ foreach_flash_region! {
             }
         }
 
-        #[cfg(feature = "nightly")]
-        impl embedded_storage_async::nor_flash::NorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
+                impl embedded_storage_async::nor_flash::NorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
             const WRITE_SIZE: usize = $write_size;
             const ERASE_SIZE: usize = $erase_size;
 

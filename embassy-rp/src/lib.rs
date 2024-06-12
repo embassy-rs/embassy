@@ -1,5 +1,10 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
+#![allow(async_fn_in_trait)]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
+
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -25,16 +30,13 @@ pub mod rom_data;
 pub mod rtc;
 pub mod spi;
 #[cfg(feature = "time-driver")]
-pub mod timer;
+pub mod time_driver;
 pub mod uart;
-#[cfg(feature = "nightly")]
 pub mod usb;
 pub mod watchdog;
 
 // PIO
-// TODO: move `pio_instr_util` and `relocate` to inside `pio`
 pub mod pio;
-pub mod pio_instr_util;
 pub(crate) mod relocate;
 
 // Reexports
@@ -87,6 +89,17 @@ embassy_hal_internal::interrupt_mod!(
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
 /// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
+///
+/// Example of how to bind one interrupt:
+///
+/// ```rust,ignore
+/// use embassy_rp::{bind_interrupts, usb, peripherals};
+///
+/// bind_interrupts!(struct Irqs {
+///     USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
+/// });
+/// ```
+///
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
@@ -170,14 +183,14 @@ embassy_hal_internal::peripherals! {
     DMA_CH10,
     DMA_CH11,
 
-    PWM_CH0,
-    PWM_CH1,
-    PWM_CH2,
-    PWM_CH3,
-    PWM_CH4,
-    PWM_CH5,
-    PWM_CH6,
-    PWM_CH7,
+    PWM_SLICE0,
+    PWM_SLICE1,
+    PWM_SLICE2,
+    PWM_SLICE3,
+    PWM_SLICE4,
+    PWM_SLICE5,
+    PWM_SLICE6,
+    PWM_SLICE7,
 
     USB,
 
@@ -225,8 +238,8 @@ select_bootloader! {
 }
 
 /// Installs a stack guard for the CORE0 stack in MPU region 0.
-/// Will fail if the MPU is already confgigured. This function requires
-/// a `_stack_end` symbol to be defined by the linker script, and expexcts
+/// Will fail if the MPU is already configured. This function requires
+/// a `_stack_end` symbol to be defined by the linker script, and expects
 /// `_stack_end` to be located at the lowest address (largest depth) of
 /// the stack.
 ///
@@ -237,7 +250,6 @@ select_bootloader! {
 /// # Usage
 ///
 /// ```no_run
-/// #![feature(type_alias_impl_trait)]
 /// use embassy_rp::install_core0_stack_guard;
 /// use embassy_executor::{Executor, Spawner};
 ///
@@ -262,7 +274,7 @@ pub fn install_core0_stack_guard() -> Result<(), ()> {
     extern "C" {
         static mut _stack_end: usize;
     }
-    unsafe { install_stack_guard(&mut _stack_end as *mut usize) }
+    unsafe { install_stack_guard(core::ptr::addr_of_mut!(_stack_end)) }
 }
 
 #[inline(always)]
@@ -292,11 +304,14 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     Ok(())
 }
 
+/// HAL configuration for RP.
 pub mod config {
     use crate::clocks::ClockConfig;
 
+    /// HAL configuration passed when initializing.
     #[non_exhaustive]
     pub struct Config {
+        /// Clock configuration.
         pub clocks: ClockConfig,
     }
 
@@ -309,12 +324,18 @@ pub mod config {
     }
 
     impl Config {
+        /// Create a new configuration with the provided clock config.
         pub fn new(clocks: ClockConfig) -> Self {
             Self { clocks }
         }
     }
 }
 
+/// Initialize the `embassy-rp` HAL with the provided configuration.
+///
+/// This returns the peripheral singletons that can be used for creating drivers.
+///
+/// This should only be called once at startup, otherwise it panics.
 pub fn init(config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
@@ -323,7 +344,7 @@ pub fn init(config: config::Config) -> Peripherals {
     unsafe {
         clocks::init(config.clocks);
         #[cfg(feature = "time-driver")]
-        timer::init();
+        time_driver::init();
         dma::init();
         gpio::init();
     }
@@ -331,11 +352,60 @@ pub fn init(config: config::Config) -> Peripherals {
     peripherals
 }
 
+#[cfg(feature = "rt")]
+#[cortex_m_rt::pre_init]
+unsafe fn pre_init() {
+    // SIO does not get reset when core0 is reset with either `scb::sys_reset()` or with SWD.
+    // Since we're using SIO spinlock 31 for the critical-section impl, this causes random
+    // hangs if we reset in the middle of a CS, because the next boot sees the spinlock
+    // as locked and waits forever.
+    //
+    // See https://github.com/embassy-rs/embassy/issues/1736
+    // and https://github.com/rp-rs/rp-hal/issues/292
+    // and https://matrix.to/#/!vhKMWjizPZBgKeknOo:matrix.org/$VfOkQgyf1PjmaXZbtycFzrCje1RorAXd8BQFHTl4d5M
+    //
+    // According to Raspberry Pi, this is considered Working As Intended, and not an errata,
+    // even though this behavior is different from every other ARM chip (sys_reset usually resets
+    // the *system* as its name implies, not just the current core).
+    //
+    // To fix this, reset SIO on boot. We must do this in pre_init because it's unsound to do it
+    // in `embassy_rp::init`, since the user could've acquired a CS by then. pre_init is guaranteed
+    // to run before any user code.
+    //
+    // A similar thing could happen with PROC1. It is unclear whether it's possible for PROC1
+    // to stay unreset through a PROC0 reset, so we reset it anyway just in case.
+    //
+    // Important info from PSM logic (from Luke Wren in above Matrix thread)
+    //
+    //     The logic is, each PSM stage is reset if either of the following is true:
+    //     - The previous stage is in reset and FRCE_ON is false
+    //     - FRCE_OFF is true
+    //
+    // The PSM order is SIO -> PROC0 -> PROC1.
+    // So, we have to force-on PROC0 to prevent it from getting reset when resetting SIO.
+    pac::PSM.frce_on().write_and_wait(|w| {
+        w.set_proc0(true);
+    });
+    // Then reset SIO and PROC1.
+    pac::PSM.frce_off().write_and_wait(|w| {
+        w.set_sio(true);
+        w.set_proc1(true);
+    });
+    // clear force_off first, force_on second. The other way around would reset PROC0.
+    pac::PSM.frce_off().write_and_wait(|_| {});
+    pac::PSM.frce_on().write_and_wait(|_| {});
+}
+
 /// Extension trait for PAC regs, adding atomic xor/bitset/bitclear writes.
+#[allow(unused)]
 trait RegExt<T: Copy> {
+    #[allow(unused)]
     fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
+    fn write_and_wait<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: PartialEq;
 }
 
 impl<T: Default + Copy, A: pac::common::Write> RegExt<T> for pac::common::Reg<T, A> {
@@ -365,6 +435,19 @@ impl<T: Default + Copy, A: pac::common::Write> RegExt<T> for pac::common::Reg<T,
         unsafe {
             let ptr = (self.as_ptr() as *mut u8).add(0x3000) as *mut T;
             ptr.write_volatile(val);
+        }
+        res
+    }
+
+    fn write_and_wait<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: PartialEq,
+    {
+        let mut val = Default::default();
+        let res = f(&mut val);
+        unsafe {
+            self.as_ptr().write_volatile(val);
+            while self.as_ptr().read_volatile() != val {}
         }
         res
     }

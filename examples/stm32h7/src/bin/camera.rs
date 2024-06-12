@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use embassy_executor::Spawner;
 use embassy_stm32::dcmi::{self, *};
@@ -19,7 +18,8 @@ const HEIGHT: usize = 100;
 static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
 
 bind_interrupts!(struct Irqs {
-    I2C1_EV => i2c::InterruptHandler<peripherals::I2C1>;
+    I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     DCMI => dcmi::InterruptHandler<peripherals::DCMI>;
 });
 
@@ -78,9 +78,9 @@ async fn main(_spawner: Spawner) {
     );
 
     defmt::info!("attempting capture");
-    defmt::unwrap!(dcmi.capture(unsafe { &mut FRAME }).await);
+    defmt::unwrap!(dcmi.capture(unsafe { &mut *core::ptr::addr_of_mut!(FRAME) }).await);
 
-    defmt::info!("captured frame: {:x}", unsafe { &FRAME });
+    defmt::info!("captured frame: {:x}", unsafe { &*core::ptr::addr_of!(FRAME) });
 
     defmt::info!("main loop running");
     loop {

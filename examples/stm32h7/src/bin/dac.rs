@@ -1,10 +1,9 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_stm32::dac::{DacCh1, DacChannel, Value};
+use embassy_stm32::dac::{DacCh1, Value};
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
@@ -41,16 +40,15 @@ fn main() -> ! {
         config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
-        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
     }
     let p = embassy_stm32::init(config);
 
     let mut dac = DacCh1::new(p.DAC1, NoDma, p.PA4);
-    unwrap!(dac.set_trigger_enable(false));
 
     loop {
         for v in 0..=255 {
-            unwrap!(dac.set(Value::Bit8(to_sine_wave(v))));
+            dac.set(Value::Bit8(to_sine_wave(v)));
         }
     }
 }

@@ -1,88 +1,117 @@
-use stm32_metapac::rcc::vals::{Pllsrc, Sw};
-
+pub use crate::pac::pwr::vals::Vos as VoltageScale;
+use crate::pac::rcc::regs::Cfgr1;
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk};
 use crate::pac::{FLASH, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
+// HSE speed
+pub const HSE_FREQ: Hertz = Hertz(32_000_000);
 
-pub use crate::pac::pwr::vals::Vos as VoltageScale;
-pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
-
-#[derive(Copy, Clone)]
-pub enum ClockSrc {
-    HSE(Hertz),
-    HSI,
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Hse {
+    pub prescaler: HsePrescaler,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum PllSrc {
-    HSE(Hertz),
-    HSI,
-}
-
-impl Into<Pllsrc> for PllSrc {
-    fn into(self) -> Pllsrc {
-        match self {
-            PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI => Pllsrc::HSI,
-        }
-    }
-}
-
-impl Into<Sw> for ClockSrc {
-    fn into(self) -> Sw {
-        match self {
-            ClockSrc::HSE(..) => Sw::HSE,
-            ClockSrc::HSI => Sw::HSI,
-        }
-    }
-}
-
+/// Clocks configuration
 pub struct Config {
-    pub mux: ClockSrc,
+    // base clock sources
+    pub hsi: bool,
+    pub hse: Option<Hse>,
+
+    // sysclk, buses.
+    pub sys: Sysclk,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb7_pre: APBPrescaler,
+
+    // low speed LSI/LSE/RTC
     pub ls: super::LsConfig,
+
+    pub voltage_scale: VoltageScale,
+
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 }
 
 impl Default for Config {
-    fn default() -> Self {
-        Self {
-            mux: ClockSrc::HSI,
+    #[inline]
+    fn default() -> Config {
+        Config {
+            hse: None,
+            hsi: true,
+            sys: Sysclk::HSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
             ls: Default::default(),
+            voltage_scale: VoltageScale::RANGE2,
+            mux: Default::default(),
         }
     }
 }
 
+fn hsi_enable() {
+    RCC.cr().modify(|w| w.set_hsion(true));
+    while !RCC.cr().read().hsirdy() {}
+}
+
 pub(crate) unsafe fn init(config: Config) {
-    let sys_clk = match config.mux {
-        ClockSrc::HSE(freq) => {
-            RCC.cr().write(|w| w.set_hseon(true));
-            while !RCC.cr().read().hserdy() {}
+    // Switch to HSI to prevent problems with PLL configuration.
+    if !RCC.cr().read().hsion() {
+        hsi_enable()
+    }
+    if RCC.cfgr1().read().sws() != Sysclk::HSI {
+        // Set HSI as a clock source, reset prescalers.
+        RCC.cfgr1().write_value(Cfgr1::default());
+        // Wait for clock switch status bits to change.
+        while RCC.cfgr1().read().sws() != Sysclk::HSI {}
+    }
 
-            freq
-        }
-        ClockSrc::HSI => {
-            RCC.cr().write(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
+    // Set voltage scale
+    crate::pac::PWR.vosr().write(|w| w.set_vos(config.voltage_scale));
+    while !crate::pac::PWR.vosr().read().vosrdy() {}
 
-            HSI_FREQ
-        }
+    let rtc = config.ls.init();
+
+    let hsi = config.hsi.then(|| {
+        hsi_enable();
+
+        HSI_FREQ
+    });
+
+    let hse = config.hse.map(|hse| {
+        RCC.cr().write(|w| {
+            w.set_hseon(true);
+            w.set_hsepre(hse.prescaler);
+        });
+        while !RCC.cr().read().hserdy() {}
+
+        HSE_FREQ
+    });
+
+    let sys_clk = match config.sys {
+        Sysclk::HSE => hse.unwrap(),
+        Sysclk::HSI => hsi.unwrap(),
+        Sysclk::_RESERVED_1 => unreachable!(),
+        Sysclk::PLL1_R => todo!(),
     };
 
-    // TODO make configurable
-    let power_vos = VoltageScale::RANGE1;
+    assert!(sys_clk.0 <= 100_000_000);
 
-    // states and programming delay
-    let wait_states = match power_vos {
+    let hclk1 = sys_clk / config.ahb_pre;
+    let hclk2 = hclk1;
+    let hclk4 = hclk1;
+    // TODO: hclk5
+    let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk1, config.apb1_pre);
+    let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk1, config.apb2_pre);
+    let (pclk7, _) = super::util::calc_pclk(hclk1, config.apb7_pre);
+
+    // Set flash wait states
+    let flash_latency = match config.voltage_scale {
         VoltageScale::RANGE1 => match sys_clk.0 {
             ..=32_000_000 => 0,
             ..=64_000_000 => 1,
@@ -97,13 +126,24 @@ pub(crate) unsafe fn init(config: Config) {
         },
     };
 
-    FLASH.acr().modify(|w| {
-        w.set_latency(wait_states);
-    });
+    FLASH.acr().modify(|w| w.set_latency(flash_latency));
+    while FLASH.acr().read().latency() != flash_latency {}
+
+    // Set sram wait states
+    let _sram_latency = match config.voltage_scale {
+        VoltageScale::RANGE1 => 0,
+        VoltageScale::RANGE2 => match sys_clk.0 {
+            ..=12_000_000 => 0,
+            ..=16_000_000 => 1,
+            _ => 2,
+        },
+    };
+    // TODO: Set the SRAM wait states
 
     RCC.cfgr1().modify(|w| {
-        w.set_sw(config.mux.into());
+        w.set_sw(config.sys);
     });
+    while RCC.cfgr1().read().sws() != config.sys {}
 
     RCC.cfgr2().modify(|w| {
         w.set_hpre(config.ahb_pre);
@@ -111,45 +151,25 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
     });
 
-    RCC.cfgr3().modify(|w| {
-        w.set_ppre7(config.apb7_pre);
-    });
+    config.mux.init();
 
-    let ahb_freq = sys_clk / config.ahb_pre;
-    let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
-    let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
-    let (apb7_freq, _apb7_tim_freq) = match config.apb7_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
+    set_clocks!(
+        sys: Some(sys_clk),
+        hclk1: Some(hclk1),
+        hclk2: Some(hclk2),
+        hclk4: Some(hclk4),
+        pclk1: Some(pclk1),
+        pclk2: Some(pclk2),
+        pclk7: Some(pclk7),
+        pclk1_tim: Some(pclk1_tim),
+        pclk2_tim: Some(pclk2_tim),
+        rtc: rtc,
+        hse: hse,
+        hsi: hsi,
 
-    let rtc = config.ls.init();
-
-    set_freqs(Clocks {
-        sys: sys_clk,
-        hclk1: ahb_freq,
-        hclk2: ahb_freq,
-        hclk4: ahb_freq,
-        pclk1: apb1_freq,
-        pclk2: apb2_freq,
-        pclk7: apb7_freq,
-        pclk1_tim: apb1_tim_freq,
-        pclk2_tim: apb2_tim_freq,
-        rtc,
-    });
+        // TODO
+        lse: None,
+        lsi: None,
+        pll1_q: None,
+    );
 }

@@ -1,4 +1,3 @@
-use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, AtomicBool, Ordering};
 
@@ -9,7 +8,7 @@ use pac::FLASH_SIZE;
 use super::{FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
-
+#[allow(missing_docs)] // TODO
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 mod alt_regions {
     use core::marker::PhantomData;
@@ -17,7 +16,7 @@ mod alt_regions {
     use embassy_hal_internal::PeripheralRef;
     use stm32_metapac::FLASH_SIZE;
 
-    use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
+    use crate::_generated::flash_regions::{BANK1_REGION1, BANK1_REGION2, BANK1_REGION3};
     use crate::flash::{asynch, Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashRegion};
     use crate::peripherals::FLASH;
 
@@ -63,7 +62,6 @@ mod alt_regions {
         pub bank2_region1: AltBank2Region1<'d, MODE>,
         pub bank2_region2: AltBank2Region2<'d, MODE>,
         pub bank2_region3: AltBank2Region3<'d, MODE>,
-        pub otp_region: OTPRegion<'d, MODE>,
     }
 
     impl<'d> Flash<'d> {
@@ -80,7 +78,6 @@ mod alt_regions {
                 bank2_region1: AltBank2Region1(&ALT_BANK2_REGION1, unsafe { p.clone_unchecked() }, PhantomData),
                 bank2_region2: AltBank2Region2(&ALT_BANK2_REGION2, unsafe { p.clone_unchecked() }, PhantomData),
                 bank2_region3: AltBank2Region3(&ALT_BANK2_REGION3, unsafe { p.clone_unchecked() }, PhantomData),
-                otp_region: OTPRegion(&OTP_REGION, unsafe { p.clone_unchecked() }, PhantomData),
             }
         }
 
@@ -97,7 +94,6 @@ mod alt_regions {
                 bank2_region1: AltBank2Region1(&ALT_BANK2_REGION1, unsafe { p.clone_unchecked() }, PhantomData),
                 bank2_region2: AltBank2Region2(&ALT_BANK2_REGION2, unsafe { p.clone_unchecked() }, PhantomData),
                 bank2_region3: AltBank2Region3(&ALT_BANK2_REGION3, unsafe { p.clone_unchecked() }, PhantomData),
-                otp_region: OTPRegion(&OTP_REGION, unsafe { p.clone_unchecked() }, PhantomData),
             }
         }
     }
@@ -142,7 +138,6 @@ mod alt_regions {
                 }
             }
 
-            #[cfg(feature = "nightly")]
             impl embedded_storage_async::nor_flash::ReadNorFlash for $type_name<'_, Async> {
                 const READ_SIZE: usize = crate::flash::READ_SIZE;
 
@@ -155,7 +150,6 @@ mod alt_regions {
                 }
             }
 
-            #[cfg(feature = "nightly")]
             impl embedded_storage_async::nor_flash::NorFlash for $type_name<'_, Async> {
                 const WRITE_SIZE: usize = $region.write_size as usize;
                 const ERASE_SIZE: usize = $region.erase_size as usize;
@@ -229,8 +223,8 @@ pub(crate) unsafe fn lock() {
 
 pub(crate) unsafe fn unlock() {
     if pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write(|w| w.set_key(0x45670123));
-        pac::FLASH.keyr().write(|w| w.set_key(0xCDEF89AB));
+        pac::FLASH.keyr().write_value(0x4567_0123);
+        pac::FLASH.keyr().write_value(0xCDEF_89AB);
     }
 }
 
@@ -339,14 +333,13 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
 pub(crate) fn clear_all_err() {
     // read and write back the same value.
-    // This clears all "write 0 to clear" bits.
+    // This clears all "write 1 to clear" bits.
     pac::FLASH.sr().modify(|_| {});
 }
 
 pub(crate) async fn wait_ready() -> Result<(), Error> {
+    use core::future::poll_fn;
     use core::task::Poll;
-
-    use futures::future::poll_fn;
 
     poll_fn(|cx| {
         WAKER.register(cx.waker());

@@ -30,14 +30,12 @@ macro_rules! interrupt_mod {
             pub mod typelevel {
                 use super::InterruptExt;
 
-                mod sealed {
-                    pub trait Interrupt {}
-                }
+                trait SealedInterrupt {}
 
                 /// Type-level interrupt.
                 ///
                 /// This trait is implemented for all typelevel interrupt types in this module.
-                pub trait Interrupt: sealed::Interrupt {
+                pub trait Interrupt: SealedInterrupt {
 
                     /// Interrupt enum variant.
                     ///
@@ -105,7 +103,7 @@ macro_rules! interrupt_mod {
                     #[doc=stringify!($irqs)]
                     #[doc=" typelevel interrupt."]
                     pub enum $irqs {}
-                    impl sealed::Interrupt for $irqs{}
+                    impl SealedInterrupt for $irqs{}
                     impl Interrupt for $irqs {
                         const IRQ: super::Interrupt = super::Interrupt::$irqs;
                     }

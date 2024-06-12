@@ -55,7 +55,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use cortex_m_rt::entry;
 use defmt::*;
@@ -126,6 +125,11 @@ unsafe fn USART2() {
 fn main() -> ! {
     // Initialize and create handle for devicer peripherals
     let _p = embassy_stm32::init(Default::default());
+
+    // STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
+    // by the peripheral, so we can just use any free interrupt vectors which aren’t used by the rest of your application.
+    // In this case we’re using UART1 and UART2, but there’s nothing special about them. Any otherwise unused interrupt
+    // vector would work exactly the same.
 
     // High-priority executor: USART1, priority level 6
     interrupt::USART1.set_priority(Priority::P6);

@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -30,8 +29,8 @@ async fn main(_spawner: Spawner) {
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL168,
-            divp: Some(Pllp::DIV2), // 8mhz / 4 * 168 / 2 = 168Mhz.
-            divq: Some(Pllq::DIV7), // 8mhz / 4 * 168 / 7 = 48Mhz.
+            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 168 / 2 = 168Mhz.
+            divq: Some(PllQDiv::DIV7), // 8mhz / 4 * 168 / 7 = 48Mhz.
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::DIV1;

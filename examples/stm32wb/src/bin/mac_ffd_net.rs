@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -12,7 +11,7 @@ use embassy_stm32_wpan::mac::typedefs::{MacChannel, PanId, PibId};
 use embassy_stm32_wpan::mac::{self, Runner};
 use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
-use static_cell::make_static;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -154,15 +153,21 @@ async fn main(spawner: Spawner) {
         .unwrap();
     defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
+    static TX1: StaticCell<[u8; 127]> = StaticCell::new();
+    static TX2: StaticCell<[u8; 127]> = StaticCell::new();
+    static TX3: StaticCell<[u8; 127]> = StaticCell::new();
+    static TX4: StaticCell<[u8; 127]> = StaticCell::new();
+    static TX5: StaticCell<[u8; 127]> = StaticCell::new();
     let tx_queue = [
-        make_static!([0u8; 127]),
-        make_static!([0u8; 127]),
-        make_static!([0u8; 127]),
-        make_static!([0u8; 127]),
-        make_static!([0u8; 127]),
+        TX1.init([0u8; 127]),
+        TX2.init([0u8; 127]),
+        TX3.init([0u8; 127]),
+        TX4.init([0u8; 127]),
+        TX5.init([0u8; 127]),
     ];
 
-    let runner = make_static!(Runner::new(mbox.mac_subsystem, tx_queue));
+    static RUNNER: StaticCell<Runner> = StaticCell::new();
+    let runner = RUNNER.init(Runner::new(mbox.mac_subsystem, tx_queue));
 
     spawner.spawn(run_mac(runner)).unwrap();
 

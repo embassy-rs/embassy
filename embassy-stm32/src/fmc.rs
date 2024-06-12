@@ -1,16 +1,51 @@
+//! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
 use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::sealed::AFType;
-use crate::gpio::{Pull, Speed};
-use crate::Peripheral;
+use crate::gpio::{AFType, Pull, Speed};
+use crate::{rcc, Peripheral};
 
+/// FMC driver
 pub struct Fmc<'d, T: Instance> {
     peri: PhantomData<&'d mut T>,
 }
 
 unsafe impl<'d, T> Send for Fmc<'d, T> where T: Instance {}
+
+impl<'d, T> Fmc<'d, T>
+where
+    T: Instance,
+{
+    /// Create a raw FMC instance.
+    ///
+    /// **Note:** This is currently used to provide access to some basic FMC functions
+    /// for manual configuration for memory types that stm32-fmc does not support.
+    pub fn new_raw(_instance: impl Peripheral<P = T> + 'd) -> Self {
+        Self { peri: PhantomData }
+    }
+
+    /// Enable the FMC peripheral and reset it.
+    pub fn enable(&mut self) {
+        rcc::enable_and_reset::<T>();
+    }
+
+    /// Enable the memory controller on applicable chips.
+    pub fn memory_controller_enable(&mut self) {
+        // fmc v1 and v2 does not have the fmcen bit
+        // fsmc v1, v2 and v3 does not have the fmcen bit
+        // This is a "not" because it is expected that all future versions have this bit
+        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fmc_v4)))]
+        T::REGS.bcr1().modify(|r| r.set_fmcen(true));
+        #[cfg(any(fmc_v4))]
+        T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
+    }
+
+    /// Get the kernel clock currently in use for this FMC instance.
+    pub fn source_clock_hz(&self) -> u32 {
+        <T as crate::rcc::SealedRccPeripheral>::frequency().0
+    }
+}
 
 unsafe impl<'d, T> stm32_fmc::FmcPeripheral for Fmc<'d, T>
 where
@@ -19,19 +54,21 @@ where
     const REGISTERS: *const () = T::REGS.as_ptr() as *const _;
 
     fn enable(&mut self) {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
     }
 
     fn memory_controller_enable(&mut self) {
         // fmc v1 and v2 does not have the fmcen bit
         // fsmc v1, v2 and v3 does not have the fmcen bit
         // This is a "not" because it is expected that all future versions have this bit
-        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fsmc_v2x3, fsmc_v3x1)))]
+        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fmc_v4)))]
         T::REGS.bcr1().modify(|r| r.set_fmcen(true));
+        #[cfg(any(fmc_v4))]
+        T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
     }
 
     fn source_clock_hz(&self) -> u32 {
-        <T as crate::rcc::sealed::RccPeripheral>::frequency().0
+        <T as crate::rcc::SealedRccPeripheral>::frequency().0
     }
 }
 
@@ -54,6 +91,7 @@ macro_rules! fmc_sdram_constructor {
         nbl: [$(($nbl_pin_name:ident: $nbl_signal:ident)),*],
         ctrl: [$(($ctrl_pin_name:ident: $ctrl_signal:ident)),*]
     )) => {
+        /// Create a new FMC instance.
         pub fn $name<CHIP: stm32_fmc::SdramChip>(
             _instance: impl Peripheral<P = T> + 'd,
             $($addr_pin_name: impl Peripheral<P = impl $addr_signal<T>> + 'd),*,
@@ -162,17 +200,17 @@ impl<'d, T: Instance> Fmc<'d, T> {
     ));
 }
 
-pub(crate) mod sealed {
-    pub trait Instance: crate::rcc::sealed::RccPeripheral {
-        const REGS: crate::pac::fmc::Fmc;
-    }
+trait SealedInstance: crate::rcc::RccPeripheral {
+    const REGS: crate::pac::fmc::Fmc;
 }
 
-pub trait Instance: sealed::Instance + 'static {}
+/// FMC instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + 'static {}
 
 foreach_peripheral!(
     (fmc, $inst:ident) => {
-        impl crate::fmc::sealed::Instance for crate::peripherals::$inst {
+        impl crate::fmc::SealedInstance for crate::peripherals::$inst {
             const REGS: crate::pac::fmc::Fmc = crate::pac::$inst;
         }
         impl crate::fmc::Instance for crate::peripherals::$inst {}

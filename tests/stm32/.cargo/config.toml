@@ -1,22 +1,22 @@
 [unstable]
-build-std = ["core"]
-build-std-features = ["panic_immediate_abort"]
+#build-std = ["core"]
+#build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 runner = "teleprobe client run"
-#runner = "teleprobe local run --chip STM32F103C8 --elf"
+#runner = "teleprobe local run --chip STM32H7S3L8Hx --elf"
 
 rustflags = [
   # Code-size optimizations.
-  "-Z", "trap-unreachable=no",
+  #"-Z", "trap-unreachable=no",
   "-C", "inline-threshold=5",
   "-C", "no-vectorize-loops",
 ]
 
 [build]
-target = "thumbv6m-none-eabi"
+#target = "thumbv6m-none-eabi"
 #target = "thumbv7m-none-eabi"
-#target = "thumbv7em-none-eabi"
+target = "thumbv7em-none-eabi"
 #target = "thumbv8m.main-none-eabihf"
 
 [env]

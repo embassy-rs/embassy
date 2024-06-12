@@ -4,7 +4,7 @@
 
 It builds on [`smoltcp`](https://github.com/smoltcp-rs/smoltcp). It provides a higher-level and more opinionated
 API. It glues together the components provided by `smoltcp`, handling the low-level details with defaults and
-memory management designed to work well for embedded systems, aiiming for a more "Just Works" experience.
+memory management designed to work well for embedded systems, aiming for a more "Just Works" experience.
 
 ## Features
 
@@ -13,8 +13,8 @@ memory management designed to work well for embedded systems, aiiming for a more
 - TCP, UDP, DNS, DHCPv4, IGMPv4
 - TCP sockets implement the `embedded-io` async traits.
 
-See the [`smoltcp`](https://github.com/smoltcp-rs/smoltcp) README for a detailed list of implemented and 
-unimplemented features of the network protocols. 
+See the [`smoltcp`](https://github.com/smoltcp-rs/smoltcp) README for a detailed list of implemented and
+unimplemented features of the network protocols.
 
 ## Hardware support
 
@@ -51,13 +51,3 @@ This crate can run on any executor.
 
 [`embassy-time`](https://crates.io/crates/embassy-time) is used for timekeeping and timeouts. You must
 link an `embassy-time` driver in your project to use this crate.
-
-## License
-
-This work is licensed under either of
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
-  http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
