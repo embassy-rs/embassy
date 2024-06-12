@@ -1,3 +1,4 @@
+use embassy_fmt::Bytes;
 use embassy_futures::select::{select3, Either3};
 use embassy_net_driver_channel as ch;
 use embassy_time::{block_for, Duration, Timer};
@@ -7,7 +8,6 @@ use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{Event, Events, Status};
-use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 use crate::nvram::NVRAM;
 use crate::structs::*;

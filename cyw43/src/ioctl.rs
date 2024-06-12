@@ -2,9 +2,8 @@ use core::cell::{Cell, RefCell};
 use core::future::poll_fn;
 use core::task::{Poll, Waker};
 
+use embassy_fmt::Bytes;
 use embassy_sync::waitqueue::WakerRegistration;
-
-use crate::fmt::Bytes;
 
 #[derive(Clone, Copy)]
 pub enum IoctlType {
