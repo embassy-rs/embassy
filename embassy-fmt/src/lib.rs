@@ -60,7 +60,7 @@ macro_rules! error {
 #[macro_export]
 macro_rules! unwrap {
     ($arg:expr) => {
-        match $crate::fmt::Try::into_result($arg) {
+        match crate::Try::into_result($arg) {
             ::core::result::Result::Ok(t) => t,
             ::core::result::Result::Err(e) => {
                 ::core::panic!("unwrap of `{}` failed: {:?}", ::core::stringify!($arg), e);
@@ -68,7 +68,7 @@ macro_rules! unwrap {
         }
     };
     ($arg:expr, $($msg:expr),+ $(,)? ) => {
-        match $crate::fmt::Try::into_result($arg) {
+        match crate::Try::into_result($arg) {
             ::core::result::Result::Ok(t) => t,
             ::core::result::Result::Err(e) => {
                 ::core::panic!("unwrap of `{}` failed: {}: {:?}", ::core::stringify!($arg), ::core::format_args!($($msg,)*), e);
