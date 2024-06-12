@@ -58,8 +58,8 @@ pub use phy::Phy10BaseT1x;
 use phy::{RegsC22, RegsC45};
 use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 
-use embassy_fmt::Bytes;
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity, SpiHeader};
+use embassy_fmt::Bytes;
 
 /// ADIN1110 intern PHY ID
 pub const PHYID: u32 = 0x0283_BC91;
