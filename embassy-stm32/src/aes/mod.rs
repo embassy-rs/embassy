@@ -97,11 +97,11 @@ impl<'c, 'd, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize,
         } else {
             aad_header_buffer[0] = 0xFF;
             aad_header_buffer[1] = 0xFE;
-            let aad_len_bytes: [u8; 4] = aad_len.to_be_bytes();
-            aad_header_buffer[2] = aad_len_bytes[0];
-            aad_header_buffer[3] = aad_len_bytes[1];
-            aad_header_buffer[4] = aad_len_bytes[2];
-            aad_header_buffer[5] = aad_len_bytes[3];
+            let aad_len_bytes: [u8; core::mem::size_of::<usize>()] = aad_len.to_le_bytes();
+            aad_header_buffer[2] = aad_len_bytes[3];
+            aad_header_buffer[3] = aad_len_bytes[2];
+            aad_header_buffer[4] = aad_len_bytes[1];
+            aad_header_buffer[5] = aad_len_bytes[0];
             return 6;
         }
     }
@@ -116,19 +116,19 @@ impl<'c, 'd, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize,
         block0[0] |= ((15 - (iv.len() as u8)) - 1) & 0x07;
 
         block0[1..1 + iv.len()].copy_from_slice(iv);
-        let payload_len_bytes: [u8; 4] = payload_len.to_be_bytes();
+        let payload_len_bytes: [u8; core::mem::size_of::<usize>()] = payload_len.to_le_bytes();
         if iv.len() <= 11 {
-            block0[12] = payload_len_bytes[0];
+            block0[12] = payload_len_bytes[3];
         } else if payload_len_bytes[0] > 0 {
             panic!("Message is too large for given IV size.");
         }
         if iv.len() <= 12 {
-            block0[13] = payload_len_bytes[1];
+            block0[13] = payload_len_bytes[2];
         } else if payload_len_bytes[1] > 0 {
             panic!("Message is too large for given IV size.");
         }
-        block0[14] = payload_len_bytes[2];
-        block0[15] = payload_len_bytes[3];
+        block0[14] = payload_len_bytes[1];
+        block0[15] = payload_len_bytes[0];
     }
 
     fn get_header_block(&self) -> &[u8] {
