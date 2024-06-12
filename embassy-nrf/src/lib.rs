@@ -37,7 +37,23 @@ compile_error!("feature `nfc-pins-as-gpio` is only valid for nRF52, or nRF53's a
 pub(crate) mod fmt;
 
 #[allow(unused)]
-#[macro_use(assert, assert_eq, assert_ne, debug_assert, debug_assert_eq, debug_assert_ne, todo, unreachable, panic, trace, debug, info, warn, error, unwrap)]
+#[macro_use(
+    assert,
+    assert_eq,
+    assert_ne,
+    debug_assert,
+    debug_assert_eq,
+    debug_assert_ne,
+    todo,
+    unreachable,
+    panic,
+    trace,
+    debug,
+    info,
+    warn,
+    error,
+    unwrap
+)]
 #[cfg(feature = "defmt")]
 extern crate defmt;
 
