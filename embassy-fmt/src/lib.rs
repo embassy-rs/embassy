@@ -30,7 +30,6 @@ macro_rules! debug {
 macro_rules! info {
     ($s:literal $(, $x:expr)* $(,)?) => {
         {
-            #[cfg(not(any(feature = "log", feature="defmt")))]
             let _ = ($( & $x ),*);
         }
     };
