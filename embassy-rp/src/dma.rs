@@ -47,12 +47,11 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
     to: *mut [W],
     dreq: u8,
 ) -> Transfer<'a, C> {
-    let (to_ptr, len) = crate::dma::slice_ptr_parts(to);
     copy_inner(
         ch,
         from as *const u32,
-        to_ptr as *mut u32,
-        len,
+        to as *mut W as *mut u32,
+        to.len(),
         W::size(),
         false,
         true,
@@ -69,12 +68,11 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
     to: *mut W,
     dreq: u8,
 ) -> Transfer<'a, C> {
-    let (from_ptr, len) = crate::dma::slice_ptr_parts(from);
     copy_inner(
         ch,
-        from_ptr as *const u32,
+        from as *const W as *const u32,
         to as *mut u32,
-        len,
+        from.len(),
         W::size(),
         true,
         false,
@@ -114,13 +112,13 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(
     from: &[W],
     to: &mut [W],
 ) -> Transfer<'a, C> {
-    let (from_ptr, from_len) = crate::dma::slice_ptr_parts(from);
-    let (to_ptr, to_len) = crate::dma::slice_ptr_parts_mut(to);
+    let from_len = from.len();
+    let to_len = to.len();
     assert_eq!(from_len, to_len);
     copy_inner(
         ch,
-        from_ptr as *const u32,
-        to_ptr as *mut u32,
+        from.as_ptr() as *const u32,
+        to.as_mut_ptr() as *mut u32,
         from_len,
         W::size(),
         true,
@@ -285,17 +283,6 @@ macro_rules! channel {
             }
         }
     };
-}
-
-// TODO: replace transmutes with core::ptr::metadata once it's stable
-#[allow(unused)]
-pub(crate) fn slice_ptr_parts<T>(slice: *const [T]) -> (usize, usize) {
-    unsafe { core::mem::transmute(slice) }
-}
-
-#[allow(unused)]
-pub(crate) fn slice_ptr_parts_mut<T>(slice: *mut [T]) -> (usize, usize) {
-    unsafe { core::mem::transmute(slice) }
 }
 
 channel!(DMA_CH0, 0);
