@@ -388,7 +388,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
 /// Possible Error Types for DSI HOST
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Error {
     /// Waiting for FIFO empty flag timed out
     FifoTimeout,

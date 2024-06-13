@@ -13,12 +13,12 @@ use crate::dma::{slice_ptr_parts, word, ChannelAndRequest};
 use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{regs, vals, Spi as Regs};
-use crate::rcc::{self, RccInfo, SealedRccPeripheral};
+use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::Peripheral;
 
 /// SPI error.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Invalid framing.
@@ -120,17 +120,30 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
-        let regs = T::info().regs;
-        let kernel_clock = T::frequency();
-        let br = compute_baud_rate(kernel_clock, config.frequency);
+        let mut this = Self {
+            info: T::info(),
+            kernel_clock: T::frequency(),
+            sck,
+            mosi,
+            miso,
+            tx_dma,
+            rx_dma,
+            current_word_size: <u8 as SealedWord>::CONFIG,
+            _phantom: PhantomData,
+        };
+        this.enable_and_init(config);
+        this
+    }
 
+    fn enable_and_init(&mut self, config: Config) {
+        let br = compute_baud_rate(self.kernel_clock, config.frequency);
         let cpha = config.raw_phase();
         let cpol = config.raw_polarity();
-
         let lsbfirst = config.raw_byte_order();
 
-        rcc::enable_and_reset::<T>();
+        self.info.rcc.enable_and_reset();
 
+        let regs = self.info.regs;
         #[cfg(any(spi_v1, spi_f1))]
         {
             regs.cr2().modify(|w| {
@@ -208,18 +221,6 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 w.set_ssi(false);
                 w.set_spe(true);
             });
-        }
-
-        Self {
-            info: T::info(),
-            kernel_clock,
-            sck,
-            mosi,
-            miso,
-            tx_dma,
-            rx_dma,
-            current_word_size: <u8 as SealedWord>::CONFIG,
-            _phantom: PhantomData,
         }
     }
 
@@ -611,7 +612,7 @@ impl<'d> Spi<'d, Async> {
         // see RM0453 rev 1 section 7.2.13 page 291
         // The SUBGHZSPI_SCK frequency is obtained by PCLK3 divided by two.
         // The SUBGHZSPI_SCK clock maximum speed must not exceed 16 MHz.
-        let pclk3_freq = <crate::peripherals::SUBGHZSPI as crate::rcc::SealedRccPeripheral>::frequency().0;
+        let pclk3_freq = <crate::peripherals::SUBGHZSPI as SealedRccPeripheral>::frequency().0;
         let freq = Hertz(core::cmp::min(pclk3_freq / 2, 16_000_000));
         let mut config = Config::default();
         config.mode = MODE_0;

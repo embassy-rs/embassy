@@ -9,9 +9,10 @@ license = "MIT OR Apache-2.0"
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32f429zi", "unstable-pac", "memory-x", "time-driver-any", "exti", "chrono"] }
 embassy-sync = { version = "0.6.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-time = { version = "0.3.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-usb = { version = "0.2.0", path = "../../embassy-usb", features = ["defmt" ] }
 embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
+embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 
 defmt = "0.3"
@@ -20,6 +21,7 @@ defmt-rtt = "0.4"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
+embedded-hal-bus = { version = "0.2", features = ["async"] }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
