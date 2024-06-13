@@ -62,6 +62,8 @@ teleprobe_meta::target!(b"nucleo-stm32f091rc");
 teleprobe_meta::target!(b"nucleo-stm32h503rb");
 #[cfg(feature = "stm32h7s3l8")]
 teleprobe_meta::target!(b"nucleo-stm32h7s3l8");
+#[cfg(feature = "stm32u083rc")]
+teleprobe_meta::target!(b"nucleo-stm32u083rc");
 
 macro_rules! define_peris {
     ($($name:ident = $peri:ident,)* $(@irq $irq_name:ident = $irq_code:tt,)*) => {
@@ -256,6 +258,12 @@ define_peris!(
     CRYP_IN_DMA = GPDMA1_CH0, CRYP_OUT_DMA = GPDMA1_CH1,
     UART = USART1, UART_TX = PB14, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+);
+#[cfg(feature = "stm32u083rc")]
+define_peris!(
+    UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 
@@ -673,5 +681,21 @@ pub fn config() -> Config {
         config.rcc.voltage_scale = VoltageScale::HIGH;
         config.rcc.mux.spi1sel = mux::Spi123sel::PLL1_Q;
     }
+    #[cfg(any(feature = "stm32u083rc"))]
+    {
+        config.rcc.hsi = true;
+        config.rcc.pll = Some(Pll {
+            source: PllSource::HSI, // 16 MHz
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL7,
+            divp: None,
+            divq: None,
+            divr: Some(PllRDiv::DIV2), // 56 MHz
+        });
+        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+        config.rcc.mux.clk48sel = mux::Clk48sel::HSI48; // USB uses ICLK
+    }
+
     config
 }

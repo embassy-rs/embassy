@@ -9,12 +9,16 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-net-esp-hosted"
 
+[features]
+defmt = [ "dep:defmt", "heapless/defmt-03" ]
+log = [ "dep:log" ]
+
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy-time = { version = "0.3.0", path = "../embassy-time" }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync"}
+embassy-time = { version = "0.3.1", path = "../embassy-time" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync"}
 embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
 embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel"}
 

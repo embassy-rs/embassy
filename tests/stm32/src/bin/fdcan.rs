@@ -88,7 +88,7 @@ fn options() -> (Config, TestOptions) {
     )
 }
 
-#[cfg(any(feature = "stm32g491re", feature = "stm32g431cb"))]
+#[cfg(any(feature = "stm32g491re"))]
 fn options() -> (Config, TestOptions) {
     info!("G4 config");
     (

@@ -13,7 +13,7 @@ use embassy_usb_synopsys_otg::{
 use crate::gpio::AFType;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::{RccPeripheral, SealedRccPeripheral};
+use crate::rcc::{self, RccPeripheral};
 
 const MAX_EP_COUNT: usize = 9;
 
@@ -246,7 +246,7 @@ impl<'d, T: Instance> Bus<'d, T> {
     fn disable(&mut self) {
         T::Interrupt::disable();
 
-        <T as SealedRccPeripheral>::disable();
+        rcc::disable::<T>();
         self.inited = false;
 
         #[cfg(stm32l4)]

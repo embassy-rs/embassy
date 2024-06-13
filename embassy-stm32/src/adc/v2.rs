@@ -1,10 +1,10 @@
 use embassy_hal_internal::into_ref;
 
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -12,8 +12,8 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 pub const VREF_CALIB_MV: u32 = 3300;
 
 pub struct VrefInt;
-impl AdcPin<ADC1> for VrefInt {}
-impl super::SealedAdcPin<ADC1> for VrefInt {
+impl AdcChannel<ADC1> for VrefInt {}
+impl super::SealedAdcChannel<ADC1> for VrefInt {
     fn channel(&self) -> u8 {
         17
     }
@@ -27,11 +27,11 @@ impl VrefInt {
 }
 
 pub struct Temperature;
-impl AdcPin<ADC1> for Temperature {}
-impl super::SealedAdcPin<ADC1> for Temperature {
+impl AdcChannel<ADC1> for Temperature {}
+impl super::SealedAdcChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         cfg_if::cfg_if! {
-            if #[cfg(any(stm32f2, stm32f40, stm32f41))] {
+            if #[cfg(any(stm32f2, stm32f40x, stm32f41x))] {
                 16
             } else {
                 18
@@ -48,8 +48,8 @@ impl Temperature {
 }
 
 pub struct Vbat;
-impl AdcPin<ADC1> for Vbat {}
-impl super::SealedAdcPin<ADC1> for Vbat {
+impl AdcChannel<ADC1> for Vbat {}
+impl super::SealedAdcChannel<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
@@ -96,7 +96,7 @@ where
 {
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         let presc = Prescaler::from_pclk2(T::frequency());
         T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
@@ -175,11 +175,11 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        pin.set_as_analog();
+    pub fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        channel.setup();
 
         // Configure ADC
-        let channel = pin.channel();
+        let channel = channel.channel();
 
         // Select channel
         T::regs().sqr3().write(|reg| reg.set_sq(0, channel));
@@ -206,6 +206,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
             reg.set_adon(false);
         });
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }

@@ -128,6 +128,15 @@ impl<'d> Flex<'d> {
         });
     }
 
+    /// Put the pin into analog mode
+    ///
+    /// This mode is used by ADC and COMP but usually there is no need to set this manually
+    /// as the mode change is handled by the driver.
+    #[inline]
+    pub fn set_as_analog(&mut self) {
+        self.pin.set_as_analog();
+    }
+
     /// Put the pin into AF mode, unchecked.
     ///
     /// This puts the pin into the AF mode, with the requested number, pull and speed. This is
@@ -661,6 +670,11 @@ pub(crate) trait SealedPin {
         self.set_as_analog();
     }
 
+    /// Sets the speed of the output pin.
+    ///
+    /// This should never be called for AFType::Input on the STM32F1 series, since MODE and
+    /// CNF bits are not independent. If the CNF bits are altered afterwards as well, this
+    /// will put the pin into output mode.
     #[inline]
     fn set_speed(&self, speed: Speed) {
         let pin = self._pin() as usize;
@@ -675,6 +689,38 @@ pub(crate) trait SealedPin {
 
         #[cfg(gpio_v2)]
         self.block().ospeedr().modify(|w| w.set_ospeedr(pin, speed.into()));
+    }
+
+    /// Get the pull-up configuration.
+    #[inline]
+    fn pull(&self) -> Pull {
+        critical_section::with(|_| {
+            let r = self.block();
+            let n = self._pin() as usize;
+            #[cfg(gpio_v1)]
+            {
+                let crlh = if n < 8 { 0 } else { 1 };
+                match r.cr(crlh).read().mode(n % 8) {
+                    vals::Mode::INPUT => match r.cr(crlh).read().cnf_in(n % 8) {
+                        vals::CnfIn::PULL => match r.odr().read().odr(n) {
+                            vals::Odr::LOW => Pull::Down,
+                            vals::Odr::HIGH => Pull::Up,
+                        },
+                        _ => Pull::None,
+                    },
+                    _ => Pull::None,
+                }
+            }
+            #[cfg(gpio_v2)]
+            {
+                match r.pupdr().read().pupdr(n) {
+                    vals::Pupdr::FLOATING => Pull::None,
+                    vals::Pupdr::PULLDOWN => Pull::Down,
+                    vals::Pupdr::PULLUP => Pull::Up,
+                    vals::Pupdr::_RESERVED_3 => Pull::None,
+                }
+            }
+        })
     }
 }
 
@@ -776,7 +822,7 @@ foreach_pin!(
 
 pub(crate) unsafe fn init(_cs: CriticalSection) {
     #[cfg(afio)]
-    <crate::peripherals::AFIO as crate::rcc::SealedRccPeripheral>::enable_and_reset_with_cs(_cs);
+    crate::rcc::enable_and_reset_with_cs::<crate::peripherals::AFIO>(_cs);
 
     crate::_generated::init_gpio();
 }

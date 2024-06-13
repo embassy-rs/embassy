@@ -267,9 +267,9 @@ impl<'d, T: Instance> Driver<'d, T> {
             w.set_fres(true);
         });
 
-        #[cfg(time)]
+        #[cfg(feature = "time")]
         embassy_time::block_for(embassy_time::Duration::from_millis(100));
-        #[cfg(not(time))]
+        #[cfg(not(feature = "time"))]
         cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 10);
 
         #[cfg(not(usb_v4))]

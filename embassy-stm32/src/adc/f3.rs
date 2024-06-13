@@ -5,10 +5,10 @@ use core::task::Poll;
 use embassy_hal_internal::into_ref;
 
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcPin, Instance, SampleTime};
+use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -32,8 +32,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 pub struct Vref;
-impl<T: Instance> AdcPin<T> for Vref {}
-impl<T: Instance> super::SealedAdcPin<T> for Vref {
+impl<T: Instance> AdcChannel<T> for Vref {}
+impl<T: Instance> super::SealedAdcChannel<T> for Vref {
     fn channel(&self) -> u8 {
         18
     }
@@ -47,8 +47,8 @@ impl Vref {
 }
 
 pub struct Temperature;
-impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::SealedAdcPin<T> for Temperature {
+impl<T: Instance> AdcChannel<T> for Temperature {}
+impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
@@ -63,7 +63,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         into_ref!(adc);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         // Enable the adc regulator
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::INTERMEDIATE));
@@ -154,11 +154,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().rdata()
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        Self::set_channel_sample_time(pin.channel(), self.sample_time);
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        Self::set_channel_sample_time(channel.channel(), self.sample_time);
 
         // Configure the channel to sample
-        T::regs().sqr1().write(|w| w.set_sq(0, pin.channel()));
+        T::regs().sqr1().write(|w| w.set_sq(0, channel.channel()));
         self.convert().await
     }
 
@@ -188,6 +188,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::INTERMEDIATE));
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::DISABLED));
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }

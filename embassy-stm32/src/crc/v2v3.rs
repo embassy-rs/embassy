@@ -3,8 +3,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
-use crate::rcc::SealedRccPeripheral;
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// CRC driver.
 pub struct Crc<'d> {
@@ -84,7 +83,7 @@ impl<'d> Crc<'d> {
     pub fn new(peripheral: impl Peripheral<P = CRC> + 'd, config: Config) -> Self {
         // Note: enable and reset come from RccPeripheral.
         // reset to default values and enable CRC clock in RCC.
-        CRC::enable_and_reset();
+        rcc::enable_and_reset::<CRC>();
         into_ref!(peripheral);
         let mut instance = Self {
             _peripheral: peripheral,

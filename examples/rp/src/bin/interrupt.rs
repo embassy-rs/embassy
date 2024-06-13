@@ -15,7 +15,6 @@ use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Blocking};
 use embassy_rp::gpio::Pull;
 use embassy_rp::interrupt;
-use embassy_rp::peripherals::PWM_SLICE4;
 use embassy_rp::pwm::{Config, Pwm};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
@@ -26,7 +25,7 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
-static PWM: Mutex<CriticalSectionRawMutex, RefCell<Option<Pwm<PWM_SLICE4>>>> = Mutex::new(RefCell::new(None));
+static PWM: Mutex<CriticalSectionRawMutex, RefCell<Option<Pwm>>> = Mutex::new(RefCell::new(None));
 static ADC: Mutex<CriticalSectionRawMutex, RefCell<Option<(Adc<Blocking>, adc::Channel)>>> =
     Mutex::new(RefCell::new(None));
 static ADC_VALUES: Channel<CriticalSectionRawMutex, u16, 2048> = Channel::new();
