@@ -16,7 +16,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2s::RegisterBlock;
-use crate::util::{slice_in_ram_or, slice_ptr_parts};
+use crate::util::slice_in_ram_or;
 use crate::{interrupt, Peripheral, EASY_DMA_SIZE};
 
 /// Type alias for `MultiBuffering` with 2 buffers.
@@ -1028,9 +1028,8 @@ impl<T: Instance> Device<T> {
     }
 
     fn validated_dma_parts<S>(buffer_ptr: *const [S]) -> Result<(u32, u32), Error> {
-        let (ptr, len) = slice_ptr_parts(buffer_ptr);
-        let ptr = ptr as u32;
-        let bytes_len = len * size_of::<S>();
+        let ptr = buffer_ptr as *const S as u32;
+        let bytes_len = buffer_ptr.len() * size_of::<S>();
         let maxcnt = (bytes_len / size_of::<u32>()) as u32;
 
         trace!("PTR={}, MAXCNT={}", ptr, maxcnt);

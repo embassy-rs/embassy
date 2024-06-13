@@ -2,6 +2,12 @@
 
 set -eo pipefail
 
+# check-cfg is stable on rustc 1.79 but not cargo 1.79.
+# however, our cargo-batch is currently based on cargo 1.80, which does support check-cfg.
+# so, force build.rs scripts to emit check-cfg commands.
+# when 1.80 hits stable we can make build.rs unconditionally emit check-cfg and remove all this.
+export EMBASSY_FORCE_CHECK_CFG=1  
+
 export RUSTFLAGS=-Dwarnings
 export DEFMT_LOG=trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,smoltcp=info
 if [[ -z "${CARGO_TARGET_DIR}" ]]; then

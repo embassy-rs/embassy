@@ -9,7 +9,7 @@ use embassy_futures::join::join;
 use embassy_hal_internal::PeripheralRef;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
-use crate::dma::{slice_ptr_parts, word, ChannelAndRequest};
+use crate::dma::{word, ChannelAndRequest};
 use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{regs, vals, Spi as Regs};
@@ -798,10 +798,8 @@ impl<'d> Spi<'d, Async> {
     }
 
     async fn transfer_inner<W: Word>(&mut self, read: *mut [W], write: *const [W]) -> Result<(), Error> {
-        let (_, rx_len) = slice_ptr_parts(read);
-        let (_, tx_len) = slice_ptr_parts(write);
-        assert_eq!(rx_len, tx_len);
-        if rx_len == 0 {
+        assert_eq!(read.len(), write.len());
+        if read.len() == 0 {
             return Ok(());
         }
 
