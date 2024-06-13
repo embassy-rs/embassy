@@ -119,12 +119,12 @@ impl<'c, 'd, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize,
         let payload_len_bytes: [u8; core::mem::size_of::<usize>()] = payload_len.to_le_bytes();
         if iv.len() <= 11 {
             block0[12] = payload_len_bytes[3];
-        } else if payload_len_bytes[0] > 0 {
+        } else if payload_len_bytes[3] > 0 {
             panic!("Message is too large for given IV size.");
         }
         if iv.len() <= 12 {
             block0[13] = payload_len_bytes[2];
-        } else if payload_len_bytes[1] > 0 {
+        } else if payload_len_bytes[2] > 0 {
             panic!("Message is too large for given IV size.");
         }
         block0[14] = payload_len_bytes[1];
