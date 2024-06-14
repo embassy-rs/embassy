@@ -1072,12 +1072,28 @@ fn main() {
         (("tsc", "G8_IO2"), quote!(crate::tsc::G8IO2Pin)),
         (("tsc", "G8_IO3"), quote!(crate::tsc::G8IO3Pin)),
         (("tsc", "G8_IO4"), quote!(crate::tsc::G8IO4Pin)),
+        (("lcd", "SEG"), quote!(crate::lcd::SegComPin)),
+        (("lcd", "COM"), quote!(crate::lcd::SegComPin)),
     ].into();
+
+    let mut seen_lcd_pins = HashSet::new();
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
             for pin in p.pins {
-                let key = (regs.kind, pin.signal);
+                let mut key = (regs.kind, pin.signal);
+
+                // LCD is special
+                if regs.kind == "lcd" {
+                    key.1 = pin.signal.trim_end_matches(char::is_numeric);
+
+                    // Some lcd pins have multiple lcd functions
+                    // Dedup so they don't get the trait implemented twice
+                    if !seen_lcd_pins.insert(pin.pin) {
+                        continue;
+                    }
+                }
+
                 if let Some(tr) = signals.get(&key) {
                     let mut peri = format_ident!("{}", p.name);
 
