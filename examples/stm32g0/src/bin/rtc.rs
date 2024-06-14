@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
     loop {
         let now: DateTime = rtc.now().unwrap().into();
 
-         info!("{}:{}:{}", now.hour(), now.minute(), now.second());
+        info!("{}:{}:{}", now.hour(), now.minute(), now.second());
 
         Timer::after_millis(1000).await;
     }
