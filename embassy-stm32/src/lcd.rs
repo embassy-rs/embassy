@@ -16,46 +16,61 @@ pub struct Config {
     pub bias: Bias,
     pub duty: Duty,
     pub voltage_source: VoltageSource,
-    pub high_drive: bool,
     pub target_fps: Hertz,
+    pub drive: Drive,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            use_voltage_output_buffer: Default::default(),
-            use_segment_muxing: Default::default(),
+            use_voltage_output_buffer: false,
+            use_segment_muxing: false,
             bias: Default::default(),
             duty: Default::default(),
             voltage_source: Default::default(),
-            high_drive: Default::default(),
             target_fps: Hertz(30),
+            drive: Drive::Medium,
         }
     }
 }
 
+/// The number of voltage levels used when driving an LCD.
+/// Your LCD datasheet should tell you what to use.
 #[repr(u8)]
 #[derive(Debug, Default, Clone, Copy)]
 pub enum Bias {
+    /// 1/4 bias
     #[default]
     Quarter = 0b00,
+    /// 1/2 bias
     Half = 0b01,
+    /// 1/3 bias
     Third = 0b10,
 }
 
+/// The duty used by the LCD driver.
+///
+/// This is essentially how many COM pins you're using.
 #[repr(u8)]
 #[derive(Debug, Default, Clone, Copy)]
 pub enum Duty {
     #[default]
+    /// Use a single COM pin
     Static = 0b000,
+    /// Use two COM pins
     Half = 0b001,
+    /// Use three COM pins
     Third = 0b010,
+    /// Use four COM pins
     Quarter = 0b011,
+    /// Use eight COM pins.
+    ///
     /// In this mode, `COM[7:4]` outputs are available on `SEG[51:48]`.
     /// This allows reducing the number of available segments.
     Eigth = 0b100,
 }
 
+/// Whether to use the internal or external voltage source to drive the LCD
 #[repr(u8)]
 #[derive(Debug, Default, Clone, Copy)]
 pub enum VoltageSource {
@@ -66,6 +81,40 @@ pub enum VoltageSource {
     External,
 }
 
+/// Defines the pulse duration in terms of ck_ps pulses.
+///
+/// A short pulse leads to lower power consumption, but displays with high internal resistance
+/// may need a longer pulse to achieve satisfactory contrast.
+/// Note that the pulse is never longer than one half prescaled LCD clock period.
+///
+/// Displays with high internal resistance may need a longer drive time to achieve satisfactory contrast.
+/// `PermanentHighDrive` is useful in this case if some additional power consumption can be tolerated.
+///
+/// Basically, for power usage, you want this as low as possible while still being able to use the LCD
+/// with a good enough contrast.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+pub enum Drive {
+    /// Zero clock pulse on duration
+    Lowest = 0x00,
+    /// One clock pulse on duration
+    VeryLow = 0x01,
+    /// Two clock pulse on duration
+    Low = 0x02,
+    /// Three clock pulse on duration
+    Medium = 0x03,
+    /// Four clock pulse on duration
+    MediumHigh = 0x04,
+    /// Five clock pulse on duration
+    High = 0x05,
+    /// Six clock pulse on duration
+    VeryHigh = 0x06,
+    /// Seven clock pulse on duration
+    Highest = 0x07,
+    /// Enables the highdrive bit of the hardware
+    PermanentHighDrive = 0x09,
+}
+
 /// LCD driver.
 pub struct Lcd<'d, T: Instance> {
     _peri: PhantomData<&'d mut T>,
@@ -73,8 +122,17 @@ pub struct Lcd<'d, T: Instance> {
 
 impl<'d, T: Instance> Lcd<'d, T> {
     /// Initialize the lcd driver
-    pub fn new<const N: usize>(_peri: impl Peripheral<P = T> + 'd, config: Config, pins: [LcdPin<'d, T>; N]) -> Self {
+    pub fn new<const N: usize>(
+        _peri: impl Peripheral<P = T> + 'd,
+        config: Config,
+        vlcd_pin: impl Peripheral<P = impl VlcdPin<T>> + 'd,
+        pins: [LcdPin<'d, T>; N],
+    ) -> Self {
         rcc::enable_and_reset::<T>();
+
+        into_ref!(vlcd_pin);
+        vlcd_pin.set_as_af(vlcd_pin.af_num(), AFType::OutputPushPull);
+        vlcd_pin.set_speed(crate::gpio::Speed::VeryHigh);
 
         // Set the pins
         for pin in pins {
@@ -123,7 +181,13 @@ impl<'d, T: Instance> Lcd<'d, T> {
             }
         }
 
-        trace!("lcd_clk: {}, fps: {}, ps: {}, div: {}", lcd_clk, best_fps_match, ps, div);
+        trace!(
+            "lcd_clk: {}, fps: {}, ps: {}, div: {}",
+            lcd_clk,
+            best_fps_match,
+            ps,
+            div
+        );
 
         if best_fps_match == u32::MAX || ps > 0xF {
             panic!("Lcd clock error");
@@ -131,13 +195,12 @@ impl<'d, T: Instance> Lcd<'d, T> {
 
         // Set the frame control
         T::regs().fcr().modify(|w| {
-            w.0 = 0x7C5C41;
-            // w.set_ps(ps as u8);
-            // w.set_div(div as u8);
-            // w.set_cc(0);
-            // w.set_dead(0);
-            // w.set_pon(0);
-            // // w.set_hd(config.high_drive);
+            w.set_ps(ps as u8);
+            w.set_div(div as u8);
+            w.set_cc(0b100); // Init in the middle-ish
+            w.set_dead(0b000);
+            w.set_pon(config.drive as u8 & 0x07);
+            w.set_hd((config.drive as u8 & !0x07) != 0);
         });
 
         // Wait for the frame control to synchronize
@@ -145,12 +208,11 @@ impl<'d, T: Instance> Lcd<'d, T> {
 
         // Set the control register values
         T::regs().cr().modify(|w| {
-            w.0 = 0x4E;
-            // w.set_bufen(config.use_voltage_output_buffer);
-            // w.set_mux_seg(config.use_segment_muxing);
-            // w.set_bias(config.bias as u8);
-            // w.set_duty(config.duty as u8);
-            // w.set_vsel(matches!(config.voltage_source, VoltageSource::External));
+            w.set_bufen(config.use_voltage_output_buffer);
+            w.set_mux_seg(config.use_segment_muxing);
+            w.set_bias(config.bias as u8);
+            w.set_duty(config.duty as u8);
+            w.set_vsel(matches!(config.voltage_source, VoltageSource::External));
         });
 
         // Enable the lcd
@@ -165,10 +227,28 @@ impl<'d, T: Instance> Lcd<'d, T> {
         Self { _peri: PhantomData }
     }
 
-    pub fn write_frame(&mut self, data: &[u32; 16]) {
-        defmt::info!("{:06b}", T::regs().sr().read().0);
+    /// Change the contrast by changing the voltage being used.
+    /// 
+    /// This from low at 0 to high at 7.
+    pub fn set_contrast_control(&mut self, value: u8) {
+        T::regs().fcr().modify(|w| w.set_cc(value));
+    }
 
-        // Wait until the last update is done
+    /// Change the contrast by introducing a deadtime to the signals
+    /// where the voltages are held at 0V.
+    /// 
+    /// This from no dead time at 0 to high dead time at 7.
+    pub fn set_dead_time(&mut self, value: u8) {
+        T::regs().fcr().modify(|w: &mut stm32_metapac::lcd::regs::Fcr| w.set_dead(value));
+    }
+
+    /// Write frame data to the peripheral.
+    /// 
+    /// What each bit means depends on the exact microcontroller you use,
+    /// which pins are connected to your LCD and also the LCD layout itself.
+    /// 
+    /// This function blocks until the last update display request has been processed.
+    pub fn write_frame(&mut self, data: &[u32; 16]) {
         while T::regs().sr().read().udr() {}
 
         for i in 0..8 {
@@ -224,6 +304,11 @@ trait SealedInstance: crate::rcc::SealedRccPeripheral {
 pub trait Instance: SealedInstance + RccPeripheral + 'static {}
 
 pin_trait!(SegComPin, Instance);
+pin_trait!(VlcdPin, Instance);
+
+// TODO: pull into build.rs, but the metapack doesn't have this info
+pin_trait_impl!(crate::lcd::VlcdPin, LCD, PC3, 11);
+pin_trait_impl!(crate::lcd::VlcdPin, LCD, PB2, 11);
 
 foreach_peripheral!(
     (lcd, $inst:ident) => {
