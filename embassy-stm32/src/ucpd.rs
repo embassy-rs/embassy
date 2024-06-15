@@ -169,6 +169,9 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         // Enable hard reset receive interrupt.
         r.imr().modify(|w| w.set_rxhrstdetie(true));
 
+        // Enable PD packet reception
+        r.cr().modify(|w| w.set_phyrxen(true));
+
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
 
@@ -319,6 +322,7 @@ pub struct PdPhy<'d, T: Instance> {
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
+        T::REGS.cr().modify(|w| w.set_phyrxen(false));
         // Check if the Type-C part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
@@ -350,9 +354,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             w.set_rxmsgendcf(true);
         });
 
-        r.cr().modify(|w| w.set_phyrxen(true));
         let _on_drop = OnDrop::new(|| {
-            r.cr().modify(|w| w.set_phyrxen(false));
             Self::enable_rx_interrupt(false);
         });
 
