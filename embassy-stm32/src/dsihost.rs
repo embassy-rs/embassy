@@ -389,6 +389,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 /// Possible Error Types for DSI HOST
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Waiting for FIFO empty flag timed out
     FifoTimeout,
