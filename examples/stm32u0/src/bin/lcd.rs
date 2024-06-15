@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
             divq: None,
             divr: Some(PllRDiv::DIV2), // 112 / 2 = 56 MHz
         });
-        config.rcc.ls = LsConfig::default();
+        config.rcc.ls = LsConfig::default_lse();
     }
 
     let p = embassy_stm32::init(config);
