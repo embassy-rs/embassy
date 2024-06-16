@@ -347,15 +347,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 .read(r.rxdr().as_ptr() as *mut u8, buf, TransferOptions::default())
         };
 
-        // Clear interrupt flags (possibly set from last receive).
-        r.icr().write(|w| {
-            w.set_rxorddetcf(true);
-            w.set_rxovrcf(true);
-            w.set_rxmsgendcf(true);
-        });
-
         let _on_drop = OnDrop::new(|| {
             Self::enable_rx_interrupt(false);
+            // Clear interrupt flags
+            r.icr().write(|w| {
+                w.set_rxorddetcf(true);
+                w.set_rxovrcf(true);
+                w.set_rxmsgendcf(true);
+            });
         });
 
         poll_fn(|cx| {
