@@ -18,7 +18,7 @@ pub use super::common::{BufferedCanReceiver, BufferedCanSender};
 use super::frame::{Envelope, Frame};
 use super::util;
 use crate::can::enums::{BusError, TryReadError};
-use crate::gpio::AFType;
+use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
@@ -188,8 +188,8 @@ impl<'d> Can<'d> {
         let info = T::info();
         let regs = &T::info().regs;
 
-        rx.set_as_af(rx.af_num(), AFType::Input);
-        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
+        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         rcc::enable_and_reset::<T>();
 
@@ -223,8 +223,8 @@ impl<'d> Can<'d> {
             info.sce_interrupt.enable();
         }
 
-        rx.set_as_af(rx.af_num(), AFType::Input);
-        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
+        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         Registers(T::regs()).leave_init_mode();
 

@@ -3,7 +3,7 @@
 use embassy_hal_internal::into_ref;
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AFType, AnyPin, SealedPin, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::mode::Async;
 use crate::pac::spi::vals;
 use crate::spi::{Config as SpiConfig, *};
@@ -180,7 +180,7 @@ impl<'d> I2S<'d> {
         into_ref!(sd);
         Self::new_inner(
             peri,
-            new_pin!(sd, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             ws,
             ck,
@@ -209,7 +209,7 @@ impl<'d> I2S<'d> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(sd, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(sd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             ws,
             ck,
             mck,
@@ -244,8 +244,8 @@ impl<'d> I2S<'d> {
         into_ref!(txsd, rxsd);
         Self::new_inner(
             peri,
-            new_pin!(txsd, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(rxsd, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(txsd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(rxsd, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             ws,
             ck,
             mck,
@@ -292,14 +292,9 @@ impl<'d> I2S<'d> {
     ) -> Self {
         into_ref!(ws, ck, mck);
 
-        ws.set_as_af(ws.af_num(), AFType::OutputPushPull);
-        ws.set_speed(Speed::VeryHigh);
-
-        ck.set_as_af(ck.af_num(), AFType::OutputPushPull);
-        ck.set_speed(Speed::VeryHigh);
-
-        mck.set_as_af(mck.af_num(), AFType::OutputPushPull);
-        mck.set_speed(Speed::VeryHigh);
+        ws.set_as_af(ws.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        ck.set_as_af(ck.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        mck.set_as_af(mck.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         let mut spi_cfg = SpiConfig::default();
         spi_cfg.frequency = freq;
