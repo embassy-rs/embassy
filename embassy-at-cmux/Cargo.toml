@@ -24,7 +24,7 @@ bitfield-struct = "0.6.0"
 
 embedded-io-async = { version = "0.6.1" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 
 crc = "3.0"
 
