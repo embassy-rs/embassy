@@ -304,6 +304,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         let tx = BufferedUarteTx::new_innerer(unsafe { peri.clone_unchecked() }, txd, cts, tx_buffer);
         let rx = BufferedUarteRx::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
 
+        U::regs().enable.write(|w| w.enable().enabled());
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
@@ -405,6 +406,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
 
         let this = Self::new_innerer(peri, txd, cts, tx_buffer);
 
+        U::regs().enable.write(|w| w.enable().enabled());
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
@@ -602,6 +604,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
 
         let this = Self::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
 
+        U::regs().enable.write(|w| w.enable().enabled());
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
