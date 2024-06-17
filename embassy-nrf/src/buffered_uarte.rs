@@ -306,6 +306,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
+        U::regs().enable.write(|w| w.enable().enabled());
 
         U::state().tx_rx_refcount.store(2, Ordering::Relaxed);
 
@@ -407,6 +408,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
 
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
+        U::regs().enable.write(|w| w.enable().enabled());
 
         U::state().tx_rx_refcount.store(1, Ordering::Relaxed);
 
@@ -604,6 +606,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
 
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
+        U::regs().enable.write(|w| w.enable().enabled());
 
         U::state().tx_rx_refcount.store(1, Ordering::Relaxed);
 
