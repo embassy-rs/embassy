@@ -388,42 +388,6 @@ foreach_peripheral!(
     };
 );
 
-impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_02::blocking::i2c::AddressMode>
-    embedded_hal_02::blocking::i2c::Read<A> for I2c<'d, M, IM>
-where
-    A: Into<Address>,
-{
-    type Error = Error;
-
-    fn read(&mut self, address: A, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(address.into(), buffer)
-    }
-}
-
-impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_02::blocking::i2c::AddressMode>
-    embedded_hal_02::blocking::i2c::Write<A> for I2c<'d, M, IM>
-where
-    A: Into<Address>,
-{
-    type Error = Error;
-
-    fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(address.into(), write)
-    }
-}
-
-impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_02::blocking::i2c::AddressMode>
-    embedded_hal_02::blocking::i2c::WriteRead<A> for I2c<'d, M, IM>
-where
-    A: Into<Address>,
-{
-    type Error = Error;
-
-    fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_write_read(address.into(), write, read)
-    }
-}
-
 impl embedded_hal_1::i2c::Error for Error {
     fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
         match *self {
@@ -442,56 +406,6 @@ impl embedded_hal_1::i2c::Error for Error {
 
 impl<'d, M: Mode, IM: MasterMode> embedded_hal_1::i2c::ErrorType for I2c<'d, M, IM> {
     type Error = Error;
-}
-
-impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_1::i2c::AddressMode> embedded_hal_1::i2c::I2c<A> for I2c<'d, M, IM>
-where
-    Address: From<A>,
-{
-    fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(address.into(), read)
-    }
-
-    fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(address.into(), write)
-    }
-
-    fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_write_read(address.into(), write, read)
-    }
-
-    fn transaction(
-        &mut self,
-        address: A,
-        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
-    ) -> Result<(), Self::Error> {
-        self.blocking_transaction(address.into(), operations)
-    }
-}
-
-impl<'d, IM: MasterMode, A: embedded_hal_async::i2c::AddressMode> embedded_hal_async::i2c::I2c<A> for I2c<'d, Async, IM>
-where
-    Address: From<A>,
-{
-    async fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(address.into(), read).await
-    }
-
-    async fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
-        self.write(address.into(), write).await
-    }
-
-    async fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.write_read(address.into(), write, read).await
-    }
-
-    async fn transaction(
-        &mut self,
-        address: A,
-        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
-    ) -> Result<(), Self::Error> {
-        self.transaction(address.into(), operations).await
-    }
 }
 
 /// Frame type in I2C transaction.
