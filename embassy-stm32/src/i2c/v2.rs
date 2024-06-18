@@ -6,7 +6,7 @@ use config::{Address, OwnAddresses, OA2};
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
-use mode::Master;
+use mode::{Master, MultiMaster};
 use stm32_metapac::i2c::vals::Addmode;
 
 use super::*;

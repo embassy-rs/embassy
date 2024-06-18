@@ -16,7 +16,7 @@ use embassy_hal_internal::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
-use mode::{Master, MasterMode, MultiMaster};
+use mode::{Master, MasterMode};
 
 use crate::dma::ChannelAndRequest;
 #[cfg(gpio_v2)]
@@ -146,7 +146,9 @@ pub enum CommandKind {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// The command kind to the slave from the master and the address that the slave matched
 pub struct Command {
+    /// The kind of command
     pub kind: CommandKind,
+    /// The address that the slave matched
     pub address: Address,
 }
 
