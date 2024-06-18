@@ -1,5 +1,3 @@
-use stm32_metapac::i2c::vals::Oamsk;
-
 use crate::gpio::Pull;
 
 #[repr(u8)]
@@ -23,20 +21,6 @@ pub enum AddrMask {
     MASK6,
     /// OA2\[7:1\] are masked and don’t care. No comparison is done, and all (except reserved) 7-bit received addresses are acknowledged
     MASK7,
-}
-impl From<AddrMask> for Oamsk {
-    fn from(value: AddrMask) -> Self {
-        match value {
-            AddrMask::NOMASK => Oamsk::NOMASK,
-            AddrMask::MASK1 => Oamsk::MASK1,
-            AddrMask::MASK2 => Oamsk::MASK2,
-            AddrMask::MASK3 => Oamsk::MASK3,
-            AddrMask::MASK4 => Oamsk::MASK4,
-            AddrMask::MASK5 => Oamsk::MASK5,
-            AddrMask::MASK6 => Oamsk::MASK6,
-            AddrMask::MASK7 => Oamsk::MASK7,
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

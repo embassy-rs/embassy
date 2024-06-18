@@ -7,10 +7,25 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
 use mode::{Master, MultiMaster};
-use stm32_metapac::i2c::vals::Addmode;
+use stm32_metapac::i2c::vals::{Addmode, Oamsk};
 
 use super::*;
 use crate::pac::i2c;
+
+impl From<AddrMask> for Oamsk {
+    fn from(value: AddrMask) -> Self {
+        match value {
+            AddrMask::NOMASK => Oamsk::NOMASK,
+            AddrMask::MASK1 => Oamsk::MASK1,
+            AddrMask::MASK2 => Oamsk::MASK2,
+            AddrMask::MASK3 => Oamsk::MASK3,
+            AddrMask::MASK4 => Oamsk::MASK4,
+            AddrMask::MASK5 => Oamsk::MASK5,
+            AddrMask::MASK6 => Oamsk::MASK6,
+            AddrMask::MASK7 => Oamsk::MASK7,
+        }
+    }
+}
 
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
     let regs = T::info().regs;
