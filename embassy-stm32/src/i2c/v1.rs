@@ -42,7 +42,7 @@ pub unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-impl<'d, M: PeriMode> I2c<'d, M, Master> {
+impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     pub(crate) fn init(&mut self, freq: Hertz, _config: Config) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
@@ -298,7 +298,7 @@ impl<'d, M: PeriMode> I2c<'d, M, Master> {
     }
 
     /// Blocking read.
-    pub fn blocking_read(&mut self, addr: Address, read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, addr: u8, read: &mut [u8]) -> Result<(), Error> {
         self.blocking_read_timeout(addr, read, self.timeout(), FrameOptions::FirstAndLastFrame)
     }
 
@@ -355,7 +355,7 @@ impl<'d, M: PeriMode> I2c<'d, M, Master> {
     }
 }
 
-impl<'d> I2c<'d, Async, Master> {
+impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     async fn write_frame(&mut self, address: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error> {
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
