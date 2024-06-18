@@ -50,6 +50,8 @@ pub mod gpiote;
 #[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340-app")))]
 pub mod radio;
 
+#[cfg(not(feature = "nrf51"))]
+pub mod egu;
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
 pub mod nvmc;
