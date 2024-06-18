@@ -27,6 +27,15 @@ impl From<AddrMask> for Oamsk {
     }
 }
 
+impl Address {
+    pub(super) fn add_mode(&self) -> stm32_metapac::i2c::vals::Addmode {
+        match self {
+            Address::SevenBit(_) => stm32_metapac::i2c::vals::Addmode::BIT7,
+            Address::TenBit(_) => stm32_metapac::i2c::vals::Addmode::BIT10,
+        }
+    }
+}
+
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
     let regs = T::info().regs;
     let isr = regs.isr().read();

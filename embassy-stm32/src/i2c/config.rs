@@ -46,12 +46,6 @@ impl From<u16> for Address {
     }
 }
 impl Address {
-    pub(super) fn add_mode(&self) -> stm32_metapac::i2c::vals::Addmode {
-        match self {
-            Address::SevenBit(_) => stm32_metapac::i2c::vals::Addmode::BIT7,
-            Address::TenBit(_) => stm32_metapac::i2c::vals::Addmode::BIT10,
-        }
-    }
     /// Get the inner address as a u16.
     ///
     /// For 7 bit addresses, the u8 that was used to store the address is returned as a u16.
