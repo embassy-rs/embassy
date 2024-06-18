@@ -5,14 +5,18 @@
 #[cfg_attr(any(i2c_v2, i2c_v3), path = "v2.rs")]
 mod _version;
 
+mod config;
+
 use core::future::Future;
 use core::iter;
 use core::marker::PhantomData;
 
+pub use config::*;
 use embassy_hal_internal::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
+use mode::{Master, MasterMode, MultiMaster};
 
 use crate::dma::ChannelAndRequest;
 #[cfg(gpio_v2)]
@@ -108,8 +112,56 @@ impl Config {
     }
 }
 
+/// I2C modes
+pub mod mode {
+    trait SealedMode {}
+
+    /// Trait for I2C master operations.
+    #[allow(private_bounds)]
+    pub trait MasterMode: SealedMode {}
+
+    /// Mode allowing for I2C master operations.
+    pub struct Master;
+    /// Mode allowing for I2C master and slave operations.
+    pub struct MultiMaster;
+
+    impl SealedMode for Master {}
+    impl MasterMode for Master {}
+
+    impl SealedMode for MultiMaster {}
+    impl MasterMode for MultiMaster {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The command kind to the slave from the master
+pub enum CommandKind {
+    /// Write to the slave
+    SlaveReceive,
+    /// Read from the slave
+    SlaveSend,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The command kind to the slave from the master and the address that the slave matched
+pub struct Command {
+    pub kind: CommandKind,
+    pub address: Address,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The status of the slave send operation
+pub enum SendStatus {
+    /// The slave send operation is done, all bytes have been sent and the master is not requesting more
+    Done,
+    /// The slave send operation is done, but there are leftover bytes that the master did not read
+    LeftoverBytes(usize),
+}
+
 /// I2C driver.
-pub struct I2c<'d, M: Mode> {
+pub struct I2c<'d, M: Mode, IM: MasterMode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
@@ -120,9 +172,10 @@ pub struct I2c<'d, M: Mode> {
     #[cfg(feature = "time")]
     timeout: Duration,
     _phantom: PhantomData<M>,
+    _phantom2: PhantomData<IM>,
 }
 
-impl<'d> I2c<'d, Async> {
+impl<'d> I2c<'d, Async, Master> {
     /// Create a new I2C driver.
     pub fn new<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
@@ -148,7 +201,7 @@ impl<'d> I2c<'d, Async> {
     }
 }
 
-impl<'d> I2c<'d, Blocking> {
+impl<'d> I2c<'d, Blocking, Master> {
     /// Create a new blocking I2C driver.
     pub fn new_blocking<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
@@ -169,7 +222,7 @@ impl<'d> I2c<'d, Blocking> {
     }
 }
 
-impl<'d, M: Mode> I2c<'d, M> {
+impl<'d, M: Mode> I2c<'d, M, Master> {
     /// Create a new I2C driver.
     fn new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
@@ -194,8 +247,10 @@ impl<'d, M: Mode> I2c<'d, M> {
             #[cfg(feature = "time")]
             timeout: config.timeout,
             _phantom: PhantomData,
+            _phantom2: PhantomData,
         };
         this.enable_and_init(freq, config);
+
         this
     }
 
@@ -203,7 +258,9 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.info.rcc.enable_and_reset();
         self.init(freq, config);
     }
+}
 
+impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     fn timeout(&self) -> Timeout {
         Timeout {
             #[cfg(feature = "time")]
@@ -211,8 +268,28 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
     }
 }
+impl<'d, M: Mode> I2c<'d, M, Master> {
+    /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
+    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
+        let mut slave = I2c {
+            info: self.info,
+            state: self.state,
+            kernel_clock: self.kernel_clock,
+            scl: self.scl.take(),
+            sda: self.sda.take(),
+            tx_dma: self.tx_dma.take(),
+            rx_dma: self.rx_dma.take(),
+            #[cfg(feature = "time")]
+            timeout: self.timeout,
+            _phantom: PhantomData,
+            _phantom2: PhantomData,
+        };
+        slave.init_slave(slave_addr_config);
+        slave
+    }
+}
 
-impl<'d, M: Mode> Drop for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> Drop for I2c<'d, M, IM> {
     fn drop(&mut self) {
         self.scl.as_ref().map(|x| x.set_as_disconnected());
         self.sda.as_ref().map(|x| x.set_as_disconnected());
@@ -329,27 +406,39 @@ foreach_peripheral!(
     };
 );
 
-impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_02::blocking::i2c::AddressMode>
+    embedded_hal_02::blocking::i2c::Read<A> for I2c<'d, M, IM>
+where
+    A: Into<Address>,
+{
     type Error = Error;
 
-    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(address, buffer)
+    fn read(&mut self, address: A, buffer: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(address.into(), buffer)
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_02::blocking::i2c::AddressMode>
+    embedded_hal_02::blocking::i2c::Write<A> for I2c<'d, M, IM>
+where
+    A: Into<Address>,
+{
     type Error = Error;
 
-    fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(address, write)
+    fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(address.into(), write)
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_02::blocking::i2c::AddressMode>
+    embedded_hal_02::blocking::i2c::WriteRead<A> for I2c<'d, M, IM>
+where
+    A: Into<Address>,
+{
     type Error = Error;
 
-    fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_write_read(address, write, read)
+    fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(address.into(), write, read)
     }
 }
 
@@ -369,51 +458,57 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_1::i2c::ErrorType for I2c<'d, M, IM> {
     type Error = Error;
 }
 
-impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
-    fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(address, read)
+impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_1::i2c::AddressMode> embedded_hal_1::i2c::I2c<A> for I2c<'d, M, IM>
+where
+    Address: From<A>,
+{
+    fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(address.into(), read)
     }
 
-    fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(address, write)
+    fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(address.into(), write)
     }
 
-    fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_write_read(address, write, read)
+    fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(address.into(), write, read)
     }
 
     fn transaction(
         &mut self,
-        address: u8,
+        address: A,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        self.blocking_transaction(address, operations)
+        self.blocking_transaction(address.into(), operations)
     }
 }
 
-impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
-    async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(address, read).await
+impl<'d, IM: MasterMode, A: embedded_hal_async::i2c::AddressMode> embedded_hal_async::i2c::I2c<A> for I2c<'d, Async, IM>
+where
+    Address: From<A>,
+{
+    async fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.read(address.into(), read).await
     }
 
-    async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
-        self.write(address, write).await
+    async fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
+        self.write(address.into(), write).await
     }
 
-    async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.write_read(address, write, read).await
+    async fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.write_read(address.into(), write, read).await
     }
 
     async fn transaction(
         &mut self,
-        address: u8,
+        address: A,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        self.transaction(address, operations).await
+        self.transaction(address.into(), operations).await
     }
 }
 
