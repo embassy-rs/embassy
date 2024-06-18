@@ -268,26 +268,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         }
     }
 }
-impl<'d, M: Mode> I2c<'d, M, Master> {
-    /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
-    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
-        let mut slave = I2c {
-            info: self.info,
-            state: self.state,
-            kernel_clock: self.kernel_clock,
-            scl: self.scl.take(),
-            sda: self.sda.take(),
-            tx_dma: self.tx_dma.take(),
-            rx_dma: self.rx_dma.take(),
-            #[cfg(feature = "time")]
-            timeout: self.timeout,
-            _phantom: PhantomData,
-            _phantom2: PhantomData,
-        };
-        slave.init_slave(slave_addr_config);
-        slave
-    }
-}
 
 impl<'d, M: Mode, IM: MasterMode> Drop for I2c<'d, M, IM> {
     fn drop(&mut self) {
