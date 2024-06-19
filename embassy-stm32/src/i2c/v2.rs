@@ -47,6 +47,8 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
     critical_section::with(|_| {
         regs.cr1().modify(|w| {
             w.set_addrie(false);
+            w.set_stopie(false);
+            w.set_tcie(false);
             // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
             // the interrupt
             w.set_tcie(false);
@@ -725,14 +727,13 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
             info: self.info,
             state: self.state,
             kernel_clock: self.kernel_clock,
-            scl: self.scl.take(),
-            sda: self.sda.take(),
             tx_dma: self.tx_dma.take(),
             rx_dma: self.rx_dma.take(),
             #[cfg(feature = "time")]
             timeout: self.timeout,
             _phantom: PhantomData,
             _phantom2: PhantomData,
+            drop_guard: self.drop_guard,
         };
         slave.init_slave(slave_addr_config);
         slave
@@ -930,6 +931,8 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
 
 impl<'d> I2c<'d, Async, MultiMaster> {
     /// Respond to a receive command.
+    ///
+    /// Returns the total number of bytes received.
     pub async fn respond_to_receive(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         let timeout = self.timeout();
         timeout.with(self.read_dma_internal_slave(buffer, timeout)).await
@@ -942,6 +945,8 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     }
 
     // for data reception in slave mode
+    //
+    // returns the total number of bytes received
     async fn read_dma_internal_slave(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
         let total_len = buffer.len();
         let mut remaining_len = total_len;
@@ -988,7 +993,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 Poll::Pending
             } else if isr.stopf() {
                 regs.icr().write(|reg| reg.set_stopcf(true));
-                let poll = Poll::Ready(Ok(remaining_len));
+                let poll = Poll::Ready(Ok(total_len - remaining_len));
                 poll
             } else {
                 Poll::Pending

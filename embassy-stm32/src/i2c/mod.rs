@@ -162,19 +162,32 @@ pub enum SendStatus {
     LeftoverBytes(usize),
 }
 
+struct I2CDropGuard<'d> {
+    info: &'static Info,
+    scl: Option<PeripheralRef<'d, AnyPin>>,
+    sda: Option<PeripheralRef<'d, AnyPin>>,
+}
+impl<'d> Drop for I2CDropGuard<'d> {
+    fn drop(&mut self) {
+        self.scl.as_ref().map(|x| x.set_as_disconnected());
+        self.sda.as_ref().map(|x| x.set_as_disconnected());
+
+        self.info.rcc.disable();
+    }
+}
+
 /// I2C driver.
 pub struct I2c<'d, M: Mode, IM: MasterMode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    scl: Option<PeripheralRef<'d, AnyPin>>,
-    sda: Option<PeripheralRef<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     #[cfg(feature = "time")]
     timeout: Duration,
     _phantom: PhantomData<M>,
     _phantom2: PhantomData<IM>,
+    drop_guard: I2CDropGuard<'d>,
 }
 
 impl<'d> I2c<'d, Async, Master> {
@@ -242,14 +255,17 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
-            scl,
-            sda,
             tx_dma,
             rx_dma,
             #[cfg(feature = "time")]
             timeout: config.timeout,
             _phantom: PhantomData,
             _phantom2: PhantomData,
+            drop_guard: I2CDropGuard {
+                info: T::info(),
+                scl,
+                sda,
+            },
         };
         this.enable_and_init(freq, config);
 
@@ -268,15 +284,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             #[cfg(feature = "time")]
             deadline: Instant::now() + self.timeout,
         }
-    }
-}
-
-impl<'d, M: Mode, IM: MasterMode> Drop for I2c<'d, M, IM> {
-    fn drop(&mut self) {
-        self.scl.as_ref().map(|x| x.set_as_disconnected());
-        self.sda.as_ref().map(|x| x.set_as_disconnected());
-
-        self.info.rcc.disable()
     }
 }
 
