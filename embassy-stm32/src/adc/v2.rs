@@ -500,15 +500,9 @@ where
         transfer: &mut ReadableRingBuffer<'static, u16>,
         buf: &mut [u16; N],
     ) -> Result<usize, OverrunError> {
-        loop {
-            match transfer.read_exact(buf).await {
-                Ok(r) => return Ok(r),
-                Err(_) => {
-                    Timer::after_micros(1).await;
-                    transfer.clear();
-                    continue;
-                }
-            }
+        match transfer.read_exact(buf).await {
+            Ok(r) => Ok(r),
+            Err(_) => Err(OverrunError),
         }
     }
 
