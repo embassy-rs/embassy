@@ -276,7 +276,7 @@ pub enum Speed {
     #[cfg(not(any(gpio_v1, syscfg_f0)))]
     High,
     #[cfg_attr(gpio_v1, doc = "Output speed OUTPUT50MHZ")]
-    #[cfg_attr(gpio_v2, doc = "Output speed 10")]
+    #[cfg_attr(gpio_v2, doc = "Output speed 11")]
     VeryHigh,
 }
 
