@@ -1178,6 +1178,11 @@ fn main() {
 
     let signals: HashMap<_, _> = [
         // (kind, signal) => trait
+        (("adc", "ADC"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC1"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC2"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC3"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC4"), quote!(crate::adc::RxDma)),
         (("ucpd", "RX"), quote!(crate::ucpd::RxDma)),
         (("ucpd", "TX"), quote!(crate::ucpd::TxDma)),
         (("usart", "RX"), quote!(crate::usart::RxDma)),
