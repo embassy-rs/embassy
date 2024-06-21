@@ -1,0 +1,37 @@
+[package]
+name = "embassy-net-nrf91"
+version = "0.1.0"
+edition = "2021"
+description = "embassy-net driver for Nordic nRF91-series cellular modems"
+keywords = ["embedded", "nrf91", "embassy-net", "cellular"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-net-nrf91"
+
+[features]
+defmt = [ "dep:defmt", "heapless/defmt-03" ]
+log = [ "dep:log" ]
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+
+nrf9160-pac = { version = "0.12.0" }
+
+embassy-time = { version = "0.3.1", path = "../embassy-time" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync"}
+embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
+embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel"}
+
+heapless = "0.8"
+embedded-io = "0.6.1"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-nrf91-v$VERSION/embassy-net-nrf91/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-nrf91/src/"
+target = "thumbv7em-none-eabi"
+features = ["defmt"]
+
+[package.metadata.docs.rs]
+features = ["defmt"]

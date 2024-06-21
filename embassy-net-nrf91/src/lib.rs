@@ -1,0 +1,970 @@
+#![no_std]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
+
+// must be first
+mod fmt;
+
+use core::cell::RefCell;
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::mem::{self, MaybeUninit};
+use core::ptr::{self, addr_of, addr_of_mut, copy_nonoverlapping};
+use core::slice;
+use core::sync::atomic::{compiler_fence, fence, Ordering};
+use core::task::{Poll, Waker};
+
+use embassy_net_driver_channel as ch;
+use embassy_sync::waitqueue::{AtomicWaker, WakerRegistration};
+use heapless::Vec;
+use nrf9160_pac as pac;
+use pac::NVIC;
+
+const RX_SIZE: usize = 8 * 1024;
+const TRACE_SIZE: usize = 16 * 1024;
+const MTU: usize = 1500;
+
+/// Network driver.
+///
+/// This is the type you have to pass to `embassy-net` when creating the network stack.
+pub type NetDriver<'a> = ch::Device<'a, MTU>;
+
+static WAKER: AtomicWaker = AtomicWaker::new();
+
+/// Call this function on IPC IRQ
+pub fn on_ipc_irq() {
+    let ipc = unsafe { &*pac::IPC_NS::ptr() };
+
+    trace!("irq");
+
+    ipc.inten.write(|w| w);
+    WAKER.wake();
+}
+
+struct Allocator<'a> {
+    start: *mut u8,
+    end: *mut u8,
+    _phantom: PhantomData<&'a mut u8>,
+}
+
+impl<'a> Allocator<'a> {
+    fn alloc_bytes(&mut self, size: usize) -> &'a mut [MaybeUninit<u8>] {
+        // safety: both pointers come from the same allocation.
+        let available_size = unsafe { self.end.offset_from(self.start) } as usize;
+        if size > available_size {
+            panic!("out of memory")
+        }
+
+        // safety: we've checked above this doesn't go out of bounds.
+        let p = self.start;
+        self.start = unsafe { p.add(size) };
+
+        // safety: we've checked the pointer is in-bounds.
+        unsafe { slice::from_raw_parts_mut(p as *mut _, size) }
+    }
+
+    fn alloc<T>(&mut self) -> &'a mut MaybeUninit<T> {
+        let align = mem::align_of::<T>();
+        let size = mem::size_of::<T>();
+
+        let align_size = match (self.start as usize) % align {
+            0 => 0,
+            n => align - n,
+        };
+
+        // safety: both pointers come from the same allocation.
+        let available_size = unsafe { self.end.offset_from(self.start) } as usize;
+        if align_size + size > available_size {
+            panic!("out of memory")
+        }
+
+        // safety: we've checked above this doesn't go out of bounds.
+        let p = unsafe { self.start.add(align_size) };
+        self.start = unsafe { p.add(size) };
+
+        // safety: we've checked the pointer is aligned and in-bounds.
+        unsafe { &mut *(p as *mut _) }
+    }
+}
+
+/// Create a new nRF91 embassy-net driver.
+pub async fn new<'a, TW: embedded_io::Write>(
+    state: &'a mut State,
+    shmem: &'a mut [MaybeUninit<u8>],
+    trace_writer: TW,
+) -> (NetDriver<'a>, Control<'a>, Runner<'a, TW>) {
+    let shmem_len = shmem.len();
+    let shmem_ptr = shmem.as_mut_ptr() as *mut u8;
+
+    const SPU_REGION_SIZE: usize = 8192; // 8kb
+    assert!(shmem_len != 0);
+    assert!(
+        shmem_len % SPU_REGION_SIZE == 0,
+        "shmem length must be a multiple of 8kb"
+    );
+    assert!(
+        (shmem_ptr as usize) % SPU_REGION_SIZE == 0,
+        "shmem length must be a multiple of 8kb"
+    );
+    assert!(
+        (shmem_ptr as usize + shmem_len) < 0x2002_0000,
+        "shmem must be in the lower 128kb of RAM"
+    );
+
+    let spu = unsafe { &*pac::SPU_S::ptr() };
+    debug!("Setting IPC RAM as nonsecure...");
+    let region_start = (shmem_ptr as usize - 0x2000_0000) / SPU_REGION_SIZE;
+    let region_end = region_start + shmem_len / SPU_REGION_SIZE;
+    for i in region_start..region_end {
+        spu.ramregion[i].perm.write(|w| {
+            w.execute().set_bit();
+            w.write().set_bit();
+            w.read().set_bit();
+            w.secattr().clear_bit();
+            w.lock().clear_bit();
+            w
+        })
+    }
+
+    spu.periphid[42].perm.write(|w| w.secattr().non_secure());
+
+    let mut alloc = Allocator {
+        start: shmem_ptr,
+        end: unsafe { shmem_ptr.add(shmem_len) },
+        _phantom: PhantomData,
+    };
+
+    let ipc = unsafe { &*pac::IPC_NS::ptr() };
+    let power = unsafe { &*pac::POWER_S::ptr() };
+
+    let cb: &mut ControlBlock = alloc.alloc().write(unsafe { mem::zeroed() });
+    let rx = alloc.alloc_bytes(RX_SIZE);
+    let trace = alloc.alloc_bytes(TRACE_SIZE);
+
+    cb.version = 0x00010000;
+    cb.rx_base = rx.as_mut_ptr() as _;
+    cb.rx_size = RX_SIZE;
+    cb.control_list_ptr = &mut cb.lists[0];
+    cb.data_list_ptr = &mut cb.lists[1];
+    cb.modem_info_ptr = &mut cb.modem_info;
+    cb.trace_ptr = &mut cb.trace;
+    cb.lists[0].len = LIST_LEN;
+    cb.lists[1].len = LIST_LEN;
+    cb.trace.base = trace.as_mut_ptr() as _;
+    cb.trace.size = TRACE_SIZE;
+
+    ipc.gpmem[0].write(|w| unsafe { w.bits(cb as *mut _ as u32) });
+    ipc.gpmem[1].write(|w| unsafe { w.bits(0) });
+
+    // connect task/event i to channel i
+    for i in 0..8 {
+        ipc.send_cnf[i].write(|w| unsafe { w.bits(1 << i) });
+        ipc.receive_cnf[i].write(|w| unsafe { w.bits(1 << i) });
+    }
+
+    compiler_fence(Ordering::SeqCst);
+
+    // POWER.LTEMODEM.STARTN = 0
+    // The reg is missing in the PAC??
+    let startn = unsafe { (power as *const _ as *mut u32).add(0x610 / 4) };
+    unsafe { startn.write_volatile(0) }
+
+    unsafe { NVIC::unmask(pac::Interrupt::IPC) };
+
+    let state_inner = &*state.inner.write(RefCell::new(StateInner {
+        init: false,
+        init_waker: WakerRegistration::new(),
+        cb,
+        requests: [const { None }; REQ_COUNT],
+        next_req_serial: 0x12345678,
+
+        rx_control_list: ptr::null_mut(),
+        rx_data_list: ptr::null_mut(),
+        rx_seq_no: 0,
+        rx_check: PointerChecker {
+            start: rx.as_mut_ptr() as *mut u8,
+            end: (rx.as_mut_ptr() as *mut u8).wrapping_add(RX_SIZE),
+        },
+
+        tx_seq_no: 0,
+        tx_buf_used: [false; TX_BUF_COUNT],
+
+        trace_chans: Vec::new(),
+        trace_check: PointerChecker {
+            start: trace.as_mut_ptr() as *mut u8,
+            end: (trace.as_mut_ptr() as *mut u8).wrapping_add(TRACE_SIZE),
+        },
+    }));
+
+    let control = Control { state: state_inner };
+
+    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ip);
+    let state_ch = ch_runner.state_runner();
+    state_ch.set_link_state(ch::driver::LinkState::Up);
+
+    let runner = Runner {
+        ch: ch_runner,
+        state: state_inner,
+        trace_writer,
+    };
+
+    (device, control, runner)
+}
+
+/// Shared state for the drivver.
+pub struct State {
+    ch: ch::State<MTU, 4, 4>,
+    inner: MaybeUninit<RefCell<StateInner>>,
+}
+
+impl State {
+    /// Create a new State.
+    pub const fn new() -> Self {
+        Self {
+            ch: ch::State::new(),
+            inner: MaybeUninit::uninit(),
+        }
+    }
+}
+
+const TX_BUF_COUNT: usize = 4;
+const TX_BUF_SIZE: usize = 1024;
+
+struct TraceChannelInfo {
+    ptr: *mut TraceChannel,
+    start: *mut u8,
+    end: *mut u8,
+}
+
+const REQ_COUNT: usize = 4;
+
+struct PendingRequest {
+    req_serial: u32,
+    resp_msg: *mut Message,
+    waker: Waker,
+}
+
+struct StateInner {
+    init: bool,
+    init_waker: WakerRegistration,
+
+    cb: *mut ControlBlock,
+    requests: [Option<PendingRequest>; REQ_COUNT],
+    next_req_serial: u32,
+
+    rx_control_list: *mut List,
+    rx_data_list: *mut List,
+    rx_seq_no: u16,
+    rx_check: PointerChecker,
+
+    tx_seq_no: u16,
+    tx_buf_used: [bool; TX_BUF_COUNT],
+
+    trace_chans: Vec<TraceChannelInfo, TRACE_CHANNEL_COUNT>,
+    trace_check: PointerChecker,
+}
+
+impl StateInner {
+    fn poll(&mut self, trace_writer: &mut impl embedded_io::Write, ch: &mut ch::Runner<MTU>) {
+        trace!("poll!");
+        let ipc = unsafe { &*pac::IPC_NS::ptr() };
+
+        if ipc.events_receive[0].read().bits() != 0 {
+            ipc.events_receive[0].reset();
+            trace!("ipc 0");
+        }
+
+        if ipc.events_receive[2].read().bits() != 0 {
+            ipc.events_receive[2].reset();
+            trace!("ipc 2");
+
+            if !self.init {
+                let desc = unsafe { addr_of!((*self.cb).modem_info).read_volatile() };
+                assert_eq!(desc.version, 1);
+
+                self.rx_check.check_mut(desc.control_list_ptr);
+                self.rx_check.check_mut(desc.data_list_ptr);
+
+                self.rx_control_list = desc.control_list_ptr;
+                self.rx_data_list = desc.data_list_ptr;
+                let rx_control_len = unsafe { addr_of!((*self.rx_control_list).len).read_volatile() };
+                let rx_data_len = unsafe { addr_of!((*self.rx_data_list).len).read_volatile() };
+                assert_eq!(rx_control_len, LIST_LEN);
+                assert_eq!(rx_data_len, LIST_LEN);
+                self.init = true;
+
+                debug!("IPC initialized OK!");
+                self.init_waker.wake();
+            }
+        }
+
+        if ipc.events_receive[4].read().bits() != 0 {
+            ipc.events_receive[4].reset();
+            trace!("ipc 4");
+
+            loop {
+                let list = unsafe { &mut *self.rx_control_list };
+                let control_work = self.process(list, true, ch);
+                let list = unsafe { &mut *self.rx_data_list };
+                let data_work = self.process(list, false, ch);
+                if !control_work && !data_work {
+                    break;
+                }
+            }
+        }
+
+        if ipc.events_receive[6].read().bits() != 0 {
+            ipc.events_receive[6].reset();
+            trace!("ipc 6");
+        }
+
+        if ipc.events_receive[7].read().bits() != 0 {
+            ipc.events_receive[7].reset();
+            trace!("ipc 7: trace");
+
+            let msg = unsafe { addr_of!((*self.cb).trace.rx_state).read_volatile() };
+            if msg != 0 {
+                trace!("trace msg {}", msg);
+                match msg {
+                    0 => unreachable!(),
+                    1 => {
+                        let ctx = unsafe { addr_of!((*self.cb).trace.rx_ptr).read_volatile() } as *mut TraceContext;
+                        debug!("trace init: {:?}", ctx);
+                        self.trace_check.check(ctx);
+                        let chans = unsafe { addr_of!((*ctx).chans).read_volatile() };
+                        for chan_ptr in chans {
+                            let chan = self.trace_check.check_read(chan_ptr);
+                            self.trace_check.check(chan.start);
+                            self.trace_check.check(chan.end);
+                            assert!(chan.start < chan.end);
+                            self.trace_chans
+                                .push(TraceChannelInfo {
+                                    ptr: chan_ptr,
+                                    start: chan.start,
+                                    end: chan.end,
+                                })
+                                .map_err(|_| ())
+                                .unwrap()
+                        }
+                    }
+                    2 => {
+                        for chan_info in &self.trace_chans {
+                            let read_ptr = unsafe { addr_of!((*chan_info.ptr).read_ptr).read_volatile() };
+                            let write_ptr = unsafe { addr_of!((*chan_info.ptr).write_ptr).read_volatile() };
+                            assert!(read_ptr >= chan_info.start && read_ptr <= chan_info.end);
+                            assert!(write_ptr >= chan_info.start && write_ptr <= chan_info.end);
+                            if read_ptr != write_ptr {
+                                let id = unsafe { addr_of!((*chan_info.ptr).id).read_volatile() };
+                                fence(Ordering::SeqCst); // synchronize volatile accesses with the slice access.
+                                if read_ptr < write_ptr {
+                                    Self::handle_trace(trace_writer, id, unsafe {
+                                        slice::from_raw_parts(read_ptr, write_ptr.offset_from(read_ptr) as _)
+                                    });
+                                } else {
+                                    Self::handle_trace(trace_writer, id, unsafe {
+                                        slice::from_raw_parts(read_ptr, chan_info.end.offset_from(read_ptr) as _)
+                                    });
+                                    Self::handle_trace(trace_writer, id, unsafe {
+                                        slice::from_raw_parts(
+                                            chan_info.start,
+                                            write_ptr.offset_from(chan_info.start) as _,
+                                        )
+                                    });
+                                }
+                                fence(Ordering::SeqCst); // synchronize volatile accesses with the slice access.
+                                unsafe { addr_of_mut!((*chan_info.ptr).read_ptr).write_volatile(write_ptr) };
+                            }
+                        }
+                    }
+                    _ => warn!("unknown trace msg {}", msg),
+                }
+                unsafe { addr_of_mut!((*self.cb).trace.rx_state).write_volatile(0) };
+            }
+        }
+
+        ipc.intenset.write(|w| {
+            w.receive0().set_bit();
+            w.receive2().set_bit();
+            w.receive4().set_bit();
+            w.receive6().set_bit();
+            w.receive7().set_bit();
+            w
+        });
+    }
+
+    fn handle_trace(writer: &mut impl embedded_io::Write, id: u8, data: &[u8]) {
+        trace!("trace: {} {}", id, data.len());
+        let mut header = [0u8; 5];
+        header[0] = 0xEF;
+        header[1] = 0xBE;
+        header[2..4].copy_from_slice(&(data.len() as u16).to_le_bytes());
+        header[4] = id;
+        writer.write_all(&header).unwrap();
+        writer.write_all(data).unwrap();
+    }
+
+    fn process(&mut self, list: *mut List, is_control: bool, ch: &mut ch::Runner<MTU>) -> bool {
+        let mut did_work = false;
+        for i in 0..LIST_LEN {
+            let item_ptr = unsafe { addr_of_mut!((*list).items[i]) };
+            let preamble = unsafe { addr_of!((*item_ptr).state).read_volatile() };
+            if preamble & 0xFF == 0x01 && preamble >> 16 == self.rx_seq_no as u32 {
+                let msg_ptr = unsafe { addr_of!((*item_ptr).message).read_volatile() };
+                let msg = self.rx_check.check_read(msg_ptr);
+
+                debug!("rx seq {} msg: {:?}", preamble >> 16, msg);
+
+                if is_control {
+                    self.handle_control(&msg);
+                } else {
+                    self.handle_data(&msg, ch);
+                }
+
+                unsafe { addr_of_mut!((*item_ptr).state).write_volatile(0x03) };
+                self.rx_seq_no = self.rx_seq_no.wrapping_add(1);
+
+                did_work = true;
+            }
+        }
+        did_work
+    }
+
+    fn find_free_message(&mut self, ch: usize) -> Option<usize> {
+        for i in 0..LIST_LEN {
+            let preamble = unsafe { addr_of!((*self.cb).lists[ch].items[i].state).read_volatile() };
+            if matches!(preamble & 0xFF, 0 | 3) {
+                trace!("using tx msg idx {}", i);
+                return Some(i);
+            }
+        }
+        return None;
+    }
+
+    fn find_free_tx_buf(&mut self) -> Option<usize> {
+        for i in 0..TX_BUF_COUNT {
+            if !self.tx_buf_used[i] {
+                trace!("using tx buf idx {}", i);
+                return Some(i);
+            }
+        }
+        return None;
+    }
+
+    fn send_message(&mut self, msg: &mut Message, data: &[u8]) {
+        if data.is_empty() {
+            msg.data = ptr::null_mut();
+            msg.data_len = 0;
+        } else {
+            assert!(data.len() <= TX_BUF_SIZE);
+            let buf_idx = self.find_free_tx_buf().unwrap(); // TODO handle out of bufs
+            let buf = unsafe { addr_of_mut!((*self.cb).tx_bufs[buf_idx]) } as *mut u8;
+            unsafe { copy_nonoverlapping(data.as_ptr(), buf, data.len()) }
+            msg.data = buf;
+            msg.data_len = data.len();
+            self.tx_buf_used[buf_idx] = true;
+
+            fence(Ordering::SeqCst); // synchronize copy_nonoverlapping (non-volatile) with volatile writes below.
+        }
+
+        // TODO free data buf if send_message_raw fails.
+        self.send_message_raw(msg);
+    }
+
+    fn send_message_raw(&mut self, msg: &Message) {
+        let (ch, ipc_ch) = match msg.channel {
+            1 => (0, 1), // control
+            2 => (1, 3), // data
+            _ => unreachable!(),
+        };
+
+        // allocate a msg.
+        let idx = self.find_free_message(ch).unwrap(); // TODO handle list full
+
+        debug!("tx seq {} msg: {:?}", self.tx_seq_no, msg);
+
+        let msg_slot = unsafe { addr_of_mut!((*self.cb).msgs[ch][idx]) };
+        unsafe { msg_slot.write_volatile(*msg) }
+        let list_item = unsafe { addr_of_mut!((*self.cb).lists[ch].items[idx]) };
+        unsafe { addr_of_mut!((*list_item).message).write_volatile(msg_slot) }
+        unsafe { addr_of_mut!((*list_item).state).write_volatile((self.tx_seq_no as u32) << 16 | 0x01) }
+        self.tx_seq_no = self.tx_seq_no.wrapping_add(1);
+
+        let ipc = unsafe { &*pac::IPC_NS::ptr() };
+        ipc.tasks_send[ipc_ch].write(|w| unsafe { w.bits(1) });
+    }
+
+    fn handle_control(&mut self, msg: &Message) {
+        match msg.id >> 16 {
+            1 => debug!("control msg: modem ready"),
+            2 => self.handle_control_free(msg.data),
+            _ => warn!("unknown control message id {:08x}", msg.id),
+        }
+    }
+
+    fn handle_control_free(&mut self, ptr: *mut u8) {
+        let base = unsafe { addr_of!((*self.cb).tx_bufs) } as usize;
+        let ptr = ptr as usize;
+
+        if ptr < base {
+            warn!("control free bad pointer {:08x}", ptr);
+            return;
+        }
+
+        let diff = ptr - base;
+        let idx = diff / TX_BUF_SIZE;
+
+        if idx >= TX_BUF_COUNT || idx * TX_BUF_SIZE != diff {
+            warn!("control free bad pointer {:08x}", ptr);
+            return;
+        }
+
+        trace!("control free pointer {:08x} idx {}", ptr, idx);
+        if !self.tx_buf_used[idx] {
+            warn!(
+                "control free pointer {:08x} idx {}: buffer was already free??",
+                ptr, idx
+            );
+        }
+        self.tx_buf_used[idx] = false;
+    }
+
+    fn handle_data(&mut self, msg: &Message, ch: &mut ch::Runner<MTU>) {
+        if !msg.data.is_null() {
+            self.rx_check.check_length(msg.data, msg.data_len);
+        }
+
+        let freed = match msg.id & 0xFFFF {
+            // AT
+            3 => {
+                match msg.id >> 16 {
+                    // AT request ack
+                    2 => false,
+                    // AT response
+                    3 => self.handle_resp(msg),
+                    // AT notification
+                    4 => false,
+                    x => {
+                        warn!("received unknown AT kind {}", x);
+                        false
+                    }
+                }
+            }
+            // IP
+            4 => {
+                match msg.id >> 28 {
+                    // IP response
+                    8 => self.handle_resp(msg),
+                    // IP notification
+                    9 => match (msg.id >> 16) & 0xFFF {
+                        // IP receive notification
+                        1 => {
+                            if let Some(buf) = ch.try_rx_buf() {
+                                let mut len = msg.data_len;
+                                if len > buf.len() {
+                                    warn!("truncating rx'd packet from {} to {} bytes", len, buf.len());
+                                    len = buf.len();
+                                }
+                                fence(Ordering::SeqCst); // synchronize volatile accesses with the nonvolatile copy_nonoverlapping.
+                                unsafe { ptr::copy_nonoverlapping(msg.data, buf.as_mut_ptr(), len) }
+                                fence(Ordering::SeqCst); // synchronize volatile accesses with the nonvolatile copy_nonoverlapping.
+                                ch.rx_done(len);
+                            }
+                            false
+                        }
+                        _ => false,
+                    },
+                    x => {
+                        warn!("received unknown IP kind {}", x);
+                        false
+                    }
+                }
+            }
+            x => {
+                warn!("received unknown kind {}", x);
+                false
+            }
+        };
+
+        if !freed {
+            self.send_free(msg);
+        }
+    }
+
+    fn handle_resp(&mut self, msg: &Message) -> bool {
+        let req_serial = u32::from_le_bytes(msg.param[0..4].try_into().unwrap());
+        if req_serial == 0 {
+            return false;
+        }
+
+        for optr in &mut self.requests {
+            if let Some(r) = optr {
+                if r.req_serial == req_serial {
+                    let r = optr.take().unwrap();
+                    unsafe { r.resp_msg.write(*msg) }
+                    r.waker.wake();
+                    *optr = None;
+                    return true;
+                }
+            }
+        }
+
+        warn!(
+            "resp with id {} serial {} doesn't match any pending req",
+            msg.id, req_serial
+        );
+        false
+    }
+
+    fn send_free(&mut self, msg: &Message) {
+        if msg.data.is_null() {
+            return;
+        }
+
+        let mut free_msg: Message = unsafe { mem::zeroed() };
+        free_msg.channel = 1; // control
+        free_msg.id = 0x20001; // free
+        free_msg.data = msg.data;
+        free_msg.data_len = msg.data_len;
+
+        self.send_message_raw(&free_msg);
+    }
+}
+
+struct PointerChecker {
+    start: *mut u8,
+    end: *mut u8,
+}
+
+impl PointerChecker {
+    // check the pointer is in bounds in the arena, panic otherwise.
+    fn check_length(&self, ptr: *const u8, len: usize) {
+        assert!(ptr as usize >= self.start as usize);
+        let end_ptr = (ptr as usize).checked_add(len).unwrap();
+        assert!(end_ptr <= self.end as usize);
+    }
+
+    // check the pointer is in bounds in the arena, panic otherwise.
+    fn check<T>(&self, ptr: *const T) {
+        assert!(ptr.is_aligned());
+        self.check_length(ptr as *const u8, mem::size_of::<T>());
+    }
+
+    // check the pointer is in bounds in the arena, panic otherwise.
+    fn check_read<T>(&self, ptr: *const T) -> T {
+        self.check(ptr);
+        unsafe { ptr.read_volatile() }
+    }
+
+    // check the pointer is in bounds in the arena, panic otherwise.
+    fn check_mut<T>(&self, ptr: *mut T) {
+        self.check(ptr as *const T)
+    }
+}
+
+/// Control handle for the driver.
+///
+/// You can use this object to control the modem at runtime, such as running AT commands.
+pub struct Control<'a> {
+    state: &'a RefCell<StateInner>,
+}
+
+impl<'a> Control<'a> {
+    /// Wait for modem IPC to be initialized.
+    pub async fn wait_init(&self) {
+        poll_fn(|cx| {
+            let mut state = self.state.borrow_mut();
+            if state.init {
+                return Poll::Ready(());
+            }
+            state.init_waker.register(cx.waker());
+            Poll::Pending
+        })
+        .await
+    }
+
+    async fn request(&self, msg: &mut Message, req_data: &[u8], resp_data: &mut [u8]) -> usize {
+        // get waker
+        let waker = poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+
+        // Send request
+        let mut state = self.state.borrow_mut();
+        let mut req_serial = state.next_req_serial;
+        if msg.id & 0xFFFF == 3 {
+            // AT response seems to keep only the lower 8 bits. Others do keep the full 32 bits..??
+            req_serial &= 0xFF;
+        }
+
+        // increment next_req_serial, skip zero because we use it as an "ignore" value.
+        // We have to skip when the *lowest byte* is zero because AT responses.
+        state.next_req_serial = state.next_req_serial.wrapping_add(1);
+        if state.next_req_serial & 0xFF == 0 {
+            state.next_req_serial = state.next_req_serial.wrapping_add(1);
+        }
+
+        msg.param[0..4].copy_from_slice(&req_serial.to_le_bytes());
+        state.send_message(msg, req_data);
+
+        // Setup the pending request state.
+        let (req_slot_idx, req_slot) = state
+            .requests
+            .iter_mut()
+            .enumerate()
+            .find(|(_, x)| x.is_none())
+            .unwrap();
+        msg.id = 0; // zero out id, so when it becomes nonzero we know the req is done.
+        let msg_ptr: *mut Message = msg;
+        *req_slot = Some(PendingRequest {
+            req_serial,
+            resp_msg: msg_ptr,
+            waker,
+        });
+
+        drop(state); // don't borrow state across awaits.
+
+        // On cancel, unregister the request slot.
+        let _drop = OnDrop::new(|| {
+            // Remove request slot.
+            let mut state = self.state.borrow_mut();
+            let slot = &mut state.requests[req_slot_idx];
+            if let Some(s) = slot {
+                if s.req_serial == req_serial {
+                    *slot = None;
+                }
+            }
+
+            // If cancelation raced with actually receiving the response,
+            // we own the data, so we have to free it.
+            let msg = unsafe { &mut *msg_ptr };
+            if msg.id != 0 {
+                state.send_free(msg);
+            }
+        });
+        // Wait for response.
+        poll_fn(|_| {
+            // we have to use the raw pointer and not the original reference `msg`
+            // because that'd invalidate the raw ptr that's still stored in `req_slot`.
+            if unsafe { (*msg_ptr).id } != 0 {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        _drop.defuse();
+
+        if msg.data.is_null() {
+            // no response data.
+            return 0;
+        }
+
+        // Copy response data out, if any.
+        // Pointer was validated in StateInner::handle_data().
+        let mut len = msg.data_len;
+        if len > resp_data.len() {
+            warn!("truncating response data from {} to {}", len, resp_data.len());
+            len = resp_data.len();
+        }
+        fence(Ordering::SeqCst); // synchronize volatile accesses with the nonvolatile copy_nonoverlapping.
+        unsafe { ptr::copy_nonoverlapping(msg.data, resp_data.as_mut_ptr(), len) }
+        fence(Ordering::SeqCst); // synchronize volatile accesses with the nonvolatile copy_nonoverlapping.
+        self.state.borrow_mut().send_free(msg);
+        len
+    }
+
+    /// Run an AT command.
+    ///
+    /// The response is written in `resp` and its length returned.
+    pub async fn at_command(&self, req: &[u8], resp: &mut [u8]) -> usize {
+        let mut msg: Message = unsafe { mem::zeroed() };
+        msg.channel = 2; // data
+        msg.id = 0x0001_0003; // AT command
+        msg.param_len = 4;
+
+        self.request(&mut msg, req, resp).await
+    }
+
+    /// Open the raw socket used for sending/receiving IP packets.
+    ///
+    /// This must be done after `AT+CFUN=1` (?)
+    pub async fn open_raw_socket(&self) {
+        let mut msg: Message = unsafe { mem::zeroed() };
+        msg.channel = 2; // data
+        msg.id = 0x7001_0004; // open socket
+        msg.param_len = 20;
+
+        let param = [
+            0xFF, 0xFF, 0xFF, 0xFF, // req_serial
+            0xFF, 0xFF, 0xFF, 0xFF, // ???
+            0x05, 0x00, 0x00, 0x00, // family
+            0x03, 0x00, 0x00, 0x00, // type
+            0x00, 0x00, 0x00, 0x00, // protocol
+        ];
+        msg.param[..param.len()].copy_from_slice(&param);
+
+        self.request(&mut msg, &[], &mut []).await;
+
+        assert_eq!(msg.id, 0x80010004);
+        assert!(msg.param_len >= 12);
+        let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
+        assert_eq!(status, 0);
+        assert_eq!(msg.param_len, 16);
+        let fd = u32::from_le_bytes(msg.param[12..16].try_into().unwrap());
+        debug!("got FD: {}", fd);
+    }
+}
+
+/// Background runner for the driver.
+pub struct Runner<'a, TW: embedded_io::Write> {
+    ch: ch::Runner<'a, MTU>,
+    state: &'a RefCell<StateInner>,
+    trace_writer: TW,
+}
+
+impl<'a, TW: embedded_io::Write> Runner<'a, TW> {
+    /// Run the driver operation in the background.
+    ///
+    /// You must run this in a background task, concurrently with all network operations.
+    pub async fn run(mut self) -> ! {
+        poll_fn(|cx| {
+            WAKER.register(cx.waker());
+
+            let mut state = self.state.borrow_mut();
+            state.poll(&mut self.trace_writer, &mut self.ch);
+
+            if let Poll::Ready(buf) = self.ch.poll_tx_buf(cx) {
+                let fd = 128u32; // TODO unhardcode
+                let mut msg: Message = unsafe { mem::zeroed() };
+                msg.channel = 2; // data
+                msg.id = 0x7006_0004; // IP send
+                msg.param_len = 12;
+                msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
+                state.send_message(&mut msg, buf);
+                self.ch.tx_done();
+            }
+
+            Poll::Pending
+        })
+        .await
+    }
+}
+
+const LIST_LEN: usize = 16;
+
+#[repr(C)]
+struct ControlBlock {
+    version: u32,
+    rx_base: *mut u8,
+    rx_size: usize,
+    control_list_ptr: *mut List,
+    data_list_ptr: *mut List,
+    modem_info_ptr: *mut ModemInfo,
+    trace_ptr: *mut Trace,
+    unk: u32,
+
+    modem_info: ModemInfo,
+    trace: Trace,
+
+    // 0 = control, 1 = data
+    lists: [List; 2],
+    msgs: [[Message; LIST_LEN]; 2],
+
+    tx_bufs: [[u8; TX_BUF_SIZE]; TX_BUF_COUNT],
+}
+
+#[repr(C)]
+struct ModemInfo {
+    version: u32,
+    control_list_ptr: *mut List,
+    data_list_ptr: *mut List,
+    padding: [u32; 5],
+}
+
+#[repr(C)]
+struct Trace {
+    size: usize,
+    base: *mut u8,
+    tx_state: u32,
+    tx_ptr: *mut u8,
+    rx_state: u32,
+    rx_ptr: *mut u8,
+    unk1: u32,
+    unk2: u32,
+}
+
+const TRACE_CHANNEL_COUNT: usize = 3;
+
+#[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+struct TraceContext {
+    unk1: u32,
+    unk2: u32,
+    len: u32,
+    chans: [*mut TraceChannel; TRACE_CHANNEL_COUNT],
+}
+
+#[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+struct TraceChannel {
+    id: u8,
+    unk1: u8,
+    unk2: u8,
+    unk3: u8,
+    write_ptr: *mut u8,
+    read_ptr: *mut u8,
+    start: *mut u8,
+    end: *mut u8,
+}
+
+#[repr(C)]
+struct List {
+    len: usize,
+    items: [ListItem; LIST_LEN],
+}
+
+#[repr(C)]
+struct ListItem {
+    /// top 16 bits: seqno
+    /// bottom 8 bits:
+    ///     0x01: sent
+    ///     0x02: held
+    ///     0x03: freed
+    state: u32,
+    message: *mut Message,
+}
+
+#[repr(C)]
+#[derive(defmt::Format, Clone, Copy)]
+struct Message {
+    id: u32,
+
+    /// 1 = control, 2 = data
+    channel: u8,
+    unk1: u8,
+    unk2: u8,
+    unk3: u8,
+
+    data: *mut u8,
+    data_len: usize,
+    param_len: usize,
+    param: [u8; 44],
+}
+
+struct OnDrop<F: FnOnce()> {
+    f: MaybeUninit<F>,
+}
+
+impl<F: FnOnce()> OnDrop<F> {
+    pub fn new(f: F) -> Self {
+        Self { f: MaybeUninit::new(f) }
+    }
+
+    pub fn defuse(self) {
+        mem::forget(self)
+    }
+}
+
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        unsafe { self.f.as_ptr().read()() }
+    }
+}

@@ -8,6 +8,8 @@ license = "MIT OR Apache-2.0"
 embassy-executor = { version = "0.6.0", path = "../../embassy-executor", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.3.2", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.2.0", path = "../../embassy-nrf", features = ["defmt", "nrf9160-s", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
+embassy-net-nrf91 = { version = "0.1.0", path = "../../embassy-net-nrf91", features = ["defmt"] }
+embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt", "tcp", "proto-ipv4", "medium-ip"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -15,6 +17,9 @@ defmt-rtt = "0.4"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
+static_cell = { version = "2" }
+embedded-io = "0.6.1"
+embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 
 [profile.release]
 debug = 2

@@ -1,5 +1,9 @@
 MEMORY
 {
-  FLASH                    : ORIGIN = 0x00000000, LENGTH = 1024K
-  RAM                      : ORIGIN = 0x20018000, LENGTH = 160K
+    FLASH : ORIGIN = 0x00000000, LENGTH = 1024K
+    RAM   : ORIGIN = 0x20010000, LENGTH = 192K
+    IPC   : ORIGIN = 0x20000000, LENGTH = 64K
 }
+
+PROVIDE(__start_ipc = ORIGIN(IPC));
+PROVIDE(__end_ipc   = ORIGIN(IPC) + LENGTH(IPC));
