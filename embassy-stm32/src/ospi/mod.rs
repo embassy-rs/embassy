@@ -1058,7 +1058,6 @@ fn finish_dma(regs: Regs) {
     });
 }
 
-
 #[cfg(octospim_v1)]
 /// OctoSPI I/O manager instance trait.
 pub(crate) trait SealedOctospimInstance {
