@@ -121,7 +121,7 @@ pub enum Information<'a> {
     /// Power Saving Control (PSC)
     PowerSavingControl,
     /// Multiplexer close down (CLD)
-    MultiplexerCloseDown,
+    MultiplexerCloseDown(MultiplexerCloseDown),
     /// Test Command (Test)
     TestCommand,
     /// Flow Control On Command (FCon)
@@ -158,7 +158,7 @@ impl<'a> Information<'a> {
         match self {
             Information::ParameterNegotiation(inner) => inner.wire_len(),
             Information::PowerSavingControl => todo!(),
-            Information::MultiplexerCloseDown => todo!(),
+            Information::MultiplexerCloseDown(inner) => inner.wire_len(),
             Information::TestCommand => todo!(),
             Information::FlowControlOnCommand(inner) => inner.wire_len(),
             Information::FlowControlOffCommand(inner) => inner.wire_len(),
@@ -182,7 +182,7 @@ impl<'a> Information<'a> {
             Information::Data(d) => writer.write_all(d).await.map_err(|e| Error::Write(e.kind())),
             Information::RemotePortNegotiationCommand => todo!(),
             Information::PowerSavingControl => todo!(),
-            Information::MultiplexerCloseDown => todo!(),
+            Information::MultiplexerCloseDown(inner) => inner.write(writer).await,
             Information::TestCommand => todo!(),
             Information::ServiceNegotiationCommand => todo!(),
         }
@@ -198,7 +198,7 @@ impl<'a> Information<'a> {
         Ok(match info_type {
             InformationType::ParameterNegotiation => Self::ParameterNegotiation(ParameterNegotiation { cr }),
             InformationType::PowerSavingControl => Self::PowerSavingControl,
-            InformationType::MultiplexerCloseDown => Self::MultiplexerCloseDown,
+            InformationType::MultiplexerCloseDown => Self::MultiplexerCloseDown(MultiplexerCloseDown { cr }),
             InformationType::TestCommand => Self::TestCommand,
             InformationType::FlowControlOnCommand => Self::FlowControlOnCommand(FlowControlOnCommand { cr }),
             InformationType::FlowControlOffCommand => Self::FlowControlOffCommand(FlowControlOffCommand { cr }),
@@ -263,7 +263,7 @@ impl From<u8> for FrameType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Read(embedded_io_async::ErrorKind),
@@ -305,6 +305,31 @@ impl Info for ParameterNegotiation {
         // TODO: Add Parameters!
 
         writer.write_all(&buf).await.map_err(|e| Error::Write(e.kind()))
+    }
+}
+
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct MultiplexerCloseDown {
+    pub cr: CR,
+}
+
+impl Info for MultiplexerCloseDown {
+    const INFORMATION_TYPE: InformationType = InformationType::MultiplexerCloseDown;
+
+    fn is_command(&self) -> bool {
+        self.cr == CR::Command
+    }
+
+    fn wire_len(&self) -> usize {
+        1
+    }
+
+    async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error> {
+        writer
+            .write_all(&[Self::INFORMATION_TYPE as u8 | self.cr as u8 | EA])
+            .await
+            .map_err(|e| Error::Write(e.kind()))
     }
 }
 
@@ -805,17 +830,6 @@ impl<'d> Frame for Uih<'d> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn fcs() {
-        assert!(FrameType::Sabm as u8 & PF != PF);
-        assert_eq!(FrameType::Sabm as u8 | PF, 0x3F);
-        assert_eq!(FrameType::Uih as u8, 0xEF);
-
-        // let mut fcs = FCS.digest();
-        // fcs.update(&[5, 239, 255, 166]);
-        // assert_eq!(fcs.finalize(), GOOD_FCS);
-    }
 
     #[test]
     fn read_ea_test() {

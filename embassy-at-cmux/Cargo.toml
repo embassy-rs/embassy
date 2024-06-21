@@ -20,7 +20,7 @@ log = { version = "0.4.14", optional = true }
 heapless = { version = "0.8", default-features = false }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 
-bitfield-struct = "0.6.0"
+bitfield-struct = "0.8.0"
 
 embedded-io-async = { version = "0.6.1" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }

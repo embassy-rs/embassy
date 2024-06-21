@@ -267,7 +267,7 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                             let mut supported = true;
 
                             match info {
-                                Information::MultiplexerCloseDown => {
+                                Information::MultiplexerCloseDown(_cld) => {
                                     info!("The mobile station requested mux-mode termination");
                                 }
                                 Information::TestCommand => {
