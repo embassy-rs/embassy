@@ -110,9 +110,9 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
 
         // Wait for the bus to be free
-        while info.regs.isr().read().busy(){
+        while info.regs.isr().read().busy() {
             timeout.check()?;
-        };
+        }
 
         let reload = if reload {
             i2c::vals::Reload::NOTCOMPLETED
