@@ -16,6 +16,7 @@ use crate::dma::{word, ChannelAndRequest};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::octospi::{vals, Octospi as Regs};
+#[cfg(octospim_v1)]
 use crate::pac::octospim::Octospim;
 use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
@@ -1057,6 +1058,8 @@ fn finish_dma(regs: Regs) {
     });
 }
 
+
+#[cfg(octospim_v1)]
 /// OctoSPI I/O manager instance trait.
 pub(crate) trait SealedOctospimInstance {
     const OCTOSPIM_REGS: Octospim;
@@ -1072,8 +1075,12 @@ trait SealedWord {
 }
 
 /// OSPI instance trait.
+#[cfg(octospim_v1)]
 #[allow(private_bounds)]
 pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral + SealedOctospimInstance {}
+#[cfg(not(octospim_v1))]
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(NckPin, Instance);
@@ -1089,6 +1096,7 @@ pin_trait!(DQSPin, Instance);
 pin_trait!(NSSPin, Instance);
 dma_trait!(OctoDma, Instance);
 
+#[cfg(octospim_v1)]
 foreach_peripheral!(
     (octospi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
@@ -1098,6 +1106,17 @@ foreach_peripheral!(
         impl SealedOctospimInstance for peripherals::$inst {
             // Hardcoded, is it good?
             const OCTOSPIM_REGS: Octospim = crate::pac::OCTOSPIM;
+        }
+
+        impl Instance for peripherals::$inst {}
+    };
+);
+
+#[cfg(not(octospim_v1))]
+foreach_peripheral!(
+    (octospi, $inst:ident) => {
+        impl SealedInstance for peripherals::$inst {
+            const REGS: Regs = crate::pac::$inst;
         }
 
         impl Instance for peripherals::$inst {}
