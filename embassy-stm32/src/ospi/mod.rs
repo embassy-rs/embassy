@@ -1077,6 +1077,8 @@ trait SealedWord {
 #[cfg(octospim_v1)]
 #[allow(private_bounds)]
 pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral + SealedOctospimInstance {}
+
+/// OSPI instance trait.
 #[cfg(not(octospim_v1))]
 #[allow(private_bounds)]
 pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
