@@ -133,7 +133,7 @@ async fn main(_spawner: Spawner) {
     {
         let mut multi = [0u16; 2];
         let mut channels = [
-            Channel::new_pin(&mut p.PIN_29, Pull::Up),
+            Channel::new_pin(&mut p.PIN_26, Pull::Up),
             Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR),
         ];
         adc.read_many_multichannel(&mut channels, &mut multi, 1, &mut p.DMA_CH0)
