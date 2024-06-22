@@ -199,8 +199,73 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     ) -> Self {
         into_ref!(peri);
 
-        // System configuration
-        rcc::enable_and_reset::<T>();
+        info!("Doing OCTOSPIM config");
+
+        // Disable OctoSPI peripheral first
+        T::REGS.cr().modify(|w| {
+            w.set_en(false);
+        });
+
+        // FIXME: Cannot write OCTOSPIM_REGS
+        // OctoSPI IO Manager has been enabled before
+        T::OCTOSPIM_REGS.cr().modify(|w| {
+            w.set_muxen(true);
+            w.set_req2ack_time(0xff);
+        });
+
+        info!("OCTOSPIM REG addr: {:X} muxen: {}", T::OCTOSPIM_REGS.as_ptr() as u32, T::OCTOSPIM_REGS.cr().read().muxen());
+
+        // Clear config
+        T::OCTOSPIM_REGS.p1cr().modify(|w| {
+            w.set_clksrc(false);
+            w.set_dqssrc(false);
+            w.set_ncssrc(false);
+            w.set_clken(false);
+            w.set_dqsen(false);
+            w.set_ncsen(false);
+            w.set_iolsrc(0);
+            w.set_iohsrc(0);
+        });
+
+        T::OCTOSPIM_REGS.p2cr().modify(|w| {
+            w.set_clksrc(true);
+            w.set_clken(true);
+            w.set_dqssrc(true);
+            w.set_dqsen(true);
+            w.set_ncssrc(true);
+            w.set_ncsen(true);
+            w.set_iolsrc(0);
+            w.set_iolen(true);
+            w.set_iohsrc(0b11);
+            w.set_iohen(true);
+        });
+
+        // Enable NCS for OctoSPIM port 1
+        T::OCTOSPIM_REGS.p1cr().modify(|w| {
+            w.set_ncsen(true);
+            // w.set_ncssrc(true);
+            w.set_clken(true);
+            // w.set_clksrc(true);
+            if dqs.is_some() {
+                w.set_dqsen(true);
+                w.set_dqssrc(true);
+            }
+
+            // FIXME: IOL and IOH are enabled only for OCTOSPI1
+            // Enable IOL by default
+            w.set_iolen(true);
+            w.set_iolsrc(0);
+
+            // Enable IOH in octo and dual quad mode
+            if let OspiWidth::OCTO = width {
+                w.set_iohen(true);
+                w.set_iohsrc(0);
+            } else if dual_quad {
+                w.set_iohen(true);
+                w.set_iohsrc(0);
+            }
+        });
+
         while T::REGS.sr().read().busy() {}
 
         // Device configuration
