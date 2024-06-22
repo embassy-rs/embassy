@@ -199,21 +199,19 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     ) -> Self {
         into_ref!(peri);
 
-        info!("Doing OCTOSPIM config");
+        // RCC for octospim should be enabled before writing register
+        crate::pac::RCC.ahb3enr().modify(|w| w.set_iomngren(true));
 
         // Disable OctoSPI peripheral first
         T::REGS.cr().modify(|w| {
             w.set_en(false);
         });
 
-        // FIXME: Cannot write OCTOSPIM_REGS
         // OctoSPI IO Manager has been enabled before
         T::OCTOSPIM_REGS.cr().modify(|w| {
-            w.set_muxen(true);
+            w.set_muxen(false);
             w.set_req2ack_time(0xff);
         });
-
-        info!("OCTOSPIM REG addr: {:X} muxen: {}", T::OCTOSPIM_REGS.as_ptr() as u32, T::OCTOSPIM_REGS.cr().read().muxen());
 
         // Clear config
         T::OCTOSPIM_REGS.p1cr().modify(|w| {
@@ -227,31 +225,17 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_iohsrc(0);
         });
 
-        T::OCTOSPIM_REGS.p2cr().modify(|w| {
-            w.set_clksrc(true);
-            w.set_clken(true);
-            w.set_dqssrc(true);
-            w.set_dqsen(true);
-            w.set_ncssrc(true);
-            w.set_ncsen(true);
-            w.set_iolsrc(0);
-            w.set_iolen(true);
-            w.set_iohsrc(0b11);
-            w.set_iohen(true);
-        });
-
-        // Enable NCS for OctoSPIM port 1
         T::OCTOSPIM_REGS.p1cr().modify(|w| {
             w.set_ncsen(true);
-            // w.set_ncssrc(true);
+            w.set_ncssrc(false);
             w.set_clken(true);
-            // w.set_clksrc(true);
+            w.set_clksrc(false);
             if dqs.is_some() {
                 w.set_dqsen(true);
-                w.set_dqssrc(true);
+                w.set_dqssrc(false);
             }
 
-            // FIXME: IOL and IOH are enabled only for OCTOSPI1
+            // FIXME: IOL and IOH are enabled only for OCTOSPI1 currently
             // Enable IOL by default
             w.set_iolen(true);
             w.set_iolsrc(0);
@@ -263,9 +247,14 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             } else if dual_quad {
                 w.set_iohen(true);
                 w.set_iohsrc(0);
+            } else {
+                w.set_iohen(false);
+                w.set_iohsrc(0);
             }
         });
 
+        // System configuration
+        rcc::enable_and_reset::<T>();
         while T::REGS.sr().read().busy() {}
 
         // Device configuration
