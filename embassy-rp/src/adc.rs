@@ -219,6 +219,8 @@ impl<'d> Adc<'d, Async> {
         }
     }
 
+    // Note for refactoring: we don't require the actual Channels here, just the channel numbers.
+    // The public api is responsible for asserting ownership of the actual Channels.
     async fn read_many_inner<W: dma::Word>(
         &mut self,
         channels: impl Iterator<Item = u8>,
