@@ -2,10 +2,8 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::{
-    bind_interrupts,
-    tsc::{self, *},
-};
+use embassy_stm32::bind_interrupts;
+use embassy_stm32::tsc::{self, *};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 

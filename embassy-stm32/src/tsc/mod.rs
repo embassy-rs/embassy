@@ -65,19 +65,18 @@
 /// Enums defined for peripheral parameters
 pub mod enums;
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 pub use enums::*;
 
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
-use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
-use core::future::poll_fn;
-use core::task::Poll;
-use embassy_sync::waitqueue::AtomicWaker;
+use crate::{interrupt, peripherals, Peripheral};
 
 #[cfg(tsc_v1)]
 const TSC_NUM_GROUPS: u32 = 6;
