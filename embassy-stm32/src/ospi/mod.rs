@@ -199,59 +199,60 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     ) -> Self {
         into_ref!(peri);
 
-        // RCC for octospim should be enabled before writing register
-        crate::pac::RCC.ahb3enr().modify(|w| w.set_iomngren(true));
+        #[cfg(feature = "octospim_v1")]
+        {
+            // RCC for octospim should be enabled before writing register
+            crate::pac::RCC.ahb3enr().modify(|w| w.set_iomngren(true));
 
-        // Disable OctoSPI peripheral first
-        T::REGS.cr().modify(|w| {
-            w.set_en(false);
-        });
+            // Disable OctoSPI peripheral first
+            T::REGS.cr().modify(|w| {
+                w.set_en(false);
+            });
 
-        // OctoSPI IO Manager has been enabled before
-        T::OCTOSPIM_REGS.cr().modify(|w| {
-            w.set_muxen(false);
-            w.set_req2ack_time(0xff);
-        });
+            // OctoSPI IO Manager has been enabled before
+            T::OCTOSPIM_REGS.cr().modify(|w| {
+                w.set_muxen(false);
+                w.set_req2ack_time(0xff);
+            });
 
-        // Clear config
-        T::OCTOSPIM_REGS.p1cr().modify(|w| {
-            w.set_clksrc(false);
-            w.set_dqssrc(false);
-            w.set_ncssrc(false);
-            w.set_clken(false);
-            w.set_dqsen(false);
-            w.set_ncsen(false);
-            w.set_iolsrc(0);
-            w.set_iohsrc(0);
-        });
-
-        T::OCTOSPIM_REGS.p1cr().modify(|w| {
-            w.set_ncsen(true);
-            w.set_ncssrc(false);
-            w.set_clken(true);
-            w.set_clksrc(false);
-            if dqs.is_some() {
-                w.set_dqsen(true);
+            // Clear config
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                w.set_clksrc(false);
                 w.set_dqssrc(false);
-            }
+                w.set_ncssrc(false);
+                w.set_clken(false);
+                w.set_dqsen(false);
+                w.set_ncsen(false);
+                w.set_iolsrc(0);
+                w.set_iohsrc(0);
+            });
 
-            // FIXME: IOL and IOH are enabled only for OCTOSPI1 currently
-            // Enable IOL by default
-            w.set_iolen(true);
-            w.set_iolsrc(0);
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                w.set_ncsen(true);
+                w.set_ncssrc(false);
+                w.set_clken(true);
+                w.set_clksrc(false);
+                if dqs.is_some() {
+                    w.set_dqsen(true);
+                    w.set_dqssrc(false);
+                }
 
-            // Enable IOH in octo and dual quad mode
-            if let OspiWidth::OCTO = width {
-                w.set_iohen(true);
-                w.set_iohsrc(0);
-            } else if dual_quad {
-                w.set_iohen(true);
-                w.set_iohsrc(0);
-            } else {
-                w.set_iohen(false);
-                w.set_iohsrc(0);
-            }
-        });
+                // IOL and IOH are enabled only for OCTOSPI1 currently
+                w.set_iolen(true);
+                w.set_iolsrc(0);
+                // Enable IOH in octo and dual quad mode
+                if let OspiWidth::OCTO = width {
+                    w.set_iohen(true);
+                    w.set_iohsrc(0);
+                } else if dual_quad {
+                    w.set_iohen(true);
+                    w.set_iohsrc(0);
+                } else {
+                    w.set_iohen(false);
+                    w.set_iohsrc(0);
+                }
+            });
+        }
 
         // System configuration
         rcc::enable_and_reset::<T>();
