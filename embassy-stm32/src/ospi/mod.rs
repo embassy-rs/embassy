@@ -202,6 +202,11 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         #[cfg(octospim_v1)]
         {
             // RCC for octospim should be enabled before writing register
+            #[cfg(stm32l4)]
+            crate::pac::RCC.ahb2smenr().modify(|w| w.set_octospimsmen(true));
+            #[cfg(stm32u5)]
+            crate::pac::RCC.ahb2enr1().modify(|w| w.set_octospimen(true));
+            #[cfg(not(any(stm32l4, stm32u5)))]
             crate::pac::RCC.ahb3enr().modify(|w| w.set_iomngren(true));
 
             // Disable OctoSPI peripheral first
