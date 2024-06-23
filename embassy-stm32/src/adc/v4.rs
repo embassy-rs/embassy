@@ -126,6 +126,21 @@ impl Prescaler {
     }
 }
 
+/// Number of samples used for averaging.
+pub enum Averaging {
+    Disabled,
+    Samples2,
+    Samples4,
+    Samples8,
+    Samples16,
+    Samples32,
+    Samples64,
+    Samples128,
+    Samples256,
+    Samples512,
+    Samples1024,
+}
+
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
@@ -250,6 +265,29 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
+    }
+
+    /// Set hardware averaging.
+    pub fn set_averaging(&mut self, averaging: Averaging) {
+        let (enable, samples, right_shift) = match averaging {
+            Averaging::Disabled => (false, 0, 0),
+            Averaging::Samples2 => (true, 1, 1),
+            Averaging::Samples4 => (true, 3, 2),
+            Averaging::Samples8 => (true, 7, 3),
+            Averaging::Samples16 => (true, 15, 4),
+            Averaging::Samples32 => (true, 31, 5),
+            Averaging::Samples64 => (true, 63, 6),
+            Averaging::Samples128 => (true, 127, 7),
+            Averaging::Samples256 => (true, 255, 8),
+            Averaging::Samples512 => (true, 511, 9),
+            Averaging::Samples1024 => (true, 1023, 10),
+        };
+
+        T::regs().cfgr2().modify(|reg| {
+            reg.set_rovse(enable);
+            reg.set_osvr(samples);
+            reg.set_ovss(right_shift);
+        })
     }
 
     /// Perform a single conversion.
