@@ -199,7 +199,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     ) -> Self {
         into_ref!(peri);
 
-        #[cfg(feature = "octospim_v1")]
+        #[cfg(octospim_v1)]
         {
             // RCC for octospim should be enabled before writing register
             crate::pac::RCC.ahb3enr().modify(|w| w.set_iomngren(true));
