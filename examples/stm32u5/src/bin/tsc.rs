@@ -2,9 +2,16 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::tsc::{self, *};
+use embassy_stm32::{
+    bind_interrupts,
+    tsc::{self, *},
+};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    TSC => InterruptHandler<embassy_stm32::peripherals::TSC>;
+});
 
 #[cortex_m_rt::exception]
 unsafe fn HardFault(_: &cortex_m_rt::ExceptionFrame) -> ! {
@@ -47,6 +54,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     let mut touch_controller = tsc::Tsc::new(
         context.TSC,
+        Irqs,
         Some(g1),
         Some(g2),
         None,
@@ -67,7 +75,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut group_seven_val = 0;
     info!("Starting touch_controller interface");
     loop {
-        touch_controller.poll_for_acquisition();
+        touch_controller.pend_for_acquisition().await;
         touch_controller.discharge_io(true);
         Timer::after_millis(1).await;
 
