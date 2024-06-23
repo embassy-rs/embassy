@@ -6,7 +6,7 @@ use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime, Sequence};
-use embassy_time::Instant;
+use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -20,16 +20,16 @@ async fn main(_spawner: Spawner) {
     let mut adc = Adc::new(p.ADC1);
     let mut adc2 = Adc::new(p.ADC2);
 
-    adc.set_sample_sequence(Sequence::One, &mut p.PA0, SampleTime::CYCLES3)
+    adc.set_sample_sequence(Sequence::One, &mut p.PA0, SampleTime::CYCLES112)
         .await;
 
-    adc.set_sample_sequence(Sequence::Two, &mut p.PA1, SampleTime::CYCLES3)
+    adc.set_sample_sequence(Sequence::Two, &mut p.PA1, SampleTime::CYCLES112)
         .await;
 
-    adc2.set_sample_sequence(Sequence::One, &mut p.PA2, SampleTime::CYCLES3)
+    adc2.set_sample_sequence(Sequence::One, &mut p.PA2, SampleTime::CYCLES112)
         .await;
 
-    adc2.set_sample_sequence(Sequence::Two, &mut p.PA3, SampleTime::CYCLES3)
+    adc2.set_sample_sequence(Sequence::Two, &mut p.PA3, SampleTime::CYCLES112)
         .await;
 
     let mut adc_dma = adc.start_read_continuous(p.DMA2_CH0, adc_data);
@@ -39,6 +39,8 @@ async fn main(_spawner: Spawner) {
     let mut buffer1 = [0u16; 256];
     let mut buffer2 = [0u16; 256];
     loop {
+        
+        
         match adc.get_dma_buf(&mut adc_dma, &mut buffer1).await {
             Ok(_data) => {} //info!("adc1 sa: {}", data),
             Err(e) => {
@@ -54,14 +56,18 @@ async fn main(_spawner: Spawner) {
                 continue;
             }
         }
+
         let toc = Instant::now();
         info!(
             "\n adc1: {}, adc2: {}, dt = {}",
-            buffer1[0..56],
-            buffer2[0..56],
+            buffer1[0..4],
+            buffer2[0..4],
             (toc - tic).as_micros()
         );
         // info!("{}", (toc - tic).as_micros());
         tic = toc;
+
+        Timer::after_millis(1).await;
+
     }
 }
