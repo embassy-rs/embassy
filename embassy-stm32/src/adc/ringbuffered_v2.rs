@@ -1,10 +1,7 @@
-use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
-use core::task::Poll;
 
-use embassy_futures::yield_now;
 use embassy_hal_internal::into_ref;
 
 use super::{Adc, RxDma};
@@ -22,7 +19,7 @@ fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
 
 pub struct RingBufferedAdc<'d, T: Instance> {
     _phantom: PhantomData<T>,
-    // rx_dma: PeripheralRef<'d, S>,
+    // rx_dma: RxDma<T>,
     ring_buf: ReadableRingBuffer<'d, u16>,
 }
 
@@ -43,6 +40,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         RingBufferedAdc {
             _phantom: PhantomData,
+            // rx_dma,
             ring_buf,
         }
     }
@@ -102,7 +100,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         let was_on = Self::is_on();
         if !was_on {
             r.cr2().modify(|reg| {
-                reg.set_adon(true);
+                reg.set_adon(false);
                 reg.set_swstart(false);
             });
         }
@@ -111,6 +109,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         r.sr().modify(|regs| {
             regs.set_eoc(false);
             regs.set_ovr(false);
+            regs.set_strt(false);
         });
 
         r.cr1().modify(|w| {
@@ -132,7 +131,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             // DMA requests are issues as long as DMA=1 and data are converted.
             w.set_dds(vals::Dds::CONTINUOUS);
             // EOC flag is set at the end of each conversion.
-            w.set_eocs(vals::Eocs::EACHSEQUENCE);
+            w.set_eocs(vals::Eocs::EACHCONVERSION);
         });
 
         //Being ADC conversions
@@ -140,6 +139,8 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             reg.set_adon(true);
             reg.set_swstart(true);
         });
+
+        super::blocking_delay_us(3);
     }
 
     /// Read bytes that are readily available in the ring buffer.
@@ -150,7 +151,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     ///
     /// Receive in the background is terminated if an error is returned.
     /// It must then manually be started again by calling `start()` or by re-calling `read()`.
-    pub async fn read(&mut self, buf: &mut [u16]) -> Result<usize, OverrunError> {
+    pub async fn read<const N: usize>(&mut self, buf: &mut [u16; N]) -> Result<usize, OverrunError> {
         let r = T::regs();
 
         // Start background receive if it was not already started
@@ -169,11 +170,12 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
         loop {
             match self.ring_buf.read(buf) {
-                Ok((0, _)) => {
-                    yield_now().await;
-                }
+                Ok((0, _)) => {}
                 Ok((len, _)) => {
+                    // if len > N / 2 && len < N {
                     return Ok(len);
+                    // }
+                    // yield_now().await;
                 }
                 Err(_) => {
                     return self.stop(OverrunError);
