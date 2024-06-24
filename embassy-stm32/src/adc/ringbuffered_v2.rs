@@ -4,6 +4,7 @@ use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_futures::yield_now;
 use embassy_hal_internal::into_ref;
 
 use super::{Adc, RxDma};
@@ -163,42 +164,23 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
                 regs.set_ovr(false);
                 regs.set_eoc(false);
             });
-            trace!("FLAG OVR");
-            return self.stop(OverrunError);
+            // return self.stop(OverrunError);
         }
 
         loop {
             match self.ring_buf.read(buf) {
-                Ok((0, _)) => {}
+                Ok((0, _)) => {
+                    yield_now().await;
+                }
                 Ok((len, _)) => {
                     return Ok(len);
                 }
                 Err(_) => {
-                    trace!("OVERRUN on READ");
                     return self.stop(OverrunError);
                 }
             }
         }
     }
-
-    //     async fn wait_for_data(&mut self) {
-    //         compiler_fence(Ordering::SeqCst);
-
-    //         let mut dma_init = false;
-    //         // Future which completes when there is dma is half full or full
-    //         let dma = poll_fn(|cx| {
-    //             self.ring_buf.set_waker(cx.waker());
-
-    //             let status = match dma_init {
-    //                 false => Poll::Pending,
-    //                 true => Poll::Ready(()),
-    //             };
-
-    //             dma_init = true;
-    //             status
-    //         });
-    //         dma.await;
-    //     }
 }
 
 impl<T: Instance> Drop for RingBufferedAdc<'_, T> {

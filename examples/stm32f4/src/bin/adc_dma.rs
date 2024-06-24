@@ -25,16 +25,16 @@ async fn main(spawner: Spawner) -> ! {
     adc.set_sample_sequence(Sequence::Two, &mut p.PA1, SampleTime::CYCLES112)
         .await;
 
-    adc.set_sample_sequence(Sequence::Three, &mut p.PA2, SampleTime::CYCLES112)
-        .await;
+    // adc.set_sample_sequence(Sequence::Three, &mut p.PA2, SampleTime::CYCLES112)
     //     .await;
-    adc.set_sample_sequence(Sequence::Four, &mut p.PA3, SampleTime::CYCLES112)
-        .await;
+    // //     .await;
+    // adc.set_sample_sequence(Sequence::Four, &mut p.PA3, SampleTime::CYCLES112)
+    //     .await;
 
     let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(p.DMA2_CH0, adc_data);
 
     let mut tic = Instant::now();
-    let mut buffer1 = [0u16; 32];
+    let mut buffer1 = [0u16; 512];
     let _ = adc.start();
     loop {
         match adc.read(&mut buffer1).await {
@@ -50,11 +50,12 @@ async fn main(spawner: Spawner) -> ! {
             }
             Err(e) => {
                 warn!("Error: {:?}", e);
-                buffer1 = [0u16; 32];
+                buffer1 = [0u16; 512];
                 let _ = adc.start();
+                continue;
             }
         }
 
-        Timer::after_millis(1).await;
+        Timer::after_micros(800).await;
     }
 }
