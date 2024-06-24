@@ -25,7 +25,7 @@ fixed = "1.23.1"
 fixed-macro = "1.2"
 
 # for web request example
-reqwless = { version = "0.12.0", features = ["defmt"] }
+reqwless = { git = "https://github.com/drogue-iot/reqwless", features = ["defmt",]}
 serde = { version = "1.0.203", default-features = false, features = ["derive"] }
 serde-json-core = "0.5.1"
 
@@ -58,3 +58,7 @@ embedded-sdmmc = "0.7.0"
 
 [profile.release]
 debug = 2
+
+[profile.dev]
+lto = true
+opt-level = "z"
