@@ -13,17 +13,17 @@ use serde_json_core;
 use cyw43_pio::PioSpi;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_net::{Config, Stack, StackResources};
-use embassy_net::tcp::client::{TcpClientState, TcpClient};
 use embassy_net::dns::DnsSocket;
+use embassy_net::tcp::client::{TcpClient, TcpClientState};
+use embassy_net::{Config, Stack, StackResources};
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::{Duration, Timer};
-use static_cell::StaticCell;
 use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use reqwless::request::Method;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -124,9 +124,7 @@ async fn main(spawner: Spawner) {
 
     // And now we can use it!
 
-    
     loop {
-
         let mut rx_buffer = [0; 8192];
         let mut tls_read_buffer = [0; 16640];
         let mut tls_write_buffer = [0; 16640];
@@ -134,17 +132,12 @@ async fn main(spawner: Spawner) {
         let client_state = TcpClientState::<1, 1024, 1024>::new();
         let tcp_client = TcpClient::new(stack, &client_state);
         let dns_client = DnsSocket::new(stack);
-        let tls_config = TlsConfig::new(
-            seed,
-            &mut tls_read_buffer,
-            &mut tls_write_buffer,
-            TlsVerify::None,
-        );
-        
+        let tls_config = TlsConfig::new(seed, &mut tls_read_buffer, &mut tls_write_buffer, TlsVerify::None);
+
         let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns_client, tls_config);
         let url = "https://worldtimeapi.org/api/timezone/Europe/Berlin";
         // let mut http_client = HttpClient::new(&tcp_client, &dns_client); // for non-TLS requests
-        // let url = "http://worldtimeapi.org/api/timezone/Europe/Berlin";  
+        // let url = "http://worldtimeapi.org/api/timezone/Europe/Berlin";
 
         info!("connecting to {}", &url);
 
@@ -160,7 +153,7 @@ async fn main(spawner: Spawner) {
             Ok(resp) => resp,
             Err(_e) => {
                 error!("Failed to send HTTP request");
-                return // handle the error;
+                return; // handle the error;
             }
         };
 
@@ -168,13 +161,13 @@ async fn main(spawner: Spawner) {
             Ok(b) => b,
             Err(_e) => {
                 error!("Failed to read response body");
-                return // handle the error
+                return; // handle the error
             }
         };
         info!("Response body: {:?}", &body);
 
         // parse the response body and update the RTC
-        
+
         #[derive(Deserialize)]
         struct ApiResponse<'a> {
             datetime: &'a str,
