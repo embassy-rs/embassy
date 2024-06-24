@@ -32,6 +32,13 @@ async fn main(spawner: Spawner) {
 
     let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(p.DMA2_CH0, adc_data);
 
+    // Note that overrun is a big consideration in this implementation. Whatever task is running the adc.read() calls absolutely must circle back around
+    // to the adc.read() call before the DMA buffer is wrapped around > 1 time. At this point, the overrun is so significant that the context of
+    // what channel is at what index is lost. The buffer must be cleared and reset. This *is* handled here, but allowing this to happen will cause
+    // a reduction of performance as each time the buffer is reset, the adc & dma buffer must be restarted.
+
+    // An interrupt executor with a higher priority than other tasks may be a good approach here, allowing this task to wake and read the buffer most
+    // frequently.
     let mut tic = Instant::now();
     let mut buffer1: [u16; 256] = [0u16; 256];
     let _ = adc.start();

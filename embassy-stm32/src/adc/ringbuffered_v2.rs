@@ -169,7 +169,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         if r.sr().read().ovr() {
             r.sr().modify(|regs| {
                 regs.set_ovr(false);
-                regs.set_eoc(false);
+                // regs.set_eoc(false);
             });
             // return self.stop(OverrunError);
         }
@@ -178,16 +178,43 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             match self.ring_buf.read(buf) {
                 Ok((0, _)) => {}
                 Ok((len, _)) => {
-                    // if len > N / 2 && len < N {
                     return Ok(len);
-                    // }
-                    // yield_now().await;
                 }
                 Err(_) => {
                     return self.stop(OverrunError);
                 }
             }
         }
+    }
+
+    pub async fn read_exact<const N: usize>(&mut self, buf: &mut [u16; N]) -> Result<usize, OverrunError> {
+        let r = T::regs();
+
+        // Start background receive if it was not already started
+        if !r.cr2().read().dma() {
+            self.start()?;
+        }
+
+        // Clear overrun flag if set.
+        if r.sr().read().ovr() {
+            r.sr().modify(|regs| {
+                regs.set_ovr(false);
+                // regs.set_eoc(false);
+            });
+            // return self.stop(OverrunError);
+        }
+        // Consider stopping ADC conversion before calling.
+        // T::regs().cr2().modify(|w| {
+        //     w.set_swstart(false);
+        // });
+        match self.ring_buf.read_exact(buf).await {
+            Ok(len) => Ok(len),
+            Err(_) => self.stop(OverrunError),
+        }
+        // The restart them before returning.
+        // T::regs().cr2().modify(|w| {
+        //     w.set_swstart(truw);
+        // });
     }
 }
 
