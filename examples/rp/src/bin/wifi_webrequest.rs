@@ -95,7 +95,7 @@ async fn main(spawner: Spawner) {
     unwrap!(spawner.spawn(net_task(stack)));
 
     loop {
-        //match control.join_open(WIFI_NETWORK).await { // for open networks 
+        //match control.join_open(WIFI_NETWORK).await { // for open networks
         match control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await {
             Ok(_) => break,
             Err(err) => {
@@ -136,7 +136,7 @@ async fn main(spawner: Spawner) {
         let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns_client, tls_config);
         let url = "https://worldtimeapi.org/api/timezone/Europe/Berlin";
         // for non-TLS requests, use this instead:
-        // let mut http_client = HttpClient::new(&tcp_client, &dns_client); 
+        // let mut http_client = HttpClient::new(&tcp_client, &dns_client);
         // let url = "http://worldtimeapi.org/api/timezone/Europe/Berlin";
 
         info!("connecting to {}", &url);
