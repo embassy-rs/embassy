@@ -72,6 +72,7 @@ async fn main(spawner: Spawner) {
         .await;
 
     let config = Config::dhcpv4(Default::default());
+    // Use static IP configuration instead of DHCP
     //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
     //    address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
     //    dns_servers: Vec::new(),
@@ -94,7 +95,7 @@ async fn main(spawner: Spawner) {
     unwrap!(spawner.spawn(net_task(stack)));
 
     loop {
-        //control.join_open(WIFI_NETWORK).await;
+        //match control.join_open(WIFI_NETWORK).await { // for open networks 
         match control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await {
             Ok(_) => break,
             Err(err) => {
@@ -134,7 +135,8 @@ async fn main(spawner: Spawner) {
 
         let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns_client, tls_config);
         let url = "https://worldtimeapi.org/api/timezone/Europe/Berlin";
-        // let mut http_client = HttpClient::new(&tcp_client, &dns_client); // for non-TLS requests
+        // for non-TLS requests, use this instead:
+        // let mut http_client = HttpClient::new(&tcp_client, &dns_client); 
         // let url = "http://worldtimeapi.org/api/timezone/Europe/Berlin";
 
         info!("connecting to {}", &url);
