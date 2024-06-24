@@ -2,12 +2,12 @@ use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use embassy_hal_internal::into_ref;
+use embassy_hal_internal::{into_ref, Peripheral};
 
 use super::{Adc, RxDma};
 use crate::adc::Instance;
 use crate::dma::ringbuffer::OverrunError;
-use crate::dma::ReadableRingBuffer;
+use crate::dma::{Priority, ReadableRingBuffer};
 use crate::pac::adc::vals;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
@@ -19,28 +19,33 @@ fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
 
 pub struct RingBufferedAdc<'d, T: Instance> {
     _phantom: PhantomData<T>,
-    // rx_dma: RxDma<T>,
     ring_buf: ReadableRingBuffer<'d, u16>,
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn into_ring_buffered(self, rx_dma: impl RxDma<T>, dma_buf: &'d mut [u16]) -> RingBufferedAdc<'d, T> {
+    pub fn into_ring_buffered(
+        self,
+        dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        dma_buf: &'d mut [u16],
+    ) -> RingBufferedAdc<'d, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
-        into_ref!(rx_dma);
-        let opts = Default::default();
+        into_ref!(dma);
 
-        let rx_src = T::regs().dr().as_ptr() as *mut u16;
+        let mut opts: crate::dma::TransferOptions = Default::default();
+        opts.half_transfer_ir = true;
+        opts.priority = Priority::VeryHigh;
+
         // Safety: we forget the struct before this function returns.
-        let request = rx_dma.request();
+        let rx_src = T::regs().dr().as_ptr() as *mut u16;
+        let request = dma.request();
 
-        let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rx_src, dma_buf, opts) };
+        let ring_buf = unsafe { ReadableRingBuffer::new(dma, request, rx_src, dma_buf, opts) };
 
         // Don't disable the clock
         mem::forget(self);
 
         RingBufferedAdc {
             _phantom: PhantomData,
-            // rx_dma,
             ring_buf,
         }
     }
@@ -65,6 +70,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     }
 
     pub fn teardown_adc(&mut self) {
+        // Stop the DMA transfer
         self.ring_buf.request_stop();
 
         let r = T::regs();
