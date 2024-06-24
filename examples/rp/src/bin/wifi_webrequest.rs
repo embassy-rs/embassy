@@ -7,9 +7,6 @@
 
 use core::str::from_utf8;
 
-use serde::Deserialize;
-use serde_json_core;
-
 use cyw43_pio::PioSpi;
 use defmt::*;
 use embassy_executor::Spawner;
@@ -23,8 +20,9 @@ use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::{Duration, Timer};
 use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use reqwless::request::Method;
+use serde::Deserialize;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, panic_probe as _, serde_json_core};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
