@@ -3,17 +3,15 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 use cortex_m::singleton;
-use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_futures::block_on;
 use embassy_stm32::adc::ringbuffered_v2::RingBufferedAdc;
 use embassy_stm32::adc::{Adc, SampleTime, Sequence};
 use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     const ADC_BUF_SIZE: usize = 1024;
     let mut p = embassy_stm32::init(Default::default());
 
@@ -58,10 +56,10 @@ async fn main(spawner: Spawner) {
                 warn!("Error: {:?}", e);
                 buffer1 = [0u16; 256];
                 let _ = adc.start();
-                // continue;
+                continue;
             }
         }
 
-        Timer::after_micros(300).await;
+        // Timer::after_micros(300).await;
     }
 }
