@@ -4,14 +4,19 @@ use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, RingBufferedAdc, SampleTime, Sequence};
-use embassy_time::{Instant, Timer};
+use embassy_stm32::Peripherals;
+use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    const ADC_BUF_SIZE: usize = 1024;
-    let mut p = embassy_stm32::init(Default::default());
+async fn main(spawner: Spawner) {
+    let p = embassy_stm32::init(Default::default());
+    spawner.must_spawn(adc_task(p));
+}
 
+#[embassy_executor::task]
+async fn adc_task(mut p: Peripherals) {
+    const ADC_BUF_SIZE: usize = 1024;
     let adc_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
     let adc_data2: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT2 : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
 
@@ -34,8 +39,8 @@ async fn main(_spawner: Spawner) {
     // An interrupt executor with a higher priority than other tasks may be a good approach here, allowing this task to wake and read the buffer most
     // frequently.
     let mut tic = Instant::now();
-    let mut buffer1 = [0u16; 256];
-    let mut buffer2 = [0u16; 256];
+    let mut buffer1 = [0u16; 512];
+    let mut buffer2 = [0u16; 512];
     let _ = adc.start();
     let _ = adc2.start();
     loop {
@@ -52,7 +57,7 @@ async fn main(_spawner: Spawner) {
             }
             Err(e) => {
                 warn!("Error: {:?}", e);
-                buffer1 = [0u16; 256];
+                buffer1 = [0u16; 512];
                 let _ = adc.start();
             }
         }
@@ -70,7 +75,7 @@ async fn main(_spawner: Spawner) {
             }
             Err(e) => {
                 warn!("Error: {:?}", e);
-                buffer2 = [0u16; 256];
+                buffer2 = [0u16; 512];
                 let _ = adc2.start();
             }
         }
