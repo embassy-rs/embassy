@@ -1,19 +1,16 @@
-// required-features: nrf52840
+// required-features: two-uarts
 #![no_std]
 #![no_main]
-teleprobe_meta::target!(b"nrf52840-dk");
+
+#[path = "../common.rs"]
+mod common;
 
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::buffered_uarte::{self, BufferedUarteRx, BufferedUarteTx};
-use embassy_nrf::{bind_interrupts, peripherals, uarte};
+use embassy_nrf::{peripherals, uarte};
 use {defmt_rtt as _, panic_probe as _};
-
-bind_interrupts!(struct Irqs {
-    UARTE0_UART0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;
-    UARTE1 => buffered_uarte::InterruptHandler<peripherals::UARTE1>;
-});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -29,16 +26,22 @@ async fn main(_spawner: Spawner) {
     for _ in 0..2 {
         const COUNT: usize = 40_000;
 
-        let mut tx = BufferedUarteTx::new(&mut p.UARTE1, Irqs, &mut p.P1_02, config.clone(), &mut tx_buffer);
+        let mut tx = BufferedUarteTx::new(
+            &mut peri!(p, UART1),
+            irqs!(UART1_BUFFERED),
+            &mut peri!(p, PIN_A),
+            config.clone(),
+            &mut tx_buffer,
+        );
 
         let mut rx = BufferedUarteRx::new(
-            &mut p.UARTE0,
+            &mut peri!(p, UART0),
             &mut p.TIMER0,
             &mut p.PPI_CH0,
             &mut p.PPI_CH1,
             &mut p.PPI_GROUP0,
-            Irqs,
-            &mut p.P1_03,
+            irqs!(UART0_BUFFERED),
+            &mut peri!(p, PIN_B),
             config.clone(),
             &mut rx_buffer,
         );

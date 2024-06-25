@@ -1,18 +1,16 @@
-// required-features: nrf52840
+// required-features: easydma
 #![no_std]
 #![no_main]
-teleprobe_meta::target!(b"nrf52840-dk");
 
-use defmt::{assert_eq, *};
+#[path = "../common.rs"]
+mod common;
+
+use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::buffered_uarte::{self, BufferedUarte};
-use embassy_nrf::{bind_interrupts, peripherals, uarte};
+use embassy_nrf::{peripherals, uarte};
 use {defmt_rtt as _, panic_probe as _};
-
-bind_interrupts!(struct Irqs {
-    UARTE0_UART0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;
-});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -27,14 +25,14 @@ async fn main(_spawner: Spawner) {
     // test teardown + recreate of the buffereduarte works fine.
     for _ in 0..2 {
         let u = BufferedUarte::new(
-            &mut p.UARTE0,
+            &mut peri!(p, UART0),
             &mut p.TIMER0,
             &mut p.PPI_CH0,
             &mut p.PPI_CH1,
             &mut p.PPI_GROUP0,
-            Irqs,
-            &mut p.P1_03,
-            &mut p.P1_02,
+            irqs!(UART0_BUFFERED),
+            &mut peri!(p, PIN_A),
+            &mut peri!(p, PIN_B),
             config.clone(),
             &mut rx_buffer,
             &mut tx_buffer,
@@ -65,7 +63,9 @@ async fn main(_spawner: Spawner) {
                 let buf = unwrap!(rx.fill_buf().await);
 
                 for &b in buf {
-                    assert_eq!(b, i as u8);
+                    if b != i as u8 {
+                        panic!("mismatch {} vs {}, index {}", b, i as u8, i);
+                    }
                     i = i + 1;
                 }
 
