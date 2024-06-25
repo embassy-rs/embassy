@@ -1,6 +1,7 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![deny(unused_must_use)]
 
 // must be first
 mod fmt;
@@ -244,6 +245,10 @@ struct PendingRequest {
     waker: Waker,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+struct NoFreeBufs;
+
 struct StateInner {
     init: bool,
     init_waker: WakerRegistration,
@@ -450,13 +455,13 @@ impl StateInner {
         return None;
     }
 
-    fn send_message(&mut self, msg: &mut Message, data: &[u8]) {
+    fn send_message(&mut self, msg: &mut Message, data: &[u8]) -> Result<(), NoFreeBufs> {
         if data.is_empty() {
             msg.data = ptr::null_mut();
             msg.data_len = 0;
         } else {
             assert!(data.len() <= TX_BUF_SIZE);
-            let buf_idx = self.find_free_tx_buf().unwrap(); // TODO handle out of bufs
+            let buf_idx = self.find_free_tx_buf().ok_or(NoFreeBufs)?;
             let buf = unsafe { addr_of_mut!((*self.cb).tx_bufs[buf_idx]) } as *mut u8;
             unsafe { copy_nonoverlapping(data.as_ptr(), buf, data.len()) }
             msg.data = buf;
@@ -467,10 +472,10 @@ impl StateInner {
         }
 
         // TODO free data buf if send_message_raw fails.
-        self.send_message_raw(msg);
+        self.send_message_raw(msg)
     }
 
-    fn send_message_raw(&mut self, msg: &Message) {
+    fn send_message_raw(&mut self, msg: &Message) -> Result<(), NoFreeBufs> {
         let (ch, ipc_ch) = match msg.channel {
             1 => (0, 1), // control
             2 => (1, 3), // data
@@ -478,7 +483,7 @@ impl StateInner {
         };
 
         // allocate a msg.
-        let idx = self.find_free_message(ch).unwrap(); // TODO handle list full
+        let idx = self.find_free_message(ch).ok_or(NoFreeBufs)?;
 
         debug!("tx seq {} msg: {:?}", self.tx_seq_no, msg);
 
@@ -491,6 +496,7 @@ impl StateInner {
 
         let ipc = unsafe { &*pac::IPC_NS::ptr() };
         ipc.tasks_send[ipc_ch].write(|w| unsafe { w.bits(1) });
+        Ok(())
     }
 
     fn handle_control(&mut self, msg: &Message) {
@@ -626,7 +632,7 @@ impl StateInner {
         free_msg.data = msg.data;
         free_msg.data_len = msg.data_len;
 
-        self.send_message_raw(&free_msg);
+        unwrap!(self.send_message_raw(&free_msg));
     }
 }
 
@@ -702,7 +708,7 @@ impl<'a> Control<'a> {
         }
 
         msg.param[0..4].copy_from_slice(&req_serial.to_le_bytes());
-        state.send_message(msg, req_data);
+        unwrap!(state.send_message(msg, req_data));
 
         // Setup the pending request state.
         let (req_slot_idx, req_slot) = state
@@ -838,7 +844,9 @@ impl<'a, TW: embedded_io::Write> Runner<'a, TW> {
                 msg.id = 0x7006_0004; // IP send
                 msg.param_len = 12;
                 msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
-                state.send_message(&mut msg, buf);
+                if let Err(e) = state.send_message(&mut msg, buf) {
+                    warn!("tx failed: {:?}", e);
+                }
                 self.ch.tx_done();
             }
 
