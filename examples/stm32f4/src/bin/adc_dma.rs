@@ -3,8 +3,7 @@
 use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::RingBufferedAdc;
-use embassy_stm32::adc::{Adc, SampleTime, Sequence};
+use embassy_stm32::adc::{Adc, RingBufferedAdc, SampleTime, Sequence};
 use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -14,7 +13,7 @@ async fn main(_spawner: Spawner) {
     let mut p = embassy_stm32::init(Default::default());
 
     let adc_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
-    
+
     let adc = Adc::new(p.ADC1);
 
     let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(p.DMA2_CH0, adc_data);
