@@ -226,6 +226,7 @@ macro_rules! select_bootloader {
     }
 }
 
+#[cfg(not(feature = "boot2-none"))]
 select_bootloader! {
     "boot2-at25sf128a" => BOOT_LOADER_AT25SF128A,
     "boot2-gd25q64cs" => BOOT_LOADER_GD25Q64CS,
