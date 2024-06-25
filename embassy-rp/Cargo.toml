@@ -84,7 +84,7 @@ boot2-w25x10cl = []
 ## ```
 ## #[link_section = ".boot2"]
 ## #[used]
-## static BOOT2: [u8; 256] = ...;
+## static BOOT2: [u8; 256] = [0; 256]; // Provide your own with e.g. include_bytes!
 ## ```
 boot2-none = []
 
