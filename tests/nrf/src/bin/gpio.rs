@@ -1,19 +1,20 @@
 #![no_std]
 #![no_main]
-teleprobe_meta::target!(b"nrf51-dk");
+
+#[path = "../common.rs"]
+mod common;
 
 use defmt::{assert, info};
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
-    let input = Input::new(p.P0_13, Pull::Up);
-    let mut output = Output::new(p.P0_14, Level::Low, OutputDrive::Standard);
+    let input = Input::new(peri!(p, PIN_A), Pull::Up);
+    let mut output = Output::new(peri!(p, PIN_B), Level::Low, OutputDrive::Standard);
 
     output.set_low();
     Timer::after_millis(10).await;

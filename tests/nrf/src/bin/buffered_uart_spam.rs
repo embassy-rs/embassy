@@ -1,3 +1,4 @@
+// required-features: nrf52840
 #![no_std]
 #![no_main]
 teleprobe_meta::target!(b"nrf52840-dk");
