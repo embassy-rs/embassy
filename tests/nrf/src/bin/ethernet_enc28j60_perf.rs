@@ -1,3 +1,4 @@
+// required-features: nrf52840
 #![no_std]
 #![no_main]
 teleprobe_meta::target!(b"ak-gwe-r7");

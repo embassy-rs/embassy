@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
-teleprobe_meta::target!(b"nrf52840-dk");
+
+#[path = "../common.rs"]
+mod common;
 
 use defmt::{assert, info};
 use embassy_executor::Spawner;
