@@ -92,6 +92,16 @@ path = "src/bin/timer.rs"
 required-features = []
 
 [[bin]]
+name = "uart_halves"
+path = "src/bin/uart_halves.rs"
+required-features = [ "two-uarts",]
+
+[[bin]]
+name = "uart_split"
+path = "src/bin/uart_split.rs"
+required-features = [ "easydma",]
+
+[[bin]]
 name = "wifi_esp_hosted_perf"
 path = "src/bin/wifi_esp_hosted_perf.rs"
 required-features = [ "nrf52840",]
