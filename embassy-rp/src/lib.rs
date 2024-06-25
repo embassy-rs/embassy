@@ -210,6 +210,7 @@ embassy_hal_internal::peripherals! {
     BOOTSEL,
 }
 
+#[cfg(not(feature = "boot2-none"))]
 macro_rules! select_bootloader {
     ( $( $feature:literal => $loader:ident, )+ default => $default:ident ) => {
         $(
