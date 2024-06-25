@@ -4,15 +4,23 @@
 #[cfg_attr(i2c_v1, path = "v1.rs")]
 #[cfg_attr(any(i2c_v2, i2c_v3), path = "v2.rs")]
 mod _version;
+/// the i2c slave module
+pub mod v2slave;
 
+use core::cell::RefCell;
 use core::future::Future;
 use core::iter;
 use core::marker::PhantomData;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
 
 use embassy_hal_internal::{Peripheral, PeripheralRef};
+use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
+use stm32_metapac::i2c::vals;
+use v2slave::{on_interrupt, SlaveState, SlaveTransaction, SLAVE_QUEUE_DEPTH};
 
 use crate::dma::ChannelAndRequest;
 #[cfg(gpio_v2)]
@@ -42,8 +50,64 @@ pub enum Error {
     Overrun,
     /// Zero-length transfers are not allowed.
     ZeroLengthTransfer,
+    /// No transaction found
+    NoTransaction,
 }
 
+/// Address 2 can be masked, so it will respond to a wider range of addresses. 
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Address2Mask {
+    ///
+    NOMASK,
+    ///
+    MASK1,
+    ///
+    MASK2,
+    ///
+    MASK3,
+    ///
+    MASK4,
+    ///
+    MASK5,
+    ///
+    MASK6,
+    ///
+    MASK7,
+}
+impl Address2Mask {
+    ///  create a vals version of the enum value
+    #[inline(always)]
+    pub const fn to_vals_impl(self) -> vals::Oamsk {
+        match self {
+            Address2Mask::NOMASK => vals::Oamsk::NOMASK,
+            Address2Mask::MASK1 => vals::Oamsk::MASK1,
+            Address2Mask::MASK2 => vals::Oamsk::MASK2,
+            Address2Mask::MASK3 => vals::Oamsk::MASK3,
+            Address2Mask::MASK4 => vals::Oamsk::MASK4,
+            Address2Mask::MASK5 => vals::Oamsk::MASK5,
+            Address2Mask::MASK6 => vals::Oamsk::MASK6,
+            Address2Mask::MASK7 => vals::Oamsk::MASK7,
+        }
+    }
+}
+/// address index
+#[derive(Copy, Clone, Eq, PartialEq)]
+#[repr(usize)]
+pub enum AddressIndex {
+    ///
+    Address1 = 0,
+    ///
+    Address2 = 1,
+}
+/// i2c direction
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Dir {
+    ///
+    Write,
+    ///
+    Read,
+}
 /// I2C config
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -60,6 +124,14 @@ pub struct Config {
     /// have external pullups you should not enable this.
     #[cfg(gpio_v2)]
     pub scl_pullup: bool,
+    /// slave address 1. Optional if address 2 is set
+    pub slave_address_1: u16,
+    /// slave address 2. Optional if address 1 is set
+    pub slave_address_2: u8,
+    /// the address mask to use for address 2
+    pub slave_address_mask: Address2Mask,
+    /// mark address 1 7 of 11 bits
+    pub address_11bits: bool,
     /// Timeout.
     #[cfg(feature = "time")]
     pub timeout: embassy_time::Duration,
@@ -72,6 +144,10 @@ impl Default for Config {
             sda_pullup: false,
             #[cfg(gpio_v2)]
             scl_pullup: false,
+            slave_address_1: 0,
+            slave_address_2: 0,
+            slave_address_mask: Address2Mask::NOMASK,
+            address_11bits: false,
             #[cfg(feature = "time")]
             timeout: embassy_time::Duration::from_millis(1000),
         }
@@ -105,6 +181,25 @@ impl Config {
                 false => Pull::Down,
             },
         );
+    }
+    /// Slave address 1 as 7 bit address, in range 0 .. 127
+    pub fn slave_address_7bits(&mut self, address: u8) {
+        // assert!(address < (2 ^ 7));
+        self.slave_address_1 = address as u16;
+        self.address_11bits = false;
+    }
+    /// Slave address 1 as 11 bit address in range 0 .. 2047
+    pub fn slave_address_11bits(&mut self, address: u16) {
+        // assert!(address < (2 ^ 11));
+        self.slave_address_1 = address;
+        self.address_11bits = true;
+    }
+    /// Slave address 2 as 7 bit address in range 0 .. 127.
+    /// The mask makes all slaves within the mask addressable
+    pub fn slave_address_2(&mut self, address: u8, mask: Address2Mask) {
+        // assert!(address < (2 ^ 7));
+        self.slave_address_2 = address;
+        self.slave_address_mask = mask;
     }
 }
 
@@ -259,12 +354,16 @@ impl Timeout {
 struct State {
     #[allow(unused)]
     waker: AtomicWaker,
+    pub(crate) channel_out: Channel<CriticalSectionRawMutex, SlaveTransaction, SLAVE_QUEUE_DEPTH>,
+    pub(crate) mutex: Mutex<CriticalSectionRawMutex, RefCell<SlaveState>>,
 }
 
 impl State {
     const fn new() -> Self {
         Self {
             waker: AtomicWaker::new(),
+            channel_out: Channel::new(),
+            mutex: Mutex::new(RefCell::new(SlaveState::new())),
         }
     }
 }
@@ -290,7 +389,14 @@ pub struct EventInterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::EventInterrupt> for EventInterruptHandler<T> {
     unsafe fn on_interrupt() {
-        _version::on_interrupt::<T>()
+        T::state().mutex.lock(|f| {
+            let mut state_m = f.borrow_mut();
+            if state_m.slave_mode {
+                on_interrupt::<T>(&mut state_m)
+            } else {
+                _version::on_interrupt::<T>()
+            }
+        }); // end of mutex
     }
 }
 
@@ -365,6 +471,7 @@ impl embedded_hal_1::i2c::Error for Error {
             Self::Crc => embedded_hal_1::i2c::ErrorKind::Other,
             Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
             Self::ZeroLengthTransfer => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::NoTransaction => embedded_hal_1::i2c::ErrorKind::Other,
         }
     }
 }
