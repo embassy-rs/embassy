@@ -1,4 +1,6 @@
+#[cfg(gpio_v2)]
 use crate::gpio::Pull;
+use crate::gpio::{AfType, OutputType, Speed};
 
 #[repr(u8)]
 #[derive(Copy, Clone)]
@@ -111,11 +113,13 @@ pub struct Config {
     ///
     /// Using external pullup resistors is recommended for I2C. If you do
     /// have external pullups you should not enable this.
+    #[cfg(gpio_v2)]
     pub sda_pullup: bool,
     /// Enable internal pullup on SCL.
     ///
     /// Using external pullup resistors is recommended for I2C. If you do
     /// have external pullups you should not enable this.
+    #[cfg(gpio_v2)]
     pub scl_pullup: bool,
     /// Timeout.
     #[cfg(feature = "time")]
@@ -125,7 +129,9 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            #[cfg(gpio_v2)]
             sda_pullup: false,
+            #[cfg(gpio_v2)]
             scl_pullup: false,
             #[cfg(feature = "time")]
             timeout: embassy_time::Duration::from_millis(1000),
@@ -134,17 +140,31 @@ impl Default for Config {
 }
 
 impl Config {
-    pub(super) fn scl_pull_mode(&self) -> Pull {
-        match self.scl_pullup {
-            true => Pull::Up,
-            false => Pull::Down,
-        }
+    pub(super) fn scl_af(&self) -> AfType {
+        #[cfg(gpio_v1)]
+        return AfType::output(OutputType::OpenDrain, Speed::Medium);
+        #[cfg(gpio_v2)]
+        return AfType::output_pull(
+            OutputType::OpenDrain,
+            Speed::Medium,
+            match self.scl_pullup {
+                true => Pull::Up,
+                false => Pull::Down,
+            },
+        );
     }
 
-    pub(super) fn sda_pull_mode(&self) -> Pull {
-        match self.sda_pullup {
-            true => Pull::Up,
-            false => Pull::Down,
-        }
+    pub(super) fn sda_af(&self) -> AfType {
+        #[cfg(gpio_v1)]
+        return AfType::output(OutputType::OpenDrain, Speed::Medium);
+        #[cfg(gpio_v2)]
+        return AfType::output_pull(
+            OutputType::OpenDrain,
+            Speed::Medium,
+            match self.sda_pullup {
+                true => Pull::Up,
+                false => Pull::Down,
+            },
+        );
     }
 }

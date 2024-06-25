@@ -19,9 +19,7 @@ use embassy_time::{Duration, Instant};
 use mode::{Master, MasterMode};
 
 use crate::dma::ChannelAndRequest;
-#[cfg(gpio_v2)]
-use crate::gpio::Pull;
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
+use crate::gpio::{AnyPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
@@ -46,70 +44,6 @@ pub enum Error {
     Overrun,
     /// Zero-length transfers are not allowed.
     ZeroLengthTransfer,
-}
-
-/// I2C config
-#[non_exhaustive]
-#[derive(Copy, Clone)]
-pub struct Config {
-    /// Enable internal pullup on SDA.
-    ///
-    /// Using external pullup resistors is recommended for I2C. If you do
-    /// have external pullups you should not enable this.
-    #[cfg(gpio_v2)]
-    pub sda_pullup: bool,
-    /// Enable internal pullup on SCL.
-    ///
-    /// Using external pullup resistors is recommended for I2C. If you do
-    /// have external pullups you should not enable this.
-    #[cfg(gpio_v2)]
-    pub scl_pullup: bool,
-    /// Timeout.
-    #[cfg(feature = "time")]
-    pub timeout: embassy_time::Duration,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            #[cfg(gpio_v2)]
-            sda_pullup: false,
-            #[cfg(gpio_v2)]
-            scl_pullup: false,
-            #[cfg(feature = "time")]
-            timeout: embassy_time::Duration::from_millis(1000),
-        }
-    }
-}
-
-impl Config {
-    fn scl_af(&self) -> AfType {
-        #[cfg(gpio_v1)]
-        return AfType::output(OutputType::OpenDrain, Speed::Medium);
-        #[cfg(gpio_v2)]
-        return AfType::output_pull(
-            OutputType::OpenDrain,
-            Speed::Medium,
-            match self.scl_pullup {
-                true => Pull::Up,
-                false => Pull::Down,
-            },
-        );
-    }
-
-    fn sda_af(&self) -> AfType {
-        #[cfg(gpio_v1)]
-        return AfType::output(OutputType::OpenDrain, Speed::Medium);
-        #[cfg(gpio_v2)]
-        return AfType::output_pull(
-            OutputType::OpenDrain,
-            Speed::Medium,
-            match self.sda_pullup {
-                true => Pull::Up,
-                false => Pull::Down,
-            },
-        );
-    }
 }
 
 /// I2C modes
@@ -169,8 +103,12 @@ struct I2CDropGuard<'d> {
 }
 impl<'d> Drop for I2CDropGuard<'d> {
     fn drop(&mut self) {
-        self.scl.as_ref().map(|x| x.set_as_disconnected());
-        self.sda.as_ref().map(|x| x.set_as_disconnected());
+        if let Some(x) = self.scl.as_ref() {
+            x.set_as_disconnected()
+        }
+        if let Some(x) = self.sda.as_ref() {
+            x.set_as_disconnected()
+        }
 
         self.info.rcc.disable();
     }
@@ -187,7 +125,7 @@ pub struct I2c<'d, M: Mode, IM: MasterMode> {
     timeout: Duration,
     _phantom: PhantomData<M>,
     _phantom2: PhantomData<IM>,
-    drop_guard: I2CDropGuard<'d>,
+    _drop_guard: I2CDropGuard<'d>,
 }
 
 impl<'d> I2c<'d, Async, Master> {
@@ -261,7 +199,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
             timeout: config.timeout,
             _phantom: PhantomData,
             _phantom2: PhantomData,
-            drop_guard: I2CDropGuard {
+            _drop_guard: I2CDropGuard {
                 info: T::info(),
                 scl,
                 sda,
@@ -509,9 +447,7 @@ fn operation_frames<'a, 'b: 'a>(
     let mut next_first_frame = true;
 
     Ok(iter::from_fn(move || {
-        let Some(op) = operations.next() else {
-            return None;
-        };
+        let op = operations.next()?;
 
         // Is `op` first frame of its type?
         let first_frame = next_first_frame;

@@ -733,7 +733,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
             timeout: self.timeout,
             _phantom: PhantomData,
             _phantom2: PhantomData,
-            drop_guard: self.drop_guard,
+            _drop_guard: self._drop_guard,
         };
         slave.init_slave(slave_addr_config);
         slave
