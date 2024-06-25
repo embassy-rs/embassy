@@ -315,7 +315,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     ///
     /// Receive in the background is terminated if an error is returned.
     /// It must then manually be started again by calling `start()` or by re-calling `read()`.
-    pub async fn read<const N: usize>(&mut self, buf: &mut [u16; N]) -> Result<usize, OverrunError> {
+    pub fn read<const N: usize>(&mut self, buf: &mut [u16; N]) -> Result<usize, OverrunError> {
         let r = T::regs();
 
         // Start background receive if it was not already started
@@ -325,11 +325,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
         // Clear overrun flag if set.
         if r.sr().read().ovr() {
-            r.sr().modify(|regs| {
-                regs.set_ovr(false);
-                // regs.set_eoc(false);
-            });
-            // return self.stop(OverrunError);
+            return self.stop(OverrunError);
         }
 
         loop {
@@ -355,11 +351,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
         // Clear overrun flag if set.
         if r.sr().read().ovr() {
-            r.sr().modify(|regs| {
-                regs.set_ovr(false);
-                // regs.set_eoc(false);
-            });
-            // return self.stop(OverrunError);
+            return self.stop(OverrunError);
         }
         match self.ring_buf.read_exact(buf).await {
             Ok(len) => Ok(len),
