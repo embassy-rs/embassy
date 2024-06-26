@@ -4,13 +4,16 @@
 
 pub mod enums;
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::*;
 
-use crate::dma::Transfer;
-use crate::gpio::{AFType, AnyPin, Pull};
+use crate::dma::ChannelAndRequest;
+use crate::gpio::{AFType, AnyPin, Pull, Speed};
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::quadspi::Quadspi as Regs;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// QSPI transfer configuration.
@@ -71,7 +74,7 @@ impl Default for Config {
 
 /// QSPI driver.
 #[allow(dead_code)]
-pub struct Qspi<'d, T: Instance, Dma> {
+pub struct Qspi<'d, T: Instance, M: PeriMode> {
     _peri: PeripheralRef<'d, T>,
     sck: Option<PeripheralRef<'d, AnyPin>>,
     d0: Option<PeripheralRef<'d, AnyPin>>,
@@ -79,93 +82,12 @@ pub struct Qspi<'d, T: Instance, Dma> {
     d2: Option<PeripheralRef<'d, AnyPin>>,
     d3: Option<PeripheralRef<'d, AnyPin>>,
     nss: Option<PeripheralRef<'d, AnyPin>>,
-    dma: PeripheralRef<'d, Dma>,
+    dma: Option<ChannelAndRequest<'d>>,
+    _phantom: PhantomData<M>,
     config: Config,
 }
 
-impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
-    /// Create a new QSPI driver for bank 1.
-    pub fn new_bk1(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK1D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK1D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK1D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK1NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(peri, d0, d1, d2, d3, sck, nss);
-
-        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
-        sck.set_speed(crate::gpio::Speed::VeryHigh);
-        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
-        nss.set_speed(crate::gpio::Speed::VeryHigh);
-        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
-        d0.set_speed(crate::gpio::Speed::VeryHigh);
-        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
-        d1.set_speed(crate::gpio::Speed::VeryHigh);
-        d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::None);
-        d2.set_speed(crate::gpio::Speed::VeryHigh);
-        d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
-        d3.set_speed(crate::gpio::Speed::VeryHigh);
-
-        Self::new_inner(
-            peri,
-            Some(d0.map_into()),
-            Some(d1.map_into()),
-            Some(d2.map_into()),
-            Some(d3.map_into()),
-            Some(sck.map_into()),
-            Some(nss.map_into()),
-            dma,
-            config,
-            FlashSelection::Flash1,
-        )
-    }
-
-    /// Create a new QSPI driver for bank 2.
-    pub fn new_bk2(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK2D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK2D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK2D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK2NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(peri, d0, d1, d2, d3, sck, nss);
-
-        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
-        sck.set_speed(crate::gpio::Speed::VeryHigh);
-        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
-        nss.set_speed(crate::gpio::Speed::VeryHigh);
-        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
-        d0.set_speed(crate::gpio::Speed::VeryHigh);
-        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
-        d1.set_speed(crate::gpio::Speed::VeryHigh);
-        d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::None);
-        d2.set_speed(crate::gpio::Speed::VeryHigh);
-        d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
-        d3.set_speed(crate::gpio::Speed::VeryHigh);
-
-        Self::new_inner(
-            peri,
-            Some(d0.map_into()),
-            Some(d1.map_into()),
-            Some(d2.map_into()),
-            Some(d3.map_into()),
-            Some(sck.map_into()),
-            Some(nss.map_into()),
-            dma,
-            config,
-            FlashSelection::Flash2,
-        )
-    }
-
+impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
         d0: Option<PeripheralRef<'d, AnyPin>>,
@@ -174,13 +96,13 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         d3: Option<PeripheralRef<'d, AnyPin>>,
         sck: Option<PeripheralRef<'d, AnyPin>>,
         nss: Option<PeripheralRef<'d, AnyPin>>,
-        dma: impl Peripheral<P = Dma> + 'd,
+        dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         fsel: FlashSelection,
     ) -> Self {
-        into_ref!(peri, dma);
+        into_ref!(peri);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         while T::REGS.sr().read().busy() {}
 
@@ -220,6 +142,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             d3,
             nss,
             dma,
+            _phantom: PhantomData,
             config,
         }
     }
@@ -278,68 +201,6 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
-    /// Blocking read data, using DMA.
-    pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig)
-    where
-        Dma: QuadDma<T>,
-    {
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
-
-        T::REGS.ccr().modify(|v| {
-            v.set_fmode(QspiMode::IndirectRead.into());
-        });
-        let current_ar = T::REGS.ar().read().address();
-        T::REGS.ar().write(|v| {
-            v.set_address(current_ar);
-        });
-
-        let request = self.dma.request();
-        let transfer = unsafe {
-            Transfer::new_read(
-                &mut self.dma,
-                request,
-                T::REGS.dr().as_ptr() as *mut u8,
-                buf,
-                Default::default(),
-            )
-        };
-
-        // STM32H7 does not have dmaen
-        #[cfg(not(stm32h7))]
-        T::REGS.cr().modify(|v| v.set_dmaen(true));
-
-        transfer.blocking_wait();
-    }
-
-    /// Blocking write data, using DMA.
-    pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig)
-    where
-        Dma: QuadDma<T>,
-    {
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
-
-        T::REGS.ccr().modify(|v| {
-            v.set_fmode(QspiMode::IndirectWrite.into());
-        });
-
-        let request = self.dma.request();
-        let transfer = unsafe {
-            Transfer::new_write(
-                &mut self.dma,
-                request,
-                buf,
-                T::REGS.dr().as_ptr() as *mut u8,
-                Default::default(),
-            )
-        };
-
-        // STM32H7 does not have dmaen
-        #[cfg(not(stm32h7))]
-        T::REGS.cr().modify(|v| v.set_dmaen(true));
-
-        transfer.blocking_wait();
-    }
-
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
         T::REGS.fcr().modify(|v| {
             v.set_csmf(true);
@@ -370,6 +231,160 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
                 v.set_address(addr);
             });
         }
+    }
+}
+
+impl<'d, T: Instance> Qspi<'d, T, Blocking> {
+    /// Create a new QSPI driver for bank 1, in blocking mode.
+    pub fn new_blocking_bank1(
+        peri: impl Peripheral<P = T> + 'd,
+        d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl BK1D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl BK1D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl BK1D3Pin<T>> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        nss: impl Peripheral<P = impl BK1NSSPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            None,
+            config,
+            FlashSelection::Flash1,
+        )
+    }
+
+    /// Create a new QSPI driver for bank 2, in blocking mode.
+    pub fn new_blocking_bank2(
+        peri: impl Peripheral<P = T> + 'd,
+        d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl BK2D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl BK2D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl BK2D3Pin<T>> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        nss: impl Peripheral<P = impl BK2NSSPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            None,
+            config,
+            FlashSelection::Flash2,
+        )
+    }
+}
+
+impl<'d, T: Instance> Qspi<'d, T, Async> {
+    /// Create a new QSPI driver for bank 1.
+    pub fn new_bank1(
+        peri: impl Peripheral<P = T> + 'd,
+        d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl BK1D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl BK1D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl BK1D3Pin<T>> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        nss: impl Peripheral<P = impl BK1NSSPin<T>> + 'd,
+        dma: impl Peripheral<P = impl QuadDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_dma!(dma),
+            config,
+            FlashSelection::Flash1,
+        )
+    }
+
+    /// Create a new QSPI driver for bank 2.
+    pub fn new_bank2(
+        peri: impl Peripheral<P = T> + 'd,
+        d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl BK2D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl BK2D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl BK2D3Pin<T>> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        nss: impl Peripheral<P = impl BK2NSSPin<T>> + 'd,
+        dma: impl Peripheral<P = impl QuadDma<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_dma!(dma),
+            config,
+            FlashSelection::Flash2,
+        )
+    }
+
+    /// Blocking read data, using DMA.
+    pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
+
+        T::REGS.ccr().modify(|v| {
+            v.set_fmode(QspiMode::IndirectRead.into());
+        });
+        let current_ar = T::REGS.ar().read().address();
+        T::REGS.ar().write(|v| {
+            v.set_address(current_ar);
+        });
+
+        let transfer = unsafe {
+            self.dma
+                .as_mut()
+                .unwrap()
+                .read(T::REGS.dr().as_ptr() as *mut u8, buf, Default::default())
+        };
+
+        // STM32H7 does not have dmaen
+        #[cfg(not(stm32h7))]
+        T::REGS.cr().modify(|v| v.set_dmaen(true));
+
+        transfer.blocking_wait();
+    }
+
+    /// Blocking write data, using DMA.
+    pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig) {
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
+
+        T::REGS.ccr().modify(|v| {
+            v.set_fmode(QspiMode::IndirectWrite.into());
+        });
+
+        let transfer = unsafe {
+            self.dma
+                .as_mut()
+                .unwrap()
+                .write(buf, T::REGS.dr().as_ptr() as *mut u8, Default::default())
+        };
+
+        // STM32H7 does not have dmaen
+        #[cfg(not(stm32h7))]
+        T::REGS.cr().modify(|v| v.set_dmaen(true));
+
+        transfer.blocking_wait();
     }
 }
 

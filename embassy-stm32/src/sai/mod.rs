@@ -11,7 +11,7 @@ pub use crate::dma::word;
 use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AFType, AnyPin, SealedPin as _};
 use crate::pac::sai::{vals, Sai as Regs};
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// SAI error
@@ -722,7 +722,7 @@ pub struct SubBlock<'d, T, S: SubBlockInstance> {
 /// You can then create a [`Sai`] driver for each each half.
 pub fn split_subblocks<'d, T: Instance>(peri: impl Peripheral<P = T> + 'd) -> (SubBlock<'d, T, A>, SubBlock<'d, T, B>) {
     into_ref!(peri);
-    T::enable_and_reset();
+    rcc::enable_and_reset::<T>();
 
     (
         SubBlock {
@@ -978,7 +978,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
 
     /// Reset SAI operation.
     pub fn reset() {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
     }
 
     /// Flush.

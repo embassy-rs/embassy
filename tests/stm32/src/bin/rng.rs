@@ -23,12 +23,17 @@ bind_interrupts!(struct Irqs {
 bind_interrupts!(struct Irqs {
    RNG_LPUART1 => rng::InterruptHandler<peripherals::RNG>;
 });
+#[cfg(any(feature = "stm32u083rc"))]
+bind_interrupts!(struct Irqs {
+   RNG_CRYP => rng::InterruptHandler<peripherals::RNG>;
+});
 #[cfg(not(any(
     feature = "stm32l4a6zg",
     feature = "stm32l073rz",
     feature = "stm32h755zi",
     feature = "stm32h753zi",
-    feature = "stm32f429zi"
+    feature = "stm32f429zi",
+    feature = "stm32u083rc"
 )))]
 bind_interrupts!(struct Irqs {
    RNG => rng::InterruptHandler<peripherals::RNG>;

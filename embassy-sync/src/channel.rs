@@ -42,7 +42,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Sender { channel: self.channel }
+        *self
     }
 }
 
@@ -81,7 +81,7 @@ pub struct DynamicSender<'ch, T> {
 
 impl<'ch, T> Clone for DynamicSender<'ch, T> {
     fn clone(&self) -> Self {
-        DynamicSender { channel: self.channel }
+        *self
     }
 }
 
@@ -135,7 +135,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Receiver { channel: self.channel }
+        *self
     }
 }
 
@@ -188,7 +188,7 @@ pub struct DynamicReceiver<'ch, T> {
 
 impl<'ch, T> Clone for DynamicReceiver<'ch, T> {
     fn clone(&self) -> Self {
-        DynamicReceiver { channel: self.channel }
+        *self
     }
 }
 
@@ -477,6 +477,10 @@ impl<T, const N: usize> ChannelState<T, N> {
         }
     }
 
+    fn clear(&mut self) {
+        self.queue.clear();
+    }
+
     fn len(&self) -> usize {
         self.queue.len()
     }
@@ -618,6 +622,23 @@ where
     /// if the channel is empty.
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.lock(|c| c.try_receive())
+    }
+
+    /// Returns the maximum number of elements the channel can hold.
+    pub const fn capacity(&self) -> usize {
+        N
+    }
+
+    /// Returns the free capacity of the channel.
+    ///
+    /// This is equivalent to `capacity() - len()`
+    pub fn free_capacity(&self) -> usize {
+        N - self.len()
+    }
+
+    /// Clears all elements in the channel.
+    pub fn clear(&self) {
+        self.lock(|c| c.clear());
     }
 
     /// Returns the number of elements currently in the channel.

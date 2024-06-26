@@ -402,20 +402,24 @@ pub(crate) unsafe fn init(config: Config) {
         }
     }
 
+    // Turn on the HSI
+    match config.hsi {
+        None => RCC.cr().modify(|w| w.set_hsion(true)),
+        Some(hsidiv) => RCC.cr().modify(|w| {
+            w.set_hsidiv(hsidiv);
+            w.set_hsion(true);
+        }),
+    }
+    while !RCC.cr().read().hsirdy() {}
+
+    // Use the HSI clock as system clock during the actual clock setup
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
+    while RCC.cfgr().read().sws() != Sysclk::HSI {}
+
     // Configure HSI
     let hsi = match config.hsi {
-        None => {
-            RCC.cr().modify(|w| w.set_hsion(false));
-            None
-        }
-        Some(hsidiv) => {
-            RCC.cr().modify(|w| {
-                w.set_hsidiv(hsidiv);
-                w.set_hsion(true);
-            });
-            while !RCC.cr().read().hsirdy() {}
-            Some(HSI_FREQ / hsidiv)
-        }
+        None => None,
+        Some(hsidiv) => Some(HSI_FREQ / hsidiv),
     };
 
     // Configure HSE
@@ -608,6 +612,11 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.cfgr().modify(|w| w.set_sw(config.sys));
     while RCC.cfgr().read().sws() != config.sys {}
 
+    // Disable HSI if not used
+    if config.hsi.is_none() {
+        RCC.cr().modify(|w| w.set_hsion(false));
+    }
+
     // IO compensation cell - Requires CSI clock and SYSCFG
     #[cfg(any(stm32h7))] // TODO h5, h7rs
     if csi.is_some() {
@@ -677,11 +686,12 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(rcc_h50)]
         pll3_r: None,
 
+        #[cfg(dsihost)]
+        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+
         #[cfg(stm32h5)]
         audioclk: None,
         i2s_ckin: None,
-        #[cfg(any(stm32h7, stm32h7rs))]
-        dsi_phy: None, // TODO
         #[cfg(stm32h7rs)]
         spdifrx_symb: None, // TODO
         #[cfg(stm32h7rs)]

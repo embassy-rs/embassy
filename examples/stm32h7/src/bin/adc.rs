@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
     let mut vrefint_channel = adc.enable_vrefint();
 
     loop {
-        let vrefint = adc.read_internal(&mut vrefint_channel);
+        let vrefint = adc.read(&mut vrefint_channel);
         info!("vrefint: {}", vrefint);
         let measured = adc.read(&mut p.PC0);
         info!("measured: {}", measured);

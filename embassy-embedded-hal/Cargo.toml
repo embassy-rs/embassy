@@ -1,6 +1,6 @@
 [package]
 name = "embassy-embedded-hal"
-version = "0.1001.0"
+version = "0.1001.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Collection of utilities to use `embedded-hal` and `embedded-storage` traits with Embassy."
@@ -28,8 +28,8 @@ default = ["time"]
 
 [dependencies]
 embassy-futures = { version = "0.1001.0", registry = "artifactory", path = "../embassy-futures" }
-embassy-sync = { version = "0.5001.0",  registry = "artifactory", path = "../embassy-sync" }
-embassy-time = { version = "0.3001.0",  registry = "artifactory", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.6001.0",  registry = "artifactory", path = "../embassy-sync" }
+embassy-time = { version = "0.3001.1",  registry = "artifactory", path = "../embassy-time", optional = true }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",
 ] }

@@ -9,15 +9,16 @@ use core::future::Future;
 use core::iter;
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AFType, Pull};
+use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
+use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals};
 
@@ -71,9 +72,29 @@ impl Default for Config {
     }
 }
 
+impl Config {
+    fn scl_pull_mode(&self) -> Pull {
+        match self.scl_pullup {
+            true => Pull::Up,
+            false => Pull::Down,
+        }
+    }
+
+    fn sda_pull_mode(&self) -> Pull {
+        match self.sda_pullup {
+            true => Pull::Up,
+            false => Pull::Down,
+        }
+    }
+}
+
 /// I2C driver.
-pub struct I2c<'d, T: Instance, M: Mode> {
-    _peri: PeripheralRef<'d, T>,
+pub struct I2c<'d, M: Mode> {
+    info: &'static Info,
+    state: &'static State,
+    kernel_clock: Hertz,
+    scl: Option<PeripheralRef<'d, AnyPin>>,
+    sda: Option<PeripheralRef<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     #[cfg(feature = "time")]
@@ -81,9 +102,9 @@ pub struct I2c<'d, T: Instance, M: Mode> {
     _phantom: PhantomData<M>,
 }
 
-impl<'d, T: Instance> I2c<'d, T, Async> {
+impl<'d> I2c<'d, Async> {
     /// Create a new I2C driver.
-    pub fn new(
+    pub fn new<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
@@ -95,70 +116,72 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         freq: Hertz,
         config: Config,
     ) -> Self {
-        Self::new_inner(peri, scl, sda, new_dma!(tx_dma), new_dma!(rx_dma), freq, config)
+        Self::new_inner(
+            peri,
+            new_pin!(scl, AFType::OutputOpenDrain, Speed::Medium, config.scl_pull_mode()),
+            new_pin!(sda, AFType::OutputOpenDrain, Speed::Medium, config.sda_pull_mode()),
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            freq,
+            config,
+        )
     }
 }
 
-impl<'d, T: Instance> I2c<'d, T, Blocking> {
+impl<'d> I2c<'d, Blocking> {
     /// Create a new blocking I2C driver.
-    pub fn new_blocking(
+    pub fn new_blocking<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
         freq: Hertz,
         config: Config,
     ) -> Self {
-        Self::new_inner(peri, scl, sda, None, None, freq, config)
+        Self::new_inner(
+            peri,
+            new_pin!(scl, AFType::OutputOpenDrain, Speed::Medium, config.scl_pull_mode()),
+            new_pin!(sda, AFType::OutputOpenDrain, Speed::Medium, config.sda_pull_mode()),
+            None,
+            None,
+            freq,
+            config,
+        )
     }
 }
 
-impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
+impl<'d, M: Mode> I2c<'d, M> {
     /// Create a new I2C driver.
-    fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+    fn new_inner<T: Instance>(
+        _peri: impl Peripheral<P = T> + 'd,
+        scl: Option<PeripheralRef<'d, AnyPin>>,
+        sda: Option<PeripheralRef<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         freq: Hertz,
         config: Config,
     ) -> Self {
-        into_ref!(peri, scl, sda);
-
-        T::enable_and_reset();
-
-        scl.set_as_af_pull(
-            scl.af_num(),
-            AFType::OutputOpenDrain,
-            match config.scl_pullup {
-                true => Pull::Up,
-                false => Pull::None,
-            },
-        );
-        sda.set_as_af_pull(
-            sda.af_num(),
-            AFType::OutputOpenDrain,
-            match config.sda_pullup {
-                true => Pull::Up,
-                false => Pull::None,
-            },
-        );
-
         unsafe { T::EventInterrupt::enable() };
         unsafe { T::ErrorInterrupt::enable() };
 
         let mut this = Self {
-            _peri: peri,
+            info: T::info(),
+            state: T::state(),
+            kernel_clock: T::frequency(),
+            scl,
+            sda,
             tx_dma,
             rx_dma,
             #[cfg(feature = "time")]
             timeout: config.timeout,
             _phantom: PhantomData,
         };
-
-        this.init(freq, config);
-
+        this.enable_and_init(freq, config);
         this
+    }
+
+    fn enable_and_init(&mut self, freq: Hertz, config: Config) {
+        self.info.rcc.enable_and_reset();
+        self.init(freq, config);
     }
 
     fn timeout(&self) -> Timeout {
@@ -166,6 +189,15 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
             #[cfg(feature = "time")]
             deadline: Instant::now() + self.timeout,
         }
+    }
+}
+
+impl<'d, M: Mode> Drop for I2c<'d, M> {
+    fn drop(&mut self) {
+        self.scl.as_ref().map(|x| x.set_as_disconnected());
+        self.sda.as_ref().map(|x| x.set_as_disconnected());
+
+        self.info.rcc.disable()
     }
 }
 
@@ -217,19 +249,14 @@ impl State {
     }
 }
 
-trait SealedInstance: crate::rcc::RccPeripheral {
-    fn regs() -> crate::pac::i2c::I2c;
-    fn state() -> &'static State;
+struct Info {
+    regs: crate::pac::i2c::I2c,
+    rcc: RccInfo,
 }
 
-/// I2C peripheral instance
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {
-    /// Event interrupt for this instance
-    type EventInterrupt: interrupt::typelevel::Interrupt;
-    /// Error interrupt for this instance
-    type ErrorInterrupt: interrupt::typelevel::Interrupt;
-}
+peri_trait!(
+    irqs: [EventInterrupt, ErrorInterrupt],
+);
 
 pin_trait!(SclPin, Instance);
 pin_trait!(SdaPin, Instance);
@@ -260,11 +287,15 @@ impl<T: Instance> interrupt::typelevel::Handler<T::ErrorInterrupt> for ErrorInte
 
 foreach_peripheral!(
     (i2c, $inst:ident) => {
+        #[allow(private_interfaces)]
         impl SealedInstance for peripherals::$inst {
-            fn regs() -> crate::pac::i2c::I2c {
-                crate::pac::$inst
+            fn info() -> &'static Info {
+                static INFO: Info = Info{
+                    regs: crate::pac::$inst,
+                    rcc: crate::peripherals::$inst::RCC_INFO,
+                };
+                &INFO
             }
-
             fn state() -> &'static State {
                 static STATE: State = State::new();
                 &STATE
@@ -278,7 +309,7 @@ foreach_peripheral!(
     };
 );
 
-impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, T, M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
     type Error = Error;
 
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -286,7 +317,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, 
     }
 }
 
-impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, T, M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
     type Error = Error;
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
@@ -294,7 +325,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d,
     }
 }
 
-impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T, M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M> {
     type Error = Error;
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
@@ -318,11 +349,11 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, T, M> {
+impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, M> {
     type Error = Error;
 }
 
-impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
+impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_read(address, read)
     }
@@ -344,7 +375,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
     }
 }
 
-impl<'d, T: Instance> embedded_hal_async::i2c::I2c for I2c<'d, T, Async> {
+impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.read(address, read).await
     }

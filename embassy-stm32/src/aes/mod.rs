@@ -11,7 +11,7 @@ use stm32_metapac::aes::vals::Gcmph;
 
 use crate::dma::NoDma;
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals, rcc, Peripheral};
 
 const AES_BLOCK_SIZE: usize = 16; // 128 bits
 const BYTES_IN_WORD: usize = 4;
@@ -403,7 +403,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Aes<'d, T, DmaIn, DmaOut> {
         dma_out: impl Peripheral<P = DmaOut> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         into_ref!(peri, dma_in, dma_out);
         let instance = Self {
             _peripheral: peri,

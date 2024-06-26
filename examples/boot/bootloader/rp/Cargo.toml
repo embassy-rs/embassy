@@ -11,7 +11,7 @@ defmt-rtt = { version = "0.4", optional = true }
 
 embassy-rp = { path = "../../../../embassy-rp", features = [] }
 embassy-boot-rp = { path = "../../../../embassy-boot-rp" }
-embassy-sync = { version = "0.5.0", path = "../../../../embassy-sync" }
+embassy-sync = { version = "0.6.0", path = "../../../../embassy-sync" }
 embassy-time = { path = "../../../../embassy-time", features = [] }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
@@ -23,10 +23,10 @@ cfg-if = "1.0.0"
 [features]
 defmt = [
     "dep:defmt",
+    "dep:defmt-rtt",
     "embassy-boot-rp/defmt",
     "embassy-rp/defmt",
 ]
-debug = ["defmt-rtt", "defmt"]
 
 [profile.release]
 debug = true

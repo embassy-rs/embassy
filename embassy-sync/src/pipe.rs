@@ -25,7 +25,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Writer { pipe: self.pipe }
+        *self
     }
 }
 
