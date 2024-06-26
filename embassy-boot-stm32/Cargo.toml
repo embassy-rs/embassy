@@ -26,8 +26,8 @@ defmt-rtt = { version = "0.4", optional = true }
 log = { version = "0.4", optional = true }
 
 embassy-sync = { version = "0.6001.0", registry = "artifactory", path = "../embassy-sync" }
-embassy-stm32 = { version = "0.1003.0", registry = "artifactory", path = "../embassy-stm32", default-features = false, features=["rt"]}
-embassy-boot = { version = "0.2001.0", registry = "artifactory", path = "../embassy-boot" }
+embassy-stm32 = { version = "0.1003.1", registry = "artifactory", path = "../embassy-stm32", default-features = false, features=["rt"]}
+embassy-boot = { version = "0.2001.1", registry = "artifactory", path = "../embassy-boot" }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"
