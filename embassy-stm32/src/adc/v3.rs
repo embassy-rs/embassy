@@ -277,6 +277,21 @@ impl<'d, T: Instance> Adc<'d, T> {
         val
     }
 
+    #[cfg(any(adc_g0, adc_u0))]
+    pub fn set_oversampling_shift(&mut self, shift: u8) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovss(shift));
+    }
+
+    #[cfg(any(adc_g0, adc_u0))]
+    pub fn set_oversampling_ratio(&mut self, ratio: u8) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovsr(ratio));
+    }
+
+    #[cfg(any(adc_g0, adc_u0))]
+    pub fn oversampling_enable(&mut self, enable: bool) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovse(enable));
+    }
+
     fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
