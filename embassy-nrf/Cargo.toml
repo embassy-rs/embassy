@@ -100,6 +100,13 @@ nrf9160-s = ["_nrf9160", "_s"]
 ## nRF9160 in Non-Secure mode
 nrf9160-ns = ["_nrf9160", "_ns"]
 
+# TODO - The nrf9151 is close enough to the nrf9160 for a lot of applications. It needs
+# more testing though and possilbly proper support
+## nRF9151 in Secure mode
+nrf9151-s = ["nrf9160-s"]
+## nRF9151 in Non-Secure mode
+nrf9151-ns = ["nrf9160-ns"]
+
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
 
