@@ -36,18 +36,8 @@ const DISPLAY_HEIGHT: usize = 272;
 const MY_TASK_POOL_SIZE: usize = 2;
 
 // the following two display buffers consume 261120 bytes that just about fits into axis ram found on the mcu
-// see memory.x linker script
 pub static mut FB1: [TargetPixelType; DISPLAY_WIDTH * DISPLAY_HEIGHT] = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
 pub static mut FB2: [TargetPixelType; DISPLAY_WIDTH * DISPLAY_HEIGHT] = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
-
-// a basic memory.x linker script for the stm32h735g-dk is as follows:
-/*
-MEMORY
-{
-    FLASH    : ORIGIN = 0x08000000, LENGTH = 1024K
-    RAM      : ORIGIN = 0x24000000, LENGTH = 320K
-}
-*/
 
 bind_interrupts!(struct Irqs {
     LTDC => ltdc::InterruptHandler<peripherals::LTDC>;
@@ -110,7 +100,7 @@ async fn main(spawner: Spawner) {
 
     // enable the bottom layer with a 256 color lookup table
     ltdc.init_layer(&layer_config, Some(&clut));
-
+    
     // Safety: the DoubleBuffer controls access to the statically allocated frame buffers
     // and it is the only thing that mutates their content
     let mut double_buffer = DoubleBuffer::new(
@@ -369,8 +359,7 @@ mod rcc_setup {
         config.rcc.apb2_pre = APBPrescaler::DIV2;
         config.rcc.apb3_pre = APBPrescaler::DIV2;
         config.rcc.apb4_pre = APBPrescaler::DIV2;
-        let p = embassy_stm32::init(config);
-        p
+        embassy_stm32::init(config)        
     }
 }
 

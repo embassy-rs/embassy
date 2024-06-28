@@ -178,27 +178,13 @@ impl<'d, T: Instance> Ltdc<'d, T> {
     // Create a new LTDC driver without specifying color and control pins. This is typically used if you want to drive a display though a DsiHost
     /// Note: Full-Duplex modes are not supported at this time
     pub fn new(peri: impl Peripheral<P = T> + 'd) -> Self {
-        critical_section::with(|_cs| {
-            // RM says the pllsaidivr should only be changed when pllsai is off. But this could have other unintended side effects. So let's just give it a try like this.
-            // According to the debugger, this bit gets set, anyway.
-            #[cfg(stm32f7)]
-            stm32_metapac::RCC
-                .dckcfgr1()
-                .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
-
-            // It is set to RCC_PLLSAIDIVR_2 in ST's BSP example for the STM32469I-DISCO.
-            #[cfg(not(any(stm32f7, stm32u5)))]
-            stm32_metapac::RCC
-                .dckcfgr()
-                .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
-        });
-
-        rcc::enable_and_reset::<T>();
+        Self::setup_clocks();
         into_ref!(peri);
         Self { _peri: peri }
     }
 
     /// Create a new LTDC driver. 8 pins per color channel for blue, green and red
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_pins(
         peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -230,8 +216,7 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         r6: impl Peripheral<P = impl R6Pin<T>> + 'd,
         r7: impl Peripheral<P = impl R7Pin<T>> + 'd,
     ) -> Self {
-        rcc::enable_and_reset::<T>();
-
+        Self::setup_clocks();
         into_ref!(peri);
         new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         new_pin!(hsync, AfType::output(OutputType::PushPull, Speed::VeryHigh));
@@ -482,6 +467,25 @@ impl<'d, T: Instance> Ltdc<'d, T> {
 
         Self::clear_interrupt_flags();
         result
+    }
+
+    fn setup_clocks() {
+        critical_section::with(|_cs| {
+            // RM says the pllsaidivr should only be changed when pllsai is off. But this could have other unintended side effects. So let's just give it a try like this.
+            // According to the debugger, this bit gets set, anyway.
+            #[cfg(stm32f7)]
+            crate::pac::RCC
+                .dckcfgr1()
+                .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
+
+            // It is set to RCC_PLLSAIDIVR_2 in ST's BSP example for the STM32469I-DISCO.
+            #[cfg(stm32f4)]
+            crate::pac::RCC
+                .dckcfgr()
+                .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
+        });
+
+        rcc::enable_and_reset::<T>();
     }
 
     fn clear_interrupt_flags() {
