@@ -175,8 +175,31 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 impl<'d, T: Instance> Ltdc<'d, T> {
+    // Create a new LTDC driver without specifying color and control pins. This is typically used if you want to drive a display though a DsiHost
+    /// Note: Full-Duplex modes are not supported at this time
+    pub fn new(peri: impl Peripheral<P = T> + 'd) -> Self {
+        critical_section::with(|_cs| {
+            // RM says the pllsaidivr should only be changed when pllsai is off. But this could have other unintended side effects. So let's just give it a try like this.
+            // According to the debugger, this bit gets set, anyway.
+            #[cfg(stm32f7)]
+            stm32_metapac::RCC
+                .dckcfgr1()
+                .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
+
+            // It is set to RCC_PLLSAIDIVR_2 in ST's BSP example for the STM32469I-DISCO.
+            #[cfg(not(any(stm32f7, stm32u5)))]
+            stm32_metapac::RCC
+                .dckcfgr()
+                .modify(|w| w.set_pllsaidivr(stm32_metapac::rcc::vals::Pllsaidivr::DIV2));
+        });
+
+        rcc::enable_and_reset::<T>();
+        into_ref!(peri);
+        Self { _peri: peri }
+    }
+
     /// Create a new LTDC driver. 8 pins per color channel for blue, green and red
-    pub fn new(
+    pub fn new_with_pins(
         peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T>> + 'd,
@@ -241,93 +264,7 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         Self { _peri: peri }
     }
 
-    fn clear_interrupt_flags() {
-        T::regs().icr().write(|w| {
-            w.set_cfuif(Cfuif::CLEAR);
-            w.set_clif(Clif::CLEAR);
-            w.set_crrif(Crrif::CLEAR);
-            w.set_cterrif(Cterrif::CLEAR);
-        });
-    }
-
-    fn enable_interrupts(enable: bool) {
-        T::regs().ier().write(|w| {
-            w.set_fuie(enable);
-            w.set_lie(false); // we are not interested in the line interrupt enable event
-            w.set_rrie(enable);
-            w.set_terrie(enable)
-        });
-
-        // enable interrupts for LTDC peripheral
-        T::Interrupt::unpend();
-        if enable {
-            unsafe { T::Interrupt::enable() };
-        } else {
-            T::Interrupt::disable()
-        }
-    }
-
-    /// Set the current buffer. The async function will return when buffer has been completely copied to the LCD screen
-    /// frame_buffer_addr is a pointer to memory that should not move (best to make it static)
-    pub async fn set_buffer(&mut self, layer: LtdcLayer, frame_buffer_addr: *const ()) -> Result<(), Error> {
-        let mut bits = T::regs().isr().read();
-
-        // if all clear
-        if !bits.fuif() && !bits.lif() && !bits.rrif() && !bits.terrif() {
-            // wait for interrupt
-            poll_fn(|cx| {
-                // quick check to avoid registration if already done.
-                let bits = T::regs().isr().read();
-                if bits.fuif() || bits.lif() || bits.rrif() || bits.terrif() {
-                    return Poll::Ready(());
-                }
-
-                LTDC_WAKER.register(cx.waker());
-                Self::clear_interrupt_flags(); // don't poison the request with old flags
-                Self::enable_interrupts(true);
-
-                // set the new frame buffer address
-                let layer = T::regs().layer(layer as usize);
-                layer.cfbar().modify(|w| w.set_cfbadd(frame_buffer_addr as u32));
-
-                // configure a shadow reload for the next blanking period
-                T::regs().srcr().write(|w| {
-                    w.set_vbr(Vbr::RELOAD);
-                });
-
-                // need to check condition after register to avoid a race
-                // condition that would result in lost notifications.
-                let bits = T::regs().isr().read();
-                if bits.fuif() || bits.lif() || bits.rrif() || bits.terrif() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            // re-read the status register after wait.
-            bits = T::regs().isr().read();
-        }
-
-        let result = if bits.fuif() {
-            Err(Error::FifoUnderrun)
-        } else if bits.terrif() {
-            Err(Error::TransferError)
-        } else if bits.lif() {
-            panic!("line interrupt event is disabled")
-        } else if bits.rrif() {
-            // register reload flag is expected
-            Ok(())
-        } else {
-            unreachable!("all interrupt status values checked")
-        };
-
-        Self::clear_interrupt_flags();
-        result
-    }
-
-    /// Initialize the display
+    /// Initialise and enable the display
     pub fn init(&mut self, config: &LtdcConfiguration) {
         use stm32_metapac::ltdc::vals::{Depol, Hspol, Pcpol, Vspol};
         let ltdc = T::regs();
@@ -393,16 +330,27 @@ impl<'d, T: Instance> Ltdc<'d, T> {
             w.set_bcblue(0);
         });
 
-        // enable LTDC by setting LTDCEN bit
-        ltdc.gcr().modify(|w| {
-            w.set_ltdcen(true);
-        });
+        self.enable();
     }
 
-    /// Enable the layer
+    /// Set the enable bit in the control register and assert that it has been enabled
     ///
-    /// clut - color look-up table applies to L8, AL44 and AL88 pixel format and will default to greyscale if None supplied and these pixel formats are used
-    pub fn enable_layer(&mut self, layer_config: &LtdcLayerConfig, clut: Option<&[RgbColor]>) {
+    /// This does need to be called if init has already been called
+    pub fn enable(&mut self) {
+        T::regs().gcr().modify(|w| w.set_ltdcen(true));
+        assert!(T::regs().gcr().read().ltdcen())
+    }
+
+    /// Unset the enable bit in the control register and assert that it has been disabled
+    pub fn disable(&mut self) {
+        T::regs().gcr().modify(|w| w.set_ltdcen(false));
+        assert!(!T::regs().gcr().read().ltdcen())
+    }
+
+    /// Initialise and enable the layer
+    ///
+    /// clut - a 256 length color look-up table applies to L8, AL44 and AL88 pixel format and will default to greyscale if `None` supplied and these pixel formats are used
+    pub fn init_layer(&mut self, layer_config: &LtdcLayerConfig, clut: Option<&[RgbColor]>) {
         let ltdc = T::regs();
         let layer = ltdc.layer(layer_config.layer as usize);
 
@@ -474,6 +422,92 @@ impl<'d, T: Instance> Ltdc<'d, T> {
             }
             w.set_len(true);
         });
+    }
+
+    /// Set the current buffer. The async function will return when buffer has been completely copied to the LCD screen
+    /// frame_buffer_addr is a pointer to memory that should not move (best to make it static)
+    pub async fn set_buffer(&mut self, layer: LtdcLayer, frame_buffer_addr: *const ()) -> Result<(), Error> {
+        let mut bits = T::regs().isr().read();
+
+        // if all clear
+        if !bits.fuif() && !bits.lif() && !bits.rrif() && !bits.terrif() {
+            // wait for interrupt
+            poll_fn(|cx| {
+                // quick check to avoid registration if already done.
+                let bits = T::regs().isr().read();
+                if bits.fuif() || bits.lif() || bits.rrif() || bits.terrif() {
+                    return Poll::Ready(());
+                }
+
+                LTDC_WAKER.register(cx.waker());
+                Self::clear_interrupt_flags(); // don't poison the request with old flags
+                Self::enable_interrupts(true);
+
+                // set the new frame buffer address
+                let layer = T::regs().layer(layer as usize);
+                layer.cfbar().modify(|w| w.set_cfbadd(frame_buffer_addr as u32));
+
+                // configure a shadow reload for the next blanking period
+                T::regs().srcr().write(|w| {
+                    w.set_vbr(Vbr::RELOAD);
+                });
+
+                // need to check condition after register to avoid a race
+                // condition that would result in lost notifications.
+                let bits = T::regs().isr().read();
+                if bits.fuif() || bits.lif() || bits.rrif() || bits.terrif() {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+
+            // re-read the status register after wait.
+            bits = T::regs().isr().read();
+        }
+
+        let result = if bits.fuif() {
+            Err(Error::FifoUnderrun)
+        } else if bits.terrif() {
+            Err(Error::TransferError)
+        } else if bits.lif() {
+            panic!("line interrupt event is disabled")
+        } else if bits.rrif() {
+            // register reload flag is expected
+            Ok(())
+        } else {
+            unreachable!("all interrupt status values checked")
+        };
+
+        Self::clear_interrupt_flags();
+        result
+    }
+
+    fn clear_interrupt_flags() {
+        T::regs().icr().write(|w| {
+            w.set_cfuif(Cfuif::CLEAR);
+            w.set_clif(Clif::CLEAR);
+            w.set_crrif(Crrif::CLEAR);
+            w.set_cterrif(Cterrif::CLEAR);
+        });
+    }
+
+    fn enable_interrupts(enable: bool) {
+        T::regs().ier().write(|w| {
+            w.set_fuie(enable);
+            w.set_lie(false); // we are not interested in the line interrupt enable event
+            w.set_rrie(enable);
+            w.set_terrie(enable)
+        });
+
+        // enable interrupts for LTDC peripheral
+        T::Interrupt::unpend();
+        if enable {
+            unsafe { T::Interrupt::enable() };
+        } else {
+            T::Interrupt::disable()
+        }
     }
 }
 

@@ -87,7 +87,7 @@ async fn main(spawner: Spawner) {
     };
 
     info!("init ltdc");
-    let mut ltdc = Ltdc::new(
+    let mut ltdc = Ltdc::new_with_pins(
         p.LTDC, Irqs, p.PG7, p.PC6, p.PA4, p.PG14, p.PD0, p.PD6, p.PA8, p.PE12, p.PA3, p.PB8, p.PB9, p.PB1, p.PB0,
         p.PA6, p.PE11, p.PH15, p.PH4, p.PC7, p.PD3, p.PE0, p.PH3, p.PH8, p.PH9, p.PH10, p.PH11, p.PE1, p.PE15,
     );
@@ -109,7 +109,7 @@ async fn main(spawner: Spawner) {
     let clut = build_clut(&color_map);
 
     // enable the bottom layer with a 256 color lookup table
-    ltdc.enable_layer(&layer_config, Some(&clut));
+    ltdc.init_layer(&layer_config, Some(&clut));
 
     // Safety: the DoubleBuffer controls access to the statically allocated frame buffers
     // and it is the only thing that mutates their content
