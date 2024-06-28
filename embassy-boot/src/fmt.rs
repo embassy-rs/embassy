@@ -3,17 +3,29 @@
 
 use core::fmt::{Debug, Display, LowerHex};
 
+#[cfg(feature = "no-panic-msgs")]
+#[macro_use]
+pub mod no_panic_msgs;
+
 #[cfg(all(feature = "defmt", feature = "log"))]
 compile_error!("You may not enable both `defmt` and `log` features.");
+
+#[cfg(all(feature = "no-panic-msgs", feature = "log"))]
+compile_error!("You may not enable both `no-panic-msgs` and `log` features.");
+
+#[cfg(all(feature = "no-panic-msgs", feature = "defmt"))]
+compile_error!("You may not enable both `no-panic-msgs` and `defmt` features.");
 
 #[collapse_debuginfo(yes)]
 macro_rules! assert {
     ($($x:tt)*) => {
         {
-            #[cfg(not(feature = "defmt"))]
+            #[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
             ::core::assert!($($x)*);
             #[cfg(feature = "defmt")]
             ::defmt::assert!($($x)*);
+            #[cfg(feature = "no-panic-msgs")]
+            $crate::fmt::no_panic_msgs::assert!($($x)*);
         }
     };
 }
@@ -22,10 +34,12 @@ macro_rules! assert {
 macro_rules! assert_eq {
     ($($x:tt)*) => {
         {
-            #[cfg(not(feature = "defmt"))]
+            #[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
             ::core::assert_eq!($($x)*);
             #[cfg(feature = "defmt")]
             ::defmt::assert_eq!($($x)*);
+            #[cfg(feature = "no-panic-msgs")]
+            $crate::fmt::no_panic_msgs::assert_eq!($($x)*);
         }
     };
 }
@@ -34,10 +48,12 @@ macro_rules! assert_eq {
 macro_rules! assert_ne {
     ($($x:tt)*) => {
         {
-            #[cfg(not(feature = "defmt"))]
+            #[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
             ::core::assert_ne!($($x)*);
             #[cfg(feature = "defmt")]
             ::defmt::assert_ne!($($x)*);
+            #[cfg(feature = "no-panic-msgs")]
+            $crate::fmt::no_panic_msgs::assert_ne!($($x)*);
         }
     };
 }
@@ -46,10 +62,12 @@ macro_rules! assert_ne {
 macro_rules! debug_assert {
     ($($x:tt)*) => {
         {
-            #[cfg(not(feature = "defmt"))]
+            #[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
             ::core::debug_assert!($($x)*);
             #[cfg(feature = "defmt")]
             ::defmt::debug_assert!($($x)*);
+            #[cfg(feature = "no-panic-msgs")]
+            $crate::fmt::no_panic_msgs::debug_assert!($($x)*);
         }
     };
 }
@@ -58,10 +76,12 @@ macro_rules! debug_assert {
 macro_rules! debug_assert_eq {
     ($($x:tt)*) => {
         {
-            #[cfg(not(feature = "defmt"))]
+            #[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
             ::core::debug_assert_eq!($($x)*);
             #[cfg(feature = "defmt")]
             ::defmt::debug_assert_eq!($($x)*);
+            #[cfg(feature = "no-panic-msgs")]
+            $crate::fmt::no_panic_msgs::debug_assert_eq!($($x)*);
         }
     };
 }
@@ -70,10 +90,12 @@ macro_rules! debug_assert_eq {
 macro_rules! debug_assert_ne {
     ($($x:tt)*) => {
         {
-            #[cfg(not(feature = "defmt"))]
+            #[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
             ::core::debug_assert_ne!($($x)*);
             #[cfg(feature = "defmt")]
             ::defmt::debug_assert_ne!($($x)*);
+            #[cfg(feature = "no-panic-msgs")]
+            $crate::fmt::no_panic_msgs::debug_assert_ne!($($x)*);
         }
     };
 }
@@ -82,15 +104,17 @@ macro_rules! debug_assert_ne {
 macro_rules! todo {
     ($($x:tt)*) => {
         {
-            #[cfg(not(feature = "defmt"))]
+            #[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
             ::core::todo!($($x)*);
             #[cfg(feature = "defmt")]
             ::defmt::todo!($($x)*);
+            #[cfg(feature = "no-panic-msgs")]
+            ::core::todo!();
         }
     };
 }
 
-#[cfg(not(feature = "defmt"))]
+#[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
 #[collapse_debuginfo(yes)]
 macro_rules! unreachable {
     ($($x:tt)*) => {
@@ -106,14 +130,24 @@ macro_rules! unreachable {
     };
 }
 
+#[cfg(feature = "no-panic-msgs")]
+#[collapse_debuginfo(yes)]
+macro_rules! unreachable {
+    ($($x:tt)*) => {
+        ::core::unreachable!()
+    };
+}
+
 #[collapse_debuginfo(yes)]
 macro_rules! panic {
     ($($x:tt)*) => {
         {
-            #[cfg(not(feature = "defmt"))]
+            #[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
             ::core::panic!($($x)*);
             #[cfg(feature = "defmt")]
             ::defmt::panic!($($x)*);
+            #[cfg(feature = "no-panic-msgs")]
+            ::core::panic!();
         }
     };
 }
@@ -126,7 +160,7 @@ macro_rules! trace {
             ::log::trace!($s $(, $x)*);
             #[cfg(feature = "defmt")]
             ::defmt::trace!($s $(, $x)*);
-            #[cfg(not(any(feature = "log", feature="defmt")))]
+            #[cfg(not(any(feature = "log", feature = "defmt")))]
             let _ = ($( & $x ),*);
         }
     };
@@ -140,7 +174,7 @@ macro_rules! debug {
             ::log::debug!($s $(, $x)*);
             #[cfg(feature = "defmt")]
             ::defmt::debug!($s $(, $x)*);
-            #[cfg(not(any(feature = "log", feature="defmt")))]
+            #[cfg(not(any(feature = "log", feature = "defmt")))]
             let _ = ($( & $x ),*);
         }
     };
@@ -154,7 +188,7 @@ macro_rules! info {
             ::log::info!($s $(, $x)*);
             #[cfg(feature = "defmt")]
             ::defmt::info!($s $(, $x)*);
-            #[cfg(not(any(feature = "log", feature="defmt")))]
+            #[cfg(not(any(feature = "log", feature = "defmt")))]
             let _ = ($( & $x ),*);
         }
     };
@@ -168,7 +202,7 @@ macro_rules! warn {
             ::log::warn!($s $(, $x)*);
             #[cfg(feature = "defmt")]
             ::defmt::warn!($s $(, $x)*);
-            #[cfg(not(any(feature = "log", feature="defmt")))]
+            #[cfg(not(any(feature = "log", feature = "defmt")))]
             let _ = ($( & $x ),*);
         }
     };
@@ -182,7 +216,7 @@ macro_rules! error {
             ::log::error!($s $(, $x)*);
             #[cfg(feature = "defmt")]
             ::defmt::error!($s $(, $x)*);
-            #[cfg(not(any(feature = "log", feature="defmt")))]
+            #[cfg(not(any(feature = "log", feature = "defmt")))]
             let _ = ($( & $x ),*);
         }
     };
@@ -196,7 +230,15 @@ macro_rules! unwrap {
     };
 }
 
-#[cfg(not(feature = "defmt"))]
+#[cfg(feature = "no-panic-msgs")]
+#[collapse_debuginfo(yes)]
+macro_rules! unwrap {
+    ($($x:tt)*) => {
+        $crate::fmt::no_panic_msgs::unwrap!($($x)*)
+    };
+}
+
+#[cfg(not(any(feature = "defmt", feature = "no-panic-msgs")))]
 #[collapse_debuginfo(yes)]
 macro_rules! unwrap {
     ($arg:expr) => {
