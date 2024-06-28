@@ -40,6 +40,7 @@ rt = [
     "nrf5340-app-pac?/rt",
     "nrf5340-net-pac?/rt",
     "nrf9160-pac?/rt",
+    "nrf9120-pac?/rt",
 ]
 
 ## Enable features requiring `embassy-time`
@@ -99,13 +100,10 @@ nrf5340-net = ["_nrf5340-net"]
 nrf9160-s = ["_nrf9160", "_s"]
 ## nRF9160 in Non-Secure mode
 nrf9160-ns = ["_nrf9160", "_ns"]
-
-# TODO - The nrf9151 is close enough to the nrf9160 for a lot of applications. It needs
-# more testing though and possilbly proper support
-## nRF9151 in Secure mode
-nrf9151-s = ["nrf9160-s"]
-## nRF9151 in Non-Secure mode
-nrf9151-ns = ["nrf9160-ns"]
+## nRF9120 in Secure mode
+nrf9120-s = ["_nrf9120", "_s"]
+## nRF9120 in Non-Secure mode
+nrf9120-ns = ["_nrf9120", "_ns"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
@@ -114,6 +112,7 @@ _nrf5340-app = ["_nrf5340", "nrf5340-app-pac"]
 _nrf5340-net = ["_nrf5340", "nrf5340-net-pac"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf9160 = ["nrf9160-pac", "_dppi"]
+_nrf9120 = ["nrf9120-pac", "_dppi"]
 _nrf52 = ["_ppi"]
 _nrf51 = ["_ppi"]
 
@@ -168,3 +167,4 @@ nrf52840-pac = { version = "0.12.0", optional = true }
 nrf5340-app-pac = { version = "0.12.0", optional = true }
 nrf5340-net-pac = { version = "0.12.0", optional = true }
 nrf9160-pac = { version = "0.12.0", optional = true }
+nrf9120-pac = { path = "../../nrf-pacs/pacs/nrf9120-pac", optional = true }

@@ -722,9 +722,9 @@ macro_rules! impl_saadc_input {
 pub struct VddInput;
 
 impl_peripheral!(VddInput);
-#[cfg(not(feature = "_nrf9160"))]
+#[cfg(not(any(feature = "_nrf9160", feature = "_nrf9120")))]
 impl_saadc_input!(@local, VddInput, VDD);
-#[cfg(feature = "_nrf9160")]
+#[cfg(not(any(feature = "_nrf9160", feature = "_nrf9120")))]
 impl_saadc_input!(@local, VddInput, VDDGPIO);
 
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the

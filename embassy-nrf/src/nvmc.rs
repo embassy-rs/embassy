@@ -71,12 +71,12 @@ impl<'d> Nvmc<'d> {
         while p.readynext.read().readynext().is_busy() {}
     }
 
-    #[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340")))]
+    #[cfg(not(any(feature = "_nrf9160", feature = "_nrf9120", feature = "_nrf5340")))]
     fn erase_page(&mut self, page_addr: u32) {
         Self::regs().erasepage().write(|w| unsafe { w.bits(page_addr) });
     }
 
-    #[cfg(any(feature = "_nrf9160", feature = "_nrf5340"))]
+    #[cfg(any(feature = "_nrf9160", feature = "_nrf9120", feature = "_nrf5340"))]
     fn erase_page(&mut self, page_addr: u32) {
         let first_page_word = page_addr as *mut u32;
         unsafe {
