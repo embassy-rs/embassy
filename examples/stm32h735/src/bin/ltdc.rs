@@ -11,22 +11,18 @@
 use bouncy_box::BouncyBox;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_stm32::{
-    bind_interrupts,
-    gpio::{Level, Output, Speed},
-    ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge},
-    peripherals,
-};
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::{Duration, Timer};
-use embedded_graphics::{
-    draw_target::DrawTarget,
-    geometry::{OriginDimensions, Point, Size},
-    image::Image,
-    pixelcolor::{raw::RawU24, Rgb888},
-    prelude::*,
-    primitives::Rectangle,
-    Pixel,
-};
+use embedded_graphics::draw_target::DrawTarget;
+use embedded_graphics::geometry::{OriginDimensions, Point, Size};
+use embedded_graphics::image::Image;
+use embedded_graphics::pixelcolor::raw::RawU24;
+use embedded_graphics::pixelcolor::Rgb888;
+use embedded_graphics::prelude::*;
+use embedded_graphics::primitives::Rectangle;
+use embedded_graphics::Pixel;
 use heapless::{Entry, FnvIndexMap};
 use tinybmp::Bmp;
 use {defmt_rtt as _, panic_probe as _};
@@ -100,7 +96,7 @@ async fn main(spawner: Spawner) {
 
     // enable the bottom layer with a 256 color lookup table
     ltdc.init_layer(&layer_config, Some(&clut));
-    
+
     // Safety: the DoubleBuffer controls access to the statically allocated frame buffers
     // and it is the only thing that mutates their content
     let mut double_buffer = DoubleBuffer::new(
@@ -283,12 +279,9 @@ impl OriginDimensions for DoubleBuffer {
 
 mod rcc_setup {
 
-    use embassy_stm32::{rcc::*, Peripherals};
-    use embassy_stm32::{
-        rcc::{Hse, HseMode},
-        time::Hertz,
-        Config,
-    };
+    use embassy_stm32::rcc::{Hse, HseMode, *};
+    use embassy_stm32::time::Hertz;
+    use embassy_stm32::{Config, Peripherals};
 
     /// Sets up clocks for the stm32h735g mcu
     /// change this if you plan to use a different microcontroller
@@ -359,12 +352,13 @@ mod rcc_setup {
         config.rcc.apb2_pre = APBPrescaler::DIV2;
         config.rcc.apb3_pre = APBPrescaler::DIV2;
         config.rcc.apb4_pre = APBPrescaler::DIV2;
-        embassy_stm32::init(config)        
+        embassy_stm32::init(config)
     }
 }
 
 mod bouncy_box {
-    use embedded_graphics::{geometry::Point, primitives::Rectangle};
+    use embedded_graphics::geometry::Point;
+    use embedded_graphics::primitives::Rectangle;
 
     enum Direction {
         DownLeft,

@@ -2,18 +2,19 @@
 //! See ST application note AN4861: Introduction to LCD-TFT display controller (LTDC) on STM32 MCUs for high level details
 //! This module was tested against the stm32h735g-dk using the RM0468 ST reference manual for detailed register information
 
-use crate::{
-    gpio::{AfType, OutputType, Speed},
-    interrupt::{self, typelevel::Interrupt},
-    peripherals, rcc, Peripheral,
-};
-use core::{future::poll_fn, marker::PhantomData, task::Poll};
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::task::Poll;
+
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use stm32_metapac::ltdc::{
-    regs::Dccr,
-    vals::{Bf1, Bf2, Cfuif, Clif, Crrif, Cterrif, Pf, Vbr},
-};
+use stm32_metapac::ltdc::regs::Dccr;
+use stm32_metapac::ltdc::vals::{Bf1, Bf2, Cfuif, Clif, Crrif, Cterrif, Pf, Vbr};
+
+use crate::gpio::{AfType, OutputType, Speed};
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::{self};
+use crate::{peripherals, rcc, Peripheral};
 
 static LTDC_WAKER: AtomicWaker = AtomicWaker::new();
 
