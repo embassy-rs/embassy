@@ -9,8 +9,15 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use crate::rcc::RccPeripheral;
 use crate::{pac, Peripheral};
 
+#[cfg(any(stm32wb, stm32wl))]
+const PART_ID_CORTEXM0: u32 = 0x0;
+const PART_ID_CORTEXM4: u32 = 0x40;
+#[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757))]
+const PART_ID_CORTEXM7: u32 = 0x70;
+
 /// HSEM error.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HsemError {
     /// Locking the semaphore failed.
     LockFailed,
@@ -47,16 +54,16 @@ pub fn get_current_coreid() -> CoreId {
     let cpuid = unsafe { cortex_m::peripheral::CPUID::PTR.read_volatile().base.read() };
     match cpuid & 0x000000F0 {
         #[cfg(any(stm32wb, stm32wl))]
-        0x0 => CoreId::Core1,
+        PART_ID_CORTEXM0 => CoreId::Core1,
 
         #[cfg(not(any(stm32h745, stm32h747, stm32h755, stm32h757)))]
-        0x4 => CoreId::Core0,
+        PART_ID_CORTEXM4 => CoreId::Core0,
 
         #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757))]
-        0x4 => CoreId::Core1,
+        PART_ID_CORTEXM4 => CoreId::Core1,
 
         #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757))]
-        0x7 => CoreId::Core0,
+        PART_ID_CORTEXM7 => CoreId::Core0,
         _ => panic!("Unknown Cortex-M core"),
     }
 }
