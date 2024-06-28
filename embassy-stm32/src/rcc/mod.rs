@@ -138,11 +138,17 @@ impl RccInfo {
     pub(crate) fn enable_and_reset_with_cs(&self, _cs: CriticalSection) {
         if self.refcount_idx_or_0xff != 0xff {
             let refcount_idx = self.refcount_idx_or_0xff as usize;
-            unsafe {
-                crate::_generated::REFCOUNTS[refcount_idx] += 1;
-            }
-            if unsafe { crate::_generated::REFCOUNTS[refcount_idx] } > 1 {
-                return;
+
+            // Use .get_mut instead of []-operator so that we control how bounds checks happen.
+            // Otherwise, core::fmt will be pulled in here in order to format the integer in the
+            // out-of-bounds error.
+            if let Some(refcount) = unsafe { crate::_generated::REFCOUNTS }.get_mut(refcount_idx) {
+                *refcount += 1;
+                if *refcount > 1 {
+                    return;
+                }
+            } else {
+                panic!("refcount_idx out of bounds: {}", refcount_idx)
             }
         }
 
@@ -196,11 +202,15 @@ impl RccInfo {
     pub(crate) fn disable_with_cs(&self, _cs: CriticalSection) {
         if self.refcount_idx_or_0xff != 0xff {
             let refcount_idx = self.refcount_idx_or_0xff as usize;
-            unsafe {
-                crate::_generated::REFCOUNTS[refcount_idx] -= 1;
-            }
-            if unsafe { crate::_generated::REFCOUNTS[refcount_idx] } > 0 {
-                return;
+
+            // Use .get_mut instead of []-operator so that we control how bounds checks happen.
+            // Otherwise, core::fmt will be pulled in here in order to format the integer in the
+            // out-of-bounds error.
+            if let Some(refcount) = unsafe { crate::_generated::REFCOUNTS }.get_mut(refcount_idx) {
+                *refcount -= 1;
+                if *refcount > 0 {
+                    return;
+                }
             }
         }
 
