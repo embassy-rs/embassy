@@ -2,19 +2,17 @@
 #![no_main]
 
 use core::option::Option::Some;
+
 use defmt::info;
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
-use embassy_stm32::interrupt;
-use embassy_stm32::pac;
 use embassy_stm32::rcc::*;
 use embassy_stm32::time::hz;
-use embassy_stm32::timer::low_level::Timer as LLTimer;
-use embassy_stm32::timer::low_level::*;
+use embassy_stm32::timer::low_level::{Timer as LLTimer, *};
 use embassy_stm32::timer::simple_pwm::PwmPin;
 use embassy_stm32::timer::Channel;
-use embassy_stm32::Config;
+use embassy_stm32::{interrupt, pac, Config};
 use panic_probe as _;
 
 const DDS_SINE_DATA: [u8; 256] = [
