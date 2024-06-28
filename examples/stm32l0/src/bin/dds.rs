@@ -75,6 +75,7 @@ async fn main(_spawner: Spawner) {
     let _ch3 = PwmPin::new_ch3(p.PA2, OutputType::PushPull);
 
     // initialize timer
+    // we cannot use SimplePWM here because the Time is privately encapsulated
     let timer = LLTimer::new(p.TIM2);
 
     // set counting mode
