@@ -36,6 +36,7 @@ cfg-if = "1.0.0"
 [features]
 defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-stm32/defmt"]
 log = ["dep:log", "embassy-boot/log", "embassy-stm32/log"]
+no-panic-msgs = ["embassy-boot/no-panic-msgs", "embassy-stm32/no-panic-msgs"]
 
 [profile.dev]
 debug = 2

@@ -41,6 +41,10 @@ defmt = [
     "embassy-boot/defmt",
     "embassy-nrf/defmt",
 ]
+no-panic-msgs = [
+    "embassy-boot/no-panic-msgs",
+    "embassy-nrf/no-panic-msgs",
+]
 softdevice = [
     "nrf-softdevice-mbr",
 ]
