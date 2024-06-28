@@ -211,6 +211,8 @@ impl RccInfo {
                 if *refcount > 0 {
                     return;
                 }
+            } else {
+                panic!("refcount_idx out of bounds: {}", refcount_idx)
             }
         }
 
