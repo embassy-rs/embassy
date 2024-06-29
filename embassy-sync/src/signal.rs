@@ -65,7 +65,7 @@ where
     }
 }
 
-impl<M, T: Send> Signal<M, T>
+impl<M, T> Signal<M, T>
 where
     M: RawMutex,
 {

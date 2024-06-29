@@ -70,7 +70,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use enums::*;
 
-use crate::gpio::{AFType, AnyPin};
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::pac::tsc::Tsc as Regs;
 use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
@@ -83,7 +83,7 @@ const TSC_NUM_GROUPS: u32 = 7;
 const TSC_NUM_GROUPS: u32 = 8;
 
 /// Error type defined for TSC
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Test error for TSC
@@ -371,11 +371,14 @@ macro_rules! group_impl {
                     pin.set_low();
                     pin.set_as_af(
                         pin.af_num(),
-                        match role {
-                            PinType::Channel => AFType::OutputPushPull,
-                            PinType::Sample => AFType::OutputOpenDrain,
-                            PinType::Shield => AFType::OutputPushPull,
-                        },
+                        AfType::output(
+                            match role {
+                                PinType::Channel => OutputType::PushPull,
+                                PinType::Sample => OutputType::OpenDrain,
+                                PinType::Shield => OutputType::PushPull,
+                            },
+                            Speed::VeryHigh,
+                        ),
                     );
                     self.d1 = Some(TscPin {
                         _pin: pin.map_into(),
@@ -392,11 +395,14 @@ macro_rules! group_impl {
                     pin.set_low();
                     pin.set_as_af(
                         pin.af_num(),
-                        match role {
-                            PinType::Channel => AFType::OutputPushPull,
-                            PinType::Sample => AFType::OutputOpenDrain,
-                            PinType::Shield => AFType::OutputPushPull,
-                        },
+                        AfType::output(
+                            match role {
+                                PinType::Channel => OutputType::PushPull,
+                                PinType::Sample => OutputType::OpenDrain,
+                                PinType::Shield => OutputType::PushPull,
+                            },
+                            Speed::VeryHigh,
+                        ),
                     );
                     self.d2 = Some(TscPin {
                         _pin: pin.map_into(),
@@ -413,11 +419,14 @@ macro_rules! group_impl {
                     pin.set_low();
                     pin.set_as_af(
                         pin.af_num(),
-                        match role {
-                            PinType::Channel => AFType::OutputPushPull,
-                            PinType::Sample => AFType::OutputOpenDrain,
-                            PinType::Shield => AFType::OutputPushPull,
-                        },
+                        AfType::output(
+                            match role {
+                                PinType::Channel => OutputType::PushPull,
+                                PinType::Sample => OutputType::OpenDrain,
+                                PinType::Shield => OutputType::PushPull,
+                            },
+                            Speed::VeryHigh,
+                        ),
                     );
                     self.d3 = Some(TscPin {
                         _pin: pin.map_into(),
@@ -434,11 +443,14 @@ macro_rules! group_impl {
                     pin.set_low();
                     pin.set_as_af(
                         pin.af_num(),
-                        match role {
-                            PinType::Channel => AFType::OutputPushPull,
-                            PinType::Sample => AFType::OutputOpenDrain,
-                            PinType::Shield => AFType::OutputPushPull,
-                        },
+                        AfType::output(
+                            match role {
+                                PinType::Channel => OutputType::PushPull,
+                                PinType::Sample => OutputType::OpenDrain,
+                                PinType::Shield => OutputType::PushPull,
+                            },
+                            Speed::VeryHigh,
+                        ),
                     );
                     self.d4 = Some(TscPin {
                         _pin: pin.map_into(),

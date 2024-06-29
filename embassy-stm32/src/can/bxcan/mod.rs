@@ -6,7 +6,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::interrupt::InterruptExt;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::into_ref;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -18,7 +18,7 @@ pub use super::common::{BufferedCanReceiver, BufferedCanSender};
 use super::frame::{Envelope, Frame};
 use super::util;
 use crate::can::enums::{BusError, TryReadError};
-use crate::gpio::AFType;
+use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
@@ -91,11 +91,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterrup
 }
 
 /// Configuration proxy returned by [`Can::modify_config`].
-pub struct CanConfig<'a, T: Instance> {
-    can: PhantomData<&'a mut T>,
+pub struct CanConfig<'a> {
+    phantom: PhantomData<&'a ()>,
+    info: &'static Info,
+    periph_clock: crate::time::Hertz,
 }
 
-impl<T: Instance> CanConfig<'_, T> {
+impl CanConfig<'_> {
     /// Configures the bit timings.
     ///
     /// You can use <http://www.bittiming.can-wiki.info/> to calculate the `btr` parameter. Enter
@@ -109,7 +111,7 @@ impl<T: Instance> CanConfig<'_, T> {
     /// Then copy the `CAN_BUS_TIME` register value from the table and pass it as the `btr`
     /// parameter to this method.
     pub fn set_bit_timing(self, bt: crate::can::util::NominalBitTiming) -> Self {
-        Registers(T::regs()).set_bit_timing(bt);
+        self.info.regs.set_bit_timing(bt);
         self
     }
 
@@ -117,20 +119,20 @@ impl<T: Instance> CanConfig<'_, T> {
     ///
     /// This is a helper that internally calls `set_bit_timing()`[Self::set_bit_timing].
     pub fn set_bitrate(self, bitrate: u32) -> Self {
-        let bit_timing = util::calc_can_timings(T::frequency(), bitrate).unwrap();
+        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate).unwrap();
         self.set_bit_timing(bit_timing)
     }
 
     /// Enables or disables loopback mode: Internally connects the TX and RX
     /// signals together.
     pub fn set_loopback(self, enabled: bool) -> Self {
-        Registers(T::regs()).set_loopback(enabled);
+        self.info.regs.set_loopback(enabled);
         self
     }
 
     /// Enables or disables silent mode: Disconnects the TX signal from the pin.
     pub fn set_silent(self, enabled: bool) -> Self {
-        Registers(T::regs()).set_silent(enabled);
+        self.info.regs.set_silent(enabled);
         self
     }
 
@@ -141,23 +143,24 @@ impl<T: Instance> CanConfig<'_, T> {
     ///
     /// Automatic retransmission is enabled by default.
     pub fn set_automatic_retransmit(self, enabled: bool) -> Self {
-        Registers(T::regs()).set_automatic_retransmit(enabled);
+        self.info.regs.set_automatic_retransmit(enabled);
         self
     }
 }
 
-impl<T: Instance> Drop for CanConfig<'_, T> {
+impl Drop for CanConfig<'_> {
     #[inline]
     fn drop(&mut self) {
-        Registers(T::regs()).leave_init_mode();
+        self.info.regs.leave_init_mode();
     }
 }
 
 /// CAN driver
-pub struct Can<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
+pub struct Can<'d> {
+    phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
+    periph_clock: crate::time::Hertz,
 }
 
 /// Error returned by `try_write`
@@ -168,11 +171,11 @@ pub enum TryWriteError {
     Full,
 }
 
-impl<'d, T: Instance> Can<'d, T> {
+impl<'d> Can<'d> {
     /// Creates a new Bxcan instance, keeping the peripheral in sleep mode.
     /// You must call [Can::enable_non_blocking] to use the peripheral.
-    pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
+    pub fn new<T: Instance>(
+        _peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         _irqs: impl interrupt::typelevel::Binding<T::TXInterrupt, TxInterruptHandler<T>>
@@ -181,12 +184,12 @@ impl<'d, T: Instance> Can<'d, T> {
             + interrupt::typelevel::Binding<T::SCEInterrupt, SceInterruptHandler<T>>
             + 'd,
     ) -> Self {
-        into_ref!(peri, rx, tx);
+        into_ref!(_peri, rx, tx);
         let info = T::info();
         let regs = &T::info().regs;
 
-        rx.set_as_af(rx.af_num(), AFType::Input);
-        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
+        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         rcc::enable_and_reset::<T>();
 
@@ -220,21 +223,22 @@ impl<'d, T: Instance> Can<'d, T> {
             info.sce_interrupt.enable();
         }
 
-        rx.set_as_af(rx.af_num(), AFType::Input);
-        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
+        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         Registers(T::regs()).leave_init_mode();
 
         Self {
-            _peri: peri,
+            phantom: PhantomData,
             info: T::info(),
             state: T::state(),
+            periph_clock: T::frequency(),
         }
     }
 
     /// Set CAN bit rate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
-        let bit_timing = util::calc_can_timings(T::frequency(), bitrate).unwrap();
+        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate).unwrap();
         self.modify_config().set_bit_timing(bit_timing);
     }
 
@@ -242,10 +246,14 @@ impl<'d, T: Instance> Can<'d, T> {
     ///
     /// Calling this method will enter initialization mode. You must enable the peripheral
     /// again afterwards with [`enable`](Self::enable).
-    pub fn modify_config(&mut self) -> CanConfig<'_, T> {
-        Registers(T::regs()).enter_init_mode();
+    pub fn modify_config(&mut self) -> CanConfig<'_> {
+        self.info.regs.enter_init_mode();
 
-        CanConfig { can: PhantomData }
+        CanConfig {
+            phantom: self.phantom,
+            info: self.info,
+            periph_clock: self.periph_clock,
+        }
     }
 
     /// Enables the peripheral and synchronizes with the bus.
@@ -253,7 +261,7 @@ impl<'d, T: Instance> Can<'d, T> {
     /// This will wait for 11 consecutive recessive bits (bus idle state).
     /// Contrary to enable method from bxcan library, this will not freeze the executor while waiting.
     pub async fn enable(&mut self) {
-        while Registers(T::regs()).enable_non_blocking().is_err() {
+        while self.info.regs.enable_non_blocking().is_err() {
             // SCE interrupt is only generated for entering sleep mode, but not leaving.
             // Yield to allow other tasks to execute while can bus is initializing.
             embassy_futures::yield_now().await;
@@ -263,7 +271,7 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Enables or disables the peripheral from automatically wakeup when a SOF is detected on the bus
     /// while the peripheral is in sleep mode
     pub fn set_automatic_wakeup(&mut self, enabled: bool) {
-        Registers(T::regs()).set_automatic_wakeup(enabled);
+        self.info.regs.set_automatic_wakeup(enabled);
     }
 
     /// Manually wake the peripheral from sleep mode.
@@ -313,12 +321,12 @@ impl<'d, T: Instance> Can<'d, T> {
     ///
     /// FIFO scheduling is disabled by default.
     pub fn set_tx_fifo_scheduling(&mut self, enabled: bool) {
-        Registers(T::regs()).set_tx_fifo_scheduling(enabled)
+        self.info.regs.set_tx_fifo_scheduling(enabled)
     }
 
     /// Checks if FIFO scheduling of outgoing frames is enabled.
     pub fn tx_fifo_scheduling_enabled(&self) -> bool {
-        Registers(T::regs()).tx_fifo_scheduling_enabled()
+        self.info.regs.tx_fifo_scheduling_enabled()
     }
 
     /// Queues the message to be sent.
@@ -448,13 +456,13 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 }
 
-impl<'d, T: FilterOwner> Can<'d, T> {
+impl<'d> Can<'d> {
     /// Accesses the filter banks owned by this CAN peripheral.
     ///
     /// To modify filters of a slave peripheral, `modify_filters` has to be called on the master
     /// peripheral instead.
-    pub fn modify_filters(&mut self) -> MasterFilters<'_, T> {
-        unsafe { MasterFilters::new(self.info.regs.0) }
+    pub fn modify_filters(&mut self) -> MasterFilters<'_> {
+        unsafe { MasterFilters::new(self.info) }
     }
 }
 
@@ -819,12 +827,14 @@ impl<'d, const RX_BUF_SIZE: usize> Drop for BufferedCanRx<'d, RX_BUF_SIZE> {
     }
 }
 
-impl<'d, T: Instance> Drop for Can<'d, T> {
+impl Drop for Can<'_> {
     fn drop(&mut self) {
         // Cannot call `free()` because it moves the instance.
         // Manually reset the peripheral.
-        T::regs().mcr().write(|w| w.set_reset(true));
-        rcc::disable::<T>();
+        self.info.regs.0.mcr().write(|w| w.set_reset(true));
+        self.info.regs.enter_init_mode();
+        self.info.regs.leave_init_mode();
+        //rcc::disable::<T>();
     }
 }
 
@@ -1031,6 +1041,11 @@ pub(crate) struct Info {
     rx1_interrupt: crate::interrupt::Interrupt,
     sce_interrupt: crate::interrupt::Interrupt,
     tx_waker: fn(),
+
+    /// The total number of filter banks available to the instance.
+    ///
+    /// This is usually either 14 or 28, and should be specified in the chip's reference manual or datasheet.
+    num_filter_banks: u8,
 }
 
 trait SealedInstance {
@@ -1095,6 +1110,7 @@ foreach_peripheral!(
                     rx1_interrupt: crate::_generated::peripheral_interrupts::$inst::RX1::IRQ,
                     sce_interrupt: crate::_generated::peripheral_interrupts::$inst::SCE::IRQ,
                     tx_waker: crate::_generated::peripheral_interrupts::$inst::TX::pend,
+                    num_filter_banks: peripherals::$inst::NUM_FILTER_BANKS,
                 };
                 &INFO
             }
@@ -1146,6 +1162,11 @@ foreach_peripheral!(
                 }
                 unsafe impl MasterInstance for peripherals::CAN1 {}
             }
+        }
+    };
+    (can, CAN2) => {
+        unsafe impl FilterOwner for peripherals::CAN2 {
+            const NUM_FILTER_BANKS: u8 = 0;
         }
     };
     (can, CAN3) => {

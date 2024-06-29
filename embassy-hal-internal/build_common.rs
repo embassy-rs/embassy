@@ -70,6 +70,10 @@ impl CfgSet {
 }
 
 fn is_rustc_nightly() -> bool {
+    if env::var_os("EMBASSY_FORCE_CHECK_CFG").is_some() {
+        return true;
+    }
+
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc"));
 
     let output = Command::new(rustc)

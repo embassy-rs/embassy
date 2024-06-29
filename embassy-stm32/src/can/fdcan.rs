@@ -10,7 +10,7 @@ use embassy_sync::channel::{Channel, DynamicReceiver, DynamicSender};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::can::fd::peripheral::Registers;
-use crate::gpio::AFType;
+use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
@@ -141,13 +141,16 @@ pub enum OperatingMode {
     //TestMode,
 }
 
-fn calc_ns_per_timer_tick<T: Instance>(mode: crate::can::fd::config::FrameTransmissionConfig) -> u64 {
+fn calc_ns_per_timer_tick(
+    info: &'static Info,
+    freq: crate::time::Hertz,
+    mode: crate::can::fd::config::FrameTransmissionConfig,
+) -> u64 {
     match mode {
         // Use timestamp from Rx FIFO to adjust timestamp reported to user
         crate::can::fd::config::FrameTransmissionConfig::ClassicCanOnly => {
-            let freq = T::frequency();
-            let prescale: u64 = ({ T::registers().regs.nbtp().read().nbrp() } + 1) as u64
-                * ({ T::registers().regs.tscc().read().tcp() } + 1) as u64;
+            let prescale: u64 = ({ info.regs.regs.nbtp().read().nbrp() } + 1) as u64
+                * ({ info.regs.regs.tscc().read().tcp() } + 1) as u64;
             1_000_000_000 as u64 / (freq.0 as u64 * prescale)
         }
         // For VBR this is too hard because the FDCAN timer switches clock rate you need to configure to use
@@ -158,31 +161,31 @@ fn calc_ns_per_timer_tick<T: Instance>(mode: crate::can::fd::config::FrameTransm
 
 /// FDCAN Configuration instance instance
 /// Create instance of this first
-pub struct CanConfigurator<'d, T: Instance> {
+pub struct CanConfigurator<'d> {
+    _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
     info: &'static Info,
     state: &'static State,
     /// Reference to internals.
-    _instance: FdcanInstance<'d, T>,
     properties: Properties,
     periph_clock: crate::time::Hertz,
 }
 
-impl<'d, T: Instance> CanConfigurator<'d, T> {
+impl<'d> CanConfigurator<'d> {
     /// Creates a new Fdcan instance, keeping the peripheral in sleep mode.
     /// You must call [Fdcan::enable_non_blocking] to use the peripheral.
-    pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
+    pub fn new<T: Instance>(
+        _peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         _irqs: impl interrupt::typelevel::Binding<T::IT0Interrupt, IT0InterruptHandler<T>>
             + interrupt::typelevel::Binding<T::IT1Interrupt, IT1InterruptHandler<T>>
             + 'd,
-    ) -> CanConfigurator<'d, T> {
-        into_ref!(peri, rx, tx);
+    ) -> CanConfigurator<'d> {
+        into_ref!(_peri, rx, tx);
 
-        rx.set_as_af(rx.af_num(), AFType::Input);
-        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
+        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         rcc::enable_and_reset::<T>();
 
@@ -190,8 +193,8 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
         config.timestamp_source = TimestampSource::Prescaler(TimestampPrescaler::_1);
         T::registers().into_config_mode(config);
 
-        rx.set_as_af(rx.af_num(), AFType::Input);
-        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
+        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         unsafe {
             T::IT0Interrupt::unpend(); // Not unsafe
@@ -201,10 +204,10 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
             T::IT1Interrupt::enable();
         }
         Self {
+            _phantom: PhantomData,
             config,
             info: T::info(),
             state: T::state(),
-            _instance: FdcanInstance(peri),
             properties: Properties::new(T::info()),
             periph_clock: T::frequency(),
         }
@@ -255,7 +258,7 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
 
     /// Start in mode.
     pub fn start(self, mode: OperatingMode) -> Can<'d> {
-        let ns_per_timer_tick = calc_ns_per_timer_tick::<T>(self.config.frame_transmit);
+        let ns_per_timer_tick = calc_ns_per_timer_tick(self.info, self.periph_clock, self.config.frame_transmit);
         critical_section::with(|_| {
             let state = self.state as *const State;
             unsafe {
@@ -263,15 +266,14 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
                 (*mut_state).ns_per_timer_tick = ns_per_timer_tick;
             }
         });
-        T::registers().into_mode(self.config, mode);
+        self.info.regs.into_mode(self.config, mode);
         Can {
             _phantom: PhantomData,
             config: self.config,
             info: self.info,
             state: self.state,
-            instance: T::info().regs.regs,
             _mode: mode,
-            properties: Properties::new(T::info()),
+            properties: Properties::new(self.info),
         }
     }
 
@@ -297,7 +299,6 @@ pub struct Can<'d> {
     config: crate::can::fd::config::FdCanConfig,
     info: &'static Info,
     state: &'static State,
-    instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
     properties: Properties,
 }
@@ -360,14 +361,12 @@ impl<'d> Can<'d> {
                 info: self.info,
                 state: self.state,
                 config: self.config,
-                _instance: self.instance,
                 _mode: self._mode,
             },
             CanRx {
                 _phantom: PhantomData,
                 info: self.info,
                 state: self.state,
-                _instance: self.instance,
                 _mode: self._mode,
             },
             self.properties,
@@ -380,7 +379,6 @@ impl<'d> Can<'d> {
             config: tx.config,
             info: tx.info,
             state: tx.state,
-            instance: tx._instance,
             _mode: rx._mode,
             properties: Properties::new(tx.info),
         }
@@ -392,7 +390,7 @@ impl<'d> Can<'d> {
         tx_buf: &'static mut TxBuf<TX_BUF_SIZE>,
         rxb: &'static mut RxBuf<RX_BUF_SIZE>,
     ) -> BufferedCan<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
-        BufferedCan::new(self.info, self.state, self.info.regs.regs, self._mode, tx_buf, rxb)
+        BufferedCan::new(self.info, self.state, self._mode, tx_buf, rxb)
     }
 
     /// Return a buffered instance of driver with CAN FD support. User must supply Buffers
@@ -401,7 +399,7 @@ impl<'d> Can<'d> {
         tx_buf: &'static mut TxFdBuf<TX_BUF_SIZE>,
         rxb: &'static mut RxFdBuf<RX_BUF_SIZE>,
     ) -> BufferedCanFd<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
-        BufferedCanFd::new(self.info, self.state, self.info.regs.regs, self._mode, tx_buf, rxb)
+        BufferedCanFd::new(self.info, self.state, self._mode, tx_buf, rxb)
     }
 }
 
@@ -416,7 +414,6 @@ pub struct BufferedCan<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
-    _instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
@@ -427,7 +424,6 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
     fn new(
         info: &'static Info,
         state: &'static State,
-        _instance: crate::pac::can::Fdcan,
         _mode: OperatingMode,
         tx_buf: &'static TxBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxBuf<RX_BUF_SIZE>,
@@ -436,7 +432,6 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
             _phantom: PhantomData,
             info,
             state,
-            _instance,
             _mode,
             tx_buf,
             rx_buf,
@@ -549,7 +544,6 @@ pub struct BufferedCanFd<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     _phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
-    _instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
@@ -560,7 +554,6 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
     fn new(
         info: &'static Info,
         state: &'static State,
-        _instance: crate::pac::can::Fdcan,
         _mode: OperatingMode,
         tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
@@ -569,7 +562,6 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
             _phantom: PhantomData,
             info,
             state,
-            _instance,
             _mode,
             tx_buf,
             rx_buf,
@@ -646,7 +638,6 @@ pub struct CanRx<'d> {
     _phantom: PhantomData<&'d ()>,
     info: &'static Info,
     state: &'static State,
-    _instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
 }
 
@@ -668,7 +659,6 @@ pub struct CanTx<'d> {
     info: &'static Info,
     state: &'static State,
     config: crate::can::fd::config::FdCanConfig,
-    _instance: crate::pac::can::Fdcan,
     _mode: OperatingMode,
 }
 

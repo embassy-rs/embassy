@@ -9,6 +9,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
+use embassy_rp::clocks::RoscRng;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_rp::{bind_interrupts, peripherals};
@@ -16,6 +17,7 @@ use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embedded_io_async::Write;
+use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -45,6 +47,7 @@ async fn net_task(stack: &'static Stack<Device<'static, MTU>>) -> ! {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
+    let mut rng = RoscRng;
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USB, Irqs);
@@ -102,7 +105,7 @@ async fn main(spawner: Spawner) {
     //});
 
     // Generate random seed
-    let seed = 1234; // guaranteed random, chosen by a fair dice roll
+    let seed = rng.next_u64();
 
     // Init network stack
     static STACK: StaticCell<Stack<Device<'static, MTU>>> = StaticCell::new();

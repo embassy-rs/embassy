@@ -18,10 +18,6 @@ use {defmt_rtt as _, panic_probe as _};
 mod can_common;
 use can_common::*;
 
-type Can<'d> = embassy_stm32::can::Can<'d, embassy_stm32::peripherals::CAN1>;
-type CanTx<'d> = embassy_stm32::can::CanTx<'d>;
-type CanRx<'d> = embassy_stm32::can::CanRx<'d>;
-
 bind_interrupts!(struct Irqs {
     CAN1_RX0 => Rx0InterruptHandler<CAN1>;
     CAN1_RX1 => Rx1InterruptHandler<CAN1>;
@@ -50,7 +46,7 @@ async fn main(_spawner: Spawner) {
     let rx_pin = Input::new(&mut rx, Pull::Up);
     core::mem::forget(rx_pin);
 
-    let mut can = Can::new(can, rx, tx, Irqs);
+    let mut can = embassy_stm32::can::Can::new(can, rx, tx, Irqs);
 
     info!("Configuring can...");
 

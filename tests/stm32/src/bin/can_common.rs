@@ -8,7 +8,7 @@ pub struct TestOptions {
     pub max_buffered: u8,
 }
 
-pub async fn run_can_tests<'d>(can: &mut crate::Can<'d>, options: &TestOptions) {
+pub async fn run_can_tests<'d>(can: &mut can::Can<'d>, options: &TestOptions) {
     //pub async fn run_can_tests<'d, T: can::Instance>(can: &mut can::Can<'d, T>, options: &TestOptions) {
     let mut i: u8 = 0;
     loop {
@@ -80,7 +80,7 @@ pub async fn run_can_tests<'d>(can: &mut crate::Can<'d>, options: &TestOptions) 
     }
 }
 
-pub async fn run_split_can_tests<'d>(tx: &mut crate::CanTx<'d>, rx: &mut crate::CanRx<'d>, options: &TestOptions) {
+pub async fn run_split_can_tests<'d>(tx: &mut can::CanTx<'d>, rx: &mut can::CanRx<'d>, options: &TestOptions) {
     for i in 0..options.max_buffered {
         // Try filling up the RX FIFO0 buffers
         //let tx_frame = if 0 != (i & 0x01) {

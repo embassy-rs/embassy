@@ -27,7 +27,7 @@ use crate::ppi::{
 };
 use crate::timer::{Instance as TimerInstance, Timer};
 use crate::uarte::{configure, drop_tx_rx, Config, Instance as UarteInstance};
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac, Peripheral, EASY_DMA_SIZE};
 
 pub(crate) struct State {
     tx_buf: RingBuffer,
@@ -186,6 +186,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
             // If not TXing, start.
             if s.tx_count.load(Ordering::Relaxed) == 0 {
                 let (ptr, len) = tx.pop_buf();
+                let len = len.min(EASY_DMA_SIZE);
                 if len != 0 {
                     //trace!("  irq_tx: starting {:?}", len);
                     s.tx_count.store(len, Ordering::Relaxed);
@@ -304,6 +305,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         let tx = BufferedUarteTx::new_innerer(unsafe { peri.clone_unchecked() }, txd, cts, tx_buffer);
         let rx = BufferedUarteRx::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
 
+        U::regs().enable.write(|w| w.enable().enabled());
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
@@ -405,6 +407,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
 
         let this = Self::new_innerer(peri, txd, cts, tx_buffer);
 
+        U::regs().enable.write(|w| w.enable().enabled());
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
@@ -602,6 +605,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
 
         let this = Self::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
 
+        U::regs().enable.write(|w| w.enable().enabled());
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
@@ -638,8 +642,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         s.rx_started_count.store(0, Ordering::Relaxed);
         s.rx_ended_count.store(0, Ordering::Relaxed);
         s.rx_started.store(false, Ordering::Relaxed);
-        let len = rx_buffer.len();
-        unsafe { s.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
+        let rx_len = rx_buffer.len().min(EASY_DMA_SIZE * 2);
+        unsafe { s.rx_buf.init(rx_buffer.as_mut_ptr(), rx_len) };
 
         // clear errors
         let errors = r.errorsrc.read().bits();
@@ -660,7 +664,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
 
         // Configure byte counter.
         let timer = Timer::new_counter(timer);
-        timer.cc(1).write(rx_buffer.len() as u32 * 2);
+        timer.cc(1).write(rx_len as u32 * 2);
         timer.cc(1).short_compare_clear();
         timer.clear();
         timer.start();

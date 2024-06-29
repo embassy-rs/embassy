@@ -4,9 +4,8 @@ use embassy_hal_internal::into_ref;
 
 use super::ll_async::TimerEventFuture;
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
-use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel, InterruptHandler};
-use crate::gpio::{AFType, Pull};
-use crate::interrupt::typelevel::{Binding, Interrupt};
+use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
+use crate::gpio::{AfType, Pull};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -22,13 +21,12 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
-        pull_type: Pull,
-        _irq: impl Binding<T::UpdateInterrupt, InterruptHandler<T>> + 'd,
+        pull: Pull,
         freq: Hertz,
     ) -> Self {
         into_ref!(pin);
 
-        pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
+        pin.set_as_af(pin.af_num(), AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch1, Channel::Ch2)
     }
@@ -37,13 +35,12 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     pub fn new_alt(
         tim: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
-        pull_type: Pull,
-        _irq: impl Binding<T::UpdateInterrupt, InterruptHandler<T>> + 'd,
+        pull: Pull,
         freq: Hertz,
     ) -> Self {
         into_ref!(pin);
 
-        pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
+        pin.set_as_af(pin.af_num(), AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch2, Channel::Ch1)
     }
