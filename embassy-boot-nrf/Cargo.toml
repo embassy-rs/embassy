@@ -41,6 +41,7 @@ defmt = [
     "dep:defmt",
     "embassy-boot/defmt",
     "embassy-nrf/defmt",
+    "embassy-fmt/defmt",
 ]
 softdevice = [
     "nrf-softdevice-mbr",

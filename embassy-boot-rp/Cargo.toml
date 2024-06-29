@@ -40,11 +40,13 @@ defmt = [
     "dep:defmt",
     "embassy-boot/defmt",
     "embassy-rp/defmt",
+    "embassy-fmt/defmt",
 ]
 log = [
     "dep:log",
     "embassy-boot/log",
     "embassy-rp/log",
+    "embassy-fmt/log",
 ]
 
 [profile.dev]

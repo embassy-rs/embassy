@@ -25,6 +25,7 @@ features = ["std"]
 std = []
 time = ["dep:embassy-time"]
 default = ["time"]
+defmt = ["dep:defmt", "embassy-futures/defmt", "embassy-sync/defmt", "embassy-time/defmt"]
 
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }

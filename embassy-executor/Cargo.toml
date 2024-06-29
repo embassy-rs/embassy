@@ -71,6 +71,9 @@ turbowakers = []
 ## Use the executor-integrated `embassy-time` timer queue.
 integrated-timers = ["dep:embassy-time-driver", "dep:embassy-time-queue-driver"]
 
+defmt = ["dep:defmt", "embassy-fmt/defmt"]
+log = ["dep:log", "embassy-fmt/log"]
+
 #! ### Architecture
 _arch = [] # some arch was picked
 ## std

@@ -27,7 +27,7 @@ default = []
 std = []
 
 ## Enable defmt
-defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03"]
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03", "embassy-fmt/defmt", "embassy-sync/defmt", "embassy-time/defmt"]
 
 ## Trace all raw received and transmitted packets using defmt or log.
 packet-trace = []

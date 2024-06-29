@@ -28,3 +28,7 @@ features = ["defmt"]
 
 [package.metadata.docs.rs]
 features = ["defmt"]
+
+[features]
+defmt = ["dep:defmt"]
+log = ["dep:log"]

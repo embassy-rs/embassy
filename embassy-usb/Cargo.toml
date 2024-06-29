@@ -19,7 +19,7 @@ target = "thumbv7em-none-eabi"
 features = ["defmt", "usbd-hid"]
 
 [features]
-defmt = ["dep:defmt", "embassy-usb-driver/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-fmt/defmt", "embassy-net-driver-channel/defmt"]
 usbd-hid = ["dep:usbd-hid", "dep:ssmarshal"]
 default = ["usbd-hid"]
 

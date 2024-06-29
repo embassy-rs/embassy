@@ -30,8 +30,8 @@ critical-section = { version = "1.1.2", features = ["std"] }
 futures-test = "0.3.28"
 
 [features]
-defmt = [ "dep:defmt", "embedded-hal-1/defmt-03" ]
-log = ["dep:log"]
+defmt = [ "dep:defmt", "embedded-hal-1/defmt-03", "embassy-fmt/defmt", "embassy-net-driver-channel/defmt"]
+log = ["dep:log", "embassy-fmt/log"]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-adin1110-v$VERSION/embassy-net-adin1110/src/"

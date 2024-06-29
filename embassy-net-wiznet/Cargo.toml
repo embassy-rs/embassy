@@ -25,3 +25,6 @@ features = ["defmt"]
 
 [package.metadata.docs.rs]
 features = ["defmt"]
+
+[features]
+defmt = ["dep:defmt",  "embassy-net-driver-channel/defmt"]

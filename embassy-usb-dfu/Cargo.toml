@@ -43,4 +43,4 @@ embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 [features]
 dfu = []
 application = []
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "embassy-fmt/defmt"]

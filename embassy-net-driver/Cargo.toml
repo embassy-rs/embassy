@@ -23,3 +23,6 @@ features = ["defmt"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
+
+[features]
+defmt = ["dep:defmt"]

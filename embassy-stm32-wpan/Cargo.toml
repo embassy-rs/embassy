@@ -42,7 +42,8 @@ bitflags = { version = "2.3.3", optional = true }
 embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [features]
-defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "stm32wb-hci?/defmt"]
+defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "stm32wb-hci?/defmt", "embassy-fmt/defmt"]
+log = ["dep:log", "embassy-fmt/log"]
 
 ble = ["dep:stm32wb-hci"]
 mac = ["dep:bitflags", "dep:embassy-net-driver" ]

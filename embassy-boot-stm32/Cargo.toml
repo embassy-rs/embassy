@@ -35,8 +35,8 @@ cfg-if = "1.0.0"
 embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [features]
-defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-stm32/defmt"]
-log = ["dep:log", "embassy-boot/log", "embassy-stm32/log"]
+defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-stm32/defmt", "embassy-fmt/defmt"]
+log = ["dep:log", "embassy-boot/log", "embassy-stm32/log", "embassy-fmt/log"]
 
 [profile.dev]
 debug = 2

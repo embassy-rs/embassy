@@ -10,8 +10,8 @@ repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-net-ppp"
 
 [features]
-defmt = ["dep:defmt", "ppproto/defmt"]
-log = ["dep:log", "ppproto/log"]
+defmt = ["dep:defmt", "ppproto/defmt", "embassy-fmt/defmt", "embassy-net-driver-channel/defmt"]
+log = ["dep:log", "ppproto/log", "embassy-fmt/log"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }

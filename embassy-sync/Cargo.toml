@@ -22,6 +22,8 @@ target = "thumbv7em-none-eabi"
 [features]
 std = ["critical-section/std"]
 turbowakers = []
+defmt = ["dep:defmt", "embassy-fmt/defmt"]
+log = ["dep:log", "embassy-fmt/log"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
