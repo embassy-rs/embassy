@@ -38,7 +38,7 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(blinky(p.PC13.degrade())));
 
-    let mut pwm_input = PwmInput::new(p.TIM2, p.PA0, Pull::None, Irqs, khz(10));
+    let mut pwm_input = PwmInput::new(p.TIM2, p.PA0, Pull::None, khz(10));
     pwm_input.enable();
 
     loop {

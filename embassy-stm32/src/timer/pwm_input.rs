@@ -6,6 +6,7 @@ use super::ll_async::TimerEventFuture;
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
 use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
 use crate::gpio::{AfType, Pull};
+use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
 use crate::Peripheral;
 
