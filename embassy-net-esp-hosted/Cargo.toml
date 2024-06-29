@@ -27,6 +27,7 @@ embedded-hal-async = { version = "1.0" }
 
 noproto = "0.1.0"
 heapless = "0.8"
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-esp-hosted-v$VERSION/embassy-net-esp-hosted/src/"

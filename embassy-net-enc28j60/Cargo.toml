@@ -18,6 +18,7 @@ embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-enc28j60-v$VERSION/embassy-net-enc28j60/src/"

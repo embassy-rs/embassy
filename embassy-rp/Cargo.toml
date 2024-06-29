@@ -123,6 +123,7 @@ pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
 document-features = "0.2.7"
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [dev-dependencies]
 embassy-executor = { version = "0.5.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }

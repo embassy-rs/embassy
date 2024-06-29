@@ -1,7 +1,12 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
-mod fmt;
+
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+#[cfg(feature = "application")]
+extern crate embassy_fmt;
 
 pub mod consts;
 

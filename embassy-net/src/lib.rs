@@ -9,8 +9,10 @@
 #[cfg(not(any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 compile_error!("You must enable at least one of the following features: proto-ipv4, proto-ipv6");
 
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+extern crate embassy_fmt;
 
 mod device;
 #[cfg(feature = "dns")]

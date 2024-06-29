@@ -10,8 +10,10 @@
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
-// This must go FIRST so that all the other modules see its macros.
-mod fmt;
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+extern crate embassy_fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // Utilities

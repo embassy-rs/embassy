@@ -2,8 +2,10 @@
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 
-// must be first
-mod fmt;
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+extern crate embassy_fmt;
 
 use core::convert::Infallible;
 use core::mem::MaybeUninit;

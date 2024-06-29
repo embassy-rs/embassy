@@ -33,6 +33,7 @@ embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 num_enum = { version = "0.5.7", default-features = false }
 
 heapless = "0.8.0"
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/cyw43-v$VERSION/cyw43/src/"

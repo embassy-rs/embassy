@@ -13,10 +13,12 @@ use embedded_hal_async::spi::SpiDevice;
 use crate::ioctl::{PendingIoctl, Shared};
 use crate::proto::{CtrlMsg, CtrlMsgPayload};
 
-mod proto;
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+extern crate embassy_fmt;
 
-// must be first
-mod fmt;
+mod proto;
 
 mod control;
 mod ioctl;

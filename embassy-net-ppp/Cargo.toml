@@ -22,6 +22,7 @@ embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 ppproto = { version = "0.1.2"}
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-ppp-v$VERSION/embassy-net-ppp/src/"

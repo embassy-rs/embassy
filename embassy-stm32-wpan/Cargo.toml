@@ -39,6 +39,7 @@ stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
 stm32wb-hci = { version = "0.17.0", optional = true }
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [features]
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "stm32wb-hci?/defmt"]

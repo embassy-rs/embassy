@@ -1,13 +1,13 @@
 use core::cmp::{max, min};
 use core::iter::zip;
 
+use embassy_fmt::Bytes;
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use embassy_time::{Duration, Timer};
 
 use crate::consts::*;
 use crate::events::{Event, EventSubscriber, Events};
-use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
 use crate::{countries, events, PowerManagementMode};

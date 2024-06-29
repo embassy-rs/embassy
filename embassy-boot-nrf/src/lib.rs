@@ -1,7 +1,6 @@
 #![no_std]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
-mod fmt;
 
 pub use embassy_boot::{
     AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
@@ -11,6 +10,11 @@ use embassy_nrf::nvmc::PAGE_SIZE;
 use embassy_nrf::peripherals::WDT;
 use embassy_nrf::wdt;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+extern crate embassy_fmt;
 
 /// A bootloader for nRF devices.
 pub struct BootLoader<const BUFFER_SIZE: usize = PAGE_SIZE>;

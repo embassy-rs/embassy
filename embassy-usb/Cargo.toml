@@ -58,3 +58,4 @@ heapless = "0.8"
 # for HID
 usbd-hid = { version = "0.7.0", optional = true }
 ssmarshal = { version = "1.0", default-features = false, optional = true }
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }

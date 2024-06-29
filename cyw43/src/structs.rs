@@ -1,5 +1,6 @@
+use embassy_fmt::Bytes;
+
 use crate::events::Event;
-use crate::fmt::Bytes;
 
 macro_rules! impl_bytes {
     ($t:ident) => {

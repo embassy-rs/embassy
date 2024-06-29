@@ -52,6 +52,7 @@ js-sys = { version = "0.3", optional = true }
 
 # arch-avr dependencies
 avr-device = { version = "0.5.3", optional = true }
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }

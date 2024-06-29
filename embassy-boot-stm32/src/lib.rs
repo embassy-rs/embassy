@@ -1,13 +1,17 @@
 #![no_std]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
-mod fmt;
 
 pub use embassy_boot::{
     AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
     FirmwareUpdater, FirmwareUpdaterConfig, State,
 };
 use embedded_storage::nor_flash::NorFlash;
+
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+extern crate embassy_fmt;
 
 /// A bootloader for STM32 devices.
 pub struct BootLoader {

@@ -3,8 +3,10 @@
 #![doc = include_str!("../README.md")]
 // #![warn(missing_docs)]
 
-// This must go FIRST so that all the other modules see its macros.
-mod fmt;
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+extern crate embassy_fmt;
 
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, Ordering};

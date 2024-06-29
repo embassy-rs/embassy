@@ -7,10 +7,12 @@
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
-// This mod MUST go first, so that the others see its macros.
-pub(crate) mod fmt;
-
 pub use embassy_executor_macros::task;
+
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+extern crate embassy_fmt;
 
 macro_rules! check_at_most_one {
     (@amo [$($feats:literal)*] [] [$($res:tt)*]) => {

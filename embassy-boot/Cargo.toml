@@ -34,6 +34,7 @@ embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 salty = { version = "0.3", optional = true }
 signature = { version = "2.0", default-features = false }
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [dev-dependencies]
 log = "0.4"

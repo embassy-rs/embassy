@@ -7,8 +7,10 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-// must go first!
-mod fmt;
+// This crate MUST go first, and use the old `extern crate` syntax, so that textual scope is used
+// and these macros become globally available here.
+#[macro_use]
+extern crate embassy_fmt;
 
 mod crc32;
 mod crc8;
@@ -19,6 +21,7 @@ mod regs;
 use ch::driver::LinkState;
 pub use crc32::ETH_FCS;
 use crc8::crc8;
+use embassy_fmt::Bytes;
 use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
 use embassy_time::Timer;
@@ -31,7 +34,6 @@ pub use phy::Phy10BaseT1x;
 use phy::{RegsC22, RegsC45};
 use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 
-use crate::fmt::Bytes;
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity, SpiHeader};
 
 /// ADIN1110 intern PHY ID

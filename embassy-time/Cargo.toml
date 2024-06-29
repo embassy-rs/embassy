@@ -427,6 +427,7 @@ document-features = "0.2.7"
 wasm-bindgen = { version = "0.2.81", optional = true }
 js-sys = { version = "0.3", optional = true }
 wasm-timer = { version = "0.2.5", optional = true }
+embassy-fmt = { version = "0.1.0", path = "../embassy-fmt" }
 
 [dev-dependencies]
 serial_test = "0.9"
