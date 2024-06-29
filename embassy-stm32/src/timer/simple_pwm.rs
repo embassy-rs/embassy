@@ -40,10 +40,10 @@ impl<'d, T: CoreInstance> Builder<'d, T> {
     /// You may use convenience methods [`ch1_pin()`][Self::ch1_pin()] to `ch4_pin()` to aid type
     /// inference.
     pub fn pin<C: ChannelMarker>(
-        &mut self,
+        mut self,
         pin: impl Peripheral<P = impl TimerPin<T, C>> + 'd,
         output_type: OutputType,
-    ) -> &mut Self {
+    ) -> Self {
         let pin = RawTimerPin::new(pin, AfType::output(output_type, Speed::VeryHigh));
         self.channel_pins[C::CHANNEL.index()] = Some(pin);
         self
@@ -52,7 +52,7 @@ impl<'d, T: CoreInstance> Builder<'d, T> {
     /// Attach update DMA to the PWM driver.
     ///
     /// This enables you to use [`SimplePwm::waveform_up_dma()`].
-    pub fn up_dma(&mut self, dma: impl Peripheral<P = impl UpDma<T>> + 'd) -> &mut Self {
+    pub fn up_dma(mut self, dma: impl Peripheral<P = impl UpDma<T>> + 'd) -> Self {
         self.up_dma = Some(raw::up_dma(dma));
         self
     }
@@ -62,7 +62,7 @@ impl<'d, T: CoreInstance> Builder<'d, T> {
     /// This enables you to use [`SimplePwm::waveform_cc_dma()`] with the given channel. You may
     /// use convenience methods [`ch1_cc_dma()`][Self::ch1_cc_dma()] to `ch4_cc_dma()`] to aid type
     /// inference.
-    pub fn cc_dma<C: ChannelMarker>(&mut self, dma: impl Peripheral<P = impl CcDma<T, C>> + 'd) -> &mut Self {
+    pub fn cc_dma<C: ChannelMarker>(mut self, dma: impl Peripheral<P = impl CcDma<T, C>> + 'd) -> Self {
         self.cc_dmas[C::CHANNEL.index()] = Some(raw::cc_dma(dma));
         self
     }
@@ -78,10 +78,10 @@ macro_rules! channel_impl {
                 " to the PWM driver.\n\nSee [`pin()`][Self::pin()] for details.",
             )]
             pub fn $chx_pin(
-                &mut self,
+                self,
                 pin: impl Peripheral<P = impl TimerPin<T, $channel>> + 'd,
                 output_type: OutputType,
-            ) -> &mut Self {
+            ) -> Self {
                 self.pin::<$channel>(pin, output_type)
             }
 
@@ -90,7 +90,7 @@ macro_rules! channel_impl {
                 stringify!($channel),
                 " to the PWM driver.\n\nSee [`cc_dma()`][Self::cc_dma()] for details.",
             )]
-            pub fn $chx_cc_dma(&mut self, dma: impl Peripheral<P = impl CcDma<T, $channel>> + 'd) -> &mut Self {
+            pub fn $chx_cc_dma(self, dma: impl Peripheral<P = impl CcDma<T, $channel>> + 'd) -> Self {
                 self.cc_dma::<$channel>(dma)
             }
         }

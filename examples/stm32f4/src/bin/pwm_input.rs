@@ -43,9 +43,9 @@ async fn main(spawner: Spawner) {
 
     loop {
         Timer::after_millis(500).await;
-        let period = pwm_input.get_period_ticks();
-        let width = pwm_input.get_width_ticks();
-        let duty_cycle = pwm_input.get_duty_cycle();
+        let period = pwm_input.period_ticks();
+        let width = pwm_input.width_ticks();
+        let duty_cycle = pwm_input.duty_cycle();
         info!(
             "period ticks: {} width ticks: {} duty cycle: {}",
             period, width, duty_cycle

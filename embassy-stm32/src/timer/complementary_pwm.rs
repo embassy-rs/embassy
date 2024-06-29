@@ -42,10 +42,10 @@ impl<'d, T: Advanced4ChInstance> Builder<'d, T> {
     /// You may use convenience methods [`ch1_pin()`][Self::ch1_pin()] to `ch4_pin()` to aid type
     /// inference.
     pub fn pin<C: ChannelMarker>(
-        &mut self,
+        mut self,
         pin: impl Peripheral<P = impl TimerPin<T, C>> + 'd,
         output_type: OutputType,
-    ) -> &mut Self {
+    ) -> Self {
         let pin = RawTimerPin::new(pin, AfType::output(output_type, Speed::VeryHigh));
         self.channel_pins[C::CHANNEL.index()] = Some(pin);
         self
@@ -56,42 +56,43 @@ impl<'d, T: Advanced4ChInstance> Builder<'d, T> {
     /// You may use convenience methods [`ch1n_pin()`][Self::ch1n_pin()] to `ch4n_pin()` to aid type
     /// inference.
     pub fn n_pin<C: NChannelMarker>(
-        &mut self,
+        mut self,
         pin: impl Peripheral<P = impl TimerPin<T, C>> + 'd,
         output_type: OutputType,
-    ) -> &mut Self {
+    ) -> Self {
         let pin = RawTimerPin::new(pin, AfType::output(output_type, Speed::VeryHigh));
         self.n_channel_pins[C::N_CHANNEL.index()] = Some(pin);
         self
     }
 }
 
+#[rustfmt::skip]
 macro_rules! channel_impl {
     ($chx_pin:ident, $chxn_pin:ident, $channel:ident, $nchannel:ident) => {
         impl<'d, T: Advanced4ChInstance> Builder<'d, T> {
             #[doc = concat!(
-                                "Attach an output pin for channel ",
-                                stringify!($channel),
-                                " to the complementary PWM driver.\n\nSee [`pin()`][Self::pin()] for details.",
-                            )]
+                "Attach an output pin for channel ",
+                stringify!($channel),
+                " to the complementary PWM driver.\n\nSee [`pin()`][Self::pin()] for details.",
+            )]
             pub fn $chx_pin(
-                &mut self,
+                self,
                 pin: impl Peripheral<P = impl TimerPin<T, $channel>> + 'd,
                 output_type: OutputType,
-            ) -> &mut Self {
+            ) -> Self {
                 self.pin::<$channel>(pin, output_type)
             }
 
             #[doc = concat!(
-                                "Attach a complementary output pin for channel ",
-                                stringify!($channel),
-                                " to the complementary PWM driver.\n\nSee [`n_pin()`][Self::pin()] for details.",
-                            )]
+                "Attach a complementary output pin for channel ",
+                stringify!($channel),
+                " to the complementary PWM driver.\n\nSee [`n_pin()`][Self::pin()] for details.",
+            )]
             pub fn $chxn_pin(
-                &mut self,
+                self,
                 pin: impl Peripheral<P = impl TimerPin<T, $nchannel>> + 'd,
                 output_type: OutputType,
-            ) -> &mut Self {
+            ) -> Self {
                 self.n_pin::<$nchannel>(pin, output_type)
             }
         }

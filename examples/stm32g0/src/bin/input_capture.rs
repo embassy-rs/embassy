@@ -13,9 +13,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
 use embassy_stm32::time::khz;
-use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
-use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::timer::Channel;
+use embassy_stm32::timer::{input_capture, simple_pwm, Channel};
 use embassy_stm32::{bind_interrupts, peripherals, timer};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -46,21 +44,23 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(blinky(p.PB1)));
 
-    // Connect PB1 and PA8 with a 1k Ohm resistor
-    let ch1 = PwmPin::new_ch1(p.PA8, OutputType::PushPull);
-    let mut pwm = SimplePwm::new(p.TIM1, Some(ch1), None, None, None, khz(1), Default::default());
+    // Connect PA0 and PA8 with a 1k Ohm resistor
+    let mut pwm = simple_pwm::Builder::new(p.TIM1)
+        .ch1_pin(p.PA8, OutputType::PushPull)
+        .build(khz(1));
     pwm.enable(Channel::Ch1);
     pwm.set_duty(Channel::Ch1, 50);
 
-    let ch1 = CapturePin::new_ch1(p.PA0, Pull::None);
-    let mut ic = InputCapture::new(p.TIM2, Some(ch1), None, None, None, Irqs, khz(1000), Default::default());
+    let mut ic = input_capture::Builder::new(p.TIM2, Irqs)
+        .ch1_pin(p.PA0, Pull::None)
+        .build(khz(1000));
 
     let mut old_capture = 0;
 
     loop {
         ic.wait_for_rising_edge(Channel::Ch1).await;
 
-        let capture_value = ic.get_capture_value(Channel::Ch1);
+        let capture_value = ic.capture_value(Channel::Ch1);
         info!("{}", capture_value - old_capture);
         old_capture = capture_value;
     }

@@ -40,11 +40,7 @@ impl<'d, T: General1ChInstance> Builder<'d, T> {
     ///
     /// You may use convenience methods [`ch1_pin()`][Self::ch1_pin()] to `ch4_pin()` to aid type
     /// inference.
-    pub fn pin<C: ChannelMarker>(
-        &mut self,
-        pin: impl Peripheral<P = impl TimerPin<T, C>> + 'd,
-        pull: Pull,
-    ) -> &mut Self {
+    pub fn pin<C: ChannelMarker>(mut self, pin: impl Peripheral<P = impl TimerPin<T, C>> + 'd, pull: Pull) -> Self {
         let pin = RawTimerPin::new(pin, AfType::input(pull));
         self.channel_pins[C::CHANNEL.index()] = Some(pin);
         self
@@ -61,10 +57,10 @@ macro_rules! channel_impl {
                 " to the input capture driver.\n\nSee [`pin()`][Self::pin()] for details.",
             )]
             pub fn $chx_pin(
-                &mut self,
+                self,
                 pin: impl Peripheral<P = impl TimerPin<T, $channel>> + 'd,
                 pull: Pull,
-            ) -> &mut Self {
+            ) -> Self {
                 self.pin::<$channel>(pin, pull)
             }
         }
