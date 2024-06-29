@@ -5,8 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::time::khz;
-use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
-use embassy_stm32::timer::{self, Channel};
+use embassy_stm32::timer::{self, input_capture, Channel};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -39,14 +38,15 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(blinky(p.PB2)));
 
-    let ch3 = CapturePin::new_ch3(p.PB10, Pull::None);
-    let mut ic = InputCapture::new(p.TIM2, None, None, Some(ch3), None, Irqs, khz(1000), Default::default());
+    let mut ic = input_capture::Builder::new(p.TIM2, Irqs)
+        .ch3_pin(p.PB10, Pull::None)
+        .build(khz(1000));
 
     loop {
         info!("wait for risign edge");
         ic.wait_for_rising_edge(Channel::Ch3).await;
 
-        let capture_value = ic.get_capture_value(Channel::Ch3);
+        let capture_value = ic.capture_value(Channel::Ch3);
         info!("new capture! {}", capture_value);
     }
 }
