@@ -1,0 +1,24 @@
+[package]
+name = "embassy-fmt"
+version = "0.1.0"
+edition = "2021"
+description = "Shared panic and logging facilities for embassy crates"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-fmt"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+categories = [
+    "embedded",
+    "no-std",
+    "concurrency",
+    "asynchronous",
+]
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+
+[features]
+defmt = ["dep:defmt"]
+log = ["dep:log"]
+no-panic-msgs = []
