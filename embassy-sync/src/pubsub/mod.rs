@@ -434,7 +434,7 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
 }
 
 /// Error type for the [PubSubChannel]
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// All subscriber slots are used. To add another subscriber, first another subscriber must be dropped or

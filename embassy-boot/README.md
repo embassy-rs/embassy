@@ -24,7 +24,7 @@ For any partition, the following preconditions are required:
 
 The linker scripts for the application and bootloader look similar, but the FLASH region must point to the BOOTLOADER partition for the bootloader, and the ACTIVE partition for the application.
 
-For more details on the bootloader, see [the documentation](https://embassy.dev/book/dev/bootloader.html).
+For more details on the bootloader, see [the documentation](https://embassy.dev/book/#_bootloader).
 
 ## Hardware support
 

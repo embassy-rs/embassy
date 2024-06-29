@@ -299,7 +299,7 @@ You can add a section to your `Cargo.toml` file like this, you'll need to patch 
 
 Using `patch` will replace all direct AND indirect dependencies.
 
-See the link:https://embassy.dev/book/dev/new_project.html#_cargo_toml[new project docs] for more details on this approach.
+See the link:https://embassy.dev/book/#_starting_a_new_project[new project docs] for more details on this approach.
 
 [source,toml]
 ----

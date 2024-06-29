@@ -8,6 +8,11 @@ use super::ll_async::TimerEventFuture;
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
 use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, InterruptHandler};
 use crate::gpio::{AFType, AnyPin, Pull};
+use super::{
+    CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin,
+    GeneralInstance4Channel,
+};
+use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -33,11 +38,9 @@ macro_rules! channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, T: GeneralInstance4Channel> CapturePin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " capture pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, pull_type: Pull) -> Self {
+            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, pull: Pull) -> Self {
                 into_ref!(pin);
-
-                pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
-
+                pin.set_as_af(pin.af_num(), AfType::input(pull));
                 CapturePin {
                     _pin: pin.map_into(),
                     phantom: PhantomData,

@@ -14,7 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::future::{select, Either};
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AFType, AnyPin, SealedPin};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
@@ -28,7 +28,7 @@ use crate::pac::usart::Lpuart as Regs;
 #[cfg(any(usart_v1, usart_v2))]
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
-use crate::rcc::{self, RccInfo, SealedRccPeripheral};
+use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -159,11 +159,11 @@ pub struct Config {
     #[cfg(any(usart_v3, usart_v4))]
     pub swap_rx_tx: bool,
 
-    /// Set this to true to invert TX pin signal values (V<sub>DD</sub> =0/mark, Gnd = 1/idle).
+    /// Set this to true to invert TX pin signal values (V<sub>DD</sub> = 0/mark, Gnd = 1/idle).
     #[cfg(any(usart_v3, usart_v4))]
     pub invert_tx: bool,
 
-    /// Set this to true to invert RX pin signal values (V<sub>DD</sub> =0/mark, Gnd = 1/idle).
+    /// Set this to true to invert RX pin signal values (V<sub>DD</sub> = 0/mark, Gnd = 1/idle).
     #[cfg(any(usart_v3, usart_v4))]
     pub invert_rx: bool,
 
@@ -172,19 +172,20 @@ pub struct Config {
 }
 
 impl Config {
-    fn tx_af(&self) -> AFType {
+    fn tx_af(&self) -> AfType {
         #[cfg(any(usart_v3, usart_v4))]
         if self.swap_rx_tx {
-            return AFType::Input;
+            return AfType::input(Pull::None);
         };
-        AFType::OutputPushPull
+        AfType::output(OutputType::PushPull, Speed::Medium)
     }
-    fn rx_af(&self) -> AFType {
+
+    fn rx_af(&self) -> AfType {
         #[cfg(any(usart_v3, usart_v4))]
         if self.swap_rx_tx {
-            return AFType::OutputPushPull;
+            return AfType::output(OutputType::PushPull, Speed::Medium);
         };
-        AFType::Input
+        AfType::input(Pull::None)
     }
 }
 
@@ -342,7 +343,7 @@ impl<'d> UartTx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(tx, AFType::OutputPushPull),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             new_dma!(tx_dma),
             config,
@@ -359,8 +360,8 @@ impl<'d> UartTx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(tx, AFType::OutputPushPull),
-            new_pin!(cts, AFType::Input),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(cts, AfType::input(Pull::None)),
             new_dma!(tx_dma),
             config,
         )
@@ -401,7 +402,13 @@ impl<'d> UartTx<'d, Blocking> {
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(tx, AFType::OutputPushPull), None, None, config)
+        Self::new_inner(
+            peri,
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            None,
+            None,
+            config,
+        )
     }
 
     /// Create a new blocking tx-only UART with a clear-to-send pin
@@ -413,8 +420,8 @@ impl<'d> UartTx<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(tx, AFType::OutputPushPull),
-            new_pin!(cts, AFType::Input),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(cts, AfType::input(Pull::None)),
             None,
             config,
         )
@@ -429,29 +436,33 @@ impl<'d, M: Mode> UartTx<'d, M> {
         tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        rcc::enable_and_reset::<T>();
-
-        let info = T::info();
-        let state = T::state();
-        let kernel_clock = T::frequency();
-        let r = info.regs;
-        r.cr3().modify(|w| {
-            w.set_ctse(cts.is_some());
-        });
-        configure(info, kernel_clock, &config, false, true)?;
-
-        state.tx_rx_refcount.store(1, Ordering::Relaxed);
-
-        Ok(Self {
-            info,
-            state,
-            kernel_clock,
+        let mut this = Self {
+            info: T::info(),
+            state: T::state(),
+            kernel_clock: T::frequency(),
             tx,
             cts,
             de: None,
             tx_dma,
             _phantom: PhantomData,
-        })
+        };
+        this.enable_and_configure(&config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+        let info = self.info;
+        let state = self.state;
+        state.tx_rx_refcount.store(1, Ordering::Relaxed);
+
+        info.rcc.enable_and_reset();
+
+        info.regs.cr3().modify(|w| {
+            w.set_ctse(self.cts.is_some());
+        });
+        configure(info, self.kernel_clock, config, false, true)?;
+
+        Ok(())
     }
 
     /// Reconfigure the driver
@@ -504,7 +515,13 @@ impl<'d> UartRx<'d, Async> {
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, AFType::Input), None, new_dma!(rx_dma), config)
+        Self::new_inner(
+            peri,
+            new_pin!(rx, AfType::input(Pull::None)),
+            None,
+            new_dma!(rx_dma),
+            config,
+        )
     }
 
     /// Create a new rx-only UART with a request-to-send pin
@@ -518,8 +535,8 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AFType::Input),
-            new_pin!(rts, AFType::OutputPushPull),
+            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
             new_dma!(rx_dma),
             config,
         )
@@ -747,7 +764,7 @@ impl<'d> UartRx<'d, Blocking> {
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, AFType::Input), None, None, config)
+        Self::new_inner(peri, new_pin!(rx, AfType::input(Pull::None)), None, None, config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
@@ -759,8 +776,8 @@ impl<'d> UartRx<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AFType::Input),
-            new_pin!(rts, AFType::OutputPushPull),
+            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             config,
         )
@@ -775,34 +792,38 @@ impl<'d, M: Mode> UartRx<'d, M> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        rcc::enable_and_reset::<T>();
-
-        let info = T::info();
-        let state = T::state();
-        let kernel_clock = T::frequency();
-        let r = info.regs;
-        r.cr3().write(|w| {
-            w.set_rtse(rts.is_some());
-        });
-        configure(info, kernel_clock, &config, true, false)?;
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        state.tx_rx_refcount.store(1, Ordering::Relaxed);
-
-        Ok(Self {
+        let mut this = Self {
             _phantom: PhantomData,
-            info,
-            state,
-            kernel_clock,
+            info: T::info(),
+            state: T::state(),
+            kernel_clock: T::frequency(),
             rx,
             rts,
             rx_dma,
             detect_previous_overrun: config.detect_previous_overrun,
             #[cfg(any(usart_v1, usart_v2))]
             buffered_sr: stm32_metapac::usart::regs::Sr(0),
-        })
+        };
+        this.enable_and_configure(&config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+        let info = self.info;
+        let state = self.state;
+        state.tx_rx_refcount.store(1, Ordering::Relaxed);
+
+        info.rcc.enable_and_reset();
+
+        info.regs.cr3().write(|w| {
+            w.set_rtse(self.rts.is_some());
+        });
+        configure(info, self.kernel_clock, &config, true, false)?;
+
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
+
+        Ok(())
     }
 
     /// Reconfigure the driver
@@ -960,8 +981,8 @@ impl<'d> Uart<'d, Async> {
             peri,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
-            new_pin!(rts, AFType::OutputPushPull),
-            new_pin!(cts, AFType::Input),
+            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(cts, AfType::input(Pull::None)),
             None,
             new_dma!(tx_dma),
             new_dma!(rx_dma),
@@ -987,7 +1008,7 @@ impl<'d> Uart<'d, Async> {
             new_pin!(tx, config.tx_af()),
             None,
             None,
-            new_pin!(de, AFType::OutputPushPull),
+            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
             new_dma!(tx_dma),
             new_dma!(rx_dma),
             config,
@@ -1022,7 +1043,7 @@ impl<'d> Uart<'d, Async> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, AFType::OutputPushPull),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
             None,
@@ -1058,7 +1079,7 @@ impl<'d> Uart<'d, Async> {
             peri,
             None,
             None,
-            new_pin!(rx, AFType::OutputPushPull),
+            new_pin!(rx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
             new_dma!(tx_dma),
@@ -1117,8 +1138,8 @@ impl<'d> Uart<'d, Blocking> {
             peri,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
-            new_pin!(rts, AFType::OutputPushPull),
-            new_pin!(cts, AFType::Input),
+            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(cts, AfType::input(Pull::None)),
             None,
             None,
             None,
@@ -1141,7 +1162,7 @@ impl<'d> Uart<'d, Blocking> {
             new_pin!(tx, config.tx_af()),
             None,
             None,
-            new_pin!(de, AFType::OutputPushPull),
+            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
             config,
@@ -1173,7 +1194,7 @@ impl<'d> Uart<'d, Blocking> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, AFType::OutputPushPull),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
             None,
@@ -1206,7 +1227,7 @@ impl<'d> Uart<'d, Blocking> {
             peri,
             None,
             None,
-            new_pin!(rx, AFType::OutputPushPull),
+            new_pin!(rx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
             None,
@@ -1228,27 +1249,11 @@ impl<'d, M: Mode> Uart<'d, M> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        rcc::enable_and_reset::<T>();
-
         let info = T::info();
         let state = T::state();
         let kernel_clock = T::frequency();
-        let r = info.regs;
 
-        r.cr3().write(|w| {
-            w.set_rtse(rts.is_some());
-            w.set_ctse(cts.is_some());
-            #[cfg(not(any(usart_v1, usart_v2)))]
-            w.set_dem(de.is_some());
-        });
-        configure(info, kernel_clock, &config, true, true)?;
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        state.tx_rx_refcount.store(2, Ordering::Relaxed);
-
-        Ok(Self {
+        let mut this = Self {
             tx: UartTx {
                 _phantom: PhantomData,
                 info,
@@ -1271,7 +1276,30 @@ impl<'d, M: Mode> Uart<'d, M> {
                 #[cfg(any(usart_v1, usart_v2))]
                 buffered_sr: stm32_metapac::usart::regs::Sr(0),
             },
-        })
+        };
+        this.enable_and_configure(&config)?;
+        Ok(this)
+    }
+
+    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+        let info = self.rx.info;
+        let state = self.rx.state;
+        state.tx_rx_refcount.store(2, Ordering::Relaxed);
+
+        info.rcc.enable_and_reset();
+
+        info.regs.cr3().write(|w| {
+            w.set_rtse(self.rx.rts.is_some());
+            w.set_ctse(self.tx.cts.is_some());
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            w.set_dem(self.tx.de.is_some());
+        });
+        configure(info, self.rx.kernel_clock, config, true, true)?;
+
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
+
+        Ok(())
     }
 
     /// Perform a blocking write

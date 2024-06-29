@@ -11,7 +11,7 @@ use crate::can::frame::{Envelope, Frame, Header};
 pub(crate) struct Registers(pub crate::pac::can::Can);
 
 impl Registers {
-    pub fn enter_init_mode(&mut self) {
+    pub fn enter_init_mode(&self) {
         self.0.mcr().modify(|reg| {
             reg.set_sleep(false);
             reg.set_inrq(true);
@@ -25,7 +25,7 @@ impl Registers {
     }
 
     // Leaves initialization mode, enters sleep mode.
-    pub fn leave_init_mode(&mut self) {
+    pub fn leave_init_mode(&self) {
         self.0.mcr().modify(|reg| {
             reg.set_sleep(true);
             reg.set_inrq(false);
@@ -38,7 +38,7 @@ impl Registers {
         }
     }
 
-    pub fn set_bit_timing(&mut self, bt: crate::can::util::NominalBitTiming) {
+    pub fn set_bit_timing(&self, bt: crate::can::util::NominalBitTiming) {
         let prescaler = u16::from(bt.prescaler) & 0x1FF;
         let seg1 = u8::from(bt.seg1);
         let seg2 = u8::from(bt.seg2) & 0x7F;
@@ -84,7 +84,7 @@ impl Registers {
     /// receive the frame. If enabled, [`Interrupt::Wakeup`] will also be triggered by the incoming
     /// frame.
     #[allow(dead_code)]
-    pub fn set_automatic_wakeup(&mut self, enabled: bool) {
+    pub fn set_automatic_wakeup(&self, enabled: bool) {
         self.0.mcr().modify(|reg| reg.set_awum(enabled));
     }
 
@@ -96,7 +96,7 @@ impl Registers {
     /// If this returns [`WouldBlock`][nb::Error::WouldBlock], the peripheral will enable itself
     /// in the background. The peripheral is enabled and ready to use when this method returns
     /// successfully.
-    pub fn enable_non_blocking(&mut self) -> nb::Result<(), Infallible> {
+    pub fn enable_non_blocking(&self) -> nb::Result<(), Infallible> {
         let msr = self.0.msr().read();
         if msr.slak() {
             self.0.mcr().modify(|reg| {
@@ -186,7 +186,7 @@ impl Registers {
     /// If this is enabled, mailboxes are scheduled based on the time when the transmit request bit of the mailbox was set.
     ///
     /// If this is disabled, mailboxes are scheduled based on the priority of the frame in the mailbox.
-    pub fn set_tx_fifo_scheduling(&mut self, enabled: bool) {
+    pub fn set_tx_fifo_scheduling(&self, enabled: bool) {
         self.0.mcr().modify(|w| w.set_txfp(enabled))
     }
 
@@ -299,9 +299,9 @@ impl Registers {
         mb.tdtr().write(|w| w.set_dlc(frame.header().len() as u8));
 
         mb.tdlr()
-            .write(|w| w.0 = u32::from_ne_bytes(frame.data()[0..4].try_into().unwrap()));
+            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.data()[0..4].try_into())));
         mb.tdhr()
-            .write(|w| w.0 = u32::from_ne_bytes(frame.data()[4..8].try_into().unwrap()));
+            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.data()[4..8].try_into())));
         let id: IdReg = frame.id().into();
         mb.tir().write(|w| {
             w.0 = id.0;
@@ -321,7 +321,7 @@ impl Registers {
             data[4..8].copy_from_slice(&mb.tdhr().read().0.to_ne_bytes());
             let len = mb.tdtr().read().dlc();
 
-            Some(Frame::new(Header::new(id.id(), len, id.rtr()), &data).unwrap())
+            Some(unwrap!(Frame::new(Header::new(id.id(), len, id.rtr()), &data)))
         } else {
             // Abort request failed because the frame was already sent (or being sent) on
             // the bus. All mailboxes are now free. This can happen for small prescaler
@@ -404,12 +404,12 @@ impl Registers {
 
         let rir = fifo.rir().read();
         let id: embedded_can::Id = if rir.ide() == Ide::STANDARD {
-            embedded_can::StandardId::new(rir.stid()).unwrap().into()
+            unwrap!(embedded_can::StandardId::new(rir.stid())).into()
         } else {
             let stid = (rir.stid() & 0x7FF) as u32;
             let exid = rir.exid() & 0x3FFFF;
             let id = (stid << 18) | (exid);
-            embedded_can::ExtendedId::new(id).unwrap().into()
+            unwrap!(embedded_can::ExtendedId::new(id)).into()
         };
         let rdtr = fifo.rdtr().read();
         let data_len = rdtr.dlc();
@@ -422,7 +422,7 @@ impl Registers {
         data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
         data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-        let frame = Frame::new(Header::new(id, data_len, rtr), &data).unwrap();
+        let frame = unwrap!(Frame::new(Header::new(id, data_len, rtr), &data));
         let envelope = Envelope { ts, frame };
 
         rfr.modify(|v| v.set_rfom(true));
@@ -484,13 +484,9 @@ impl IdReg {
     /// Returns the identifier.
     fn id(self) -> embedded_can::Id {
         if self.is_extended() {
-            embedded_can::ExtendedId::new(self.0 >> Self::EXTENDED_SHIFT)
-                .unwrap()
-                .into()
+            unwrap!(embedded_can::ExtendedId::new(self.0 >> Self::EXTENDED_SHIFT)).into()
         } else {
-            embedded_can::StandardId::new((self.0 >> Self::STANDARD_SHIFT) as u16)
-                .unwrap()
-                .into()
+            unwrap!(embedded_can::StandardId::new((self.0 >> Self::STANDARD_SHIFT) as u16)).into()
         }
     }
 

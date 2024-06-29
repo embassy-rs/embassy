@@ -221,6 +221,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
+        r.enable.write(|w| w.enable().enabled());
 
         let s = T::state();
         s.tx_rx_refcount.store(2, Ordering::Relaxed);
@@ -319,9 +320,7 @@ pub(crate) fn configure(r: &RegisterBlock, config: Config, hardware_flow_control
     r.psel.cts.write(|w| w.connect().disconnected());
     r.psel.rts.write(|w| w.connect().disconnected());
 
-    // Enable
     apply_workaround_for_enable_anomaly(r);
-    r.enable.write(|w| w.enable().enabled());
 }
 
 impl<'d, T: Instance> UarteTx<'d, T> {
@@ -369,6 +368,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
+        r.enable.write(|w| w.enable().enabled());
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -567,6 +567,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
+        r.enable.write(|w| w.enable().enabled());
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);

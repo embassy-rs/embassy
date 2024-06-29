@@ -79,11 +79,19 @@ boot2-ram-memcpy = []
 boot2-w25q080 = []
 ## Use boot2 with support for Winbond W25X10CL SPI flash.
 boot2-w25x10cl = []
+## Have embassy not provide the boot2 so you can use your own.
+## Place your own in the ".boot2" section like:
+## ```
+## #[link_section = ".boot2"]
+## #[used]
+## static BOOT2: [u8; 256] = [0; 256]; // Provide your own with e.g. include_bytes!
+## ```
+boot2-none = []
 
 [dependencies]
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
-embassy-time = { version = "0.3.0", path = "../embassy-time" }
+embassy-time = { version = "0.3.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
