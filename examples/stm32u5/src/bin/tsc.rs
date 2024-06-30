@@ -50,9 +50,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
     g7.set_io2(context.PE3, PinType::Sample);
     g7.set_io3(context.PE4, PinType::Channel);
 
-    let mut touch_controller = tsc::Tsc::new(
+    let mut touch_controller = tsc::Tsc::new_async(
         context.TSC,
-        Irqs,
         Some(g1),
         Some(g2),
         None,
@@ -62,6 +61,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         Some(g7),
         None,
         config,
+        Irqs,
     );
 
     touch_controller.discharge_io(true);
