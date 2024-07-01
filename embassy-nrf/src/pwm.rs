@@ -836,7 +836,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     #[inline(always)]
     pub fn set_ch0_drive(&self, drive: OutputDrive) {
         if let Some(pin) = &self.ch0 {
-            pin.conf().write(|w| w.drive().variant(convert_drive(drive)));
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
         }
     }
 
@@ -844,7 +844,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     #[inline(always)]
     pub fn set_ch1_drive(&self, drive: OutputDrive) {
         if let Some(pin) = &self.ch1 {
-            pin.conf().write(|w| w.drive().variant(convert_drive(drive)));
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
         }
     }
 
@@ -852,7 +852,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     #[inline(always)]
     pub fn set_ch2_drive(&self, drive: OutputDrive) {
         if let Some(pin) = &self.ch2 {
-            pin.conf().write(|w| w.drive().variant(convert_drive(drive)));
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
         }
     }
 
@@ -860,7 +860,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     #[inline(always)]
     pub fn set_ch3_drive(&self, drive: OutputDrive) {
         if let Some(pin) = &self.ch3 {
-            pin.conf().write(|w| w.drive().variant(convert_drive(drive)));
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
         }
     }
 }
