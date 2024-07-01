@@ -170,7 +170,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             Self::start_adc();
         }
 
-        //Check the sequence is long enough
+        // Check the sequence is long enough
         T::regs().sqr1().modify(|r| {
             let prev: Sequence = r.l().into();
             if prev < sequence {
@@ -182,10 +182,10 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             }
         });
 
-        //Set this GPIO as an analog input.
+        // Set this GPIO as an analog input.
         channel.setup();
 
-        //Set the channel in the right sequence field.
+        // Set the channel in the right sequence field.
         match sequence {
             Sequence::One => T::regs().sqr3().modify(|w| w.set_sq(0, channel.channel())),
             Sequence::Two => T::regs().sqr3().modify(|w| w.set_sq(1, channel.channel())),
@@ -260,7 +260,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
         let r = T::regs();
 
-        //Enable ADC
+        // Enable ADC
         let was_on = Self::is_on();
         if !was_on {
             r.cr2().modify(|reg| {
@@ -298,7 +298,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             w.set_eocs(vals::Eocs::EACHCONVERSION);
         });
 
-        //Being ADC conversions
+        // Begin ADC conversions
         T::regs().cr2().modify(|reg| {
             reg.set_adon(true);
             reg.set_swstart(true);
