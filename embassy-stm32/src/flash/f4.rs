@@ -277,7 +277,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
     let mut address = start_address;
     for val in buf.chunks(4) {
-        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
         address += val.len() as u32;
 
         // prevents parallelism errors
@@ -379,7 +379,7 @@ fn get_result(sr: Sr) -> Result<(), Error> {
 }
 
 fn save_data_cache_state() {
-    let dual_bank = get_flash_regions().last().unwrap().bank == FlashBank::Bank2;
+    let dual_bank = unwrap!(get_flash_regions().last()).bank == FlashBank::Bank2;
     if dual_bank {
         // Disable data cache during write/erase if there are two banks, see errata 2.2.12
         let dcen = pac::FLASH.acr().read().dcen();
@@ -391,7 +391,7 @@ fn save_data_cache_state() {
 }
 
 fn restore_data_cache_state() {
-    let dual_bank = get_flash_regions().last().unwrap().bank == FlashBank::Bank2;
+    let dual_bank = unwrap!(get_flash_regions().last()).bank == FlashBank::Bank2;
     if dual_bank {
         // Restore data cache if it was enabled
         let dcen = DATA_CACHE_WAS_ENABLED.load(Ordering::Relaxed);
@@ -410,7 +410,7 @@ pub(crate) fn assert_not_corrupted_read(end_address: u32) {
 
     #[allow(unused)]
     let second_bank_read =
-        get_flash_regions().last().unwrap().bank == FlashBank::Bank2 && end_address > (FLASH_SIZE / 2) as u32;
+        unwrap!(get_flash_regions().last()).bank == FlashBank::Bank2 && end_address > (FLASH_SIZE / 2) as u32;
 
     #[cfg(any(
         feature = "stm32f427ai",
