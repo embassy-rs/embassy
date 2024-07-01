@@ -27,7 +27,7 @@ fn main() -> ! {
     let flash = WatchdogFlash::<FLASH_SIZE>::start(p.FLASH, p.WATCHDOG, Duration::from_secs(8));
     let flash = Mutex::new(RefCell::new(flash));
 
-    let config = BootLoaderConfig::from_linkerfile_blocking(&flash);
+    let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);
     let active_offset = config.active.offset();
     let bl: BootLoader = BootLoader::prepare(config);
 

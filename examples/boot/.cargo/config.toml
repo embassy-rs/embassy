@@ -1,6 +1,6 @@
 [unstable]
-build-std = ["core"]
-build-std-features = ["panic_immediate_abort"]
+#build-std = ["core"]
+#build-std-features = ["panic_immediate_abort"]
 
 [build]
 target = "thumbv7em-none-eabi"

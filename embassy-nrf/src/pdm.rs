@@ -1,19 +1,19 @@
-//! Pulse Density Modulation (PDM) mirophone driver.
+//! Pulse Density Modulation (PDM) microphone driver
 
 #![macro_use]
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::I7F1;
-use futures::future::poll_fn;
 
 use crate::chip::EASY_DMA_SIZE;
-use crate::gpio::sealed::Pin;
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::pdm::mode::{EDGE_A, OPERATION_A};
 pub use crate::pac::pdm::pdmclkctrl::FREQ_A as Frequency;
@@ -26,7 +26,7 @@ pub use crate::pac::pdm::pdmclkctrl::FREQ_A as Frequency;
 pub use crate::pac::pdm::ratio::RATIO_A as Ratio;
 use crate::{interrupt, Peripheral};
 
-/// Interrupt handler.
+/// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -56,12 +56,12 @@ pub struct Pdm<'d, T: Instance> {
     _peri: PeripheralRef<'d, T>,
 }
 
-/// PDM error.
+/// PDM error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    /// Buffer is too long.
+    /// Buffer is too long
     BufferTooLong,
     /// Buffer is empty
     BufferZeroLength,
@@ -75,13 +75,13 @@ static DUMMY_BUFFER: [i16; 1] = [0; 1];
 
 /// The state of a continuously running sampler. While it reflects
 /// the progress of a sampler, it also signals what should be done
-/// next. For example, if the sampler has stopped then the Pdm implementation
-/// can then tear down its infrastructure.
+/// next. For example, if the sampler has stopped then the PDM implementation
+/// can then tear down its infrastructure
 #[derive(PartialEq)]
 pub enum SamplerState {
-    /// The sampler processed the samples and is ready for more.
+    /// The sampler processed the samples and is ready for more
     Sampled,
-    /// The sampler is done processing samples.
+    /// The sampler is done processing samples
     Stopped,
 }
 
@@ -145,15 +145,12 @@ impl<'d, T: Instance> Pdm<'d, T> {
     }
 
     fn _set_gain(r: &crate::pac::pdm::RegisterBlock, gain_left: I7F1, gain_right: I7F1) {
-        let gain_left = gain_left
-            .saturating_add(I7F1::from_bits(40))
-            .saturating_to_num::<u8>()
-            .clamp(0, 0x50);
-        let gain_right = gain_right
-            .saturating_add(I7F1::from_bits(40))
-            .saturating_to_num::<u8>()
-            .clamp(0, 0x50);
-
+        let gain_to_bits = |gain: I7F1| -> u8 {
+            let gain = gain.saturating_add(I7F1::from_bits(0x28)).to_bits().clamp(0, 0x50);
+            unsafe { core::mem::transmute(gain) }
+        };
+        let gain_left = gain_to_bits(gain_left);
+        let gain_right = gain_to_bits(gain_right);
         r.gainl.write(|w| unsafe { w.gainl().bits(gain_left) });
         r.gainr.write(|w| unsafe { w.gainr().bits(gain_right) });
     }
@@ -163,12 +160,12 @@ impl<'d, T: Instance> Pdm<'d, T> {
         Self::_set_gain(T::regs(), gain_left, gain_right)
     }
 
-    /// Start sampling microphon data into a dummy buffer
-    /// Usefull to start the microphon and keep it active between recording samples
+    /// Start sampling microphone data into a dummy buffer.
+    /// Useful to start the microphone and keep it active between recording samples.
     pub async fn start(&mut self) {
         let r = T::regs();
 
-        // start dummy sampling because microphon needs some setup time
+        // start dummy sampling because microphone needs some setup time
         r.sample
             .ptr
             .write(|w| unsafe { w.sampleptr().bits(DUMMY_BUFFER.as_ptr() as u32) });
@@ -179,16 +176,16 @@ impl<'d, T: Instance> Pdm<'d, T> {
         r.tasks_start.write(|w| unsafe { w.bits(1) });
     }
 
-    /// Stop sampling microphon data inta a dummy buffer
+    /// Stop sampling microphone data inta a dummy buffer
     pub async fn stop(&mut self) {
         let r = T::regs();
         r.tasks_stop.write(|w| unsafe { w.bits(1) });
         r.events_started.reset();
     }
 
-    /// Sample data into the given buffer.
+    /// Sample data into the given buffer
     pub async fn sample(&mut self, buffer: &mut [i16]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Err(Error::BufferZeroLength);
         }
         if buffer.len() > EASY_DMA_SIZE {
@@ -303,7 +300,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
         });
 
         // Don't reorder the start event before the previous writes. Hopefully self
-        // wouldn't happen anyway.
+        // wouldn't happen anyway
         compiler_fence(Ordering::SeqCst);
 
         r.tasks_start.write(|w| unsafe { w.bits(1) });
@@ -314,11 +311,11 @@ impl<'d, T: Instance> Pdm<'d, T> {
 
         let drop = OnDrop::new(|| {
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
-            // N.B. It would be better if this were async, but Drop only support sync code.
+            // N.B. It would be better if this were async, but Drop only support sync code
             while r.events_stopped.read().bits() != 0 {}
         });
 
-        // Wait for events and complete when the sampler indicates it has had enough.
+        // Wait for events and complete when the sampler indicates it has had enough
         poll_fn(|cx| {
             let r = T::regs();
 
@@ -331,7 +328,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
                 r.intenset.write(|w| w.end().set());
 
                 if !done {
-                    // Discard the last buffer after the user requested a stop.
+                    // Discard the last buffer after the user requested a stop
                     if sampler(&bufs[current_buffer]) == SamplerState::Sampled {
                         let next_buffer = 1 - current_buffer;
                         current_buffer = next_buffer;
@@ -405,7 +402,7 @@ impl Default for Config {
     }
 }
 
-/// PDM operation mode.
+/// PDM operation mode
 #[derive(PartialEq)]
 pub enum OperationMode {
     /// Mono (1 channel)
@@ -454,42 +451,39 @@ impl<'d, T: Instance> Drop for Pdm<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+/// Peripheral static state
+pub(crate) struct State {
+    waker: AtomicWaker,
+}
 
-    /// Peripheral static state
-    pub struct State {
-        pub waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static crate::pac::pdm::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
-/// PDM peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
-    /// Interrupt for this peripheral.
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static crate::pac::pdm::RegisterBlock;
+    fn state() -> &'static State;
+}
+
+/// PDM peripheral instance
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+    /// Interrupt for this peripheral
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_pdm {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::pdm::sealed::Instance for peripherals::$type {
+        impl crate::pdm::SealedInstance for peripherals::$type {
             fn regs() -> &'static crate::pac::pdm::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::pdm::sealed::State {
-                static STATE: crate::pdm::sealed::State = crate::pdm::sealed::State::new();
+            fn state() -> &'static crate::pdm::State {
+                static STATE: crate::pdm::State = crate::pdm::State::new();
                 &STATE
             }
         }

@@ -76,7 +76,11 @@ where
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        self.0.consume(|buf| f(buf))
+        self.0.consume(|buf| {
+            #[cfg(feature = "packet-trace")]
+            trace!("rx: {:?}", buf);
+            f(buf)
+        })
     }
 }
 
@@ -92,6 +96,11 @@ where
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        self.0.consume(len, |buf| f(buf))
+        self.0.consume(len, |buf| {
+            let r = f(buf);
+            #[cfg(feature = "packet-trace")]
+            trace!("tx: {:?}", buf);
+            r
+        })
     }
 }

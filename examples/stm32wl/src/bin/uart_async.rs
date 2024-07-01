@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -21,7 +20,7 @@ but can be surely changed for your needs.
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE;
+    config.rcc.sys = embassy_stm32::rcc::Sysclk::HSE;
     let p = embassy_stm32::init(config);
 
     defmt::info!("Starting system");

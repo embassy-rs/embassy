@@ -13,7 +13,7 @@ sudo ip -6 route add fe80::/64 dev tap0
 sudo ip -6 route add fdaa::/64 dev tap0
 ```
 
-Second, have something listening there. For example `nc -l 8000`
+Second, have something listening there. For example `nc -lp 8000`
 
 Then run the example located in the `examples` folder:
 

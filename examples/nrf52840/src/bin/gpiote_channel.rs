@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::info;
 use embassy_executor::Spawner;
@@ -62,5 +61,5 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    futures::join!(button1, button2, button3, button4);
+    embassy_futures::join::join4(button1, button2, button3, button4).await;
 }

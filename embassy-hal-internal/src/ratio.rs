@@ -1,3 +1,4 @@
+//! Types for dealing with rational numbers.
 use core::ops::{Add, Div, Mul};
 
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul};

@@ -4,7 +4,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Output, Pull};

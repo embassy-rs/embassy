@@ -10,7 +10,7 @@ pub type DayOfWeek = chrono::Weekday;
 /// Errors regarding the [`DateTime`] and [`DateTimeFilter`] structs.
 ///
 /// [`DateTimeFilter`]: struct.DateTimeFilter.html
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     /// The [DateTime] has an invalid year. The year must be between 0 and 4095.
     InvalidYear,

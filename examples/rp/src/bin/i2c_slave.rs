@@ -1,7 +1,6 @@
 //! This example shows how to use the 2040 as an i2c slave.
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -27,7 +26,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
     loop {
         let mut buf = [0u8; 128];
         match dev.listen(&mut buf).await {
-            Ok(i2c_slave::Command::GeneralCall(len)) => info!("Device recieved general call write: {}", buf[..len]),
+            Ok(i2c_slave::Command::GeneralCall(len)) => info!("Device received general call write: {}", buf[..len]),
             Ok(i2c_slave::Command::Read) => loop {
                 match dev.respond_to_read(&[state]).await {
                     Ok(x) => match x {
@@ -41,9 +40,9 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
                     Err(e) => error!("error while responding {}", e),
                 }
             },
-            Ok(i2c_slave::Command::Write(len)) => info!("Device recieved write: {}", buf[..len]),
+            Ok(i2c_slave::Command::Write(len)) => info!("Device received write: {}", buf[..len]),
             Ok(i2c_slave::Command::WriteRead(len)) => {
-                info!("device recieved write read: {:x}", buf[..len]);
+                info!("device received write read: {:x}", buf[..len]);
                 match buf[0] {
                     // Set the state
                     0xC2 => {
@@ -111,7 +110,7 @@ async fn main(spawner: Spawner) {
     let c_sda = p.PIN_1;
     let c_scl = p.PIN_0;
     let mut config = i2c::Config::default();
-    config.frequency = 5_000;
+    config.frequency = 1_000_000;
     let controller = i2c::I2c::new_async(p.I2C0, c_sda, c_scl, Irqs, config);
 
     unwrap!(spawner.spawn(controller_task(controller)));

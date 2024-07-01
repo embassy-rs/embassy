@@ -1,10 +1,9 @@
-#![feature(type_alias_impl_trait)]
-
 #[path = "../serial_port.rs"]
 mod serial_port;
 
 use async_io::Async;
 use embassy_executor::Executor;
+use embassy_time as _;
 use embedded_io_async::Read;
 use log::*;
 use nix::sys::termios;

@@ -283,6 +283,14 @@ embassy_hal_internal::peripherals! {
 
     // PDM
     PDM,
+
+    // EGU
+    EGU0,
+    EGU1,
+    EGU2,
+    EGU3,
+    EGU4,
+    EGU5,
 }
 
 impl_uarte!(SERIAL0, UARTE0, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
@@ -379,6 +387,13 @@ impl_saadc_input!(P0_17, ANALOG_INPUT4);
 impl_saadc_input!(P0_18, ANALOG_INPUT5);
 impl_saadc_input!(P0_19, ANALOG_INPUT6);
 impl_saadc_input!(P0_20, ANALOG_INPUT7);
+
+impl_egu!(EGU0, EGU0, EGU0);
+impl_egu!(EGU1, EGU1, EGU1);
+impl_egu!(EGU2, EGU2, EGU2);
+impl_egu!(EGU3, EGU3, EGU3);
+impl_egu!(EGU4, EGU4, EGU4);
+impl_egu!(EGU5, EGU5, EGU5);
 
 embassy_hal_internal::interrupt_mod!(
     SPU,

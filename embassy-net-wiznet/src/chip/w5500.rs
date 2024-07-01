@@ -8,10 +8,11 @@ pub enum RegisterBlock {
     RxBuf = 0x03,
 }
 
+/// Wiznet W5500 chip.
 pub enum W5500 {}
 
 impl super::Chip for W5500 {}
-impl super::sealed::Chip for W5500 {
+impl super::SealedChip for W5500 {
     type Address = (RegisterBlock, u16);
 
     const COMMON_MODE: Self::Address = (RegisterBlock::Common, 0x00);

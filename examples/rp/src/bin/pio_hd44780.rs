@@ -3,7 +3,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::fmt::Write;
 
@@ -36,7 +35,7 @@ async fn main(_spawner: Spawner) {
     // allowing direct connection of the display to the RP2040 without level shifters.
     let p = embassy_rp::init(Default::default());
 
-    let _pwm = Pwm::new_output_b(p.PWM_CH7, p.PIN_15, {
+    let _pwm = Pwm::new_output_b(p.PWM_SLICE7, p.PIN_15, {
         let mut c = pwm::Config::default();
         c.divider = 125.into();
         c.top = 100;

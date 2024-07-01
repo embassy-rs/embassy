@@ -65,9 +65,43 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Sub<'a, PSB, T> {
         }
     }
 
-    /// The amount of messages this subscriber hasn't received yet
+    /// The amount of messages this subscriber hasn't received yet. This is like [Self::len] but specifically
+    /// for this subscriber.
     pub fn available(&self) -> u64 {
         self.channel.available(self.next_message_id)
+    }
+
+    /// Returns the maximum number of elements the ***channel*** can hold.
+    pub fn capacity(&self) -> usize {
+        self.channel.capacity()
+    }
+
+    /// Returns the free capacity of the ***channel***.
+    ///
+    /// This is equivalent to `capacity() - len()`
+    pub fn free_capacity(&self) -> usize {
+        self.channel.free_capacity()
+    }
+
+    /// Clears all elements in the ***channel***.
+    pub fn clear(&self) {
+        self.channel.clear();
+    }
+
+    /// Returns the number of elements currently in the ***channel***.
+    /// See [Self::available] for how many messages are available for this subscriber.
+    pub fn len(&self) -> usize {
+        self.channel.len()
+    }
+
+    /// Returns whether the ***channel*** is empty.
+    pub fn is_empty(&self) -> bool {
+        self.channel.is_empty()
+    }
+
+    /// Returns whether the ***channel*** is full.
+    pub fn is_full(&self) -> bool {
+        self.channel.is_full()
     }
 }
 

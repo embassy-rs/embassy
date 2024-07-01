@@ -65,7 +65,7 @@ where
     }
 }
 
-impl<M, T: Send> Signal<M, T>
+impl<M, T> Signal<M, T>
 where
     M: RawMutex,
 {
@@ -111,7 +111,21 @@ where
         poll_fn(move |cx| self.poll_wait(cx))
     }
 
-    /// non-blocking method to check whether this signal has been signaled.
+    /// non-blocking method to try and take the signal value.
+    pub fn try_take(&self) -> Option<T> {
+        self.state.lock(|cell| {
+            let state = cell.replace(State::None);
+            match state {
+                State::Signaled(res) => Some(res),
+                state => {
+                    cell.set(state);
+                    None
+                }
+            }
+        })
+    }
+
+    /// non-blocking method to check whether this signal has been signaled. This does not clear the signal.  
     pub fn signaled(&self) -> bool {
         self.state.lock(|cell| {
             let state = cell.replace(State::None);

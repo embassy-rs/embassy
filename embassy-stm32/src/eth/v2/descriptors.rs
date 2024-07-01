@@ -119,19 +119,17 @@ impl<'a> TDesRing<'a> {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::Release);
 
-        self.index = self.index + 1;
-        if self.index == self.descriptors.len() {
-            self.index = 0;
-        }
-
         // signal DMA it can try again.
-        ETH.ethernet_dma().dmactx_dtpr().write(|w| w.0 = 0)
+        // See issue #2129
+        ETH.ethernet_dma().dmactx_dtpr().write(|w| w.0 = &td as *const _ as u32);
+
+        self.index = (self.index + 1) % self.descriptors.len();
     }
 }
 
 /// Receive Descriptor representation
 ///
-/// * rdes0: recieve buffer address
+/// * rdes0: receive buffer address
 /// * rdes1:
 /// * rdes2:
 /// * rdes3: OWN and Status
@@ -237,21 +235,19 @@ impl<'a> RDesRing<'a> {
 
     /// Pop the packet previously returned by `available`.
     pub(crate) fn pop_packet(&mut self) {
-        let descriptor = &mut self.descriptors[self.index];
-        assert!(descriptor.available());
+        let rd = &mut self.descriptors[self.index];
+        assert!(rd.available());
 
-        self.descriptors[self.index].set_ready(self.buffers[self.index].0.as_mut_ptr());
+        rd.set_ready(self.buffers[self.index].0.as_mut_ptr());
 
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::Release);
 
         // signal DMA it can try again.
-        ETH.ethernet_dma().dmacrx_dtpr().write(|w| w.0 = 0);
+        // See issue #2129
+        ETH.ethernet_dma().dmacrx_dtpr().write(|w| w.0 = &rd as *const _ as u32);
 
         // Increment index.
-        self.index += 1;
-        if self.index == self.descriptors.len() {
-            self.index = 0
-        }
+        self.index = (self.index + 1) % self.descriptors.len();
     }
 }

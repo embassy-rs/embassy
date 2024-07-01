@@ -1,4 +1,3 @@
-#![allow(incomplete_features)]
 #![deny(unused_must_use)]
 
 use core::task::Context;

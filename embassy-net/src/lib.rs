@@ -1,7 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
+#![allow(async_fn_in_trait)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
+
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 #[cfg(not(any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 compile_error!("You must enable at least one of the following features: proto-ipv4, proto-ipv6");
@@ -12,6 +15,8 @@ pub(crate) mod fmt;
 mod device;
 #[cfg(feature = "dns")]
 pub mod dns;
+#[cfg(feature = "raw")]
+pub mod raw;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 mod time;
@@ -20,13 +25,13 @@ pub mod udp;
 
 use core::cell::RefCell;
 use core::future::{poll_fn, Future};
+use core::pin::pin;
 use core::task::{Context, Poll};
 
 pub use embassy_net_driver as driver;
 use embassy_net_driver::{Driver, LinkState};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
-use futures::pin_mut;
 #[allow(unused_imports)]
 use heapless::Vec;
 #[cfg(feature = "igmp")]
@@ -409,10 +414,12 @@ impl<D: Driver> Stack<D> {
     /// ```ignore
     /// let config = embassy_net::Config::dhcpv4(Default::default());
     ///// Init network stack
-    /// let stack = &*make_static!(embassy_net::Stack::new(
+    /// static RESOURCES: StaticCell<embassy_net::StackResources<2> = StaticCell::new();
+    /// static STACK: StaticCell<embassy_net::Stack> = StaticCell::new();
+    /// let stack = &*STACK.init(embassy_net::Stack::new(
     ///    device,
     ///    config,
-    ///    make_static!(embassy_net::StackResources::<2>::new()),
+    ///    RESOURCES.init(embassy_net::StackResources::new()),
     ///    seed
     /// ));
     /// // Launch network task that runs `stack.run().await`
@@ -493,7 +500,11 @@ impl<D: Driver> Stack<D> {
 
     /// Make a query for a given name and return the corresponding IP addresses.
     #[cfg(feature = "dns")]
-    pub async fn dns_query(&self, name: &str, qtype: dns::DnsQueryType) -> Result<Vec<IpAddress, 1>, dns::Error> {
+    pub async fn dns_query(
+        &self,
+        name: &str,
+        qtype: dns::DnsQueryType,
+    ) -> Result<Vec<IpAddress, { smoltcp::config::DNS_MAX_RESULT_COUNT }>, dns::Error> {
         // For A and AAAA queries we try detect whether `name` is just an IP address
         match qtype {
             #[cfg(feature = "proto-ipv4")]
@@ -611,9 +622,11 @@ impl<D: Driver> Stack<D> {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
+            let (_hardware_addr, medium) = to_smoltcp_hardware_address(i.device.hardware_address());
             let mut smoldev = DriverAdapter {
                 cx: Some(cx),
                 inner: &mut i.device,
+                medium,
             };
 
             match s
@@ -648,9 +661,11 @@ impl<D: Driver> Stack<D> {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
+            let (_hardware_addr, medium) = to_smoltcp_hardware_address(i.device.hardware_address());
             let mut smoldev = DriverAdapter {
                 cx: Some(cx),
                 inner: &mut i.device,
+                medium,
             };
 
             match s
@@ -890,8 +905,7 @@ impl<D: Driver> Inner<D> {
         }
 
         if let Some(poll_at) = s.iface.poll_at(timestamp, &mut s.sockets) {
-            let t = Timer::at(instant_from_smoltcp(poll_at));
-            pin_mut!(t);
+            let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();
             }

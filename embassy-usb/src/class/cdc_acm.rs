@@ -439,6 +439,7 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
     }
 
     /// Reads a single packet from the OUT endpoint.
+    /// Must be called with a buffer large enough to hold max_packet_size bytes.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
         self.read_ep.read(data).await
     }

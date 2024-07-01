@@ -1,0 +1,46 @@
+= Embassy executor
+
+The Embassy executor is an async/await executor designed for embedded usage along with support functionality for interrupts and timers.
+
+== Features
+
+* No `alloc`, no heap needed. Task are statically allocated.
+* No "fixed capacity" data structures, executor works with 1 or 1000 tasks without needing config/tuning.
+* Integrated timer queue: sleeping is easy, just do `Timer::after_secs(1).await;`.
+* No busy-loop polling: CPU sleeps when there's no work to do, using interrupts or `WFE/SEV`.
+* Efficient polling: a wake will only poll the woken task, not all of them.
+* Fair: a task can't monopolize CPU time even if it's constantly being woken. All other tasks get a chance to run before a given task gets polled for the second time.
+* Creating multiple executor instances is supported, to run tasks at different priority levels. This allows higher-priority tasks to preempt lower-priority tasks.
+
+== Executor
+
+The executor function is described below. The executor keeps a queue of tasks that it should poll. When a task is created, it is polled (1). The task will attempt to make progress until it reaches a point where it would be blocked. This may happen whenever a task is .await'ing an async function. When that happens, the task yields execution by (2) returning `Poll::Pending`. Once a task yields, the executor enqueues the task at the end of the run queue, and proceeds to (3) poll the next task in the queue. When a task is finished or canceled, it will not be enqueued again.
+
+IMPORTANT: The executor relies on tasks not blocking indefinitely, as this prevents the executor to regain control and schedule another task.
+
+image::embassy_executor.png[Executor model]
+
+If you use the `#[embassy_executor::main]` macro in your application, it creates the `Executor` for you and spawns the main entry point as the first task. You can also create the Executor manually, and you can in fact create multiple Executors.
+
+
+== Interrupts
+
+Interrupts are a common way for peripherals to signal completion of some operation and fits well with the async execution model. The following diagram describes a typical application flow where (1) a task is polled and is attempting to make progress. The task then (2) instructs the peripheral to perform some operation, and awaits. After some time has passed, (3) an interrupt is raised, marking the completion of the operation.
+
+The peripheral HAL then (4) ensures that interrupt signals are routed to the peripheral and updating the peripheral state with the results of the operation. The executor is then (5) notified that the task should be polled, which it will do.
+
+image::embassy_irq.png[Interrupt handling]
+
+NOTE: There exists a special executor named `InterruptExecutor` which can be driven by an interrupt. This can be used to drive tasks at different priority levels by creating multiple `InterruptExecutor` instances.
+
+== Time
+
+Embassy features an internal timer queue enabled by the `time` feature flag. When enabled, Embassy assumes a time `Driver` implementation existing for the platform. Embassy provides time drivers for the nRF, STM32, RPi Pico, WASM and Std platforms.
+
+The timer driver implementations for the embedded platforms might support only a fixed number of alarms that can be set. Make sure the number of tasks you expect wanting to use the timer at the same time do not exceed this limit.
+
+The timer speed is configurable at compile time using the `time-tick-<frequency>`. At present, the timer may be configured to run at 1000 Hz, 32768 Hz, or 1 MHz. Before changing the defaults, make sure the target HAL supports the particular frequency setting.
+
+
+
+NOTE: If you do not require timers in your application, not enabling the `time` feature can save some CPU cycles and reduce power usage.

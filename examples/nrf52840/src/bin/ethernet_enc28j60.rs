@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -14,7 +13,7 @@ use embassy_nrf::{bind_interrupts, peripherals, spim};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
-use static_cell::make_static;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -25,10 +24,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::task]
 async fn net_task(
     stack: &'static Stack<
-        Enc28j60<
-            ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static, peripherals::P0_15>, Delay>,
-            Output<'static, peripherals::P0_13>,
-        >,
+        Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>,
     >,
 ) -> ! {
     stack.run().await
@@ -70,11 +66,15 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*make_static!(Stack::new(
+    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
+    static STACK: StaticCell<
+        Stack<Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>>,
+    > = StaticCell::new();
+    let stack = STACK.init(Stack::new(
         device,
         config,
-        make_static!(StackResources::<2>::new()),
-        seed
+        RESOURCES.init(StackResources::<2>::new()),
+        seed,
     ));
 
     unwrap!(spawner.spawn(net_task(stack)));

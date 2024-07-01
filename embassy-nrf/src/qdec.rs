@@ -7,9 +7,9 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, Peripheral};
 
@@ -172,18 +172,17 @@ impl<'d, T: Instance> Qdec<'d, T> {
         t.intenset.write(|w| w.reportrdy().set());
         unsafe { t.tasks_readclracc.write(|w| w.bits(1)) };
 
-        let value = poll_fn(|cx| {
+        poll_fn(|cx| {
             T::state().waker.register(cx.waker());
             if t.events_reportrdy.read().bits() == 0 {
-                return Poll::Pending;
+                Poll::Pending
             } else {
                 t.events_reportrdy.reset();
                 let acc = t.accread.read().bits();
                 Poll::Ready(acc as i16)
             }
         })
-        .await;
-        value
+        .await
     }
 }
 
@@ -246,42 +245,39 @@ pub enum LedPolarity {
     ActiveLow,
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+/// Peripheral static state
+pub(crate) struct State {
+    waker: AtomicWaker,
+}
 
-    /// Peripheral static state
-    pub struct State {
-        pub waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static crate::pac::qdec::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static crate::pac::qdec::RegisterBlock;
+    fn state() -> &'static State;
+}
+
 /// qdec peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_qdec {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::qdec::sealed::Instance for peripherals::$type {
+        impl crate::qdec::SealedInstance for peripherals::$type {
             fn regs() -> &'static crate::pac::qdec::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::qdec::sealed::State {
-                static STATE: crate::qdec::sealed::State = crate::qdec::sealed::State::new();
+            fn state() -> &'static crate::qdec::State {
+                static STATE: crate::qdec::State = crate::qdec::State::new();
                 &STATE
             }
         }

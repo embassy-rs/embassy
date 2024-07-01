@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
@@ -31,7 +30,7 @@ fn test_flash(f: &mut Flash<'_, Blocking>, offset: u32, size: u32) {
 
     info!("Reading...");
     let mut buf = [0u8; 32];
-    unwrap!(f.read(offset, &mut buf));
+    unwrap!(f.blocking_read(offset, &mut buf));
     info!("Read: {=[u8]:x}", buf);
 
     info!("Erasing...");
@@ -39,7 +38,7 @@ fn test_flash(f: &mut Flash<'_, Blocking>, offset: u32, size: u32) {
 
     info!("Reading...");
     let mut buf = [0u8; 32];
-    unwrap!(f.read(offset, &mut buf));
+    unwrap!(f.blocking_read(offset, &mut buf));
     info!("Read after erase: {=[u8]:x}", buf);
 
     info!("Writing...");
@@ -53,7 +52,7 @@ fn test_flash(f: &mut Flash<'_, Blocking>, offset: u32, size: u32) {
 
     info!("Reading...");
     let mut buf = [0u8; 32];
-    unwrap!(f.read(offset, &mut buf));
+    unwrap!(f.blocking_read(offset, &mut buf));
     info!("Read: {=[u8]:x}", buf);
     assert_eq!(
         &buf[..],

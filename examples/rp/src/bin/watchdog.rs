@@ -4,7 +4,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::info;
 use embassy_executor::Spawner;

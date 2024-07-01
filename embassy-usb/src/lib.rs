@@ -168,17 +168,12 @@ struct Interface {
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct UsbBufferReport {
-    /// Number of device descriptor bytes used
-    pub device_descriptor_used: usize,
     /// Number of config descriptor bytes used
     pub config_descriptor_used: usize,
     /// Number of bos descriptor bytes used
     pub bos_descriptor_used: usize,
     /// Number of msos descriptor bytes used
-    ///
-    /// Will be `None` if the "msos-descriptor" feature is not active.
-    /// Otherwise will return Some(bytes).
-    pub msos_descriptor_used: Option<usize>,
+    pub msos_descriptor_used: usize,
     /// Size of the control buffer
     pub control_buffer_size: usize,
 }
@@ -194,9 +189,10 @@ struct Inner<'d, D: Driver<'d>> {
     bus: D::Bus,
 
     config: Config<'d>,
-    device_descriptor: &'d [u8],
+    device_descriptor: [u8; 18],
     config_descriptor: &'d [u8],
     bos_descriptor: &'d [u8],
+    msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 
     device_state: UsbDeviceState,
     suspended: bool,
@@ -212,9 +208,6 @@ struct Inner<'d, D: Driver<'d>> {
 
     interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
     handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
-
-    #[cfg(feature = "msos-descriptor")]
-    msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
@@ -222,16 +215,16 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         driver: D,
         config: Config<'d>,
         handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
-        device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
+        msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
         interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
-        #[cfg(feature = "msos-descriptor")] msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
     ) -> UsbDevice<'d, D> {
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
         let (bus, control) = driver.start(config.max_packet_size_0 as u16);
+        let device_descriptor = descriptor::device_descriptor(&config);
 
         Self {
             control_buf,
@@ -242,6 +235,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 device_descriptor,
                 config_descriptor,
                 bos_descriptor,
+                msos_descriptor,
 
                 device_state: UsbDeviceState::Unpowered,
                 suspended: false,
@@ -251,8 +245,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 set_address_pending: false,
                 interfaces,
                 handlers,
-                #[cfg(feature = "msos-descriptor")]
-                msos_descriptor,
             },
         }
     }
@@ -261,16 +253,10 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     ///
     /// Useful for tuning buffer sizes for actual usage
     pub fn buffer_usage(&self) -> UsbBufferReport {
-        #[cfg(not(feature = "msos-descriptor"))]
-        let mdu = None;
-        #[cfg(feature = "msos-descriptor")]
-        let mdu = Some(self.inner.msos_descriptor.len());
-
         UsbBufferReport {
-            device_descriptor_used: self.inner.device_descriptor.len(),
             config_descriptor_used: self.inner.config_descriptor.len(),
             bos_descriptor_used: self.inner.bos_descriptor.len(),
-            msos_descriptor_used: mdu,
+            msos_descriptor_used: self.inner.msos_descriptor.len(),
             control_buffer_size: self.control_buf.len(),
         }
     }
@@ -405,6 +391,16 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         let req_length = req.length as usize;
         let max_packet_size = self.control.max_packet_size();
         let mut total = 0;
+
+        if req_length > self.control_buf.len() {
+            warn!(
+                "got CONTROL OUT with length {} higher than the control_buf len {}, rejecting.",
+                req_length,
+                self.control_buf.len()
+            );
+            self.control.reject().await;
+            return;
+        }
 
         let chunks = self.control_buf[..req_length].chunks_mut(max_packet_size);
         for (first, last, chunk) in first_last(chunks) {
@@ -674,7 +670,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 }
                 _ => InResponse::Rejected,
             },
-            #[cfg(feature = "msos-descriptor")]
+
             (RequestType::Vendor, Recipient::Device) => {
                 if !self.msos_descriptor.is_empty()
                     && req.request == self.msos_descriptor.vendor_code()
@@ -721,7 +717,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
         match dtype {
             descriptor_type::BOS => InResponse::Accepted(self.bos_descriptor),
-            descriptor_type::DEVICE => InResponse::Accepted(self.device_descriptor),
+            descriptor_type::DEVICE => InResponse::Accepted(&self.device_descriptor),
             descriptor_type::CONFIGURATION => InResponse::Accepted(self.config_descriptor),
             descriptor_type::STRING => {
                 if index == 0 {

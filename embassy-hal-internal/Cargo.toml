@@ -3,6 +3,14 @@ name = "embassy-hal-internal"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Internal implementation details for Embassy HALs. DO NOT USE DIRECTLY."
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-hal-internal"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
 
 [features]
 

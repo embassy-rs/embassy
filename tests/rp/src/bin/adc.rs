@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::*;
@@ -130,6 +129,19 @@ async fn main(_spawner: Spawner) {
         let temp = temp.map(convert_to_celsius);
         defmt::assert!(temp.iter().all(|t| *t > 0.0));
         defmt::assert!(temp.iter().all(|t| *t < 60.0));
+    }
+    {
+        let mut multi = [0u16; 2];
+        let mut channels = [
+            Channel::new_pin(&mut p.PIN_26, Pull::Up),
+            Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR),
+        ];
+        adc.read_many_multichannel(&mut channels, &mut multi, 1, &mut p.DMA_CH0)
+            .await
+            .unwrap();
+        defmt::assert!(multi[0] > 3_000);
+        let temp = convert_to_celsius(multi[1]);
+        defmt::assert!(temp > 0.0 && temp < 60.0);
     }
 
     info!("Test OK");

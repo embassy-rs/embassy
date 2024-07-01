@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
@@ -15,7 +14,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut delay = Delay;
-    let mut adc = Adc::new(p.ADC1, &mut delay);
+    let mut adc = Adc::new(p.ADC1);
     let mut pin = p.PC1;
 
     let mut vrefint = adc.enable_vrefint();

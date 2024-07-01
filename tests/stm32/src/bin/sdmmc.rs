@@ -1,15 +1,15 @@
 // required-features: sdmmc
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 #[path = "../common.rs"]
 mod common;
 
-use defmt::{assert_eq, *};
+use common::*;
+use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::{DataBlock, Sdmmc};
 use embassy_stm32::time::mhz;
-use embassy_stm32::{bind_interrupts, peripherals, sdmmc, Config};
+use embassy_stm32::{bind_interrupts, peripherals, sdmmc};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -20,12 +20,8 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
-    let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(48));
-    config.rcc.pll48 = true;
-    let p = embassy_stm32::init(config);
+    let p = embassy_stm32::init(config());
 
-    #[cfg(feature = "stm32f429zi")]
     let (mut sdmmc, mut dma, mut clk, mut cmd, mut d0, mut d1, mut d2, mut d3) =
         (p.SDIO, p.DMA2_CH3, p.PC12, p.PD2, p.PC8, p.PC9, p.PC10, p.PC11);
 

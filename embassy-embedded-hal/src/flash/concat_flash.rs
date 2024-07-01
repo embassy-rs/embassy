@@ -1,5 +1,4 @@
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, ReadNorFlash};
-#[cfg(feature = "nightly")]
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
 /// Convenience helper for concatenating two consecutive flashes into one.
@@ -117,7 +116,6 @@ where
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<First, Second, E> AsyncReadNorFlash for ConcatFlash<First, Second>
 where
     First: AsyncReadNorFlash<Error = E>,
@@ -146,7 +144,6 @@ where
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<First, Second, E> AsyncNorFlash for ConcatFlash<First, Second>
 where
     First: AsyncNorFlash<Error = E>,

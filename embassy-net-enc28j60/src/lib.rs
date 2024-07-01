@@ -17,7 +17,6 @@ mod phy;
 mod traits;
 
 use core::cmp;
-use core::convert::TryInto;
 
 use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_time::Duration;
@@ -645,8 +644,8 @@ where
         Self: 'a;
 
     fn receive(&mut self, cx: &mut core::task::Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let rx_buf = unsafe { &mut RX_BUF };
-        let tx_buf = unsafe { &mut TX_BUF };
+        let rx_buf = unsafe { &mut *core::ptr::addr_of_mut!(RX_BUF) };
+        let tx_buf = unsafe { &mut *core::ptr::addr_of_mut!(TX_BUF) };
         if let Some(n) = self.receive(rx_buf) {
             Some((RxToken { buf: &mut rx_buf[..n] }, TxToken { buf: tx_buf, eth: self }))
         } else {
@@ -656,7 +655,7 @@ where
     }
 
     fn transmit(&mut self, _cx: &mut core::task::Context) -> Option<Self::TxToken<'_>> {
-        let tx_buf = unsafe { &mut TX_BUF };
+        let tx_buf = unsafe { &mut *core::ptr::addr_of_mut!(TX_BUF) };
         Some(TxToken { buf: tx_buf, eth: self })
     }
 

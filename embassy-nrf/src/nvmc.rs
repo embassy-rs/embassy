@@ -160,7 +160,7 @@ impl<'d> NorFlash for Nvmc<'d> {
         if offset as usize + bytes.len() > FLASH_SIZE {
             return Err(Error::OutOfBounds);
         }
-        if offset as usize % 4 != 0 || bytes.len() as usize % 4 != 0 {
+        if offset as usize % 4 != 0 || bytes.len() % 4 != 0 {
             return Err(Error::Unaligned);
         }
 
