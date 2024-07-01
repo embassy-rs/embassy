@@ -20,4 +20,5 @@ pub mod pubsub;
 pub mod semaphore;
 pub mod signal;
 pub mod waitqueue;
+pub mod watch;
 pub mod zerocopy_channel;
