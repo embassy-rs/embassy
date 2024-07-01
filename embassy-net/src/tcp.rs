@@ -603,7 +603,7 @@ mod embedded_io_impls {
 
     impl<'d> embedded_io_async::WriteReady for TcpSocket<'d> {
         fn write_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.may_send()))
+            Ok(self.io.with(|s, _| s.can_send()))
         }
     }
 
@@ -619,7 +619,7 @@ mod embedded_io_impls {
 
     impl<'d> embedded_io_async::ReadReady for TcpReader<'d> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.can_recv()))
+            Ok(self.io.with(|s, _| s.can_recv() || !s.may_recv()))
         }
     }
 
@@ -639,7 +639,7 @@ mod embedded_io_impls {
 
     impl<'d> embedded_io_async::WriteReady for TcpWriter<'d> {
         fn write_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.may_send()))
+            Ok(self.io.with(|s, _| s.can_send()))
         }
     }
 }
