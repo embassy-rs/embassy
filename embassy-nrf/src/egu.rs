@@ -77,6 +77,24 @@ impl<'d, T: Instance> Trigger<'d, T> {
         let regs = T::regs();
         Event::from_reg(&regs.events_triggered[nr])
     }
+
+    /// Enable interrupts for this trigger
+    pub fn enable_interrupt(&mut self) {
+        let regs = T::regs();
+        unsafe {
+            regs.intenset
+                .modify(|r, w| w.bits(r.bits() | (1 << self.number as usize)))
+        };
+    }
+
+    /// Enable interrupts for this trigger
+    pub fn disable_interrupt(&mut self) {
+        let regs = T::regs();
+        unsafe {
+            regs.intenclr
+                .modify(|r, w| w.bits(r.bits() | (1 << self.number as usize)))
+        };
+    }
 }
 
 /// Represents a trigger within an EGU.
