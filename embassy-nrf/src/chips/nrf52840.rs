@@ -176,6 +176,9 @@ embassy_hal_internal::peripherals! {
 
     // Radio
     RADIO,
+
+    // NFC
+    NFCT,
 }
 
 impl_usb!(USBD, USBD, USBD);
