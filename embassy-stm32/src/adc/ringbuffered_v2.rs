@@ -291,7 +291,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             // Enable DMA mode
             w.set_dma(true);
             // Enable continuous conversions
-            w.set_cont(vals::Cont::CONTINUOUS);
+            w.set_cont(true);
             // DMA requests are issues as long as DMA=1 and data are converted.
             w.set_dds(vals::Dds::CONTINUOUS);
             // EOC flag is set at the end of each conversion.
