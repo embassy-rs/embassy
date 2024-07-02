@@ -184,7 +184,7 @@ macro_rules! bind_interrupts {
 }
 
 // Reexports
-pub use _generated::{peripherals, Peripherals};
+pub use _generated::{peripherals, OptionalPeripherals, Peripherals};
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
