@@ -290,10 +290,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         &mut self,
         rx_dma: &mut impl RxDma<T>,
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
-        data: &mut [u16],
+        readings: &mut [u16],
     ) {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
-
+        assert!(
+            sequence.len() == readings.len(),
+            "Sequence length must be equal to readings length"
+        );
         assert!(
             sequence.len() <= 16,
             "Asynchronous read sequence cannot be more than 16 in length"
@@ -352,7 +355,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 rx_dma,
                 request,
                 T::regs().dr().as_ptr() as *mut u16,
-                data,
+                readings,
                 Default::default(),
             )
         };
