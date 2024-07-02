@@ -75,6 +75,7 @@ pub use enums::*;
 
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::rcc::{self, RccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
 
@@ -92,23 +93,6 @@ pub enum Error {
     /// Test error for TSC
     Test,
 }
-
-/// Async acquisition API marker
-pub struct Async;
-/// Blocking acquisition API marker
-pub struct Blocking;
-
-trait SealedDriverKind {}
-
-impl SealedDriverKind for Async {}
-impl SealedDriverKind for Blocking {}
-
-#[allow(private_bounds)]
-/// Driver variant marker for the TSC peripheral
-pub trait DriverKind: SealedDriverKind {}
-
-impl DriverKind for Async {}
-impl DriverKind for Blocking {}
 
 /// TSC interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -522,7 +506,7 @@ pub enum G7 {}
 pub enum G8 {}
 
 /// TSC driver
-pub struct Tsc<'d, T: Instance, K: DriverKind> {
+pub struct Tsc<'d, T: Instance, K: PeriMode> {
     _peri: PeripheralRef<'d, T>,
     _g1: Option<PinGroup<'d, T, G1>>,
     _g2: Option<PinGroup<'d, T, G2>>,
@@ -703,7 +687,7 @@ impl<'d, T: Instance> Tsc<'d, T, Blocking> {
     }
 }
 
-impl<'d, T: Instance, K: DriverKind> Tsc<'d, T, K> {
+impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
     /// Create new TSC driver
     fn check_shields(
         g1: &Option<PinGroup<'d, T, G1>>,
@@ -969,7 +953,7 @@ impl<'d, T: Instance, K: DriverKind> Tsc<'d, T, K> {
     }
 }
 
-impl<'d, T: Instance, K: DriverKind> Drop for Tsc<'d, T, K> {
+impl<'d, T: Instance, K: PeriMode> Drop for Tsc<'d, T, K> {
     fn drop(&mut self) {
         rcc::disable::<T>();
     }
