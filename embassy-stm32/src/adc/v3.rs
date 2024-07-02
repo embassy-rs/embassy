@@ -1,11 +1,12 @@
 use cfg_if::cfg_if;
 use embassy_hal_internal::into_ref;
+use pac::adc::vals::Dmacfg;
 
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
 };
 use crate::dma::Transfer;
-use crate::{rcc, Peripheral};
+use crate::{pac, rcc, Peripheral};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -341,16 +342,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr().modify(|reg| {
             reg.set_discen(false);
             reg.set_cont(true);
-            // Oneshot mode
-            reg.set_dmacfg(false);
+            reg.set_dmacfg(Dmacfg::ONESHOT);
             reg.set_dmaen(true);
         });
         #[cfg(any(adc_g0, adc_u0))]
         T::regs().cfgr1().modify(|reg| {
             reg.set_discen(false);
             reg.set_cont(true);
-            // Oneshot mode
-            reg.set_dmacfg(false);
+            reg.set_dmacfg(Dmacfg::ONESHOT);
             reg.set_dmaen(true);
         });
 

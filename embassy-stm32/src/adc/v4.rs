@@ -1,6 +1,5 @@
 #[allow(unused)]
-use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
-use pac::adc::vals::{Adstp, Dmngt};
+use pac::adc::vals::{Adcaldif, Adstp, Boost, Difsel, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
 use super::{
