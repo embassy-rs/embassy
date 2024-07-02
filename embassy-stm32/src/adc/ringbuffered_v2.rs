@@ -408,6 +408,12 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// [`teardown_adc`]: #method.teardown_adc
     /// [`start`]: #method.start
     pub async fn read_exact<const N: usize>(&mut self, measurements: &mut [u16; N]) -> Result<usize, OverrunError> {
+        assert_eq!(
+            self.ring_buf.capacity() / 2,
+            N,
+            "Buffer size must be half the size of the ring buffer"
+        );
+
         let r = T::regs();
 
         // Start background receive if it was not already started
