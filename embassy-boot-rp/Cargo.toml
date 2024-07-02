@@ -45,6 +45,10 @@ log = [
     "embassy-boot/log",
     "embassy-rp/log",
 ]
+no-panic-msgs = [
+    "embassy-boot/no-panic-msgs",
+    "embassy-rp/no-panic-msgs",
+]
 
 [profile.dev]
 debug = 2

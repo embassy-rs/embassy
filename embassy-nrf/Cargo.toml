@@ -48,6 +48,12 @@ time = ["dep:embassy-time"]
 ## Enable defmt
 defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-embedded-hal/defmt"]
 
+## Disable panic messsages where possible, to reduce binary size.  Mutually exclusive with the `defmt` and `log`
+## features.
+## Panic messages are normally stored in the resulting binary as literal strings.  Removing them is useful for limiting
+## flash usage e.g. for bootloaders.
+no-panic-msgs = []
+
 ## Reexport the PAC for the currently enabled chip at `embassy_nrf::pac` (unstable)
 unstable-pac = []
 # This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.
