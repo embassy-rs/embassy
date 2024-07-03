@@ -475,13 +475,21 @@ fn main() {
     }
 
     impl<'a> ClockGen<'a> {
-        fn gen_clock(&mut self, name: &str) -> TokenStream {
+        fn gen_clock(&mut self, peripheral: &str, name: &str) -> TokenStream {
             let clock_name = format_ident!("{}", name.to_ascii_lowercase());
             self.clock_names.insert(name.to_ascii_lowercase());
-            quote!( unsafe { crate::rcc::get_freqs().#clock_name.unwrap() } )
+            quote!(unsafe {
+                unwrap!(
+                    crate::rcc::get_freqs().#clock_name,
+                    "peripheral '{}' is configured to use the '{}' clock, which is not running. \
+                    Either enable it in 'config.rcc' or change 'config.rcc.mux' to use another clock",
+                    #peripheral,
+                    #name
+                )
+            })
         }
 
-        fn gen_mux(&mut self, mux: &PeripheralRccRegister) -> TokenStream {
+        fn gen_mux(&mut self, peripheral: &str, mux: &PeripheralRccRegister) -> TokenStream {
             let ir = &self.rcc_registers.ir;
             let fieldset_name = mux.register.to_ascii_lowercase();
             let fieldset = ir
@@ -506,9 +514,9 @@ fn main() {
             for v in enumm.variants.iter().filter(|v| v.name != "DISABLE") {
                 let variant_name = format_ident!("{}", v.name);
                 let expr = if let Some(mux) = self.chained_muxes.get(&v.name) {
-                    self.gen_mux(mux)
+                    self.gen_mux(peripheral, mux)
                 } else {
-                    self.gen_clock(v.name)
+                    self.gen_clock(peripheral, v.name)
                 };
                 match_arms.extend(quote! {
                     crate::pac::rcc::vals::#enum_name::#variant_name => #expr,
@@ -586,8 +594,8 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(mux),
-                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(clock),
+                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
+                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
             };
 
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
