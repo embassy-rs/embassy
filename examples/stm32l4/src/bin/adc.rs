@@ -23,7 +23,7 @@ fn main() -> ! {
     let mut channel = p.PC0;
 
     loop {
-        let v = adc.read(&mut channel);
+        let v = adc.blocking_read(&mut channel);
         info!("--> {}", v);
     }
 }

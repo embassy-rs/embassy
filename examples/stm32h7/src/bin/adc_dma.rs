@@ -56,7 +56,7 @@ async fn main(_spawner: Spawner) {
     let mut pc0 = p.PC0.degrade_adc();
 
     loop {
-        adc.read_async(
+        adc.read(
             &mut dma,
             [
                 (&mut vrefint_channel, SampleTime::CYCLES387_5),

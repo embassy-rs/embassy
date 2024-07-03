@@ -178,7 +178,7 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
         channel.setup();
 
         // Configure ADC

@@ -44,7 +44,7 @@ async fn adc_task(mut p: Peripherals) {
     let _ = adc.start();
     let _ = adc2.start();
     loop {
-        match adc.read_exact(&mut buffer1).await {
+        match adc.read(&mut buffer1).await {
             Ok(_data) => {
                 let toc = Instant::now();
                 info!(
@@ -62,7 +62,7 @@ async fn adc_task(mut p: Peripherals) {
             }
         }
 
-        match adc2.read_exact(&mut buffer2).await {
+        match adc2.read(&mut buffer2).await {
             Ok(_data) => {
                 let toc = Instant::now();
                 info!(

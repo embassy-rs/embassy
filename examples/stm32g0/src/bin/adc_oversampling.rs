@@ -36,7 +36,7 @@ async fn main(_spawner: Spawner) {
     adc.oversampling_enable(true);
 
     loop {
-        let v = adc.read(&mut pin);
+        let v = adc.blocking_read(&mut pin);
         info!("--> {} ", v); //max 65520 = 0xFFF0
         Timer::after_millis(100).await;
     }

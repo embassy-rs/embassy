@@ -254,12 +254,36 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Read an ADC channel.
-    pub fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
         self.read_channel(channel)
     }
 
-    /// Asynchronously read from sequence of ADC channels.
-    pub async fn read_async(
+    /// Read one or multiple ADC channels using DMA.
+    ///
+    /// `sequence` iterator and `readings` must have the same length.
+    ///
+    /// Example
+    /// ```rust,ignore
+    /// use embassy_stm32::adc::{Adc, AdcChannel}
+    ///
+    /// let mut adc = Adc::new(p.ADC1);
+    /// let mut adc_pin0 = p.PA0.degrade_adc();
+    /// let mut adc_pin1 = p.PA1.degrade_adc();
+    /// let mut measurements = [0u16; 2];
+    ///
+    /// adc.read_async(
+    ///     p.DMA1_CH2,
+    ///     [
+    ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
+    ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
+    ///     ]
+    ///     .into_iter(),
+    ///     &mut measurements,
+    /// )
+    /// .await;
+    /// defmt::info!("measurements: {}", measurements);
+    /// ```
+    pub async fn read(
         &mut self,
         rx_dma: &mut impl RxDma<T>,
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
