@@ -97,10 +97,10 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// The length of the `dma_buf` should be a multiple of the ADC channel count.
     /// For example, if 3 channels are measured, its length can be 3 * 40 = 120 measurements.
     ///
-    /// `read_exact` method is used to read out measurements from the DMA ring buffer, and its buffer should be exactly half of the `dma_buf` length.
-    /// It is critical to call `read_exact` frequently to prevent DMA buffer overrun.
+    /// `read` method is used to read out measurements from the DMA ring buffer, and its buffer should be exactly half of the `dma_buf` length.
+    /// It is critical to call `read` frequently to prevent DMA buffer overrun.
     ///
-    /// [`read_exact`]: #method.read_exact
+    /// [`read`]: #method.read
     pub fn into_ring_buffered(
         self,
         dma: impl Peripheral<P = impl RxDma<T>> + 'd,
@@ -331,7 +331,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     ///
     /// Receive in the background is terminated if an error is returned.
     /// It must then manually be started again by calling `start()` or by re-calling `read()`.
-    pub fn read<const N: usize>(&mut self, buf: &mut [u16; N]) -> Result<usize, OverrunError> {
+    pub fn blocking_read<const N: usize>(&mut self, buf: &mut [u16; N]) -> Result<usize, OverrunError> {
         let r = T::regs();
 
         // Start background receive if it was not already started
@@ -362,14 +362,14 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// This method fills the provided `measurements` array with ADC readings from the DMA buffer.
     /// The length of the `measurements` array should be exactly half of the DMA buffer length. Because interrupts are only generated if half or full DMA transfer completes.
     ///
-    /// Each call to `read_exact` will populate the `measurements` array in the same order as the channels defined with `set_sample_sequence`.
+    /// Each call to `read` will populate the `measurements` array in the same order as the channels defined with `set_sample_sequence`.
     /// There will be many sequences worth of measurements in this array because it only returns if at least half of the DMA buffer is filled.
     /// For example if 3 channels are sampled `measurements` contain: `[sq0 sq1 sq3 sq0 sq1 sq3 sq0 sq1 sq3 sq0 sq1 sq3..]`.
     ///
-    /// If an error is returned, it indicates a DMA overrun, and the process must be restarted by calling `start` or `read_exact` again.
+    /// If an error is returned, it indicates a DMA overrun, and the process must be restarted by calling `start` or `read` again.
     ///
     /// By default, the ADC fills the DMA buffer as quickly as possible. To control the sample rate, call `teardown_adc` after each readout, and then start the DMA again at the desired interval.
-    /// Note that even if using `teardown_adc` to control the sample rate, with each call to `read_exact`, measurements equivalent to half the size of the DMA buffer are still collected.
+    /// Note that even if using `teardown_adc` to control the sample rate, with each call to `read`, measurements equivalent to half the size of the DMA buffer are still collected.
     ///
     /// Example:
     /// ```rust,ignore
@@ -383,7 +383,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     ///
     /// let mut measurements = [0u16; DMA_BUF_LEN / 2];
     /// loop {
-    ///     match adc.read_exact(&mut measurements).await {
+    ///     match adc.read(&mut measurements).await {
     ///         Ok(_) => {
     ///             defmt::info!("adc1: {}", measurements);
     ///             // Only needed to manually control sample rate.
@@ -391,7 +391,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     ///         }
     ///         Err(e) => {
     ///             defmt::warn!("Error: {:?}", e);
-    ///             // DMA overrun, next call to `read_exact` restart ADC.
+    ///             // DMA overrun, next call to `read` restarts ADC.
     ///         }
     ///     }
     ///
@@ -404,7 +404,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// [`set_sample_sequence`]: #method.set_sample_sequence
     /// [`teardown_adc`]: #method.teardown_adc
     /// [`start`]: #method.start
-    pub async fn read_exact<const N: usize>(&mut self, measurements: &mut [u16; N]) -> Result<usize, OverrunError> {
+    pub async fn read<const N: usize>(&mut self, measurements: &mut [u16; N]) -> Result<usize, OverrunError> {
         assert_eq!(
             self.ring_buf.capacity() / 2,
             N,
