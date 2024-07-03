@@ -24,6 +24,7 @@ features = ["std"]
 [features]
 std = []
 time = ["dep:embassy-time"]
+defmt = ["dep:defmt"]
 default = ["time"]
 
 [dependencies]
