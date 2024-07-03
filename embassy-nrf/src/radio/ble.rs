@@ -335,8 +335,6 @@ impl<'d, T: Instance> Radio<'d, T> {
     }
 
     async fn trigger_and_wait_end(&mut self, trigger: impl FnOnce()) {
-        //self.trace_state();
-
         let r = T::regs();
         let s = T::state();
 
@@ -366,7 +364,6 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         // Trigger the transmission
         trigger();
-        // self.trace_state();
 
         // On poll check if interrupt happen
         poll_fn(|cx| {
