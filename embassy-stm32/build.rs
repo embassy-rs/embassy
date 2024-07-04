@@ -1091,11 +1091,7 @@ fn main() {
             for pin in p.pins {
                 let key = (regs.kind, pin.signal);
                 if let Some(tr) = signals.get(&key) {
-                    let mut peri = if p.name == "OCTOSPIM" {
-                        format_ident!("{}", "OCTOSPI1")
-                    } else {
-                        format_ident!("{}", p.name)
-                    };
+                    let mut peri = format_ident!("{}", p.name);
 
                     let pin_name = {
                         // If we encounter a _C pin but the split_feature for this pin is not enabled, skip it
@@ -1111,6 +1107,15 @@ fn main() {
                     // MCO is special
                     if pin.signal.starts_with("MCO") {
                         peri = format_ident!("{}", pin.signal.replace('_', ""));
+                    }
+
+                    // OCTOSPIM is special
+                    if p.name == "OCTOSPIM" {
+                        peri = format_ident!("{}", "OCTOSPI1");
+                        g.extend(quote! {
+                            pin_trait_impl!(#tr, #peri, #pin_name, #af);
+                        });
+                        peri = format_ident!("{}", "OCTOSPI2");
                     }
 
                     g.extend(quote! {
