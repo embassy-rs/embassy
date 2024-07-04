@@ -105,8 +105,7 @@ async fn main(_spawner: Spawner) {
         core::slice::from_raw_parts_mut(ptr, len)
     };
 
-    let mut sai_receiver =
-        Sai::new_synchronous(sub_block_rx, p.PE3, p.DMA1_CH1, rx_buffer, rx_config);
+    let mut sai_receiver = Sai::new_synchronous(sub_block_rx, p.PE3, p.DMA1_CH1, rx_buffer, rx_config);
 
     sai_receiver.start();
     sai_transmitter.start();
