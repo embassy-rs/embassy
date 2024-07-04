@@ -95,6 +95,8 @@ pub mod ltdc;
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
+#[cfg(pka)]
+pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
