@@ -91,6 +91,12 @@ impl Sys {
         self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await
     }
 
+    pub async fn shci_c2_flash_erase_activity(&self, erase_active: bool) -> Result<SchiCommandStatus, ()> {
+        let command: [u8; 1] = [erase_active as u8];
+        self.write_and_get_response(ShciOpcode::FlashEraseActivity, &command)
+            .await
+    }
+
     /// `HW_IPCC_SYS_EvtNot`
     pub async fn read(&self) -> EvtBox<mm::MemoryManager> {
         Ipcc::receive(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, || unsafe {
