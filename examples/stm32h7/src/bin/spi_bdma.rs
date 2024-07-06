@@ -17,7 +17,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 // Defined in memory.x
 #[link_section = ".ram_d3"]
-static mut RAM_D3: GroundedArrayCell<u8, { 64 * 1024 }> = GroundedArrayCell::uninit();
+static mut RAM_D3: GroundedArrayCell<u8, 256> = GroundedArrayCell::uninit();
 
 #[embassy_executor::task]
 async fn main_task(mut spi: spi::Spi<'static, Async>) {
