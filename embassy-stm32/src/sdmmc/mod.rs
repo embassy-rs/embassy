@@ -13,10 +13,12 @@ use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
 use crate::dma::NoDma;
-use crate::gpio::{AFType, AnyPin, Pull, SealedPin, Speed};
+#[cfg(gpio_v2)]
+use crate::gpio::Pull;
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals, Peripheral};
 
@@ -292,6 +294,13 @@ pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
     card: Option<Card>,
 }
 
+const CLK_AF: AfType = AfType::output(OutputType::PushPull, Speed::VeryHigh);
+#[cfg(gpio_v1)]
+const CMD_AF: AfType = AfType::output(OutputType::PushPull, Speed::VeryHigh);
+#[cfg(gpio_v2)]
+const CMD_AF: AfType = AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up);
+const DATA_AF: AfType = CMD_AF;
+
 #[cfg(sdmmc_v1)]
 impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
     /// Create a new SDMMC driver, with 1 data lane.
@@ -307,13 +316,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
         into_ref!(clk, cmd, d0);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -345,19 +350,12 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
         into_ref!(clk, cmd, d0, d1, d2, d3);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-            d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::Up);
-            d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::Up);
-            d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
-            d1.set_speed(Speed::VeryHigh);
-            d2.set_speed(Speed::VeryHigh);
-            d3.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
+            d1.set_as_af(d1.af_num(), DATA_AF);
+            d2.set_as_af(d2.af_num(), DATA_AF);
+            d3.set_as_af(d3.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -388,13 +386,9 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
         into_ref!(clk, cmd, d0);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -425,19 +419,12 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
         into_ref!(clk, cmd, d0, d1, d2, d3);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-            d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::Up);
-            d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::Up);
-            d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
-            d1.set_speed(Speed::VeryHigh);
-            d2.set_speed(Speed::VeryHigh);
-            d3.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
+            d1.set_as_af(d1.af_num(), DATA_AF);
+            d2.set_as_af(d2.af_num(), DATA_AF);
+            d3.set_as_af(d3.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -468,7 +455,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     ) -> Self {
         into_ref!(sdmmc, dma);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };

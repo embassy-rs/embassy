@@ -9,6 +9,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::gpio::{self, Pin as GpioPin};
@@ -165,7 +166,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
                 $pin.conf().write(|w| {
                     w.dir().output();
                     w.drive().h0h1();
-                    #[cfg(feature = "_nrf5340-s")]
+                    #[cfg(all(feature = "_nrf5340", feature = "_s"))]
                     w.mcusel().peripheral();
                     w
                 });
@@ -652,42 +653,39 @@ mod _eh1 {
     impl<'d, T: Instance> embedded_storage_async::nor_flash::MultiwriteNorFlash for Qspi<'d, T> {}
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+/// Peripheral static state
+pub(crate) struct State {
+    waker: AtomicWaker,
+}
 
-    /// Peripheral static state
-    pub struct State {
-        pub waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static crate::pac::qspi::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static crate::pac::qspi::RegisterBlock;
+    fn state() -> &'static State;
+}
+
 /// QSPI peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_qspi {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::qspi::sealed::Instance for peripherals::$type {
+        impl crate::qspi::SealedInstance for peripherals::$type {
             fn regs() -> &'static crate::pac::qspi::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::qspi::sealed::State {
-                static STATE: crate::qspi::sealed::State = crate::qspi::sealed::State::new();
+            fn state() -> &'static crate::qspi::State {
+                static STATE: crate::qspi::State = crate::qspi::State::new();
                 &STATE
             }
         }

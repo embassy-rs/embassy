@@ -5,6 +5,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::time::Hertz;
@@ -13,7 +14,6 @@ use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Handler};
-use futures::future::join;
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -21,6 +21,11 @@ bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
 
+// If you are trying this and your USB device doesn't connect, the most
+// common issues are the RCC config and vbus_detection
+//
+// See https://embassy.dev/book/#_the_usb_examples_are_not_working_on_my_board_is_there_anything_else_i_need_to_configure
+// for more information.
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
@@ -49,7 +54,13 @@ async fn main(_spawner: Spawner) {
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
     let mut config = embassy_stm32::usb::Config::default();
-    config.vbus_detection = true;
+
+    // Do not enable vbus_detection. This is a safe default that works in all boards.
+    // However, if your USB device is self-powered (can stay powered on if USB is unplugged), you need
+    // to enable vbus_detection to comply with the USB spec. If you enable it, the board
+    // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
+    config.vbus_detection = false;
+
     let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
 
     // Create embassy-usb Config
@@ -75,7 +86,7 @@ async fn main(_spawner: Spawner) {
     let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
 
-    let request_handler = MyRequestHandler {};
+    let mut request_handler = MyRequestHandler {};
     let mut device_handler = MyDeviceHandler::new();
 
     let mut state = State::new();
@@ -94,7 +105,7 @@ async fn main(_spawner: Spawner) {
     // Create classes on the builder.
     let config = embassy_usb::class::hid::Config {
         report_descriptor: KeyboardReport::desc(),
-        request_handler: Some(&request_handler),
+        request_handler: None,
         poll_ms: 60,
         max_packet_size: 8,
     };
@@ -147,7 +158,7 @@ async fn main(_spawner: Spawner) {
     };
 
     let out_fut = async {
-        reader.run(false, &request_handler).await;
+        reader.run(false, &mut request_handler).await;
     };
 
     // Run everything concurrently.
@@ -158,21 +169,21 @@ async fn main(_spawner: Spawner) {
 struct MyRequestHandler {}
 
 impl RequestHandler for MyRequestHandler {
-    fn get_report(&self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
+    fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         info!("Get report for {:?}", id);
         None
     }
 
-    fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
+    fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
         info!("Set report for {:?}: {=[u8]}", id, data);
         OutResponse::Accepted
     }
 
-    fn set_idle_ms(&self, id: Option<ReportId>, dur: u32) {
+    fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
         info!("Set idle rate for {:?} to {:?}", id, dur);
     }
 
-    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
+    fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
         info!("Get idle rate for {:?}", id);
         None
     }

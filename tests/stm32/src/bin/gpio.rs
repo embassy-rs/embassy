@@ -112,7 +112,7 @@ async fn main(_spawner: Spawner) {
         let b = Input::new(&mut b, Pull::Down);
         // no pull, the status is undefined
 
-        let mut a = OutputOpenDrain::new(&mut a, Level::Low, Speed::Low, Pull::None);
+        let mut a = OutputOpenDrain::new(&mut a, Level::Low, Speed::Low);
         delay();
         assert!(b.is_low());
         a.set_high(); // High-Z output
@@ -203,7 +203,7 @@ async fn main(_spawner: Spawner) {
 
         let mut a = Flex::new(&mut a);
         a.set_low();
-        a.set_as_input_output(Speed::Low, Pull::None);
+        a.set_as_input_output(Speed::Low);
         delay();
         assert!(b.is_low());
         a.set_high(); // High-Z output
@@ -216,7 +216,12 @@ async fn main(_spawner: Spawner) {
 }
 
 fn delay() {
-    #[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi", feature = "stm32h7a3zi"))]
+    #[cfg(any(
+        feature = "stm32h755zi",
+        feature = "stm32h753zi",
+        feature = "stm32h7a3zi",
+        feature = "stm32h7s3l8"
+    ))]
     cortex_m::asm::delay(9000);
     cortex_m::asm::delay(1000);
 }

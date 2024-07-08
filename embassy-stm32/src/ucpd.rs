@@ -20,15 +20,15 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::{AnyChannel, Request, Transfer, TransferOptions};
+use crate::dma::{ChannelAndRequest, TransferOptions};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, TypecVstateCc as CcVState};
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 
 pub(crate) fn init(
     _cs: critical_section::CriticalSection,
@@ -58,7 +58,7 @@ pub(crate) fn init(
         })
     }
 
-    #[cfg(any(stm32h5, stm32u5))]
+    #[cfg(any(stm32h5, stm32u5, stm32h7rs))]
     {
         crate::pac::PWR.ucpdr().modify(|w| {
             w.set_ucpd_dbdis(!ucpd1_db_enable);
@@ -103,7 +103,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         cc1.set_as_analog();
         cc2.set_as_analog();
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
@@ -169,6 +169,9 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         // Enable hard reset receive interrupt.
         r.imr().modify(|w| w.set_rxhrstdetie(true));
 
+        // Enable PD packet reception
+        r.cr().modify(|w| w.set_phyrxen(true));
+
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
 
@@ -179,10 +182,14 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             self.cc_phy,
             PdPhy {
                 _lifetime: PhantomData,
-                rx_dma_ch: rx_dma.map_into(),
-                rx_dma_req,
-                tx_dma_ch: tx_dma.map_into(),
-                tx_dma_req,
+                rx_dma: ChannelAndRequest {
+                    channel: rx_dma.map_into(),
+                    request: rx_dma_req,
+                },
+                tx_dma: ChannelAndRequest {
+                    channel: tx_dma.map_into(),
+                    request: tx_dma_req,
+                },
             },
         )
     }
@@ -208,7 +215,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
             drop_not_ready.store(true, Ordering::Relaxed);
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
-            T::disable();
+            rcc::disable::<T>();
             T::Interrupt::disable();
         }
     }
@@ -309,21 +316,20 @@ pub enum TxError {
 /// Power Delivery (PD) PHY.
 pub struct PdPhy<'d, T: Instance> {
     _lifetime: PhantomData<&'d mut T>,
-    rx_dma_ch: PeripheralRef<'d, AnyChannel>,
-    rx_dma_req: Request,
-    tx_dma_ch: PeripheralRef<'d, AnyChannel>,
-    tx_dma_req: Request,
+    rx_dma: ChannelAndRequest<'d>,
+    tx_dma: ChannelAndRequest<'d>,
 }
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
+        T::REGS.cr().modify(|w| w.set_phyrxen(false));
         // Check if the Type-C part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
             drop_not_ready.store(true, Ordering::Relaxed);
         } else {
             T::REGS.cfgr1().write(|w| w.set_ucpden(false));
-            T::disable();
+            rcc::disable::<T>();
             T::Interrupt::disable();
         }
     }
@@ -337,26 +343,18 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         let r = T::REGS;
 
         let dma = unsafe {
-            Transfer::new_read(
-                &self.rx_dma_ch,
-                self.rx_dma_req,
-                r.rxdr().as_ptr() as *mut u8,
-                buf,
-                TransferOptions::default(),
-            )
+            self.rx_dma
+                .read(r.rxdr().as_ptr() as *mut u8, buf, TransferOptions::default())
         };
 
-        // Clear interrupt flags (possibly set from last receive).
-        r.icr().write(|w| {
-            w.set_rxorddetcf(true);
-            w.set_rxovrcf(true);
-            w.set_rxmsgendcf(true);
-        });
-
-        r.cr().modify(|w| w.set_phyrxen(true));
         let _on_drop = OnDrop::new(|| {
-            r.cr().modify(|w| w.set_phyrxen(false));
-            self.enable_rx_interrupt(false);
+            Self::enable_rx_interrupt(false);
+            // Clear interrupt flags
+            r.icr().write(|w| {
+                w.set_rxorddetcf(true);
+                w.set_rxovrcf(true);
+                w.set_rxmsgendcf(true);
+            });
         });
 
         poll_fn(|cx| {
@@ -377,7 +375,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 Poll::Ready(ret)
             } else {
                 T::state().waker.register(cx.waker());
-                self.enable_rx_interrupt(true);
+                Self::enable_rx_interrupt(true);
                 Poll::Pending
             }
         })
@@ -393,7 +391,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         Ok(r.rx_payszr().read().rxpaysz().into())
     }
 
-    fn enable_rx_interrupt(&self, enable: bool) {
+    fn enable_rx_interrupt(enable: bool) {
         T::REGS.imr().modify(|w| w.set_rxmsgendie(enable));
     }
 
@@ -405,7 +403,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         // might still be running because there is no way to abort an ongoing
         // message transmission. Wait for it to finish but ignore errors.
         if r.cr().read().txsend() {
-            if let Err(TxError::HardReset) = self.wait_tx_done().await {
+            if let Err(TxError::HardReset) = Self::wait_tx_done().await {
                 return Err(TxError::HardReset);
             }
         }
@@ -418,13 +416,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
         // Start the DMA and let it do its thing in the background.
         let _dma = unsafe {
-            Transfer::new_write(
-                &self.tx_dma_ch,
-                self.tx_dma_req,
-                buf,
-                r.txdr().as_ptr() as *mut u8,
-                TransferOptions::default(),
-            )
+            self.tx_dma
+                .write(buf, r.txdr().as_ptr() as *mut u8, TransferOptions::default())
         };
 
         // Configure and start the transmission.
@@ -434,11 +427,11 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             w.set_txsend(true);
         });
 
-        self.wait_tx_done().await
+        Self::wait_tx_done().await
     }
 
-    async fn wait_tx_done(&self) -> Result<(), TxError> {
-        let _on_drop = OnDrop::new(|| self.enable_tx_interrupts(false));
+    async fn wait_tx_done() -> Result<(), TxError> {
+        let _on_drop = OnDrop::new(|| Self::enable_tx_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
@@ -453,14 +446,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 Poll::Ready(Ok(()))
             } else {
                 T::state().waker.register(cx.waker());
-                self.enable_tx_interrupts(true);
+                Self::enable_tx_interrupts(true);
                 Poll::Pending
             }
         })
         .await
     }
 
-    fn enable_tx_interrupts(&self, enable: bool) {
+    fn enable_tx_interrupts(enable: bool) {
         T::REGS.imr().modify(|w| {
             w.set_txmsgdiscie(enable);
             w.set_txmsgsentie(enable);

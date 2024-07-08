@@ -7,8 +7,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin};
+use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::InterruptExt;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, pac, peripherals};
@@ -20,9 +19,9 @@ const CHANNEL_COUNT: usize = 4;
 /// Amount of GPIOTE channels in the chip.
 const CHANNEL_COUNT: usize = 8;
 
-#[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+#[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
 const PIN_COUNT: usize = 48;
-#[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
+#[cfg(not(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
 const PIN_COUNT: usize = 32;
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -68,9 +67,9 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     // no latched GPIO detect in nrf51.
     #[cfg(not(feature = "_nrf51"))]
     {
-        #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+        #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
         let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
-        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840")))]
+        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
         let ports = unsafe { &[&*pac::P0::ptr()] };
 
         for &p in ports {
@@ -131,9 +130,9 @@ unsafe fn handle_gpiote_interrupt() {
     if g.events_port.read().bits() != 0 {
         g.events_port.write(|w| w);
 
-        #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+        #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
         let ports = &[&*pac::P0::ptr(), &*pac::P1::ptr()];
-        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840")))]
+        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
         let ports = &[&*pac::P0::ptr()];
         #[cfg(feature = "_nrf51")]
         let ports = unsafe { &[&*pac::GPIO::ptr()] };
@@ -215,7 +214,7 @@ impl<'d> InputChannel<'d> {
                 InputChannelPolarity::None => w.mode().event().polarity().none(),
                 InputChannelPolarity::Toggle => w.mode().event().polarity().toggle(),
             };
-            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
             w.port().bit(match pin.pin.pin.port() {
                 crate::gpio::Port::Port0 => false,
                 crate::gpio::Port::Port1 => true,
@@ -289,7 +288,7 @@ impl<'d> OutputChannel<'d> {
                 OutputChannelPolarity::Clear => w.polarity().hi_to_lo(),
                 OutputChannelPolarity::Toggle => w.polarity().toggle(),
             };
-            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
             w.port().bit(match pin.pin.pin.port() {
                 crate::gpio::Port::Port0 => false,
                 crate::gpio::Port::Port1 => true,
@@ -446,14 +445,13 @@ impl<'d> Flex<'d> {
 
 // =======================
 
-mod sealed {
-    pub trait Channel {}
-}
+trait SealedChannel {}
 
 /// GPIOTE channel trait.
 ///
 /// Implemented by all GPIOTE channels.
-pub trait Channel: sealed::Channel + Into<AnyChannel> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Channel: SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Get the channel number.
     fn number(&self) -> usize;
 
@@ -478,7 +476,7 @@ pub struct AnyChannel {
     number: u8,
 }
 impl_peripheral!(AnyChannel);
-impl sealed::Channel for AnyChannel {}
+impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> usize {
         self.number as usize
@@ -487,7 +485,7 @@ impl Channel for AnyChannel {
 
 macro_rules! impl_channel {
     ($type:ident, $number:expr) => {
-        impl sealed::Channel for peripherals::$type {}
+        impl SealedChannel for peripherals::$type {}
         impl Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number as usize

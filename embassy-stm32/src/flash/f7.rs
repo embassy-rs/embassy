@@ -40,7 +40,7 @@ pub(crate) unsafe fn disable_blocking_write() {
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     let mut address = start_address;
     for val in buf.chunks(4) {
-        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
         address += val.len() as u32;
 
         // prevents parallelism errors

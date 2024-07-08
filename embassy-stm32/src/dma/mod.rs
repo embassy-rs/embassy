@@ -14,12 +14,13 @@ pub use gpdma::*;
 #[cfg(dmamux)]
 mod dmamux;
 #[cfg(dmamux)]
-pub use dmamux::*;
+pub(crate) use dmamux::*;
+
+mod util;
+pub(crate) use util::*;
 
 pub(crate) mod ringbuffer;
 pub mod word;
-
-use core::mem;
 
 use embassy_hal_internal::{impl_peripheral, Peripheral};
 
@@ -117,17 +118,6 @@ static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT]
 pub struct NoDma;
 
 impl_peripheral!(NoDma);
-
-// TODO: replace transmutes with core::ptr::metadata once it's stable
-#[allow(unused)]
-pub(crate) fn slice_ptr_parts<T>(slice: *const [T]) -> (usize, usize) {
-    unsafe { mem::transmute(slice) }
-}
-
-#[allow(unused)]
-pub(crate) fn slice_ptr_parts_mut<T>(slice: *mut [T]) -> (usize, usize) {
-    unsafe { mem::transmute(slice) }
-}
 
 // safety: must be called only once at startup
 pub(crate) unsafe fn init(

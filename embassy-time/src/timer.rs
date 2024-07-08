@@ -1,10 +1,10 @@
 use core::future::{poll_fn, Future};
-use core::pin::Pin;
+use core::pin::{pin, Pin};
 use core::task::{Context, Poll};
 
 use futures_util::future::{select, Either};
 use futures_util::stream::FusedStream;
-use futures_util::{pin_mut, Stream};
+use futures_util::Stream;
 
 use crate::{Duration, Instant};
 
@@ -19,8 +19,7 @@ pub struct TimeoutError;
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
 pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, TimeoutError> {
     let timeout_fut = Timer::after(timeout);
-    pin_mut!(fut);
-    match select(fut, timeout_fut).await {
+    match select(pin!(fut), timeout_fut).await {
         Either::Left((r, _)) => Ok(r),
         Either::Right(_) => Err(TimeoutError),
     }
@@ -32,10 +31,39 @@ pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Out
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
 pub async fn with_deadline<F: Future>(at: Instant, fut: F) -> Result<F::Output, TimeoutError> {
     let timeout_fut = Timer::at(at);
-    pin_mut!(fut);
-    match select(fut, timeout_fut).await {
+    match select(pin!(fut), timeout_fut).await {
         Either::Left((r, _)) => Ok(r),
         Either::Right(_) => Err(TimeoutError),
+    }
+}
+
+/// Provides functions to run a given future with a timeout or a deadline.
+pub trait WithTimeout {
+    /// Output type of the future.
+    type Output;
+
+    /// Runs a given future with a timeout.
+    ///
+    /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
+    /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+    async fn with_timeout(self, timeout: Duration) -> Result<Self::Output, TimeoutError>;
+
+    /// Runs a given future with a deadline time.
+    ///
+    /// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
+    /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+    async fn with_deadline(self, at: Instant) -> Result<Self::Output, TimeoutError>;
+}
+
+impl<F: Future> WithTimeout for F {
+    type Output = F::Output;
+
+    async fn with_timeout(self, timeout: Duration) -> Result<Self::Output, TimeoutError> {
+        with_timeout(timeout, self).await
+    }
+
+    async fn with_deadline(self, at: Instant) -> Result<Self::Output, TimeoutError> {
+        with_deadline(at, self).await
     }
 }
 
@@ -190,8 +218,20 @@ impl Ticker {
         self.expires_at = Instant::now() + self.duration;
     }
 
+    /// Reset the ticker at the deadline.
+    /// If the deadline is in the past, the ticker will fire instantly.
+    pub fn reset_at(&mut self, deadline: Instant) {
+        self.expires_at = deadline + self.duration;
+    }
+
+    /// Resets the ticker, after the specified duration has passed.
+    /// If the specified duration is zero, the next tick will be after the duration of the ticker.
+    pub fn reset_after(&mut self, after: Duration) {
+        self.expires_at = Instant::now() + after + self.duration;
+    }
+
     /// Waits for the next tick.
-    pub fn next(&mut self) -> impl Future<Output = ()> + '_ {
+    pub fn next(&mut self) -> impl Future<Output = ()> + Send + Sync + '_ {
         poll_fn(|cx| {
             if self.expires_at <= Instant::now() {
                 let dur = self.duration;

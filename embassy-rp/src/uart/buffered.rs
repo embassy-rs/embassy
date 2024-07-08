@@ -51,14 +51,20 @@ pub struct BufferedUartTx<'d, T: Instance> {
 
 pub(crate) fn init_buffers<'d, T: Instance + 'd>(
     _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
-    tx_buffer: &'d mut [u8],
-    rx_buffer: &'d mut [u8],
+    tx_buffer: Option<&'d mut [u8]>,
+    rx_buffer: Option<&'d mut [u8]>,
 ) {
     let state = T::buffered_state();
-    let len = tx_buffer.len();
-    unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
-    let len = rx_buffer.len();
-    unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
+
+    if let Some(tx_buffer) = tx_buffer {
+        let len = tx_buffer.len();
+        unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
+    }
+
+    if let Some(rx_buffer) = rx_buffer {
+        let len = rx_buffer.len();
+        unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
+    }
 
     // From the datasheet:
     // "The transmit interrupt is based on a transition through a level, rather
@@ -95,7 +101,7 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         into_ref!(tx, rx);
 
         super::Uart::<'d, T, Async>::init(Some(tx.map_into()), Some(rx.map_into()), None, None, config);
-        init_buffers::<T>(irq, tx_buffer, rx_buffer);
+        init_buffers::<T>(irq, Some(tx_buffer), Some(rx_buffer));
 
         Self {
             rx: BufferedUartRx { phantom: PhantomData },
@@ -124,7 +130,7 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
             Some(cts.map_into()),
             config,
         );
-        init_buffers::<T>(irq, tx_buffer, rx_buffer);
+        init_buffers::<T>(irq, Some(tx_buffer), Some(rx_buffer));
 
         Self {
             rx: BufferedUartRx { phantom: PhantomData },
@@ -175,7 +181,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         into_ref!(rx);
 
         super::Uart::<'d, T, Async>::init(None, Some(rx.map_into()), None, None, config);
-        init_buffers::<T>(irq, &mut [], rx_buffer);
+        init_buffers::<T>(irq, None, Some(rx_buffer));
 
         Self { phantom: PhantomData }
     }
@@ -192,7 +198,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         into_ref!(rx, rts);
 
         super::Uart::<'d, T, Async>::init(None, Some(rx.map_into()), Some(rts.map_into()), None, config);
-        init_buffers::<T>(irq, &mut [], rx_buffer);
+        init_buffers::<T>(irq, None, Some(rx_buffer));
 
         Self { phantom: PhantomData }
     }
@@ -323,7 +329,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         into_ref!(tx);
 
         super::Uart::<'d, T, Async>::init(Some(tx.map_into()), None, None, None, config);
-        init_buffers::<T>(irq, tx_buffer, &mut []);
+        init_buffers::<T>(irq, Some(tx_buffer), None);
 
         Self { phantom: PhantomData }
     }
@@ -340,12 +346,12 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         into_ref!(tx, cts);
 
         super::Uart::<'d, T, Async>::init(Some(tx.map_into()), None, None, Some(cts.map_into()), config);
-        init_buffers::<T>(irq, tx_buffer, &mut []);
+        init_buffers::<T>(irq, Some(tx_buffer), None);
 
         Self { phantom: PhantomData }
     }
 
-    fn write<'a>(buf: &'a [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
+    fn write(buf: &[u8]) -> impl Future<Output = Result<usize, Error>> + '_ {
         poll_fn(move |cx| {
             if buf.is_empty() {
                 return Poll::Ready(Ok(0));
@@ -459,9 +465,9 @@ impl<'d, T: Instance> Drop for BufferedUartRx<'d, T> {
         let state = T::buffered_state();
         unsafe { state.rx_buf.deinit() }
 
-        // TX is inactive if the the buffer is not available.
+        // TX is inactive if the buffer is not available.
         // We can now unregister the interrupt handler
-        if state.tx_buf.is_empty() {
+        if !state.tx_buf.is_available() {
             T::Interrupt::disable();
         }
     }
@@ -472,9 +478,9 @@ impl<'d, T: Instance> Drop for BufferedUartTx<'d, T> {
         let state = T::buffered_state();
         unsafe { state.tx_buf.deinit() }
 
-        // RX is inactive if the the buffer is not available.
+        // RX is inactive if the buffer is not available.
         // We can now unregister the interrupt handler
-        if state.rx_buf.is_empty() {
+        if !state.rx_buf.is_available() {
             T::Interrupt::disable();
         }
     }
@@ -520,64 +526,68 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for BufferedInterr
         }
 
         // RX
-        let mut rx_writer = unsafe { s.rx_buf.writer() };
-        let rx_buf = rx_writer.push_slice();
-        let mut n_read = 0;
-        let mut error = false;
-        for rx_byte in rx_buf {
-            if r.uartfr().read().rxfe() {
-                break;
+        if s.rx_buf.is_available() {
+            let mut rx_writer = unsafe { s.rx_buf.writer() };
+            let rx_buf = rx_writer.push_slice();
+            let mut n_read = 0;
+            let mut error = false;
+            for rx_byte in rx_buf {
+                if r.uartfr().read().rxfe() {
+                    break;
+                }
+                let dr = r.uartdr().read();
+                if (dr.0 >> 8) != 0 {
+                    s.rx_error.fetch_or((dr.0 >> 8) as u8, Ordering::Relaxed);
+                    error = true;
+                    // only fill the buffer with valid characters. the current character is fine
+                    // if the error is an overrun, but if we add it to the buffer we'll report
+                    // the overrun one character too late. drop it instead and pretend we were
+                    // a bit slower at draining the rx fifo than we actually were.
+                    // this is consistent with blocking uart error reporting.
+                    break;
+                }
+                *rx_byte = dr.data();
+                n_read += 1;
             }
-            let dr = r.uartdr().read();
-            if (dr.0 >> 8) != 0 {
-                s.rx_error.fetch_or((dr.0 >> 8) as u8, Ordering::Relaxed);
-                error = true;
-                // only fill the buffer with valid characters. the current character is fine
-                // if the error is an overrun, but if we add it to the buffer we'll report
-                // the overrun one character too late. drop it instead and pretend we were
-                // a bit slower at draining the rx fifo than we actually were.
-                // this is consistent with blocking uart error reporting.
-                break;
+            if n_read > 0 {
+                rx_writer.push_done(n_read);
+                s.rx_waker.wake();
+            } else if error {
+                s.rx_waker.wake();
             }
-            *rx_byte = dr.data();
-            n_read += 1;
-        }
-        if n_read > 0 {
-            rx_writer.push_done(n_read);
-            s.rx_waker.wake();
-        } else if error {
-            s.rx_waker.wake();
-        }
-        // Disable any further RX interrupts when the buffer becomes full or
-        // errors have occurred. This lets us buffer additional errors in the
-        // fifo without needing more error storage locations, and most applications
-        // will want to do a full reset of their uart state anyway once an error
-        // has happened.
-        if s.rx_buf.is_full() || error {
-            r.uartimsc().write_clear(|w| {
-                w.set_rxim(true);
-                w.set_rtim(true);
-            });
+            // Disable any further RX interrupts when the buffer becomes full or
+            // errors have occurred. This lets us buffer additional errors in the
+            // fifo without needing more error storage locations, and most applications
+            // will want to do a full reset of their uart state anyway once an error
+            // has happened.
+            if s.rx_buf.is_full() || error {
+                r.uartimsc().write_clear(|w| {
+                    w.set_rxim(true);
+                    w.set_rtim(true);
+                });
+            }
         }
 
         // TX
-        let mut tx_reader = unsafe { s.tx_buf.reader() };
-        let tx_buf = tx_reader.pop_slice();
-        let mut n_written = 0;
-        for tx_byte in tx_buf.iter_mut() {
-            if r.uartfr().read().txff() {
-                break;
+        if s.tx_buf.is_available() {
+            let mut tx_reader = unsafe { s.tx_buf.reader() };
+            let tx_buf = tx_reader.pop_slice();
+            let mut n_written = 0;
+            for tx_byte in tx_buf.iter_mut() {
+                if r.uartfr().read().txff() {
+                    break;
+                }
+                r.uartdr().write(|w| w.set_data(*tx_byte));
+                n_written += 1;
             }
-            r.uartdr().write(|w| w.set_data(*tx_byte));
-            n_written += 1;
+            if n_written > 0 {
+                tx_reader.pop_done(n_written);
+                s.tx_waker.wake();
+            }
+            // The TX interrupt only triggers once when the FIFO threshold is
+            // crossed. No need to disable it when the buffer becomes empty
+            // as it does re-trigger anymore once we have cleared it.
         }
-        if n_written > 0 {
-            tx_reader.pop_done(n_written);
-            s.tx_waker.wake();
-        }
-        // The TX interrupt only triggers once when the FIFO threshold is
-        // crossed. No need to disable it when the buffer becomes empty
-        // as it does re-trigger anymore once we have cleared it.
     }
 }
 

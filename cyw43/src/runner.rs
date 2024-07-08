@@ -1,6 +1,5 @@
 use embassy_futures::select::{select3, Either3};
 use embassy_net_driver_channel as ch;
-use embassy_sync::pubsub::PubSubBehavior;
 use embassy_time::{block_for, Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 
@@ -438,13 +437,16 @@ where
                     // publish() is a deadlock risk in the current design as awaiting here prevents ioctls
                     // The `Runner` always yields when accessing the device, so consumers always have a chance to receive the event
                     // (if they are actively awaiting the queue)
-                    self.events.queue.publish_immediate(events::Message::new(
-                        Status {
-                            event_type: evt_type,
-                            status,
-                        },
-                        event_payload,
-                    ));
+                    self.events
+                        .queue
+                        .immediate_publisher()
+                        .publish_immediate(events::Message::new(
+                            Status {
+                                event_type: evt_type,
+                                status,
+                            },
+                            event_payload,
+                        ));
                 }
             }
             CHANNEL_TYPE_DATA => {

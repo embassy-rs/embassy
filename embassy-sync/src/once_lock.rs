@@ -1,4 +1,4 @@
-//! Syncronization primitive for initializing a value once, allowing others to await a reference to the value.
+//! Synchronization primitive for initializing a value once, allowing others to await a reference to the value.
 
 use core::cell::Cell;
 use core::future::poll_fn;
@@ -13,7 +13,7 @@ use core::task::Poll;
 ///
 /// **Note**: this implementation uses a busy loop to poll the value,
 /// which is not as efficient as registering a dedicated `Waker`.
-/// However, the if the usecase for is to initialize a static variable
+/// However, if the usecase for it is to initialize a static variable
 /// relatively early in the program life cycle, it should be fine.
 ///
 /// # Example
@@ -78,7 +78,7 @@ impl<T> OnceLock<T> {
     /// Set the underlying value. If the value is already set, this will return an error with the given value.
     pub fn init(&self, value: T) -> Result<(), T> {
         // Critical section is required to ensure that the value is
-        // not simultaniously initialized elsewhere at the same time.
+        // not simultaneously initialized elsewhere at the same time.
         critical_section::with(|_| {
             // If the value is not set, set it and return Ok.
             if !self.init.load(Ordering::Relaxed) {
@@ -99,7 +99,7 @@ impl<T> OnceLock<T> {
         F: FnOnce() -> T,
     {
         // Critical section is required to ensure that the value is
-        // not simultaniously initialized elsewhere at the same time.
+        // not simultaneously initialized elsewhere at the same time.
         critical_section::with(|_| {
             // If the value is not set, set it.
             if !self.init.load(Ordering::Relaxed) {

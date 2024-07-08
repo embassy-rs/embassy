@@ -4,10 +4,11 @@ use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use stm32_metapac::syscfg::vals::EthSelPhy;
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
-use crate::gpio::{AFType, AnyPin, SealedPin as _, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
 use crate::interrupt::InterruptExt;
 use crate::pac::ETH;
 use crate::rcc::SealedRccPeripheral;
@@ -55,8 +56,8 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                $pin.set_speed(Speed::VeryHigh);
+                // TODO: shouldn't some pins be configured as inputs?
+                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -80,31 +81,15 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        // Enable the necessary Clocks
-        #[cfg(not(rcc_h5))]
+        // Enable the necessary clocks
         critical_section::with(|_| {
-            crate::pac::RCC.ahb1enr().modify(|w| {
-                w.set_eth1macen(true);
-                w.set_eth1txen(true);
-                w.set_eth1rxen(true);
-            });
-
-            crate::pac::SYSCFG.pmcr().modify(|w| w.set_epis(0b100));
-        });
-
-        #[cfg(rcc_h5)]
-        critical_section::with(|_| {
-            crate::pac::RCC.apb3enr().modify(|w| w.set_sbsen(true));
-
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_ethen(true);
                 w.set_ethtxen(true);
                 w.set_ethrxen(true);
             });
 
-            crate::pac::SYSCFG
-                .pmcr()
-                .modify(|w| w.set_eth_sel_phy(crate::pac::syscfg::vals::EthSelPhy::B_0X4));
+            crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(EthSelPhy::RMII));
         });
 
         into_ref!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
@@ -147,32 +132,17 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        // Enable necessary clocks.
-        #[cfg(not(rcc_h5))]
+        // Enable the necessary clocks
         critical_section::with(|_| {
-            crate::pac::RCC.ahb1enr().modify(|w| {
-                w.set_eth1macen(true);
-                w.set_eth1txen(true);
-                w.set_eth1rxen(true);
-            });
-
-            crate::pac::SYSCFG.pmcr().modify(|w| w.set_epis(0b000));
-        });
-
-        #[cfg(rcc_h5)]
-        critical_section::with(|_| {
-            crate::pac::RCC.apb3enr().modify(|w| w.set_sbsen(true));
-
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_ethen(true);
                 w.set_ethtxen(true);
                 w.set_ethrxen(true);
             });
 
-            // TODO: This is for RMII - what would MII need here?
             crate::pac::SYSCFG
                 .pmcr()
-                .modify(|w| w.set_eth_sel_phy(crate::pac::syscfg::vals::EthSelPhy::B_0X4));
+                .modify(|w| w.set_eth_sel_phy(EthSelPhy::MII_GMII));
         });
 
         into_ref!(rx_clk, tx_clk, mdio, mdc, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en);

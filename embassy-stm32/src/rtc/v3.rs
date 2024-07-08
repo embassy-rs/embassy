@@ -50,7 +50,7 @@ impl super::Rtc {
             clock_drift = Self::RTC_CALR_MAX_PPM;
         }
 
-        clock_drift = clock_drift / Self::RTC_CALR_RESOLUTION_PPM;
+        clock_drift /= Self::RTC_CALR_RESOLUTION_PPM;
 
         self.write(false, |rtc| {
             rtc.calr().write(|w| {
@@ -97,7 +97,7 @@ impl super::Rtc {
 
     pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
     where
-        F: FnOnce(&crate::pac::rtc::Rtc) -> R,
+        F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
         let r = RTC::regs();
         // Disable write protection.
@@ -112,7 +112,7 @@ impl super::Rtc {
             while !r.icsr().read().initf() {}
         }
 
-        let result = f(&r);
+        let result = f(r);
 
         if init_mode {
             r.icsr().modify(|w| w.set_init(false)); // Exits init mode
@@ -129,37 +129,33 @@ impl super::Rtc {
 impl SealedInstance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 32;
 
-    #[cfg(all(feature = "low-power", stm32g4))]
-    const EXTI_WAKEUP_LINE: usize = 20;
+    #[cfg(feature = "low-power")]
+    cfg_if::cfg_if!(
+        if #[cfg(stm32g4)] {
+            const EXTI_WAKEUP_LINE: usize = 20;
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+        } else if #[cfg(stm32g0)] {
+            const EXTI_WAKEUP_LINE: usize = 19;
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
+        } else if #[cfg(any(stm32l5, stm32h5))] {
+            const EXTI_WAKEUP_LINE: usize = 17;
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC;
+        }
+    );
 
-    #[cfg(all(feature = "low-power", stm32g0))]
-    const EXTI_WAKEUP_LINE: usize = 19;
-
-    #[cfg(all(feature = "low-power", stm32g0))]
-    type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
-
-    #[cfg(all(feature = "low-power", stm32g4))]
-    type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
-
-    #[cfg(all(feature = "low-power", stm32l5))]
-    const EXTI_WAKEUP_LINE: usize = 17;
-
-    #[cfg(all(feature = "low-power", stm32l5))]
-    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
-
-    fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
+    fn read_backup_register(_rtc: Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]
         if register < Self::BACKUP_REGISTER_COUNT {
             //Some(rtc.bkpr()[register].read().bits())
-            None // RTC3 backup registers come from the TAMP peripe=heral, not RTC. Not() even in the L412 PAC
+            None // RTC3 backup registers come from the TAMP peripheral, not RTC. Not() even in the L412 PAC
         } else {
             None
         }
     }
 
-    fn write_backup_register(_rtc: &Rtc, register: usize, _value: u32) {
+    fn write_backup_register(_rtc: Rtc, register: usize, _value: u32) {
         if register < Self::BACKUP_REGISTER_COUNT {
-            // RTC3 backup registers come from the TAMP peripe=heral, not RTC. Not() even in the L412 PAC
+            // RTC3 backup registers come from the TAMP peripheral, not RTC. Not() even in the L412 PAC
             //self.rtc.bkpr()[register].write(|w| w.bits(value))
         }
     }

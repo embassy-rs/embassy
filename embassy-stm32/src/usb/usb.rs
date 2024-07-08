@@ -107,14 +107,14 @@ const EP_COUNT: usize = 8;
 
 #[cfg(any(usbram_16x1_512, usbram_16x2_512))]
 const USBRAM_SIZE: usize = 512;
-#[cfg(usbram_16x2_1024)]
+#[cfg(any(usbram_16x2_1024, usbram_32_1024))]
 const USBRAM_SIZE: usize = 1024;
 #[cfg(usbram_32_2048)]
 const USBRAM_SIZE: usize = 2048;
 
-#[cfg(not(usbram_32_2048))]
+#[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
 const USBRAM_ALIGN: usize = 2;
-#[cfg(usbram_32_2048)]
+#[cfg(any(usbram_32_2048, usbram_32_1024))]
 const USBRAM_ALIGN: usize = 4;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
@@ -159,7 +159,7 @@ fn calc_out_len(len: u16) -> (u16, u16) {
     }
 }
 
-#[cfg(not(usbram_32_2048))]
+#[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
 mod btable {
     use super::*;
 
@@ -180,7 +180,7 @@ mod btable {
         USBRAM.mem(index * 4 + 3).read()
     }
 }
-#[cfg(usbram_32_2048)]
+#[cfg(any(usbram_32_2048, usbram_32_1024))]
 mod btable {
     use super::*;
 
@@ -224,9 +224,9 @@ impl<T: Instance> EndpointBuffer<T> {
             let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
             val[..n].copy_from_slice(&buf[i * USBRAM_ALIGN..][..n]);
 
-            #[cfg(not(usbram_32_2048))]
+            #[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
             let val = u16::from_le_bytes(val);
-            #[cfg(usbram_32_2048)]
+            #[cfg(any(usbram_32_2048, usbram_32_1024))]
             let val = u32::from_le_bytes(val);
             USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val);
         }
@@ -267,9 +267,9 @@ impl<'d, T: Instance> Driver<'d, T> {
             w.set_fres(true);
         });
 
-        #[cfg(time)]
+        #[cfg(feature = "time")]
         embassy_time::block_for(embassy_time::Duration::from_millis(100));
-        #[cfg(not(time))]
+        #[cfg(not(feature = "time"))]
         cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 10);
 
         #[cfg(not(usb_v4))]
@@ -277,8 +277,9 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         #[cfg(not(stm32l1))]
         {
-            dp.set_as_af(dp.af_num(), crate::gpio::AFType::OutputPushPull);
-            dm.set_as_af(dm.af_num(), crate::gpio::AFType::OutputPushPull);
+            use crate::gpio::{AfType, OutputType, Speed};
+            dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
         #[cfg(stm32l1)]
         let _ = (dp, dm); // suppress "unused" warnings.

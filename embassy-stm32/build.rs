@@ -1,40 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
+use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
-    MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, METADATA,
+    MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, ALL_CHIPS,
+    ALL_PERIPHERAL_VERSIONS, METADATA,
 };
 
+#[path = "./build_common.rs"]
+mod common;
+
 fn main() {
-    let target = env::var("TARGET").unwrap();
-
-    if target.starts_with("thumbv6m-") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv6m");
-    } else if target.starts_with("thumbv7m-") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv7m");
-    } else if target.starts_with("thumbv7em-") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv7m");
-        println!("cargo:rustc-cfg=armv7em"); // (not currently used)
-    } else if target.starts_with("thumbv8m.base") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv8m");
-        println!("cargo:rustc-cfg=armv8m_base");
-    } else if target.starts_with("thumbv8m.main") {
-        println!("cargo:rustc-cfg=cortex_m");
-        println!("cargo:rustc-cfg=armv8m");
-        println!("cargo:rustc-cfg=armv8m_main");
-    }
-
-    if target.ends_with("-eabihf") {
-        println!("cargo:rustc-cfg=has_fpu");
-    }
+    let mut cfgs = common::CfgSet::new();
+    common::set_target_cfgs(&mut cfgs);
 
     let chip_name = match env::vars()
         .map(|(a, _)| a)
@@ -49,10 +33,19 @@ fn main() {
     .unwrap()
     .to_ascii_lowercase();
 
+    eprintln!("chip: {chip_name}");
+
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            println!("cargo:rustc-cfg={}", r.kind);
-            println!("cargo:rustc-cfg={}_{}", r.kind, r.version);
+            cfgs.enable(r.kind);
+            cfgs.enable(format!("{}_{}", r.kind, r.version));
+        }
+    }
+
+    for &(kind, versions) in ALL_PERIPHERAL_VERSIONS.iter() {
+        cfgs.declare(kind);
+        for &version in versions.iter() {
+            cfgs.declare(format!("{}_{}", kind, version));
         }
     }
 
@@ -62,7 +55,13 @@ fn main() {
     let mut singletons: Vec<String> = Vec::new();
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            println!("cargo:rustc-cfg=peri_{}", p.name.to_ascii_lowercase());
+            if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" {
+                // TODO: should we emit this for all peripherals? if so, we will need a list of all
+                // possible peripherals across all chips, so that we can declare the configs
+                // (replacing the hard-coded list of `peri_*` cfgs below)
+                cfgs.enable(format!("peri_{}", p.name.to_ascii_lowercase()));
+            }
+
             match r.kind {
                 // Generate singletons per pin, not per port
                 "gpio" => {
@@ -82,7 +81,7 @@ fn main() {
                         if pin.signal.starts_with("MCO") {
                             let name = pin.signal.replace('_', "").to_string();
                             if !singletons.contains(&name) {
-                                println!("cargo:rustc-cfg={}", name.to_ascii_lowercase());
+                                cfgs.enable(name.to_ascii_lowercase());
                                 singletons.push(name);
                             }
                         }
@@ -100,6 +99,20 @@ fn main() {
             }
         }
     }
+
+    cfgs.declare_all(&[
+        "peri_adc1_common",
+        "peri_adc3_common",
+        "peri_adc12_common",
+        "peri_adc34_common",
+        "peri_sai1",
+        "peri_sai2",
+        "peri_sai3",
+        "peri_sai4",
+        "peri_ucpd1",
+        "peri_ucpd2",
+    ]);
+    cfgs.declare_all(&["mco", "mco1", "mco2"]);
 
     // One singleton per EXTI line
     for pin_num in 0..16 {
@@ -216,7 +229,13 @@ fn main() {
     };
 
     if !time_driver_singleton.is_empty() {
-        println!("cargo:rustc-cfg=time_driver_{}", time_driver_singleton.to_lowercase());
+        cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
+    }
+    for tim in [
+        "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15", "tim20", "tim21", "tim22", "tim23",
+        "tim24",
+    ] {
+        cfgs.declare(format!("time_driver_{}", tim));
     }
 
     // ========
@@ -272,8 +291,6 @@ fn main() {
                 "Bank1"
             } else if region.name.starts_with("BANK_2") {
                 "Bank2"
-            } else if region.name == "OTP" {
-                "Otp"
             } else {
                 continue;
             }
@@ -357,12 +374,14 @@ fn main() {
 
     // ========
     // Extract the rcc registers
+
     let rcc_registers = METADATA
         .peripherals
         .iter()
         .filter_map(|p| p.registers.as_ref())
         .find(|r| r.kind == "rcc")
         .unwrap();
+    let rcc_block = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap();
 
     // ========
     // Generate RccPeripheral impls
@@ -379,9 +398,7 @@ fn main() {
     struct ClockGen<'a> {
         rcc_registers: &'a PeripheralRegisters,
         chained_muxes: HashMap<&'a str, &'a PeripheralRccRegister>,
-        force_refcount: HashSet<&'a str>,
 
-        refcount_statics: BTreeSet<Ident>,
         clock_names: BTreeSet<String>,
         muxes: BTreeSet<(Ident, Ident, Ident)>,
     }
@@ -389,9 +406,7 @@ fn main() {
     let mut clock_gen = ClockGen {
         rcc_registers,
         chained_muxes: HashMap::new(),
-        force_refcount: HashSet::from(["usart"]),
 
-        refcount_statics: BTreeSet::new(),
         clock_names: BTreeSet::new(),
         muxes: BTreeSet::new(),
     };
@@ -404,7 +419,16 @@ fn main() {
             },
         );
     }
-    if chip_name.starts_with("stm32h7") {
+
+    if chip_name.starts_with("stm32h7r") || chip_name.starts_with("stm32h7s") {
+        clock_gen.chained_muxes.insert(
+            "PER",
+            &PeripheralRccRegister {
+                register: "AHBPERCKSELR",
+                field: "PERSEL",
+            },
+        );
+    } else if chip_name.starts_with("stm32h7") {
         clock_gen.chained_muxes.insert(
             "PER",
             &PeripheralRccRegister {
@@ -451,13 +475,21 @@ fn main() {
     }
 
     impl<'a> ClockGen<'a> {
-        fn gen_clock(&mut self, name: &str) -> TokenStream {
+        fn gen_clock(&mut self, peripheral: &str, name: &str) -> TokenStream {
             let clock_name = format_ident!("{}", name.to_ascii_lowercase());
             self.clock_names.insert(name.to_ascii_lowercase());
-            quote!( unsafe { crate::rcc::get_freqs().#clock_name.unwrap() } )
+            quote!(unsafe {
+                unwrap!(
+                    crate::rcc::get_freqs().#clock_name,
+                    "peripheral '{}' is configured to use the '{}' clock, which is not running. \
+                    Either enable it in 'config.rcc' or change 'config.rcc.mux' to use another clock",
+                    #peripheral,
+                    #name
+                )
+            })
         }
 
-        fn gen_mux(&mut self, mux: &PeripheralRccRegister) -> TokenStream {
+        fn gen_mux(&mut self, peripheral: &str, mux: &PeripheralRccRegister) -> TokenStream {
             let ir = &self.rcc_registers.ir;
             let fieldset_name = mux.register.to_ascii_lowercase();
             let fieldset = ir
@@ -482,9 +514,9 @@ fn main() {
             for v in enumm.variants.iter().filter(|v| v.name != "DISABLE") {
                 let variant_name = format_ident!("{}", v.name);
                 let expr = if let Some(mux) = self.chained_muxes.get(&v.name) {
-                    self.gen_mux(mux)
+                    self.gen_mux(peripheral, mux)
                 } else {
-                    self.gen_clock(&v.name)
+                    self.gen_clock(peripheral, v.name)
                 };
                 match_arms.extend(quote! {
                     crate::pac::rcc::vals::#enum_name::#variant_name => #expr,
@@ -501,86 +533,77 @@ fn main() {
         }
     }
 
+    let mut refcount_idxs = HashMap::new();
+
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
             continue;
         }
 
         if let Some(rcc) = &p.rcc {
-            let en = rcc.enable.as_ref().unwrap();
+            let rst_reg = rcc.reset.as_ref();
+            let en_reg = rcc.enable.as_ref().unwrap();
+            let pname = format_ident!("{}", p.name);
 
-            let (start_rst, end_rst) = match &rcc.reset {
-                Some(rst) => {
-                    let rst_reg = format_ident!("{}", rst.register.to_ascii_lowercase());
-                    let set_rst_field = format_ident!("set_{}", rst.field.to_ascii_lowercase());
-                    (
-                        quote! {
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
-                        },
-                        quote! {
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
-                        },
-                    )
-                }
-                None => (TokenStream::new(), TokenStream::new()),
+            let get_offset_and_bit = |reg: &PeripheralRccRegister| -> TokenStream {
+                let reg_offset = rcc_block
+                    .items
+                    .iter()
+                    .find(|i| i.name.eq_ignore_ascii_case(reg.register))
+                    .unwrap()
+                    .byte_offset;
+                let reg_offset: u8 = (reg_offset / 4).try_into().unwrap();
+
+                let bit_offset = &rcc_registers
+                    .ir
+                    .fieldsets
+                    .iter()
+                    .find(|i| i.name.eq_ignore_ascii_case(reg.register))
+                    .unwrap()
+                    .fields
+                    .iter()
+                    .find(|i| i.name.eq_ignore_ascii_case(reg.field))
+                    .unwrap()
+                    .bit_offset;
+                let BitOffset::Regular(bit_offset) = bit_offset else {
+                    panic!("cursed bit offset")
+                };
+                let bit_offset: u8 = bit_offset.offset.try_into().unwrap();
+
+                quote! { (#reg_offset, #bit_offset) }
             };
 
-            let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
-            let pname = format_ident!("{}", p.name);
-            let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
-            let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+            let reset_offset_and_bit = match rst_reg {
+                Some(rst_reg) => {
+                    let reset_offset_and_bit = get_offset_and_bit(rst_reg);
+                    quote! { Some(#reset_offset_and_bit) }
+                }
+                None => quote! { None },
+            };
+            let enable_offset_and_bit = get_offset_and_bit(en_reg);
 
-            let refcount =
-                clock_gen.force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
-            let (before_enable, before_disable) = if refcount {
-                let refcount_static =
-                    format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
-
-                clock_gen.refcount_statics.insert(refcount_static.clone());
-
-                (
-                    quote! {
-                        unsafe { refcount_statics::#refcount_static += 1 };
-                        if unsafe { refcount_statics::#refcount_static } > 1 {
-                            return;
-                        }
-                    },
-                    quote! {
-                        unsafe { refcount_statics::#refcount_static -= 1 };
-                        if unsafe { refcount_statics::#refcount_static } > 0  {
-                            return;
-                        }
-                    },
-                )
+            let needs_refcount = *rcc_field_count.get(&(en_reg.register, en_reg.field)).unwrap() > 1;
+            let refcount_idx = if needs_refcount {
+                let next_refcount_idx = refcount_idxs.len() as u8;
+                let refcount_idx = *refcount_idxs
+                    .entry((en_reg.register, en_reg.field))
+                    .or_insert(next_refcount_idx);
+                quote! { Some(#refcount_idx) }
             } else {
-                (TokenStream::new(), TokenStream::new())
+                quote! { None }
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(mux),
-                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(clock),
+                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
+                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
             };
 
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
-            let stop_refcount = match rcc.stop_mode {
-                StopMode::Standby => None,
-                StopMode::Stop2 => Some(quote! { REFCOUNT_STOP2 }),
-                StopMode::Stop1 => Some(quote! { REFCOUNT_STOP1 }),
-            };
-
-            let (incr_stop_refcount, decr_stop_refcount) = match stop_refcount {
-                Some(stop_refcount) => (
-                    quote! {
-                        #[cfg(feature = "low-power")]
-                        unsafe { crate::rcc::#stop_refcount += 1 };
-                    },
-                    quote! {
-                        #[cfg(feature = "low-power")]
-                        unsafe { crate::rcc::#stop_refcount -= 1 };
-                    },
-                ),
-                None => (TokenStream::new(), TokenStream::new()),
+            let stop_mode = match rcc.stop_mode {
+                StopMode::Standby => quote! { crate::rcc::StopMode::Standby },
+                StopMode::Stop2 => quote! { crate::rcc::StopMode::Stop2 },
+                StopMode::Stop1 => quote! { crate::rcc::StopMode::Stop1 },
             };
 
             g.extend(quote! {
@@ -588,37 +611,30 @@ fn main() {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
                     }
-                    fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
-                        #before_enable
-                        #incr_stop_refcount
 
-                        #start_rst
-
-                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-
-                        // we must wait two peripheral clock cycles before the clock is active
-                        // this seems to work, but might be incorrect
-                        // see http://efton.sk/STM32/gotcha/g183.html
-
-                        // dummy read (like in the ST HALs)
-                        let _ = crate::pac::RCC.#en_reg().read();
-
-                        // DSB for good measure
-                        cortex_m::asm::dsb();
-
-                        #end_rst
-                    }
-                    fn disable_with_cs(_cs: critical_section::CriticalSection) {
-                        #before_disable
-                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
-                        #decr_stop_refcount
-                    }
+                    const RCC_INFO: crate::rcc::RccInfo = unsafe {
+                        crate::rcc::RccInfo::new(
+                            #reset_offset_and_bit,
+                            #enable_offset_and_bit,
+                            #refcount_idx,
+                            #[cfg(feature = "low-power")]
+                            #stop_mode,
+                        )
+                    };
                 }
 
                 impl crate::rcc::RccPeripheral for peripherals::#pname {}
             });
         }
     }
+
+    g.extend({
+        let refcounts_len = refcount_idxs.len();
+        let refcount_zeros: TokenStream = refcount_idxs.iter().map(|_| quote! { 0u8, }).collect();
+        quote! {
+            pub(crate) static mut REFCOUNTS: [u8; #refcounts_len] = [#refcount_zeros];
+        }
+    });
 
     let struct_fields: Vec<_> = clock_gen
         .muxes
@@ -664,6 +680,7 @@ fn main() {
             #(pub use crate::pac::rcc::vals::#enum_names as #enum_names; )*
 
             #[derive(Clone, Copy)]
+            #[non_exhaustive]
             pub struct ClockMux {
                 #( #struct_fields, )*
             }
@@ -722,22 +739,6 @@ fn main() {
         }
     );
 
-    let refcount_mod: TokenStream = clock_gen
-        .refcount_statics
-        .iter()
-        .map(|refcount_static| {
-            quote! {
-                pub(crate) static mut #refcount_static: u8 = 0;
-            }
-        })
-        .collect();
-
-    g.extend(quote! {
-        mod refcount_statics {
-            #refcount_mod
-        }
-    });
-
     // ========
     // Generate fns to enable GPIO, DMA in RCC
 
@@ -771,7 +772,7 @@ fn main() {
 
     #[rustfmt::skip]
     let signals: HashMap<_, _> = [
-                // (kind, signal) => trait
+        // (kind, signal) => trait
         (("ucpd", "CC1"), quote!(crate::ucpd::Cc1Pin)),
         (("ucpd", "CC2"), quote!(crate::ucpd::Cc2Pin)),
         (("usart", "TX"), quote!(crate::usart::TxPin)),
@@ -824,6 +825,35 @@ fn main() {
         (("dcmi", "HSYNC"), quote!(crate::dcmi::HSyncPin)),
         (("dcmi", "VSYNC"), quote!(crate::dcmi::VSyncPin)),
         (("dcmi", "PIXCLK"), quote!(crate::dcmi::PixClkPin)),
+        (("dsihost", "TE"), quote!(crate::dsihost::TePin)),
+        (("ltdc", "CLK"), quote!(crate::ltdc::ClkPin)),
+        (("ltdc", "HSYNC"), quote!(crate::ltdc::HsyncPin)),
+        (("ltdc", "VSYNC"), quote!(crate::ltdc::VsyncPin)),
+        (("ltdc", "DE"), quote!(crate::ltdc::DePin)),
+        (("ltdc", "R0"), quote!(crate::ltdc::R0Pin)),
+        (("ltdc", "R1"), quote!(crate::ltdc::R1Pin)),
+        (("ltdc", "R2"), quote!(crate::ltdc::R2Pin)),
+        (("ltdc", "R3"), quote!(crate::ltdc::R3Pin)),
+        (("ltdc", "R4"), quote!(crate::ltdc::R4Pin)),
+        (("ltdc", "R5"), quote!(crate::ltdc::R5Pin)),
+        (("ltdc", "R6"), quote!(crate::ltdc::R6Pin)),
+        (("ltdc", "R7"), quote!(crate::ltdc::R7Pin)),
+        (("ltdc", "G0"), quote!(crate::ltdc::G0Pin)),
+        (("ltdc", "G1"), quote!(crate::ltdc::G1Pin)),
+        (("ltdc", "G2"), quote!(crate::ltdc::G2Pin)),
+        (("ltdc", "G3"), quote!(crate::ltdc::G3Pin)),
+        (("ltdc", "G4"), quote!(crate::ltdc::G4Pin)),
+        (("ltdc", "G5"), quote!(crate::ltdc::G5Pin)),
+        (("ltdc", "G6"), quote!(crate::ltdc::G6Pin)),
+        (("ltdc", "G7"), quote!(crate::ltdc::G7Pin)),
+        (("ltdc", "B0"), quote!(crate::ltdc::B0Pin)),
+        (("ltdc", "B1"), quote!(crate::ltdc::B1Pin)),
+        (("ltdc", "B2"), quote!(crate::ltdc::B2Pin)),
+        (("ltdc", "B3"), quote!(crate::ltdc::B3Pin)),
+        (("ltdc", "B4"), quote!(crate::ltdc::B4Pin)),
+        (("ltdc", "B5"), quote!(crate::ltdc::B5Pin)),
+        (("ltdc", "B6"), quote!(crate::ltdc::B6Pin)),
+        (("ltdc", "B7"), quote!(crate::ltdc::B7Pin)),
         (("usb", "DP"), quote!(crate::usb::DpPin)),
         (("usb", "DM"), quote!(crate::usb::DmPin)),
         (("otg", "DP"), quote!(crate::usb::DpPin)),
@@ -1006,7 +1036,51 @@ fn main() {
         (("quadspi", "BK2_IO3"), quote!(crate::qspi::BK2D3Pin)),
         (("quadspi", "BK2_NCS"), quote!(crate::qspi::BK2NSSPin)),
         (("quadspi", "CLK"), quote!(crate::qspi::SckPin)),
-             ].into();
+        (("octospi", "IO0"), quote!(crate::ospi::D0Pin)),
+        (("octospi", "IO1"), quote!(crate::ospi::D1Pin)),
+        (("octospi", "IO2"), quote!(crate::ospi::D2Pin)),
+        (("octospi", "IO3"), quote!(crate::ospi::D3Pin)),
+        (("octospi", "IO4"), quote!(crate::ospi::D4Pin)),
+        (("octospi", "IO5"), quote!(crate::ospi::D5Pin)),
+        (("octospi", "IO6"), quote!(crate::ospi::D6Pin)),
+        (("octospi", "IO7"), quote!(crate::ospi::D7Pin)),
+        (("octospi", "DQS"), quote!(crate::ospi::DQSPin)),
+        (("octospi", "NCS"), quote!(crate::ospi::NSSPin)),
+        (("octospi", "CLK"), quote!(crate::ospi::SckPin)),
+        (("octospi", "NCLK"), quote!(crate::ospi::NckPin)),
+        (("tsc", "G1_IO1"), quote!(crate::tsc::G1IO1Pin)),
+        (("tsc", "G1_IO2"), quote!(crate::tsc::G1IO2Pin)),
+        (("tsc", "G1_IO3"), quote!(crate::tsc::G1IO3Pin)),
+        (("tsc", "G1_IO4"), quote!(crate::tsc::G1IO4Pin)),
+        (("tsc", "G2_IO1"), quote!(crate::tsc::G2IO1Pin)),
+        (("tsc", "G2_IO2"), quote!(crate::tsc::G2IO2Pin)),
+        (("tsc", "G2_IO3"), quote!(crate::tsc::G2IO3Pin)),
+        (("tsc", "G2_IO4"), quote!(crate::tsc::G2IO4Pin)),
+        (("tsc", "G3_IO1"), quote!(crate::tsc::G3IO1Pin)),
+        (("tsc", "G3_IO2"), quote!(crate::tsc::G3IO2Pin)),
+        (("tsc", "G3_IO3"), quote!(crate::tsc::G3IO3Pin)),
+        (("tsc", "G3_IO4"), quote!(crate::tsc::G3IO4Pin)),
+        (("tsc", "G4_IO1"), quote!(crate::tsc::G4IO1Pin)),
+        (("tsc", "G4_IO2"), quote!(crate::tsc::G4IO2Pin)),
+        (("tsc", "G4_IO3"), quote!(crate::tsc::G4IO3Pin)),
+        (("tsc", "G4_IO4"), quote!(crate::tsc::G4IO4Pin)),
+        (("tsc", "G5_IO1"), quote!(crate::tsc::G5IO1Pin)),
+        (("tsc", "G5_IO2"), quote!(crate::tsc::G5IO2Pin)),
+        (("tsc", "G5_IO3"), quote!(crate::tsc::G5IO3Pin)),
+        (("tsc", "G5_IO4"), quote!(crate::tsc::G5IO4Pin)),
+        (("tsc", "G6_IO1"), quote!(crate::tsc::G6IO1Pin)),
+        (("tsc", "G6_IO2"), quote!(crate::tsc::G6IO2Pin)),
+        (("tsc", "G6_IO3"), quote!(crate::tsc::G6IO3Pin)),
+        (("tsc", "G6_IO4"), quote!(crate::tsc::G6IO4Pin)),
+        (("tsc", "G7_IO1"), quote!(crate::tsc::G7IO1Pin)),
+        (("tsc", "G7_IO2"), quote!(crate::tsc::G7IO2Pin)),
+        (("tsc", "G7_IO3"), quote!(crate::tsc::G7IO3Pin)),
+        (("tsc", "G7_IO4"), quote!(crate::tsc::G7IO4Pin)),
+        (("tsc", "G8_IO1"), quote!(crate::tsc::G8IO1Pin)),
+        (("tsc", "G8_IO2"), quote!(crate::tsc::G8IO2Pin)),
+        (("tsc", "G8_IO3"), quote!(crate::tsc::G8IO3Pin)),
+        (("tsc", "G8_IO4"), quote!(crate::tsc::G8IO4Pin)),
+    ].into();
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
@@ -1112,6 +1186,11 @@ fn main() {
 
     let signals: HashMap<_, _> = [
         // (kind, signal) => trait
+        (("adc", "ADC"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC1"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC2"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC3"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC4"), quote!(crate::adc::RxDma)),
         (("ucpd", "RX"), quote!(crate::ucpd::RxDma)),
         (("ucpd", "TX"), quote!(crate::ucpd::TxDma)),
         (("usart", "RX"), quote!(crate::usart::RxDma)),
@@ -1129,6 +1208,7 @@ fn main() {
         // SDMMCv1 uses the same channel for both directions, so just implement for RX
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
+        (("octospi", "OCTOSPI1"), quote!(crate::ospi::OctoDma)),
         (("dac", "CH1"), quote!(crate::dac::DacDma1)),
         (("dac", "CH2"), quote!(crate::dac::DacDma2)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
@@ -1139,49 +1219,66 @@ fn main() {
         (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
         (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
         (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
+        (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
+        (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
     ]
     .into();
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
+            // FIXME: stm32u5a crash on Cordic driver
+            if chip_name.starts_with("stm32u5a") && regs.kind == "cordic" {
+                continue;
+            }
+
             let mut dupe = HashSet::new();
             for ch in p.dma_channels {
-                // Some chips have multiple request numbers for the same (peri, signal, channel) combos.
-                // Ignore the dupes, picking the first one. Otherwise this causes conflicting trait impls
-                let key = (ch.signal, ch.channel);
-                if !dupe.insert(key) {
-                    continue;
-                }
-
                 if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
                     let peri = format_ident!("{}", p.name);
 
-                    let channel = if let Some(channel) = &ch.channel {
+                    let channels = if let Some(channel) = &ch.channel {
                         // Chip with DMA/BDMA, without DMAMUX
-                        let channel = format_ident!("{}", channel);
-                        quote!({channel: #channel})
+                        vec![*channel]
                     } else if let Some(dmamux) = &ch.dmamux {
                         // Chip with DMAMUX
-                        let dmamux = format_ident!("{}", dmamux);
-                        quote!({dmamux: #dmamux})
+                        METADATA
+                            .dma_channels
+                            .iter()
+                            .filter(|ch| ch.dmamux == Some(*dmamux))
+                            .map(|ch| ch.name)
+                            .collect()
                     } else if let Some(dma) = &ch.dma {
                         // Chip with GPDMA
-                        let dma = format_ident!("{}", dma);
-                        quote!({dma: #dma})
+                        METADATA
+                            .dma_channels
+                            .iter()
+                            .filter(|ch| ch.dma == *dma)
+                            .map(|ch| ch.name)
+                            .collect()
                     } else {
                         unreachable!();
                     };
 
-                    let request = if let Some(request) = ch.request {
-                        let request = request as u8;
-                        quote!(#request)
-                    } else {
-                        quote!(())
-                    };
+                    for channel in channels {
+                        // Some chips have multiple request numbers for the same (peri, signal, channel) combos.
+                        // Ignore the dupes, picking the first one. Otherwise this causes conflicting trait impls
+                        let key = (ch.signal, channel.to_string());
+                        if !dupe.insert(key) {
+                            continue;
+                        }
 
-                    g.extend(quote! {
-                        dma_trait_impl!(#tr, #peri, #channel, #request);
-                    });
+                        let request = if let Some(request) = ch.request {
+                            let request = request as u8;
+                            quote!(#request)
+                        } else {
+                            quote!(())
+                        };
+
+                        let channel = format_ident!("{}", channel);
+                        g.extend(quote! {
+                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                        });
+                    }
                 }
             }
         }
@@ -1302,17 +1399,7 @@ fn main() {
     let mut interrupts_table: Vec<Vec<String>> = Vec::new();
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut pins_table: Vec<Vec<String>> = Vec::new();
-    let mut adc_common_table: Vec<Vec<String>> = Vec::new();
-
-    /*
-        If ADC3_COMMON exists, ADC3 and higher are assigned to it
-        All other ADCs are assigned to ADC_COMMON
-
-        ADC3 and higher are assigned to the adc34 clock in the table
-        The adc3_common cfg directive is added if ADC3_COMMON exists
-    */
-    let has_adc3 = METADATA.peripherals.iter().any(|p| p.name == "ADC3_COMMON");
-    let set_adc345 = HashSet::from(["ADC3", "ADC4", "ADC5"]);
+    let mut adc_table: Vec<Vec<String>> = Vec::new();
 
     for m in METADATA
         .memory
@@ -1369,14 +1456,18 @@ fn main() {
             }
 
             if regs.kind == "adc" {
-                let (adc_common, adc_clock) = if set_adc345.contains(p.name) && has_adc3 {
-                    ("ADC3_COMMON", "adc34")
-                } else {
-                    ("ADC_COMMON", "adc")
-                };
-
-                let row = vec![p.name.to_string(), adc_common.to_string(), adc_clock.to_string()];
-                adc_common_table.push(row);
+                let adc_num = p.name.strip_prefix("ADC").unwrap();
+                let mut adc_common = None;
+                for p2 in METADATA.peripherals {
+                    if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON")) {
+                        if common_nums.contains(adc_num) {
+                            adc_common = Some(p2);
+                        }
+                    }
+                }
+                let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
+                let row = vec![p.name.to_string(), adc_common.to_string(), "adc".to_string()];
+                adc_table.push(row);
             }
 
             for irq in p.interrupts {
@@ -1422,6 +1513,7 @@ fn main() {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
             "gpdma" => quote!(crate::pac::#dma),
+            "lpdma" => quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())}),
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 
@@ -1429,9 +1521,6 @@ fn main() {
             Some(dmamux) => {
                 let dmamux = format_ident!("{}", dmamux);
                 let num = ch.dmamux_channel.unwrap() as usize;
-
-                g.extend(quote!(dmamux_channel_impl!(#name, #dmamux);));
-
                 quote! {
                     dmamux: crate::dma::DmamuxInfo {
                         mux: crate::pac::#dmamux,
@@ -1516,70 +1605,80 @@ fn main() {
     make_table(&mut m, "foreach_interrupt", &interrupts_table);
     make_table(&mut m, "foreach_peripheral", &peripherals_table);
     make_table(&mut m, "foreach_pin", &pins_table);
-    make_table(&mut m, "foreach_adc", &adc_common_table);
+    make_table(&mut m, "foreach_adc", &adc_table);
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_macros.rs").to_string_lossy().to_string();
-    fs::write(out_file, m).unwrap();
+    fs::write(&out_file, m).unwrap();
+    rustfmt(&out_file);
 
     // ========
     // Write generated.rs
 
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
-    fs::write(out_file, g.to_string()).unwrap();
+    fs::write(&out_file, g.to_string()).unwrap();
+    rustfmt(&out_file);
 
     // ========
-    // Multicore
+    // Configs for multicore and for targeting groups of chips
 
-    let mut s = chip_name.split('_');
-    let mut chip_name: String = s.next().unwrap().to_string();
-    let core_name = if let Some(c) = s.next() {
-        if !c.starts_with("CM") {
-            chip_name.push('_');
-            chip_name.push_str(c);
+    fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
+        let mut cfgs = Vec::new();
+
+        // Multicore
+
+        let mut s = chip_name.split('_');
+        let mut chip_name: String = s.next().unwrap().to_string();
+        let core_name = if let Some(c) = s.next() {
+            if !c.starts_with("CM") {
+                chip_name.push('_');
+                chip_name.push_str(c);
+                None
+            } else {
+                Some(c)
+            }
+        } else {
             None
-        } else {
-            Some(c)
+        };
+
+        if let Some(core) = core_name {
+            cfgs.push(format!("{}_{}", &chip_name[..chip_name.len() - 2], core));
         }
-    } else {
-        None
-    };
 
-    if let Some(core) = core_name {
-        println!("cargo:rustc-cfg={}_{}", &chip_name[..chip_name.len() - 2], core);
-    }
-
-    // =======
-    // ADC3_COMMON is present
-    #[allow(clippy::print_literal)]
-    if has_adc3 {
-        println!("cargo:rustc-cfg={}", "adc3_common");
-    }
-
-    // =======
-    // Features for targeting groups of chips
-
-    if &chip_name[..8] == "stm32wba" {
-        println!("cargo:rustc-cfg={}", &chip_name[..8]); // stm32wba
-        println!("cargo:rustc-cfg={}", &chip_name[..10]); // stm32wba52
-        println!("cargo:rustc-cfg=package_{}", &chip_name[10..11]);
-        println!("cargo:rustc-cfg=flashsize_{}", &chip_name[11..12]);
-    } else {
-        println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
-        println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
-        println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
-        println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
-        println!("cargo:rustc-cfg=package_{}", &chip_name[9..10]);
-        println!("cargo:rustc-cfg=flashsize_{}", &chip_name[10..11]);
-    }
-
-    // Mark the L4+ chips as they have many differences to regular L4.
-    if &chip_name[..7] == "stm32l4" {
-        if "pqrs".contains(&chip_name[7..8]) {
-            println!("cargo:rustc-cfg=stm32l4_plus");
+        // Configs for targeting groups of chips
+        if &chip_name[..8] == "stm32wba" {
+            cfgs.push(chip_name[..8].to_owned()); // stm32wba
+            cfgs.push(chip_name[..10].to_owned()); // stm32wba52
+            cfgs.push(format!("package_{}", &chip_name[10..11]));
+            cfgs.push(format!("flashsize_{}", &chip_name[11..12]));
         } else {
-            println!("cargo:rustc-cfg=stm32l4_nonplus");
+            if &chip_name[..8] == "stm32h7r" || &chip_name[..8] == "stm32h7s" {
+                cfgs.push("stm32h7rs".to_owned());
+            } else {
+                cfgs.push(chip_name[..7].to_owned()); // stm32f4
+            }
+            cfgs.push(chip_name[..9].to_owned()); // stm32f429
+            cfgs.push(format!("{}x", &chip_name[..8])); // stm32f42x
+            cfgs.push(format!("{}x{}", &chip_name[..7], &chip_name[8..9])); // stm32f4x9
+            cfgs.push(format!("package_{}", &chip_name[9..10]));
+            cfgs.push(format!("flashsize_{}", &chip_name[10..11]));
         }
+
+        // Mark the L4+ chips as they have many differences to regular L4.
+        if &chip_name[..7] == "stm32l4" {
+            if "pqrs".contains(&chip_name[7..8]) {
+                cfgs.push("stm32l4_plus".to_owned());
+            } else {
+                cfgs.push("stm32l4_nonplus".to_owned());
+            }
+        }
+
+        cfgs
+    }
+
+    cfgs.enable_all(&get_chip_cfgs(&chip_name));
+    for &chip_name in ALL_CHIPS.iter() {
+        cfgs.declare_all(&get_chip_cfgs(&chip_name.to_ascii_lowercase()));
     }
 
     println!("cargo:rerun-if-changed=build.rs");
@@ -1647,4 +1746,24 @@ fn get_flash_region_type_name(name: &str) -> String {
         .replace("BANK", "Bank")
         .replace("REGION", "Region")
         .replace('_', "")
+}
+
+/// rustfmt a given path.
+/// Failures are logged to stderr and ignored.
+fn rustfmt(path: impl AsRef<Path>) {
+    let path = path.as_ref();
+    match Command::new("rustfmt").args([path]).output() {
+        Err(e) => {
+            eprintln!("failed to exec rustfmt {:?}: {:?}", path, e);
+        }
+        Ok(out) => {
+            if !out.status.success() {
+                eprintln!("rustfmt {:?} failed:", path);
+                eprintln!("=== STDOUT:");
+                std::io::stderr().write_all(&out.stdout).unwrap();
+                eprintln!("=== STDERR:");
+                std::io::stderr().write_all(&out.stderr).unwrap();
+            }
+        }
+    }
 }

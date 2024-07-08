@@ -6,8 +6,7 @@ use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use pac::clocks::vals::*;
 
-use crate::gpio::sealed::Pin;
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::common::{Reg, RW};
 use crate::{pac, reset, Peripheral};
 
@@ -715,10 +714,6 @@ pub fn clk_rtc_freq() -> u16 {
 }
 
 fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
-    pac::XOSC
-        .ctrl()
-        .write(|w| w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ));
-
     let startup_delay = (((crystal_hz / 1000) * delay_multiplier) + 128) / 256;
     pac::XOSC.startup().write(|w| w.set_delay(startup_delay as u16));
     pac::XOSC.ctrl().write(|w| {
@@ -788,14 +783,14 @@ impl_gpinpin!(PIN_20, 20, 0);
 impl_gpinpin!(PIN_22, 22, 1);
 
 /// General purpose clock input driver.
-pub struct Gpin<'d, T: Pin> {
+pub struct Gpin<'d, T: GpinPin> {
     gpin: PeripheralRef<'d, AnyPin>,
     _phantom: PhantomData<T>,
 }
 
-impl<'d, T: Pin> Gpin<'d, T> {
+impl<'d, T: GpinPin> Gpin<'d, T> {
     /// Create new gpin driver.
-    pub fn new<P: GpinPin>(gpin: impl Peripheral<P = P> + 'd) -> Gpin<'d, P> {
+    pub fn new(gpin: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(gpin);
 
         gpin.gpio().ctrl().write(|w| w.set_funcsel(0x08));
@@ -811,7 +806,7 @@ impl<'d, T: Pin> Gpin<'d, T> {
     // }
 }
 
-impl<'d, T: Pin> Drop for Gpin<'d, T> {
+impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
     fn drop(&mut self) {
         self.gpin
             .gpio()
@@ -1028,7 +1023,7 @@ pub fn dormant_sleep() {
     let _stop_adc = set(pac::CLOCKS.clk_adc_ctrl(), |w| w.set_enable(false));
     let _stop_usb = set(pac::CLOCKS.clk_usb_ctrl(), |w| w.set_enable(false));
     let _stop_peri = set(pac::CLOCKS.clk_peri_ctrl(), |w| w.set_enable(false));
-    // set up rosc. we could ask the use to tell us which clock source to wake from like
+    // set up rosc. we could ask the user to tell us which clock source to wake from like
     // the C SDK does, but that seems rather unfriendly. we *may* disturb rtc by changing
     // rosc configuration if it's currently the rtc clock source, so we'll configure rosc
     // to the slowest frequency to minimize that impact.

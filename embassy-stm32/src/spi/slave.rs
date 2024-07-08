@@ -10,14 +10,14 @@ use embedded_hal_nb::nb;
 #[cfg(not(gpdma))]
 use super::{check_error_flags, set_rxdmaen, set_txdmaen, RxDma, TxDma};
 use super::{
-    rx_ready, tx_ready, word_impl, BitOrder, CsPin, Error, Instance, MisoPin, MosiPin, RegsExt, SckPin, SealedWord,
-    Word,
+    rx_ready, tx_ready, word_impl, BitOrder, CsPin, Error, Info, Instance, MisoPin, MosiPin, RegsExt, SckPin,
+    SealedWord, Word,
 };
 #[cfg(not(gpdma))]
 use crate::dma::{Priority, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
-use crate::gpio::{AFType, AnyPin, SealedPin as _};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::pac::spi::{vals, Spi as Regs};
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// SPI slave configuration.
 #[non_exhaustive]
@@ -69,6 +69,7 @@ impl Config {
 /// For SPI buses with high-frequency clocks you must use the asynchronous driver, as the chip is
 /// not fast enough to drive the SPI in software.
 pub struct SpiSlave<'d, T: Instance> {
+    pub(crate) info: &'static Info,
     _peri: PeripheralRef<'d, T>,
     sck: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
@@ -99,14 +100,10 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
     {
         into_ref!(peri, sck, mosi, miso, cs);
 
-        sck.set_as_af(sck.af_num(), AFType::Input);
-        sck.set_speed(crate::gpio::Speed::VeryHigh);
-        mosi.set_as_af(mosi.af_num(), AFType::Input);
-        mosi.set_speed(crate::gpio::Speed::VeryHigh);
-        miso.set_as_af(miso.af_num(), AFType::OutputPushPull);
-        miso.set_speed(crate::gpio::Speed::VeryHigh);
-        cs.set_as_af(cs.af_num(), AFType::Input);
-        cs.set_speed(crate::gpio::Speed::VeryHigh);
+        sck.set_as_af(sck.af_num(), AfType::input(Pull::None));
+        mosi.set_as_af(mosi.af_num(), AfType::input(Pull::None));
+        miso.set_as_af(miso.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        cs.set_as_af(cs.af_num(), AfType::input(Pull::None));
 
         Self::new_inner(
             peri,
@@ -133,11 +130,14 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
 
         let lsbfirst = config.raw_byte_order();
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
+
+        let info = T::info();
+        let regs = info.regs;
 
         #[cfg(any(spi_v1, spi_f1))]
         {
-            T::REGS.cr1().modify(|w| {
+            regs.cr1().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
@@ -155,12 +155,12 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
         }
         #[cfg(spi_v2)]
         {
-            T::REGS.cr2().modify(|w| {
+            regs.cr2().modify(|w| {
                 let (ds, frxth) = <u8 as SealedWord>::CONFIG;
                 w.set_frxth(frxth);
                 w.set_ds(ds);
             });
-            T::REGS.cr1().modify(|w| {
+            regs.cr1().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
@@ -174,8 +174,8 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
         }
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         {
-            T::REGS.ifcr().write(|w| w.0 = 0xffff_ffff);
-            T::REGS.cfg2().modify(|w| {
+            regs.ifcr().write(|w| w.0 = 0xffff_ffff);
+            regs.cfg2().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
@@ -190,20 +190,21 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
                 w.set_afcntr(true);
                 w.set_ssiop(vals::Ssiop::ACTIVEHIGH);
             });
-            T::REGS.cfg1().modify(|w| {
+            regs.cfg1().modify(|w| {
                 w.set_crcen(false);
                 w.set_dsize(<u8 as SealedWord>::CONFIG);
                 w.set_fthlv(vals::Fthlv::ONEFRAME);
             });
-            T::REGS.cr2().modify(|w| {
+            regs.cr2().modify(|w| {
                 w.set_tsize(0);
             });
-            T::REGS.cr1().modify(|w| {
+            regs.cr1().modify(|w| {
                 w.set_ssi(false);
             });
         }
 
         Self {
+            info,
             _peri: peri,
             sck,
             mosi,
@@ -220,40 +221,40 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
 
         #[cfg(any(spi_v1, spi_f1))]
         {
-            T::REGS.cr1().modify(|reg| {
+            self.info.regs.cr1().modify(|reg| {
                 reg.set_spe(false);
                 reg.set_dff(word_size)
             });
-            T::REGS.cr1().modify(|reg| {
+            self.info.regs.cr1().modify(|reg| {
                 reg.set_spe(true);
             });
         }
         #[cfg(spi_v2)]
         {
-            T::REGS.cr1().modify(|w| {
+            self.info.regs.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            T::REGS.cr2().modify(|w| {
+            self.info.regs.cr2().modify(|w| {
                 w.set_frxth(word_size.1);
                 w.set_ds(word_size.0);
             });
-            T::REGS.cr1().modify(|w| {
+            self.info.regs.cr1().modify(|w| {
                 w.set_spe(true);
             });
         }
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         {
-            T::REGS.cr1().modify(|w| {
+            self.info.regs.cr1().modify(|w| {
                 w.set_csusp(true);
             });
-            while T::REGS.sr().read().eot() {}
-            T::REGS.cr1().modify(|w| {
+            while self.info.regs.sr().read().eot() {}
+            self.info.regs.cr1().modify(|w| {
                 w.set_spe(false);
             });
-            T::REGS.cfg1().modify(|w| {
+            self.info.regs.cfg1().modify(|w| {
                 w.set_dsize(word_size);
             });
-            T::REGS.cr1().modify(|w| {
+            self.info.regs.cr1().modify(|w| {
                 w.set_csusp(false);
                 w.set_spe(true);
             });
@@ -279,28 +280,28 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
         into_ref!(txdma, rxdma);
 
         self.set_word_size(W::CONFIG);
-        T::REGS.cr1().modify(|w| w.set_spe(false));
+        self.info.regs.cr1().modify(|w| w.set_spe(false));
 
         // The reference manual says to set RXDMAEN, configure streams, set TXDMAEN, enable SPE, in
         // that order.
-        set_rxdmaen(T::REGS, true);
+        set_rxdmaen(self.info.regs, true);
 
         let mut opts = TransferOptions::default();
         opts.half_transfer_ir = true;
         opts.priority = Priority::High;
         let rx_request = rxdma.request();
-        let rx_src = T::REGS.rx_ptr();
+        let rx_src = self.info.regs.rx_ptr();
         let mut rx_ring_buffer = unsafe { ReadableRingBuffer::new(rxdma, rx_request, rx_src, rxdma_buffer, opts) };
 
         let mut opts = TransferOptions::default();
         opts.priority = Priority::VeryHigh;
         let tx_request = txdma.request();
-        let tx_src = T::REGS.tx_ptr();
+        let tx_src = self.info.regs.tx_ptr();
         let mut tx_ring_buffer = unsafe { WritableRingBuffer::new(txdma, tx_request, tx_src, txdma_buffer, opts) };
 
-        set_txdmaen(T::REGS, true);
+        set_txdmaen(self.info.regs, true);
 
-        T::REGS.cr1().modify(|w| w.set_spe(true));
+        self.info.regs.cr1().modify(|w| w.set_spe(true));
 
         rx_ring_buffer.start();
         tx_ring_buffer.start();
@@ -314,29 +315,29 @@ impl<'d, T: Instance> SpiSlave<'d, T> {
 
     /// Write a word to the SPI.
     pub fn write<W: Word>(&mut self, word: W) -> nb::Result<(), Error> {
-        T::REGS.cr1().modify(|w| w.set_spe(true));
+        self.info.regs.cr1().modify(|w| w.set_spe(true));
         self.set_word_size(W::CONFIG);
 
-        let _ = transfer_word(T::REGS, word)?;
+        let _ = transfer_word(self.info.regs, word)?;
 
         Ok(())
     }
 
     /// Read a word from the SPI.
     pub fn read<W: Word>(&mut self) -> nb::Result<W, Error> {
-        T::REGS.cr1().modify(|w| w.set_spe(true));
+        self.info.regs.cr1().modify(|w| w.set_spe(true));
         self.set_word_size(W::CONFIG);
 
-        transfer_word(T::REGS, W::default())
+        transfer_word(self.info.regs, W::default())
     }
 
     /// Bidirectionally transfer by writing a word to SPI while simultaneously reading a word from
     /// the SPI during the same clock cycle.
     pub fn transfer<W: Word>(&mut self, word: W) -> nb::Result<W, Error> {
-        T::REGS.cr1().modify(|w| w.set_spe(true));
+        self.info.regs.cr1().modify(|w| w.set_spe(true));
         self.set_word_size(W::CONFIG);
 
-        transfer_word(T::REGS, word)
+        transfer_word(self.info.regs, word)
     }
 }
 
@@ -386,8 +387,8 @@ where
     pub async fn read_exact(&mut self, buf: &mut [W]) -> Result<(), Error> {
         self.rx_ring_buffer.read_exact(buf).await.map_err(|_| Error::Overrun)?;
 
-        let sr = T::REGS.sr().read();
-        check_error_flags(sr)?;
+        let sr = self._inner.info.regs.sr().read();
+        check_error_flags(sr, true)?;
 
         Ok(())
     }
@@ -398,8 +399,8 @@ where
     pub async fn write_exact(&mut self, buf: &[W]) -> Result<(), Error> {
         self.tx_ring_buffer.write_exact(buf).await.map_err(|_| Error::Overrun)?;
 
-        let sr = T::REGS.sr().read();
-        check_error_flags(sr)?;
+        let sr = self._inner.info.regs.sr().read();
+        check_error_flags(sr, true)?;
 
         Ok(())
     }
@@ -417,8 +418,8 @@ where
         result.0.map_err(|_| Error::Overrun)?;
         result.1.map_err(|_| Error::Overrun)?;
 
-        let sr = T::REGS.sr().read();
-        check_error_flags(sr)?;
+        let sr = self._inner.info.regs.sr().read();
+        check_error_flags(sr, true)?;
 
         Ok(())
     }
@@ -431,7 +432,7 @@ impl<'d, T: Instance> Drop for SpiSlave<'d, T> {
         self.miso.as_ref().map(|x| x.set_as_disconnected());
         self.cs.as_ref().map(|x| x.set_as_disconnected());
 
-        T::disable();
+        self.info.rcc.disable();
     }
 }
 
@@ -446,7 +447,7 @@ impl<'d, T: Instance> SetConfig for SpiSlave<'d, T> {
 fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> nb::Result<W, Error> {
     // To keep the tx and rx FIFO queues in the SPI peripheral synchronized, a word must be
     // simultaneously sent and received, even when only sending or receiving.
-    if !tx_ready(regs)? || !rx_ready(regs)? {
+    if !tx_ready(regs, true)? || !rx_ready(regs)? {
         return Err(nb::Error::WouldBlock);
     }
 

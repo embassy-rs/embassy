@@ -3,11 +3,11 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{Adc, AdcPin, Instance, SampleTime};
+use super::blocking_delay_us;
+use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::time::Hertz;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -32,30 +32,30 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 pub struct Vref;
-impl<T: Instance> AdcPin<T> for Vref {}
-impl<T: Instance> super::SealedAdcPin<T> for Vref {
+impl<T: Instance> AdcChannel<T> for Vref {}
+impl<T: Instance> super::SealedAdcChannel<T> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl<T: Instance> AdcPin<T> for Temperature {}
-impl<T: Instance> super::SealedAdcPin<T> for Temperature {
+impl<T: Instance> AdcChannel<T> for Temperature {}
+impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(adc);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
 
         // 11.4: Before starting a calibration, the ADC must have been in power-on state (ADON bit = ‘1’)
-        // for at least two ADC clock cycles
-        delay.delay_us((1_000_000 * 2) / Self::freq().0 + 1);
+        // for at least two ADC clock cycles.
+        blocking_delay_us((1_000_000 * 2) / Self::freq().0 + 1);
 
         // Reset calibration
         T::regs().cr2().modify(|reg| reg.set_rstcal(true));
@@ -70,7 +70,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         // One cycle after calibration
-        delay.delay_us((1_000_000) / Self::freq().0 + 1);
+        blocking_delay_us((1_000_000 * 1) / Self::freq().0 + 1);
 
         Self {
             adc,
@@ -95,7 +95,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self, _delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vref(&self) -> Vref {
         T::regs().cr2().modify(|reg| {
             reg.set_tsvrefe(true);
         });
@@ -135,8 +135,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().0 as u16
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        Self::set_channel_sample_time(pin.channel(), self.sample_time);
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        Self::set_channel_sample_time(channel.channel(), self.sample_time);
         T::regs().cr1().modify(|reg| {
             reg.set_scan(false);
             reg.set_discen(false);
@@ -151,7 +151,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         // Configure the channel to sample
-        T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel()));
+        T::regs().sqr3().write(|reg| reg.set_sq(0, channel.channel()));
         self.convert().await
     }
 
@@ -169,6 +169,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
         T::regs().cr2().modify(|reg| reg.set_adon(false));
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }

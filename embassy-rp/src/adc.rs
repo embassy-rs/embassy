@@ -8,8 +8,7 @@ use core::task::Poll;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::sealed::Pin as GpioPin;
-use crate::gpio::{self, AnyPin, Pull};
+use crate::gpio::{self, AnyPin, Pull, SealedPin as GpioPin};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::InterruptExt;
 use crate::peripherals::{ADC, ADC_TEMP_SENSOR};
@@ -220,18 +219,30 @@ impl<'d> Adc<'d, Async> {
         }
     }
 
+    // Note for refactoring: we don't require the actual Channels here, just the channel numbers.
+    // The public api is responsible for asserting ownership of the actual Channels.
     async fn read_many_inner<W: dma::Word>(
         &mut self,
-        ch: &mut Channel<'_>,
+        channels: impl Iterator<Item = u8>,
         buf: &mut [W],
         fcs_err: bool,
         div: u16,
         dma: impl Peripheral<P = impl dma::Channel>,
     ) -> Result<(), Error> {
+        let mut rrobin = 0_u8;
+        for c in channels {
+            rrobin |= 1 << c;
+        }
+        let first_ch = rrobin.trailing_zeros() as u8;
+        if rrobin.count_ones() == 1 {
+            rrobin = 0;
+        }
+
         let r = Self::regs();
         // clear previous errors and set channel
         r.cs().modify(|w| {
-            w.set_ainsel(ch.channel());
+            w.set_ainsel(first_ch);
+            w.set_rrobin(rrobin);
             w.set_err_sticky(true); // clear previous errors
             w.set_start_many(false);
         });
@@ -284,7 +295,49 @@ impl<'d> Adc<'d, Async> {
         }
     }
 
+    /// Sample multiple values from multiple channels using DMA.
+    /// Samples are stored in an interleaved fashion inside the buffer.
+    /// `div` is the integer part of the clock divider and can be calculated with `floor(48MHz / sample_rate * num_channels - 1)`
+    /// Any `div` value of less than 96 will have the same effect as setting it to 0
+    #[inline]
+    pub async fn read_many_multichannel<S: AdcSample>(
+        &mut self,
+        ch: &mut [Channel<'_>],
+        buf: &mut [S],
+        div: u16,
+        dma: impl Peripheral<P = impl dma::Channel>,
+    ) -> Result<(), Error> {
+        self.read_many_inner(ch.iter().map(|c| c.channel()), buf, false, div, dma)
+            .await
+    }
+
+    /// Sample multiple values from multiple channels using DMA, with errors inlined in samples.
+    /// Samples are stored in an interleaved fashion inside the buffer.
+    /// `div` is the integer part of the clock divider and can be calculated with `floor(48MHz / sample_rate * num_channels - 1)`
+    /// Any `div` value of less than 96 will have the same effect as setting it to 0
+    #[inline]
+    pub async fn read_many_multichannel_raw(
+        &mut self,
+        ch: &mut [Channel<'_>],
+        buf: &mut [Sample],
+        div: u16,
+        dma: impl Peripheral<P = impl dma::Channel>,
+    ) {
+        // errors are reported in individual samples
+        let _ = self
+            .read_many_inner(
+                ch.iter().map(|c| c.channel()),
+                unsafe { mem::transmute::<_, &mut [u16]>(buf) },
+                true,
+                div,
+                dma,
+            )
+            .await;
+    }
+
     /// Sample multiple values from a channel using DMA.
+    /// `div` is the integer part of the clock divider and can be calculated with `floor(48MHz / sample_rate - 1)`
+    /// Any `div` value of less than 96 will have the same effect as setting it to 0
     #[inline]
     pub async fn read_many<S: AdcSample>(
         &mut self,
@@ -293,10 +346,13 @@ impl<'d> Adc<'d, Async> {
         div: u16,
         dma: impl Peripheral<P = impl dma::Channel>,
     ) -> Result<(), Error> {
-        self.read_many_inner(ch, buf, false, div, dma).await
+        self.read_many_inner([ch.channel()].into_iter(), buf, false, div, dma)
+            .await
     }
 
-    /// Sample multiple values from a channel using DMA with errors inlined in samples.
+    /// Sample multiple values from a channel using DMA, with errors inlined in samples.
+    /// `div` is the integer part of the clock divider and can be calculated with `floor(48MHz / sample_rate - 1)`
+    /// Any `div` value of less than 96 will have the same effect as setting it to 0
     #[inline]
     pub async fn read_many_raw(
         &mut self,
@@ -307,7 +363,13 @@ impl<'d> Adc<'d, Async> {
     ) {
         // errors are reported in individual samples
         let _ = self
-            .read_many_inner(ch, unsafe { mem::transmute::<_, &mut [u16]>(buf) }, true, div, dma)
+            .read_many_inner(
+                [ch.channel()].into_iter(),
+                unsafe { mem::transmute::<_, &mut [u16]>(buf) },
+                true,
+                div,
+                dma,
+            )
             .await;
     }
 }
@@ -334,29 +396,28 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ADC_IRQ_FIFO> for Inter
     }
 }
 
-mod sealed {
-    pub trait AdcSample: crate::dma::Word {}
-
-    pub trait AdcChannel {}
-}
+trait SealedAdcSample: crate::dma::Word {}
+trait SealedAdcChannel {}
 
 /// ADC sample.
-pub trait AdcSample: sealed::AdcSample {}
+#[allow(private_bounds)]
+pub trait AdcSample: SealedAdcSample {}
 
-impl sealed::AdcSample for u16 {}
+impl SealedAdcSample for u16 {}
 impl AdcSample for u16 {}
 
-impl sealed::AdcSample for u8 {}
+impl SealedAdcSample for u8 {}
 impl AdcSample for u8 {}
 
 /// ADC channel.
-pub trait AdcChannel: sealed::AdcChannel {}
+#[allow(private_bounds)]
+pub trait AdcChannel: SealedAdcChannel {}
 /// ADC pin.
 pub trait AdcPin: AdcChannel + gpio::Pin {}
 
 macro_rules! impl_pin {
     ($pin:ident, $channel:expr) => {
-        impl sealed::AdcChannel for peripherals::$pin {}
+        impl SealedAdcChannel for peripherals::$pin {}
         impl AdcChannel for peripherals::$pin {}
         impl AdcPin for peripherals::$pin {}
     };
@@ -367,5 +428,5 @@ impl_pin!(PIN_27, 1);
 impl_pin!(PIN_28, 2);
 impl_pin!(PIN_29, 3);
 
-impl sealed::AdcChannel for peripherals::ADC_TEMP_SENSOR {}
+impl SealedAdcChannel for peripherals::ADC_TEMP_SENSOR {}
 impl AdcChannel for peripherals::ADC_TEMP_SENSOR {}

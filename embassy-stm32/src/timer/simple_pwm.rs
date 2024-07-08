@@ -6,7 +6,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
 use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
-use crate::gpio::{AnyPin, OutputType};
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -35,9 +35,7 @@ macro_rules! channel_impl {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), output_type.into());
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                    pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
                 });
                 PwmPin {
                     _pin: pin.map_into(),

@@ -374,6 +374,11 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ReadNorFlash for Flash<'
 
 impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, M, FLASH_SIZE> {}
 
+impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::MultiwriteNorFlash
+    for Flash<'d, T, Async, FLASH_SIZE>
+{
+}
+
 impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, M, FLASH_SIZE> {
     const WRITE_SIZE: usize = WRITE_SIZE;
 
@@ -903,22 +908,22 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
     Ok(())
 }
 
-mod sealed {
-    pub trait Instance {}
-    pub trait Mode {}
-}
+trait SealedInstance {}
+trait SealedMode {}
 
 /// Flash instance.
-pub trait Instance: sealed::Instance {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {}
 /// Flash mode.
-pub trait Mode: sealed::Mode {}
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
 
-impl sealed::Instance for FLASH {}
+impl SealedInstance for FLASH {}
 impl Instance for FLASH {}
 
 macro_rules! impl_mode {
     ($name:ident) => {
-        impl sealed::Mode for $name {}
+        impl SealedMode for $name {}
         impl Mode for $name {}
     };
 }

@@ -1,6 +1,6 @@
+#![cfg_attr(not(test), no_std)]
 #![deny(clippy::pedantic)]
 #![allow(async_fn_in_trait)]
-#![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]

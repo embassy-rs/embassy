@@ -12,12 +12,10 @@ use stm32_metapac::timer::{regs, TimGp16};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
-use crate::rcc::SealedRccPeripheral;
+use crate::rcc::{self, SealedRccPeripheral};
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
-#[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
-use crate::timer::AdvancedInstance1Channel;
-use crate::timer::CoreInstance;
+use crate::timer::{CoreInstance, GeneralInstance1Channel};
 use crate::{interrupt, peripherals};
 
 // NOTE regarding ALARM_COUNT:
@@ -69,7 +67,7 @@ type T = peripherals::TIM23;
 type T = peripherals::TIM24;
 
 foreach_interrupt! {
-    (TIM1, timer, $block:ident, UP, $irq:ident) => {
+    (TIM1, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim1)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -85,7 +83,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM2, timer, $block:ident, UP, $irq:ident) => {
+    (TIM2, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim2)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -93,7 +91,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM3, timer, $block:ident, UP, $irq:ident) => {
+    (TIM3, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim3)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -101,7 +99,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM4, timer, $block:ident, UP, $irq:ident) => {
+    (TIM4, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim4)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -109,7 +107,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM5, timer, $block:ident, UP, $irq:ident) => {
+    (TIM5, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim5)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -117,7 +115,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM8, timer, $block:ident, UP, $irq:ident) => {
+    (TIM8, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim8)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -133,7 +131,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM9, timer, $block:ident, UP, $irq:ident) => {
+    (TIM9, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim9)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -141,7 +139,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM12, timer, $block:ident, UP, $irq:ident) => {
+    (TIM12, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim12)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -149,7 +147,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM15, timer, $block:ident, UP, $irq:ident) => {
+    (TIM15, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim15)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -157,7 +155,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM20, timer, $block:ident, UP, $irq:ident) => {
+    (TIM20, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim20)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -173,7 +171,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM21, timer, $block:ident, UP, $irq:ident) => {
+    (TIM21, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim21)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -181,7 +179,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM22, timer, $block:ident, UP, $irq:ident) => {
+    (TIM22, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim22)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -189,7 +187,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM23, timer, $block:ident, UP, $irq:ident) => {
+    (TIM23, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim23)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -197,7 +195,7 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM24, timer, $block:ident, UP, $irq:ident) => {
+    (TIM24, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim24)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -263,6 +261,7 @@ pub(crate) struct RtcDriver {
     rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
 }
 
+#[allow(clippy::declare_interior_mutable_const)]
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
@@ -277,7 +276,7 @@ impl RtcDriver {
     fn init(&'static self, cs: critical_section::CriticalSection) {
         let r = regs_gp16();
 
-        <T as SealedRccPeripheral>::enable_and_reset_with_cs(cs);
+        rcc::enable_and_reset_with_cs::<T>(cs);
 
         let timer_freq = T::frequency();
 
@@ -307,16 +306,8 @@ impl RtcDriver {
             w.set_ccie(0, true);
         });
 
-        <T as CoreInstance>::Interrupt::unpend();
-        unsafe { <T as CoreInstance>::Interrupt::enable() };
-
-        #[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
-        {
-            <T as AdvancedInstance1Channel>::CaptureCompareInterrupt::unpend();
-            unsafe {
-                <T as AdvancedInstance1Channel>::CaptureCompareInterrupt::enable();
-            }
-        }
+        <T as GeneralInstance1Channel>::CaptureCompareInterrupt::unpend();
+        unsafe { <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable() };
 
         r.cr1().modify(|w| w.set_cen(true));
     }

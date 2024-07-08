@@ -60,6 +60,10 @@ teleprobe_meta::target!(b"nucleo-stm32wba52cg");
 teleprobe_meta::target!(b"nucleo-stm32f091rc");
 #[cfg(feature = "stm32h503rb")]
 teleprobe_meta::target!(b"nucleo-stm32h503rb");
+#[cfg(feature = "stm32h7s3l8")]
+teleprobe_meta::target!(b"nucleo-stm32h7s3l8");
+#[cfg(feature = "stm32u083rc")]
+teleprobe_meta::target!(b"nucleo-stm32u083rc");
 
 macro_rules! define_peris {
     ($($name:ident = $peri:ident,)* $(@irq $irq_name:ident = $irq_code:tt,)*) => {
@@ -120,7 +124,7 @@ define_peris!(
 define_peris!(
     UART = USART6, UART_TX = PG14, UART_RX = PG9, UART_TX_DMA = DMA2_CH6, UART_RX_DMA = DMA2_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
-    ADC = ADC1, DAC = DAC, DAC_PIN = PA4,
+    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
     CAN = CAN1, CAN_RX = PD0, CAN_TX = PD1,
     @irq UART = {USART6 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART6>;},
 );
@@ -128,7 +132,7 @@ define_peris!(
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA2_CH7, UART_RX_DMA = DMA2_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
-    ADC = ADC1, DAC = DAC, DAC_PIN = PA4,
+    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
     CAN = CAN1, CAN_RX = PA11, CAN_TX = PA12,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
@@ -210,7 +214,7 @@ define_peris!(
 define_peris!(
     UART = USART3, UART_TX = PB10, UART_RX = PB11, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
-    ADC = ADC, DAC = DAC, DAC_PIN = PA4,
+    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
     @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
 );
 #[cfg(feature = "stm32l552ze")]
@@ -248,6 +252,19 @@ define_peris!(
     UART = LPUART1, UART_TX = PB5, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PB4, SPI_MOSI = PA15, SPI_MISO = PB3, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
     @irq UART = {LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;},
+);
+#[cfg(feature = "stm32h7s3l8")]
+define_peris!(
+    CRYP_IN_DMA = GPDMA1_CH0, CRYP_OUT_DMA = GPDMA1_CH1,
+    UART = USART1, UART_TX = PB14, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+);
+#[cfg(feature = "stm32u083rc")]
+define_peris!(
+    UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 
 pub fn config() -> Config {
@@ -640,6 +657,44 @@ pub fn config() -> Config {
             div: PllDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
         });
         config.rcc.sys = Sysclk::PLL1_R;
+    }
+    #[cfg(any(feature = "stm32h7s3l8"))]
+    {
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(24_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSE,
+            prediv: PllPreDiv::DIV3,
+            mul: PllMul::MUL150,
+            divp: Some(PllDiv::DIV2),  // 600Mhz
+            divq: Some(PllDiv::DIV25), // 48Mhz
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::PLL1_P; // 600 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 300 Mhz
+        config.rcc.apb1_pre = APBPrescaler::DIV2; // 150 Mhz
+        config.rcc.apb2_pre = APBPrescaler::DIV2; // 150 Mhz
+        config.rcc.apb4_pre = APBPrescaler::DIV2; // 150 Mhz
+        config.rcc.apb5_pre = APBPrescaler::DIV2; // 150 Mhz
+        config.rcc.voltage_scale = VoltageScale::HIGH;
+        config.rcc.mux.spi1sel = mux::Spi123sel::PLL1_Q;
+    }
+    #[cfg(any(feature = "stm32u083rc"))]
+    {
+        config.rcc.hsi = true;
+        config.rcc.pll = Some(Pll {
+            source: PllSource::HSI, // 16 MHz
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL7,
+            divp: None,
+            divq: None,
+            divr: Some(PllRDiv::DIV2), // 56 MHz
+        });
+        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+        config.rcc.mux.clk48sel = mux::Clk48sel::HSI48; // USB uses ICLK
     }
 
     config

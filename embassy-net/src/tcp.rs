@@ -98,6 +98,13 @@ impl<'a> TcpReader<'a> {
     pub fn recv_capacity(&self) -> usize {
         self.io.recv_capacity()
     }
+
+    /// Return the amount of octets queued in the receive buffer. This value can be larger than
+    /// the slice read by the next `recv` or `peek` call because it includes all queued octets,
+    /// and not only the octets that may be returned as a contiguous slice.
+    pub fn recv_queue(&self) -> usize {
+        self.io.recv_queue()
+    }
 }
 
 impl<'a> TcpWriter<'a> {
@@ -132,6 +139,11 @@ impl<'a> TcpWriter<'a> {
     pub fn send_capacity(&self) -> usize {
         self.io.send_capacity()
     }
+
+    /// Return the amount of octets queued in the transmit buffer.
+    pub fn send_queue(&self) -> usize {
+        self.io.send_queue()
+    }
 }
 
 impl<'a> TcpSocket<'a> {
@@ -161,6 +173,18 @@ impl<'a> TcpSocket<'a> {
     /// Return the maximum number of bytes inside the transmit buffer.
     pub fn send_capacity(&self) -> usize {
         self.io.send_capacity()
+    }
+
+    /// Return the amount of octets queued in the transmit buffer.
+    pub fn send_queue(&self) -> usize {
+        self.io.send_queue()
+    }
+
+    /// Return the amount of octets queued in the receive buffer. This value can be larger than
+    /// the slice read by the next `recv` or `peek` call because it includes all queued octets,
+    /// and not only the octets that may be returned as a contiguous slice.
+    pub fn recv_queue(&self) -> usize {
+        self.io.recv_queue()
     }
 
     /// Call `f` with the largest contiguous slice of octets in the transmit buffer,
@@ -519,6 +543,14 @@ impl<'d> TcpIo<'d> {
     fn send_capacity(&self) -> usize {
         self.with(|s, _| s.send_capacity())
     }
+
+    fn send_queue(&self) -> usize {
+        self.with(|s, _| s.send_queue())
+    }
+
+    fn recv_queue(&self) -> usize {
+        self.with(|s, _| s.recv_queue())
+    }
 }
 
 mod embedded_io_impls {
@@ -555,7 +587,7 @@ mod embedded_io_impls {
 
     impl<'d> embedded_io_async::ReadReady for TcpSocket<'d> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.may_recv()))
+            Ok(self.io.with(|s, _| s.can_recv() || !s.may_recv()))
         }
     }
 
@@ -571,7 +603,7 @@ mod embedded_io_impls {
 
     impl<'d> embedded_io_async::WriteReady for TcpSocket<'d> {
         fn write_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.may_send()))
+            Ok(self.io.with(|s, _| s.can_send()))
         }
     }
 
@@ -587,7 +619,7 @@ mod embedded_io_impls {
 
     impl<'d> embedded_io_async::ReadReady for TcpReader<'d> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.may_recv()))
+            Ok(self.io.with(|s, _| s.can_recv() || !s.may_recv()))
         }
     }
 
@@ -607,7 +639,7 @@ mod embedded_io_impls {
 
     impl<'d> embedded_io_async::WriteReady for TcpWriter<'d> {
         fn write_ready(&mut self) -> Result<bool, Self::Error> {
-            Ok(self.io.with(|s, _| s.may_send()))
+            Ok(self.io.with(|s, _| s.can_send()))
         }
     }
 }

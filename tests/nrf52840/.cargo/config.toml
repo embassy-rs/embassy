@@ -1,9 +1,0 @@
-[target.'cfg(all(target_arch = "arm", target_os = "none"))']
-#runner = "teleprobe local run --chip nRF52840_xxAA --elf"
-runner = "teleprobe client run"
-
-[build]
-target = "thumbv7em-none-eabi"
-
-[env]
-DEFMT_LOG = "trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,smoltcp=info"

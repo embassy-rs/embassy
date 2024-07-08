@@ -2,7 +2,7 @@
 #![allow(async_fn_in_trait)]
 #![cfg_attr(
     docsrs,
-    doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-stm32'>browse the `embassy-stm32` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (STM32H755 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
+    doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-stm32'>browse the `embassy-stm32` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (stm32h7, stm32h7rs55 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
 )]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
@@ -15,8 +15,31 @@ mod fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // Utilities
+mod macros;
 pub mod time;
-mod traits;
+/// Operating modes for peripherals.
+pub mod mode {
+    trait SealedMode {}
+
+    /// Operating mode for a peripheral.
+    #[allow(private_bounds)]
+    pub trait Mode: SealedMode {}
+
+    macro_rules! impl_mode {
+        ($name:ident) => {
+            impl SealedMode for $name {}
+            impl Mode for $name {}
+        };
+    }
+
+    /// Blocking mode.
+    pub struct Blocking;
+    /// Async mode.
+    pub struct Async;
+
+    impl_mode!(Blocking);
+    impl_mode!(Async);
+}
 
 // Always-present hardware
 pub mod dma;
@@ -32,6 +55,9 @@ pub mod timer;
 pub mod adc;
 #[cfg(can)]
 pub mod can;
+// FIXME: Cordic driver cause stm32u5a5zj crash
+#[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
+pub mod cordic;
 #[cfg(crc)]
 pub mod crc;
 #[cfg(cryp)]
@@ -40,6 +66,8 @@ pub mod cryp;
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dsihost)]
+pub mod dsihost;
 #[cfg(eth)]
 pub mod eth;
 #[cfg(feature = "exti")]
@@ -51,16 +79,22 @@ pub mod fmc;
 pub mod hash;
 #[cfg(hrtim)]
 pub mod hrtim;
+#[cfg(hsem)]
+pub mod hsem;
 #[cfg(i2c)]
 pub mod i2c;
-#[cfg(all(spi_v1, rcc_f4))]
+#[cfg(any(all(spi_v1, rcc_f4), spi_v3))]
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
 #[cfg(feature = "low-power")]
 pub mod low_power;
+#[cfg(ltdc)]
+pub mod ltdc;
 #[cfg(opamp)]
 pub mod opamp;
+#[cfg(octospi)]
+pub mod ospi;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
@@ -73,6 +107,8 @@ pub mod sai;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(tsc)]
+pub mod tsc;
 #[cfg(ucpd)]
 pub mod ucpd;
 #[cfg(uid)]
@@ -158,7 +194,6 @@ pub(crate) use stm32_metapac as pac;
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
-use crate::rcc::SealedRccPeripheral;
 
 /// `embassy-stm32` global configuration.
 #[non_exhaustive]
@@ -168,7 +203,7 @@ pub struct Config {
 
     /// Enable debug during sleep and stop.
     ///
-    /// May incrase power consumption. Defaults to true.
+    /// May increase power consumption. Defaults to true.
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
 
@@ -244,7 +279,7 @@ pub fn init(config: Config) -> Peripherals {
 
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
-            #[cfg(any(dbgmcu_h5))]
+            #[cfg(dbgmcu_h5)]
             {
                 cr.set_stop(config.enable_debug_during_sleep);
                 cr.set_standby(config.enable_debug_during_sleep);
@@ -274,11 +309,11 @@ pub fn init(config: Config) -> Peripherals {
         });
 
         #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
-        peripherals::SYSCFG::enable_and_reset_with_cs(cs);
-        #[cfg(not(any(stm32h5, stm32h7, stm32wb, stm32wl)))]
-        peripherals::PWR::enable_and_reset_with_cs(cs);
-        #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
-        peripherals::FLASH::enable_and_reset_with_cs(cs);
+        rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
+        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
+        rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
+        #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs)))]
+        rcc::enable_and_reset_with_cs::<peripherals::FLASH>(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.
         // Note that this requires the PWR peripheral to be enabled first.

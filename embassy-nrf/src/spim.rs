@@ -4,20 +4,22 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+#[cfg(feature = "_nrf52832_anomaly_109")]
+use core::sync::atomic::AtomicU8;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spim0::config::ORDER_A as BitOrder;
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits};
+use crate::gpio::{self, convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
-use crate::util::{slice_in_ram_or, slice_ptr_len, slice_ptr_parts, slice_ptr_parts_mut};
+use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
 
 /// SPIM error
@@ -238,14 +240,12 @@ impl<'d, T: Instance> Spim<'d, T> {
         }
 
         // Set up the DMA read.
-        let (ptr, len) = slice_ptr_parts_mut(rx);
-        let (rx_ptr, rx_len) = xfer_params(ptr as _, len as _, offset, length);
+        let (rx_ptr, rx_len) = xfer_params(rx as *mut u8 as _, rx.len() as _, offset, length);
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(rx_ptr) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx_len as _) });
 
         // Set up the DMA write.
-        let (ptr, len) = slice_ptr_parts(tx);
-        let (tx_ptr, tx_len) = xfer_params(ptr as _, len as _, offset, length);
+        let (tx_ptr, tx_len) = xfer_params(tx as *const u8 as _, tx.len() as _, offset, length);
         r.txd.ptr.write(|w| unsafe { w.ptr().bits(tx_ptr) });
         r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx_len as _) });
 
@@ -300,7 +300,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         // NOTE: RAM slice check for rx is not necessary, as a mutable
         // slice can only be built from data located in RAM.
 
-        let xfer_len = core::cmp::max(slice_ptr_len(rx), slice_ptr_len(tx));
+        let xfer_len = core::cmp::max(rx.len(), tx.len());
         for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
             let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
             self.blocking_inner_from_ram_chunk(rx, tx, offset, length);
@@ -354,7 +354,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         // NOTE: RAM slice check for rx is not necessary, as a mutable
         // slice can only be built from data located in RAM.
 
-        let xfer_len = core::cmp::max(slice_ptr_len(rx), slice_ptr_len(tx));
+        let xfer_len = core::cmp::max(rx.len(), tx.len());
         for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
             let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
             self.async_inner_from_ram_chunk(rx, tx, offset, length).await;
@@ -487,54 +487,46 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
+pub(crate) struct State {
+    waker: AtomicWaker,
     #[cfg(feature = "_nrf52832_anomaly_109")]
-    use core::sync::atomic::AtomicU8;
+    rx: AtomicU8,
+    #[cfg(feature = "_nrf52832_anomaly_109")]
+    tx: AtomicU8,
+}
 
-    use embassy_sync::waitqueue::AtomicWaker;
-
-    use super::*;
-
-    pub struct State {
-        pub waker: AtomicWaker,
-        #[cfg(feature = "_nrf52832_anomaly_109")]
-        pub rx: AtomicU8,
-        #[cfg(feature = "_nrf52832_anomaly_109")]
-        pub tx: AtomicU8,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-                #[cfg(feature = "_nrf52832_anomaly_109")]
-                rx: AtomicU8::new(0),
-                #[cfg(feature = "_nrf52832_anomaly_109")]
-                tx: AtomicU8::new(0),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+            #[cfg(feature = "_nrf52832_anomaly_109")]
+            rx: AtomicU8::new(0),
+            #[cfg(feature = "_nrf52832_anomaly_109")]
+            tx: AtomicU8::new(0),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static pac::spim0::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::spim0::RegisterBlock;
+    fn state() -> &'static State;
+}
+
 /// SPIM peripheral instance
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_spim {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::spim::sealed::Instance for peripherals::$type {
+        impl crate::spim::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::spim0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::spim::sealed::State {
-                static STATE: crate::spim::sealed::State = crate::spim::sealed::State::new();
+            fn state() -> &'static crate::spim::State {
+                static STATE: crate::spim::State = crate::spim::State::new();
                 &STATE
             }
         }
