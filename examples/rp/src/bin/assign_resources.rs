@@ -14,12 +14,9 @@
 use assign_resources::assign_resources;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::{
-    gpio,
-    peripherals::{self, PIN_20, PIN_21},
-};
+use embassy_rp::gpio::{Level, Output};
+use embassy_rp::peripherals::{self, PIN_20, PIN_21};
 use embassy_time::Timer;
-use gpio::{Level, Output};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
