@@ -3,9 +3,9 @@
 #![macro_use]
 
 use core::future::poll_fn;
+use core::ops::Range;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 use core::task::Poll;
-use core::ops::Range;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
@@ -17,7 +17,7 @@ use crate::peripherals::NFCT;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
 
-/// Bit frame SDD as defined by the b5:b1 of byte 1 in SENS_RES response in the NFC Forum, NFC Digital 
+/// Bit frame SDD as defined by the b5:b1 of byte 1 in SENS_RES response in the NFC Forum, NFC Digital
 /// Protocol Technical Specification.
 #[derive(Default, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum SddPat {
@@ -126,8 +126,8 @@ pub struct RxdFrameConfig {
     /// Indicates whether SoF symbol is expected.
     pub add_sof: bool,
     /// CRC mode for incoming frames.
-    /// 
-    /// When set to [`CrcMode::NoCrc`] no CRC is expected in a frame, otherwise CRC is verified 
+    ///
+    /// When set to [`CrcMode::NoCrc`] no CRC is expected in a frame, otherwise CRC is verified
     /// and `CRCSTATUS` is updated.
     pub crc_mode: CrcMode,
 }
@@ -145,19 +145,19 @@ impl Default for RxdFrameConfig {
 /// Config for the Frame Delay Timer.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum FrameDelayConfig {
-    /// Transmission is independent of frame timer and will start when the `STARTTX`` task is 
+    /// Transmission is independent of frame timer and will start when the `STARTTX`` task is
     /// triggered. No timeout.
     FreeRun,
     /// Frame is transmitted a range of 13.56 Mhz clocks.
-    /// 
+    ///
     /// The start value should fit in 16 bits, the end value should fit in 20 bits.
     Window(Range<u32>),
     /// Frame is transmitted exactly after a certain amount of 13.56 Mhz clocks.
-    /// 
+    ///
     /// The value should fit in 20 bits.
     ExactVal(u32),
     /// Frame is transmitted on a bit grid between a range of 13.56 Mhz clocks.
-    /// 
+    ///
     /// The start value should fit in 16 bits, the end value should fit in 20 bits.
     WindowGrid(Range<u32>),
 }
@@ -183,7 +183,7 @@ pub struct ShortsConfig {
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Hardware autocollision resolution config.
-    /// 
+    ///
     /// Hardware autocollision resolution is disabled when this is set to [`None`].
     pub autocoll_config: Option<AutoCollConfig>,
     /// Configuration for transmitting frames.
@@ -205,7 +205,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
 
         let r = unsafe { &*pac::NFCT::ptr() };
         let mut wake = false;
-        
+
         let field_detected = r.events_fielddetected.read().bits() != 0;
         if field_detected {
             r.intenclr.write(|w| w.fielddetected().set_bit());
@@ -236,6 +236,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
 
         if r.events_rxframeend.read().bits() != 0 {
             r.intenclr.write(|w| w.rxframeend().set_bit());
+            // SAFETY: events_rxframeend cleared by recv_frame
             wake = true;
             info!("NFC Interrupt: rxframeend")
         }
@@ -260,6 +261,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
 
         if r.events_rxerror.read().bits() != 0 {
             r.intenclr.write(|w| w.rxerror().set_bit());
+            // SAFETY: cleared by recv_frame
             wake = true;
             info!("NFC Interrupt: rxerror")
         }
@@ -272,6 +274,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
 
         if r.events_ready.read().bits() != 0 {
             r.intenclr.write(|w| w.ready().set_bit());
+            // SAFETY: r.events_ready is cleared by user (in `activate()`)
             wake = true;
             info!("NFC Interrupt: ready")
         }
@@ -299,7 +302,8 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
             WAKER.wake();
         }
 
-        r.framedelaymax.write(|w| unsafe { w.bits(FRM_DELAY_MAX.load(Ordering::Relaxed)) });
+        r.framedelaymax
+            .write(|w| unsafe { w.bits(FRM_DELAY_MAX.load(Ordering::Relaxed)) });
 
         info!("NFC Interrupt exit");
     }
@@ -328,6 +332,8 @@ pub enum Error {
 /// Nfc Tag Read/Writer driver
 pub struct NfcT<'d> {
     _p: PeripheralRef<'d, NFCT>,
+    rx_buf: [u8; 256],
+    tx_buf: [u8; 256],
 }
 
 impl<'d> NfcT<'d> {
@@ -365,12 +371,11 @@ impl<'d> NfcT<'d> {
         if let Some(autocoll_config) = config.autocoll_config.as_ref() {
             Self::set_autocoll_cfg(autocoll_config);
         } else {
-            r.autocolresconfig.write(|w| unsafe {
-                w.bits(0b11u32)
-            });
+            r.autocolresconfig.write(|w| unsafe { w.bits(0b11u32) });
         }
 
-        // errata
+        // errata\
+        #[cfg(feature = "nrf52832")]
         unsafe {
             // Errata 57 nrf52832 only
             //(0x40005610 as *mut u32).write_volatile(0x00000005);
@@ -423,23 +428,34 @@ impl<'d> NfcT<'d> {
         interrupt::NFCT.unpend();
         unsafe { interrupt::NFCT.enable() };
 
-
         r.intenset.write(|w| {
-            w
-                .ready().set()
-                .txframestart().set()
-                .txframeend().set()
-                .rxframestart().set()
-                .rxframeend().set()
-                .fielddetected().set()
-                .fieldlost().set()
-                .error().set()
-                .rxerror().set()
+            w.ready()
+                .set()
+                .txframestart()
+                .set()
+                .txframeend()
+                .set()
+                .rxframestart()
+                .set()
+                .rxframeend()
+                .set()
+                .fielddetected()
+                .set()
+                .fieldlost()
+                .set()
+                .error()
+                .set()
+                .rxerror()
+                .set()
         });
         r.tasks_activate.write(|w| w.tasks_activate().set_bit());
 
         // r.tasks_activate.write(|w| w.tasks_activate().set_bit());
-        Self { _p, tx_buf: [0u8; 256], rx_buf: [0u8; 256] }
+        Self {
+            _p,
+            tx_buf: [0u8; 256],
+            rx_buf: [0u8; 256],
+        }
     }
 
     fn regs() -> &'static pac::nfct::RegisterBlock {
@@ -489,11 +505,8 @@ impl<'d> NfcT<'d> {
 
             compiler_fence(Ordering::SeqCst);
 
-            r.intenset.write(|w| w
-                .selected().set()
-                .collision().set()
-                .fieldlost().set()
-            );
+            r.intenset
+                .write(|w| w.selected().set().collision().set().fieldlost().set());
 
             r.tasks_activate.write(|w| w.tasks_activate().set_bit());
         });
@@ -530,7 +543,8 @@ impl<'d> NfcT<'d> {
                     r.events_txframestart.reset();
                     r.events_txframeend.reset();
 
-                    r.framedelaymax.write(|w| unsafe { w.bits(FRM_DELAY_MAX.load(Ordering::Relaxed)) });
+                    r.framedelaymax
+                        .write(|w| unsafe { w.bits(FRM_DELAY_MAX.load(Ordering::Relaxed)) });
 
                     return Poll::Ready(Ok(()));
                 }
@@ -577,12 +591,16 @@ impl<'d> NfcT<'d> {
         let r = Self::regs();
 
         let _on_drop = OnDrop::new(|| {
-            r.intenclr.write(|w| w
-                .txframestart().set_bit()
-                .txframeend().set_bit()
-                .error().set_bit()
-                .fieldlost().set_bit()
-            );
+            r.intenclr.write(|w| {
+                w.txframestart()
+                    .set_bit()
+                    .txframeend()
+                    .set_bit()
+                    .error()
+                    .set_bit()
+                    .fieldlost()
+                    .set_bit()
+            });
         });
 
         critical_section::with(|_sect| {
@@ -601,13 +619,16 @@ impl<'d> NfcT<'d> {
             r.framedelaymin.write(|w| unsafe { w.bits(0x480) });
             r.framedelaymax.write(|w| unsafe { w.bits(0x1000) });
 
-            r.txd.frameconfig.write(|w| 
-                w
-                    .crcmodetx().bit(config.crc_mode == CrcMode::Crc16)
-                    .discardmode().bit(config.discard_mode == DiscardMode::DiscardStart)
-                    .parity().bit(config.parity)
-                    .sof().bit(config.add_sof)
-            );
+            r.txd.frameconfig.write(|w| {
+                w.crcmodetx()
+                    .bit(config.crc_mode == CrcMode::Crc16)
+                    .discardmode()
+                    .bit(config.discard_mode == DiscardMode::DiscardStart)
+                    .parity()
+                    .bit(config.parity)
+                    .sof()
+                    .bit(config.add_sof)
+            });
 
             r.events_txframestart.reset();
             r.events_txframeend.reset();
@@ -618,12 +639,16 @@ impl<'d> NfcT<'d> {
 
             compiler_fence(Ordering::SeqCst);
 
-            r.intenset.write(|w| w
-                .txframestart().set()
-                .txframeend().set()
-                .error().set()
-                .fieldlost().set()
-            );
+            r.intenset.write(|w| {
+                w.txframestart()
+                    .set()
+                    .txframeend()
+                    .set()
+                    .error()
+                    .set()
+                    .fieldlost()
+                    .set()
+            });
 
             compiler_fence(Ordering::SeqCst);
 
@@ -685,58 +710,129 @@ impl<'d> NfcT<'d> {
         Ok(())
     }
 
+    /// Simplified recv_frame2 which only implements the NFCT state machine as found in the product specs of the NRF5340
+    pub async fn recv_frame2<'a>(&mut self, buf: &'a mut [u8], cfg: RxdFrameConfig) -> Result<(&'a [u8], u8), Error> {
+        let r = Self::regs();
+
+        r.rxd.frameconfig.write(|w| {
+            w.parity()
+                .bit(cfg.parity)
+                .sof()
+                .bit(cfg.add_sof)
+                .crcmoderx()
+                .bit(cfg.crc_mode == CrcMode::Crc16)
+        });
+
+        //Setup DMA
+        r.packetptr
+            .write(|w| unsafe { w.bits(self.rx_buf.as_mut_ptr() as u32) });
+        r.maxlen.write(|w| unsafe { w.bits(self.rx_buf.len() as _) });
+
+        // Reset and enable the end event
+        r.events_rxframeend.reset();
+        r.events_rxerror.reset();
+
+        // Start enablerxdata only after configs are finished writing
+        compiler_fence(Ordering::SeqCst);
+        r.tasks_enablerxdata.write(|w| w.tasks_enablerxdata().set_bit());
+
+        poll_fn(move |cx| {
+            trace!("polling rx");
+            let r = Self::regs();
+            WAKER.register(cx.waker());
+
+            if r.events_rxframeend.read().bits() != 0 {
+                trace!("RX Frameend got in recv frame, should have data");
+                r.events_rxframeend.reset();
+                return Poll::Ready(Ok(()));
+            }
+
+            if r.events_rxerror.read().bits() != 0 {
+                trace!("RXerror got in recv frame, should be back in idle state");
+                r.events_rxerror.reset();
+                return Poll::Ready(Err(Error::RxError));
+            }
+
+            Poll::Pending
+        })
+        .await?;
+
+        let rxd_amount = r.rxd.amount.read().bits() as usize;
+        let rx_bits = rxd_amount & 0b111;
+        let rx_bytes = (rxd_amount >> 3) & 0x1f;
+
+        buf[..rx_bytes].copy_from_slice(&self.rx_buf[..rx_bytes]);
+
+        Ok((&buf[..rx_bytes], rx_bits as u8))
+    }
+
     pub async fn recv_frame<'a>(&mut self, buf: &'a mut [u8]) -> Result<(&'a [u8], u8), Error> {
         self.recv_frame_with_cfg(buf, Default::default()).await
     }
 
     /// Waits for a single frame to be loaded into `buf`
     /// `buf` is not pointing to the Data RAM region, an EasyDMA transfer may result in a hard fault or RAM corruption.
-    pub async fn recv_frame_with_cfg<'a>(&mut self, buf: &'a mut [u8], cfg: RxdFrameConfig) -> Result<(&'a [u8], u8), Error> {
+    pub async fn recv_frame_with_cfg<'a>(
+        &mut self,
+        buf: &'a mut [u8],
+        cfg: RxdFrameConfig,
+    ) -> Result<(&'a [u8], u8), Error> {
         let r = Self::regs();
 
         let _on_drop = OnDrop::new(|| {
-            r.intenclr.write(|w| w
-                .rxframestart().set_bit()
-                .rxframeend().set_bit()
-                .rxerror().set_bit()
-                .fieldlost().set_bit()
-            );
+            r.intenclr.write(|w| {
+                w.rxframestart()
+                    .set_bit()
+                    .rxframeend()
+                    .set_bit()
+                    .rxerror()
+                    .set_bit()
+                    .fieldlost()
+                    .set_bit()
+            });
         });
 
+        // TODO: critical_section is likely not necessary, remove after finishing testing
         critical_section::with(|_sect| {
-            r.rxd.frameconfig.write(|w| w
-                .parity().bit(cfg.parity)
-                .sof().bit(cfg.add_sof)
-                .crcmoderx().bit(cfg.crc_mode == CrcMode::Crc16)
-            );
+            r.rxd.frameconfig.write(|w| {
+                w.parity()
+                    .bit(cfg.parity)
+                    .sof()
+                    .bit(cfg.add_sof)
+                    .crcmoderx()
+                    .bit(cfg.crc_mode == CrcMode::Crc16)
+            });
 
             //Setup DMA
-            r.packetptr.write(|w| unsafe { w.bits(self.rx_buf.as_mut_ptr() as u32) });
+            r.packetptr
+                .write(|w| unsafe { w.bits(self.rx_buf.as_mut_ptr() as u32) });
             r.maxlen.write(|w| unsafe { w.bits(self.rx_buf.len() as _) });
 
             // clear errors
-            r.framestatus.rx.write(|w| w
-                .crcerror().bit(true)
-                .paritystatus().bit(true)
-                .overrun().bit(true)
-            );
-            r.errorstatus.write(|w| w.framedelaytimeout().bit(true) );
-            
+            r.framestatus
+                .rx
+                .write(|w| w.crcerror().bit(true).paritystatus().bit(true).overrun().bit(true));
+            r.errorstatus.write(|w| w.framedelaytimeout().bit(true));
+
             compiler_fence(Ordering::SeqCst);
 
             // Reset and enable the end event
             r.events_rxframeend.reset();
             r.events_rxerror.reset();
             r.events_fieldlost.reset();
-            
+
             compiler_fence(Ordering::SeqCst);
 
-            r.intenset.write(|w| w
-                .rxframestart().set()
-                .rxframeend().set()
-                .rxerror().set()
-                .fieldlost().set()
-            );
+            r.intenset.write(|w| {
+                w.rxframestart()
+                    .set()
+                    .rxframeend()
+                    .set()
+                    .rxerror()
+                    .set()
+                    .fieldlost()
+                    .set()
+            });
 
             // Start enablerxdata only after configs are finished writing
             compiler_fence(Ordering::SeqCst);
@@ -759,8 +855,13 @@ impl<'d> NfcT<'d> {
                 r.events_txframestart.reset();
 
                 if r.events_fieldlost.read().bits() != 0 {
-                    trace!("{} {}", r.events_fielddetected.read().bits(), r.fieldpresent.read().bits());
-                    if r.events_fielddetected.read().bits() == 0 || r.fieldpresent.read().fieldpresent().bit_is_clear() {
+                    trace!(
+                        "{} {}",
+                        r.events_fielddetected.read().bits(),
+                        r.fieldpresent.read().bits()
+                    );
+                    if r.events_fielddetected.read().bits() == 0 || r.fieldpresent.read().fieldpresent().bit_is_clear()
+                    {
                         r.events_fieldlost.reset();
                         r.events_endrx.reset();
                         r.events_rxframeend.reset();
@@ -778,12 +879,13 @@ impl<'d> NfcT<'d> {
                     let crc_error = framestatus.crcerror().bit();
                     let parity_status = framestatus.paritystatus().bit();
                     let overrun_status = framestatus.overrun().bit();
-                    error!("rx error (crc {} parity {} overrun {})", crc_error, parity_status, overrun_status);
-                    r.framestatus.rx.write(|w| w
-                        .crcerror().bit(true)
-                        .paritystatus().bit(true)
-                        .overrun().bit(true)
+                    error!(
+                        "rx error (crc {} parity {} overrun {})",
+                        crc_error, parity_status, overrun_status
                     );
+                    r.framestatus
+                        .rx
+                        .write(|w| w.crcerror().bit(true).paritystatus().bit(true).overrun().bit(true));
 
                     if overrun_status {
                         return Poll::Ready(Err(Error::RxOverrun));
@@ -843,7 +945,7 @@ impl<'d> NfcT<'d> {
                 });
 
                 0
-            },
+            }
             NfcId::DoubleSize(bytes) => {
                 let (bytes, chunk) = bytes.split_last_chunk::<4>().unwrap();
                 r.nfcid1_last.write(|w| unsafe {
@@ -859,7 +961,7 @@ impl<'d> NfcT<'d> {
                 });
 
                 1
-            },
+            }
             NfcId::TripleSize(bytes) => {
                 let (bytes, chunk) = bytes.split_last_chunk::<4>().unwrap();
                 r.nfcid1_last.write(|w| unsafe {
@@ -883,7 +985,7 @@ impl<'d> NfcT<'d> {
                 });
 
                 2
-            },
+            }
         };
 
         r.sensres.write(|w| unsafe {
@@ -898,19 +1000,19 @@ impl<'d> NfcT<'d> {
             w
         });
 
-        r.autocolresconfig.write(|w| unsafe {
-            w.bits(0u32)
-        });
+        r.autocolresconfig.write(|w| unsafe { w.bits(0u32) });
     }
 
     /// Sets up shortcuts used by the NFCT peripheral.
     pub fn setup_shorts(&mut self, config: ShortsConfig) {
         let r = Self::regs();
-        r.shorts.write(|w| unsafe { w.bits(
-            (config.fielddetected_activate as u32) 
-            | ((config.fieldlost_sense as u32) << 1) 
-            | ((config.txframeend_enablerxdata as u32) << 5)
-        ) });
+        r.shorts.write(|w| unsafe {
+            w.bits(
+                (config.fielddetected_activate as u32)
+                    | ((config.fieldlost_sense as u32) << 1)
+                    | ((config.txframeend_enablerxdata as u32) << 5),
+            )
+        });
     }
 
     /// Requests to enter the `SLEEP_A`` state.

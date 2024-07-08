@@ -28,3 +28,7 @@ serde = { version = "1.0.136", default-features = false }
 
 [profile.release]
 debug = 2
+
+[profile.dev]
+lto = "fat"
+opt-level = 1
