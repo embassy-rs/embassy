@@ -5,7 +5,7 @@
 //! There are basically two ways we demonstrate here:
 //! 1) Assigning resources to a task by passing parts of the peripherals
 //! 2) Assigning resources to a task by passing a struct with the split up peripherals, using the assign-resources macro
-//! 
+//!
 //! using four LEDs on Pins 10, 11, 20 and 21
 
 #![no_std]
