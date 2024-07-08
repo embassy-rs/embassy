@@ -92,7 +92,7 @@ async fn spi_task_b(spi_bus: &'static Spi1Bus, cs: Output<'static>) {
     }
 }
 
-// Dummy I2C device driver, implementing `embedded-hal-async`
+// Dummy I2C device driver, using `embedded-hal-async`
 struct DummyI2cDeviceDriver<I2C: embedded_hal_async::i2c::I2c> {
     _i2c: I2C,
 }
@@ -103,7 +103,7 @@ impl<I2C: embedded_hal_async::i2c::I2c> DummyI2cDeviceDriver<I2C> {
     }
 }
 
-// Dummy SPI device driver, implementing `embedded-hal-async`
+// Dummy SPI device driver, using `embedded-hal-async`
 struct DummySpiDeviceDriver<SPI: embedded_hal_async::spi::SpiDevice> {
     _spi: SPI,
 }
