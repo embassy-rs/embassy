@@ -1,4 +1,14 @@
 //! This example shows some common strategies for sharing resources between tasks.
+//!
+//! We demonstrate five different ways of sharing, covering different use cases:
+//! - Atomics: This method is used for simple values, such as bool and u8..u32
+//! - Blocking Mutex: This is used for sharing non-async things, using Cell/RefCell for interior mutability.
+//! - Async Mutex: This is used for sharing async resources, where you need to hold the lock across await points.
+//!   The async Mutex has interior mutability built-in, so no RefCell is needed.
+//! - Cell: For sharing Copy types between tasks running on the same executor.
+//! - RefCell: When you want &mut access to a value shared between tasks running on the same executor.
+//!
+//! More information: https://embassy.dev/book/#_sharing_peripherals_between_tasks
 
 #![no_std]
 #![no_main]
@@ -21,7 +31,7 @@ use rand::RngCore;
 use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
-type UartMutex = mutex::Mutex<CriticalSectionRawMutex, UartTx<'static, UART0, uart::Async>>;
+type UartAsyncMutex = mutex::Mutex<CriticalSectionRawMutex, UartTx<'static, UART0, uart::Async>>;
 
 struct MyType {
     inner: u32,
@@ -53,7 +63,7 @@ fn main() -> ! {
 
     let uart = UartTx::new(p.UART0, p.PIN_0, p.DMA_CH0, uart::Config::default());
     // Use the async Mutex for sharing async things (built-in interior mutability)
-    static UART: StaticCell<UartMutex> = StaticCell::new();
+    static UART: StaticCell<UartAsyncMutex> = StaticCell::new();
     let uart = UART.init(mutex::Mutex::new(uart));
 
     // High-priority executor: runs in interrupt mode
@@ -80,7 +90,7 @@ fn main() -> ! {
 }
 
 #[embassy_executor::task]
-async fn task_a(uart: &'static UartMutex) {
+async fn task_a(uart: &'static UartAsyncMutex) {
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {
         let random = RoscRng.next_u32();
@@ -100,7 +110,7 @@ async fn task_a(uart: &'static UartMutex) {
 }
 
 #[embassy_executor::task]
-async fn task_b(uart: &'static UartMutex, cell: &'static Cell<[u8; 4]>, ref_cell: &'static RefCell<MyType>) {
+async fn task_b(uart: &'static UartAsyncMutex, cell: &'static Cell<[u8; 4]>, ref_cell: &'static RefCell<MyType>) {
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {
         let random = RoscRng.next_u32();
@@ -121,8 +131,8 @@ async fn task_c(cell: &'static Cell<[u8; 4]>, ref_cell: &'static RefCell<MyType>
     loop {
         info!("=======================");
 
-        let atomic = ATOMIC.load(Ordering::Relaxed);
-        info!("atomic: {}", atomic);
+        let atomic_val = ATOMIC.load(Ordering::Relaxed);
+        info!("atomic: {}", atomic_val);
 
         MUTEX_BLOCKING.lock(|x| {
             let val = x.borrow().inner;
