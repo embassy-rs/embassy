@@ -87,3 +87,39 @@ impl Div<Hertz> for Hertz {
         self.0 / rhs.0
     }
 }
+
+#[repr(C)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// A variant on [Hertz] that acts as an `Option<Hertz>` that is smaller and repr C.
+/// 
+/// An `Option<Hertz>` can be `.into()`'d into this type and back.
+/// The only restriction is that that [Hertz] cannot have the value 0 since that's
+/// seen as the `None` variant.
+pub struct MaybeHertz(u32);
+
+impl MaybeHertz {
+    /// Same as calling the `.into()` function, but without type inference.
+    pub fn to_hertz(self) -> Option<Hertz> {
+        self.into()
+    }
+}
+
+impl From<Option<Hertz>> for MaybeHertz {
+    fn from(value: Option<Hertz>) -> Self {
+        match value {
+            Some(Hertz(0)) => panic!("Hertz cannot be 0"),
+            Some(Hertz(val)) => Self(val),
+            None => Self(0),
+        }
+    }
+}
+
+impl From<MaybeHertz> for Option<Hertz> {
+    fn from(value: MaybeHertz) -> Self {
+        match value {
+            MaybeHertz(0) => None,
+            MaybeHertz(val) => Some(Hertz(val)),
+        }
+    }
+}
