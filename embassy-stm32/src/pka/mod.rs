@@ -2,7 +2,6 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
-use heapless::Vec;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -15,15 +14,15 @@ static PKA_WAKER: AtomicWaker = AtomicWaker::new();
 // List of RAM addresses for data. Since embassy implementation of RAM access already moves base address to
 // 0x0400 and multiplies offset by 4 for 32-bit access, we have to take address from reference manual, subtract 0x0400
 // and divide it by 4 to get the correct offset.
-const OPERAND_LENGTH_ADDR: usize = 0x0001; // 0x404
-const MODULUS_ADDR: usize = 0x0257; // 0xD5C
-const MONT_PARAM_R2_MOD_N: usize = 0x0065; // 0x594
-const OPERAND_A_ADDR: usize = 0x012D; // 0x8B4
-const OPERAND_B_ADDR: usize = 0x0191; // 0xA44
-const ARITHMETIC_RESULT_ADDR: usize = 0x01F4; // 0xBD0
-const EXPONENT_LENGTH_ADDR: usize = 0x0000; // 0x400
-const EXPONENT_ADDR: usize = ARITHMETIC_RESULT_ADDR; // 0xBD0
-const EXPONENTIATION_RESULT_ADDR: usize = 0x00C9; // 0x724
+const OPERAND_LENGTH_ADDR: usize = 0x0001; // 0x0404
+const MODULUS_ADDR: usize = 0x0257; // 0x0D5C
+const MONT_PARAM_R2_MOD_N: usize = 0x0065; // 0x0594
+const OPERAND_A_ADDR: usize = 0x012D; // 0x08B4
+const OPERAND_B_ADDR: usize = 0x0191; // 0x0A44
+const ARITHMETIC_RESULT_ADDR: usize = 0x01F4; // 0x0BD0
+const EXPONENT_LENGTH_ADDR: usize = 0x0000; // 0x0400
+const EXPONENT_ADDR: usize = ARITHMETIC_RESULT_ADDR; // 0x0BD0
+const EXPONENTIATION_RESULT_ADDR: usize = 0x00C9; // 0x0724
 
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -81,23 +80,19 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        info!("PKA interrupt");
         let procendf = T::regs().sr().read().procendf();
         let addr_err = T::regs().sr().read().addrerrf();
         let ram_err = T::regs().sr().read().ramerrf();
 
         if procendf {
-            info!("PKA interrupt: procendf");
             T::regs().cr().modify(|w| w.set_procendie(false));
         }
 
         if addr_err {
-            info!("PKA interrupt: addr_err");
             T::regs().cr().modify(|w| w.set_addrerrie(false));
         }
 
         if ram_err {
-            info!("PKA interrupt: ram_err");
             T::regs().cr().modify(|w| w.set_ramerrie(false));
         }
 
@@ -144,11 +139,7 @@ impl<'c, 'd, T: Instance, const RSA_KEY_SIZE: usize> Rsa<'c, 'd, T, RSA_KEY_SIZE
             );
         }
 
-        info!("Prime P: {:x}", prime_p);
-        info!("Prime Q: {:x}", prime_q);
-
         // Generate modulus
-        // FIXME: Currently modulus is hardcoded to 32 bits
         self.modulus = self.pka.arithmetic_multiply(prime_p, prime_q).await.unwrap();
 
         // Generate R^2 mod N
@@ -172,9 +163,9 @@ impl<'c, 'd, T: Instance, const RSA_KEY_SIZE: usize> Rsa<'c, 'd, T, RSA_KEY_SIZE
         self.public_exponent[0] = 65537;
 
         // Generate private key
-        info!("Generating private exponent");
         self.private_exponent = self.pka.mod_inverse(&self.public_exponent, &phi).await.unwrap();
     }
+
     /// Encrypt data
     pub async fn encrypt(&mut self, data: &[u32]) -> Result<[u32; RSA_KEY_SIZE], ()> {
         // Message to encrypt should be less than modulus
@@ -191,19 +182,6 @@ impl<'c, 'd, T: Instance, const RSA_KEY_SIZE: usize> Rsa<'c, 'd, T, RSA_KEY_SIZE
             .mod_exp(data, &self.public_exponent, &self.modulus, &self.r2_mod_n)
             .await;
         result
-    }
-
-    pub async fn test(&mut self) {
-        let e = 3;
-        let n = 33;
-        let d = 7;
-        let message = 4;
-
-        let encrypted = self.pka.mod_exp(&[message], &[e], &[n], &[0]).await;
-        info!("Encrypted: {:x}", encrypted);
-
-        let decrypted = self.pka.mod_exp(&encrypted.unwrap(), &[d], &[n], &[0]).await;
-        info!("Decrypted: {:x}", decrypted);
     }
 
     /// Decrypt data
@@ -262,15 +240,12 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
         // Wait for results
         poll_fn(|ctx| {
             if T::regs().sr().read().addrerrf() {
-                info!("Address error");
                 T::regs().clrfr().write(|w| w.set_addrerrfc(true));
             } else if T::regs().sr().read().ramerrf() {
-                info!("RAM error");
                 T::regs().clrfr().write(|w| w.set_ramerrfc(true));
             }
 
             if T::regs().sr().read().procendf() {
-                info!("Process end");
                 T::regs().clrfr().write(|w| w.set_procendfc(true));
                 return Poll::Ready(());
             }
@@ -279,12 +254,9 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
             T::regs().cr().modify(|w| w.set_procendie(true));
 
             if T::regs().sr().read().procendf() {
-                info!("Process end");
                 T::regs().clrfr().write(|w| w.set_procendfc(true));
-                info!("Process end cleared");
                 Poll::Ready(())
             } else {
-                info!("Waiting for PKA");
                 Poll::Pending
             }
         })
@@ -301,7 +273,6 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
         for (i, byte) in data.iter().enumerate() {
             T::regs().ram(offset + i).write(|w| {
                 *w = *byte;
-                info!("write_to_ram: 0x{:x} at offset 0x{:x}", *byte, offset + i);
                 *w
             });
         }
@@ -314,11 +285,7 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
 
     /// Write to PKA RAM with offset. Don't set the last word to 0
     fn write_to_ram_u32(&mut self, offset: usize, data: &u32) {
-        T::regs().ram(offset).write(|w| {
-            *w = *data;
-            info!("write_to_ram: 0x{:x} at offset 0x{:x}", *data, offset);
-            *w
-        });
+        T::regs().ram(offset).write_value(*data);
     }
 
     /// Read from PKA RAM with offset
@@ -326,14 +293,12 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
         // Read from PKA RAM with offset. RAM is little endian, so we have to convert it
         for (i, byte) in data.iter_mut().enumerate() {
             *byte = T::regs().ram(offset + i).read();
-            info!("read_from_ram: 0x{:x} at offset 0x{:x}", *byte, offset + i);
         }
     }
 
     /// Calculate the Montgomery parameter
     pub async fn montgomery_param(&mut self, mod_value: &[u32]) -> Result<[u32; RSA_KEY_SIZE], ()> {
         // Get the size of a value in modulus in bits
-        // FIXME: Currently modulus size is hardcoded to 32 bits.
         // It has to be calculated from the modulus value, which is an array of u32
 
         // Modulus can only be odd number
@@ -341,9 +306,9 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
             return Err(());
         }
 
-        let modulus_size = [32 * (mod_value.len() as u32)];
+        let modulus_size = 32 * (mod_value.len() as u32);
 
-        self.write_to_ram(OPERAND_LENGTH_ADDR, &modulus_size);
+        self.write_to_ram_u32(OPERAND_LENGTH_ADDR, &modulus_size);
         self.write_to_ram(MODULUS_ADDR, mod_value);
 
         let mode = PkaOperationMode::MontgomeryParameterComputationOnly as u8;
@@ -359,14 +324,12 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
 
     /// Multiply two numbers using Montgomery multiplication
     pub async fn modular_multiply(&mut self, a: &[u32], b: &[u32], modulus: &[u32]) -> Result<[u32; RSA_KEY_SIZE], ()> {
-        //FIXME: Currently modulus size is hardcoded to 32 bits. Same for the result
-
         // Calculate the maximum size of operands based on leading zeros
-        let operand_size: [u32; 1] = [RSA_KEY_SIZE as u32];
+        let operand_size = 32 * (a.len() as u32);
 
-        self.write_to_ram(OPERAND_LENGTH_ADDR, &operand_size);
+        self.write_to_ram_u32(OPERAND_LENGTH_ADDR, &operand_size);
+
         self.write_to_ram(MODULUS_ADDR, modulus);
-
         self.write_to_ram(OPERAND_A_ADDR, &a);
         self.write_to_ram(OPERAND_B_ADDR, &b);
 
@@ -384,9 +347,10 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
     /// Calculate the modular inversion of a number
     pub async fn mod_inverse(&mut self, a: &[u32], modulus: &[u32]) -> Result<[u32; RSA_KEY_SIZE], ()> {
         // Calculate the operand size.
-        let operand_size: [u32; 1] = [32 * 4];
+        let operand_size = 32 * (a.len() as u32);
 
-        self.write_to_ram(OPERAND_LENGTH_ADDR, &operand_size);
+        self.write_to_ram_u32(OPERAND_LENGTH_ADDR, &operand_size);
+
         self.write_to_ram(OPERAND_A_ADDR, &a);
         // This is not an error. Once in a while modulus is written to different address
         self.write_to_ram(OPERAND_B_ADDR, modulus);
@@ -412,42 +376,41 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
     ) -> Result<[u32; RSA_KEY_SIZE], ()> {
         let mut result: [u32; RSA_KEY_SIZE] = [0; RSA_KEY_SIZE];
 
-        let exponent_size: u32 = 2;
+        let exponent_size: u32 = 32 * exponent.len() as u32 - exponent[0].leading_zeros() as u32;
 
         // Calculate the operand size
-        let operand_size: u32 = 6;
-
-        info!("Operand {:?}", operand);
+        let operand_size: u32 = 32 * modulus.len() as u32 - modulus[0].leading_zeros() as u32;
 
         self.write_to_ram_u32(EXPONENT_LENGTH_ADDR, &exponent_size);
         self.write_to_ram_u32(OPERAND_LENGTH_ADDR, &operand_size);
-        self.write_to_ram(OPERAND_A_ADDR, operand);
+
+        self.write_to_ram(OPERAND_B_ADDR, operand);
         self.write_to_ram(EXPONENT_ADDR, exponent);
         self.write_to_ram(MODULUS_ADDR, modulus);
-        // self.write_to_ram(MONT_PARAM_R2_MOD_N, r2_mod_n);
+        self.write_to_ram(MONT_PARAM_R2_MOD_N, r2_mod_n);
 
-        let mode = PkaOperationMode::MontgomeryParameterComputationThenModularExponentiation as u8;
+        let mode = PkaOperationMode::ModularExponentiationOnly as u8;
         self.set_mode(mode);
 
         self.start().await;
 
         self.read_from_ram(EXPONENTIATION_RESULT_ADDR, &mut result);
 
-        // 029787fb c05876d5a e79aad9 1e8af815
+        let mut test: [u32; 5] = [0; 5];
+        self.read_from_ram(OPERAND_A_ADDR, &mut test);
+
         Ok(result)
     }
 
     /// Calculate A * B
     pub async fn arithmetic_multiply(&mut self, a: &[u32], b: &[u32]) -> Result<[u32; RSA_KEY_SIZE], ()> {
         // Calculate the operand size
-        // FIXME: Hardcoded, remove later
         let mut operand_size: [u32; 1] = [0];
 
         for i in 0..a.len() {
             if a[i] != 0 {
                 continue;
             }
-            info!("Current iteration: {:?}", i);
             operand_size[0] = 32 * (i as u32);
             break;
         }
@@ -455,8 +418,6 @@ impl<'d, T: Instance, const RSA_KEY_SIZE: usize> Pka<'d, T, RSA_KEY_SIZE> {
         if operand_size[0] == 0 {
             operand_size[0] = 32 * (a.len() as u32);
         }
-
-        info!("Operand size: {:?}", operand_size);
 
         self.write_to_ram(OPERAND_LENGTH_ADDR, &operand_size);
         self.write_to_ram(OPERAND_A_ADDR, &a);
