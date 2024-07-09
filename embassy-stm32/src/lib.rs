@@ -375,9 +375,9 @@ mod dual_core {
         rcc::set_freqs_ptr(&shared_data.clocks);
 
         // We use different timers on the different cores, so we have to still initialize one here
+        #[cfg(feature = "_time-driver")]
         critical_section::with(|cs| {
             // must be after rcc init
-            #[cfg(feature = "_time-driver")]
             time_driver::init(cs);
         });
 
