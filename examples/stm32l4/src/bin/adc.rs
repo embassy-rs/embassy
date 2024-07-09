@@ -3,28 +3,27 @@
 
 use defmt::*;
 use embassy_stm32::adc::{Adc, Resolution};
-use embassy_stm32::pac;
-use embassy_time::Delay;
+use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    pac::RCC.ccipr().modify(|w| {
-        w.set_adcsel(pac::rcc::vals::Adcsel::SYS);
-    });
-    pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
+    let mut config = Config::default();
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.mux.adcsel = mux::Adcsel::SYS;
+    }
+    let p = embassy_stm32::init(config);
 
-    let p = embassy_stm32::init(Default::default());
-
-    let mut adc = Adc::new(p.ADC1, &mut Delay);
+    let mut adc = Adc::new(p.ADC1);
     //adc.enable_vref();
-    adc.set_resolution(Resolution::EightBit);
+    adc.set_resolution(Resolution::BITS8);
     let mut channel = p.PC0;
 
     loop {
-        let v = adc.read(&mut channel);
+        let v = adc.blocking_read(&mut channel);
         info!("--> {}", v);
     }
 }

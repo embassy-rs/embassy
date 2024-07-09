@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::Config;
-use embassy_time::{Delay, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -38,22 +38,22 @@ async fn main(_spawner: Spawner) {
         config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
-        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
     }
     let mut p = embassy_stm32::init(config);
 
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC3, &mut Delay);
+    let mut adc = Adc::new(p.ADC3);
 
-    adc.set_sample_time(SampleTime::Cycles32_5);
+    adc.set_sample_time(SampleTime::CYCLES32_5);
 
     let mut vrefint_channel = adc.enable_vrefint();
 
     loop {
-        let vrefint = adc.read_internal(&mut vrefint_channel);
+        let vrefint = adc.blocking_read(&mut vrefint_channel);
         info!("vrefint: {}", vrefint);
-        let measured = adc.read(&mut p.PC0);
+        let measured = adc.blocking_read(&mut p.PC0);
         info!("measured: {}", measured);
         Timer::after_millis(500).await;
     }

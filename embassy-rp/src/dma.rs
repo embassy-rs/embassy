@@ -47,12 +47,11 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
     to: *mut [W],
     dreq: u8,
 ) -> Transfer<'a, C> {
-    let (to_ptr, len) = crate::dma::slice_ptr_parts(to);
     copy_inner(
         ch,
         from as *const u32,
-        to_ptr as *mut u32,
-        len,
+        to as *mut W as *mut u32,
+        to.len(),
         W::size(),
         false,
         true,
@@ -69,12 +68,11 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
     to: *mut W,
     dreq: u8,
 ) -> Transfer<'a, C> {
-    let (from_ptr, len) = crate::dma::slice_ptr_parts(from);
     copy_inner(
         ch,
-        from_ptr as *const u32,
+        from as *const W as *const u32,
         to as *mut u32,
-        len,
+        from.len(),
         W::size(),
         true,
         false,
@@ -96,7 +94,7 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
-        &mut DUMMY as *const u32,
+        core::ptr::addr_of_mut!(DUMMY) as *const u32,
         to as *mut u32,
         len,
         W::size(),
@@ -114,13 +112,13 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(
     from: &[W],
     to: &mut [W],
 ) -> Transfer<'a, C> {
-    let (from_ptr, from_len) = crate::dma::slice_ptr_parts(from);
-    let (to_ptr, to_len) = crate::dma::slice_ptr_parts_mut(to);
+    let from_len = from.len();
+    let to_len = to.len();
     assert_eq!(from_len, to_len);
     copy_inner(
         ch,
-        from_ptr as *const u32,
-        to_ptr as *mut u32,
+        from.as_ptr() as *const u32,
+        to.as_mut_ptr() as *mut u32,
         from_len,
         W::size(),
         true,
@@ -208,14 +206,12 @@ pub(crate) const CHANNEL_COUNT: usize = 12;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 
-mod sealed {
-    pub trait Channel {}
-
-    pub trait Word {}
-}
+trait SealedChannel {}
+trait SealedWord {}
 
 /// DMA channel interface.
-pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Channel: Peripheral<P = Self> + SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Channel number.
     fn number(&self) -> u8;
 
@@ -231,26 +227,27 @@ pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + S
 }
 
 /// DMA word.
-pub trait Word: sealed::Word {
+#[allow(private_bounds)]
+pub trait Word: SealedWord {
     /// Word size.
     fn size() -> vals::DataSize;
 }
 
-impl sealed::Word for u8 {}
+impl SealedWord for u8 {}
 impl Word for u8 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_BYTE
     }
 }
 
-impl sealed::Word for u16 {}
+impl SealedWord for u16 {}
 impl Word for u16 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_HALFWORD
     }
 }
 
-impl sealed::Word for u32 {}
+impl SealedWord for u32 {}
 impl Word for u32 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_WORD
@@ -264,7 +261,7 @@ pub struct AnyChannel {
 
 impl_peripheral!(AnyChannel);
 
-impl sealed::Channel for AnyChannel {}
+impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> u8 {
         self.number
@@ -273,7 +270,7 @@ impl Channel for AnyChannel {
 
 macro_rules! channel {
     ($name:ident, $num:expr) => {
-        impl sealed::Channel for peripherals::$name {}
+        impl SealedChannel for peripherals::$name {}
         impl Channel for peripherals::$name {
             fn number(&self) -> u8 {
                 $num
@@ -286,17 +283,6 @@ macro_rules! channel {
             }
         }
     };
-}
-
-// TODO: replace transmutes with core::ptr::metadata once it's stable
-#[allow(unused)]
-pub(crate) fn slice_ptr_parts<T>(slice: *const [T]) -> (usize, usize) {
-    unsafe { core::mem::transmute(slice) }
-}
-
-#[allow(unused)]
-pub(crate) fn slice_ptr_parts_mut<T>(slice: *mut [T]) -> (usize, usize) {
-    unsafe { core::mem::transmute(slice) }
 }
 
 channel!(DMA_CH0, 0);

@@ -1,6 +1,6 @@
 //! Atomic reusable ringbuffer.
-use core::slice;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use core::{ptr, slice};
 
 /// Atomic reusable ringbuffer
 ///
@@ -73,6 +73,7 @@ impl RingBuffer {
     pub unsafe fn deinit(&self) {
         // Ordering: it's OK to use `Relaxed` because this is not called
         // concurrently with other methods.
+        self.buf.store(ptr::null_mut(), Ordering::Relaxed);
         self.len.store(0, Ordering::Relaxed);
         self.start.store(0, Ordering::Relaxed);
         self.end.store(0, Ordering::Relaxed);
@@ -82,18 +83,49 @@ impl RingBuffer {
     ///
     /// # Safety
     ///
-    /// Only one reader can exist at a time.
+    /// - Only one reader can exist at a time.
+    /// - Ringbuffer must be initialized.
     pub unsafe fn reader(&self) -> Reader<'_> {
         Reader(self)
+    }
+
+    /// Try creating a reader, fails if not initialized.
+    ///
+    /// # Safety
+    ///
+    /// Only one reader can exist at a time.
+    pub unsafe fn try_reader(&self) -> Option<Reader<'_>> {
+        if self.buf.load(Ordering::Relaxed).is_null() {
+            return None;
+        }
+        Some(Reader(self))
     }
 
     /// Create a writer.
     ///
     /// # Safety
     ///
-    /// Only one writer can exist at a time.
+    /// - Only one writer can exist at a time.
+    /// - Ringbuffer must be initialized.
     pub unsafe fn writer(&self) -> Writer<'_> {
         Writer(self)
+    }
+
+    /// Try creating a writer, fails if not initialized.
+    ///
+    /// # Safety
+    ///
+    /// Only one writer can exist at a time.
+    pub unsafe fn try_writer(&self) -> Option<Writer<'_>> {
+        if self.buf.load(Ordering::Relaxed).is_null() {
+            return None;
+        }
+        Some(Writer(self))
+    }
+
+    /// Return if buffer is available.
+    pub fn is_available(&self) -> bool {
+        !self.buf.load(Ordering::Relaxed).is_null() && self.len.load(Ordering::Relaxed) != 0
     }
 
     /// Return length of buffer.
@@ -451,8 +483,12 @@ mod tests {
 
     #[test]
     fn zero_len() {
+        let mut b = [0; 0];
+
         let rb = RingBuffer::new();
         unsafe {
+            rb.init(b.as_mut_ptr(), b.len());
+
             assert_eq!(rb.is_empty(), true);
             assert_eq!(rb.is_full(), true);
 

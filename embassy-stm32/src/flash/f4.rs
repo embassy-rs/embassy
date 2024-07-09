@@ -1,4 +1,3 @@
-use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, AtomicBool, Ordering};
 
@@ -17,7 +16,7 @@ mod alt_regions {
     use embassy_hal_internal::PeripheralRef;
     use stm32_metapac::FLASH_SIZE;
 
-    use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
+    use crate::_generated::flash_regions::{BANK1_REGION1, BANK1_REGION2, BANK1_REGION3};
     use crate::flash::{asynch, Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashRegion};
     use crate::peripherals::FLASH;
 
@@ -63,7 +62,6 @@ mod alt_regions {
         pub bank2_region1: AltBank2Region1<'d, MODE>,
         pub bank2_region2: AltBank2Region2<'d, MODE>,
         pub bank2_region3: AltBank2Region3<'d, MODE>,
-        pub otp_region: OTPRegion<'d, MODE>,
     }
 
     impl<'d> Flash<'d> {
@@ -80,7 +78,6 @@ mod alt_regions {
                 bank2_region1: AltBank2Region1(&ALT_BANK2_REGION1, unsafe { p.clone_unchecked() }, PhantomData),
                 bank2_region2: AltBank2Region2(&ALT_BANK2_REGION2, unsafe { p.clone_unchecked() }, PhantomData),
                 bank2_region3: AltBank2Region3(&ALT_BANK2_REGION3, unsafe { p.clone_unchecked() }, PhantomData),
-                otp_region: OTPRegion(&OTP_REGION, unsafe { p.clone_unchecked() }, PhantomData),
             }
         }
 
@@ -97,7 +94,6 @@ mod alt_regions {
                 bank2_region1: AltBank2Region1(&ALT_BANK2_REGION1, unsafe { p.clone_unchecked() }, PhantomData),
                 bank2_region2: AltBank2Region2(&ALT_BANK2_REGION2, unsafe { p.clone_unchecked() }, PhantomData),
                 bank2_region3: AltBank2Region3(&ALT_BANK2_REGION3, unsafe { p.clone_unchecked() }, PhantomData),
-                otp_region: OTPRegion(&OTP_REGION, unsafe { p.clone_unchecked() }, PhantomData),
             }
         }
     }
@@ -227,8 +223,8 @@ pub(crate) unsafe fn lock() {
 
 pub(crate) unsafe fn unlock() {
     if pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write(|w| w.set_key(0x45670123));
-        pac::FLASH.keyr().write(|w| w.set_key(0xCDEF89AB));
+        pac::FLASH.keyr().write_value(0x4567_0123);
+        pac::FLASH.keyr().write_value(0xCDEF_89AB);
     }
 }
 
@@ -281,7 +277,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
     let mut address = start_address;
     for val in buf.chunks(4) {
-        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
         address += val.len() as u32;
 
         // prevents parallelism errors
@@ -342,9 +338,8 @@ pub(crate) fn clear_all_err() {
 }
 
 pub(crate) async fn wait_ready() -> Result<(), Error> {
+    use core::future::poll_fn;
     use core::task::Poll;
-
-    use futures::future::poll_fn;
 
     poll_fn(|cx| {
         WAKER.register(cx.waker());
@@ -384,7 +379,7 @@ fn get_result(sr: Sr) -> Result<(), Error> {
 }
 
 fn save_data_cache_state() {
-    let dual_bank = get_flash_regions().last().unwrap().bank == FlashBank::Bank2;
+    let dual_bank = unwrap!(get_flash_regions().last()).bank == FlashBank::Bank2;
     if dual_bank {
         // Disable data cache during write/erase if there are two banks, see errata 2.2.12
         let dcen = pac::FLASH.acr().read().dcen();
@@ -396,7 +391,7 @@ fn save_data_cache_state() {
 }
 
 fn restore_data_cache_state() {
-    let dual_bank = get_flash_regions().last().unwrap().bank == FlashBank::Bank2;
+    let dual_bank = unwrap!(get_flash_regions().last()).bank == FlashBank::Bank2;
     if dual_bank {
         // Restore data cache if it was enabled
         let dcen = DATA_CACHE_WAS_ENABLED.load(Ordering::Relaxed);
@@ -415,7 +410,7 @@ pub(crate) fn assert_not_corrupted_read(end_address: u32) {
 
     #[allow(unused)]
     let second_bank_read =
-        get_flash_regions().last().unwrap().bank == FlashBank::Bank2 && end_address > (FLASH_SIZE / 2) as u32;
+        unwrap!(get_flash_regions().last()).bank == FlashBank::Bank2 && end_address > (FLASH_SIZE / 2) as u32;
 
     #[cfg(any(
         feature = "stm32f427ai",

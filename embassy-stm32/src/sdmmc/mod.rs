@@ -13,11 +13,12 @@ use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
 use crate::dma::NoDma;
-use crate::gpio::sealed::{AFType, Pin};
-use crate::gpio::{AnyPin, Pull, Speed};
+#[cfg(gpio_v2)]
+use crate::gpio::Pull;
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals, Peripheral};
 
@@ -228,10 +229,10 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
 }
 
 #[cfg(sdmmc_v1)]
-type Transfer<'a, C> = crate::dma::Transfer<'a, C>;
+type Transfer<'a> = crate::dma::Transfer<'a>;
 #[cfg(sdmmc_v2)]
-struct Transfer<'a, C> {
-    _dummy: core::marker::PhantomData<&'a mut C>,
+struct Transfer<'a> {
+    _dummy: PhantomData<&'a ()>,
 }
 
 #[cfg(all(sdmmc_v1, dma))]
@@ -240,12 +241,14 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
     mburst: crate::dma::Burst::Incr4,
     flow_ctrl: crate::dma::FlowControl::Peripheral,
     fifo_threshold: Some(crate::dma::FifoThreshold::Full),
+    priority: crate::dma::Priority::VeryHigh,
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
 };
 #[cfg(all(sdmmc_v1, not(dma)))]
 const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {
+    priority: crate::dma::Priority::VeryHigh,
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
@@ -291,6 +294,13 @@ pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
     card: Option<Card>,
 }
 
+const CLK_AF: AfType = AfType::output(OutputType::PushPull, Speed::VeryHigh);
+#[cfg(gpio_v1)]
+const CMD_AF: AfType = AfType::output(OutputType::PushPull, Speed::VeryHigh);
+#[cfg(gpio_v2)]
+const CMD_AF: AfType = AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up);
+const DATA_AF: AfType = CMD_AF;
+
 #[cfg(sdmmc_v1)]
 impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
     /// Create a new SDMMC driver, with 1 data lane.
@@ -306,13 +316,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
         into_ref!(clk, cmd, d0);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -344,19 +350,12 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
         into_ref!(clk, cmd, d0, d1, d2, d3);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-            d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::Up);
-            d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::Up);
-            d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
-            d1.set_speed(Speed::VeryHigh);
-            d2.set_speed(Speed::VeryHigh);
-            d3.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
+            d1.set_as_af(d1.af_num(), DATA_AF);
+            d2.set_as_af(d2.af_num(), DATA_AF);
+            d3.set_as_af(d3.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -387,13 +386,9 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
         into_ref!(clk, cmd, d0);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -424,19 +419,12 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
         into_ref!(clk, cmd, d0, d1, d2, d3);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-            d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::Up);
-            d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::Up);
-            d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
-            d1.set_speed(Speed::VeryHigh);
-            d2.set_speed(Speed::VeryHigh);
-            d3.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
+            d1.set_as_af(d1.af_num(), DATA_AF);
+            d2.set_as_af(d2.af_num(), DATA_AF);
+            d3.set_as_af(d3.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -467,7 +455,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     ) -> Self {
         into_ref!(sdmmc, dma);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -548,7 +536,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         buffer: &'a mut [u32],
         length_bytes: u32,
         block_size: u8,
-    ) -> Transfer<'a, Dma> {
+    ) -> Transfer<'a> {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = T::regs();
 
@@ -596,12 +584,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
-    fn prepare_datapath_write<'a>(
-        &'a mut self,
-        buffer: &'a [u32],
-        length_bytes: u32,
-        block_size: u8,
-    ) -> Transfer<'a, Dma> {
+    fn prepare_datapath_write<'a>(&'a mut self, buffer: &'a [u32], length_bytes: u32, block_size: u8) -> Transfer<'a> {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = T::regs();
 
@@ -670,7 +653,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             _ => panic!("Invalid Bus Width"),
         };
 
-        let ker_ck = T::kernel_clk();
+        let ker_ck = T::frequency();
         let (_bypass, clkdiv, new_clock) = clk_div(ker_ck, freq)?;
 
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
@@ -1023,7 +1006,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// specified frequency.
     pub async fn init_card(&mut self, freq: Hertz) -> Result<(), Error> {
         let regs = T::regs();
-        let ker_ck = T::kernel_clk();
+        let ker_ck = T::frequency();
 
         let bus_width = match self.d3.is_some() {
             true => BusWidth::Four,
@@ -1421,22 +1404,17 @@ impl Cmd {
 
 //////////////////////////////////////////////////////
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        type Interrupt: interrupt::typelevel::Interrupt;
-
-        fn regs() -> RegBlock;
-        fn state() -> &'static AtomicWaker;
-        fn kernel_clk() -> Hertz;
-    }
-
-    pub trait Pins<T: Instance> {}
+trait SealedInstance {
+    fn regs() -> RegBlock;
+    fn state() -> &'static AtomicWaker;
 }
 
 /// SDMMC instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
+    /// Interrupt for this instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 pin_trait!(CkPin, Instance);
 pin_trait!(CmdPin, Instance);
@@ -1461,66 +1439,9 @@ pub trait SdmmcDma<T: Instance> {}
 #[cfg(sdmmc_v2)]
 impl<T: Instance> SdmmcDma<T> for NoDma {}
 
-cfg_if::cfg_if! {
-    // TODO, these could not be implemented, because required clocks are not exposed in RCC:
-    // - H7 uses pll1_q_ck or pll2_r_ck depending on SDMMCSEL
-    // - L1 uses pll48
-    // - L4 uses clk48(pll48)
-    // - L4+, L5, U5 uses clk48(pll48) or PLLSAI3CLK(PLLP) depending on SDMMCSEL
-    if #[cfg(stm32f1)] {
-        // F1 uses AHB1(HCLK), which is correct in PAC
-        macro_rules! kernel_clk {
-            ($inst:ident) => {
-                <peripherals::$inst as crate::rcc::sealed::RccPeripheral>::frequency()
-            }
-        }
-    } else if #[cfg(any(stm32f2, stm32f4))] {
-        // F2, F4 always use pll48
-        macro_rules! kernel_clk {
-            ($inst:ident) => {
-                critical_section::with(|_| unsafe {
-                    unwrap!(crate::rcc::get_freqs().pll1_q)
-                })
-            }
-        }
-    } else if #[cfg(stm32f7)] {
-        macro_rules! kernel_clk {
-            (SDMMC1) => {
-                critical_section::with(|_| unsafe {
-                    let sdmmcsel = crate::pac::RCC.dckcfgr2().read().sdmmc1sel();
-                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYS {
-                        crate::rcc::get_freqs().sys
-                    } else {
-                        unwrap!(crate::rcc::get_freqs().pll1_q)
-                    }
-                })
-            };
-            (SDMMC2) => {
-                critical_section::with(|_| unsafe {
-                    let sdmmcsel = crate::pac::RCC.dckcfgr2().read().sdmmc2sel();
-                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYS {
-                        crate::rcc::get_freqs().sys
-                    } else {
-                        unwrap!(crate::rcc::get_freqs().pll1_q)
-                    }
-                })
-            };
-        }
-    } else {
-        // Use default peripheral clock and hope it works
-        macro_rules! kernel_clk {
-            ($inst:ident) => {
-                <peripherals::$inst as crate::rcc::sealed::RccPeripheral>::frequency()
-            }
-        }
-    }
-}
-
 foreach_peripheral!(
     (sdmmc, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$inst;
-
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> RegBlock {
                 crate::pac::$inst
             }
@@ -1529,12 +1450,10 @@ foreach_peripheral!(
                 static WAKER: ::embassy_sync::waitqueue::AtomicWaker = ::embassy_sync::waitqueue::AtomicWaker::new();
                 &WAKER
             }
-
-            fn kernel_clk() -> Hertz {
-                kernel_clk!($inst)
-            }
         }
 
-        impl Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$inst;
+        }
     };
 );

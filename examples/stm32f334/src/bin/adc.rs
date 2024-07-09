@@ -5,10 +5,9 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::peripherals::ADC1;
-use embassy_stm32::rcc::{AdcClockSource, Adcpres};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{adc, bind_interrupts, Config};
-use embassy_time::{Delay, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -18,23 +17,34 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     let mut config = Config::default();
-    config.rcc.sysclk = Some(mhz(64));
-    config.rcc.hclk = Some(mhz(64));
-    config.rcc.pclk1 = Some(mhz(32));
-    config.rcc.pclk2 = Some(mhz(64));
-    config.rcc.adc = Some(AdcClockSource::Pll(Adcpres::DIV1));
-
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: mhz(8),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.pll = Some(Pll {
+            src: PllSource::HSE,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL9,
+        });
+        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV2;
+        config.rcc.apb2_pre = APBPrescaler::DIV1;
+        config.rcc.adc = AdcClockSource::Pll(AdcPllPrescaler::DIV1);
+    }
     let mut p = embassy_stm32::init(config);
 
     info!("create adc...");
 
-    let mut adc = Adc::new(p.ADC1, Irqs, &mut Delay);
+    let mut adc = Adc::new(p.ADC1, Irqs);
 
-    adc.set_sample_time(SampleTime::Cycles601_5);
+    adc.set_sample_time(SampleTime::CYCLES601_5);
 
     info!("enable vrefint...");
 
-    let mut vrefint = adc.enable_vref(&mut Delay);
+    let mut vrefint = adc.enable_vref();
     let mut temperature = adc.enable_temperature();
 
     loop {

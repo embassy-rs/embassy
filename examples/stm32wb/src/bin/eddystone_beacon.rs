@@ -11,11 +11,9 @@ use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32_wpan::hci::host::uart::UartHci;
 use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
 use embassy_stm32_wpan::hci::types::AdvertisingType;
-use embassy_stm32_wpan::hci::vendor::stm32wb::command::gap::{
-    AdvertisingDataType, DiscoverableParameters, GapCommands, Role,
-};
-use embassy_stm32_wpan::hci::vendor::stm32wb::command::gatt::GattCommands;
-use embassy_stm32_wpan::hci::vendor::stm32wb::command::hal::{ConfigData, HalCommands, PowerLevel};
+use embassy_stm32_wpan::hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
+use embassy_stm32_wpan::hci::vendor::command::gatt::GattCommands;
+use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
 use embassy_stm32_wpan::hci::BdAddr;
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::TlMbox;
@@ -48,7 +46,6 @@ async fn main(_spawner: Spawner) {
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
         - Select "Start Wireless Stack".
         - Disconnect from the device.
-        - In the examples folder for stm32wb, modify the memory.x file to match your target device.
         - Run this example.
 
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.

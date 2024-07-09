@@ -1,3 +1,4 @@
+// required-features: nrf52840
 #![no_std]
 #![no_main]
 teleprobe_meta::target!(b"ak-gwe-r7");
@@ -21,10 +22,7 @@ bind_interrupts!(struct Irqs {
     RNG => embassy_nrf::rng::InterruptHandler<peripherals::RNG>;
 });
 
-type MyDriver = Enc28j60<
-    ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static, peripherals::P0_15>, Delay>,
-    Output<'static, peripherals::P0_13>,
->;
+type MyDriver = Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>;
 
 #[embassy_executor::task]
 async fn net_task(stack: &'static Stack<MyDriver>) -> ! {

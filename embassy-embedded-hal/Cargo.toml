@@ -3,13 +3,23 @@ name = "embassy-embedded-hal"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-
+description = "Collection of utilities to use `embedded-hal` and `embedded-storage` traits with Embassy."
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-embedded-hal"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-embedded-hal-v$VERSION/embassy-embedded-hal/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-embedded-hal/src/"
 features = ["std"]
 target = "x86_64-unknown-linux-gnu"
+
+[package.metadata.docs.rs]
+features = ["std"]
 
 [features]
 std = []
@@ -18,13 +28,13 @@ default = ["time"]
 
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
-embassy-time = { version = "0.2", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
+embassy-time = { version = "0.3.1", path = "../embassy-time", optional = true }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",
 ] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
-embedded-hal-async = { version = "=1.0.0-rc.3" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 nb = "1.0.0"

@@ -8,7 +8,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use crate::dma::NoDma;
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 mod tsel;
@@ -118,7 +118,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     ///
     /// If you're not using DMA, pass [`dma::NoDma`] for the `dma` argument.
     ///
-    /// The channel is enabled on creation and begins to drive the output pin.
+    /// The channel is enabled on creation and begin to drive the output pin.
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
     /// disable the channel; you must re-enable it with `enable()`.
     ///
@@ -127,11 +127,11 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = DMA> + 'd,
-        pin: impl Peripheral<P = impl DacPin<T, N> + crate::gpio::sealed::Pin> + 'd,
+        pin: impl Peripheral<P = impl DacPin<T, N> + crate::gpio::Pin> + 'd,
     ) -> Self {
         into_ref!(dma, pin);
         pin.set_as_analog();
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         let mut dac = Self {
             phantom: PhantomData,
             dma,
@@ -157,7 +157,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
     pub fn new_internal(_peri: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = DMA> + 'd) -> Self {
         into_ref!(dma);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         let mut dac = Self {
             phantom: PhantomData,
             dma,
@@ -356,7 +356,7 @@ impl_dma_methods!(2, DacDma2);
 
 impl<'d, T: Instance, const N: u8, DMA> Drop for DacChannel<'d, T, N, DMA> {
     fn drop(&mut self) {
-        T::disable();
+        rcc::disable::<T>();
     }
 }
 
@@ -368,7 +368,7 @@ impl<'d, T: Instance, const N: u8, DMA> Drop for DacChannel<'d, T, N, DMA> {
 ///
 /// ```ignore
 /// // Pins may need to be changed for your specific device.
-/// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC, NoDma, NoDma, p.PA4, p.PA5).split();
+/// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, NoDma, NoDma, p.PA4, p.PA5).split();
 /// ```
 pub struct Dac<'d, T: Instance, DMACh1 = NoDma, DMACh2 = NoDma> {
     ch1: DacChannel<'d, T, 1, DMACh1>,
@@ -382,7 +382,7 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
     /// call `split()` to obtain separate `DacChannel`s, or use methods on `Dac` to use
     /// the two channels together.
     ///
-    /// The channels are enabled on creation and begins to drive their output pins.
+    /// The channels are enabled on creation and begin to drive their output pins.
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
     /// disable the channel; you must re-enable them with `enable()`.
     ///
@@ -392,25 +392,34 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
         _peri: impl Peripheral<P = T> + 'd,
         dma_ch1: impl Peripheral<P = DMACh1> + 'd,
         dma_ch2: impl Peripheral<P = DMACh2> + 'd,
-        pin_ch1: impl Peripheral<P = impl DacPin<T, 1> + crate::gpio::sealed::Pin> + 'd,
-        pin_ch2: impl Peripheral<P = impl DacPin<T, 2> + crate::gpio::sealed::Pin> + 'd,
+        pin_ch1: impl Peripheral<P = impl DacPin<T, 1> + crate::gpio::Pin> + 'd,
+        pin_ch2: impl Peripheral<P = impl DacPin<T, 2> + crate::gpio::Pin> + 'd,
     ) -> Self {
         into_ref!(dma_ch1, dma_ch2, pin_ch1, pin_ch2);
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
+
         // Enable twice to increment the DAC refcount for each channel.
-        T::enable_and_reset();
-        T::enable_and_reset();
-        Self {
-            ch1: DacCh1 {
-                phantom: PhantomData,
-                dma: dma_ch1,
-            },
-            ch2: DacCh2 {
-                phantom: PhantomData,
-                dma: dma_ch2,
-            },
-        }
+        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset::<T>();
+
+        let mut ch1 = DacCh1 {
+            phantom: PhantomData,
+            dma: dma_ch1,
+        };
+        #[cfg(any(dac_v5, dac_v6, dac_v7))]
+        ch1.set_hfsel();
+        ch1.enable();
+
+        let mut ch2 = DacCh2 {
+            phantom: PhantomData,
+            dma: dma_ch2,
+        };
+        #[cfg(any(dac_v5, dac_v6, dac_v7))]
+        ch2.set_hfsel();
+        ch2.enable();
+
+        Self { ch1, ch2 }
     }
 
     /// Create a new `Dac` instance where the external output pins are not used,
@@ -435,18 +444,28 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
     ) -> Self {
         into_ref!(dma_ch1, dma_ch2);
         // Enable twice to increment the DAC refcount for each channel.
-        T::enable_and_reset();
-        T::enable_and_reset();
-        Self {
-            ch1: DacCh1 {
-                phantom: PhantomData,
-                dma: dma_ch1,
-            },
-            ch2: DacCh2 {
-                phantom: PhantomData,
-                dma: dma_ch2,
-            },
-        }
+        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset::<T>();
+
+        let mut ch1 = DacCh1 {
+            phantom: PhantomData,
+            dma: dma_ch1,
+        };
+        #[cfg(any(dac_v5, dac_v6, dac_v7))]
+        ch1.set_hfsel();
+        ch1.set_mode(Mode::NormalInternalUnbuffered);
+        ch1.enable();
+
+        let mut ch2 = DacCh2 {
+            phantom: PhantomData,
+            dma: dma_ch2,
+        };
+        #[cfg(any(dac_v5, dac_v6, dac_v7))]
+        ch2.set_hfsel();
+        ch2.set_mode(Mode::NormalInternalUnbuffered);
+        ch2.enable();
+
+        Self { ch1, ch2 }
     }
 
     /// Split this `Dac` into separate channels.
@@ -488,14 +507,13 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
     }
 }
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> &'static crate::pac::dac::Dac;
-    }
+trait SealedInstance {
+    fn regs() -> crate::pac::dac::Dac;
 }
 
 /// DAC instance.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {}
 dma_trait!(DacDma1, Instance);
 dma_trait!(DacDma2, Instance);
 
@@ -504,32 +522,9 @@ pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
 foreach_peripheral!(
     (dac, $inst:ident) => {
-        // H7 uses single bit for both DAC1 and DAC2, this is a hack until a proper fix is implemented
-        #[cfg(any(rcc_h7, rcc_h7rm0433))]
-        impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| unsafe { crate::rcc::get_freqs().pclk1 })
-            }
-
-            fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
-                // TODO: Increment refcount?
-                crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
-                crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
-                crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
-            }
-
-            fn disable_with_cs(_cs: critical_section::CriticalSection) {
-                // TODO: Decrement refcount?
-                crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
-            }
-        }
-
-        #[cfg(any(rcc_h7, rcc_h7rm0433))]
-        impl crate::rcc::RccPeripheral for peripherals::$inst {}
-
-        impl crate::dac::sealed::Instance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::dac::Dac {
-                &crate::pac::$inst
+        impl crate::dac::SealedInstance for peripherals::$inst {
+            fn regs() -> crate::pac::dac::Dac {
+                crate::pac::$inst
             }
         }
 

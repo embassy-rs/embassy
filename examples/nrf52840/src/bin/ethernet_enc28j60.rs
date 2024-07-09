@@ -24,10 +24,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::task]
 async fn net_task(
     stack: &'static Stack<
-        Enc28j60<
-            ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static, peripherals::P0_15>, Delay>,
-            Output<'static, peripherals::P0_13>,
-        >,
+        Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>,
     >,
 ) -> ! {
     stack.run().await
@@ -71,12 +68,7 @@ async fn main(spawner: Spawner) {
     // Init network stack
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
     static STACK: StaticCell<
-        Stack<
-            Enc28j60<
-                ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static, peripherals::P0_15>, Delay>,
-                Output<'static, peripherals::P0_13>,
-            >,
-        >,
+        Stack<Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>>,
     > = StaticCell::new();
     let stack = STACK.init(Stack::new(
         device,

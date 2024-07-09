@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+## 0.6.0 - 2024-05-29
+
+- Add `capacity`, `free_capacity`, `clear`, `len`, `is_empty` and `is_full` functions to `Channel`.
+- Add `capacity`, `free_capacity`, `clear`, `len`, `is_empty` and `is_full` functions to `PriorityChannel`.
+- Add `capacity`, `free_capacity`, `clear`, `len`, `is_empty` and `is_full` functions to `PubSubChannel`.
+- Made `PubSubBehavior` sealed
+  - If you called `.publish_immediate(...)` on the queue directly before, then now call `.immediate_publisher().publish_immediate(...)`
+- Add OnceLock sync primitive.
+- Add constructor for DynamicChannel
+- Add ready_to_receive functions to Channel and Receiver.
+
 ## 0.5.0 - 2023-12-04
 
 - Add a PriorityChannel.
@@ -34,7 +47,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - impl `Default` for `Signal`
 - Remove unnecessary uses of `atomic-polyfill`
 - Add `#[must_use]` to all futures.
-
 
 ## 0.1.0 - 2022-08-26
 

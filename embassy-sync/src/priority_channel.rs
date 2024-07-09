@@ -33,7 +33,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Sender { channel: self.channel }
+        *self
     }
 }
 
@@ -101,7 +101,7 @@ where
     M: RawMutex,
 {
     fn clone(&self) -> Self {
-        Receiver { channel: self.channel }
+        *self
     }
 }
 
@@ -314,6 +314,22 @@ where
             Poll::Pending
         }
     }
+
+    fn clear(&mut self) {
+        self.queue.clear();
+    }
+
+    fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    fn is_full(&self) -> bool {
+        self.queue.len() == self.queue.capacity()
+    }
 }
 
 /// A bounded channel for communicating between asynchronous tasks
@@ -323,9 +339,9 @@ where
 /// buffer is full, attempts to `send` new messages will wait until a message is
 /// received from the channel.
 ///
-/// Sent data may be reordered based on their priorty within the channel.
+/// Sent data may be reordered based on their priority within the channel.
 /// For example, in a [`Max`](heapless::binary_heap::Max) [`PriorityChannel`]
-/// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be recieved as `[3, 2, 1]`.
+/// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be received as `[3, 2, 1]`.
 pub struct PriorityChannel<M, T, K, const N: usize>
 where
     T: Ord,
@@ -432,6 +448,38 @@ where
     /// if the channel is empty.
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.lock(|c| c.try_receive())
+    }
+
+    /// Returns the maximum number of elements the channel can hold.
+    pub const fn capacity(&self) -> usize {
+        N
+    }
+
+    /// Returns the free capacity of the channel.
+    ///
+    /// This is equivalent to `capacity() - len()`
+    pub fn free_capacity(&self) -> usize {
+        N - self.len()
+    }
+
+    /// Clears all elements in the channel.
+    pub fn clear(&self) {
+        self.lock(|c| c.clear());
+    }
+
+    /// Returns the number of elements currently in the channel.
+    pub fn len(&self) -> usize {
+        self.lock(|c| c.len())
+    }
+
+    /// Returns whether the channel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.lock(|c| c.is_empty())
+    }
+
+    /// Returns whether the channel is full.
+    pub fn is_full(&self) -> bool {
+        self.lock(|c| c.is_full())
     }
 }
 

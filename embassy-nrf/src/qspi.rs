@@ -9,6 +9,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::gpio::{self, Pin as GpioPin};
@@ -80,6 +81,8 @@ pub struct Config {
     pub frequency: Frequency,
     /// Value is specified in number of 16 MHz periods (62.5 ns)
     pub sck_delay: u8,
+    /// Value is specified in number of 64 MHz periods (15.625 ns), valid values between 0 and 7 (inclusive)
+    pub rx_delay: u8,
     /// Whether data is captured on the clock rising edge and data is output on a falling edge (MODE0) or vice-versa (MODE3)
     pub spi_mode: SpiMode,
     /// Addressing mode (24-bit or 32-bit)
@@ -98,6 +101,7 @@ impl Default for Config {
             deep_power_down: None,
             frequency: Frequency::M8,
             sck_delay: 80,
+            rx_delay: 2,
             spi_mode: SpiMode::MODE0,
             address_mode: AddressMode::_24BIT,
             capacity: 0,
@@ -162,7 +166,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
                 $pin.conf().write(|w| {
                     w.dir().output();
                     w.drive().h0h1();
-                    #[cfg(feature = "_nrf5340-s")]
+                    #[cfg(all(feature = "_nrf5340", feature = "_s"))]
                     w.mcusel().peripheral();
                     w
                 });
@@ -199,6 +203,11 @@ impl<'d, T: Instance> Qspi<'d, T> {
             w.dpmen().exit();
             w.spimode().variant(config.spi_mode);
             w.sckfreq().bits(config.frequency as u8);
+            w
+        });
+
+        r.iftiming.write(|w| unsafe {
+            w.rxdelay().bits(config.rx_delay & 0b111);
             w
         });
 
@@ -394,7 +403,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// a raw bus, not with flash memory.
     pub async fn read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
         // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -415,7 +424,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// a raw bus, not with flash memory.
     pub async fn write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
         // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -436,7 +445,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// a raw bus, not with flash memory.
     pub fn blocking_read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
         // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -452,7 +461,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// a raw bus, not with flash memory.
     pub fn blocking_write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
         // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -639,44 +648,44 @@ mod _eh1 {
             self.capacity as usize
         }
     }
+
+    #[cfg(feature = "qspi-multiwrite-flash")]
+    impl<'d, T: Instance> embedded_storage_async::nor_flash::MultiwriteNorFlash for Qspi<'d, T> {}
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+/// Peripheral static state
+pub(crate) struct State {
+    waker: AtomicWaker,
+}
 
-    /// Peripheral static state
-    pub struct State {
-        pub waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
         }
     }
+}
 
-    pub trait Instance {
-        fn regs() -> &'static crate::pac::qspi::RegisterBlock;
-        fn state() -> &'static State;
-    }
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static crate::pac::qspi::RegisterBlock;
+    fn state() -> &'static State;
 }
 
 /// QSPI peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_qspi {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::qspi::sealed::Instance for peripherals::$type {
+        impl crate::qspi::SealedInstance for peripherals::$type {
             fn regs() -> &'static crate::pac::qspi::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::qspi::sealed::State {
-                static STATE: crate::qspi::sealed::State = crate::qspi::sealed::State::new();
+            fn state() -> &'static crate::qspi::State {
+                static STATE: crate::qspi::State = crate::qspi::State::new();
                 &STATE
             }
         }

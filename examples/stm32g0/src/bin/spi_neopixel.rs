@@ -4,7 +4,6 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::word::U5;
-use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_time::Timer;
@@ -77,7 +76,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = Config::default();
     config.frequency = Hertz(4_000_000);
-    let mut spi = Spi::new_txonly_nosck(p.SPI1, p.PB5, p.DMA1_CH3, NoDma, config);
+    let mut spi = Spi::new_txonly(p.SPI1, p.PB3, p.PB5, p.DMA1_CH3, config); // SCK is unused.
 
     let mut neopixels = Ws2812::new();
 

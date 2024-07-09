@@ -1,4 +1,3 @@
-use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
@@ -20,8 +19,8 @@ pub(crate) unsafe fn lock() {
 
 pub(crate) unsafe fn unlock() {
     if pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write(|w| w.set_fkeyr(0x4567_0123));
-        pac::FLASH.keyr().write(|w| w.set_fkeyr(0xCDEF_89AB));
+        pac::FLASH.keyr().write_value(0x4567_0123);
+        pac::FLASH.keyr().write_value(0xCDEF_89AB);
     }
 }
 
@@ -38,7 +37,7 @@ pub(crate) unsafe fn disable_blocking_write() {
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     let mut address = start_address;
     for chunk in buf.chunks(2) {
-        write_volatile(address as *mut u16, u16::from_le_bytes(chunk.try_into().unwrap()));
+        write_volatile(address as *mut u16, u16::from_le_bytes(unwrap!(chunk.try_into())));
         address += chunk.len() as u32;
 
         // prevents parallelism errors

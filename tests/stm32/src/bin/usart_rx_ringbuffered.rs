@@ -8,6 +8,7 @@ mod common;
 use common::*;
 use defmt::{assert_eq, panic};
 use embassy_executor::Spawner;
+use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, DataBits, Parity, RingBufferedUartRx, StopBits, Uart, UartTx};
 use embassy_time::Timer;
 use rand_chacha::ChaCha8Rng;
@@ -51,7 +52,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn transmit_task(mut tx: UartTx<'static, peris::UART, peris::UART_TX_DMA>) {
+async fn transmit_task(mut tx: UartTx<'static, Async>) {
     // workaround https://github.com/embassy-rs/embassy/issues/1426
     Timer::after_millis(100).await;
 
@@ -74,7 +75,7 @@ async fn transmit_task(mut tx: UartTx<'static, peris::UART, peris::UART_TX_DMA>)
 }
 
 #[embassy_executor::task]
-async fn receive_task(mut rx: RingBufferedUartRx<'static, peris::UART, peris::UART_RX_DMA>) {
+async fn receive_task(mut rx: RingBufferedUartRx<'static>) {
     info!("Ready to receive...");
 
     let mut rng = ChaCha8Rng::seed_from_u64(1337);

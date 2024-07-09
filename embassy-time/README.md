@@ -5,14 +5,14 @@ Timekeeping, delays and timeouts.
 Timekeeping is done with elapsed time since system boot. Time is represented in
 ticks, where the tick rate is defined either by the driver (in the case of a fixed-rate
 tick) or chosen by the user with a [tick rate](#tick-rate) feature. The chosen
-tick rate applies to everything in `embassy-time` and thus determines the maximum 
+tick rate applies to everything in `embassy-time` and thus determines the maximum
 timing resolution of <code>(1 / tick_rate) seconds</code>.
 
 Tick counts are 64 bits. The default tick rate of 1Mhz supports
 representing time spans of up to ~584558 years, which is big enough for all practical
 purposes and allows not having to worry about overflows.
 
-## Time driver
+## Global time driver
 
 The `time` module is backed by a global "time driver" specified at build time.
 Only one driver can be active in a program.
@@ -21,7 +21,7 @@ All methods and structs transparently call into the active driver. This makes it
 possible for libraries to use `embassy_time` in a driver-agnostic way without
 requiring generic parameters.
 
-For more details, check the [`driver`] module.
+For more details, check the [`embassy_time_driver`](https://crates.io/crates/embassy-time-driver) crate.
 
 ## Instants and Durations
 

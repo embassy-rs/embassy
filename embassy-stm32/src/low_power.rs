@@ -10,14 +10,14 @@
 //! exceptions to this rule:
 //!
 //!  * `GPIO`
-//!  * `RCC`
+//!  * `RTC`
 //!
 //! Since entering and leaving low-power modes typically incurs a significant latency, the
 //! low-power executor will only attempt to enter when the next timer event is at least
 //! [`time_driver::MIN_STOP_PAUSE`] in the future.
 //!
 //! Currently there is no macro analogous to `embassy_executor::main` for this executor;
-//! consequently one must define their entrypoint manually. Moveover, you must relinquish control
+//! consequently one must define their entrypoint manually. Moreover, you must relinquish control
 //! of the `RTC` peripheral to the executor. This will typically look like
 //!
 //! ```rust,no_run
@@ -37,6 +37,8 @@
 //! async fn async_main(spawner: Spawner) {
 //!     // initialize the platform...
 //!     let mut config = embassy_stm32::Config::default();
+//!     // when enabled the power-consumption is much higher during stop, but debugging and RTT is working
+//!     config.enable_debug_during_sleep = false;
 //!     let p = embassy_stm32::init(config);
 //!
 //!     // give the RTC to the executor...
@@ -97,7 +99,7 @@ pub fn stop_ready(stop_mode: StopMode) -> bool {
     }
 }
 
-/// Available stop modes.
+/// Available Stop modes.
 #[non_exhaustive]
 #[derive(PartialEq)]
 pub enum StopMode {
@@ -105,6 +107,19 @@ pub enum StopMode {
     Stop1,
     /// STOP 2
     Stop2,
+}
+
+#[cfg(stm32l5)]
+use stm32_metapac::pwr::vals::Lpms;
+
+#[cfg(stm32l5)]
+impl Into<Lpms> for StopMode {
+    fn into(self) -> Lpms {
+        match self {
+            StopMode::Stop1 => Lpms::STOP1,
+            StopMode::Stop2 => Lpms::STOP2,
+        }
+    }
 }
 
 /// Thread mode executor, using WFE/SEV.
@@ -164,8 +179,16 @@ impl Executor {
         }
     }
 
-    fn configure_stop(&mut self, _stop_mode: StopMode) {
-        // TODO: configure chip-specific settings for stop
+    #[allow(unused_variables)]
+    fn configure_stop(&mut self, stop_mode: StopMode) {
+        #[cfg(stm32l5)]
+        crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
+        #[cfg(stm32h5)]
+        crate::pac::PWR.pmcr().modify(|v| {
+            use crate::pac::pwr::vals;
+            v.set_lpms(vals::Lpms::STOP);
+            v.set_svos(vals::Svos::SCALE3);
+        });
     }
 
     fn configure_pwr(&mut self) {
@@ -174,21 +197,26 @@ impl Executor {
         compiler_fence(Ordering::SeqCst);
 
         let stop_mode = self.stop_mode();
+
         if stop_mode.is_none() {
             trace!("low power: not ready to stop");
-        } else if self.time_driver.pause_time().is_err() {
-            trace!("low power: failed to pause time");
-        } else {
-            let stop_mode = stop_mode.unwrap();
-            match stop_mode {
-                StopMode::Stop1 => trace!("low power: stop 1"),
-                StopMode::Stop2 => trace!("low power: stop 2"),
-            }
-            self.configure_stop(stop_mode);
-
-            #[cfg(not(feature = "low-power-debug-with-sleep"))]
-            self.scb.set_sleepdeep();
+            return;
         }
+
+        if self.time_driver.pause_time().is_err() {
+            trace!("low power: failed to pause time");
+            return;
+        }
+
+        let stop_mode = stop_mode.unwrap();
+        match stop_mode {
+            StopMode::Stop1 => trace!("low power: stop 1"),
+            StopMode::Stop2 => trace!("low power: stop 2"),
+        }
+        self.configure_stop(stop_mode);
+
+        #[cfg(not(feature = "low-power-debug-with-sleep"))]
+        self.scb.set_sleepdeep();
     }
 
     /// Run the executor.

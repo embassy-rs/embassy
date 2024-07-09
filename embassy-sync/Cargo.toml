@@ -1,9 +1,10 @@
 [package]
 name = "embassy-sync"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "no-std, no-alloc synchronization primitives with async support"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-sync"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 categories = [
@@ -19,7 +20,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/
 target = "thumbv7em-none-eabi"
 
 [features]
-std = []
+std = ["critical-section/std"]
 turbowakers = []
 
 [dependencies]

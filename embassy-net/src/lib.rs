@@ -1,6 +1,4 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(nightly, feature(async_fn_in_trait, impl_trait_projections))]
-#![cfg_attr(nightly, allow(stable_features, unknown_lints))]
 #![allow(async_fn_in_trait)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
@@ -17,6 +15,8 @@ pub(crate) mod fmt;
 mod device;
 #[cfg(feature = "dns")]
 pub mod dns;
+#[cfg(feature = "raw")]
+pub mod raw;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 mod time;
@@ -25,13 +25,13 @@ pub mod udp;
 
 use core::cell::RefCell;
 use core::future::{poll_fn, Future};
+use core::pin::pin;
 use core::task::{Context, Poll};
 
 pub use embassy_net_driver as driver;
 use embassy_net_driver::{Driver, LinkState};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
-use futures::pin_mut;
 #[allow(unused_imports)]
 use heapless::Vec;
 #[cfg(feature = "igmp")]
@@ -905,8 +905,7 @@ impl<D: Driver> Inner<D> {
         }
 
         if let Some(poll_at) = s.iface.poll_at(timestamp, &mut s.sockets) {
-            let t = Timer::at(instant_from_smoltcp(poll_at));
-            pin_mut!(t);
+            let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();
             }

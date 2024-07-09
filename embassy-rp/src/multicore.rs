@@ -59,7 +59,7 @@ static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
 
 #[inline(always)]
 fn core1_setup(stack_bottom: *mut usize) {
-    if let Err(_) = install_stack_guard(stack_bottom) {
+    if install_stack_guard(stack_bottom).is_err() {
         // currently only happens if the MPU was already set up, which
         // would indicate that the core is already in use from outside
         // embassy, somehow. trap if so since we can't deal with that.

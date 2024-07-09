@@ -65,7 +65,7 @@ where
     }
 }
 
-impl<M, T: Send> Signal<M, T>
+impl<M, T> Signal<M, T>
 where
     M: RawMutex,
 {
@@ -125,7 +125,7 @@ where
         })
     }
 
-    /// non-blocking method to check whether this signal has been signaled.
+    /// non-blocking method to check whether this signal has been signaled. This does not clear the signal.  
     pub fn signaled(&self) -> bool {
         self.state.lock(|cell| {
             let state = cell.replace(State::None);

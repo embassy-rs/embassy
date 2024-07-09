@@ -3,7 +3,7 @@ use core::iter::zip;
 
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer};
 
 use crate::consts::*;
 use crate::events::{Event, EventSubscriber, Events};
@@ -33,6 +33,43 @@ pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     events: &'a Events,
     ioctl_state: &'a IoctlState,
+}
+
+#[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ScanType {
+    Active,
+    Passive,
+}
+
+#[derive(Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ScanOptions {
+    pub ssid: Option<heapless::String<32>>,
+    /// If set to `None`, all APs will be returned. If set to `Some`, only APs
+    /// with the specified BSSID will be returned.
+    pub bssid: Option<[u8; 6]>,
+    /// Number of probes to send on each channel.
+    pub nprobes: Option<u16>,
+    /// Time to spend waiting on the home channel.
+    pub home_time: Option<Duration>,
+    /// Scan type: active or passive.
+    pub scan_type: ScanType,
+    /// Period of time to wait on each channel when passive scanning.
+    pub dwell_time: Option<Duration>,
+}
+
+impl Default for ScanOptions {
+    fn default() -> Self {
+        Self {
+            ssid: None,
+            bssid: None,
+            nprobes: None,
+            home_time: None,
+            scan_type: ScanType::Passive,
+            dwell_time: None,
+        }
+    }
 }
 
 impl<'a> Control<'a> {
@@ -87,8 +124,7 @@ impl<'a> Control<'a> {
         self.set_iovar_u32("apsta", 1).await;
 
         // read MAC addr.
-        let mut mac_addr = [0; 6];
-        assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
+        let mac_addr = self.address().await;
         debug!("mac addr: {:02x}", Bytes(&mac_addr));
 
         let country = countries::WORLD_WIDE_XX;
@@ -192,8 +228,8 @@ impl<'a> Control<'a> {
         self.wait_for_join(i).await
     }
 
-    /// Join an protected network with the provided ssid and passphrase.
-    pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) -> Result<(), Error> {
+    /// Join a protected network with the provided ssid and [`PassphraseInfo`].
+    async fn join_wpa2_passphrase_info(&mut self, ssid: &str, passphrase_info: &PassphraseInfo) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         self.ioctl_set_u32(134, 0, 4).await; // wsec = wpa2
@@ -203,14 +239,13 @@ impl<'a> Control<'a> {
 
         Timer::after_millis(100).await;
 
-        let mut pfi = PassphraseInfo {
-            len: passphrase.len() as _,
-            flags: 1,
-            passphrase: [0; 64],
-        };
-        pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
-        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_PASSPHRASE, 0, &mut pfi.to_bytes())
-            .await; // WLC_SET_WSEC_PMK
+        self.ioctl(
+            IoctlType::Set,
+            IOCTL_CMD_SET_PASSPHRASE,
+            0,
+            &mut passphrase_info.to_bytes(),
+        )
+        .await; // WLC_SET_WSEC_PMK
 
         self.ioctl_set_u32(20, 0, 1).await; // set_infra = 1
         self.ioctl_set_u32(22, 0, 0).await; // set_auth = 0 (open)
@@ -223,6 +258,28 @@ impl<'a> Control<'a> {
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
         self.wait_for_join(i).await
+    }
+
+    /// Join a protected network with the provided ssid and passphrase.
+    pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) -> Result<(), Error> {
+        let mut pfi = PassphraseInfo {
+            len: passphrase.len() as _,
+            flags: 1,
+            passphrase: [0; 64],
+        };
+        pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
+        self.join_wpa2_passphrase_info(ssid, &pfi).await
+    }
+
+    /// Join a protected network with the provided ssid and precomputed PSK.
+    pub async fn join_wpa2_psk(&mut self, ssid: &str, psk: &[u8; 32]) -> Result<(), Error> {
+        let mut pfi = PassphraseInfo {
+            len: psk.len() as _,
+            flags: 0,
+            passphrase: [0; 64],
+        };
+        pfi.passphrase[..psk.len()].copy_from_slice(psk);
+        self.join_wpa2_passphrase_info(ssid, &pfi).await
     }
 
     async fn wait_for_join(&mut self, i: SsidInfo) -> Result<(), Error> {
@@ -334,6 +391,24 @@ impl<'a> Control<'a> {
 
         // Start AP
         self.set_iovar_u32x2("bss", 0, 1).await; // bss = BSS_UP
+    }
+
+    /// Closes access point.
+    pub async fn close_ap(&mut self) {
+        // Stop AP
+        self.set_iovar_u32x2("bss", 0, 0).await; // bss = BSS_DOWN
+
+        // Turn off AP mode
+        self.ioctl_set_u32(IOCTL_CMD_SET_AP, 0, 0).await;
+
+        // Temporarily set wifi down
+        self.down().await;
+
+        // Turn on APSTA mode
+        self.set_iovar_u32("apsta", 1).await;
+
+        // Set wifi up again
+        self.up().await;
     }
 
     /// Add specified address to the list of hardware addresses the device
@@ -471,22 +546,54 @@ impl<'a> Control<'a> {
     /// # Note
     /// Device events are currently implemented using a bounded queue.
     /// To not miss any events, you should make sure to always await the stream.
-    pub async fn scan(&mut self) -> Scanner<'_> {
+    pub async fn scan(&mut self, scan_opts: ScanOptions) -> Scanner<'_> {
+        const SCANTYPE_ACTIVE: u8 = 0;
         const SCANTYPE_PASSIVE: u8 = 1;
+
+        let dwell_time = match scan_opts.dwell_time {
+            None => !0,
+            Some(t) => {
+                let mut t = t.as_millis() as u32;
+                if t == !0 {
+                    t = !0 - 1;
+                }
+                t
+            }
+        };
+
+        let mut active_time = !0;
+        let mut passive_time = !0;
+        let scan_type = match scan_opts.scan_type {
+            ScanType::Active => {
+                active_time = dwell_time;
+                SCANTYPE_ACTIVE
+            }
+            ScanType::Passive => {
+                passive_time = dwell_time;
+                SCANTYPE_PASSIVE
+            }
+        };
 
         let scan_params = ScanParams {
             version: 1,
             action: 1,
             sync_id: 1,
-            ssid_len: 0,
-            ssid: [0; 32],
-            bssid: [0xff; 6],
+            ssid_len: scan_opts.ssid.as_ref().map(|e| e.as_bytes().len() as u32).unwrap_or(0),
+            ssid: scan_opts
+                .ssid
+                .map(|e| {
+                    let mut ssid = [0; 32];
+                    ssid[..e.as_bytes().len()].copy_from_slice(e.as_bytes());
+                    ssid
+                })
+                .unwrap_or([0; 32]),
+            bssid: scan_opts.bssid.unwrap_or([0xff; 6]),
             bss_type: 2,
-            scan_type: SCANTYPE_PASSIVE,
-            nprobes: !0,
-            active_time: !0,
-            passive_time: !0,
-            home_time: !0,
+            scan_type,
+            nprobes: scan_opts.nprobes.unwrap_or(!0).into(),
+            active_time,
+            passive_time,
+            home_time: scan_opts.home_time.map(|e| e.as_millis() as u32).unwrap_or(!0),
             channel_num: 0,
             channel_list: [0; 1],
         };
@@ -504,6 +611,13 @@ impl<'a> Control<'a> {
     pub async fn leave(&mut self) {
         self.ioctl(IoctlType::Set, IOCTL_CMD_DISASSOC, 0, &mut []).await;
         info!("Disassociated")
+    }
+
+    /// Gets the MAC address of the device
+    pub async fn address(&mut self) -> [u8; 6] {
+        let mut mac_addr = [0; 6];
+        assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
+        mac_addr
     }
 }
 

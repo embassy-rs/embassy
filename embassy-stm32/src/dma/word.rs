@@ -20,14 +20,13 @@ impl WordSize {
     }
 }
 
-mod sealed {
-    pub trait Word {}
-}
+trait SealedWord {}
 
 /// DMA word trait.
 ///
 /// This is implemented for u8, u16, u32, etc.
-pub trait Word: sealed::Word + Default + Copy + 'static {
+#[allow(private_bounds)]
+pub trait Word: SealedWord + Default + Copy + 'static {
     /// Word size
     fn size() -> WordSize;
     /// Amount of bits of this word size.
@@ -36,7 +35,7 @@ pub trait Word: sealed::Word + Default + Copy + 'static {
 
 macro_rules! impl_word {
     (_, $T:ident, $bits:literal, $size:ident) => {
-        impl sealed::Word for $T {}
+        impl SealedWord for $T {}
         impl Word for $T {
             fn bits() -> usize {
                 $bits

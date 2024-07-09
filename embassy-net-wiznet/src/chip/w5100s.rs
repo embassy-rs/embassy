@@ -8,13 +8,16 @@ const RX_BASE: u16 = 0x6000;
 pub enum W5100S {}
 
 impl super::Chip for W5100S {}
-impl super::sealed::Chip for W5100S {
+impl super::SealedChip for W5100S {
     type Address = u16;
+
+    const CHIP_VERSION: u8 = 0x51;
 
     const COMMON_MODE: Self::Address = 0x00;
     const COMMON_MAC: Self::Address = 0x09;
     const COMMON_SOCKET_INTR: Self::Address = 0x16;
     const COMMON_PHY_CFG: Self::Address = 0x3c;
+    const COMMON_VERSION: Self::Address = 0x80;
 
     const SOCKET_MODE: Self::Address = SOCKET_BASE + 0x00;
     const SOCKET_COMMAND: Self::Address = SOCKET_BASE + 0x01;

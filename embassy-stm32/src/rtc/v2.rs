@@ -1,9 +1,8 @@
-use stm32_metapac::rtc::vals::{Init, Osel, Pol};
+use stm32_metapac::rtc::vals::{Osel, Pol};
 
-use super::sealed;
+use super::SealedInstance;
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
-use crate::rtc::sealed::Instance;
 
 #[allow(dead_code)]
 impl super::Rtc {
@@ -49,7 +48,7 @@ impl super::Rtc {
             clock_drift = RTC_CALR_MAX_PPM;
         }
 
-        clock_drift = clock_drift / RTC_CALR_RESOLUTION_PPM;
+        clock_drift /= RTC_CALR_RESOLUTION_PPM;
 
         self.write(false, |rtc| {
             rtc.calr().write(|w| {
@@ -96,7 +95,7 @@ impl super::Rtc {
 
     pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
     where
-        F: FnOnce(&crate::pac::rtc::Rtc) -> R,
+        F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
         let r = RTC::regs();
         // Disable write protection.
@@ -107,16 +106,16 @@ impl super::Rtc {
         // true if initf bit indicates RTC peripheral is in init mode
         if init_mode && !r.isr().read().initf() {
             // to update calendar date/time, time format, and prescaler configuration, RTC must be in init mode
-            r.isr().modify(|w| w.set_init(Init::INITMODE));
+            r.isr().modify(|w| w.set_init(true));
             // wait till init state entered
             // ~2 RTCCLK cycles
             while !r.isr().read().initf() {}
         }
 
-        let result = f(&r);
+        let result = f(r);
 
         if init_mode {
-            r.isr().modify(|w| w.set_init(Init::FREERUNNINGMODE)); // Exits init mode
+            r.isr().modify(|w| w.set_init(false)); // Exits init mode
         }
 
         // Re-enable write protection.
@@ -126,7 +125,7 @@ impl super::Rtc {
     }
 }
 
-impl sealed::Instance for crate::peripherals::RTC {
+impl SealedInstance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 20;
 
     #[cfg(all(feature = "low-power", stm32f4))]
@@ -141,7 +140,7 @@ impl sealed::Instance for crate::peripherals::RTC {
     #[cfg(all(feature = "low-power", stm32l0))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC;
 
-    fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32> {
+    fn read_backup_register(rtc: Rtc, register: usize) -> Option<u32> {
         if register < Self::BACKUP_REGISTER_COUNT {
             Some(rtc.bkpr(register).read().bkp())
         } else {
@@ -149,7 +148,7 @@ impl sealed::Instance for crate::peripherals::RTC {
         }
     }
 
-    fn write_backup_register(rtc: &Rtc, register: usize, value: u32) {
+    fn write_backup_register(rtc: Rtc, register: usize, value: u32) {
         if register < Self::BACKUP_REGISTER_COUNT {
             rtc.bkpr(register).write(|w| w.set_bkp(value));
         }

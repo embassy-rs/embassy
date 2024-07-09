@@ -7,7 +7,7 @@ use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_net::{Config, Stack, StackResources};
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0};
+use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, rom_data};
 use static_cell::StaticCell;
@@ -24,9 +24,7 @@ const WIFI_NETWORK: &str = "EmbassyTest";
 const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 
 #[embassy_executor::task]
-async fn wifi_task(
-    runner: cyw43::Runner<'static, Output<'static, PIN_23>, PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>>,
-) -> ! {
+async fn wifi_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
     runner.run().await
 }
 
@@ -47,8 +45,8 @@ async fn main(spawner: Spawner) {
     }
 
     // cyw43 firmware needs to be flashed manually:
-    //     probe-rs download 43439A0.bin     --format bin --chip RP2040 --base-address 0x101b0000
-    //     probe-rs download 43439A0_clm.bin --format bin --chip RP2040 --base-address 0x101f8000
+    //     probe-rs download 43439A0.bin --binary-format bin --chip RP2040 --base-address 0x101b0000
+    //     probe-rs download 43439A0_clm.bin --binary-format bin --chip RP2040 --base-address 0x101f8000
     let fw = unsafe { core::slice::from_raw_parts(0x101b0000 as *const u8, 230321) };
     let clm = unsafe { core::slice::from_raw_parts(0x101f8000 as *const u8, 4752) };
 

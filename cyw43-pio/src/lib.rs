@@ -7,25 +7,24 @@ use core::slice;
 
 use cyw43::SpiBusCyw43;
 use embassy_rp::dma::Channel;
-use embassy_rp::gpio::{Drive, Level, Output, Pin, Pull, SlewRate};
+use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
 use embassy_rp::pio::{instr, Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
 use embassy_rp::{Peripheral, PeripheralRef};
 use fixed::FixedU32;
 use pio_proc::pio_asm;
 
 /// SPI comms driven by PIO.
-pub struct PioSpi<'d, CS: Pin, PIO: Instance, const SM: usize, DMA> {
-    cs: Output<'d, CS>,
+pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA> {
+    cs: Output<'d>,
     sm: StateMachine<'d, PIO, SM>,
     irq: Irq<'d, PIO, 0>,
     dma: PeripheralRef<'d, DMA>,
     wrap_target: u8,
 }
 
-impl<'d, CS, PIO, const SM: usize, DMA> PioSpi<'d, CS, PIO, SM, DMA>
+impl<'d, PIO, const SM: usize, DMA> PioSpi<'d, PIO, SM, DMA>
 where
     DMA: Channel,
-    CS: Pin,
     PIO: Instance,
 {
     /// Create a new instance of PioSpi.
@@ -33,7 +32,7 @@ where
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
         irq: Irq<'d, PIO, 0>,
-        cs: Output<'d, CS>,
+        cs: Output<'d>,
         dio: DIO,
         clk: CLK,
         dma: impl Peripheral<P = DMA> + 'd,
@@ -206,9 +205,8 @@ where
     }
 }
 
-impl<'d, CS, PIO, const SM: usize, DMA> SpiBusCyw43 for PioSpi<'d, CS, PIO, SM, DMA>
+impl<'d, PIO, const SM: usize, DMA> SpiBusCyw43 for PioSpi<'d, PIO, SM, DMA>
 where
-    CS: Pin,
     PIO: Instance,
     DMA: Channel,
 {

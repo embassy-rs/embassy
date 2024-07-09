@@ -11,32 +11,25 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use crate::ppi::{Event, Task};
 use crate::{pac, Peripheral};
 
-pub(crate) mod sealed {
-
-    use super::*;
-
-    pub trait Instance {
-        /// The number of CC registers this instance has.
-        const CCS: usize;
-        fn regs() -> &'static pac::timer0::RegisterBlock;
-    }
-    pub trait ExtendedInstance {}
-
-    pub trait TimerType {}
+pub(crate) trait SealedInstance {
+    /// The number of CC registers this instance has.
+    const CCS: usize;
+    fn regs() -> &'static pac::timer0::RegisterBlock;
 }
 
 /// Basic Timer instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 /// Extended timer instance.
-pub trait ExtendedInstance: Instance + sealed::ExtendedInstance {}
+pub trait ExtendedInstance: Instance {}
 
 macro_rules! impl_timer {
     ($type:ident, $pac_type:ident, $irq:ident, $ccs:literal) => {
-        impl crate::timer::sealed::Instance for peripherals::$type {
+        impl crate::timer::SealedInstance for peripherals::$type {
             const CCS: usize = $ccs;
             fn regs() -> &'static pac::timer0::RegisterBlock {
                 unsafe { &*(pac::$pac_type::ptr() as *const pac::timer0::RegisterBlock) }
@@ -51,7 +44,6 @@ macro_rules! impl_timer {
     };
     ($type:ident, $pac_type:ident, $irq:ident, extended) => {
         impl_timer!($type, $pac_type, $irq, 6);
-        impl crate::timer::sealed::ExtendedInstance for peripherals::$type {}
         impl crate::timer::ExtendedInstance for peripherals::$type {}
     };
 }
@@ -111,7 +103,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         Self::new_inner(timer, true)
     }
 
-    fn new_inner(timer: impl Peripheral<P = T> + 'd, is_counter: bool) -> Self {
+    fn new_inner(timer: impl Peripheral<P = T> + 'd, _is_counter: bool) -> Self {
         into_ref!(timer);
 
         let regs = T::regs();
@@ -122,11 +114,15 @@ impl<'d, T: Instance> Timer<'d, T> {
         // since changing BITMODE while running can cause 'unpredictable behaviour' according to the specification.
         this.stop();
 
-        if is_counter {
+        #[cfg(not(feature = "nrf51"))]
+        if _is_counter {
             regs.mode.write(|w| w.mode().low_power_counter());
         } else {
             regs.mode.write(|w| w.mode().timer());
         }
+
+        #[cfg(feature = "nrf51")]
+        regs.mode.write(|w| w.mode().timer());
 
         // Make the counter's max value as high as possible.
         // TODO: is there a reason someone would want to set this lower?
@@ -238,7 +234,11 @@ pub struct Cc<'d, T: Instance> {
 impl<'d, T: Instance> Cc<'d, T> {
     /// Get the current value stored in the register.
     pub fn read(&self) -> u32 {
-        T::regs().cc[self.n].read().cc().bits()
+        #[cfg(not(feature = "nrf51"))]
+        return T::regs().cc[self.n].read().cc().bits();
+
+        #[cfg(feature = "nrf51")]
+        return T::regs().cc[self.n].read().bits();
     }
 
     /// Set the value stored in the register.
@@ -246,7 +246,11 @@ impl<'d, T: Instance> Cc<'d, T> {
     /// `event_compare` will fire when the timer's counter reaches this value.
     pub fn write(&self, value: u32) {
         // SAFETY: there are no invalid values for the CC register.
-        T::regs().cc[self.n].write(|w| unsafe { w.cc().bits(value) })
+        #[cfg(not(feature = "nrf51"))]
+        T::regs().cc[self.n].write(|w| unsafe { w.cc().bits(value) });
+
+        #[cfg(feature = "nrf51")]
+        T::regs().cc[self.n].write(|w| unsafe { w.bits(value) });
     }
 
     /// Capture the current value of the timer's counter in this register, and return it.

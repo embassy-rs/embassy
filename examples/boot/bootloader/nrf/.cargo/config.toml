@@ -1,6 +1,6 @@
 [unstable]
-build-std = ["core"]
-build-std-features = ["panic_immediate_abort"]
+#build-std = ["core"]
+#build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 #runner = "./fruitrunner"
@@ -8,7 +8,7 @@ runner = "probe-rs run --chip nrf52840_xxAA"
 
 rustflags = [
   # Code-size optimizations.
-  "-Z", "trap-unreachable=no",
+  #"-Z", "trap-unreachable=no",
   #"-C", "no-vectorize-loops",
   "-C", "force-frame-pointers=yes",
 ]

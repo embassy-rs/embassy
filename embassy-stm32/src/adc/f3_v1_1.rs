@@ -7,10 +7,10 @@ use embassy_hal_internal::into_ref;
 use embassy_time::Instant;
 
 use super::Resolution;
-use crate::adc::{Adc, AdcPin, Instance, SampleTime};
+use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 const ADC_FREQ: Hertz = crate::rcc::HSI_FREQ;
 
@@ -64,8 +64,8 @@ fn update_vref<T: Instance>(op: i8) {
 }
 
 pub struct Vref<T: Instance>(core::marker::PhantomData<T>);
-impl<T: Instance> AdcPin<T> for Vref<T> {}
-impl<T: Instance> super::sealed::AdcPin<T> for Vref<T> {
+impl<T: Instance> AdcChannel<T> for Vref<T> {}
+impl<T: Instance> super::SealedAdcChannel<T> for Vref<T> {
     fn channel(&self) -> u8 {
         17
     }
@@ -107,12 +107,12 @@ impl Calibration {
 
     /// Returns a calibrated voltage value as in microvolts (uV)
     pub fn cal_uv(&self, raw: u16, resolution: super::Resolution) -> u32 {
-        (self.vdda_uv() / resolution.to_max_count()) * raw as u32
+        (self.vdda_uv() / super::resolution_to_max_count(resolution)) * raw as u32
     }
 
     /// Returns a calibrated voltage value as an f32
     pub fn cal_f32(&self, raw: u16, resolution: super::Resolution) -> f32 {
-        raw as f32 * self.vdda_f32() / resolution.to_max_count() as f32
+        raw as f32 * self.vdda_f32() / super::resolution_to_max_count(resolution) as f32
     }
 }
 
@@ -123,8 +123,8 @@ impl<T: Instance> Drop for Vref<T> {
 }
 
 pub struct Temperature<T: Instance>(core::marker::PhantomData<T>);
-impl<T: Instance> AdcPin<T> for Temperature<T> {}
-impl<T: Instance> super::sealed::AdcPin<T> for Temperature<T> {
+impl<T: Instance> AdcChannel<T> for Temperature<T> {}
+impl<T: Instance> super::SealedAdcChannel<T> for Temperature<T> {
     fn channel(&self) -> u8 {
         16
     }
@@ -143,7 +143,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) -> Self {
         into_ref!(adc);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         //let r = T::regs();
         //r.cr2().write(|w| w.set_align(true));
@@ -175,12 +175,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn resolution(&self) -> Resolution {
-        match T::regs().cr1().read().res() {
-            crate::pac::adc::vals::Res::TWELVEBIT => Resolution::TwelveBit,
-            crate::pac::adc::vals::Res::TENBIT => Resolution::TenBit,
-            crate::pac::adc::vals::Res::EIGHTBIT => Resolution::EightBit,
-            crate::pac::adc::vals::Res::SIXBIT => Resolution::SixBit,
-        }
+        T::regs().cr1().read().res()
     }
 
     pub fn enable_vref(&self) -> Vref<T> {
@@ -276,8 +271,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        self.set_sample_sequence(&[pin.channel()]).await;
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        self.set_sample_sequence(&[channel.channel()]).await;
         self.convert().await
     }
 
@@ -288,18 +283,18 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub async fn set_sample_time(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime) {
-        if Self::get_channel_sample_time(pin.channel()) != sample_time {
+    pub async fn set_sample_time(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
+        if Self::get_channel_sample_time(channel.channel()) != sample_time {
             self.stop_adc().await;
             unsafe {
-                Self::set_channel_sample_time(pin.channel(), sample_time);
+                Self::set_channel_sample_time(channel.channel(), sample_time);
             }
             self.start_adc().await;
         }
     }
 
-    pub fn get_sample_time(&self, pin: &impl AdcPin<T>) -> SampleTime {
-        Self::get_channel_sample_time(pin.channel())
+    pub fn get_sample_time(&self, channel: &impl AdcChannel<T>) -> SampleTime {
+        Self::get_channel_sample_time(channel.channel())
     }
 
     /// Sets the channel sample time
@@ -359,23 +354,23 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     fn get_res_clks(res: Resolution) -> u32 {
         match res {
-            Resolution::TwelveBit => 12,
-            Resolution::TenBit => 11,
-            Resolution::EightBit => 9,
-            Resolution::SixBit => 7,
+            Resolution::BITS12 => 12,
+            Resolution::BITS10 => 11,
+            Resolution::BITS8 => 9,
+            Resolution::BITS6 => 7,
         }
     }
 
     fn get_sample_time_clks(sample_time: SampleTime) -> u32 {
         match sample_time {
-            SampleTime::Cycles4 => 4,
-            SampleTime::Cycles9 => 9,
-            SampleTime::Cycles16 => 16,
-            SampleTime::Cycles24 => 24,
-            SampleTime::Cycles48 => 48,
-            SampleTime::Cycles96 => 96,
-            SampleTime::Cycles192 => 192,
-            SampleTime::Cycles384 => 384,
+            SampleTime::CYCLES4 => 4,
+            SampleTime::CYCLES9 => 9,
+            SampleTime::CYCLES16 => 16,
+            SampleTime::CYCLES24 => 24,
+            SampleTime::CYCLES48 => 48,
+            SampleTime::CYCLES96 => 96,
+            SampleTime::CYCLES192 => 192,
+            SampleTime::CYCLES384 => 384,
         }
     }
 
@@ -384,14 +379,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         let us_clks = us * Self::freq().0 / 1_000_000;
         let clks = us_clks.saturating_sub(res_clks);
         match clks {
-            0..=4 => SampleTime::Cycles4,
-            5..=9 => SampleTime::Cycles9,
-            10..=16 => SampleTime::Cycles16,
-            17..=24 => SampleTime::Cycles24,
-            25..=48 => SampleTime::Cycles48,
-            49..=96 => SampleTime::Cycles96,
-            97..=192 => SampleTime::Cycles192,
-            193.. => SampleTime::Cycles384,
+            0..=4 => SampleTime::CYCLES4,
+            5..=9 => SampleTime::CYCLES9,
+            10..=16 => SampleTime::CYCLES16,
+            17..=24 => SampleTime::CYCLES24,
+            25..=48 => SampleTime::CYCLES48,
+            49..=96 => SampleTime::CYCLES96,
+            97..=192 => SampleTime::CYCLES192,
+            193.. => SampleTime::CYCLES384,
         }
     }
 
@@ -408,6 +403,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
 
         T::regs().cr2().modify(|w| w.set_adon(false));
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }

@@ -2,8 +2,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
-use crate::rcc::sealed::RccPeripheral;
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// CRC driver.
 pub struct Crc<'d> {
@@ -17,7 +16,7 @@ impl<'d> Crc<'d> {
 
         // Note: enable and reset come from RccPeripheral.
         // enable CRC clock in RCC.
-        CRC::enable_and_reset();
+        rcc::enable_and_reset::<CRC>();
         // Peripheral the peripheral
         let mut instance = Self { _peri: peripheral };
         instance.reset();
@@ -32,6 +31,9 @@ impl<'d> Crc<'d> {
     /// Feeds a word to the peripheral and returns the current CRC value
     pub fn feed_word(&mut self, word: u32) -> u32 {
         // write a single byte to the device, and return the result
+        #[cfg(not(crc_v1))]
+        PAC_CRC.dr32().write_value(word);
+        #[cfg(crc_v1)]
         PAC_CRC.dr().write_value(word);
         self.read()
     }
@@ -39,6 +41,9 @@ impl<'d> Crc<'d> {
     /// Feed a slice of words to the peripheral and return the result.
     pub fn feed_words(&mut self, words: &[u32]) -> u32 {
         for word in words {
+            #[cfg(not(crc_v1))]
+            PAC_CRC.dr32().write_value(*word);
+            #[cfg(crc_v1)]
             PAC_CRC.dr().write_value(*word);
         }
 
@@ -46,6 +51,12 @@ impl<'d> Crc<'d> {
     }
 
     /// Read the CRC result value.
+    #[cfg(not(crc_v1))]
+    pub fn read(&self) -> u32 {
+        PAC_CRC.dr32().read()
+    }
+    /// Read the CRC result value.
+    #[cfg(crc_v1)]
     pub fn read(&self) -> u32 {
         PAC_CRC.dr().read()
     }

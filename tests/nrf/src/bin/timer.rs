@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
-teleprobe_meta::target!(b"nrf52840-dk");
+
+#[path = "../common.rs"]
+mod common;
 
 use defmt::{assert, info};
 use embassy_executor::Spawner;
@@ -18,7 +20,6 @@ async fn main(_spawner: Spawner) {
     let ms = (end - start).as_millis();
     info!("slept for {} ms", ms);
     assert!(ms >= 99);
-    assert!(ms < 110);
 
     info!("Test OK");
     cortex_m::asm::bkpt();

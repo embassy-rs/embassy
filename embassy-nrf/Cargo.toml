@@ -3,6 +3,11 @@ name = "embassy-nrf"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
+keywords = ["embedded", "async", "nordic", "nrf", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-nrf"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nrf-v$VERSION/embassy-nrf/src/"
@@ -10,15 +15,21 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nrf/s
 
 features = ["time", "defmt", "unstable-pac", "gpiote", "time-driver-rtc1"]
 flavors = [
+    { regex_feature = "nrf51", target = "thumbv6m-none-eabi" },
     { regex_feature = "nrf52.*", target = "thumbv7em-none-eabihf" },
     { regex_feature = "nrf53.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "nrf91.*", target = "thumbv8m.main-none-eabihf" },
 ]
 
+[package.metadata.docs.rs]
+features = ["nrf52840", "time", "defmt", "unstable-pac", "gpiote", "time-driver-rtc1"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["rt"]
 ## Cortex-M runtime (enabled by default)
 rt = [
+    "nrf51-pac?/rt",
     "nrf52805-pac?/rt",
     "nrf52810-pac?/rt",
     "nrf52811-pac?/rt",
@@ -62,6 +73,8 @@ reset-pin-as-gpio = []
 qspi-multiwrite-flash = []
 
 #! ### Chip selection features
+## nRF51
+nrf51 = ["nrf51-pac", "_nrf51"]
 ## nRF52805
 nrf52805 = ["nrf52805-pac", "_nrf52"]
 ## nRF52810
@@ -95,8 +108,9 @@ _nrf5340-net = ["_nrf5340", "nrf5340-net-pac"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf9160 = ["nrf9160-pac", "_dppi"]
 _nrf52 = ["_ppi"]
+_nrf51 = ["_ppi"]
 
-_time-driver = ["dep:embassy-time", "embassy-time?/tick-hz-32_768"]
+_time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768"]
 
 # trustzone state.
 _s = []
@@ -110,19 +124,21 @@ _gpio-p1 = []
 _nrf52832_anomaly_109 = []
 
 [dependencies]
-embassy-time = { version = "0.2", path = "../embassy-time", optional = true }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
+embassy-time = { version = "0.3.1", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
-embedded-hal-async = { version = "=1.0.0-rc.3" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 
 defmt = { version = "0.3", optional = true }
+bitflags = "2.4.2"
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
@@ -130,10 +146,11 @@ critical-section = "1.1"
 rand_core = "0.6.3"
 fixed = "1.10.0"
 embedded-storage = "0.3.1"
-embedded-storage-async = "0.4.0"
+embedded-storage-async = "0.4.1"
 cfg-if = "1.0.0"
 document-features = "0.2.7"
 
+nrf51-pac = { version = "0.12.0", optional = true }
 nrf52805-pac = { version = "0.12.0", optional = true }
 nrf52810-pac = { version = "0.12.0", optional = true }
 nrf52811-pac = { version = "0.12.0", optional = true }
