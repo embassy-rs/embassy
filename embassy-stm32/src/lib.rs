@@ -280,25 +280,24 @@ pub fn init(config: Config) -> Peripherals {
 
 #[cfg(feature = "_dual-core")]
 mod dual_core {
+    use core::mem::MaybeUninit;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
     use rcc::Clocks;
 
     use super::*;
-    use core::{
-        mem::MaybeUninit,
-        sync::atomic::{AtomicUsize, Ordering},
-    };
 
     /// Object containing data that embassy needs to share between cores.
-    /// 
+    ///
     /// It cannot be initialized by the user. The intended use is:
-    /// 
+    ///
     /// ```
     /// #[link_section = ".ram_d3"]
     /// static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
-    /// 
+    ///
     /// init_secondary(&SHARED_DATA);
     /// ```
-    /// 
+    ///
     /// This static must be placed in the same position for both cores. How and where this is done is left to the user.
     pub struct SharedData {
         init_flag: AtomicUsize,
@@ -314,7 +313,7 @@ mod dual_core {
     /// This returns the peripheral singletons that can be used for creating drivers.
     ///
     /// This should only be called once at startup, otherwise it panics.
-    /// 
+    ///
     /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
     /// for more information on its requirements.
     pub fn init_primary(config: Config, shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
@@ -334,7 +333,7 @@ mod dual_core {
     /// If the other core is not done yet, this will return `None`.
     ///
     /// This should only be called once at startup, otherwise it may panic.
-    /// 
+    ///
     /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
     /// for more information on its requirements.
     pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
@@ -357,7 +356,7 @@ mod dual_core {
     /// If the other core is not done yet, this will spinloop wait on it.
     ///
     /// This should only be called once at startup, otherwise it may panic.
-    /// 
+    ///
     /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
     /// for more information on its requirements.
     pub fn init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {

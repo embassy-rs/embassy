@@ -78,7 +78,9 @@ pub(crate) unsafe fn set_freqs(freqs: Clocks) {
 /// Safety: Sets a mutable global.
 pub(crate) unsafe fn set_freqs(freqs: Clocks) {
     debug!("rcc: {:?}", freqs);
-    CLOCK_FREQS_PTR.load(core::sync::atomic::Ordering::SeqCst).write(MaybeUninit::new(freqs));
+    CLOCK_FREQS_PTR
+        .load(core::sync::atomic::Ordering::SeqCst)
+        .write(MaybeUninit::new(freqs));
 }
 
 #[cfg(not(feature = "_dual-core"))]
