@@ -65,6 +65,9 @@ impl<'c, 'd, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize,
         payload_len: usize,
         dir: Direction,
     ) -> Self {
+        // Reset the peripheral to ensure it's in a clean state
+        rcc::enable_and_reset::<T>();
+
         let mut aad_header_buffer: [u8; 8] = [0; 8];
         let aad_header_len = Self::setup_aad_header(&mut aad_header_buffer, aad_len);
         let mut iv: [u8; 16] = [0; 16];
