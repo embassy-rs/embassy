@@ -1,6 +1,6 @@
 [package]
 name = "embassy-stm32-wpan"
-version = "0.1003.1"
+version = "0.1003.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Async STM32 WPAN stack for embedded devices in Rust."
