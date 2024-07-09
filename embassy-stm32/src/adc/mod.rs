@@ -77,7 +77,7 @@ pub(crate) fn blocking_delay_us(us: u32) {
     embassy_time::block_for(embassy_time::Duration::from_micros(us as u64));
     #[cfg(not(feature = "time"))]
     {
-        let freq = unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 as u64;
+        let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
         let us = us as u64;
         let cycles = freq * us / 1_000_000;
         cortex_m::asm::delay(cycles as u32);

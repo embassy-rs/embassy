@@ -132,7 +132,7 @@ impl Rtc {
 
         // Panic if the rcc mod knows we're not using low-power rtc
         #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
-        unsafe { crate::rcc::get_freqs() }.rtc.unwrap();
+        unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap();
 
         let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
         let rtc_hz = Self::frequency().0 as u64;
