@@ -521,13 +521,14 @@ pub struct ReadableRingBuffer<'a, W: Word> {
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new Readable ring buffer.
     pub unsafe fn new(
-        channel: impl Peripheral<P = AnyChannel> + 'a,
+        channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
     ) -> Self {
         into_ref!(channel);
+        let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
 
         #[cfg(dmamux)]
         super::dmamux::configure_dmamux(&mut channel, request);
@@ -657,13 +658,14 @@ pub struct WritableRingBuffer<'a, W: Word> {
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new Writable ring buffer.
     pub unsafe fn new(
-        channel: impl Peripheral<P = AnyChannel> + 'a,
+        channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
     ) -> Self {
         into_ref!(channel);
+        let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
 
         #[cfg(dmamux)]
         super::dmamux::configure_dmamux(&mut channel, request);
