@@ -316,8 +316,8 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         });
     }
 
-    /// we are ready to read if there is data in the buffer 
-    fn read_ready() -> Result<bool, Error>{
+    /// we are ready to read if there is data in the buffer
+    fn read_ready() -> Result<bool, Error> {
         let state = T::buffered_state();
         Ok(!state.rx_buf.is_empty())
     }
