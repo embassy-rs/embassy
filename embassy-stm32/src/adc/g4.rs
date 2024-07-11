@@ -1,9 +1,9 @@
 #[allow(unused)]
-
-#[cfg(stm32g4)]
-use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
 #[cfg(stm32h7)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
+#[allow(unused)]
+#[cfg(stm32g4)]
+use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
 use pac::adccommon::vals::Presc;
 
 use super::{blocking_delay_us, Adc, AdcChannel, Instance, Resolution, SampleTime};
@@ -241,10 +241,17 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// channel on the other ADC unusable. The only exception is when ADC master and the slave
     /// operate in interleaved mode.
     #[cfg(stm32g4)]
-    pub fn set_differential_channel(&mut self, ch: usize ,enable: bool) {
+    pub fn set_differential_channel(&mut self, ch: usize, enable: bool) {
         T::regs().cr().modify(|w| w.set_aden(false)); // disable adc
         T::regs().difsel().modify(|w| {
-            w.set_difsel(ch, if enable { Difsel::DIFFERENTIAL } else { Difsel::SINGLEENDED });
+            w.set_difsel(
+                ch,
+                if enable {
+                    Difsel::DIFFERENTIAL
+                } else {
+                    Difsel::SINGLEENDED
+                },
+            );
         });
         T::regs().cr().modify(|w| w.set_aden(true));
     }
@@ -268,8 +275,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Enable oversampling in regular mode.
     #[cfg(stm32g4)]
-    pub fn enable_regular_oversampling_mode(&mut self,mode:Rovsm,trig_mode:Trovs, enable: bool) {
-        T::regs().cfgr2().modify(|reg| reg.set_trovs(trig_mode)); 
+    pub fn enable_regular_oversampling_mode(&mut self, mode: Rovsm, trig_mode: Trovs, enable: bool) {
+        T::regs().cfgr2().modify(|reg| reg.set_trovs(trig_mode));
         T::regs().cfgr2().modify(|reg| reg.set_rovsm(mode));
         T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
     }
@@ -286,7 +293,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     //     T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
     //     T::regs().cfgr2().modify(|reg| reg.set_jovse(enable));
     // }
-
 
     /// Set the ADC sample time.
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
