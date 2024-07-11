@@ -1,11 +1,4 @@
-#[allow(unused)]
-#[cfg(stm32g4)]
-use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
-
-#[allow(unused)]
-#[cfg(not(stm32g4))]
-use pac::adc::vals::{Adcaldif, Difsel, Exten};
-
+use pac::adc::vals::*;
 use pac::adccommon::vals::Presc;
 use super::{blocking_delay_us, Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::time::Hertz;
