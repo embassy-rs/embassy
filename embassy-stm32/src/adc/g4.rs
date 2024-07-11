@@ -258,7 +258,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Read an ADC pin.
-    pub fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
         channel.setup();
 
         self.read_channel(channel.channel())

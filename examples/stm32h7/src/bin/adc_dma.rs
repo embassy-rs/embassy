@@ -3,13 +3,18 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel as _, SampleTime};
 use embassy_stm32::Config;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
+#[link_section = ".ram_d3"]
+static mut DMA_BUF: [u16; 2] = [0; 2];
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
+    let mut read_buffer = unsafe { &mut DMA_BUF[..] };
+
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -40,20 +45,31 @@ async fn main(_spawner: Spawner) {
         config.rcc.voltage_scale = VoltageScale::Scale1;
         config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
     }
-    let mut p = embassy_stm32::init(config);
+    let p = embassy_stm32::init(config);
 
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC3);
 
-    adc.set_sample_time(SampleTime::CYCLES32_5);
-
-    let mut vrefint_channel = adc.enable_vrefint();
+    let mut dma = p.DMA1_CH1;
+    let mut vrefint_channel = adc.enable_vrefint().degrade_adc();
+    let mut pc0 = p.PC0.degrade_adc();
 
     loop {
-        let vrefint = adc.blocking_read(&mut vrefint_channel);
+        adc.read(
+            &mut dma,
+            [
+                (&mut vrefint_channel, SampleTime::CYCLES387_5),
+                (&mut pc0, SampleTime::CYCLES810_5),
+            ]
+            .into_iter(),
+            &mut read_buffer,
+        )
+        .await;
+
+        let vrefint = read_buffer[0];
+        let measured = read_buffer[1];
         info!("vrefint: {}", vrefint);
-        let measured = adc.blocking_read(&mut p.PC0);
         info!("measured: {}", measured);
         Timer::after_millis(500).await;
     }

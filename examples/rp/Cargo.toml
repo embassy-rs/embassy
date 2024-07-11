@@ -29,6 +29,9 @@ reqwless = { version = "0.12.0", features = ["defmt",]}
 serde = { version = "1.0.203", default-features = false, features = ["derive"] }
 serde-json-core = "0.5.1"
 
+# for assign resources example
+assign-resources = { git = "https://github.com/adamgreig/assign-resources", rev = "94ad10e2729afdf0fd5a77cd12e68409a982f58a" }
+
 #cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m = { version = "0.7.6", features = ["inline-asm"] }
 cortex-m-rt = "0.7.0"

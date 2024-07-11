@@ -8,10 +8,17 @@ pub use w5100s::W5100S;
 pub(crate) trait SealedChip {
     type Address;
 
+    /// The version of the chip as reported by the VERSIONR register.
+    /// This is used to verify that the chip is supported by the driver,
+    /// and that SPI communication is working.
+    const CHIP_VERSION: u8;
+
     const COMMON_MODE: Self::Address;
     const COMMON_MAC: Self::Address;
     const COMMON_SOCKET_INTR: Self::Address;
     const COMMON_PHY_CFG: Self::Address;
+    const COMMON_VERSION: Self::Address;
+
     const SOCKET_MODE: Self::Address;
     const SOCKET_COMMAND: Self::Address;
     const SOCKET_RXBUF_SIZE: Self::Address;

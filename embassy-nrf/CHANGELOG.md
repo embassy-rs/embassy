@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - spi: Add support for configuring bit order for bus
 - pwm: Expose `pwm::PWM_CLK_HZ` and add `is_enabled` method
 - gpio: Drop GPIO Pin generics (API break)
+- pwm: Allow specifying OutputDrive for PWM channels
 
 ## 0.1.0 - 2024-01-12
 

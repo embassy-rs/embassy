@@ -904,6 +904,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         let data_size = W::size();
         let buffer_ptr = buffer.as_mut_ptr();
 
+        options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
         options.circular = true;
 
