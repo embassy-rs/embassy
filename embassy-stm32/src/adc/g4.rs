@@ -1,10 +1,10 @@
-#[cfg(stm32h7)]
 #[allow(unused)]
-use pac::adc::vals::{Adcaldif, Difsel, Exten};
-
 #[cfg(stm32g4)]
-#[allow(unused)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
+
+#[allow(unused)]
+#[cfg(not(stm32g4))]
+use pac::adc::vals::{Adcaldif, Difsel, Exten};
 
 use pac::adccommon::vals::Presc;
 use super::{blocking_delay_us, Adc, AdcChannel, Instance, Resolution, SampleTime};
@@ -142,7 +142,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
 
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
-        info!("ADC frequency set to {} Hz", frequency.0);
 
         if frequency > MAX_ADC_CLK_FREQ {
             panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
