@@ -1,11 +1,12 @@
-#[allow(unused)]
-
-use pac::adccommon::vals::Presc;
 #[cfg(stm32h7)]
+#[allow(unused)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
+
 #[cfg(stm32g4)]
+#[allow(unused)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
 
+use pac::adccommon::vals::Presc;
 use super::{blocking_delay_us, Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::time::Hertz;
 use crate::{pac, rcc, Peripheral};
