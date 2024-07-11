@@ -1,6 +1,6 @@
 #[allow(unused)]
-use pac::adccommon::vals::Presc;
 
+use pac::adccommon::vals::Presc;
 #[cfg(stm32h7)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 #[cfg(stm32g4)]
