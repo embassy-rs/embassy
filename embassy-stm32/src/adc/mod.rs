@@ -26,6 +26,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(not(any(adc_f1, adc_f3_v2)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
+pub use crate::pac::adc::vals ;
 use crate::peripherals;
 
 dma_trait!(RxDma, Instance);

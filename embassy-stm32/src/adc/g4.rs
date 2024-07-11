@@ -1,4 +1,8 @@
 #[allow(unused)]
+
+#[cfg(stm32g4)]
+use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
+#[cfg(stm32h7)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 use pac::adccommon::vals::Presc;
 
@@ -227,6 +231,62 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Vbat {}
     }
+
+    /// Enable differential channel.
+    /// Caution:
+    /// : When configuring the channel “i” in differential input mode, its negative input voltage VINN[i]
+    /// is connected to another channel. As a consequence, this channel is no longer usable in
+    /// single-ended mode or in differential mode and must never be configured to be converted.
+    /// Some channels are shared between ADC1/ADC2/ADC3/ADC4/ADC5: this can make the
+    /// channel on the other ADC unusable. The only exception is when ADC master and the slave
+    /// operate in interleaved mode.
+    #[cfg(stm32g4)]
+    pub fn set_differential_channel(&mut self, ch: usize ,enable: bool) {
+        T::regs().cr().modify(|w| w.set_aden(false)); // disable adc
+        T::regs().difsel().modify(|w| {
+            w.set_difsel(ch, if enable { Difsel::DIFFERENTIAL } else { Difsel::SINGLEENDED });
+        });
+        T::regs().cr().modify(|w| w.set_aden(true));
+    }
+
+    #[cfg(stm32g4)]
+    pub fn set_differential(&mut self, channel: &mut impl AdcChannel<T>, enable: bool) {
+        self.set_differential_channel(channel.channel() as usize, enable);
+    }
+
+    /// Set oversampling shift.
+    #[cfg(stm32g4)]
+    pub fn set_oversampling_shift(&mut self, shift: u8) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovss(shift));
+    }
+
+    /// Set oversampling ratio.
+    #[cfg(stm32g4)]
+    pub fn set_oversampling_ratio(&mut self, ratio: u8) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovsr(ratio));
+    }
+
+    /// Enable oversampling in regular mode.
+    #[cfg(stm32g4)]
+    pub fn enable_regular_oversampling_mode(&mut self,mode:Rovsm,trig_mode:Trovs, enable: bool) {
+        T::regs().cfgr2().modify(|reg| reg.set_trovs(trig_mode)); 
+        T::regs().cfgr2().modify(|reg| reg.set_rovsm(mode));
+        T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
+    }
+
+    // Reads that are not implemented as INJECTED in "blocking_read"
+    // #[cfg(stm32g4)]
+    // pub fn enalble_injected_oversampling_mode(&mut self, enable: bool) {
+    //     T::regs().cfgr2().modify(|reg| reg.set_jovse(enable));
+    // }
+
+    // #[cfg(stm32g4)]
+    // pub fn enable_oversampling_regular_injected_mode(&mut self, enable: bool) {
+    //     // the regularoversampling mode is forced to resumed mode (ROVSM bit ignored),
+    //     T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
+    //     T::regs().cfgr2().modify(|reg| reg.set_jovse(enable));
+    // }
+
 
     /// Set the ADC sample time.
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
