@@ -1,10 +1,8 @@
 //! A synchronization primitive for passing the latest value to a task.
-use core::cell::Cell;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll, Waker};
 
-use crate::blocking_mutex::raw::RawMutex;
-use crate::blocking_mutex::Mutex;
+use raw_mutex_traits::{BlockingMutex, RawMutex};
 
 /// Single-slot signaling primitive.
 ///
@@ -35,7 +33,7 @@ pub struct Signal<M, T>
 where
     M: RawMutex,
 {
-    state: Mutex<M, Cell<State<T>>>,
+    state: BlockingMutex<M, State<T>>,
 }
 
 enum State<T> {
@@ -51,7 +49,7 @@ where
     /// Create a new `Signal`.
     pub const fn new() -> Self {
         Self {
-            state: Mutex::new(Cell::new(State::None)),
+            state: BlockingMutex::new(State::None),
         }
     }
 }
@@ -71,9 +69,9 @@ where
 {
     /// Mark this Signal as signaled.
     pub fn signal(&self, val: T) {
-        self.state.lock(|cell| {
-            let state = cell.replace(State::Signaled(val));
-            if let State::Waiting(waker) = state {
+        self.state.lock(|state| {
+            let old = core::mem::replace(state, State::Signaled(val));
+            if let State::Waiting(waker) = old {
                 waker.wake();
             }
         })
@@ -81,23 +79,23 @@ where
 
     /// Remove the queued value in this `Signal`, if any.
     pub fn reset(&self) {
-        self.state.lock(|cell| cell.set(State::None));
+        self.state.lock(|state| *state = State::None);
     }
 
     fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
-        self.state.lock(|cell| {
-            let state = cell.replace(State::None);
-            match state {
+        self.state.lock(|state| {
+            let old = core::mem::replace(state, State::None);
+            match old {
                 State::None => {
-                    cell.set(State::Waiting(cx.waker().clone()));
+                    *state = State::Waiting(cx.waker().clone());
                     Poll::Pending
                 }
                 State::Waiting(w) if w.will_wake(cx.waker()) => {
-                    cell.set(State::Waiting(w));
+                    *state = State::Waiting(w);
                     Poll::Pending
                 }
                 State::Waiting(w) => {
-                    cell.set(State::Waiting(cx.waker().clone()));
+                    *state = State::Waiting(cx.waker().clone());
                     w.wake();
                     Poll::Pending
                 }
@@ -113,12 +111,12 @@ where
 
     /// non-blocking method to try and take the signal value.
     pub fn try_take(&self) -> Option<T> {
-        self.state.lock(|cell| {
-            let state = cell.replace(State::None);
-            match state {
+        self.state.lock(|state| {
+            let old = core::mem::replace(state, State::None);
+            match old {
                 State::Signaled(res) => Some(res),
-                state => {
-                    cell.set(state);
+                ostate => {
+                    *state = ostate;
                     None
                 }
             }
@@ -127,13 +125,8 @@ where
 
     /// non-blocking method to check whether this signal has been signaled. This does not clear the signal.  
     pub fn signaled(&self) -> bool {
-        self.state.lock(|cell| {
-            let state = cell.replace(State::None);
-
+        self.state.lock(|state| {
             let res = matches!(state, State::Signaled(_));
-
-            cell.set(state);
-
             res
         })
     }

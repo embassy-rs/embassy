@@ -14,13 +14,12 @@
 //! messages that it can store, and if this limit is reached, trying to send
 //! another message will result in an error being returned.
 
-use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
-use crate::blocking_mutex::Mutex;
+use raw_mutex_traits::{BlockingMutex, RawMutex};
+
 use crate::waitqueue::WakerRegistration;
 
 /// A bounded zero-copy channel for communicating between asynchronous tasks
@@ -37,7 +36,7 @@ use crate::waitqueue::WakerRegistration;
 pub struct Channel<'a, M: RawMutex, T> {
     buf: *mut T,
     phantom: PhantomData<&'a mut T>,
-    state: Mutex<M, RefCell<State>>,
+    state: BlockingMutex<M, State>,
 }
 
 impl<'a, M: RawMutex, T> Channel<'a, M, T> {
@@ -52,14 +51,14 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
         Self {
             buf: buf.as_mut_ptr(),
             phantom: PhantomData,
-            state: Mutex::new(RefCell::new(State {
+            state: BlockingMutex::new(State {
                 len,
                 front: 0,
                 back: 0,
                 full: false,
                 send_waker: WakerRegistration::new(),
                 receive_waker: WakerRegistration::new(),
-            })),
+            }),
         }
     }
 
@@ -85,25 +84,19 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
 
     /// Attempts to send a value over the channel.
     pub fn try_send(&mut self) -> Option<&mut T> {
-        self.channel.state.lock(|s| {
-            let s = &mut *s.borrow_mut();
-            match s.push_index() {
-                Some(i) => Some(unsafe { &mut *self.channel.buf.add(i) }),
-                None => None,
-            }
+        self.channel.state.lock(|s| match s.push_index() {
+            Some(i) => Some(unsafe { &mut *self.channel.buf.add(i) }),
+            None => None,
         })
     }
 
     /// Attempts to send a value over the channel.
     pub fn poll_send(&mut self, cx: &mut Context) -> Poll<&mut T> {
-        self.channel.state.lock(|s| {
-            let s = &mut *s.borrow_mut();
-            match s.push_index() {
-                Some(i) => Poll::Ready(unsafe { &mut *self.channel.buf.add(i) }),
-                None => {
-                    s.receive_waker.register(cx.waker());
-                    Poll::Pending
-                }
+        self.channel.state.lock(|s| match s.push_index() {
+            Some(i) => Poll::Ready(unsafe { &mut *self.channel.buf.add(i) }),
+            None => {
+                s.receive_waker.register(cx.waker());
+                Poll::Pending
             }
         })
     }
@@ -111,14 +104,11 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
     /// Asynchronously send a value over the channel.
     pub async fn send(&mut self) -> &mut T {
         let i = poll_fn(|cx| {
-            self.channel.state.lock(|s| {
-                let s = &mut *s.borrow_mut();
-                match s.push_index() {
-                    Some(i) => Poll::Ready(i),
-                    None => {
-                        s.receive_waker.register(cx.waker());
-                        Poll::Pending
-                    }
+            self.channel.state.lock(|s| match s.push_index() {
+                Some(i) => Poll::Ready(i),
+                None => {
+                    s.receive_waker.register(cx.waker());
+                    Poll::Pending
                 }
             })
         })
@@ -128,7 +118,7 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
 
     /// Notify the channel that the sending of the value has been finalized.
     pub fn send_done(&mut self) {
-        self.channel.state.lock(|s| s.borrow_mut().push_done())
+        self.channel.state.lock(|s| s.push_done())
     }
 }
 
@@ -145,25 +135,19 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
 
     /// Attempts to receive a value over the channel.
     pub fn try_receive(&mut self) -> Option<&mut T> {
-        self.channel.state.lock(|s| {
-            let s = &mut *s.borrow_mut();
-            match s.pop_index() {
-                Some(i) => Some(unsafe { &mut *self.channel.buf.add(i) }),
-                None => None,
-            }
+        self.channel.state.lock(|s| match s.pop_index() {
+            Some(i) => Some(unsafe { &mut *self.channel.buf.add(i) }),
+            None => None,
         })
     }
 
     /// Attempts to asynchronously receive a value over the channel.
     pub fn poll_receive(&mut self, cx: &mut Context) -> Poll<&mut T> {
-        self.channel.state.lock(|s| {
-            let s = &mut *s.borrow_mut();
-            match s.pop_index() {
-                Some(i) => Poll::Ready(unsafe { &mut *self.channel.buf.add(i) }),
-                None => {
-                    s.send_waker.register(cx.waker());
-                    Poll::Pending
-                }
+        self.channel.state.lock(|s| match s.pop_index() {
+            Some(i) => Poll::Ready(unsafe { &mut *self.channel.buf.add(i) }),
+            None => {
+                s.send_waker.register(cx.waker());
+                Poll::Pending
             }
         })
     }
@@ -171,14 +155,11 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     /// Asynchronously receive a value over the channel.
     pub async fn receive(&mut self) -> &mut T {
         let i = poll_fn(|cx| {
-            self.channel.state.lock(|s| {
-                let s = &mut *s.borrow_mut();
-                match s.pop_index() {
-                    Some(i) => Poll::Ready(i),
-                    None => {
-                        s.send_waker.register(cx.waker());
-                        Poll::Pending
-                    }
+            self.channel.state.lock(|s| match s.pop_index() {
+                Some(i) => Poll::Ready(i),
+                None => {
+                    s.send_waker.register(cx.waker());
+                    Poll::Pending
                 }
             })
         })
@@ -188,7 +169,7 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
 
     /// Notify the channel that the receiving of the value has been finalized.
     pub fn receive_done(&mut self) {
-        self.channel.state.lock(|s| s.borrow_mut().pop_done())
+        self.channel.state.lock(|s| s.pop_done())
     }
 }
 

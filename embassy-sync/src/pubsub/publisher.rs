@@ -6,8 +6,9 @@ use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
+use raw_mutex_traits::RawMutex;
+
 use super::{PubSubBehavior, PubSubChannel};
-use crate::blocking_mutex::raw::RawMutex;
 
 /// A publisher to a channel
 pub struct Pub<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {

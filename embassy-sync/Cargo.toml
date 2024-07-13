@@ -32,6 +32,7 @@ critical-section = "1.1"
 heapless = "0.8"
 cfg-if = "1.0.0"
 embedded-io-async = { version = "0.6.1" }
+raw-mutex-traits = { version = "0.1.0", path = "../raw-mutex-traits" }
 
 [dev-dependencies]
 futures-executor = { version = "0.3.17", features = [ "thread-pool" ] }

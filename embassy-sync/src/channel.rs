@@ -18,15 +18,13 @@
 //! another message will result in an error being returned.
 //!
 
-use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use heapless::Deque;
+use raw_mutex_traits::{BlockingMutex, RawMutex};
 
-use crate::blocking_mutex::raw::RawMutex;
-use crate::blocking_mutex::Mutex;
 use crate::waitqueue::WakerRegistration;
 
 /// Send-only access to a [`Channel`].
@@ -506,7 +504,7 @@ pub struct Channel<M, T, const N: usize>
 where
     M: RawMutex,
 {
-    inner: Mutex<M, RefCell<ChannelState<T, N>>>,
+    inner: BlockingMutex<M, ChannelState<T, N>>,
 }
 
 impl<M, T, const N: usize> Channel<M, T, N>
@@ -524,12 +522,12 @@ where
     /// ```
     pub const fn new() -> Self {
         Self {
-            inner: Mutex::new(RefCell::new(ChannelState::new())),
+            inner: BlockingMutex::new(ChannelState::new()),
         }
     }
 
     fn lock<R>(&self, f: impl FnOnce(&mut ChannelState<T, N>) -> R) -> R {
-        self.inner.lock(|rc| f(&mut *unwrap!(rc.try_borrow_mut())))
+        self.inner.lock(f)
     }
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {

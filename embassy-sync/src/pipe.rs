@@ -1,14 +1,14 @@
 //! Async byte stream pipe.
 
-use core::cell::{RefCell, UnsafeCell};
+use core::cell::UnsafeCell;
 use core::convert::Infallible;
 use core::future::Future;
 use core::ops::Range;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
-use crate::blocking_mutex::Mutex;
+use raw_mutex_traits::{BlockingMutex, RawMutex};
+
 use crate::ring_buffer::RingBuffer;
 use crate::waitqueue::WakerRegistration;
 
@@ -235,7 +235,7 @@ where
     M: RawMutex,
 {
     buf: Buffer<N>,
-    inner: Mutex<M, RefCell<PipeState<N>>>,
+    inner: BlockingMutex<M, PipeState<N>>,
 }
 
 impl<M, const N: usize> Pipe<M, N>
@@ -254,22 +254,20 @@ where
     pub const fn new() -> Self {
         Self {
             buf: Buffer(UnsafeCell::new([0; N])),
-            inner: Mutex::new(RefCell::new(PipeState {
+            inner: BlockingMutex::new(PipeState {
                 buffer: RingBuffer::new(),
                 read_waker: WakerRegistration::new(),
                 write_waker: WakerRegistration::new(),
-            })),
+            }),
         }
     }
 
     fn lock<R>(&self, f: impl FnOnce(&mut PipeState<N>) -> R) -> R {
-        self.inner.lock(|rc| f(&mut *rc.borrow_mut()))
+        self.inner.lock(f)
     }
 
     fn try_read_with_context(&self, cx: Option<&mut Context<'_>>, buf: &mut [u8]) -> Result<usize, TryReadError> {
-        self.inner.lock(|rc: &RefCell<PipeState<N>>| {
-            let s = &mut *rc.borrow_mut();
-
+        self.inner.lock(|s| {
             if s.buffer.is_full() {
                 s.write_waker.wake();
             }
@@ -292,9 +290,7 @@ where
     // safety: While the returned slice is alive,
     // no `read` or `consume` methods in the pipe must be called.
     unsafe fn try_fill_buf_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<&[u8], TryReadError> {
-        self.inner.lock(|rc: &RefCell<PipeState<N>>| {
-            let s = &mut *rc.borrow_mut();
-
+        self.inner.lock(|s| {
             if s.buffer.is_full() {
                 s.write_waker.wake();
             }
@@ -312,8 +308,7 @@ where
     }
 
     fn consume(&self, amt: usize) {
-        self.inner.lock(|rc: &RefCell<PipeState<N>>| {
-            let s = &mut *rc.borrow_mut();
+        self.inner.lock(|s| {
             let available = s.buffer.pop_buf();
             assert!(amt <= available.len());
             s.buffer.pop(amt);
@@ -321,9 +316,7 @@ where
     }
 
     fn try_write_with_context(&self, cx: Option<&mut Context<'_>>, buf: &[u8]) -> Result<usize, TryWriteError> {
-        self.inner.lock(|rc: &RefCell<PipeState<N>>| {
-            let s = &mut *rc.borrow_mut();
-
+        self.inner.lock(|s| {
             if s.buffer.is_empty() {
                 s.read_waker.wake();
             }
@@ -420,9 +413,7 @@ where
 
     /// Clear the data in the pipe's buffer.
     pub fn clear(&self) {
-        self.inner.lock(|rc: &RefCell<PipeState<N>>| {
-            let s = &mut *rc.borrow_mut();
-
+        self.inner.lock(|s| {
             s.buffer.clear();
             s.write_waker.wake();
         })

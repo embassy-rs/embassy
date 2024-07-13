@@ -1,14 +1,14 @@
 //! Async mutex.
 //!
 //! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
-use core::cell::{RefCell, UnsafeCell};
+use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 use core::{fmt, mem};
 
-use crate::blocking_mutex::raw::RawMutex;
-use crate::blocking_mutex::Mutex as BlockingMutex;
+use raw_mutex_traits::{BlockingMutex, RawMutex};
+
 use crate::waitqueue::WakerRegistration;
 
 /// Error returned by [`Mutex::try_lock`]
@@ -41,7 +41,7 @@ where
     M: RawMutex,
     T: ?Sized,
 {
-    state: BlockingMutex<M, RefCell<State>>,
+    state: BlockingMutex<M, State>,
     inner: UnsafeCell<T>,
 }
 
@@ -57,10 +57,10 @@ where
     pub const fn new(value: T) -> Self {
         Self {
             inner: UnsafeCell::new(value),
-            state: BlockingMutex::new(RefCell::new(State {
+            state: BlockingMutex::new(State {
                 locked: false,
                 waker: WakerRegistration::new(),
-            })),
+            }),
         }
     }
 }
@@ -76,7 +76,6 @@ where
     pub async fn lock(&self) -> MutexGuard<'_, M, T> {
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
-                let mut s = s.borrow_mut();
                 if s.locked {
                     s.waker.register(cx.waker());
                     false
@@ -100,7 +99,6 @@ where
     /// If the mutex is already locked, this will return an error instead of waiting.
     pub fn try_lock(&self) -> Result<MutexGuard<'_, M, T>, TryLockError> {
         self.state.lock(|s| {
-            let mut s = s.borrow_mut();
             if s.locked {
                 Err(TryLockError)
             } else {
@@ -206,7 +204,6 @@ where
 {
     fn drop(&mut self) {
         self.mutex.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
             s.locked = false;
             s.waker.wake();
         })
@@ -268,7 +265,7 @@ where
     M: RawMutex,
     T: ?Sized,
 {
-    state: &'a BlockingMutex<M, RefCell<State>>,
+    state: &'a BlockingMutex<M, State>,
     value: *mut T,
 }
 
@@ -320,7 +317,6 @@ where
 {
     fn drop(&mut self) {
         self.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
             s.locked = false;
             s.waker.wake();
         })

@@ -3,109 +3,58 @@
 //! This module provides a blocking mutex that can be used to synchronize data.
 pub mod raw;
 
-use core::cell::UnsafeCell;
+use core::ops::Deref;
 
-use self::raw::RawMutex;
-
-/// Blocking mutex (not async)
-///
-/// Provides a blocking mutual exclusion primitive backed by an implementation of [`raw::RawMutex`].
-///
-/// Which implementation you select depends on the context in which you're using the mutex, and you can choose which kind
-/// of interior mutability fits your use case.
-///
-/// Use [`CriticalSectionMutex`] when data can be shared between threads and interrupts.
-///
-/// Use [`NoopMutex`] when data is only shared between tasks running on the same executor.
-///
-/// Use [`ThreadModeMutex`] when data is shared between tasks running on the same executor but you want a global singleton.
-///
-/// In all cases, the blocking mutex is intended to be short lived and not held across await points.
-/// Use the async [`Mutex`](crate::mutex::Mutex) if you need a lock that is held across await points.
-pub struct Mutex<R, T: ?Sized> {
-    // NOTE: `raw` must be FIRST, so when using ThreadModeMutex the "can't drop in non-thread-mode" gets
-    // to run BEFORE dropping `data`.
-    raw: R,
-    data: UnsafeCell<T>,
-}
-
-unsafe impl<R: RawMutex + Send, T: ?Sized + Send> Send for Mutex<R, T> {}
-unsafe impl<R: RawMutex + Sync, T: ?Sized + Send> Sync for Mutex<R, T> {}
-
-impl<R: RawMutex, T> Mutex<R, T> {
-    /// Creates a new mutex in an unlocked state ready for use.
-    #[inline]
-    pub const fn new(val: T) -> Mutex<R, T> {
-        Mutex {
-            raw: R::INIT,
-            data: UnsafeCell::new(val),
-        }
-    }
-
-    /// Creates a critical section and grants temporary access to the protected data.
-    pub fn lock<U>(&self, f: impl FnOnce(&T) -> U) -> U {
-        self.raw.lock(|| {
-            let ptr = self.data.get() as *const T;
-            let inner = unsafe { &*ptr };
-            f(inner)
-        })
-    }
-}
-
-impl<R, T> Mutex<R, T> {
-    /// Creates a new mutex based on a pre-existing raw mutex.
-    ///
-    /// This allows creating a mutex in a constant context on stable Rust.
-    #[inline]
-    pub const fn const_new(raw_mutex: R, val: T) -> Mutex<R, T> {
-        Mutex {
-            raw: raw_mutex,
-            data: UnsafeCell::new(val),
-        }
-    }
-
-    /// Consumes this mutex, returning the underlying data.
-    #[inline]
-    pub fn into_inner(self) -> T {
-        self.data.into_inner()
-    }
-
-    /// Returns a mutable reference to the underlying data.
-    ///
-    /// Since this call borrows the `Mutex` mutably, no actual locking needs to
-    /// take place---the mutable borrow statically guarantees no locks exist.
-    #[inline]
-    pub fn get_mut(&mut self) -> &mut T {
-        unsafe { &mut *self.data.get() }
-    }
-}
+use raw_mutex_traits::BlockingMutex;
 
 /// A mutex that allows borrowing data across executors and interrupts.
 ///
 /// # Safety
 ///
 /// This mutex is safe to share between different executors and interrupts.
-pub type CriticalSectionMutex<T> = Mutex<raw::CriticalSectionRawMutex, T>;
+pub struct CriticalSectionMutex<T> {
+    pub(crate) inner: BlockingMutex<raw::CriticalSectionRawMutex, T>,
+}
 
 /// A mutex that allows borrowing data in the context of a single executor.
 ///
 /// # Safety
 ///
 /// **This Mutex is only safe within a single executor.**
-pub type NoopMutex<T> = Mutex<raw::NoopRawMutex, T>;
+pub struct NoopMutex<T> {
+    pub(crate) inner: BlockingMutex<raw::NoopRawMutex, T>,
+}
 
-impl<T> Mutex<raw::CriticalSectionRawMutex, T> {
+impl<T> Deref for CriticalSectionMutex<T> {
+    type Target = BlockingMutex<raw::CriticalSectionRawMutex, T>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> CriticalSectionMutex<T> {
     /// Borrows the data for the duration of the critical section
     pub fn borrow<'cs>(&'cs self, _cs: critical_section::CriticalSection<'cs>) -> &'cs T {
-        let ptr = self.data.get() as *const T;
+        let ptr = unsafe { self.inner.get_unchecked() } as *const T;
         unsafe { &*ptr }
     }
 }
 
-impl<T> Mutex<raw::NoopRawMutex, T> {
+impl<T> Deref for NoopMutex<T> {
+    type Target = BlockingMutex<raw::NoopRawMutex, T>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> NoopMutex<T> {
     /// Borrows the data
     pub fn borrow(&self) -> &T {
-        let ptr = self.data.get() as *const T;
+        let ptr = unsafe { self.inner.get_unchecked() } as *const T;
         unsafe { &*ptr }
     }
 }
