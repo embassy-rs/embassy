@@ -159,20 +159,33 @@ fn copy_inner<'a, C: Channel>(
     });
 
     compiler_fence(Ordering::SeqCst);
-    Transfer::new(ch)
+    Transfer::new(ch, to as u32)
 }
 
 /// DMA transfer driver.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a, C: Channel> {
     channel: PeripheralRef<'a, C>,
+    start_write_addr: u32,
 }
 
 impl<'a, C: Channel> Transfer<'a, C> {
-    pub(crate) fn new(channel: impl Peripheral<P = C> + 'a) -> Self {
+    pub(crate) fn new(channel: impl Peripheral<P = C> + 'a, start_write_addr: u32) -> Self {
         into_ref!(channel);
 
-        Self { channel }
+        Self { channel, start_write_addr }
+    }
+    /// Abort a DMA transfer early
+    ///
+    /// Returns the count of bytes transfered up until this point
+    pub fn abort(&mut self) -> u32 {
+        let p = self.channel.regs();
+        pac::DMA
+            .chan_abort()
+            .modify(|m| m.set_chan_abort(1 << self.channel.number()));
+        while p.ctrl_trig().read().busy() {}
+
+        p.write_addr().read() - self.start_write_addr
     }
 }
 
