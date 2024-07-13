@@ -3,7 +3,7 @@
 //! This module provides a trait for mutexes that can be used in different contexts.
 use core::marker::PhantomData;
 
-use raw_mutex_traits::RawMutex;
+pub use raw_mutex_traits::RawMutex;
 
 /// A mutex that allows borrowing data across executors and interrupts.
 ///

@@ -7,6 +7,9 @@ use core::ops::Deref;
 
 use raw_mutex_traits::BlockingMutex;
 
+// Semver re-export
+pub use raw_mutex_traits::BlockingMutex as Mutex;
+
 /// A mutex that allows borrowing data across executors and interrupts.
 ///
 /// # Safety
