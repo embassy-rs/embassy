@@ -6,7 +6,6 @@ pub mod raw;
 use core::ops::Deref;
 
 use raw_mutex_traits::BlockingMutex;
-
 // Semver re-export
 pub use raw_mutex_traits::BlockingMutex as Mutex;
 
@@ -72,6 +71,8 @@ impl<T> NoopMutex<T> {
 pub use thread_mode_mutex::*;
 #[cfg(any(cortex_m, feature = "std"))]
 mod thread_mode_mutex {
+    use core::cell::UnsafeCell;
+
     use super::*;
 
     /// A "mutex" that only allows borrowing from thread mode.
