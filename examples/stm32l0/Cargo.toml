@@ -15,7 +15,7 @@ defmt = "0.3"
 defmt-rtt = "0.4"
 
 embedded-storage = "0.3.1"
-embedded-io = { version = "0.6.0" }
+embedded-io = { version = "0.6.1" }
 embedded-io-async = { version = "0.6.1" }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
