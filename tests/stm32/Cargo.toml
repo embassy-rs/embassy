@@ -97,11 +97,6 @@ path = "src/bin/can.rs"
 required-features = [ "can",]
 
 [[bin]]
-name = "can_common"
-path = "src/bin/can_common.rs"
-required-features = []
-
-[[bin]]
 name = "cordic"
 path = "src/bin/cordic.rs"
 required-features = [ "rng", "cordic",]
