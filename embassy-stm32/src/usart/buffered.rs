@@ -437,8 +437,8 @@ impl<'d> BufferedUartRx<'d> {
     }
 
     /// we are ready to read if there is data in the buffer
-    fn read_ready() -> Result<bool, Error> {
-        let state = T::buffered_state();
+    fn read_ready(&mut self) -> Result<bool, Error> {
+        let state = self.state;
         Ok(!state.rx_buf.is_empty())
     }
 
@@ -618,13 +618,13 @@ impl<'d> embedded_io_async::Read for BufferedUartRx<'d> {
 
 impl<'d> embedded_io_async::ReadReady for BufferedUart<'d> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        BufferedUartRx::<'d>::read_ready()
+        BufferedUartRx::<'d>::read_ready(&mut self.rx)
     }
 }
 
 impl<'d> embedded_io_async::ReadReady for BufferedUartRx<'d> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        Self::read_ready()
+        Self::read_ready(self)
     }
 }
 
