@@ -172,9 +172,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
     pub(crate) fn new(channel: impl Peripheral<P = C> + 'a) -> Self {
         into_ref!(channel);
 
-        Self {
-            channel,
-        }
+        Self { channel }
     }
     /// Abort a DMA transfer early
     ///
