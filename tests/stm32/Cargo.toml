@@ -6,31 +6,31 @@ license = "MIT OR Apache-2.0"
 autobins = false
 
 [features]
-stm32c031c6 = ["embassy-stm32/stm32c031c6", "cm0", "not-gpdma"]
-stm32f103c8 = ["embassy-stm32/stm32f103c8", "spi-v1", "not-gpdma"]
-stm32f207zg = ["embassy-stm32/stm32f207zg", "spi-v1", "chrono", "not-gpdma", "eth", "rng"]
-stm32f303ze = ["embassy-stm32/stm32f303ze", "chrono", "not-gpdma"]
-stm32f429zi = ["embassy-stm32/stm32f429zi", "spi-v1", "chrono", "eth", "stop", "can", "not-gpdma", "dac", "rng"]
-stm32f446re = ["embassy-stm32/stm32f446re", "spi-v1", "chrono", "stop", "can", "not-gpdma", "dac", "sdmmc"]
-stm32f767zi = ["embassy-stm32/stm32f767zi", "chrono", "not-gpdma", "eth", "rng"]
-stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "not-gpdma", "dac", "ucpd"]
-stm32g491re = ["embassy-stm32/stm32g491re", "chrono", "stop", "not-gpdma", "rng", "fdcan", "cordic"]
+stm32c031c6 = ["embassy-stm32/stm32c031c6", "cm0"]
+stm32f103c8 = ["embassy-stm32/stm32f103c8", "spi-v1"]
+stm32f207zg = ["embassy-stm32/stm32f207zg", "spi-v1", "chrono", "eth", "rng"]
+stm32f303ze = ["embassy-stm32/stm32f303ze", "chrono"]
+stm32f429zi = ["embassy-stm32/stm32f429zi", "spi-v1", "chrono", "eth", "stop", "can", "dac", "rng"]
+stm32f446re = ["embassy-stm32/stm32f446re", "spi-v1", "chrono", "stop", "can", "dac", "sdmmc"]
+stm32f767zi = ["embassy-stm32/stm32f767zi", "chrono", "eth", "rng"]
+stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "dac", "ucpd"]
+stm32g491re = ["embassy-stm32/stm32g491re", "chrono", "stop", "rng", "fdcan", "cordic"]
 stm32h563zi = ["embassy-stm32/stm32h563zi", "spi-v345", "chrono", "eth", "rng", "fdcan", "hash", "cordic", "stop"]
-stm32h753zi = ["embassy-stm32/stm32h753zi", "spi-v345", "chrono", "not-gpdma", "eth", "rng", "fdcan", "hash", "cryp"]
-stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "spi-v345", "chrono", "not-gpdma", "eth", "dac", "rng", "fdcan", "hash", "cryp"]
-stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "spi-v345", "not-gpdma", "rng", "fdcan"]
-stm32l073rz = ["embassy-stm32/stm32l073rz", "cm0", "not-gpdma", "rng"]
-stm32l152re = ["embassy-stm32/stm32l152re", "spi-v1", "chrono", "not-gpdma"]
-stm32l496zg = ["embassy-stm32/stm32l496zg", "not-gpdma", "rng"]
-stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "chrono", "not-gpdma", "rng", "hash"]
-stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "chrono", "not-gpdma", "rng"]
-stm32l552ze = ["embassy-stm32/stm32l552ze", "not-gpdma", "rng", "hash"]
+stm32h753zi = ["embassy-stm32/stm32h753zi", "spi-v345", "chrono", "eth", "rng", "fdcan", "hash", "cryp"]
+stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "spi-v345", "chrono", "eth", "dac", "rng", "fdcan", "hash", "cryp"]
+stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "spi-v345", "rng", "fdcan"]
+stm32l073rz = ["embassy-stm32/stm32l073rz", "cm0", "rng"]
+stm32l152re = ["embassy-stm32/stm32l152re", "spi-v1", "chrono"]
+stm32l496zg = ["embassy-stm32/stm32l496zg", "rng"]
+stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "chrono", "rng", "hash"]
+stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "chrono", "rng"]
+stm32l552ze = ["embassy-stm32/stm32l552ze", "rng", "hash"]
 stm32u585ai = ["embassy-stm32/stm32u585ai", "spi-v345", "chrono", "rng", "hash", "cordic"]
 stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "spi-v345", "chrono", "rng", "hash"] # FIXME: cordic test cause it crash
-stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" , "rng"]
+stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "ble", "mac" , "rng"]
 stm32wba52cg = ["embassy-stm32/stm32wba52cg", "spi-v345", "chrono", "rng", "hash"]
-stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono"]
-stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
+stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "rng", "chrono"]
+stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "spi-v345", "rng", "stop"]
 stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "spi-v345", "rng", "cordic", "hash"] # TODO: fdcan crashes, cryp dma hangs.
 stm32u083rc = ["embassy-stm32/stm32u083rc", "cm0", "rng", "chrono"]
@@ -49,7 +49,6 @@ fdcan = []
 ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/ble"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/mac"]
 embassy-stm32-wpan = []
-not-gpdma = []
 dac = []
 ucpd = []
 cordic = ["dep:num-traits"]
@@ -96,6 +95,11 @@ num-traits = {version="0.2", default-features = false,features = ["libm"], optio
 name = "can"
 path = "src/bin/can.rs"
 required-features = [ "can",]
+
+[[bin]]
+name = "can_common"
+path = "src/bin/can_common.rs"
+required-features = []
 
 [[bin]]
 name = "cordic"
@@ -190,7 +194,7 @@ required-features = []
 [[bin]]
 name = "usart_rx_ringbuffered"
 path = "src/bin/usart_rx_ringbuffered.rs"
-required-features = [ "not-gpdma",]
+required-features = []
 
 [[bin]]
 name = "wpan_ble"
