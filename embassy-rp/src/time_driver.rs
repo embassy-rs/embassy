@@ -1,8 +1,5 @@
 //! Timer driver.
-use core::cell::Cell;
-
 use atomic_polyfill::{AtomicU8, Ordering};
-use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
@@ -11,15 +8,15 @@ use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
 struct AlarmState {
-    timestamp: Cell<u64>,
-    callback: Cell<Option<(fn(*mut ()), *mut ())>>,
+    timestamp: u64,
+    callback: Option<(fn(*mut ()), *mut ())>,
 }
 unsafe impl Send for AlarmState {}
 
 const ALARM_COUNT: usize = 4;
 const DUMMY_ALARM: AlarmState = AlarmState {
-    timestamp: Cell::new(0),
-    callback: Cell::new(None),
+    timestamp: 0,
+    callback: None,
 };
 
 struct TimerDriver {
@@ -61,17 +58,18 @@ impl Driver for TimerDriver {
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
         let n = alarm.id() as usize;
-        critical_section::with(|cs| {
-            let alarm = &self.alarms.borrow(cs)[n];
-            alarm.callback.set(Some((callback, ctx)));
-        })
+        self.alarms.lock(|alarms| {
+            let alarm = &mut alarms[n];
+            alarm.callback = Some((callback, ctx));
+        });
     }
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         let n = alarm.id() as usize;
-        critical_section::with(|cs| {
-            let alarm = &self.alarms.borrow(cs)[n];
-            alarm.timestamp.set(timestamp);
+
+        self.alarms.lock(|alarms| {
+            let alarm = &mut alarms[n];
+            alarm.timestamp = timestamp;
 
             // Arm it.
             // Note that we're not checking the high bits at all. This means the irq may fire early
@@ -85,7 +83,7 @@ impl Driver for TimerDriver {
                 // Disarm the alarm and return `false` to indicate that.
                 pac::TIMER.armed().write(|w| w.set_armed(1 << n));
 
-                alarm.timestamp.set(u64::MAX);
+                alarm.timestamp = u64::MAX;
 
                 false
             } else {
@@ -97,15 +95,21 @@ impl Driver for TimerDriver {
 
 impl TimerDriver {
     fn check_alarm(&self, n: usize) {
-        critical_section::with(|cs| {
-            let alarm = &self.alarms.borrow(cs)[n];
-            let timestamp = alarm.timestamp.get();
-            if timestamp <= self.now() {
-                self.trigger_alarm(n, cs)
+        self.alarms.lock(|alarms| {
+            let alarm = &mut alarms[n];
+            if alarm.timestamp <= self.now() {
+                // disarm
+                pac::TIMER.armed().write(|w| w.set_armed(1 << n));
+                alarm.timestamp = u64::MAX;
+
+                // Call after clearing alarm, so the callback can set another alarm.
+                if let Some((f, ctx)) = alarm.callback.as_ref().copied() {
+                    f(ctx);
+                }
             } else {
                 // Not elapsed, arm it again.
                 // This can happen if it was set more than 2^32 us in the future.
-                pac::TIMER.alarm(n).write_value(timestamp as u32);
+                pac::TIMER.alarm(n).write_value(alarm.timestamp as u32);
             }
         });
 
@@ -113,27 +117,15 @@ impl TimerDriver {
         pac::TIMER.intr().write(|w| w.set_alarm(n, true));
     }
 
-    fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
-        // disarm
-        pac::TIMER.armed().write(|w| w.set_armed(1 << n));
 
-        let alarm = &self.alarms.borrow(cs)[n];
-        alarm.timestamp.set(u64::MAX);
-
-        // Call after clearing alarm, so the callback can set another alarm.
-        if let Some((f, ctx)) = alarm.callback.get() {
-            f(ctx);
-        }
-    }
 }
 
 /// safety: must be called exactly once at bootup
 pub unsafe fn init() {
     // init alarms
-    critical_section::with(|cs| {
-        let alarms = DRIVER.alarms.borrow(cs);
+    DRIVER.alarms.lock(|alarms| {
         for a in alarms {
-            a.timestamp.set(u64::MAX);
+            a.timestamp = u64::MAX;
         }
     });
 

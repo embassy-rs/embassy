@@ -1,9 +1,6 @@
-use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 
-use critical_section::CriticalSection;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
 
@@ -88,12 +85,12 @@ mod test {
 }
 
 struct AlarmState {
-    timestamp: Cell<u64>,
+    timestamp: u64,
 
     // This is really a Option<(fn(*mut ()), *mut ())>
     // but fn pointers aren't allowed in const yet
-    callback: Cell<*const ()>,
-    ctx: Cell<*mut ()>,
+    callback: *const (),
+    ctx: *mut (),
 }
 
 unsafe impl Send for AlarmState {}
@@ -101,9 +98,9 @@ unsafe impl Send for AlarmState {}
 impl AlarmState {
     const fn new() -> Self {
         Self {
-            timestamp: Cell::new(u64::MAX),
-            callback: Cell::new(ptr::null()),
-            ctx: Cell::new(ptr::null_mut()),
+            timestamp: u64::MAX,
+            callback: ptr::null(),
+            ctx: ptr::null_mut(),
         }
     }
 }
@@ -122,7 +119,7 @@ const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
+    alarms: Mutex::const_new([ALARM_STATE_NEW; ALARM_COUNT]),
 });
 
 impl RtcDriver {
@@ -158,26 +155,37 @@ impl RtcDriver {
             self.next_period();
         }
 
-        for n in 0..ALARM_COUNT {
-            if r.events_compare[n].read().bits() == 1 {
-                r.events_compare[n].write(|w| w);
-                critical_section::with(|cs| {
-                    self.trigger_alarm(n, cs);
-                })
+        self.alarms.lock(|alarms| {
+            for (n, alarm) in alarms.iter_mut().enumerate() {
+                if r.events_compare[n].read().bits() == 1 {
+                    r.events_compare[n].write(|w| w);
+                    let r = rtc();
+                    r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+
+                    alarm.timestamp = u64::MAX;
+
+                    // Call after clearing alarm, so the callback can set another alarm.
+
+                    // safety:
+                    // - we can ignore the possiblity of `f` being unset (null) because of the safety contract of `allocate_alarm`.
+                    // - other than that we only store valid function pointers into alarm.callback
+                    let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback) };
+                    f(alarm.ctx);
+                }
             }
-        }
+        });
     }
 
     fn next_period(&self) {
-        critical_section::with(|cs| {
+        self.alarms.lock(|alarms| {
             let r = rtc();
             let period = self.period.load(Ordering::Relaxed) + 1;
             self.period.store(period, Ordering::Relaxed);
             let t = (period as u64) << 23;
 
             for n in 0..ALARM_COUNT {
-                let alarm = &self.alarms.borrow(cs)[n];
-                let at = alarm.timestamp.get();
+                let alarm = &mut alarms[n];
+                let at = alarm.timestamp;
 
                 if at < t + 0xc00000 {
                     // just enable it. `set_alarm` has already set the correct CC val.
@@ -185,28 +193,6 @@ impl RtcDriver {
                 }
             }
         })
-    }
-
-    fn get_alarm<'a>(&'a self, cs: CriticalSection<'a>, alarm: AlarmHandle) -> &'a AlarmState {
-        // safety: we're allowed to assume the AlarmState is created by us, and
-        // we never create one that's out of bounds.
-        unsafe { self.alarms.borrow(cs).get_unchecked(alarm.id() as usize) }
-    }
-
-    fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
-        let r = rtc();
-        r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
-
-        let alarm = &self.alarms.borrow(cs)[n];
-        alarm.timestamp.set(u64::MAX);
-
-        // Call after clearing alarm, so the callback can set another alarm.
-
-        // safety:
-        // - we can ignore the possiblity of `f` being unset (null) because of the safety contract of `allocate_alarm`.
-        // - other than that we only store valid function pointers into alarm.callback
-        let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
-        f(alarm.ctx.get());
     }
 }
 
@@ -232,19 +218,19 @@ impl Driver for RtcDriver {
     }
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        critical_section::with(|cs| {
-            let alarm = self.get_alarm(cs, alarm);
-
-            alarm.callback.set(callback as *const ());
-            alarm.ctx.set(ctx);
+        let n = alarm.id() as usize;
+        self.alarms.lock(|alarms| {
+            let alarm = &mut alarms[n];
+            alarm.callback = callback as *const ();
+            alarm.ctx = ctx;
         })
     }
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        critical_section::with(|cs| {
-            let n = alarm.id() as _;
-            let alarm = self.get_alarm(cs, alarm);
-            alarm.timestamp.set(timestamp);
+        let n = alarm.id() as usize;
+        self.alarms.lock(|alarms| {
+            let alarm = &mut alarms[n];
+            alarm.timestamp = timestamp;
 
             let r = rtc();
 
@@ -254,7 +240,7 @@ impl Driver for RtcDriver {
                 // Disarm the alarm and return `false` to indicate that.
                 r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
 
-                alarm.timestamp.set(u64::MAX);
+                alarm.timestamp = u64::MAX;
 
                 return false;
             }

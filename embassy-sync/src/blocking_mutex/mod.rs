@@ -37,6 +37,24 @@ impl<T> Deref for CriticalSectionMutex<T> {
 }
 
 impl<T> CriticalSectionMutex<T> {
+    /// Creates a new mutex in an unlocked state ready for use.
+    #[inline]
+    pub const fn const_new(data: T) -> Self {
+        Self {
+            inner: BlockingMutex::const_new(raw::CriticalSectionRawMutex::new(), data),
+        }
+    }
+
+    /// Creates a new mutex based on a pre-existing raw mutex.
+    ///
+    /// This allows creating a mutex in a constant context on stable Rust.
+    #[inline]
+    pub fn new(data: T) -> Self {
+        Self {
+            inner: BlockingMutex::new(data),
+        }
+    }
+
     /// Borrows the data for the duration of the critical section
     pub fn borrow<'cs>(&'cs self, _cs: critical_section::CriticalSection<'cs>) -> &'cs T {
         let ptr = unsafe { self.inner.get_unchecked() } as *const T;
@@ -54,6 +72,24 @@ impl<T> Deref for NoopMutex<T> {
 }
 
 impl<T> NoopMutex<T> {
+    /// Creates a new mutex in an unlocked state ready for use.
+    #[inline]
+    pub const fn const_new(data: T) -> Self {
+        Self {
+            inner: BlockingMutex::const_new(raw::NoopRawMutex::new(), data),
+        }
+    }
+
+    /// Creates a new mutex based on a pre-existing raw mutex.
+    ///
+    /// This allows creating a mutex in a constant context on stable Rust.
+    #[inline]
+    pub fn new(data: T) -> Self {
+        Self {
+            inner: BlockingMutex::new(data),
+        }
+    }
+
     /// Borrows the data
     pub fn borrow(&self) -> &T {
         let ptr = unsafe { self.inner.get_unchecked() } as *const T;

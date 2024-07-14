@@ -1,6 +1,6 @@
 //! CDC-ACM class implementation, aka Serial over USB.
 
-use core::cell::{Cell, RefCell};
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -82,7 +82,7 @@ struct Control<'a> {
 
 /// Shared data between Control and CdcAcmClass
 struct ControlShared {
-    line_coding: CriticalSectionMutex<Cell<LineCoding>>,
+    line_coding: CriticalSectionMutex<LineCoding>,
     dtr: AtomicBool,
     rts: AtomicBool,
 
@@ -95,12 +95,12 @@ impl Default for ControlShared {
         ControlShared {
             dtr: AtomicBool::new(false),
             rts: AtomicBool::new(false),
-            line_coding: CriticalSectionMutex::new(Cell::new(LineCoding {
+            line_coding: CriticalSectionMutex::new(LineCoding {
                 stop_bits: StopBits::One,
                 data_bits: 8,
                 parity_type: ParityType::None,
                 data_rate: 8_000,
-            })),
+            }),
             waker: RefCell::new(WakerRegistration::new()),
             changed: AtomicBool::new(false),
         }
@@ -131,7 +131,7 @@ impl<'a> Control<'a> {
 impl<'d> Handler for Control<'d> {
     fn reset(&mut self) {
         let shared = self.shared();
-        shared.line_coding.lock(|x| x.set(LineCoding::default()));
+        shared.line_coding.lock(|x| *x = LineCoding::default());
         shared.dtr.store(false, Ordering::Relaxed);
         shared.rts.store(false, Ordering::Relaxed);
 
@@ -160,7 +160,7 @@ impl<'d> Handler for Control<'d> {
                     data_bits: data[6],
                 };
                 let shared = self.shared();
-                shared.line_coding.lock(|x| x.set(coding));
+                shared.line_coding.lock(|x| *x = coding);
                 debug!("Set line coding to: {:?}", coding);
 
                 shared.changed.store(true, Ordering::Relaxed);
@@ -197,7 +197,7 @@ impl<'d> Handler for Control<'d> {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
                 debug!("Sending line coding");
-                let coding = self.shared().line_coding.lock(Cell::get);
+                let coding = self.shared().line_coding.lock(|x| *x);
                 assert!(buf.len() >= 7);
                 buf[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());
                 buf[4] = coding.stop_bits as u8;
@@ -288,7 +288,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Gets the current line coding. The line coding contains information that's mainly relevant
     /// for USB to UART serial port emulators, and can be ignored if not relevant.
     pub fn line_coding(&self) -> LineCoding {
-        self.control.line_coding.lock(Cell::get)
+        self.control.line_coding.lock(|x| *x)
     }
 
     /// Gets the DTR (data terminal ready) state
@@ -383,7 +383,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
     /// Gets the current line coding. The line coding contains information that's mainly relevant
     /// for USB to UART serial port emulators, and can be ignored if not relevant.
     pub fn line_coding(&self) -> LineCoding {
-        self.control.line_coding.lock(Cell::get)
+        self.control.line_coding.lock(|x| *x)
     }
 
     /// Gets the DTR (data terminal ready) state
@@ -425,7 +425,7 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
     /// Gets the current line coding. The line coding contains information that's mainly relevant
     /// for USB to UART serial port emulators, and can be ignored if not relevant.
     pub fn line_coding(&self) -> LineCoding {
-        self.control.line_coding.lock(Cell::get)
+        self.control.line_coding.lock(|x| *x)
     }
 
     /// Gets the DTR (data terminal ready) state
