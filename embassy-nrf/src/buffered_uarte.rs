@@ -769,7 +769,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
 
     /// we are ready to read if there is data in the buffer
     fn read_ready() -> Result<bool, Error> {
-        let state = T::buffered_state();
+        let state = U::buffered_state();
         Ok(!state.rx_buf.is_empty())
     }
 }
@@ -835,7 +835,7 @@ mod _embedded_io {
 
     impl<'d, U: UarteInstance, T: TimerInstance + 'd> embedded_io_async::ReadReady for BufferedUarte<'d, U, T> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            BufferedUarteRx::<'d, T>::read_ready()
+            BufferedUarteRx::<'d, U, T>::read_ready()
         }
     }
 
