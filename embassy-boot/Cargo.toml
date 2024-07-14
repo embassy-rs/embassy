@@ -48,5 +48,11 @@ ed25519-dalek = { version = "2", default_features = false, features = ["std", "r
 ed25519-dalek = ["dep:ed25519-dalek", "_verify"]
 ed25519-salty = ["dep:salty", "_verify"]
 
+## Disable panic messsages where possible, to reduce binary size.  Mutually exclusive with the `defmt` and `log`
+## features.
+## Panic messages are normally stored in the resulting binary as literal strings.  Removing them is useful for limiting
+## flash usage e.g. for bootloaders.
+no-panic-msgs = []
+
 #Internal features
 _verify = []

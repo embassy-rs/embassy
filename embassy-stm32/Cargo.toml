@@ -108,6 +108,12 @@ rt = ["stm32-metapac/rt"]
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async/defmt-03", "embassy-usb-driver/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
 
+## Disable panic messsages where possible, to reduce binary size.  Mutually exclusive with the `defmt` and `log`
+## features.
+## Panic messages are normally stored in the resulting binary as literal strings.  Removing them is useful for limiting
+## flash usage e.g. for bootloaders.
+no-panic-msgs = []
+
 exti = []
 low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]
 low-power-debug-with-sleep = []
