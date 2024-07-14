@@ -367,7 +367,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch, data.as_ptr() as u32)
+        Transfer::new(ch)
     }
 }
 
@@ -449,7 +449,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch, data.as_ptr() as u32)
+        Transfer::new(ch)
     }
 }
 
