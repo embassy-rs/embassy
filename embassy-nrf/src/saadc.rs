@@ -724,7 +724,7 @@ pub struct VddInput;
 impl_peripheral!(VddInput);
 #[cfg(not(feature = "_nrf91"))]
 impl_saadc_input!(@local, VddInput, VDD);
-#[cfg(not(feature = "_nrf91"))]
+#[cfg(feature = "_nrf91")]
 impl_saadc_input!(@local, VddInput, VDDGPIO);
 
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the
