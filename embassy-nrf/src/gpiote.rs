@@ -166,7 +166,6 @@ unsafe fn handle_gpiote_interrupt() {
     }
 }
 
-
 #[cfg(not(feature = "_nrf51"))]
 struct BitIter(u32);
 

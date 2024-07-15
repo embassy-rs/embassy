@@ -97,18 +97,18 @@ nrf5340-app-ns = ["_nrf5340-app", "_ns"]
 ## nRF5340 network core
 nrf5340-net = ["_nrf5340-net"]
 ## nRF9160 in Secure mode
-nrf9160-s = ["_nrf9160", "_s"]
+nrf9160-s = ["_nrf9160", "_s", "_nrf91"]
 ## nRF9160 in Non-Secure mode
-nrf9160-ns = ["_nrf9160", "_ns"]
+nrf9160-ns = ["_nrf9160", "_ns", "_nrf91"]
 ## The nRF9120 is the internal part number for the nRF9161 and nRF9151.
 ## nRF9120 in Secure mode
-nrf9120-s = ["_nrf9120", "_s"]
-nrf9151-s = ["_nrf9120", "_s"]
-nrf9161-s = ["_nrf9120", "_s"]
+nrf9120-s = ["_nrf9120", "_s", "_nrf91"]
+nrf9151-s = ["_nrf9120", "_s", "_nrf91"]
+nrf9161-s = ["_nrf9120", "_s", "_nrf91"]
 ## nRF9120 in Non-Secure mode
-nrf9120-ns = ["_nrf9120", "_ns"]
-nrf9151-ns = ["_nrf9120", "_ns"]
-nrf9161-ns = ["_nrf9120", "_ns"]
+nrf9120-ns = ["_nrf9120", "_ns", "_nrf91"]
+nrf9151-ns = ["_nrf9120", "_ns", "_nrf91"]
+nrf9161-ns = ["_nrf9120", "_ns", "_nrf91"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
@@ -120,6 +120,7 @@ _nrf9160 = ["nrf9160-pac", "_dppi"]
 _nrf9120 = ["nrf9120-pac", "_dppi"]
 _nrf52 = ["_ppi"]
 _nrf51 = ["_ppi"]
+_nrf91 = []
 
 _time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768"]
 

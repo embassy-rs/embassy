@@ -26,8 +26,32 @@
     feature = "nrf9160-ns",
     feature = "nrf9120-s",
     feature = "nrf9120-ns",
+    feature = "nrf9151-s",
+    feature = "nrf9151-ns",
+    feature = "nrf9161-s",
+    feature = "nrf9161-ns",
 )))]
-compile_error!("No chip feature activated. You must activate exactly one of the following features: nrf52810, nrf52811, nrf52832, nrf52833, nrf52840");
+compile_error!("No chip feature activated. You must activate exactly one of the following features:
+    nrf51,
+    nrf52805,
+    nrf52810,
+    nrf52811,
+    nrf52820,
+    nrf52832,
+    nrf52833,
+    nrf52840,
+    nrf5340-app-s,
+    nrf5340-app-ns,
+    nrf5340-net,
+    nrf9160-s,
+    nrf9160-ns,
+    nrf9120-s,
+    nrf9120-ns,
+    nrf9151-s,
+    nrf9151-ns,
+    nrf9161-s,
+    nrf9161-ns,
+    ");
 
 #[cfg(all(feature = "reset-pin-as-gpio", not(feature = "_nrf52")))]
 compile_error!("feature `reset-pin-as-gpio` is only valid for nRF52 series chips.");
@@ -49,7 +73,7 @@ pub mod gpio;
 pub mod gpiote;
 
 // TODO: tested on other chips
-#[cfg(not(any(feature = "_nrf9160", feature = "_nrf9120", feature = "_nrf5340-app")))]
+#[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
 pub mod radio;
 
 #[cfg(not(feature = "nrf51"))]
@@ -64,8 +88,7 @@ pub mod nvmc;
     feature = "nrf52833",
     feature = "nrf52840",
     feature = "_nrf5340-app",
-    feature = "_nrf9160",
-    feature = "_nrf9120"
+    feature = "_nrf91",
 ))]
 pub mod pdm;
 pub mod ppi;
@@ -76,11 +99,11 @@ pub mod ppi;
     feature = "_nrf5340-net"
 )))]
 pub mod pwm;
-#[cfg(not(any(feature = "nrf51", feature = "_nrf9160", feature = "_nrf9120", feature = "_nrf5340-net")))]
+#[cfg(not(any(feature = "nrf51", feature = "_nrf91", feature = "_nrf5340-net")))]
 pub mod qdec;
 #[cfg(any(feature = "nrf52840", feature = "_nrf5340-app"))]
 pub mod qspi;
-#[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf9160", feature = "_nrf9120")))]
+#[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
 #[cfg(not(any(feature = "nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
@@ -88,7 +111,7 @@ pub mod saadc;
 pub mod spim;
 #[cfg(not(feature = "nrf51"))]
 pub mod spis;
-#[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160", feature = "_nrf9120")))]
+#[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
 pub mod temp;
 pub mod timer;
 #[cfg(not(feature = "nrf51"))]
@@ -200,15 +223,15 @@ pub mod config {
         /// Internal RC oscillator
         InternalRC,
         /// Synthesized from the high frequency clock source.
-        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160", feature = "_nrf9120")))]
+        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
         Synthesized,
         /// External source from xtal.
         ExternalXtal,
         /// External source from xtal with low swing applied.
-        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160", feature = "_nrf9120")))]
+        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
         ExternalLowSwing,
         /// External source from xtal with full swing applied.
-        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160", feature = "_nrf9120")))]
+        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
         ExternalFullSwing,
     }
 
@@ -226,7 +249,7 @@ pub mod config {
     }
 
     /// Settings for enabling the built in DCDC converters.
-    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160", feature = "_nrf9120")))]
+    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
     pub struct DcdcConfig {
         /// Config for the first stage DCDC (VDDH -> VDD), if disabled LDO will be used.
         #[cfg(feature = "nrf52840")]
@@ -268,7 +291,7 @@ pub mod config {
     }
 
     /// Settings for enabling the built in DCDC converter.
-    #[cfg(any(feature = "_nrf9160", feature = "_nrf9120"))]
+    #[cfg(feature = "_nrf91")]
     pub struct DcdcConfig {
         /// Config for the main rail, if disabled LDO will be used.
         pub regmain: bool,
@@ -302,7 +325,7 @@ pub mod config {
                 // xtals if they know they have them.
                 hfclk_source: HfclkSource::Internal,
                 lfclk_source: LfclkSource::InternalRC,
-                #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160", feature = "_nrf9120")))]
+                #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
                 dcdc: DcdcConfig {
                     #[cfg(feature = "nrf52840")]
                     reg0: false,
@@ -316,7 +339,7 @@ pub mod config {
                     regmain: false,
                     regradio: false,
                 },
-                #[cfg(any(feature = "_nrf9160", feature = "_nrf9120"))]
+                #[cfg(feature = "_nrf91")]
                 dcdc: DcdcConfig { regmain: false },
                 #[cfg(feature = "gpiote")]
                 gpiote_interrupt_priority: crate::interrupt::Priority::P0,
@@ -333,7 +356,7 @@ pub mod config {
     }
 }
 
-#[cfg(any(feature = "_nrf9160", feature = "_nrf9120"))]
+#[cfg(feature = "_nrf91")]
 #[allow(unused)]
 mod consts {
     pub const UICR_APPROTECT: *mut u32 = 0x00FF8000 as *mut u32;
@@ -472,7 +495,7 @@ pub fn init(config: config::Config) -> Peripherals {
             // UICR.APPROTECT = Enabled
             let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_ENABLED);
             needs_reset |= res == WriteResult::Written;
-            #[cfg(any(feature = "_nrf5340-app", feature = "_nrf9160", feature = "_nrf9120"))]
+            #[cfg(any(feature = "_nrf5340-app", feature = "_nrf91"))]
             {
                 let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_ENABLED);
                 needs_reset |= res == WriteResult::Written;
@@ -556,7 +579,7 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Configure LFCLK.
-    #[cfg(not(any(feature = "nrf51", feature = "_nrf5340", feature = "_nrf9160", feature = "_nrf9120")))]
+    #[cfg(not(any(feature = "nrf51", feature = "_nrf5340", feature = "_nrf91")))]
     match config.lfclk_source {
         config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().rc()),
         config::LfclkSource::Synthesized => r.lfclksrc.write(|w| w.src().synth()),
@@ -576,7 +599,7 @@ pub fn init(config: config::Config) -> Peripherals {
             w
         }),
     }
-    #[cfg(any(feature = "_nrf9160", feature = "_nrf9120"))]
+    #[cfg(feature = "_nrf91")]
     match config.lfclk_source {
         config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().lfrc()),
         config::LfclkSource::ExternalXtal => r.lfclksrc.write(|w| w.src().lfxo()),
@@ -589,7 +612,7 @@ pub fn init(config: config::Config) -> Peripherals {
     r.tasks_lfclkstart.write(|w| unsafe { w.bits(1) });
     while r.events_lfclkstarted.read().bits() == 0 {}
 
-    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160", feature = "_nrf9120")))]
+    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
     {
         // Setup DCDCs.
         let pwr = unsafe { &*pac::POWER::ptr() };
@@ -601,7 +624,7 @@ pub fn init(config: config::Config) -> Peripherals {
             pwr.dcdcen.write(|w| w.dcdcen().set_bit());
         }
     }
-    #[cfg(any(feature = "_nrf9160", feature = "_nrf9120"))]
+    #[cfg(feature = "_nrf91")]
     {
         // Setup DCDC.
         let reg = unsafe { &*pac::REGULATORS::ptr() };
@@ -633,7 +656,7 @@ pub fn init(config: config::Config) -> Peripherals {
     time_driver::init(config.time_interrupt_priority);
 
     // Disable UARTE (enabled by default for some reason)
-    #[cfg(any(feature = "_nrf9160", feature = "_nrf9120"))]
+    #[cfg(feature = "_nrf91")]
     unsafe {
         (*pac::UARTE0::ptr()).enable.write(|w| w.enable().disabled());
         (*pac::UARTE1::ptr()).enable.write(|w| w.enable().disabled());
