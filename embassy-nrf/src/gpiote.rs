@@ -96,14 +96,14 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     g.intenset.write(|w| w.port().set());
 }
 
-#[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+#[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s", feature = "nrf9120-s"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE0() {
     unsafe { handle_gpiote_interrupt() };
 }
 
-#[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+#[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns", feature = "nrf9120-ns"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE1() {
@@ -117,7 +117,6 @@ fn GPIOTE() {
     unsafe { handle_gpiote_interrupt() };
 }
 
-#[cfg(not(any(feature = "_nrf9120")))]
 unsafe fn handle_gpiote_interrupt() {
     let g = regs();
 
@@ -167,10 +166,11 @@ unsafe fn handle_gpiote_interrupt() {
     }
 }
 
-#[cfg(not(any(feature = "_nrf51", feature = "_nrf9120")))]
+
+#[cfg(not(feature = "_nrf51"))]
 struct BitIter(u32);
 
-#[cfg(not(any(feature = "_nrf51", feature = "_nrf9120")))]
+#[cfg(not(feature = "_nrf51"))]
 impl Iterator for BitIter {
     type Item = u32;
 
