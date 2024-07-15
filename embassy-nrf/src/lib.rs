@@ -31,7 +31,8 @@
     feature = "nrf9161-s",
     feature = "nrf9161-ns",
 )))]
-compile_error!("No chip feature activated. You must activate exactly one of the following features:
+compile_error!(
+    "No chip feature activated. You must activate exactly one of the following features:
     nrf51,
     nrf52805,
     nrf52810,
@@ -51,7 +52,8 @@ compile_error!("No chip feature activated. You must activate exactly one of the 
     nrf9151-ns,
     nrf9161-s,
     nrf9161-ns,
-    ");
+    "
+);
 
 #[cfg(all(feature = "reset-pin-as-gpio", not(feature = "_nrf52")))]
 compile_error!("feature `reset-pin-as-gpio` is only valid for nRF52 series chips.");
