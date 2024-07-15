@@ -117,6 +117,7 @@ fn GPIOTE() {
     unsafe { handle_gpiote_interrupt() };
 }
 
+#[cfg(not(any(feature = "_nrf9120")))]
 unsafe fn handle_gpiote_interrupt() {
     let g = regs();
 
@@ -166,10 +167,10 @@ unsafe fn handle_gpiote_interrupt() {
     }
 }
 
-#[cfg(not(feature = "_nrf51"))]
+#[cfg(not(any(feature = "_nrf51", feature = "_nrf9120")))]
 struct BitIter(u32);
 
-#[cfg(not(feature = "_nrf51"))]
+#[cfg(not(any(feature = "_nrf51", feature = "_nrf9120")))]
 impl Iterator for BitIter {
     type Item = u32;
 
