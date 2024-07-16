@@ -59,7 +59,8 @@ async fn main(spawner: Spawner) {
         w5500_int,
         w5500_reset,
     )
-    .await;
+    .await
+    .unwrap();
     unwrap!(spawner.spawn(ethernet_task(runner)));
 
     // Generate random seed

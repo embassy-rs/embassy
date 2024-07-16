@@ -6,6 +6,9 @@ use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::{rcc, Peripheral};
 
+mod ringbuffered_v2;
+pub use ringbuffered_v2::{RingBufferedAdc, Sequence};
+
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
@@ -175,7 +178,7 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
         channel.setup();
 
         // Configure ADC

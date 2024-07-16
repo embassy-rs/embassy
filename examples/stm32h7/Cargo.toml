@@ -34,6 +34,7 @@ stm32-fmc = "0.3.0"
 embedded-storage = "0.3.1"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false }
+grounded = "0.2.0"
 
 # cargo build/run
 [profile.dev]

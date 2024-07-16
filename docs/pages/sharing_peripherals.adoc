@@ -126,3 +126,5 @@ async fn toggle_led(control: Sender<'static, ThreadModeRawMutex, LedState, 64>, 
 
 This example replaces the Mutex with a Channel, and uses another task (the main loop) to drive the LED. The advantage of this approach is that only a single task references the peripheral, separating concerns. However, using a Mutex has a lower overhead and might be necessary if you need to ensure
 that the operation is completed before continuing to do other work in your task.
+
+An example showcasing more methods for sharing link:https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/sharing.rs[can be found here].
