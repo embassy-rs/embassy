@@ -177,16 +177,15 @@ impl<'a, C: Channel> Transfer<'a, C> {
     /// Abort a DMA transfer early
     ///
     /// Returns the count of transfers still left to do and the data size of the transfers
-    pub fn abort(self) -> (u32, DataSize) {
+    pub fn abort(self) -> u32 {
         let p = self.channel.regs();
         let transfer_count = p.trans_count().read();
-        let data_size = p.ctrl_trig().read().data_size();
         pac::DMA
             .chan_abort()
             .modify(|m| m.set_chan_abort(1 << self.channel.number()));
         while p.ctrl_trig().read().busy() {}
 
-        (transfer_count, data_size)
+        transfer_count
     }
 }
 
