@@ -9,7 +9,7 @@
 #![no_std]
 #![no_main]
 
-use core::borrow::{BorrowMut};
+use core::borrow::BorrowMut;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
