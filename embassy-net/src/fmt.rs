@@ -95,9 +95,9 @@ macro_rules! unreachable {
     ($($x:tt)*) => {
         {
             #[cfg(not(feature = "defmt"))]
-            ::core::unreachable!($($x)*)
+            ::core::unreachable!($($x)*);
             #[cfg(feature = "defmt")]
-            ::defmt::unreachable!($($x)*)
+            ::defmt::unreachable!($($x)*);
         }
     };
 }
