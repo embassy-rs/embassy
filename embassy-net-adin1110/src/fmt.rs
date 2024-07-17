@@ -90,19 +90,15 @@ macro_rules! todo {
     };
 }
 
-#[cfg(not(feature = "defmt"))]
 #[collapse_debuginfo(yes)]
 macro_rules! unreachable {
     ($($x:tt)*) => {
-        ::core::unreachable!($($x)*)
-    };
-}
-
-#[cfg(feature = "defmt")]
-#[collapse_debuginfo(yes)]
-macro_rules! unreachable {
-    ($($x:tt)*) => {
-        ::defmt::unreachable!($($x)*)
+        {
+            #[cfg(not(feature = "defmt"))]
+            ::core::unreachable!($($x)*)
+            #[cfg(feature = "defmt")]
+            ::defmt::unreachable!($($x)*)
+        }
     };
 }
 
