@@ -94,6 +94,34 @@ impl DerefMut for DataBlock {
     }
 }
 
+/// Command Block buffer for SDMMC command transfers.
+///
+/// This is a 16-word array, exposed so that DMA commpatible memory can be used if required.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct CmdBlock(pub [u32; 16]);
+
+impl CmdBlock {
+    /// Creates a new instance of CmdBlock
+    pub const fn new() -> Self {
+        Self([0u32; 16])
+    }
+}
+
+impl Deref for CmdBlock {
+    type Target = [u32; 16];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CmdBlock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 /// Errors
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -678,7 +706,11 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// Attempt to set a new signalling mode. The selected
     /// signalling mode is returned. Expects the current clock
     /// frequency to be > 12.5MHz.
-    async fn switch_signalling_mode(&mut self, signalling: Signalling) -> Result<Signalling, Error> {
+    async fn switch_signalling_mode(
+        &mut self,
+        signalling: Signalling,
+        cmd_buffer: &mut CmdBlock,
+    ) -> Result<Signalling, Error> {
         // NB PLSS v7_10 4.3.10.4: "the use of SET_BLK_LEN command is not
         // necessary"
 
@@ -692,13 +724,13 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
                 Signalling::SDR12 => 0xFF_FF00,
             };
 
-        let mut status = [0u32; 16];
+        let status = cmd_buffer.as_mut();
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(&mut status, 64, 6);
+        let transfer = self.prepare_datapath_read(status, 64, 6);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd6(set_function), true)?; // CMD6
 
@@ -766,20 +798,20 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     }
 
     /// Reads the SD Status (ACMD13)
-    async fn read_sd_status(&mut self) -> Result<(), Error> {
+    async fn read_sd_status(&mut self, cmd_buffer: &mut CmdBlock) -> Result<(), Error> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
         let rca = card.rca;
 
         Self::cmd(Cmd::set_block_length(64), false)?; // CMD16
         Self::cmd(Cmd::app_cmd(rca << 16), false)?; // APP
 
-        let mut status = [0u32; 16];
+        let status = cmd_buffer;
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(&mut status, 64, 6);
+        let transfer = self.prepare_datapath_read(status.as_mut(), 64, 6);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::card_status(0), true)?;
 
@@ -813,7 +845,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             for byte in status.iter_mut() {
                 *byte = u32::from_be(*byte);
             }
-            self.card.as_mut().unwrap().status = status.into();
+            self.card.as_mut().unwrap().status = status.0.into();
         }
         res
     }
@@ -867,18 +899,18 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         });
     }
 
-    async fn get_scr(&mut self, card: &mut Card) -> Result<(), Error> {
+    async fn get_scr(&mut self, card: &mut Card, cmd_buffer: &mut CmdBlock) -> Result<(), Error> {
         // Read the the 64-bit SCR register
         Self::cmd(Cmd::set_block_length(8), false)?; // CMD16
         Self::cmd(Cmd::app_cmd(card.rca << 16), false)?;
 
-        let mut scr = [0u32; 2];
+        let scr = &mut cmd_buffer.0[..2];
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(&mut scr[..], 8, 3);
+        let transfer = self.prepare_datapath_read(scr, 8, 3);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd51(), true)?;
 
@@ -910,7 +942,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             drop(transfer);
 
             unsafe {
-                let scr_bytes = &*(&scr as *const [u32; 2] as *const [u8; 8]);
+                let scr_bytes = &*(&scr as *const _ as *const [u8; 8]);
                 card.scr = SCR(u64::from_be_bytes(*scr_bytes));
             }
         }
@@ -1002,9 +1034,18 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         Self::stop_datapath();
     }
 
-    /// Initializes card (if present) and sets the bus at the
-    /// specified frequency.
+    /// Initializes card (if present) and sets the bus at the specified frequency.
     pub async fn init_card(&mut self, freq: Hertz) -> Result<(), Error> {
+        let mut cmd_buffer = CmdBlock::new();
+        self.init_card_with_cmd_buffer(freq, &mut cmd_buffer).await
+    }
+
+    /// Initializes card (if present) and sets the bus at the specified frequency.
+    /// A cmd_buffer should be passed in if the DMA requirements mean that
+    /// stack memory can't be used (the default in `init_card`).
+    /// This usually manifests itself as an indefinite wait on a dma transfer because the
+    /// dma peripheral cannot access the memory.
+    pub async fn init_card_with_cmd_buffer(&mut self, freq: Hertz, cmd_buffer: &mut CmdBlock) -> Result<(), Error> {
         let regs = T::regs();
         let ker_ck = T::frequency();
 
@@ -1093,7 +1134,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
         self.select_card(Some(&card))?;
 
-        self.get_scr(&mut card).await?;
+        self.get_scr(&mut card, cmd_buffer).await?;
 
         // Set bus width
         let (width, acmd_arg) = match bus_width {
@@ -1128,11 +1169,11 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         self.card = Some(card);
 
         // Read status
-        self.read_sd_status().await?;
+        self.read_sd_status(cmd_buffer).await?;
 
         if freq.0 > 25_000_000 {
             // Switch to SDR25
-            self.signalling = self.switch_signalling_mode(Signalling::SDR25).await?;
+            self.signalling = self.switch_signalling_mode(Signalling::SDR25, cmd_buffer).await?;
 
             if self.signalling == Signalling::SDR25 {
                 // Set final clock frequency
@@ -1143,8 +1184,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
                 }
             }
         }
+
         // Read status after signalling change
-        self.read_sd_status().await?;
+        self.read_sd_status(cmd_buffer).await?;
 
         Ok(())
     }
@@ -1204,6 +1246,19 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
     /// Write a data block.
     pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
+        let mut cmd_buffer = CmdBlock::new();
+        self.write_block_with_cmd_buffer(block_idx, buffer, &mut cmd_buffer)
+            .await
+    }
+
+    /// Write a data block and pass in a cmd buffer rather than using a stack allocated one.
+    /// This is required if stack RAM cannot be used with DMA
+    pub async fn write_block_with_cmd_buffer(
+        &mut self,
+        block_idx: u32,
+        buffer: &DataBlock,
+        cmd_buffer: &mut CmdBlock,
+    ) -> Result<(), Error> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
 
         // NOTE(unsafe) DataBlock uses align 4
@@ -1263,7 +1318,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
                 // Try to read card status (ACMD13)
                 while timeout > 0 {
-                    match self.read_sd_status().await {
+                    match self.read_sd_status(cmd_buffer).await {
                         Ok(_) => return Ok(()),
                         Err(Error::Timeout) => (), // Try again
                         Err(e) => return Err(e),
