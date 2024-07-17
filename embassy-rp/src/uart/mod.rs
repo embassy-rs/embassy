@@ -7,7 +7,7 @@ use atomic_polyfill::{AtomicU16, Ordering};
 use embassy_futures::select::{select, Either};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::Timer;
+use embassy_time::{Delay, Timer};
 use pac::uart::regs::Uartris;
 
 use crate::clocks::clk_peri_freq;
@@ -886,9 +886,28 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
         r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
 
+        let cr = r.uartcr().read();
+        if cr.uarten() {
+            r.uartcr().modify(|w| {
+                w.set_uarten(false);
+                w.set_txe(false);
+                w.set_rxe(false);
+            });
+
+            // Note: Maximise precision here. Show working, the compiler will mop this up.
+            // Create a 16.6 fixed-point fractional division ratio; then scale to 32-bits.
+            let mut brdiv_ratio = 64 * r.uartibrd().read().0 + r.uartfbrd().read().0;
+            brdiv_ratio <<= 10;
+            // 3662 is ~(15 * 244.14) where 244.14 is 16e6 / 2^16
+            let scaled_freq = clk_base / 3662;
+            let wait_time_us = brdiv_ratio / scaled_freq;
+            embedded_hal_1::delay::DelayNs::delay_us(&mut Delay, wait_time_us);
+        }
         // PL011 needs a (dummy) line control register write to latch in the
         // divisors. We don't want to actually change LCR contents here.
         r.uartlcr_h().modify(|_| {});
+
+        r.uartcr().write_value(cr);
     }
 }
 
@@ -922,6 +941,13 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
     /// useful when having two tasks correlating to transmitting and receiving.
     pub fn split(self) -> (UartTx<'d, T, M>, UartRx<'d, T, M>) {
         (self.tx, self.rx)
+    }
+
+    /// Split the Uart into a transmitter and receiver by mutable reference,
+    /// which is particularly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split_ref(&mut self) -> (&mut UartTx<'d, T, M>, &mut UartRx<'d, T, M>) {
+        (&mut self.tx, &mut self.rx)
     }
 }
 

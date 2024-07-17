@@ -163,9 +163,21 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         self.tx.send_break(bits).await
     }
 
+    /// sets baudrate on runtime
+    pub fn set_baudrate(&mut self, baudrate: u32) {
+        super::Uart::<'d, T, Async>::set_baudrate_inner(baudrate);
+    }
+
     /// Split into separate RX and TX handles.
-    pub fn split(self) -> (BufferedUartRx<'d, T>, BufferedUartTx<'d, T>) {
-        (self.rx, self.tx)
+    pub fn split(self) -> (BufferedUartTx<'d, T>, BufferedUartRx<'d, T>) {
+        (self.tx, self.rx)
+    }
+
+    /// Split the Uart into a transmitter and receiver by mutable reference,
+    /// which is particularly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split_ref(&mut self) -> (&mut BufferedUartTx<'d, T>, &mut BufferedUartRx<'d, T>) {
+        (&mut self.tx, &mut self.rx)
     }
 }
 
