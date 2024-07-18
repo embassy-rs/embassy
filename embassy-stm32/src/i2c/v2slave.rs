@@ -38,7 +38,7 @@ impl SlaveTransaction {
         }
     }
     fn new_read(in_buffer: &[u8]) -> Self {
-        let mut buffer = [0; SLAVE_BUFFER];
+        let mut buffer = [0; SLAVE_BUFFER_SIZE];
         let size = in_buffer.len().min(SLAVE_BUFFER_SIZE);
         buffer[..size].copy_from_slice(&in_buffer[..size]);
         SlaveTransaction {
