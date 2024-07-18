@@ -119,9 +119,9 @@ async fn get_vsys_voltage(_spawner: Spawner, adc: ADC) {
 
 // this task will check if we are connected to usb power
 // on a board without a wifi chip, this task will work with PIN_24
-// on a board with a wifi chip, this task will not work with PIN_24. 
-// Either: Do not use this. 
-// Or: Wire from vbus to another gpio and use that. Bring down the voltage from 5V to the required 3.3V with a voltage divider made of two resistors. 
+// on a board with a wifi chip, this task will not work with PIN_24.
+// Either: Do not use this.
+// Or: Wire from vbus to another gpio and use that. Bring down the voltage from 5V to the required 3.3V with a voltage divider made of two resistors.
 // The resistors must be one exactly double the resistance of the other to get 3.3V between them, i.e. use 20k and 10k resistors.
 #[embassy_executor::task]
 async fn check_usb_power(_spawner: Spawner) {
