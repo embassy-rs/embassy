@@ -12,6 +12,7 @@ use super::Error;
 /// There is no guarantee that muliple partitions on the same flash
 /// operate on mutually exclusive ranges - such a separation is up to
 /// the user to guarantee.
+#[derive(Clone)]
 pub struct Partition<'a, M: RawMutex, T: NorFlash> {
     flash: &'a Mutex<M, T>,
     offset: u32,
