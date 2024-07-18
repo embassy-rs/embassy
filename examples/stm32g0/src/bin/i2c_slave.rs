@@ -92,7 +92,6 @@ async fn main(spawner: Spawner) {
     loop {
         counter += 1;
         info!("Loop: {}\r", counter);
-        info!("Loop: {}\r", counter);
 
         for i in 0..buf_20.len() {
             buf_20[i] = 0x20 + (i as u8)
@@ -106,6 +105,9 @@ async fn main(spawner: Spawner) {
         // content for test 0x10
         buf_2[0] = 0xFF;
         buf_2[1] = 0x04;
+        // a second slave should be compiled wich sends 0xFF03. Master and the 2 slaves should be connected to i2c
+        // the slave with address 0xFF04 should generate an error: arbitration lost
+        // buf_2[1] = 0x03;
         _ = i2c.slave_prepare_read(&mut buf_2, i2c::AddressIndex::Address1);
 
         info!("Waiting for master activity\r");
@@ -250,7 +252,7 @@ async fn main(spawner: Spawner) {
                 checkIsRead!(dir);
                 match t.result() {
                     Ok(_) => {
-                        info!( "Test 0x10 should fail if a second slave with testcase i2c_salve_arbitration.rs is connected.\r");
+                        info!( "Test 0x10 should fail if a second slave with testcase i2c_solve_arbitration.rs is connected.\r");
                         errors += 1;
                     }
                     Err(err) => info!("Test 0x10 passed. Error: {:?}\r", err),
@@ -335,9 +337,9 @@ impl StringWriter {
     fn print_data(&mut self, data: &[u8]) {
         self.cursor = 0;
         for i in 0..data.len() {
-            write!(self, " {:x} ", data[i]);
+            write!(self, " {:x} ", data[i]).unwrap();
         }
-        write!(self, "\n");
+        writeln!(self, "").unwrap();
         info!("{}", self.as_str());
     }
 }
