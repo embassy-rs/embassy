@@ -18,6 +18,16 @@ pub struct Partition<'a, M: RawMutex, T: NorFlash> {
     size: u32,
 }
 
+impl<'a, M: RawMutex, T: NorFlash> Clone for Partition<'a, M, T> {
+    fn clone(&self) -> Self {
+        Self {
+            flash: self.flash,
+            offset: self.offset,
+            size: self.size,
+        }
+    }
+}
+
 impl<'a, M: RawMutex, T: NorFlash> Partition<'a, M, T> {
     /// Create a new partition
     pub const fn new(flash: &'a Mutex<M, T>, offset: u32, size: u32) -> Self {
