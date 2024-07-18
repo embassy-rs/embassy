@@ -23,7 +23,7 @@ use embassy_time::{with_timeout, Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 pub struct PowerPins {
-    vbus_pin: PIN_24, // vbus on a board without a wifi chip, on a board with a wifi chip, this will not work - see above
+    vbus_pin: PIN_24, // vbus on a board without a wifi chip, on a board with a wifi chip, this will not work - see below. You will need some other pin and a voltage divider.
     pin_25: PIN_25,
     vsys_pin: PIN_29, // vsys
 }
@@ -85,7 +85,7 @@ async fn get_vsys_voltage(_spawner: Spawner, adc: ADC) {
             let mut power_pins_guard = POWER_PINS.lock().await;
 
             if let Some(ref mut pins) = *power_pins_guard {
-                // we need to set pin 25 as an output and set it to high
+                // we need to set pin 25 as an output
                 let pin25_borrow = pins.pin_25.borrow_mut();
                 let mut pin25_output = Output::new(pin25_borrow, Level::Low);
 
@@ -97,9 +97,9 @@ async fn get_vsys_voltage(_spawner: Spawner, adc: ADC) {
                 let adc = &mut adc_val;
                 // read the adc
 
-                // for reading the adc we need power for the wifi chip, so we need to set pin 25 to high. On a board without a wifi chip, this is not necessary
+                // for reading the adc we need to set pin 25 to high. On a board without a wifi chip, this is not necessary.
                 pin25_output.set_high();
-                Timer::after_millis(50).await;
+                Timer::after_millis(50).await; // give the adc some time to settle
 
                 // read the adc
                 let level = adc.read(&mut vsys_pin).await.unwrap();
@@ -108,6 +108,7 @@ async fn get_vsys_voltage(_spawner: Spawner, adc: ADC) {
                 info!("Pin 29 Voltage: {}", voltage);
 
                 // set pin 25 to low again, see above: on a board without a wifi chip, this is not necessary
+                // if we do not cycle through low, subsequent adc reads will be wrong
                 pin25_output.set_low();
             }
         }
@@ -118,8 +119,10 @@ async fn get_vsys_voltage(_spawner: Spawner, adc: ADC) {
 
 // this task will check if we are connected to usb power
 // on a board without a wifi chip, this task will work with PIN_24
-// on a board with a wifi chip, this task will not work with PIN_24. Either: Do not use this Or: use a converrter from 5V to 3.3V and run power from VBUS
-// to the converter and from the converter to some other pin, then use that pin here
+// on a board with a wifi chip, this task will not work with PIN_24. 
+// Either: Do not use this. 
+// Or: Wire from vbus to another gpio and use that. Bring down the voltage from 5V to the required 3.3V with a voltage divider made of two resistors. 
+// The resistors must be one exactly double the resistance of the other to get 3.3V between them, i.e. use 20k and 10k resistors.
 #[embassy_executor::task]
 async fn check_usb_power(_spawner: Spawner) {
     // get the power pins from the mutex
