@@ -13,11 +13,20 @@ use super::Error;
 /// There is no guarantee that muliple partitions on the same flash
 /// operate on mutually exclusive ranges - such a separation is up to
 /// the user to guarantee.
-#[derive(Clone)]
 pub struct BlockingPartition<'a, M: RawMutex, T: NorFlash> {
     flash: &'a Mutex<M, RefCell<T>>,
     offset: u32,
     size: u32,
+}
+
+impl<'a, M: RawMutex, T: NorFlash> Clone for BlockingPartition<'a, M, T> {
+    fn clone(&self) -> Self {
+        Self {
+            flash: self.flash,
+            offset: self.offset,
+            size: self.size,
+        }
+    }
 }
 
 impl<'a, M: RawMutex, T: NorFlash> BlockingPartition<'a, M, T> {
