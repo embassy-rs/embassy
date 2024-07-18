@@ -3,15 +3,15 @@
 
 // test is targeted for nucleo-g070RB board
 
-use core::fmt::{self, Write};
-
+use core::fmt;
+use core::fmt::Write;
+use core::str;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::{Address2Mask, Dir, I2c};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usart::UartTx;
-use embassy_stm32::{bind_interrupts, i2c, mode, peripherals, usart};
+use embassy_stm32::{bind_interrupts, i2c, mode, peripherals};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -20,22 +20,22 @@ bind_interrupts!(struct Irqs {
 });
 
 macro_rules! checkIsWrite {
-    ($writer:ident, $direction:ident) => {
+    ($direction:ident) => {
         match $direction {
             Dir::Write => (),
             _ => {
-                write!($writer, "Error incorrect direction {:?}\r", $direction as usize).unwrap();
+                info!("Error incorrect direction {:?}\r", $direction as usize);
                 continue;
             }
         }
     };
 }
 macro_rules! checkIsRead {
-    ($writer:ident, $direction:ident) => {
+    ($direction:ident) => {
         match $direction {
             Dir::Read => (),
             _ => {
-                write!($writer, "Error incorrect direction {:?}\r", $direction as usize).unwrap();
+                info!("Error incorrect direction {:?}\r", $direction as usize);
                 continue;
             }
         }
@@ -52,36 +52,15 @@ pub async fn system_ticker(mut led: Output<'static>) {
         led.set_low();
     }
 }
-pub struct SerialWriter {
-    tx: UartTx<'static, mode::Blocking>,
-}
-impl SerialWriter {
-    pub fn new(tx: UartTx<'static, mode::Blocking>) -> Self {
-        SerialWriter { tx }
-    }
-}
-impl fmt::Write for SerialWriter {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        _ = self.tx.blocking_write(s.as_bytes());
-        Ok(())
-    }
-}
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     let led = Output::new(p.PA5, Level::High, Speed::Low);
 
-    let uart = usart::Uart::new_blocking(p.USART1, p.PB7, p.PB6, usart::Config::default()).unwrap();
-    let (tx, _rx) = uart.split();
+    let mut sw = StringWriter::new();
 
-      let mut writer = SerialWriter::new(tx);
-
-    writeln!(
-        &mut writer,
-        "async i2c slave test. Should be used together with i2c_master test\r"
-    )
-    .unwrap();
+    info!("async i2c slave test. Should be used together with i2c_master test\r");
 
     let mut config = i2c::Config::default();
     config.slave_address_7bits(0x10); // for arbitration lost test
@@ -106,14 +85,14 @@ async fn main(spawner: Spawner) {
     let mut tcount = 0;
     let mut counter = 0;
 
-    spawner.spawn(system_ticker(led)).unwrap();
+    _ = spawner.spawn(system_ticker(led));
 
     // start of the actual test
-    i2c.slave_start_listen().unwrap();
+    _ = i2c.slave_start_listen();
     loop {
         counter += 1;
         info!("Loop: {}\r", counter);
-        writeln!(&mut writer, "Loop: {}\r", counter).unwrap();
+        info!("Loop: {}\r", counter);
 
         for i in 0..buf_20.len() {
             buf_20[i] = 0x20 + (i as u8)
@@ -129,128 +108,121 @@ async fn main(spawner: Spawner) {
         buf_2[1] = 0x04;
         _ = i2c.slave_prepare_read(&mut buf_2, i2c::AddressIndex::Address1);
 
-        writeln!(&mut writer, "Waiting for master activity\r").unwrap();
+        info!("Waiting for master activity\r");
 
         let t = i2c.next_transaction().await;
         let dir = t.dir();
         tcount += 1;
         // printing does cost a lot of time, and can interfere with the test if too verbose
-        writeln!(
-            &mut writer,
-            "A:x{:2x} d:{:?} s:{:2x}, act:{:2x} r:{:?}\r",
+        info!(
+            "A:x{:x} d:{:?} s:{:x}, act:{:x} r:{:?}\r",
             t.address(),
             dir as u8,
             t.size(),
             t.index(),
             t.result()
-        )
-        .unwrap();
+        );
         match t.address() {
             0x41 => {
                 //Evaluate test 0x41: Good case master write 20 bytes
-                checkIsWrite!(writer, dir);
+                checkIsWrite!(dir);
                 match t.result() {
                     Ok(_) => {
-                        writeln!(&mut writer, "Test 0x41 passed\r").unwrap();
-                        print_buffer(&mut writer, t.buffer());
+                        info!("Test 0x41 passed\r");
+                        sw.print_data(t.buffer());
                     }
                     Err(err) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test 0x41 failed. Error: {:?}\r", err).unwrap()
+                        info!("Test 0x41 failed. Error: {:?}\r", err)
                     }
                 };
             }
             0x42 => {
                 //Evaluate test 0x42: edge case master write exact 64 bytes: must succeed on master and slave
-                checkIsWrite!(writer, dir);
+                checkIsWrite!(dir);
                 match t.result() {
                     Ok(_) => {
-                        writeln!(&mut writer, "Test 0x42 passed. send 64 bytes\r").unwrap();
-                        print_buffer(&mut writer, t.buffer());
+                        info!("Test 0x42 passed. send 64 bytes\r");
+                        sw.print_data(t.buffer());
                     }
                     Err(err) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test 0x42 failed. Error: {:?}\r", err).unwrap()
+                        info!("Test 0x42 failed. Error: {:?}\r", err)
                     }
                 };
             }
             0x43 => {
                 //"Evaluate test 0x43.edge case master write exact 65 bytes: 1 too many must fail on master and slave
-                checkIsWrite!(writer, dir);
+                checkIsWrite!(dir);
                 match t.result() {
                     Ok(_) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test 0x43 failed. Expected Overrun error Got Ok\r").unwrap()
+                        info!("Test 0x43 failed. Expected Overrun error Got Ok\r")
                     }
-                    Err(err) => writeln!(
-                        &mut writer,
-                        "Test 0x43 passed. Expected error: Overrun. Error: {:?}\r",
-                        err
-                    )
-                    .unwrap(),
+                    Err(err) => info!("Test 0x43 passed. Expected error: Overrun. Error: {:?}\r", err),
                 };
             }
             0x44 => {
                 // Evaluate test 0x44: master write read combined transaction write 20 bytes, then read 20 bytes
-                checkIsRead!(writer, dir);
+                checkIsRead!(dir);
                 match t.result() {
                     Ok(_) => {
-                        writeln!(&mut writer, "Test 0x44 passed\r").unwrap();
-                        print_buffer(&mut writer, t.buffer())
+                        info!("Test 0x44 passed\r");
+                        sw.print_data(t.buffer())
                     }
                     Err(err) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test 0x44 failed. Error:{:?}\r", err).unwrap()
+                        info!("Test 0x44 failed. Error:{:?}\r", err)
                     }
                 };
             }
             0x48 => {
                 // 0x48 master read slave write slave did not yet prepare a buffer, master will fail
-                checkIsRead!(writer, dir);
+                checkIsRead!(dir);
                 match t.result() {
                     Ok(_) => {
-                        writeln!(&mut writer, "Test 0x48 failed. Expected to fail: \r").unwrap();
+                        info!("Test 0x48 failed. Expected to fail: \r");
                         errors += 1;
                     }
-                    Err(err) => writeln!(&mut writer, "Test 0x48 passed. Got expected error: {:?}\r", err).unwrap(),
+                    Err(err) => info!("Test 0x48 passed. Got expected error: {:?}\r", err),
                 };
             }
             0x49 => {
                 //"Evaluate test 0x49.  master read 20 bytes good case.
-                checkIsRead!(writer, dir);
+                checkIsRead!(dir);
                 match t.result() {
                     Ok(_) => {
-                        writeln!(&mut writer, "Test passed").unwrap();
+                        info!("Test passed");
                     }
                     Err(err) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test 0x49 failed. Error: {:?}\r", err).unwrap()
+                        info!("Test 0x49 failed. Error: {:?}\r", err)
                     }
                 };
             }
             0x4A => {
                 // 0x4A master read slave write bad  case: master expects 64 does slave does prepare 20 characters
-                checkIsRead!(writer, dir);
+                checkIsRead!(dir);
                 match t.result() {
                     Ok(_) => {
-                        writeln!(&mut writer, "Test 0x4A Passed.").unwrap();
+                        info!("Test 0x4A Passed.");
                     }
                     Err(err) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test failed. Error: {:?}\r", err).unwrap()
+                        info!("Test failed. Error: {:?}\r", err)
                     }
                 }
             }
             0x4B => {
                 // Master-read-slave-write Master expects 64 bytes, Should be ok
-                checkIsRead!(writer, dir);
+                checkIsRead!(dir);
                 match t.result() {
                     Ok(_) => {
-                        writeln!(&mut writer, "Test 0x4B passed\r").unwrap();
+                        info!("Test 0x4B passed\r");
                     }
                     Err(err) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test 0x4B failed. Error: {:?}\r", err).unwrap()
+                        info!("Test 0x4B failed. Error: {:?}\r", err)
                     }
                 };
             }
@@ -258,20 +230,15 @@ async fn main(spawner: Spawner) {
                 // Master-read-slave-write 2 bytes with test summary Should be ok.
                 match t.result() {
                     Ok(_) => {
-                        writeln!(&mut writer, "Test 0x4F Result send to master\r").unwrap();
+                        info!("Test 0x4F Result send to master\r");
                     }
                     Err(err) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test 0x4F failed. Error: {:?}\r", err).unwrap()
+                        info!("Test 0x4F failed. Error: {:?}\r", err)
                     }
                 };
-                writeln!(
-                    &mut writer,
-                    "Test finished. nr tests/nr errors: {}/{}!\r",
-                    tcount, errors
-                )
-                .unwrap();
-                writeln!(&mut writer, "------------------\r").unwrap();
+                info!("Test finished. nr tests/nr errors: {}/{}!\r", tcount, errors);
+                info!("------------------\r");
                 tcount = 0;
                 errors = 0;
             }
@@ -279,19 +246,19 @@ async fn main(spawner: Spawner) {
                 // Arbitration lost test Master does read 2 bytes on t.address() 0x10
                 // this slave will send 0xFF04, the other slave will send 0xFF03
                 // This slave should generate a arbitration lost if the other slave is online
-                writeln!(&mut writer, "Evaluate test 0x10: slave arbitration lost.\r").unwrap();
-                checkIsRead!(writer, dir);
+                info!("Evaluate test 0x10: slave arbitration lost.\r");
+                checkIsRead!(dir);
                 match t.result() {
                     Ok(_) => {
-                        writeln!(&mut writer, "Test 0x10 should fail if a second slave with testcase i2c_salve_arbitration.rs is connected.\r").unwrap();
+                        info!( "Test 0x10 should fail if a second slave with testcase i2c_salve_arbitration.rs is connected.\r");
                         errors += 1;
                     }
-                    Err(err) => writeln!(&mut writer, "Test 0x10 passed. Error: {:?}\r", err).unwrap(),
+                    Err(err) => info!("Test 0x10 passed. Error: {:?}\r", err),
                 };
             }
             _ => (),
         }
-        writeln!(&mut writer, "Prepare for test {:x}", t.address()).unwrap();
+        info!("Prepare for test {:x}", t.address());
         // preparations for the next round
         match t.address() {
             0x43 => {
@@ -324,7 +291,7 @@ async fn main(spawner: Spawner) {
                     buf_64[i] = 0x4B + (i as u8)
                 }
                 match i2c.slave_prepare_read(&buf_64, i2c::AddressIndex::Address2) {
-                    Err(_) => writeln!(&mut writer, "Buffer error\r").unwrap(),
+                    Err(_) => info!("Buffer error\r"),
                     _ => (),
                 }
             }
@@ -333,20 +300,55 @@ async fn main(spawner: Spawner) {
                 let err = i2c.slave_error_count() as u8;
                 let result: [u8; 3] = [tcount, errors, err];
                 _ = i2c.slave_prepare_read(&result, i2c::AddressIndex::Address2);
-                writeln!(
-                    &mut writer,
-                    "Count: {} test errors {}   i2  errors: {}\r",
-                    tcount, errors, err
-                )
-                .unwrap();
+                info!("Count: {} test errors {}   i2  errors: {}\r", tcount, errors, err);
             }
             _ => (),
         }
     }
-    fn print_buffer(writer: &mut SerialWriter, buf: &[u8]) {
-        for i in 0..buf.len() {
-            write!(writer, " {:2x} ", buf[i]).unwrap();
+}
+
+pub struct StringWriter {
+    buf: [u8; 256],
+    cursor: usize,
+}
+
+impl StringWriter {
+    pub fn new() -> Self {
+        StringWriter {
+            buf: [0; 256],
+            cursor: 0,
         }
-        writeln!(writer, "\r").unwrap()
+    }
+
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.buf.len()
+    }
+    pub fn as_str(&self) -> &str {
+        str::from_utf8(&self.buf[0..self.cursor]).unwrap()
+    }
+
+    pub fn clear(&mut self) {
+        self.cursor = 0;
+    }
+
+    fn print_data(&mut self, data: &[u8]) {
+        self.cursor = 0;
+        for i in 0..data.len() {
+            write!(self, " {:x} ", data[i]);
+        }
+        write!(self, "\n");
+        info!("{}", self.as_str());
+    }
+}
+
+impl Write for StringWriter {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let cap = self.capacity();
+        for (i, &b) in self.buf[self.cursor..cap].iter_mut().zip(s.as_bytes().iter()) {
+            *i = b;
+        }
+        self.cursor = usize::min(cap, self.cursor + s.as_bytes().len());
+        Ok(())
     }
 }
