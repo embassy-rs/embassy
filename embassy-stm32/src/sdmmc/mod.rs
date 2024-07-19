@@ -320,6 +320,10 @@ pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
     signalling: Signalling,
     /// Card
     card: Option<Card>,
+
+    /// An optional buffer to be used for commands
+    /// This should be used if there are special memory location requirements for dma
+    cmd_block: Option<&'d mut CmdBlock>,
 }
 
 const CLK_AF: AfType = AfType::output(OutputType::PushPull, Speed::VeryHigh);
@@ -523,6 +527,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             clock: SD_INIT_FREQ,
             signalling: Default::default(),
             card: None,
+            cmd_block: None,
         }
     }
 
@@ -559,8 +564,10 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
+    #[allow(unused_variables)]
     fn prepare_datapath_read<'a>(
-        &'a mut self,
+        config: &Config,
+        dma: &'a mut PeripheralRef<'d, Dma>,
         buffer: &'a mut [u32],
         length_bytes: u32,
         block_size: u8,
@@ -572,15 +579,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         Self::wait_idle();
         Self::clear_interrupt_flags();
 
-        regs.dtimer()
-            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
+        regs.dtimer().write(|w| w.set_datatime(config.data_transfer_timeout));
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
-            let request = self.dma.request();
+            let request = dma.request();
             Transfer::new_read(
-                &mut self.dma,
+                dma,
                 request,
                 regs.fifor().as_ptr() as *mut u32,
                 buffer,
@@ -706,11 +712,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// Attempt to set a new signalling mode. The selected
     /// signalling mode is returned. Expects the current clock
     /// frequency to be > 12.5MHz.
-    async fn switch_signalling_mode(
-        &mut self,
-        signalling: Signalling,
-        cmd_buffer: &mut CmdBlock,
-    ) -> Result<Signalling, Error> {
+    async fn switch_signalling_mode(&mut self, signalling: Signalling) -> Result<Signalling, Error> {
         // NB PLSS v7_10 4.3.10.4: "the use of SET_BLK_LEN command is not
         // necessary"
 
@@ -724,13 +726,16 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
                 Signalling::SDR12 => 0xFF_FF00,
             };
 
-        let status = cmd_buffer.as_mut();
+        let status = match self.cmd_block.as_deref_mut() {
+            Some(x) => x,
+            None => &mut CmdBlock::new(),
+        };
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(status, 64, 6);
+        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, status.as_mut(), 64, 6);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd6(set_function), true)?; // CMD6
 
@@ -798,20 +803,25 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     }
 
     /// Reads the SD Status (ACMD13)
-    async fn read_sd_status(&mut self, cmd_buffer: &mut CmdBlock) -> Result<(), Error> {
+    async fn read_sd_status(&mut self) -> Result<(), Error> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
         let rca = card.rca;
+
+        let cmd_block = match self.cmd_block.as_deref_mut() {
+            Some(x) => x,
+            None => &mut CmdBlock::new(),
+        };
 
         Self::cmd(Cmd::set_block_length(64), false)?; // CMD16
         Self::cmd(Cmd::app_cmd(rca << 16), false)?; // APP
 
-        let status = cmd_buffer;
+        let status = cmd_block;
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(status.as_mut(), 64, 6);
+        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, status.as_mut(), 64, 6);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::card_status(0), true)?;
 
@@ -899,18 +909,22 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         });
     }
 
-    async fn get_scr(&mut self, card: &mut Card, cmd_buffer: &mut CmdBlock) -> Result<(), Error> {
+    async fn get_scr(&mut self, card: &mut Card) -> Result<(), Error> {
         // Read the the 64-bit SCR register
         Self::cmd(Cmd::set_block_length(8), false)?; // CMD16
         Self::cmd(Cmd::app_cmd(card.rca << 16), false)?;
 
-        let scr = &mut cmd_buffer.0[..2];
+        let cmd_block = match self.cmd_block.as_deref_mut() {
+            Some(x) => x,
+            None => &mut CmdBlock::new(),
+        };
+        let scr = &mut cmd_block.0[..2];
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(scr, 8, 3);
+        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, scr, 8, 3);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd51(), true)?;
 
@@ -1036,16 +1050,6 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
     /// Initializes card (if present) and sets the bus at the specified frequency.
     pub async fn init_card(&mut self, freq: Hertz) -> Result<(), Error> {
-        let mut cmd_buffer = CmdBlock::new();
-        self.init_card_with_cmd_buffer(freq, &mut cmd_buffer).await
-    }
-
-    /// Initializes card (if present) and sets the bus at the specified frequency.
-    /// A cmd_buffer should be passed in if the DMA requirements mean that
-    /// stack memory can't be used (the default in `init_card`).
-    /// This usually manifests itself as an indefinite wait on a dma transfer because the
-    /// dma peripheral cannot access the memory.
-    pub async fn init_card_with_cmd_buffer(&mut self, freq: Hertz, cmd_buffer: &mut CmdBlock) -> Result<(), Error> {
         let regs = T::regs();
         let ker_ck = T::frequency();
 
@@ -1134,7 +1138,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
         self.select_card(Some(&card))?;
 
-        self.get_scr(&mut card, cmd_buffer).await?;
+        self.get_scr(&mut card).await?;
 
         // Set bus width
         let (width, acmd_arg) = match bus_width {
@@ -1169,11 +1173,11 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         self.card = Some(card);
 
         // Read status
-        self.read_sd_status(cmd_buffer).await?;
+        self.read_sd_status().await?;
 
         if freq.0 > 25_000_000 {
             // Switch to SDR25
-            self.signalling = self.switch_signalling_mode(Signalling::SDR25, cmd_buffer).await?;
+            self.signalling = self.switch_signalling_mode(Signalling::SDR25).await?;
 
             if self.signalling == Signalling::SDR25 {
                 // Set final clock frequency
@@ -1186,7 +1190,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         }
 
         // Read status after signalling change
-        self.read_sd_status(cmd_buffer).await?;
+        self.read_sd_status().await?;
 
         Ok(())
     }
@@ -1210,7 +1214,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(buffer, 512, 9);
+        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, buffer, 512, 9);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::read_single_block(address), true)?;
 
@@ -1246,19 +1250,6 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
     /// Write a data block.
     pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
-        let mut cmd_buffer = CmdBlock::new();
-        self.write_block_with_cmd_buffer(block_idx, buffer, &mut cmd_buffer)
-            .await
-    }
-
-    /// Write a data block and pass in a cmd buffer rather than using a stack allocated one.
-    /// This is required if stack RAM cannot be used with DMA
-    pub async fn write_block_with_cmd_buffer(
-        &mut self,
-        block_idx: u32,
-        buffer: &DataBlock,
-        cmd_buffer: &mut CmdBlock,
-    ) -> Result<(), Error> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
 
         // NOTE(unsafe) DataBlock uses align 4
@@ -1318,7 +1309,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
                 // Try to read card status (ACMD13)
                 while timeout > 0 {
-                    match self.read_sd_status(cmd_buffer).await {
+                    match self.read_sd_status().await {
                         Ok(_) => return Ok(()),
                         Err(Error::Timeout) => (), // Try again
                         Err(e) => return Err(e),
@@ -1345,6 +1336,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// Get the current SDMMC bus clock
     pub fn clock(&self) -> Hertz {
         self.clock
+    }
+
+    /// Set a specific cmd buffer rather than using the default stack allocated one.
+    /// This is required if stack RAM cannot be used with DMA and usually manifests
+    /// itself as an indefinite wait on a dma transfer because the dma peripheral
+    /// cannot access the memory.
+    pub fn set_cmd_block(&mut self, cmd_block: &'d mut CmdBlock) {
+        self.cmd_block = Some(cmd_block)
     }
 }
 
