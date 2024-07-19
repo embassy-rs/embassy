@@ -7,8 +7,13 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
 use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::interrupt::typelevel::Interrupt;
+use crate::pac::timer::regs::CntCore;
 use crate::time::Hertz;
 use crate::Peripheral;
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 /// Channel 1 marker type.
 pub enum Ch1 {}
@@ -85,7 +90,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
                 this.inner.set_output_compare_preload(channel, true);
             });
-
+        unsafe { T::UpdateInterrupt::enable() };
         this
     }
 
@@ -102,6 +107,10 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Check whether given channel is enabled
     pub fn is_enabled(&self, channel: Channel) -> bool {
         self.inner.get_channel_enable_state(channel)
+    }
+    /// ensable or disable the update interrupt
+    pub fn enable_update_interrupt(&mut self, enable: bool) {
+        self.inner.enable_update_interrupt(enable);
     }
 
     /// Set PWM frequency.
@@ -147,6 +156,21 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Set the output compare mode for a given channel.
     pub fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode) {
         self.inner.set_output_compare_mode(channel, mode);
+    }
+    /// Reset the counter value to 0
+    pub fn reset(&self) {
+        self.inner.reset();
+    }
+
+    /// Asynchronously wait until the counter value is updated to zero in the timer
+    /// The update interrupt is enabled by this function
+    pub async fn wait_for_update(&mut self) -> u32 {
+        let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+        regs.dier().modify(|w| w.set_uie(true));
+        UpdateFuture {
+            phantom: PhantomData::<T>,
+        }
+        .await
     }
 
     /// Generate a sequence of PWM waveform
@@ -339,5 +363,43 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
         P: Into<Self::Time>,
     {
         self.inner.set_frequency(period.into());
+    }
+}
+
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct UpdateFuture<T: GeneralInstance4Channel> {
+    phantom: PhantomData<T>,
+}
+
+impl<T: GeneralInstance4Channel> Drop for UpdateFuture<T> {
+    fn drop(&mut self) {
+        critical_section::with(|_| {
+            let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+
+            // disable interrupt enable
+            regs.dier().modify(|w| w.set_uie(false));
+        });
+    }
+}
+
+/// the future will be awoken by the update interrupt. The update flag will be reset,
+/// and the future will return 0 (a dummy value)
+impl<T: GeneralInstance4Channel> Future for UpdateFuture<T> {
+    type Output = u32;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        T::state().up_waker.register(cx.waker());
+        let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+        let sr = regs.sr().read();
+
+        if sr.uif() {
+            // clear the update flag
+            regs.sr().modify(|r| {
+                r.set_uif(false);
+            });
+            Poll::Ready(0)
+        } else {
+            Poll::Pending
+        }
     }
 }
