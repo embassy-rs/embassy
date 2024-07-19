@@ -8,7 +8,6 @@ use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
 use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::timer::regs::CntCore;
 use crate::time::Hertz;
 use crate::Peripheral;
 use core::future::Future;
