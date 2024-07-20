@@ -128,3 +128,7 @@ This example replaces the Mutex with a Channel, and uses another task (the main 
 that the operation is completed before continuing to do other work in your task.
 
 An example showcasing more methods for sharing link:https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/sharing.rs[can be found here].
+
+== Sharing an I2C or SPI bus between multiple devices
+
+An example of how to deal with multiple devices sharing a common I2C or SPI bus link:https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/shared_bus.rs[can be found here].

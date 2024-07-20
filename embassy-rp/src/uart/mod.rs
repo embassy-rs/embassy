@@ -7,7 +7,7 @@ use atomic_polyfill::{AtomicU16, Ordering};
 use embassy_futures::select::{select, Either};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::Timer;
+use embassy_time::{Delay, Timer};
 use pac::uart::regs::Uartris;
 
 use crate::clocks::clk_peri_freq;
@@ -860,6 +860,56 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         });
     }
 
+    fn lcr_modify<R>(f: impl FnOnce(&mut rp_pac::uart::regs::UartlcrH) -> R) -> R {
+        let r = T::regs();
+
+        // Notes from PL011 reference manual:
+        //
+        // - Before writing the LCR, if the UART is enabled it needs to be
+        //   disabled and any current TX + RX activity has to be completed
+        //
+        // - There is a BUSY flag which waits for the current TX char, but this is
+        //   OR'd with TX FIFO !FULL, so not usable when FIFOs are enabled and
+        //   potentially nonempty
+        //
+        // - FIFOs can't be set to disabled whilst a character is in progress
+        //   (else "FIFO integrity is not guaranteed")
+        //
+        // Combination of these means there is no general way to halt and poll for
+        // end of TX character, if FIFOs may be enabled. Either way, there is no
+        // way to poll for end of RX character.
+        //
+        // So, insert a 15 Baud period delay before changing the settings.
+        // 15 Baud is comfortably higher than start + max data + parity + stop.
+        // Anything else would require API changes to permit a non-enabled UART
+        // state after init() where settings can be changed safely.
+        let clk_base = crate::clocks::clk_peri_freq();
+
+        let cr = r.uartcr().read();
+        if cr.uarten() {
+            r.uartcr().modify(|w| {
+                w.set_uarten(false);
+                w.set_txe(false);
+                w.set_rxe(false);
+            });
+
+            // Note: Maximise precision here. Show working, the compiler will mop this up.
+            // Create a 16.6 fixed-point fractional division ratio; then scale to 32-bits.
+            let mut brdiv_ratio = 64 * r.uartibrd().read().0 + r.uartfbrd().read().0;
+            brdiv_ratio <<= 10;
+            // 3662 is ~(15 * 244.14) where 244.14 is 16e6 / 2^16
+            let scaled_freq = clk_base / 3662;
+            let wait_time_us = brdiv_ratio / scaled_freq;
+            embedded_hal_1::delay::DelayNs::delay_us(&mut Delay, wait_time_us);
+        }
+
+        let res = r.uartlcr_h().modify(f);
+
+        r.uartcr().write_value(cr);
+
+        res
+    }
+
     /// sets baudrate on runtime
     pub fn set_baudrate(&mut self, baudrate: u32) {
         Self::set_baudrate_inner(baudrate);
@@ -886,9 +936,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
         r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
 
-        // PL011 needs a (dummy) line control register write to latch in the
-        // divisors. We don't want to actually change LCR contents here.
-        r.uartlcr_h().modify(|_| {});
+        Self::lcr_modify(|_| {});
     }
 }
 
@@ -922,6 +970,13 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
     /// useful when having two tasks correlating to transmitting and receiving.
     pub fn split(self) -> (UartTx<'d, T, M>, UartRx<'d, T, M>) {
         (self.tx, self.rx)
+    }
+
+    /// Split the Uart into a transmitter and receiver by mutable reference,
+    /// which is particularly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split_ref(&mut self) -> (&mut UartTx<'d, T, M>, &mut UartRx<'d, T, M>) {
+        (&mut self.tx, &mut self.rx)
     }
 }
 
