@@ -4,7 +4,7 @@ use core::future::{poll_fn, Future};
 use core::task::{Poll, Waker};
 
 use heapless::Deque;
-use raw_mutex_traits::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, RawMutex};
 
 use crate::waitqueue::WakerRegistration;
 

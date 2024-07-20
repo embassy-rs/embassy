@@ -23,7 +23,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use heapless::Deque;
-use raw_mutex_traits::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, RawMutex};
 
 use crate::waitqueue::WakerRegistration;
 

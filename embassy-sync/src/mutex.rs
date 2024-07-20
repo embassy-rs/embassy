@@ -7,7 +7,7 @@ use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 use core::{fmt, mem};
 
-use raw_mutex_traits::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, RawMutex};
 
 use crate::waitqueue::WakerRegistration;
 

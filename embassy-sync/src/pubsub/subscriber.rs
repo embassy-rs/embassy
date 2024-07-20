@@ -6,7 +6,7 @@ use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use raw_mutex_traits::RawMutex;
+use scoped_mutex::RawMutex;
 
 use super::{PubSubBehavior, PubSubChannel, WaitResult};
 

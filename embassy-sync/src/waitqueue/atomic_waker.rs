@@ -1,6 +1,6 @@
 use core::task::Waker;
 
-use raw_mutex_traits::BlockingMutex;
+use scoped_mutex::BlockingMutex;
 
 use crate::blocking_mutex::raw::CriticalSectionRawMutex;
 use crate::blocking_mutex::CriticalSectionMutex;

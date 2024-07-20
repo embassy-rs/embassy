@@ -2,7 +2,7 @@
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll, Waker};
 
-use raw_mutex_traits::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, RawMutex};
 
 /// Single-slot signaling primitive.
 ///

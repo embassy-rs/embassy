@@ -5,9 +5,9 @@ pub mod raw;
 
 use core::ops::Deref;
 
-use raw_mutex_traits::BlockingMutex;
+use scoped_mutex::BlockingMutex;
 // Semver re-export
-pub use raw_mutex_traits::BlockingMutex as Mutex;
+pub use scoped_mutex::BlockingMutex as Mutex;
 
 /// A mutex that allows borrowing data across executors and interrupts.
 ///

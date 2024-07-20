@@ -9,7 +9,7 @@ use core::task::{Context, Poll};
 
 pub use heapless::binary_heap::{Kind, Max, Min};
 use heapless::BinaryHeap;
-use raw_mutex_traits::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, RawMutex};
 
 use crate::channel::{DynamicChannel, DynamicReceiver, DynamicSender, TryReceiveError, TrySendError};
 use crate::waitqueue::WakerRegistration;
