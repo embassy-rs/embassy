@@ -116,8 +116,6 @@ impl TimerDriver {
         // clear the irq
         pac::TIMER.intr().write(|w| w.set_alarm(n, true));
     }
-
-
 }
 
 /// safety: must be called exactly once at bootup

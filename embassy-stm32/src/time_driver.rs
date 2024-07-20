@@ -438,7 +438,7 @@ impl RtcDriverInner {
 
     fn set_alarm(&mut self, alarm: AlarmHandle, timestamp: u64) -> bool {
         let n = alarm.id() as usize;
-        let alarm = self.get_alarm(n );
+        let alarm = self.get_alarm(n);
         alarm.set_alarm(n, timestamp)
     }
 }
@@ -451,7 +451,8 @@ impl RtcDriverInner {
     /// Compute the approximate amount of time until the next alarm
     fn time_until_next_alarm(&mut self) -> embassy_time::Duration {
         let now = now() + 32;
-        let min_ticks = self.alarms
+        let min_ticks = self
+            .alarms
             .iter()
             .map(|alarm: &AlarmState| alarm.timestamp.saturating_sub(now))
             .min()
@@ -488,11 +489,7 @@ impl RtcDriverInner {
     }
 
     /// Add the given offset to the current time
-    fn add_time(
-        &mut self,
-        offset: embassy_time::Duration,
-        d_period: &AtomicU32,
-    ) {
+    fn add_time(&mut self, offset: embassy_time::Duration, d_period: &AtomicU32) {
         let offset = offset.as_ticks();
         let cnt = regs_gp16().cnt().read().cnt() as u32;
         let period = d_period.load(Ordering::SeqCst);
@@ -536,8 +533,6 @@ impl RtcDriverInner {
             self.add_time(offset, period);
         }
     }
-
-
 }
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -564,9 +559,6 @@ impl RtcDriver {
     // /*
     //     Low-power private functions: all operate within a critical seciton
     // */
-
-
-
     /*
         Low-power public functions: all create a critical section
     */
