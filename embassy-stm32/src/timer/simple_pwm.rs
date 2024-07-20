@@ -163,7 +163,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
     /// Return the update future, which an be used to wait up the update interrupt event
     /// The update interrupt is enabled by this function
-    pub fn get_update_future(&mut self) -> UpdateFuture<T> {
+    pub fn get_update_future(&self) -> UpdateFuture<T> {
         let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
         regs.dier().modify(|w| w.set_uie(true));
         UpdateFuture {
