@@ -100,11 +100,7 @@ quote = "1.0.15"
 stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e0cfd165fd8fffaa0df66a35eeca83b228496645", default-features = false, features = ["metadata"] }
 
 [features]
-default = [
-    "rt",
-    "time-driver-any",
-    "low-power",
-]
+default = ["rt"]
 
 ## Enable `stm32-metapac`'s `rt` feature
 rt = ["stm32-metapac/rt"]

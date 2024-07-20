@@ -58,6 +58,9 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
 
+// note: used in macro expansion
+#[allow(unused_imports)]
+use crate::interrupt;
 use crate::time_driver::{get_driver, RtcDriver};
 
 const THREAD_PENDER: usize = usize::MAX;
