@@ -58,7 +58,7 @@ impl PwmTest {
             self.duty = (self.duty + 200) % self.max3;
             self.pwm3.set_duty(Channel::Ch2, self.duty);
             // note that the update interrupt will be call exact 100 times per second!
-            self.pwm3.wait_for_update().await;
+            self.pwm3.get_update_future().await;
             self.counter = (self.counter + 1) % 100;
             self.d5_pb4.set_high();
             match self.counter {

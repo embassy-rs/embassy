@@ -161,15 +161,14 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.reset();
     }
 
-    /// Asynchronously wait until the counter value is updated to zero in the timer
+    /// Return the update future, which an be used to wait up the update interrupt event
     /// The update interrupt is enabled by this function
-    pub async fn wait_for_update(&mut self) -> u32 {
+    pub fn get_update_future(&mut self) -> UpdateFuture<T> {
         let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
         regs.dier().modify(|w| w.set_uie(true));
         UpdateFuture {
             phantom: PhantomData::<T>,
         }
-        .await
     }
 
     /// Generate a sequence of PWM waveform
@@ -365,8 +364,9 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     }
 }
 
+/// The struct which can be used to await for a timer update interrupt event
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-struct UpdateFuture<T: GeneralInstance4Channel> {
+pub struct UpdateFuture<T: GeneralInstance4Channel> {
     phantom: PhantomData<T>,
 }
 
