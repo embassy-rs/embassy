@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 
-use core::cell::Cell;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 
@@ -231,12 +230,12 @@ fn calc_now(period: u32, counter: u16) -> u64 {
 }
 
 struct AlarmState {
-    timestamp: Cell<u64>,
+    timestamp: u64,
 
     // This is really a Option<(fn(*mut ()), *mut ())>
     // but fn pointers aren't allowed in const yet
-    callback: Cell<*const ()>,
-    ctx: Cell<*mut ()>,
+    callback: *const (),
+    ctx: *mut (),
 }
 
 unsafe impl Send for AlarmState {}
@@ -244,38 +243,41 @@ unsafe impl Send for AlarmState {}
 impl AlarmState {
     const fn new() -> Self {
         Self {
-            timestamp: Cell::new(u64::MAX),
-            callback: Cell::new(ptr::null()),
-            ctx: Cell::new(ptr::null_mut()),
+            timestamp: u64::MAX,
+            callback: ptr::null(),
+            ctx: ptr::null_mut(),
         }
     }
+}
+
+fn now() -> u64 {
+    DRIVER.now()
 }
 
 pub(crate) struct RtcDriver {
     /// Number of 2^15 periods elapsed since boot.
     period: AtomicU32,
     alarm_count: AtomicU8,
-    /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
-    #[cfg(feature = "low-power")]
-    rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
+    inner: Mutex<CriticalSectionRawMutex, RtcDriverInner>,
 }
 
-#[allow(clippy::declare_interior_mutable_const)]
-const ALARM_STATE_NEW: AlarmState = AlarmState::new();
-
-embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
-    period: AtomicU32::new(0),
-    alarm_count: AtomicU8::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
+struct RtcDriverInner {
+    alarms: [AlarmState; ALARM_COUNT],
     #[cfg(feature = "low-power")]
-    rtc: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
-});
+    rtc: Option<&'static Rtc>,
+}
 
-impl RtcDriver {
-    fn init(&'static self, cs: critical_section::CriticalSection) {
+impl RtcDriverInner {
+    const fn new() -> Self {
+        Self {
+            alarms: [ALARM_STATE_NEW; ALARM_COUNT],
+            #[cfg(feature = "low-power")]
+            rtc: None,
+        }
+    }
+
+    fn init(&mut self, cs: CriticalSection) {
         let r = regs_gp16();
-
         rcc::enable_and_reset_with_cs::<T>(cs);
 
         let timer_freq = T::frequency();
@@ -312,207 +314,274 @@ impl RtcDriver {
         r.cr1().modify(|w| w.set_cen(true));
     }
 
-    fn on_interrupt(&self) {
+    fn on_interrupt(&mut self, period: &AtomicU32) {
         let r = regs_gp16();
 
-        // XXX: reduce the size of this critical section ?
-        critical_section::with(|cs| {
-            let sr = r.sr().read();
-            let dier = r.dier().read();
+        let sr = r.sr().read();
+        let dier = r.dier().read();
 
-            // Clear all interrupt flags. Bits in SR are "write 0 to clear", so write the bitwise NOT.
-            // Other approaches such as writing all zeros, or RMWing won't work, they can
-            // miss interrupts.
-            r.sr().write_value(regs::SrGp16(!sr.0));
+        // Clear all interrupt flags. Bits in SR are "write 0 to clear", so write the bitwise NOT.
+        // Other approaches such as writing all zeros, or RMWing won't work, they can
+        // miss interrupts.
+        r.sr().write_value(regs::SrGp16(!sr.0));
 
-            // Overflow
-            if sr.uif() {
-                self.next_period();
+        // Overflow
+        if sr.uif() {
+            self.next_period(period);
+        }
+
+        // Half overflow
+        if sr.ccif(0) {
+            self.next_period(period);
+        }
+
+        for (n, alarm) in self.alarms.iter_mut().enumerate() {
+            if sr.ccif(n + 1) && dier.ccie(n + 1) {
+                // Trigger alarm
+                alarm.timestamp = u64::MAX;
+
+                // Call after clearing alarm, so the callback can set another alarm.
+
+                // safety:
+                // - we can ignore the possibility of `f` being unset (null) because of the safety contract of `allocate_alarm`.
+                // - other than that we only store valid function pointers into alarm.callback
+                let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback) };
+                f(alarm.ctx);
             }
-
-            // Half overflow
-            if sr.ccif(0) {
-                self.next_period();
-            }
-
-            for n in 0..ALARM_COUNT {
-                if sr.ccif(n + 1) && dier.ccie(n + 1) {
-                    self.trigger_alarm(n, cs);
-                }
-            }
-        })
+        }
     }
 
-    fn next_period(&self) {
-        let r = regs_gp16();
-
+    fn next_period(&mut self, d_period: &AtomicU32) {
         // We only modify the period from the timer interrupt, so we know this can't race.
-        let period = self.period.load(Ordering::Relaxed) + 1;
-        self.period.store(period, Ordering::Relaxed);
+        let period = d_period.load(Ordering::Relaxed) + 1;
+        d_period.store(period, Ordering::Relaxed);
         let t = (period as u64) << 15;
 
-        critical_section::with(move |cs| {
-            r.dier().modify(move |w| {
-                for n in 0..ALARM_COUNT {
-                    let alarm = &self.alarms.borrow(cs)[n];
-                    let at = alarm.timestamp.get();
+        let r = regs_gp16();
+        r.dier().modify(move |w| {
+            for (n, alarm) in self.alarms.iter_mut().enumerate() {
+                let at = alarm.timestamp;
 
-                    if at < t + 0xc000 {
-                        // just enable it. `set_alarm` has already set the correct CCR val.
-                        w.set_ccie(n + 1, true);
-                    }
+                if at < t + 0xc000 {
+                    // just enable it. `set_alarm` has already set the correct CCR val.
+                    w.set_ccie(n + 1, true);
                 }
-            })
-        })
-    }
-
-    fn get_alarm<'a>(&'a self, cs: CriticalSection<'a>, alarm: AlarmHandle) -> &'a AlarmState {
-        // safety: we're allowed to assume the AlarmState is created by us, and
-        // we never create one that's out of bounds.
-        unsafe { self.alarms.borrow(cs).get_unchecked(alarm.id() as usize) }
-    }
-
-    fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
-        let alarm = &self.alarms.borrow(cs)[n];
-        alarm.timestamp.set(u64::MAX);
-
-        // Call after clearing alarm, so the callback can set another alarm.
-
-        // safety:
-        // - we can ignore the possibility of `f` being unset (null) because of the safety contract of `allocate_alarm`.
-        // - other than that we only store valid function pointers into alarm.callback
-        let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
-        f(alarm.ctx.get());
-    }
-
-    /*
-        Low-power private functions: all operate within a critical seciton
-    */
-
-    #[cfg(feature = "low-power")]
-    /// Compute the approximate amount of time until the next alarm
-    fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
-        let now = self.now() + 32;
-
-        embassy_time::Duration::from_ticks(
-            self.alarms
-                .borrow(cs)
-                .iter()
-                .map(|alarm: &AlarmState| alarm.timestamp.get().saturating_sub(now))
-                .min()
-                .unwrap_or(u64::MAX),
-        )
-    }
-
-    #[cfg(feature = "low-power")]
-    /// Add the given offset to the current time
-    fn add_time(&self, offset: embassy_time::Duration, cs: CriticalSection) {
-        let offset = offset.as_ticks();
-        let cnt = regs_gp16().cnt().read().cnt() as u32;
-        let period = self.period.load(Ordering::SeqCst);
-
-        // Correct the race, if it exists
-        let period = if period & 1 == 1 && cnt < u16::MAX as u32 / 2 {
-            period + 1
-        } else {
-            period
-        };
-
-        // Normalize to the full overflow
-        let period = (period / 2) * 2;
-
-        // Add the offset
-        let period = period + 2 * (offset / u16::MAX as u64) as u32;
-        let cnt = cnt + (offset % u16::MAX as u64) as u32;
-
-        let (cnt, period) = if cnt > u16::MAX as u32 {
-            (cnt - u16::MAX as u32, period + 2)
-        } else {
-            (cnt, period)
-        };
-
-        let period = if cnt > u16::MAX as u32 / 2 { period + 1 } else { period };
-
-        self.period.store(period, Ordering::SeqCst);
-        regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
-
-        // Now, recompute all alarms
-        for i in 0..ALARM_COUNT {
-            let alarm_handle = unsafe { AlarmHandle::new(i as u8) };
-            let alarm = self.get_alarm(cs, alarm_handle);
-
-            self.set_alarm(alarm_handle, alarm.timestamp.get());
-        }
-    }
-
-    #[cfg(feature = "low-power")]
-    /// Stop the wakeup alarm, if enabled, and add the appropriate offset
-    fn stop_wakeup_alarm(&self, cs: CriticalSection) {
-        if let Some(offset) = self.rtc.borrow(cs).get().unwrap().stop_wakeup_alarm(cs) {
-            self.add_time(offset, cs);
-        }
-    }
-
-    /*
-        Low-power public functions: all create a critical section
-    */
-    #[cfg(feature = "low-power")]
-    /// Set the rtc but panic if it's already been set
-    pub(crate) fn set_rtc(&self, rtc: &'static Rtc) {
-        critical_section::with(|cs| {
-            rtc.stop_wakeup_alarm(cs);
-
-            assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none())
-        });
-    }
-
-    #[cfg(feature = "low-power")]
-    /// The minimum pause time beyond which the executor will enter a low-power state.
-    pub(crate) const MIN_STOP_PAUSE: embassy_time::Duration = embassy_time::Duration::from_millis(250);
-
-    #[cfg(feature = "low-power")]
-    /// Pause the timer if ready; return err if not
-    pub(crate) fn pause_time(&self) -> Result<(), ()> {
-        critical_section::with(|cs| {
-            /*
-                If the wakeup timer is currently running, then we need to stop it and
-                add the elapsed time to the current time, as this will impact the result
-                of `time_until_next_alarm`.
-            */
-            self.stop_wakeup_alarm(cs);
-
-            let time_until_next_alarm = self.time_until_next_alarm(cs);
-            if time_until_next_alarm < Self::MIN_STOP_PAUSE {
-                Err(())
-            } else {
-                self.rtc
-                    .borrow(cs)
-                    .get()
-                    .unwrap()
-                    .start_wakeup_alarm(time_until_next_alarm, cs);
-
-                regs_gp16().cr1().modify(|w| w.set_cen(false));
-
-                Ok(())
             }
         })
     }
 
-    #[cfg(feature = "low-power")]
-    /// Resume the timer with the given offset
-    pub(crate) fn resume_time(&self) {
-        if regs_gp16().cr1().read().cen() {
-            // Time isn't currently stopped
+    fn allocate_alarm(&mut self, alarm_count: &AtomicU8) -> Option<AlarmHandle> {
+        let id = alarm_count.load(Ordering::Relaxed);
+        if id < ALARM_COUNT as u8 {
+            alarm_count.store(id + 1, Ordering::Relaxed);
+            Some(unsafe { AlarmHandle::new(id) })
+        } else {
+            None
+        }
+    }
 
-            return;
+    fn set_alarm_callback(&mut self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+        let alarm = self.get_alarm(alarm.id().into());
+
+        alarm.callback = callback as *const ();
+        alarm.ctx = ctx;
+    }
+
+    fn get_alarm(&mut self, n: usize) -> &mut AlarmState {
+        &mut self.alarms[n]
+    }
+
+    fn set_alarm(&mut self, alarm: AlarmHandle, timestamp: u64) -> bool {
+        let r = regs_gp16();
+
+        let n = alarm.id() as usize;
+        let alarm = self.get_alarm(n);
+        alarm.timestamp = timestamp;
+
+        let t = now();
+        if timestamp <= t {
+            // If alarm timestamp has passed the alarm will not fire.
+            // Disarm the alarm and return `false` to indicate that.
+            r.dier().modify(|w| w.set_ccie(n + 1, false));
+
+            alarm.timestamp = u64::MAX;
+
+            return false;
         }
 
-        critical_section::with(|cs| {
-            self.stop_wakeup_alarm(cs);
+        // Write the CCR value regardless of whether we're going to enable it now or not.
+        // This way, when we enable it later, the right value is already set.
+        r.ccr(n + 1).write(|w| w.set_ccr(timestamp as u16));
 
-            regs_gp16().cr1().modify(|w| w.set_cen(true));
-        })
+        // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
+        let diff = timestamp - t;
+        r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000));
+
+        // Reevaluate if the alarm timestamp is still in the future
+        let t = now();
+        if timestamp <= t {
+            // If alarm timestamp has passed since we set it, we have a race condition and
+            // the alarm may or may not have fired.
+            // Disarm the alarm and return `false` to indicate that.
+            // It is the caller's responsibility to handle this ambiguity.
+            r.dier().modify(|w| w.set_ccie(n + 1, false));
+
+            alarm.timestamp = u64::MAX;
+
+            return false;
+        }
+
+        // We're confident the alarm will ring in the future.
+        true
     }
+}
+
+#[allow(clippy::declare_interior_mutable_const)]
+const ALARM_STATE_NEW: AlarmState = AlarmState::new();
+
+embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
+    period: AtomicU32::new(0),
+    alarm_count: AtomicU8::new(0),
+    inner: Mutex::const_new(CriticalSectionRawMutex::new(), RtcDriverInner::new()),
+});
+
+impl RtcDriver {
+    fn init(&'static self, cs: CriticalSection) {
+        self.inner.lock(|r| r.init(cs))
+    }
+
+    fn on_interrupt(&self) {
+        self.inner.lock(|r| r.on_interrupt(&self.period))
+    }
+
+    // /*
+    //     Low-power private functions: all operate within a critical seciton
+    // */
+
+    // #[cfg(feature = "low-power")]
+    // /// Compute the approximate amount of time until the next alarm
+    // fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
+    //     let now = self.now() + 32;
+
+    //     embassy_time::Duration::from_ticks(
+    //         self.alarms
+    //             .borrow(cs)
+    //             .iter()
+    //             .map(|alarm: &AlarmState| alarm.timestamp.get().saturating_sub(now))
+    //             .min()
+    //             .unwrap_or(u64::MAX),
+    //     )
+    // }
+
+    // #[cfg(feature = "low-power")]
+    // /// Add the given offset to the current time
+    // fn add_time(&self, offset: embassy_time::Duration, cs: CriticalSection) {
+    //     let offset = offset.as_ticks();
+    //     let cnt = regs_gp16().cnt().read().cnt() as u32;
+    //     let period = self.period.load(Ordering::SeqCst);
+
+    //     // Correct the race, if it exists
+    //     let period = if period & 1 == 1 && cnt < u16::MAX as u32 / 2 {
+    //         period + 1
+    //     } else {
+    //         period
+    //     };
+
+    //     // Normalize to the full overflow
+    //     let period = (period / 2) * 2;
+
+    //     // Add the offset
+    //     let period = period + 2 * (offset / u16::MAX as u64) as u32;
+    //     let cnt = cnt + (offset % u16::MAX as u64) as u32;
+
+    //     let (cnt, period) = if cnt > u16::MAX as u32 {
+    //         (cnt - u16::MAX as u32, period + 2)
+    //     } else {
+    //         (cnt, period)
+    //     };
+
+    //     let period = if cnt > u16::MAX as u32 / 2 { period + 1 } else { period };
+
+    //     self.period.store(period, Ordering::SeqCst);
+    //     regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
+
+    //     // Now, recompute all alarms
+    //     for i in 0..ALARM_COUNT {
+    //         let alarm_handle = unsafe { AlarmHandle::new(i as u8) };
+    //         let alarm = self.get_alarm(cs, alarm_handle);
+
+    //         self.set_alarm(alarm_handle, alarm.timestamp.get());
+    //     }
+    // }
+
+    // #[cfg(feature = "low-power")]
+    // /// Stop the wakeup alarm, if enabled, and add the appropriate offset
+    // fn stop_wakeup_alarm(&self, cs: CriticalSection) {
+    //     if let Some(offset) = self.rtc.borrow(cs).get().unwrap().stop_wakeup_alarm(cs) {
+    //         self.add_time(offset, cs);
+    //     }
+    // }
+
+    // /*
+    //     Low-power public functions: all create a critical section
+    // */
+    // #[cfg(feature = "low-power")]
+    // /// Set the rtc but panic if it's already been set
+    // pub(crate) fn set_rtc(&self, rtc: &'static Rtc) {
+    //     critical_section::with(|cs| {
+    //         rtc.stop_wakeup_alarm(cs);
+
+    //         assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none())
+    //     });
+    // }
+
+    // #[cfg(feature = "low-power")]
+    // /// The minimum pause time beyond which the executor will enter a low-power state.
+    // pub(crate) const MIN_STOP_PAUSE: embassy_time::Duration = embassy_time::Duration::from_millis(250);
+
+    // #[cfg(feature = "low-power")]
+    // /// Pause the timer if ready; return err if not
+    // pub(crate) fn pause_time(&self) -> Result<(), ()> {
+    //     critical_section::with(|cs| {
+    //         /*
+    //             If the wakeup timer is currently running, then we need to stop it and
+    //             add the elapsed time to the current time, as this will impact the result
+    //             of `time_until_next_alarm`.
+    //         */
+    //         self.stop_wakeup_alarm(cs);
+
+    //         let time_until_next_alarm = self.time_until_next_alarm(cs);
+    //         if time_until_next_alarm < Self::MIN_STOP_PAUSE {
+    //             Err(())
+    //         } else {
+    //             self.rtc
+    //                 .borrow(cs)
+    //                 .get()
+    //                 .unwrap()
+    //                 .start_wakeup_alarm(time_until_next_alarm, cs);
+
+    //             regs_gp16().cr1().modify(|w| w.set_cen(false));
+
+    //             Ok(())
+    //         }
+    //     })
+    // }
+
+    // #[cfg(feature = "low-power")]
+    // /// Resume the timer with the given offset
+    // pub(crate) fn resume_time(&self) {
+    //     if regs_gp16().cr1().read().cen() {
+    //         // Time isn't currently stopped
+
+    //         return;
+    //     }
+
+    //     critical_section::with(|cs| {
+    //         self.stop_wakeup_alarm(cs);
+
+    //         regs_gp16().cr1().modify(|w| w.set_cen(true));
+    //     })
+    // }
 }
 
 impl Driver for RtcDriver {
@@ -526,70 +595,15 @@ impl Driver for RtcDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        critical_section::with(|_| {
-            let id = self.alarm_count.load(Ordering::Relaxed);
-            if id < ALARM_COUNT as u8 {
-                self.alarm_count.store(id + 1, Ordering::Relaxed);
-                Some(AlarmHandle::new(id))
-            } else {
-                None
-            }
-        })
+        self.inner.lock(|r| r.allocate_alarm(&self.alarm_count))
     }
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        critical_section::with(|cs| {
-            let alarm = self.get_alarm(cs, alarm);
-
-            alarm.callback.set(callback as *const ());
-            alarm.ctx.set(ctx);
-        })
+        self.inner.lock(|r| r.set_alarm_callback(alarm, callback, ctx))
     }
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        critical_section::with(|cs| {
-            let r = regs_gp16();
-
-            let n = alarm.id() as usize;
-            let alarm = self.get_alarm(cs, alarm);
-            alarm.timestamp.set(timestamp);
-
-            let t = self.now();
-            if timestamp <= t {
-                // If alarm timestamp has passed the alarm will not fire.
-                // Disarm the alarm and return `false` to indicate that.
-                r.dier().modify(|w| w.set_ccie(n + 1, false));
-
-                alarm.timestamp.set(u64::MAX);
-
-                return false;
-            }
-
-            // Write the CCR value regardless of whether we're going to enable it now or not.
-            // This way, when we enable it later, the right value is already set.
-            r.ccr(n + 1).write(|w| w.set_ccr(timestamp as u16));
-
-            // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
-            let diff = timestamp - t;
-            r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000));
-
-            // Reevaluate if the alarm timestamp is still in the future
-            let t = self.now();
-            if timestamp <= t {
-                // If alarm timestamp has passed since we set it, we have a race condition and
-                // the alarm may or may not have fired.
-                // Disarm the alarm and return `false` to indicate that.
-                // It is the caller's responsibility to handle this ambiguity.
-                r.dier().modify(|w| w.set_ccie(n + 1, false));
-
-                alarm.timestamp.set(u64::MAX);
-
-                return false;
-            }
-
-            // We're confident the alarm will ring in the future.
-            true
-        })
+        self.inner.lock(|r| r.set_alarm(alarm, timestamp))
     }
 }
 
