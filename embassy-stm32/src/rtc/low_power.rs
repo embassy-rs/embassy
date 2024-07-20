@@ -3,7 +3,7 @@ use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;
 
 /// Represents an instant in time that can be substracted to compute a duration
-pub(super) struct RtcInstant {
+pub(crate) struct RtcInstant {
     /// 0..59
     second: u8,
     /// 0..256
@@ -120,10 +120,14 @@ impl Rtc {
 
     /// start the wakeup alarm and with a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
-    pub(crate) fn start_wakeup_alarm(
-        &self,
+    ///
+    /// ## Safety
+    ///
+    /// This function must be called within a critical section
+    pub(crate) unsafe fn start_wakeup_alarm(
+        &'static self,
         requested_duration: embassy_time::Duration,
-        cs: critical_section::CriticalSection,
+        stop_time: &mut Option<RtcInstant>,
     ) {
         use embassy_time::{Duration, TICK_HZ};
 
@@ -175,12 +179,19 @@ impl Rtc {
             instant,
         );
 
-        assert!(self.stop_time.borrow(cs).replace(Some(instant)).is_none())
+        assert!(stop_time.replace(instant).is_none())
     }
 
     /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
     /// was called, otherwise none
-    pub(crate) fn stop_wakeup_alarm(&self, cs: critical_section::CriticalSection) -> Option<embassy_time::Duration> {
+    ///
+    /// ## Safety
+    ///
+    /// This function must be called within a critical section
+    pub(crate) unsafe fn stop_wakeup_alarm(
+        &'static self,
+        stop_time: &mut Option<RtcInstant>,
+    ) -> Option<embassy_time::Duration> {
         use crate::interrupt::typelevel::Interrupt;
         #[cfg(any(rtc_v3, rtc_v3u5, rtc_v3l5))]
         use crate::pac::rtc::vals::Calrf;
@@ -214,7 +225,7 @@ impl Rtc {
             });
         }
 
-        self.stop_time.borrow(cs).take().map(|stop_time| instant - stop_time)
+        stop_time.take().map(|stop_time| instant - stop_time)
     }
 
     pub(crate) fn enable_wakeup_line(&self) {

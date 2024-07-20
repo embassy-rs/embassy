@@ -103,6 +103,7 @@ stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", ta
 default = [
     "rt",
     "time-driver-any",
+    "low-power",
 ]
 
 ## Enable `stm32-metapac`'s `rt` feature

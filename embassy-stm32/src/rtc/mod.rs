@@ -2,15 +2,7 @@
 mod datetime;
 
 #[cfg(feature = "low-power")]
-mod low_power;
-
-#[cfg(feature = "low-power")]
-use core::cell::Cell;
-
-#[cfg(feature = "low-power")]
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-#[cfg(feature = "low-power")]
-use embassy_sync::blocking_mutex::Mutex;
+pub(crate) mod low_power;
 
 use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
@@ -102,8 +94,6 @@ impl RtcTimeProvider {
 
 /// RTC driver.
 pub struct Rtc {
-    #[cfg(feature = "low-power")]
-    stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<low_power::RtcInstant>>>,
     _private: (),
 }
 
@@ -144,11 +134,7 @@ impl Rtc {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 
-        let mut this = Self {
-            #[cfg(feature = "low-power")]
-            stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
-            _private: (),
-        };
+        let mut this = Self { _private: () };
 
         let frequency = Self::frequency();
         let async_psc = ((frequency.0 / rtc_config.frequency.0) - 1) as u8;
