@@ -20,7 +20,8 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(
     struct Irqs {
-      TIM3 => timer::UpdateInterruptHandler<TIM3>;
+      // for stm32g070cb change TIM3_TIM4 to TIM3
+      TIM3_TIM4 => timer::UpdateInterruptHandler<TIM3>;
     }
 );
 
