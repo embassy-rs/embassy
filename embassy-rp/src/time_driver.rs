@@ -95,7 +95,7 @@ impl Driver for TimerDriver {
 
 impl TimerDriver {
     fn check_alarm(&self, n: usize) {
-        self.alarms.lock(|alarms| {
+        let to_fire = self.alarms.lock(|alarms| {
             let alarm = &mut alarms[n];
             if alarm.timestamp <= self.now() {
                 // disarm
@@ -103,15 +103,18 @@ impl TimerDriver {
                 alarm.timestamp = u64::MAX;
 
                 // Call after clearing alarm, so the callback can set another alarm.
-                if let Some((f, ctx)) = alarm.callback.as_ref().copied() {
-                    f(ctx);
-                }
+                alarm.callback.as_ref().copied()
             } else {
                 // Not elapsed, arm it again.
                 // This can happen if it was set more than 2^32 us in the future.
                 pac::TIMER.alarm(n).write_value(alarm.timestamp as u32);
+                None
             }
         });
+
+        if let Some((f, ctx)) = to_fire {
+            f(ctx);
+        }
 
         // clear the irq
         pac::TIMER.intr().write(|w| w.set_alarm(n, true));

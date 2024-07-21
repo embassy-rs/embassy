@@ -84,6 +84,8 @@ pub mod local {
         }
     }
 
+    unsafe impl Send for LocalRawMutex {}
+
     impl ConstInit for LocalRawMutex {
         const INIT: Self = Self::new();
     }
