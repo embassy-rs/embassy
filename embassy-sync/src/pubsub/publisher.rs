@@ -200,9 +200,14 @@ impl<'a, T: Clone> DerefMut for DynImmediatePublisher<'a, T> {
 }
 
 /// An immediate publisher that holds a generic reference to the channel
-pub struct ImmediatePublisher<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
-    pub(super) ImmediatePub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
-);
+pub struct ImmediatePublisher<
+    'a,
+    M: ConstScopedRawMutex,
+    T: Clone,
+    const CAP: usize,
+    const SUBS: usize,
+    const PUBS: usize,
+>(pub(super) ImmediatePub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>);
 
 impl<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
     for ImmediatePublisher<'a, M, T, CAP, SUBS, PUBS>

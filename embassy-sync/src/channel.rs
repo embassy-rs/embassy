@@ -288,7 +288,9 @@ impl<'ch, T> Future for DynamicReceiveFuture<'ch, T> {
     }
 }
 
-impl<'ch, M: ConstScopedRawMutex, T, const N: usize> From<ReceiveFuture<'ch, M, T, N>> for DynamicReceiveFuture<'ch, T> {
+impl<'ch, M: ConstScopedRawMutex, T, const N: usize> From<ReceiveFuture<'ch, M, T, N>>
+    for DynamicReceiveFuture<'ch, T>
+{
     fn from(value: ReceiveFuture<'ch, M, T, N>) -> Self {
         Self { channel: value.channel }
     }
