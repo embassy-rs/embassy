@@ -42,8 +42,6 @@ pub struct NoopRawMutex {
     _phantom: PhantomData<*mut ()>,
 }
 
-unsafe impl Send for NoopRawMutex {}
-
 impl NoopRawMutex {
     /// Create a new `NoopRawMutex`.
     pub const fn new() -> Self {
