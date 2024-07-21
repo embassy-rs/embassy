@@ -310,6 +310,11 @@ struct RtcDriverInner {
     stop_time: Option<RtcInstant>,
 }
 
+struct CbInstance {
+    f: fn(*mut ()),
+    ctx: *mut (),
+}
+
 impl RtcDriverInner {
     const fn new() -> Self {
         Self {
@@ -359,7 +364,7 @@ impl RtcDriverInner {
         r.cr1().modify(|w| w.set_cen(true));
     }
 
-    fn on_interrupt(&mut self, period: &AtomicU32) {
+    fn on_interrupt(&mut self, period: &AtomicU32) -> [Option<CbInstance>; ALARM_COUNT] {
         let r = regs_gp16();
 
         let sr = r.sr().read();
@@ -380,7 +385,9 @@ impl RtcDriverInner {
             self.next_period(period);
         }
 
-        for (n, alarm) in self.alarms.iter_mut().enumerate() {
+        const ONE_CB: Option<CbInstance> = None;
+        let mut cbret = [ONE_CB; ALARM_COUNT];
+        for ((n, alarm), out) in self.alarms.iter_mut().enumerate().zip(cbret.iter_mut()) {
             if sr.ccif(n + 1) && dier.ccie(n + 1) {
                 // Trigger alarm
                 alarm.timestamp = u64::MAX;
@@ -391,9 +398,10 @@ impl RtcDriverInner {
                 // - we can ignore the possibility of `f` being unset (null) because of the safety contract of `allocate_alarm`.
                 // - other than that we only store valid function pointers into alarm.callback
                 let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback) };
-                f(alarm.ctx);
+                *out = Some(CbInstance { f, ctx: alarm.ctx });
             }
         }
+        cbret
     }
 
     fn next_period(&mut self, d_period: &AtomicU32) {
@@ -550,7 +558,12 @@ impl RtcDriver {
     }
 
     fn on_interrupt(&self) {
-        self.inner.lock(|r| r.on_interrupt(&self.period))
+        let cbs = self.inner.lock(|r| r.on_interrupt(&self.period));
+        for cb in cbs {
+            if let Some(CbInstance { f, ctx }) = cb {
+                f(ctx);
+            }
+        }
     }
 }
 
