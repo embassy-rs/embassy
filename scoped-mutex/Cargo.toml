@@ -11,3 +11,4 @@ default = [
     "impl-critical-section",
 ]
 impl-critical-section = ["dep:critical-section"]
+std = []

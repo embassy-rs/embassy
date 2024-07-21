@@ -7,7 +7,7 @@ use core::ops::Range;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use scoped_mutex::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, ConstScopedRawMutex};
 
 use crate::ring_buffer::RingBuffer;
 use crate::waitqueue::WakerRegistration;
@@ -15,25 +15,25 @@ use crate::waitqueue::WakerRegistration;
 /// Write-only access to a [`Pipe`].
 pub struct Writer<'p, M, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     pipe: &'p Pipe<M, N>,
 }
 
 impl<'p, M, const N: usize> Clone for Writer<'p, M, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'p, M, const N: usize> Copy for Writer<'p, M, N> where M: RawMutex {}
+impl<'p, M, const N: usize> Copy for Writer<'p, M, N> where M: ConstScopedRawMutex {}
 
 impl<'p, M, const N: usize> Writer<'p, M, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Write some bytes to the pipe.
     ///
@@ -54,7 +54,7 @@ where
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct WriteFuture<'p, M, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     pipe: &'p Pipe<M, N>,
     buf: &'p [u8],
@@ -62,7 +62,7 @@ where
 
 impl<'p, M, const N: usize> Future for WriteFuture<'p, M, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     type Output = usize;
 
@@ -74,19 +74,19 @@ where
     }
 }
 
-impl<'p, M, const N: usize> Unpin for WriteFuture<'p, M, N> where M: RawMutex {}
+impl<'p, M, const N: usize> Unpin for WriteFuture<'p, M, N> where M: ConstScopedRawMutex {}
 
 /// Read-only access to a [`Pipe`].
 pub struct Reader<'p, M, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     pipe: &'p Pipe<M, N>,
 }
 
 impl<'p, M, const N: usize> Reader<'p, M, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Read some bytes from the pipe.
     ///
@@ -130,7 +130,7 @@ where
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct ReadFuture<'p, M, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     pipe: &'p Pipe<M, N>,
     buf: &'p mut [u8],
@@ -138,7 +138,7 @@ where
 
 impl<'p, M, const N: usize> Future for ReadFuture<'p, M, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     type Output = usize;
 
@@ -150,20 +150,20 @@ where
     }
 }
 
-impl<'p, M, const N: usize> Unpin for ReadFuture<'p, M, N> where M: RawMutex {}
+impl<'p, M, const N: usize> Unpin for ReadFuture<'p, M, N> where M: ConstScopedRawMutex {}
 
 /// Future returned by [`Pipe::fill_buf`] and  [`Reader::fill_buf`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct FillBufFuture<'p, M, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     pipe: Option<&'p Pipe<M, N>>,
 }
 
 impl<'p, M, const N: usize> Future for FillBufFuture<'p, M, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     type Output = &'p [u8];
 
@@ -179,7 +179,7 @@ where
     }
 }
 
-impl<'p, M, const N: usize> Unpin for FillBufFuture<'p, M, N> where M: RawMutex {}
+impl<'p, M, const N: usize> Unpin for FillBufFuture<'p, M, N> where M: ConstScopedRawMutex {}
 
 /// Error returned by [`try_read`](Pipe::try_read).
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -232,7 +232,7 @@ unsafe impl<const N: usize> Sync for Buffer<N> {}
 /// All data written will become available in the same order as it was written.
 pub struct Pipe<M, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     buf: Buffer<N>,
     inner: BlockingMutex<M, PipeState<N>>,
@@ -240,7 +240,7 @@ where
 
 impl<M, const N: usize> Pipe<M, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Establish a new bounded pipe. For example, to create one with a NoopMutex:
     ///
@@ -449,17 +449,17 @@ where
     }
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for Pipe<M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::ErrorType for Pipe<M, N> {
     type Error = Infallible;
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::Read for Pipe<M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::Read for Pipe<M, N> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         Ok(Pipe::read(self, buf).await)
     }
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::Write for Pipe<M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::Write for Pipe<M, N> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Ok(Pipe::write(self, buf).await)
     }
@@ -469,17 +469,17 @@ impl<M: RawMutex, const N: usize> embedded_io_async::Write for Pipe<M, N> {
     }
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for &Pipe<M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::ErrorType for &Pipe<M, N> {
     type Error = Infallible;
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::Read for &Pipe<M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::Read for &Pipe<M, N> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         Ok(Pipe::read(self, buf).await)
     }
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::Write for &Pipe<M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::Write for &Pipe<M, N> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Ok(Pipe::write(self, buf).await)
     }
@@ -489,17 +489,17 @@ impl<M: RawMutex, const N: usize> embedded_io_async::Write for &Pipe<M, N> {
     }
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for Reader<'_, M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::ErrorType for Reader<'_, M, N> {
     type Error = Infallible;
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::Read for Reader<'_, M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::Read for Reader<'_, M, N> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         Ok(Reader::read(self, buf).await)
     }
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::BufRead for Reader<'_, M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::BufRead for Reader<'_, M, N> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
         Ok(Reader::fill_buf(self).await)
     }
@@ -509,11 +509,11 @@ impl<M: RawMutex, const N: usize> embedded_io_async::BufRead for Reader<'_, M, N
     }
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for Writer<'_, M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::ErrorType for Writer<'_, M, N> {
     type Error = Infallible;
 }
 
-impl<M: RawMutex, const N: usize> embedded_io_async::Write for Writer<'_, M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> embedded_io_async::Write for Writer<'_, M, N> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Ok(Writer::write(self, buf).await)
     }

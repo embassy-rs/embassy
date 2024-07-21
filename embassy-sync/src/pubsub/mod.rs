@@ -6,7 +6,7 @@ use core::fmt::Debug;
 use core::task::{Context, Poll};
 
 use heapless::Deque;
-use scoped_mutex::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, ConstScopedRawMutex};
 
 use self::publisher::{ImmediatePub, Pub};
 use self::subscriber::Sub;
@@ -69,11 +69,11 @@ pub use subscriber::{DynSubscriber, Subscriber};
 /// # block_on(test);
 /// ```
 ///
-pub struct PubSubChannel<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> {
+pub struct PubSubChannel<M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> {
     inner: BlockingMutex<M, PubSubState<T, CAP, SUBS, PUBS>>,
 }
 
-impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>
+impl<M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>
     PubSubChannel<M, T, CAP, SUBS, PUBS>
 {
     /// Create a new channel
@@ -184,7 +184,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     }
 }
 
-impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> SealedPubSubBehavior<T>
+impl<M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> SealedPubSubBehavior<T>
     for PubSubChannel<M, T, CAP, SUBS, PUBS>
 {
     fn get_message_with_context(&self, next_message_id: &mut u64, cx: Option<&mut Context<'_>>) -> Poll<WaitResult<T>> {

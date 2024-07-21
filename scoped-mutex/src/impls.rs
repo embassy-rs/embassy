@@ -1,15 +1,15 @@
 //! Mutex primitives.
 //!
-//! This module provides impls of the [`RawMutex`] trait
+//! This module provides impls of the [`ScopedRawMutex`] trait
 //!
-//! [`RawMutex`]: crate::RawMutex
+//! [`ScopedRawMutex`]: crate::ScopedRawMutex
 #![allow(clippy::new_without_default)]
 #![allow(clippy::declare_interior_mutable_const)]
 
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use crate::{ConstInit, UnconstRawMutex};
+use crate::{ConstInit, ScopedRawMutex};
 
 #[cfg(feature = "impl-critical-section")]
 pub mod cs {
@@ -40,8 +40,9 @@ pub mod cs {
         const INIT: Self = Self::new();
     }
 
-    unsafe impl UnconstRawMutex for CriticalSectionRawMutex {
+    unsafe impl ScopedRawMutex for CriticalSectionRawMutex {
         #[inline]
+        #[must_use]
         fn try_lock<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
             critical_section::with(|_| {
                 // NOTE: separated load/stores are acceptable as we are in
@@ -87,8 +88,9 @@ pub mod local {
         const INIT: Self = Self::new();
     }
 
-    unsafe impl UnconstRawMutex for LocalRawMutex {
+    unsafe impl ScopedRawMutex for LocalRawMutex {
         #[inline]
+        #[must_use]
         fn try_lock<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
             // NOTE: separated load/stores are acceptable as we are !Send and !Sync,
             // meaning that we can only be accessed within a single thread
@@ -106,7 +108,7 @@ pub mod local {
 // ================
 
 #[cfg(any(cortex_m, feature = "std"))]
-mod thread_mode {
+pub mod thread_mode {
     use super::*;
 
     /// A "mutex" that only allows borrowing from thread mode.
@@ -136,8 +138,9 @@ mod thread_mode {
         const INIT: Self = Self::new();
     }
 
-    unsafe impl UnconstRawMutex for ThreadModeRawMutex {
+    unsafe impl ScopedRawMutex for ThreadModeRawMutex {
         #[inline]
+        #[must_use]
         fn try_lock<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
             if !in_thread_mode() {
                 return None;
@@ -167,7 +170,7 @@ mod thread_mode {
         }
     }
 
-    pub(crate) fn in_thread_mode() -> bool {
+    pub fn in_thread_mode() -> bool {
         #[cfg(feature = "std")]
         return Some("main") == std::thread::current().name();
 

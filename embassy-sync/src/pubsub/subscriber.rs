@@ -6,7 +6,7 @@ use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use scoped_mutex::RawMutex;
+use scoped_mutex::ConstScopedRawMutex;
 
 use super::{PubSubBehavior, PubSubChannel, WaitResult};
 
@@ -152,11 +152,11 @@ impl<'a, T: Clone> DerefMut for DynSubscriber<'a, T> {
 }
 
 /// A subscriber that holds a generic reference to the channel
-pub struct Subscriber<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
+pub struct Subscriber<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
     pub(super) Sub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
 );
 
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
+impl<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
     for Subscriber<'a, M, T, CAP, SUBS, PUBS>
 {
     type Target = Sub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>;
@@ -166,7 +166,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
     }
 }
 
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> DerefMut
+impl<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> DerefMut
     for Subscriber<'a, M, T, CAP, SUBS, PUBS>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {

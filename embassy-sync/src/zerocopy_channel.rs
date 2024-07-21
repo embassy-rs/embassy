@@ -18,7 +18,7 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 
-use scoped_mutex::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, ConstScopedRawMutex};
 
 use crate::waitqueue::WakerRegistration;
 
@@ -33,13 +33,13 @@ use crate::waitqueue::WakerRegistration;
 ///
 /// The channel requires a buffer of recyclable elements.  Writing to the channel is done through
 /// an `&mut T`.
-pub struct Channel<'a, M: RawMutex, T> {
+pub struct Channel<'a, M: ConstScopedRawMutex, T> {
     buf: *mut T,
     phantom: PhantomData<&'a mut T>,
     state: BlockingMutex<M, State>,
 }
 
-impl<'a, M: RawMutex, T> Channel<'a, M, T> {
+impl<'a, M: ConstScopedRawMutex, T> Channel<'a, M, T> {
     /// Initialize a new [`Channel`].
     ///
     /// The provided buffer will be used and reused by the channel's logic, and thus dictates the
@@ -72,11 +72,11 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
 }
 
 /// Send-only access to a [`Channel`].
-pub struct Sender<'a, M: RawMutex, T> {
+pub struct Sender<'a, M: ConstScopedRawMutex, T> {
     channel: &'a Channel<'a, M, T>,
 }
 
-impl<'a, M: RawMutex, T> Sender<'a, M, T> {
+impl<'a, M: ConstScopedRawMutex, T> Sender<'a, M, T> {
     /// Creates one further [`Sender`] over the same channel.
     pub fn borrow(&mut self) -> Sender<'_, M, T> {
         Sender { channel: self.channel }
@@ -123,11 +123,11 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
 }
 
 /// Receive-only access to a [`Channel`].
-pub struct Receiver<'a, M: RawMutex, T> {
+pub struct Receiver<'a, M: ConstScopedRawMutex, T> {
     channel: &'a Channel<'a, M, T>,
 }
 
-impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
+impl<'a, M: ConstScopedRawMutex, T> Receiver<'a, M, T> {
     /// Creates one further [`Sender`] over the same channel.
     pub fn borrow(&mut self) -> Receiver<'_, M, T> {
         Receiver { channel: self.channel }

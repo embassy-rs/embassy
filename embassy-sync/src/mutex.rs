@@ -7,7 +7,7 @@ use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 use core::{fmt, mem};
 
-use scoped_mutex::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, ConstScopedRawMutex};
 
 use crate::waitqueue::WakerRegistration;
 
@@ -38,20 +38,20 @@ struct State {
 ///
 pub struct Mutex<M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     state: BlockingMutex<M, State>,
     inner: UnsafeCell<T>,
 }
 
-unsafe impl<M: RawMutex + Send, T: ?Sized + Send> Send for Mutex<M, T> {}
-unsafe impl<M: RawMutex + Sync, T: ?Sized + Send> Sync for Mutex<M, T> {}
+unsafe impl<M: ConstScopedRawMutex + Send, T: ?Sized + Send> Send for Mutex<M, T> {}
+unsafe impl<M: ConstScopedRawMutex + Sync, T: ?Sized + Send> Sync for Mutex<M, T> {}
 
 /// Async mutex.
 impl<M, T> Mutex<M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Create a new mutex with the given value.
     pub const fn new(value: T) -> Self {
@@ -67,7 +67,7 @@ where
 
 impl<M, T> Mutex<M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     /// Lock the mutex.
@@ -127,7 +127,7 @@ where
     }
 }
 
-impl<M: RawMutex, T> From<T> for Mutex<M, T> {
+impl<M: ConstScopedRawMutex, T> From<T> for Mutex<M, T> {
     fn from(from: T) -> Self {
         Self::new(from)
     }
@@ -135,7 +135,7 @@ impl<M: RawMutex, T> From<T> for Mutex<M, T> {
 
 impl<M, T> Default for Mutex<M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized + Default,
 {
     fn default() -> Self {
@@ -145,7 +145,7 @@ where
 
 impl<M, T> fmt::Debug for Mutex<M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -172,7 +172,7 @@ where
 #[clippy::has_significant_drop]
 pub struct MutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     mutex: &'a Mutex<M, T>,
@@ -180,7 +180,7 @@ where
 
 impl<'a, M, T> MutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
@@ -199,7 +199,7 @@ where
 
 impl<'a, M, T> Drop for MutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     fn drop(&mut self) {
@@ -212,7 +212,7 @@ where
 
 impl<'a, M, T> Deref for MutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     type Target = T;
@@ -225,7 +225,7 @@ where
 
 impl<'a, M, T> DerefMut for MutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -237,7 +237,7 @@ where
 
 impl<'a, M, T> fmt::Debug for MutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -247,7 +247,7 @@ where
 
 impl<'a, M, T> fmt::Display for MutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -262,7 +262,7 @@ where
 #[clippy::has_significant_drop]
 pub struct MappedMutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     state: &'a BlockingMutex<M, State>,
@@ -271,7 +271,7 @@ where
 
 impl<'a, M, T> MappedMutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
@@ -287,7 +287,7 @@ where
 
 impl<'a, M, T> Deref for MappedMutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     type Target = T;
@@ -300,7 +300,7 @@ where
 
 impl<'a, M, T> DerefMut for MappedMutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -312,7 +312,7 @@ where
 
 impl<'a, M, T> Drop for MappedMutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized,
 {
     fn drop(&mut self) {
@@ -325,21 +325,21 @@ where
 
 unsafe impl<M, T> Send for MappedMutexGuard<'_, M, T>
 where
-    M: RawMutex + Sync,
+    M: ConstScopedRawMutex + Sync,
     T: Send + ?Sized,
 {
 }
 
 unsafe impl<M, T> Sync for MappedMutexGuard<'_, M, T>
 where
-    M: RawMutex + Sync,
+    M: ConstScopedRawMutex + Sync,
     T: Sync + ?Sized,
 {
 }
 
 impl<'a, M, T> fmt::Debug for MappedMutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -349,7 +349,7 @@ where
 
 impl<'a, M, T> fmt::Display for MappedMutexGuard<'a, M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
     T: ?Sized + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

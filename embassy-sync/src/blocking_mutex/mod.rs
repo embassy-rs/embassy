@@ -6,7 +6,7 @@ pub mod raw;
 use core::ops::Deref;
 
 use scoped_mutex::BlockingMutex;
-// Semver re-export
+// Semver re-exports
 pub use scoped_mutex::BlockingMutex as Mutex;
 
 /// A mutex that allows borrowing data across executors and interrupts.
@@ -139,7 +139,7 @@ mod thread_mode_mutex {
             // T isn't, so without this check a user could create a ThreadModeMutex in thread mode,
             // send it to interrupt context and drop it there, which would "send" a T even if T is not Send.
             assert!(
-                raw::in_thread_mode(),
+                scoped_mutex::impls::thread_mode::in_thread_mode(),
                 "ThreadModeMutex can only be dropped from thread mode."
             );
 

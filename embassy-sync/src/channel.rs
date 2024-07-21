@@ -23,32 +23,32 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use heapless::Deque;
-use scoped_mutex::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, ConstScopedRawMutex};
 
 use crate::waitqueue::WakerRegistration;
 
 /// Send-only access to a [`Channel`].
 pub struct Sender<'ch, M, T, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     channel: &'ch Channel<M, T, N>,
 }
 
 impl<'ch, M, T, const N: usize> Clone for Sender<'ch, M, T, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'ch, M, T, const N: usize> Copy for Sender<'ch, M, T, N> where M: RawMutex {}
+impl<'ch, M, T, const N: usize> Copy for Sender<'ch, M, T, N> where M: ConstScopedRawMutex {}
 
 impl<'ch, M, T, const N: usize> Sender<'ch, M, T, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Sends a value.
     ///
@@ -87,7 +87,7 @@ impl<'ch, T> Copy for DynamicSender<'ch, T> {}
 
 impl<'ch, M, T, const N: usize> From<Sender<'ch, M, T, N>> for DynamicSender<'ch, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn from(s: Sender<'ch, M, T, N>) -> Self {
         Self { channel: s.channel }
@@ -123,25 +123,25 @@ impl<'ch, T> DynamicSender<'ch, T> {
 /// Receive-only access to a [`Channel`].
 pub struct Receiver<'ch, M, T, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     channel: &'ch Channel<M, T, N>,
 }
 
 impl<'ch, M, T, const N: usize> Clone for Receiver<'ch, M, T, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'ch, M, T, const N: usize> Copy for Receiver<'ch, M, T, N> where M: RawMutex {}
+impl<'ch, M, T, const N: usize> Copy for Receiver<'ch, M, T, N> where M: ConstScopedRawMutex {}
 
 impl<'ch, M, T, const N: usize> Receiver<'ch, M, T, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Receive the next value.
     ///
@@ -224,7 +224,7 @@ impl<'ch, T> DynamicReceiver<'ch, T> {
 
 impl<'ch, M, T, const N: usize> From<Receiver<'ch, M, T, N>> for DynamicReceiver<'ch, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn from(s: Receiver<'ch, M, T, N>) -> Self {
         Self { channel: s.channel }
@@ -235,14 +235,14 @@ where
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct ReceiveFuture<'ch, M, T, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     channel: &'ch Channel<M, T, N>,
 }
 
 impl<'ch, M, T, const N: usize> Future for ReceiveFuture<'ch, M, T, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     type Output = T;
 
@@ -255,14 +255,14 @@ where
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct ReceiveReadyFuture<'ch, M, T, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     channel: &'ch Channel<M, T, N>,
 }
 
 impl<'ch, M, T, const N: usize> Future for ReceiveReadyFuture<'ch, M, T, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     type Output = ();
 
@@ -288,7 +288,7 @@ impl<'ch, T> Future for DynamicReceiveFuture<'ch, T> {
     }
 }
 
-impl<'ch, M: RawMutex, T, const N: usize> From<ReceiveFuture<'ch, M, T, N>> for DynamicReceiveFuture<'ch, T> {
+impl<'ch, M: ConstScopedRawMutex, T, const N: usize> From<ReceiveFuture<'ch, M, T, N>> for DynamicReceiveFuture<'ch, T> {
     fn from(value: ReceiveFuture<'ch, M, T, N>) -> Self {
         Self { channel: value.channel }
     }
@@ -298,7 +298,7 @@ impl<'ch, M: RawMutex, T, const N: usize> From<ReceiveFuture<'ch, M, T, N>> for 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct SendFuture<'ch, M, T, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     channel: &'ch Channel<M, T, N>,
     message: Option<T>,
@@ -306,7 +306,7 @@ where
 
 impl<'ch, M, T, const N: usize> Future for SendFuture<'ch, M, T, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     type Output = ();
 
@@ -324,7 +324,7 @@ where
     }
 }
 
-impl<'ch, M, T, const N: usize> Unpin for SendFuture<'ch, M, T, N> where M: RawMutex {}
+impl<'ch, M, T, const N: usize> Unpin for SendFuture<'ch, M, T, N> where M: ConstScopedRawMutex {}
 
 /// Future returned by [`DynamicSender::send`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
@@ -352,7 +352,7 @@ impl<'ch, T> Future for DynamicSendFuture<'ch, T> {
 
 impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
 
-impl<'ch, M: RawMutex, T, const N: usize> From<SendFuture<'ch, M, T, N>> for DynamicSendFuture<'ch, T> {
+impl<'ch, M: ConstScopedRawMutex, T, const N: usize> From<SendFuture<'ch, M, T, N>> for DynamicSendFuture<'ch, T> {
     fn from(value: SendFuture<'ch, M, T, N>) -> Self {
         Self {
             channel: value.channel,
@@ -502,14 +502,14 @@ impl<T, const N: usize> ChannelState<T, N> {
 /// All data sent will become available in the same order as it was sent.
 pub struct Channel<M, T, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     inner: BlockingMutex<M, ChannelState<T, N>>,
 }
 
 impl<M, T, const N: usize> Channel<M, T, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Establish a new bounded channel. For example, to create one with a NoopMutex:
     ///
@@ -659,7 +659,7 @@ where
 /// tradeoff cost of dynamic dispatch.
 impl<M, T, const N: usize> DynamicChannel<T> for Channel<M, T, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn try_send_with_context(&self, m: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
         Channel::try_send_with_context(self, m, cx)

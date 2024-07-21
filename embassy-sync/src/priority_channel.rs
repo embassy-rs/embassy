@@ -9,7 +9,7 @@ use core::task::{Context, Poll};
 
 pub use heapless::binary_heap::{Kind, Max, Min};
 use heapless::BinaryHeap;
-use scoped_mutex::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, ConstScopedRawMutex};
 
 use crate::channel::{DynamicChannel, DynamicReceiver, DynamicSender, TryReceiveError, TrySendError};
 use crate::waitqueue::WakerRegistration;
@@ -19,7 +19,7 @@ pub struct Sender<'ch, M, T, K, const N: usize>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     channel: &'ch PriorityChannel<M, T, K, N>,
 }
@@ -28,7 +28,7 @@ impl<'ch, M, T, K, const N: usize> Clone for Sender<'ch, M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn clone(&self) -> Self {
         *self
@@ -39,7 +39,7 @@ impl<'ch, M, T, K, const N: usize> Copy for Sender<'ch, M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
 }
 
@@ -47,7 +47,7 @@ impl<'ch, M, T, K, const N: usize> Sender<'ch, M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Sends a value.
     ///
@@ -75,7 +75,7 @@ impl<'ch, M, T, K, const N: usize> From<Sender<'ch, M, T, K, N>> for DynamicSend
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn from(s: Sender<'ch, M, T, K, N>) -> Self {
         Self { channel: s.channel }
@@ -87,7 +87,7 @@ pub struct Receiver<'ch, M, T, K, const N: usize>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     channel: &'ch PriorityChannel<M, T, K, N>,
 }
@@ -96,7 +96,7 @@ impl<'ch, M, T, K, const N: usize> Clone for Receiver<'ch, M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn clone(&self) -> Self {
         *self
@@ -107,7 +107,7 @@ impl<'ch, M, T, K, const N: usize> Copy for Receiver<'ch, M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
 }
 
@@ -115,7 +115,7 @@ impl<'ch, M, T, K, const N: usize> Receiver<'ch, M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Receive the next value.
     ///
@@ -150,7 +150,7 @@ impl<'ch, M, T, K, const N: usize> From<Receiver<'ch, M, T, K, N>> for DynamicRe
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn from(s: Receiver<'ch, M, T, K, N>) -> Self {
         Self { channel: s.channel }
@@ -163,7 +163,7 @@ pub struct ReceiveFuture<'ch, M, T, K, const N: usize>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     channel: &'ch PriorityChannel<M, T, K, N>,
 }
@@ -172,7 +172,7 @@ impl<'ch, M, T, K, const N: usize> Future for ReceiveFuture<'ch, M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     type Output = T;
 
@@ -187,7 +187,7 @@ pub struct SendFuture<'ch, M, T, K, const N: usize>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     channel: &'ch PriorityChannel<M, T, K, N>,
     message: Option<T>,
@@ -197,7 +197,7 @@ impl<'ch, M, T, K, const N: usize> Future for SendFuture<'ch, M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     type Output = ();
 
@@ -219,7 +219,7 @@ impl<'ch, M, T, K, const N: usize> Unpin for SendFuture<'ch, M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
 }
 
@@ -344,7 +344,7 @@ pub struct PriorityChannel<M, T, K, const N: usize>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     inner: BlockingMutex<M, ChannelState<T, K, N>>,
 }
@@ -353,7 +353,7 @@ impl<M, T, K, const N: usize> PriorityChannel<M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Establish a new bounded channel. For example, to create one with a NoopMutex:
     ///
@@ -487,7 +487,7 @@ impl<M, T, K, const N: usize> DynamicChannel<T> for PriorityChannel<M, T, K, N>
 where
     T: Ord,
     K: Kind,
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn try_send_with_context(&self, m: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
         PriorityChannel::try_send_with_context(self, m, cx)

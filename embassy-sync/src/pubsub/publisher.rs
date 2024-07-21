@@ -6,7 +6,7 @@ use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use scoped_mutex::RawMutex;
+use scoped_mutex::ConstScopedRawMutex;
 
 use super::{PubSubBehavior, PubSubChannel};
 
@@ -101,11 +101,11 @@ impl<'a, T: Clone> DerefMut for DynPublisher<'a, T> {
 }
 
 /// A publisher that holds a generic reference to the channel
-pub struct Publisher<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
+pub struct Publisher<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
     pub(super) Pub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
 );
 
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
+impl<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
     for Publisher<'a, M, T, CAP, SUBS, PUBS>
 {
     type Target = Pub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>;
@@ -115,7 +115,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
     }
 }
 
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> DerefMut
+impl<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> DerefMut
     for Publisher<'a, M, T, CAP, SUBS, PUBS>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -200,11 +200,11 @@ impl<'a, T: Clone> DerefMut for DynImmediatePublisher<'a, T> {
 }
 
 /// An immediate publisher that holds a generic reference to the channel
-pub struct ImmediatePublisher<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
+pub struct ImmediatePublisher<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
     pub(super) ImmediatePub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
 );
 
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
+impl<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> Deref
     for ImmediatePublisher<'a, M, T, CAP, SUBS, PUBS>
 {
     type Target = ImmediatePub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>;
@@ -214,7 +214,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
     }
 }
 
-impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> DerefMut
+impl<'a, M: ConstScopedRawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> DerefMut
     for ImmediatePublisher<'a, M, T, CAP, SUBS, PUBS>
 {
     fn deref_mut(&mut self) -> &mut Self::Target {

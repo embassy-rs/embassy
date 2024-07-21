@@ -2,7 +2,7 @@
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll, Waker};
 
-use scoped_mutex::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, ConstScopedRawMutex};
 
 /// Single-slot signaling primitive.
 ///
@@ -31,7 +31,7 @@ use scoped_mutex::{BlockingMutex, RawMutex};
 /// ```
 pub struct Signal<M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     state: BlockingMutex<M, State<T>>,
 }
@@ -44,7 +44,7 @@ enum State<T> {
 
 impl<M, T> Signal<M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Create a new `Signal`.
     pub const fn new() -> Self {
@@ -56,7 +56,7 @@ where
 
 impl<M, T> Default for Signal<M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn default() -> Self {
         Self::new()
@@ -65,7 +65,7 @@ where
 
 impl<M, T> Signal<M, T>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Mark this Signal as signaled.
     pub fn signal(&self, val: T) {

@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 use core::cell::UnsafeCell;
 
@@ -22,17 +22,17 @@ pub mod impls;
 ///
 /// # Implementation Note:
 ///
-/// This is actually a marker trait for types that implement [`UnconstRawMutex`] and
+/// This is actually a marker trait for types that implement [`ScopedRawMutex`] and
 /// [`ConstInit`]. This is to allow cases where a mutex cannot be created in const
 /// context, for example some runtime/OS mutexes, as well as testing mutexes like
 /// those from `loom`.
 ///
 /// If you are implementing your own RawMutex primitive, you should implement the
-/// [`UnconstRawMutex`] and [`ConstInit`] traits, and rely on the blanket impl
-/// of `impl<T: UnconstRawMutex + ConstInit> RawMutex for T {}`.
-pub trait RawMutex: UnconstRawMutex + ConstInit {}
+/// [`ScopedRawMutex`] and [`ConstInit`] traits, and rely on the blanket impl
+/// of `impl<T: ScopedRawMutex + ConstInit> RawMutex for T {}`.
+pub trait ConstScopedRawMutex: ScopedRawMutex + ConstInit {}
 
-impl<T: UnconstRawMutex + ConstInit> RawMutex for T {}
+impl<T: ScopedRawMutex + ConstInit> ConstScopedRawMutex for T {}
 
 pub trait ConstInit {
     /// Create a new instance.
@@ -45,26 +45,27 @@ pub trait ConstInit {
 ///
 /// This mutex is "raw", which means it does not actually contain the protected data, it
 /// just implements the mutex mechanism. For most uses you should use [`BlockingMutex`]
-/// instead, which is generic over a UnconstRawMutex and contains the protected data.
+/// instead, which is generic over a ScopedRawMutex and contains the protected data.
 ///
 /// # Safety
 ///
-/// UnconstRawMutex implementations must ensure that, while locked, no other thread can lock
+/// ScopedRawMutex implementations must ensure that, while locked, no other thread can lock
 /// the RawMutex concurrently. This can usually be implemented using an [`AtomicBool`]
 /// to track the "taken" state. See [crate::impls] for examples of correct implementations.
 ///
 /// Unsafe code is allowed to rely on this fact, so incorrect implementations will cause undefined behavior.
 ///
 /// [`AtomicBool`]: core::sync::atomic::AtomicBool
-pub unsafe trait UnconstRawMutex {
-    /// Lock this `RawMutex`, calling `f()` after the lock has been acquired, and releasing
+pub unsafe trait ScopedRawMutex {
+    /// Lock this `ScopedRawMutex`, calling `f()` after the lock has been acquired, and releasing
     /// the lock after the completion of `f()`.
     ///
     /// If this was successful, `Some(R)` will be returned. If the mutex was already locked,
     /// `None` will be returned
+    #[must_use]
     fn try_lock<R>(&self, f: impl FnOnce() -> R) -> Option<R>;
 
-    /// Lock this `RawMutex`, calling `f()` after the lock has been acquired, and releasing
+    /// Lock this `ScopedRawMutex`, calling `f()` after the lock has been acquired, and releasing
     /// the lock after the completion of `f()`.
     ///
     /// Panics if the lock is already locked.
@@ -75,7 +76,7 @@ pub unsafe trait UnconstRawMutex {
 
 /// Blocking mutex (not async)
 ///
-/// Provides a blocking mutual exclusion primitive backed by an implementation of [`RawMutex`].
+/// Provides a blocking mutual exclusion primitive backed by an implementation of [`ScopedRawMutex`].
 ///
 /// Which implementation you select depends on the context in which you're using the mutex, and you can choose which kind
 /// of interior mutability fits your use case.
@@ -98,10 +99,10 @@ pub struct BlockingMutex<R, T: ?Sized> {
     data: UnsafeCell<T>,
 }
 
-unsafe impl<R: RawMutex + Send, T: ?Sized + Send> Send for BlockingMutex<R, T> {}
-unsafe impl<R: RawMutex + Sync, T: ?Sized + Send> Sync for BlockingMutex<R, T> {}
+unsafe impl<R: ConstScopedRawMutex + Send, T: ?Sized + Send> Send for BlockingMutex<R, T> {}
+unsafe impl<R: ConstScopedRawMutex + Sync, T: ?Sized + Send> Sync for BlockingMutex<R, T> {}
 
-impl<R: RawMutex, T> BlockingMutex<R, T> {
+impl<R: ConstScopedRawMutex, T> BlockingMutex<R, T> {
     /// Creates a new mutex in an unlocked state ready for use.
     #[inline]
     pub const fn new(val: T) -> BlockingMutex<R, T> {
@@ -111,9 +112,25 @@ impl<R: RawMutex, T> BlockingMutex<R, T> {
         }
     }
 
-    /// Creates a critical section and grants temporary access to the protected data.
+    /// Locks the raw mutex and grants temporary access to the inner data
+    ///
+    /// Panics if the lock was already taken
     pub fn lock<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
         self.raw.lock(|| {
+            let ptr = self.data.get();
+            // SAFETY: Raw Mutex proves we have exclusive access to the inner data
+            let inner = unsafe { &mut *ptr };
+            f(inner)
+        })
+    }
+
+    /// Locks the raw mutex and grants temporary access to the inner data
+    ///
+    /// Returns `Some(U)` if the lock was obtained. Returns `None` if the lock
+    /// was already locked
+    #[must_use]
+    pub fn try_lock<U>(&self, f: impl FnOnce(&mut T) -> U) -> Option<U> {
+        self.raw.try_lock(|| {
             let ptr = self.data.get();
             // SAFETY: Raw Mutex proves we have exclusive access to the inner data
             let inner = unsafe { &mut *ptr };

@@ -4,7 +4,7 @@ use core::future::{poll_fn, Future};
 use core::task::{Poll, Waker};
 
 use heapless::Deque;
-use scoped_mutex::{BlockingMutex, RawMutex};
+use scoped_mutex::{BlockingMutex, ConstScopedRawMutex};
 
 use crate::waitqueue::WakerRegistration;
 
@@ -75,17 +75,17 @@ impl<'a, S: Semaphore> SemaphoreReleaser<'a, S> {
 ///
 /// Tasks can acquire permits as soon as they become available, even if another task
 /// is waiting on a larger number of permits.
-pub struct GreedySemaphore<M: RawMutex> {
+pub struct GreedySemaphore<M: ConstScopedRawMutex> {
     state: BlockingMutex<M, SemaphoreState>,
 }
 
-impl<M: RawMutex> Default for GreedySemaphore<M> {
+impl<M: ConstScopedRawMutex> Default for GreedySemaphore<M> {
     fn default() -> Self {
         Self::new(0)
     }
 }
 
-impl<M: RawMutex> GreedySemaphore<M> {
+impl<M: ConstScopedRawMutex> GreedySemaphore<M> {
     /// Create a new `Semaphore`.
     pub const fn new(permits: usize) -> Self {
         Self {
@@ -123,7 +123,7 @@ impl<M: RawMutex> GreedySemaphore<M> {
     }
 }
 
-impl<M: RawMutex> Semaphore for GreedySemaphore<M> {
+impl<M: ConstScopedRawMutex> Semaphore for GreedySemaphore<M> {
     type Error = Infallible;
 
     async fn acquire(&self, permits: usize) -> Result<SemaphoreReleaser<'_, Self>, Self::Error> {
@@ -204,14 +204,14 @@ impl SemaphoreState {
 /// tasks attempt to acquire a permit, a [`WaitQueueFull`] error will be returned.
 pub struct FairSemaphore<M, const N: usize>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     state: BlockingMutex<M, FairSemaphoreState<N>>,
 }
 
 impl<M, const N: usize> Default for FairSemaphore<M, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     fn default() -> Self {
         Self::new(0)
@@ -220,7 +220,7 @@ where
 
 impl<M, const N: usize> FairSemaphore<M, N>
 where
-    M: RawMutex,
+    M: ConstScopedRawMutex,
 {
     /// Create a new `FairSemaphore`.
     pub const fn new(permits: usize) -> Self {
@@ -267,7 +267,7 @@ where
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct WaitQueueFull;
 
-impl<M: RawMutex, const N: usize> Semaphore for FairSemaphore<M, N> {
+impl<M: ConstScopedRawMutex, const N: usize> Semaphore for FairSemaphore<M, N> {
     type Error = WaitQueueFull;
 
     fn acquire(&self, permits: usize) -> impl Future<Output = Result<SemaphoreReleaser<'_, Self>, Self::Error>> {
@@ -319,19 +319,19 @@ impl<M: RawMutex, const N: usize> Semaphore for FairSemaphore<M, N> {
     }
 }
 
-struct FairAcquire<'a, M: RawMutex, const N: usize> {
+struct FairAcquire<'a, M: ConstScopedRawMutex, const N: usize> {
     sema: &'a FairSemaphore<M, N>,
     permits: usize,
     ticket: Option<usize>,
 }
 
-impl<'a, M: RawMutex, const N: usize> Drop for FairAcquire<'a, M, N> {
+impl<'a, M: ConstScopedRawMutex, const N: usize> Drop for FairAcquire<'a, M, N> {
     fn drop(&mut self) {
         self.sema.state.lock(|state| state.cancel(self.ticket.take()));
     }
 }
 
-impl<'a, M: RawMutex, const N: usize> core::future::Future for FairAcquire<'a, M, N> {
+impl<'a, M: ConstScopedRawMutex, const N: usize> core::future::Future for FairAcquire<'a, M, N> {
     type Output = Result<SemaphoreReleaser<'a, FairSemaphore<M, N>>, WaitQueueFull>;
 
     fn poll(mut self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
@@ -340,19 +340,19 @@ impl<'a, M: RawMutex, const N: usize> core::future::Future for FairAcquire<'a, M
     }
 }
 
-struct FairAcquireAll<'a, M: RawMutex, const N: usize> {
+struct FairAcquireAll<'a, M: ConstScopedRawMutex, const N: usize> {
     sema: &'a FairSemaphore<M, N>,
     min: usize,
     ticket: Option<usize>,
 }
 
-impl<'a, M: RawMutex, const N: usize> Drop for FairAcquireAll<'a, M, N> {
+impl<'a, M: ConstScopedRawMutex, const N: usize> Drop for FairAcquireAll<'a, M, N> {
     fn drop(&mut self) {
         self.sema.state.lock(|state| state.cancel(self.ticket.take()));
     }
 }
 
-impl<'a, M: RawMutex, const N: usize> core::future::Future for FairAcquireAll<'a, M, N> {
+impl<'a, M: ConstScopedRawMutex, const N: usize> core::future::Future for FairAcquireAll<'a, M, N> {
     type Output = Result<SemaphoreReleaser<'a, FairSemaphore<M, N>>, WaitQueueFull>;
 
     fn poll(mut self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
