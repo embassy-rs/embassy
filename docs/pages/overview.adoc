@@ -48,7 +48,7 @@ link:https://github.com/lora-rs/lora-rs[lora-rs] supports LoRa networking on a w
 link:https://docs.embassy.dev/embassy-usb/[embassy-usb] implements a device-side USB stack. Implementations for common classes such as USB serial (CDC ACM) and USB HID are available, and a rich builder API allows building your own.
 
 === Bootloader and DFU
-link:https://github.com/embassy-rs/embassy/tree/master/embassy-boot[embassy-boot] is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
+link:https://github.com/embassy-rs/embassy/tree/main/embassy-boot[embassy-boot] is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
 
 == What is DMA?
 

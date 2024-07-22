@@ -4,7 +4,7 @@ So you've got one of the examples running, but what now? Let's go through a simp
 
 == Main
 
-The full example can be found link:https://github.com/embassy-rs/embassy/tree/master/docs/examples/basic[here].
+The full example can be found link:https://github.com/embassy-rs/embassy/tree/main/docs/examples/basic[here].
 
 NOTE: If you’re using VS Code and rust-analyzer to view and edit the examples, you may need to make some changes to `.vscode/settings.json` to tell it which project we’re working on. Follow the instructions commented in that file to get rust-analyzer working correctly.
 
