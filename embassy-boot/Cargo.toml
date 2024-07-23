@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "embassy-boot"
-version = "0.2001.1"
+version = "0.2.0"
 description = "A lightweight bootloader supporting firmware updates in a power-fail-safe way, with trial boots and rollbacks."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
@@ -28,8 +28,8 @@ defmt = { version = "0.3", optional = true }
 digest = "0.10"
 log = { version = "0.4", optional = true }
 ed25519-dalek = { version = "2", default_features = false, features = ["digest"], optional = true }
-embassy-embedded-hal = { version = "0.1001.0", registry = "artifactory", path = "../embassy-embedded-hal" }
-embassy-sync = { version = "0.6001.0", registry = "artifactory", path = "../embassy-sync" }
+embassy-embedded-hal = { version = "0.1.0", registry = "artifactory", path = "../embassy-embedded-hal" }
+embassy-sync = { version = "0.6.0", registry = "artifactory", path = "../embassy-sync" }
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 salty = { version = "0.3", optional = true }

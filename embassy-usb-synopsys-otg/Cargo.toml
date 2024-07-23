@@ -1,6 +1,6 @@
 [package]
 name = "embassy-usb-synopsys-otg"
-version = "0.1001.1"
+version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "`embassy-usb-driver` implementation for Synopsys OTG USB controllers"
@@ -18,8 +18,8 @@ target = "thumbv7em-none-eabi"
 [dependencies]
 critical-section = "1.1"
 
-embassy-sync = { version = "0.6001.0", registry = "artifactory", path = "../embassy-sync" }
-embassy-usb-driver = {version = "0.1001.0", registry = "artifactory", path = "../embassy-usb-driver" }
+embassy-sync = { version = "0.6.0", registry = "artifactory", path = "../embassy-sync" }
+embassy-usb-driver = {version = "0.1.0", registry = "artifactory", path = "../embassy-usb-driver" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
