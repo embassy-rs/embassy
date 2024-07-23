@@ -335,8 +335,6 @@ impl<'d, T: Instance> Radio<'d, T> {
     }
 
     async fn trigger_and_wait_end(&mut self, trigger: impl FnOnce()) {
-        //self.trace_state();
-
         let r = T::regs();
         let s = T::state();
 
@@ -347,12 +345,10 @@ impl<'d, T: Instance> Radio<'d, T> {
             trace!("radio drop: stopping");
 
             r.intenclr.write(|w| w.end().clear());
-            r.events_end.reset();
 
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
 
-            // The docs don't explicitly mention any event to acknowledge the stop task
-            while r.events_end.read().bits() == 0 {}
+            r.events_end.reset();
 
             trace!("radio drop: stopped");
         });
@@ -368,7 +364,6 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         // Trigger the transmission
         trigger();
-        // self.trace_state();
 
         // On poll check if interrupt happen
         poll_fn(|cx| {
@@ -382,7 +377,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         .await;
 
         compiler_fence(Ordering::SeqCst);
-        r.events_disabled.reset(); // ACK
+        r.events_end.reset(); // ACK
 
         // Everthing ends fine, so it disable the drop
         drop.defuse();

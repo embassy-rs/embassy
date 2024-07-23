@@ -299,9 +299,9 @@ impl Registers {
         mb.tdtr().write(|w| w.set_dlc(frame.header().len() as u8));
 
         mb.tdlr()
-            .write(|w| w.0 = u32::from_ne_bytes(frame.data()[0..4].try_into().unwrap()));
+            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.data()[0..4].try_into())));
         mb.tdhr()
-            .write(|w| w.0 = u32::from_ne_bytes(frame.data()[4..8].try_into().unwrap()));
+            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.data()[4..8].try_into())));
         let id: IdReg = frame.id().into();
         mb.tir().write(|w| {
             w.0 = id.0;
@@ -321,7 +321,7 @@ impl Registers {
             data[4..8].copy_from_slice(&mb.tdhr().read().0.to_ne_bytes());
             let len = mb.tdtr().read().dlc();
 
-            Some(Frame::new(Header::new(id.id(), len, id.rtr()), &data).unwrap())
+            Some(unwrap!(Frame::new(Header::new(id.id(), len, id.rtr()), &data)))
         } else {
             // Abort request failed because the frame was already sent (or being sent) on
             // the bus. All mailboxes are now free. This can happen for small prescaler
@@ -404,12 +404,12 @@ impl Registers {
 
         let rir = fifo.rir().read();
         let id: embedded_can::Id = if rir.ide() == Ide::STANDARD {
-            embedded_can::StandardId::new(rir.stid()).unwrap().into()
+            unwrap!(embedded_can::StandardId::new(rir.stid())).into()
         } else {
             let stid = (rir.stid() & 0x7FF) as u32;
             let exid = rir.exid() & 0x3FFFF;
             let id = (stid << 18) | (exid);
-            embedded_can::ExtendedId::new(id).unwrap().into()
+            unwrap!(embedded_can::ExtendedId::new(id)).into()
         };
         let rdtr = fifo.rdtr().read();
         let data_len = rdtr.dlc();
@@ -422,7 +422,7 @@ impl Registers {
         data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
         data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-        let frame = Frame::new(Header::new(id, data_len, rtr), &data).unwrap();
+        let frame = unwrap!(Frame::new(Header::new(id, data_len, rtr), &data));
         let envelope = Envelope { ts, frame };
 
         rfr.modify(|v| v.set_rfom(true));
@@ -484,13 +484,9 @@ impl IdReg {
     /// Returns the identifier.
     fn id(self) -> embedded_can::Id {
         if self.is_extended() {
-            embedded_can::ExtendedId::new(self.0 >> Self::EXTENDED_SHIFT)
-                .unwrap()
-                .into()
+            unwrap!(embedded_can::ExtendedId::new(self.0 >> Self::EXTENDED_SHIFT)).into()
         } else {
-            embedded_can::StandardId::new((self.0 >> Self::STANDARD_SHIFT) as u16)
-                .unwrap()
-                .into()
+            unwrap!(embedded_can::StandardId::new((self.0 >> Self::STANDARD_SHIFT) as u16)).into()
         }
     }
 

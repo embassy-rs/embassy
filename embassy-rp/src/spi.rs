@@ -394,17 +394,14 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         self.transfer_inner(words, words).await
     }
 
-    async fn transfer_inner(&mut self, rx_ptr: *mut [u8], tx_ptr: *const [u8]) -> Result<(), Error> {
-        let (_, tx_len) = crate::dma::slice_ptr_parts(tx_ptr);
-        let (_, rx_len) = crate::dma::slice_ptr_parts_mut(rx_ptr);
-
+    async fn transfer_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         // Start RX first. Transfer starts when TX starts, if RX
         // is not started yet we might lose bytes.
         let rx_ch = self.rx_dma.as_mut().unwrap();
         let rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, rx_ptr, T::RX_DREQ)
+            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, rx, T::RX_DREQ)
         };
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap();
@@ -413,10 +410,10 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let tx_transfer = async {
             let p = self.inner.regs();
             unsafe {
-                crate::dma::write(&mut tx_ch, tx_ptr, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
+                crate::dma::write(&mut tx_ch, tx, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
 
-                if rx_len > tx_len {
-                    let write_bytes_len = rx_len - tx_len;
+                if rx.len() > tx.len() {
+                    let write_bytes_len = rx.len() - tx.len();
                     // write dummy data
                     // this will disable incrementation of the buffers
                     crate::dma::write_repeated(tx_ch, p.dr().as_ptr() as *mut u8, write_bytes_len, T::TX_DREQ).await
@@ -426,7 +423,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         join(tx_transfer, rx_transfer).await;
 
         // if tx > rx we should clear any overflow of the FIFO SPI buffer
-        if tx_len > rx_len {
+        if tx.len() > rx.len() {
             let p = self.inner.regs();
             while p.sr().read().bsy() {}
 

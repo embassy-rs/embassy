@@ -125,7 +125,7 @@ pub(super) unsafe fn write_chunk_unlocked(address: u32, chunk: &[u8]) -> Result<
         family::lock();
     });
 
-    family::blocking_write(address, chunk.try_into().unwrap())
+    family::blocking_write(address, unwrap!(chunk.try_into()))
 }
 
 pub(super) unsafe fn write_chunk_with_critical_section(address: u32, chunk: &[u8]) -> Result<(), Error> {

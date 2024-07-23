@@ -125,16 +125,13 @@ impl<'a> Transfer<'a> {
     ) -> Self {
         into_ref!(channel);
 
-        let (ptr, len) = super::slice_ptr_parts_mut(buf);
-        assert!(len > 0 && len <= 0xFFFF);
-
         Self::new_inner(
             channel.map_into(),
             request,
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
-            ptr as *mut u32,
-            len,
+            buf as *mut W as *mut u32,
+            buf.len(),
             true,
             W::size(),
             options,
@@ -162,16 +159,13 @@ impl<'a> Transfer<'a> {
     ) -> Self {
         into_ref!(channel);
 
-        let (ptr, len) = super::slice_ptr_parts(buf);
-        assert!(len > 0 && len <= 0xFFFF);
-
         Self::new_inner(
             channel.map_into(),
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
-            ptr as *mut u32,
-            len,
+            buf as *const W as *mut u32,
+            buf.len(),
             true,
             W::size(),
             options,
@@ -213,6 +207,8 @@ impl<'a> Transfer<'a> {
         data_size: WordSize,
         _options: TransferOptions,
     ) -> Self {
+        assert!(mem_len > 0 && mem_len <= 0xFFFF);
+
         let info = channel.info();
         let ch = info.dma.ch(info.num);
 
