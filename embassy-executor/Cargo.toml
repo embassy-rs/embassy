@@ -33,9 +33,9 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.2", optional = true }
 
-embassy-executor-macros = { version = "0.4.0", registry = "artifactory", path = "../embassy-executor-macros" }
-embassy-time-driver = { version = "0.1.0", optional = true, registry = "artifactory", path = "../embassy-time-driver" }
-embassy-time-queue-driver = { version = "0.1.0", optional = true, registry = "artifactory", path = "../embassy-time-queue-driver" }
+embassy-executor-macros = { version = "0.4.0", path = "../embassy-executor-macros" }
+embassy-time-driver = { version = "0.1.0", optional = true, path = "../embassy-time-driver" }
+embassy-time-queue-driver = { version = "0.1.0", optional = true, path = "../embassy-time-queue-driver" }
 critical-section = "1.1"
 
 document-features = "0.2.7"
