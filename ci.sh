@@ -2,6 +2,14 @@
 
 set -eo pipefail
 
+if ! command -v cargo-batch &> /dev/null; then
+    echo "cargo-batch could not be found. Install it with the following command:"
+    echo ""
+    echo "    cargo install --git https://github.com/embassy-rs/cargo-batch cargo --bin cargo-batch --locked"
+    echo ""
+    exit 1
+fi
+
 # check-cfg is stable on rustc 1.79 but not cargo 1.79.
 # however, our cargo-batch is currently based on cargo 1.80, which does support check-cfg.
 # so, force build.rs scripts to emit check-cfg commands.
