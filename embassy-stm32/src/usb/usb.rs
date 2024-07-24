@@ -241,6 +241,103 @@ struct EndpointData {
     used_out: bool,
 }
 
+/// USB host driver.
+pub struct USBHostDriver<'d, T: Instance> {
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Instance> USBHostDriver<'d, T> {
+    /// Create a new USB driver.
+    pub fn new(
+        _usb: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+    ) -> Self {
+        into_ref!(dp, dm);
+
+        super::common_init::<T>();
+
+        let regs = T::regs();
+
+        regs.cntr().write(|w| {
+            w.set_pdwn(false);
+            w.set_fres(true);
+            w.set_host(true);
+        });
+
+        // Wait for voltage reference
+        #[cfg(feature = "time")]
+        embassy_time::block_for(embassy_time::Duration::from_millis(100));
+        #[cfg(not(feature = "time"))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 10);
+
+        #[cfg(not(usb_v4))]
+        regs.btable().write(|w| w.set_btable(0));
+
+        #[cfg(not(stm32l1))]
+        {
+            use crate::gpio::{AfType, OutputType, Speed};
+            dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        }
+        #[cfg(stm32l1)]
+        let _ = (dp, dm); // suppress "unused" warnings.
+
+        // Initialize the bus so that it signals that power is available
+        BUS_WAKER.wake();
+
+        Self {
+            phantom: PhantomData,
+            // alloc: [EndpointData {
+            //     ep_type: EndpointType::Bulk,
+            //     used_in: false,
+            //     used_out: false,
+            // }; EP_COUNT],
+            // ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
+        }
+    }
+
+    /// Start the USB peripheral
+    pub fn start(&mut self) {
+        let regs = T::regs();
+
+        regs.cntr().write(|w| {
+            w.set_host(true);
+            w.set_pdwn(false);
+            w.set_fres(false);
+            w.set_resetm(true);
+            w.set_suspm(true);
+            w.set_wkupm(true);
+            w.set_ctrm(true);
+        });
+
+        // Enable pull downs on DP and DM lines for host mode
+        #[cfg(any(usb_v3, usb_v4))]
+        regs.bcdr().write(|w| w.set_dppu(true));
+
+        #[cfg(stm32l1)]
+        crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
+    }
+
+    pub fn print_all(&self) {
+        let regs = T::regs();
+
+        debug!("USB Cntr: {:08x}", regs.cntr().read().0);
+        debug!("USB Istr: {:08x}", regs.istr().read().0);
+        debug!("USB Fnr: {:08x}", regs.fnr().read().0);
+
+    }
+
+    pub fn get_status(&self) -> u32 {
+        let regs = T::regs();
+
+        let istr = regs.istr().read();
+
+        istr.0
+    }
+}
+
 /// USB driver.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
