@@ -46,6 +46,7 @@ pub enum ScanType {
 #[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScanOptions {
+    /// SSID to scan for.
     pub ssid: Option<heapless::String<32>>,
     /// If set to `None`, all APs will be returned. If set to `Some`, only APs
     /// with the specified BSSID will be returned.
