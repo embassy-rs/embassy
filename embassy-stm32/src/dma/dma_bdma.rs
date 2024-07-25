@@ -565,16 +565,13 @@ impl<'a> Transfer<'a> {
     ) -> Self {
         into_ref!(channel);
 
-        let (ptr, len) = super::slice_ptr_parts_mut(buf);
-        assert!(len > 0 && len <= 0xFFFF);
-
         Self::new_inner(
             channel.map_into(),
             request,
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
-            ptr as *mut u32,
-            len,
+            buf as *mut W as *mut u32,
+            buf.len(),
             true,
             W::size(),
             options,
@@ -602,16 +599,13 @@ impl<'a> Transfer<'a> {
     ) -> Self {
         into_ref!(channel);
 
-        let (ptr, len) = super::slice_ptr_parts(buf);
-        assert!(len > 0 && len <= 0xFFFF);
-
         Self::new_inner(
             channel.map_into(),
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
-            ptr as *mut u32,
-            len,
+            buf as *const W as *mut u32,
+            buf.len(),
             true,
             W::size(),
             options,
@@ -653,6 +647,8 @@ impl<'a> Transfer<'a> {
         data_size: WordSize,
         options: TransferOptions,
     ) -> Self {
+        assert!(mem_len > 0 && mem_len <= 0xFFFF);
+
         channel.configure(
             _request, dir, peri_addr, mem_addr, mem_len, incr_mem, data_size, options,
         );
@@ -908,6 +904,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         let data_size = W::size();
         let buffer_ptr = buffer.as_mut_ptr();
 
+        options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
         options.circular = true;
 

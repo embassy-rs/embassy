@@ -28,6 +28,8 @@ pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
 
+dma_trait!(RxDma, Instance);
+
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]

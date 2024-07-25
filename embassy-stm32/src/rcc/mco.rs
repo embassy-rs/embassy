@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::{AFType, Speed};
+use crate::gpio::{AfType, OutputType, Speed};
 #[cfg(not(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37)))]
 pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
 #[cfg(not(any(
@@ -101,8 +101,7 @@ impl<'d, T: McoInstance> Mco<'d, T> {
 
         critical_section::with(|_| unsafe {
             T::_apply_clock_settings(source, prescaler);
-            pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
-            pin.set_speed(Speed::VeryHigh);
+            pin.set_as_af(pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
         });
 
         Self { phantom: PhantomData }

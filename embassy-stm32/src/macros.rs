@@ -97,23 +97,9 @@ macro_rules! new_dma {
 }
 
 macro_rules! new_pin {
-    ($name:ident, $aftype:expr) => {{
-        new_pin!($name, $aftype, crate::gpio::Speed::Medium, crate::gpio::Pull::None)
-    }};
-    ($name:ident, $aftype:expr, $speed:expr) => {
-        new_pin!($name, $aftype, $speed, crate::gpio::Pull::None)
-    };
-    ($name:ident, $aftype:expr, $speed:expr, $pull:expr) => {{
+    ($name:ident, $af_type:expr) => {{
         let pin = $name.into_ref();
-        pin.set_as_af_pull(pin.af_num(), $aftype, $pull);
-        // Do not call set_speed on AFType::Input, as MODE and CNF bits are not independent
-        // for gpio_v1
-        match $aftype {
-            crate::gpio::AFType::Input => {}
-            _ => {
-                pin.set_speed($speed);
-            }
-        };
+        pin.set_as_af(pin.af_num(), $af_type);
         Some(pin.map_into())
     }};
 }

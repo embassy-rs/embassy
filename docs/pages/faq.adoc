@@ -352,8 +352,13 @@ There are two main ways to handle concurrency in Embassy:
 
 In general, either of these approaches will work. The main differences of these approaches are:
 
-When using **separate tasks**, each task needs its own RAM allocation, so there's a little overhead for each task, so one task that does three things will likely be a little bit smaller than three tasks that do one thing (not a lot, probably a couple dozen bytes). In contrast, with **multiple futures in one task**, you don't need multiple task allocations, and it will generally be easier to share data, or use borrowed resources, inside of a single task.
+When using **separate tasks**, each task needs its own RAM allocation, so there's a little overhead for each task, so one task that does three things will likely be a little bit smaller than three tasks that do one thing (not a lot, probably a couple dozen bytes). In contrast, with **multiple futures in one task**, you don't need multiple task allocations, and it will generally be easier to share data, or use borrowed resources, inside of a single task. 
+An example showcasing some methods for sharing things between tasks link:https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/sharing.rs[can be found here].
 
 But when it comes to "waking" tasks, for example when a data transfer is complete or a button is pressed, it's faster to wake a dedicated task, because that task does not need to check which future is actually ready. `join` and `select` must check ALL of the futures they are managing to see which one (or which ones) are ready to do more work. This is because all Rust executors (like Embassy or Tokio) only have the ability to wake tasks, not specific futures. This means you will use slightly less CPU time juggling futures when using dedicated tasks.
 
 Practically, there's not a LOT of difference either way - so go with what makes it easier for you and your code first, but there will be some details that are slightly different in each case.
+
+== splitting peripherals resources between tasks
+
+There are two ways to split resources between tasks, either manually assigned or by a convenient macro. See link:https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/assign_resources.rs[this example]

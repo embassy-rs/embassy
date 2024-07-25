@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 //use crate::gpio::{AnyPin, SealedPin};
-use crate::gpio::{AFType, AnyPin, Pull, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
@@ -80,8 +80,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         rcc::enable_and_reset::<T>();
 
         // Set Tearing Enable pin according to CubeMx example
-        te.set_as_af_pull(te.af_num(), AFType::OutputPushPull, Pull::None);
-        te.set_speed(Speed::Low);
+        te.set_as_af(te.af_num(), AfType::output(OutputType::PushPull, Speed::Low));
         /*
                 T::regs().wcr().modify(|w| {
                     w.set_dsien(true);
@@ -389,6 +388,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 /// Possible Error Types for DSI HOST
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Waiting for FIFO empty flag timed out
     FifoTimeout,

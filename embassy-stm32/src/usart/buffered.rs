@@ -15,7 +15,7 @@ use super::{
     clear_interrupt_flags, configure, rdr, reconfigure, sr, tdr, Config, ConfigError, CtsPin, Error, Info, Instance,
     Regs, RtsPin, RxPin, TxPin,
 };
-use crate::gpio::{AFType, AnyPin, SealedPin as _};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::{self, InterruptExt};
 use crate::time::Hertz;
 
@@ -210,8 +210,8 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AFType::Input),
-            new_pin!(tx, AFType::OutputPushPull),
+            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
             None,
@@ -235,10 +235,10 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AFType::Input),
-            new_pin!(tx, AFType::OutputPushPull),
-            new_pin!(rts, AFType::OutputPushPull),
-            new_pin!(cts, AFType::Input),
+            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(cts, AfType::input(Pull::None)),
             None,
             tx_buffer,
             rx_buffer,
@@ -260,11 +260,11 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AFType::Input),
-            new_pin!(tx, AFType::OutputPushPull),
+            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
-            new_pin!(de, AFType::OutputPushPull),
+            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
             tx_buffer,
             rx_buffer,
             config,
@@ -434,6 +434,12 @@ impl<'d> BufferedUartRx<'d> {
         if full {
             self.info.interrupt.pend();
         }
+    }
+
+    /// we are ready to read if there is data in the buffer
+    fn read_ready(&mut self) -> Result<bool, Error> {
+        let state = self.state;
+        Ok(!state.rx_buf.is_empty())
     }
 
     /// Reconfigure the driver
@@ -607,6 +613,18 @@ impl<'d> embedded_io_async::Read for BufferedUart<'d> {
 impl<'d> embedded_io_async::Read for BufferedUartRx<'d> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         Self::read(self, buf).await
+    }
+}
+
+impl<'d> embedded_io_async::ReadReady for BufferedUart<'d> {
+    fn read_ready(&mut self) -> Result<bool, Self::Error> {
+        BufferedUartRx::<'d>::read_ready(&mut self.rx)
+    }
+}
+
+impl<'d> embedded_io_async::ReadReady for BufferedUartRx<'d> {
+    fn read_ready(&mut self) -> Result<bool, Self::Error> {
+        Self::read_ready(self)
     }
 }
 

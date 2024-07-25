@@ -7,7 +7,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::Transfer;
-use crate::gpio::{AFType, Speed};
+use crate::gpio::{AfType, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, rcc, Peripheral};
 
@@ -109,8 +109,7 @@ macro_rules! config_pins {
         into_ref!($($pin),*);
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AFType::Input);
-                $pin.set_speed(Speed::VeryHigh);
+                $pin.set_as_af($pin.af_num(), AfType::input(Pull::None));
             )*
         })
     };
