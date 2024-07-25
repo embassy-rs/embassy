@@ -81,11 +81,11 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// directly used as an ADC input. The opamp will be disabled when the
     /// [`OpAmpOutput`] is dropped.
     pub fn buffer_ext(
-        &'d mut self,
+        &mut self,
         in_pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::Pin>,
-        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin> + 'd,
+        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
-    ) -> OpAmpOutput<'d, T> {
+    ) -> OpAmpOutput<'_, T> {
         into_ref!(in_pin);
         into_ref!(out_pin);
         in_pin.set_as_analog();
@@ -120,9 +120,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// [`OpAmpOutput`] is dropped.
     #[cfg(opamp_g4)]
     pub fn buffer_dac(
-        &'d mut self,
-        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin> + 'd,
-    ) -> OpAmpOutput<'d, T> {
+        &mut self,
+        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin>,
+    ) -> OpAmpOutput<'_, T> {
         into_ref!(out_pin);
         out_pin.set_as_analog();
 
@@ -148,10 +148,10 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// The opamp output will be disabled when it is dropped.
     #[cfg(opamp_g4)]
     pub fn buffer_int(
-        &'d mut self,
+        &mut self,
         pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
-    ) -> OpAmpInternalOutput<'d, T> {
+    ) -> OpAmpInternalOutput<'_, T> {
         into_ref!(pin);
         pin.set_as_analog();
 
