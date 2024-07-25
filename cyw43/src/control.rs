@@ -42,6 +42,7 @@ pub enum ScanType {
     Passive,
 }
 
+/// Scan options.
 #[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScanOptions {
