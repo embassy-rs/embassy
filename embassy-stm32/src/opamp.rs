@@ -45,6 +45,7 @@ pub struct OpAmpOutput<'d, T: Instance> {
 /// OpAmp internal outputs, wired directly to ADC inputs.
 ///
 /// This struct can be used as an ADC input.
+#[cfg(opamp_g4)]
 pub struct OpAmpInternalOutput<'d, T: Instance> {
     _inner: &'d OpAmp<'d, T>,
 }
@@ -184,6 +185,7 @@ impl<'d, T: Instance> Drop for OpAmpOutput<'d, T> {
     }
 }
 
+#[cfg(opamp_g4)]
 impl<'d, T: Instance> Drop for OpAmpInternalOutput<'d, T> {
     fn drop(&mut self) {
         T::regs().csr().modify(|w| {
