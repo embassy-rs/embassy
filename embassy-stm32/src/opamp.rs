@@ -38,15 +38,15 @@ impl From<OpAmpSpeed> for crate::pac::opamp::vals::Opahsm {
 /// OpAmp external outputs, wired to a GPIO pad.
 ///
 /// This struct can also be used as an ADC input.
-pub struct OpAmpOutput<'a, 'd: 'a, T: Instance> {
-    _inner: &'a OpAmp<'d, T>,
+pub struct OpAmpOutput<'d, T: Instance> {
+    _inner: &'d OpAmp<'d, T>,
 }
 
 /// OpAmp internal outputs, wired directly to ADC inputs.
 ///
 /// This struct can be used as an ADC input.
-pub struct OpAmpInternalOutput<'a, 'd: 'a, T: Instance> {
-    _inner: &'a OpAmp<'d, T>,
+pub struct OpAmpInternalOutput<'d, T: Instance> {
+    _inner: &'d OpAmp<'d, T>,
 }
 
 /// OpAmp driver.
@@ -82,9 +82,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     pub fn buffer_ext(
         &mut self,
         in_pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::Pin>,
-        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin> + 'd,
+        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
-    ) -> OpAmpOutput<'_, 'd, T> {
+    ) -> OpAmpOutput<'_, T> {
         into_ref!(in_pin);
         into_ref!(out_pin);
         in_pin.set_as_analog();
@@ -120,8 +120,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     #[cfg(opamp_g4)]
     pub fn buffer_dac(
         &mut self,
-        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin> + 'd,
-    ) -> OpAmpOutput<'_, 'd, T> {
+        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin>,
+    ) -> OpAmpOutput<'_, T> {
         into_ref!(out_pin);
         out_pin.set_as_analog();
 
@@ -150,7 +150,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         &mut self,
         pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
-    ) -> OpAmpInternalOutput<'_, 'd, T> {
+    ) -> OpAmpInternalOutput<'_, T> {
         into_ref!(pin);
         pin.set_as_analog();
 
@@ -176,7 +176,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     }
 }
 
-impl<'a, 'd: 'a, T: Instance> Drop for OpAmpOutput<'a, 'd, T> {
+impl<'d, T: Instance> Drop for OpAmpOutput<'d, T> {
     fn drop(&mut self) {
         T::regs().csr().modify(|w| {
             w.set_opampen(false);
@@ -184,7 +184,7 @@ impl<'a, 'd: 'a, T: Instance> Drop for OpAmpOutput<'a, 'd, T> {
     }
 }
 
-impl<'a, 'd: 'a, T: Instance> Drop for OpAmpInternalOutput<'a, 'd, T> {
+impl<'d, T: Instance> Drop for OpAmpInternalOutput<'d, T> {
     fn drop(&mut self) {
         T::regs().csr().modify(|w| {
             w.set_opampen(false);
@@ -224,16 +224,16 @@ macro_rules! impl_opamp_external_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
         foreach_adc!(
             ($adc, $common_inst:ident, $adc_clock:ident) => {
-                impl<'a, 'd: 'a> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
-                    for OpAmpOutput<'a, 'd, crate::peripherals::$inst>
+                impl<'d> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
+                    for OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                     fn channel(&self) -> u8 {
                         $ch
                     }
                 }
 
-                impl<'a, 'd: 'a> crate::adc::AdcChannel<crate::peripherals::$adc>
-                    for OpAmpOutput<'a, 'd, crate::peripherals::$inst>
+                impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
+                    for OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                 }
             };
@@ -270,16 +270,16 @@ macro_rules! impl_opamp_internal_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
         foreach_adc!(
             ($adc, $common_inst:ident, $adc_clock:ident) => {
-                impl<'a, 'd: 'a> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
-                    for OpAmpInternalOutput<'a, 'd, crate::peripherals::$inst>
+                impl<'d> crate::adc::SealedAdcChannel<crate::peripherals::$adc>
+                    for OpAmpInternalOutput<'d, crate::peripherals::$inst>
                 {
                     fn channel(&self) -> u8 {
                         $ch
                     }
                 }
 
-                impl<'a, 'd: 'a> crate::adc::AdcChannel<crate::peripherals::$adc>
-                    for OpAmpInternalOutput<'a, 'd, crate::peripherals::$inst>
+                impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
+                    for OpAmpInternalOutput<'d, crate::peripherals::$inst>
                 {
                 }
             };
