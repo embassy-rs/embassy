@@ -2,6 +2,7 @@
 
 #![macro_use]
 #![allow(missing_docs)] // TODO
+#![cfg_attr(adc_f3_v2, allow(unused))]
 
 #[cfg(not(adc_f3_v2))]
 #[cfg_attr(adc_f1, path = "f1.rs")]
