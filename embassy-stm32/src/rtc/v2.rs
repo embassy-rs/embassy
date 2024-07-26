@@ -131,10 +131,13 @@ impl SealedInstance for crate::peripherals::RTC {
     #[cfg(all(feature = "low-power", stm32f4))]
     const EXTI_WAKEUP_LINE: usize = 22;
 
+    #[cfg(all(feature = "low-power", stm32l4))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
     #[cfg(all(feature = "low-power", stm32l0))]
     const EXTI_WAKEUP_LINE: usize = 20;
 
-    #[cfg(all(feature = "low-power", stm32f4))]
+    #[cfg(all(feature = "low-power", any(stm32f4, stm32l4)))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
 
     #[cfg(all(feature = "low-power", stm32l0))]
