@@ -336,8 +336,8 @@ pub struct JoinVec<Fut: Future> {
 #[cfg(feature = "alloc")]
 impl<Fut: Future> fmt::Debug for JoinVec<Fut>
 where
-Fut: Future + fmt::Debug,
-Fut::Output: fmt::Debug,
+    Fut: Future + fmt::Debug,
+    Fut::Output: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JoinVec").field("futures", &self.futures).finish()
@@ -375,14 +375,11 @@ impl<Fut: Future> Future for JoinVec<Fut> {
 /// wrapped version of it.
 #[cfg(feature = "alloc")]
 pub fn join_vec<Fut: Future>(futures: Vec<Fut>) -> JoinVec<Fut> {
-
-    let mut futures_vec:Vec<MaybeDone<Fut>>=Vec::new();
+    let mut futures_vec: Vec<MaybeDone<Fut>> = Vec::new();
 
     for fut in futures {
         futures_vec.push(MaybeDone::Future(fut));
     }
 
-    JoinVec {
-        futures: futures_vec,
-    }
+    JoinVec { futures: futures_vec }
 }
