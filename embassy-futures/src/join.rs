@@ -326,7 +326,7 @@ pub fn join_array<Fut: Future, const N: usize>(futures: [Fut; N]) -> JoinArray<F
     }
 }
 
-
+/// Future for the [`join_vec`] function.
 #[cfg(feature = "alloc")]
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct JoinVec<Fut: Future> {
@@ -366,6 +366,13 @@ impl<Fut: Future> Future for JoinVec<Fut> {
     }
 }
 
+/// Joins the result of a vector of futures, waiting for them all to complete.
+///
+/// This function will return a new future which awaits all futures to
+/// complete. The returned future will finish with a tuple of all results.
+///
+/// Note that this function consumes the passed futures and returns a
+/// wrapped version of it.
 #[cfg(feature = "alloc")]
 pub fn join_vec<Fut: Future>(futures: Vec<Fut>) -> JoinVec<Fut> {
 
