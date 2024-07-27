@@ -4,7 +4,7 @@
 //! - use a channel to send messages between tasks, in this case here in order to have one task control the state of the system.
 //! - use a signal to terminate a task.
 //! - use command channels to send commands to another task.
-//! - use different ways to receive messages, from a straightforwar awaiting on one channel to a more complex awaiting on multiple channels.
+//! - use different ways to receive messages, from a straightforwar awaiting on one channel to a more complex awaiting on multiple futures.
 //!
 //! There are more patterns to orchestrate tasks, this is just one example.
 //!
