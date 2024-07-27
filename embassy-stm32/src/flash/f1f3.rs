@@ -42,9 +42,11 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 
         // prevents parallelism errors
         fence(Ordering::SeqCst);
+
+        wait_ready_blocking()?;
     }
 
-    wait_ready_blocking()
+    Ok(())
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
