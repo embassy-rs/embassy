@@ -26,3 +26,6 @@ features = ["defmt"]
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
+
+[features]
+alloc=[]

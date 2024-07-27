@@ -6,6 +6,11 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 use core::{fmt, mem};
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 #[derive(Debug)]
 enum MaybeDone<Fut: Future> {
     /// A not-yet-completed future
@@ -318,5 +323,59 @@ impl<Fut: Future, const N: usize> Future for JoinArray<Fut, N> {
 pub fn join_array<Fut: Future, const N: usize>(futures: [Fut; N]) -> JoinArray<Fut, N> {
     JoinArray {
         futures: futures.map(MaybeDone::Future),
+    }
+}
+
+
+#[cfg(feature = "alloc")]
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct JoinVec<Fut: Future> {
+    futures: Vec<MaybeDone<Fut>>,
+}
+
+#[cfg(feature = "alloc")]
+impl<Fut: Future> fmt::Debug for JoinVec<Fut>
+where
+Fut: Future + fmt::Debug,
+Fut::Output: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JoinVec").field("futures", &self.futures).finish()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<Fut: Future> Future for JoinVec<Fut> {
+    type Output = Vec<Fut::Output>;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = unsafe { self.get_unchecked_mut() };
+        let mut all_done = true;
+        for f in this.futures.iter_mut() {
+            all_done &= unsafe { Pin::new_unchecked(f) }.poll(cx);
+        }
+
+        if all_done {
+            let mut vector: Vec<Fut::Output> = Vec::with_capacity(this.futures.len());
+            for i in 0..this.futures.len() {
+                vector.push(this.futures[i].take_output());
+            }
+            Poll::Ready(vector)
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+#[cfg(feature = "alloc")]
+pub fn join_vec<Fut: Future>(futures: Vec<Fut>) -> JoinVec<Fut> {
+
+    let mut futures_vec:Vec<MaybeDone<Fut>>=Vec::new();
+
+    for fut in futures {
+        futures_vec.push(MaybeDone::Future(fut));
+    }
+
+    JoinVec {
+        futures: futures_vec,
     }
 }
