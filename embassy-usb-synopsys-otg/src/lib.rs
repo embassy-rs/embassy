@@ -1068,6 +1068,21 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                         w.set_pktcnt(1);
                     });
 
+                    if self.info.ep_type == EndpointType::Isochronous {
+                        // Isochronous endpoints must set the correct even/odd frame bit to
+                        // correspond with the next frame's number.
+                        let frame_number = self.regs.dsts().read().fnsof();
+                        let frame_is_odd = frame_number & 0x01 == 1;
+
+                        self.regs.doepctl(index).modify(|r| {
+                            if frame_is_odd {
+                                r.set_sd0pid_sevnfrm(true);
+                            } else {
+                                r.set_sd1pid_soddfrm(true);
+                            }
+                        });
+                    }
+
                     // Clear NAK to indicate we are ready to receive more data
                     self.regs.doepctl(index).modify(|w| {
                         w.set_cnak(true);
