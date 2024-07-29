@@ -4,20 +4,22 @@
 //! Class Definition for Audio Devices", Release 1.0.
 //!
 //! Currently, only a single output streaming interface supported (implementation of a speaker).
-use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
-use crate::descriptor::{SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
-use crate::types::InterfaceNumber;
-use crate::{Builder, Handler};
-use class_codes::*;
 use core::cell::{Cell, RefCell};
 use core::future::poll_fn;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
+
+use class_codes::*;
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::waitqueue::WakerRegistration;
 use heapless::Vec;
+
+use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
+use crate::descriptor::{SynchronizationType, UsageType};
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
+use crate::types::InterfaceNumber;
+use crate::{Builder, Handler};
 
 mod terminal_type;
 pub use terminal_type::TerminalType;
