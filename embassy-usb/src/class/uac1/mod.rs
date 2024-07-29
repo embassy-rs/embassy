@@ -76,7 +76,7 @@ impl<'a> State<'a> {
     }
 }
 
-/// Feedback bRefresh [UAC 3.7.2.2]
+/// Feedback period adjustment `bRefresh` [UAC 3.7.2.2]
 ///
 /// From the specification: "A new Ff value is available every 2^(10 – P) frames with P ranging from 1 to 9. The
 /// bRefresh field of the synch standard endpoint descriptor is used to report the exponent (10-P) to the Host.
@@ -95,9 +95,21 @@ pub enum FeedbackRefreshPeriod {
     Period512ms = 9,
 }
 
-impl From<FeedbackRefreshPeriod> for u8 {
-    fn from(p: FeedbackRefreshPeriod) -> u8 {
-        p as u8
+/// Audio sample resolution.
+///
+/// Stored in number of bytes per sample.
+#[repr(u8)]
+#[allow(missing_docs)]
+#[derive(Clone, Copy)]
+pub enum Resolution {
+    Resolution16Bit = 2,
+    Resolution24Bit = 3,
+    Resolution32Bit = 4,
+}
+
+impl Resolution {
+    fn in_bit(self) -> u8 {
+        8 * self as u8
     }
 }
 
@@ -123,6 +135,7 @@ impl<'d, D: Driver<'d>> Uac1<'d, D> {
     /// * `builder` - The builder for the class.
     /// * `state` - The internal state of the class.
     /// * `max_packet_size` - The maximum packet size per (micro)frame.
+    /// * `resolution` - The audio sample resolution.
     /// * `sample_rates_hz` - The supported sample rates in Hz.
     /// * `audio_channels` - The advertised audio channels (up to 12). Entries must be unique, or this function panics.
     /// * `feedback_refresh_period` - The refresh period for the feedback value.
@@ -130,6 +143,7 @@ impl<'d, D: Driver<'d>> Uac1<'d, D> {
         builder: &mut Builder<'d, D>,
         state: &'d mut State<'d>,
         max_packet_size: u16,
+        resolution: Resolution,
         sample_rates_hz: &[u32],
         audio_channels: &[ChannelConfig],
         feedback_refresh_period: FeedbackRefreshPeriod,
@@ -198,9 +212,10 @@ impl<'d, D: Driver<'d>> Uac1<'d, D> {
             FEATURE_UNIT_ID,      // bUnitID
             INPUT_UNIT_ID,        // bSourceID
             1,                    // bControlSize (one byte per control)
-            FU_CONTROL_UNDEFINED, // Master controls (disabled)
+            FU_CONTROL_UNDEFINED, // Master controls (disabled, use only per-channel control)
         ];
 
+        // Add per-channel controls
         let mut feature_unit_descriptor: Vec<u8, { 1 + FEATURE_UNIT_DESCRIPTOR_SIZE + MAX_AUDIO_CHANNEL_COUNT }> =
             Vec::from_slice(&feature_unit_descriptor).unwrap();
         for _ in 0..audio_channels.len() {
@@ -215,8 +230,8 @@ impl<'d, D: Driver<'d>> Uac1<'d, D> {
             FORMAT_TYPE,                // bDescriptorSubtype
             FORMAT_TYPE_I,              // bFormatType
             audio_channels.len() as u8, // bNrChannels
-            4u8,                        // bSubframeSize (32 bit)
-            32u8,                       // bBitResolution
+            resolution as u8,           // bSubframeSize
+            resolution.in_bit(),        // bBitResolution
         ];
 
         let mut format_descriptor: Vec<u8, { 6 + 3 * MAX_SAMPLE_RATE_COUNT }> =
@@ -308,11 +323,11 @@ impl<'d, D: Driver<'d>> Uac1<'d, D> {
         alt.descriptor(
             CS_ENDPOINT,
             &[
-                AS_GENERAL, // bDescriptorSubtype (General)
-                0x01,       // bmAttributes - support sampling frequency adjustment
-                0x02,       // bLockDelayUnits (PCM sample count)
+                AS_GENERAL,            // bDescriptorSubtype (General)
+                SAMPLING_FREQ_CONTROL, // bmAttributes (support sampling frequency control)
+                0x00,                  // bLockDelayUnits (undefined)
                 0x0000 as u8,
-                (0x0000 >> 8) as u8, // bLockDelay (0)
+                (0x0000 >> 8) as u8, // wLockDelay (0)
             ],
         );
 
@@ -323,8 +338,8 @@ impl<'d, D: Driver<'d>> Uac1<'d, D> {
             SynchronizationType::NoSynchronization,
             UsageType::FeedbackEndpoint,
             &[
-                feedback_refresh_period.into(), // bRefresh
-                0x00,                           // bSynchAddress (none)
+                feedback_refresh_period as u8, // bRefresh
+                0x00,                          // bSynchAddress (none)
             ],
         );
 
