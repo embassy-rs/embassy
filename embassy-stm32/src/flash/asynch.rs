@@ -117,7 +117,7 @@ pub(super) async unsafe fn write_chunked(base: u32, size: u32, offset: u32, byte
             family::lock();
         });
 
-        family::write(address, chunk.try_into().unwrap()).await?;
+        family::write(address, unwrap!(chunk.try_into())).await?;
         address += WRITE_SIZE as u32;
     }
     Ok(())

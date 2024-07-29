@@ -12,6 +12,7 @@ embassy-executor = { version = "0.5.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.3.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-usb = { version = "0.2.0", path = "../../embassy-usb", features = ["defmt" ] }
 embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
+embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 
 defmt = "0.3"
@@ -20,6 +21,7 @@ defmt-rtt = "0.4"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
+embedded-hal-bus = { version = "0.2", features = ["async"] }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
@@ -28,7 +30,7 @@ heapless = { version = "0.8", default-features = false }
 nb = "1.0.0"
 embedded-storage = "0.3.1"
 micromath = "2.0.0"
-usbd-hid = "0.7.0"
+usbd-hid = "0.8.1"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false}
 

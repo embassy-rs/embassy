@@ -16,7 +16,7 @@ const CRC8X_TABLE: [u8; 256] = [
     0xcb, 0xe6, 0xe1, 0xe8, 0xef, 0xfa, 0xfd, 0xf4, 0xf3,
 ];
 
-/// Calculate the crc of a pease of data.
+/// Calculate the crc of a piece of data.
 pub fn crc8(data: &[u8]) -> u8 {
     data.iter().fold(0, |crc, &byte| CRC8X_TABLE[usize::from(byte ^ crc)])
 }

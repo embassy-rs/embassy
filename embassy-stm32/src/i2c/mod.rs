@@ -15,7 +15,9 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant};
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
+#[cfg(gpio_v2)]
+use crate::gpio::Pull;
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
@@ -23,7 +25,7 @@ use crate::time::Hertz;
 use crate::{interrupt, peripherals};
 
 /// I2C error.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Bus error
@@ -50,11 +52,13 @@ pub struct Config {
     ///
     /// Using external pullup resistors is recommended for I2C. If you do
     /// have external pullups you should not enable this.
+    #[cfg(gpio_v2)]
     pub sda_pullup: bool,
     /// Enable internal pullup on SCL.
     ///
     /// Using external pullup resistors is recommended for I2C. If you do
     /// have external pullups you should not enable this.
+    #[cfg(gpio_v2)]
     pub scl_pullup: bool,
     /// Timeout.
     #[cfg(feature = "time")]
@@ -64,7 +68,9 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            #[cfg(gpio_v2)]
             sda_pullup: false,
+            #[cfg(gpio_v2)]
             scl_pullup: false,
             #[cfg(feature = "time")]
             timeout: embassy_time::Duration::from_millis(1000),
@@ -73,18 +79,32 @@ impl Default for Config {
 }
 
 impl Config {
-    fn scl_pull_mode(&self) -> Pull {
-        match self.scl_pullup {
-            true => Pull::Up,
-            false => Pull::Down,
-        }
+    fn scl_af(&self) -> AfType {
+        #[cfg(gpio_v1)]
+        return AfType::output(OutputType::OpenDrain, Speed::Medium);
+        #[cfg(gpio_v2)]
+        return AfType::output_pull(
+            OutputType::OpenDrain,
+            Speed::Medium,
+            match self.scl_pullup {
+                true => Pull::Up,
+                false => Pull::Down,
+            },
+        );
     }
 
-    fn sda_pull_mode(&self) -> Pull {
-        match self.sda_pullup {
-            true => Pull::Up,
-            false => Pull::Down,
-        }
+    fn sda_af(&self) -> AfType {
+        #[cfg(gpio_v1)]
+        return AfType::output(OutputType::OpenDrain, Speed::Medium);
+        #[cfg(gpio_v2)]
+        return AfType::output_pull(
+            OutputType::OpenDrain,
+            Speed::Medium,
+            match self.sda_pullup {
+                true => Pull::Up,
+                false => Pull::Down,
+            },
+        );
     }
 }
 
@@ -118,8 +138,8 @@ impl<'d> I2c<'d, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(scl, AFType::OutputOpenDrain, Speed::Medium, config.scl_pull_mode()),
-            new_pin!(sda, AFType::OutputOpenDrain, Speed::Medium, config.sda_pull_mode()),
+            new_pin!(scl, config.scl_af()),
+            new_pin!(sda, config.sda_af()),
             new_dma!(tx_dma),
             new_dma!(rx_dma),
             freq,
@@ -139,8 +159,8 @@ impl<'d> I2c<'d, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(scl, AFType::OutputOpenDrain, Speed::Medium, config.scl_pull_mode()),
-            new_pin!(sda, AFType::OutputOpenDrain, Speed::Medium, config.sda_pull_mode()),
+            new_pin!(scl, config.scl_af()),
+            new_pin!(sda, config.sda_af()),
             None,
             None,
             freq,

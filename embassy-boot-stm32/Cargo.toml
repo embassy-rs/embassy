@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "embassy-boot-stm32"
-version = "0.2001.1"
+version = "0.2.0"
 description = "Bootloader lib for STM32 chips"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
@@ -13,7 +13,7 @@ categories = [
 ]
 
 [package.metadata.embassy_docs]
-src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot-stm32/src/"
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-stm32-v$VERSION/embassy-boot-stm32/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot-stm32/src/"
 features = ["embassy-stm32/stm32f429zi"]
 target = "thumbv7em-none-eabi"
@@ -25,9 +25,9 @@ defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.4", optional = true }
 log = { version = "0.4", optional = true }
 
-embassy-sync = { version = "0.6001.0", registry = "artifactory", path = "../embassy-sync" }
-embassy-stm32 = { version = "0.1003.1", registry = "artifactory", path = "../embassy-stm32", default-features = false, features=["rt"]}
-embassy-boot = { version = "0.2001.1", registry = "artifactory", path = "../embassy-boot" }
+embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
+embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", default-features = false, features=["rt"]}
+embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"

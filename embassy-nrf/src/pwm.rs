@@ -6,7 +6,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use crate::gpio::{AnyPin, Pin as GpioPin, PselBits, SealedPin as _};
+use crate::gpio::{convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::ppi::{Event, Task};
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
@@ -128,19 +128,23 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         if let Some(pin) = &ch0 {
             pin.set_low();
-            pin.conf().write(|w| w.dir().output());
+            pin.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.ch0_drive)));
         }
         if let Some(pin) = &ch1 {
             pin.set_low();
-            pin.conf().write(|w| w.dir().output());
+            pin.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.ch1_drive)));
         }
         if let Some(pin) = &ch2 {
             pin.set_low();
-            pin.conf().write(|w| w.dir().output());
+            pin.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.ch2_drive)));
         }
         if let Some(pin) = &ch3 {
             pin.set_low();
-            pin.conf().write(|w| w.dir().output());
+            pin.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.ch3_drive)));
         }
 
         r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
@@ -319,6 +323,14 @@ pub struct Config {
     pub prescaler: Prescaler,
     /// How a sequence is read from RAM and is spread to the compare register
     pub sequence_load: SequenceLoad,
+    /// Drive strength for the channel 0 line.
+    pub ch0_drive: OutputDrive,
+    /// Drive strength for the channel 1 line.
+    pub ch1_drive: OutputDrive,
+    /// Drive strength for the channel 2 line.
+    pub ch2_drive: OutputDrive,
+    /// Drive strength for the channel 3 line.
+    pub ch3_drive: OutputDrive,
 }
 
 impl Default for Config {
@@ -328,6 +340,10 @@ impl Default for Config {
             max_duty: 1000,
             prescaler: Prescaler::Div16,
             sequence_load: SequenceLoad::Common,
+            ch0_drive: OutputDrive::Standard,
+            ch1_drive: OutputDrive::Standard,
+            ch2_drive: OutputDrive::Standard,
+            ch3_drive: OutputDrive::Standard,
         }
     }
 }
@@ -814,6 +830,38 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         let clk = PWM_CLK_HZ >> (self.prescaler() as u8);
         let max_duty = self.max_duty() as u32;
         clk / max_duty
+    }
+
+    /// Sets the PWM-Channel0 output drive strength
+    #[inline(always)]
+    pub fn set_ch0_drive(&self, drive: OutputDrive) {
+        if let Some(pin) = &self.ch0 {
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
+        }
+    }
+
+    /// Sets the PWM-Channel1 output drive strength
+    #[inline(always)]
+    pub fn set_ch1_drive(&self, drive: OutputDrive) {
+        if let Some(pin) = &self.ch1 {
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
+        }
+    }
+
+    /// Sets the PWM-Channel2 output drive strength
+    #[inline(always)]
+    pub fn set_ch2_drive(&self, drive: OutputDrive) {
+        if let Some(pin) = &self.ch2 {
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
+        }
+    }
+
+    /// Sets the PWM-Channel3 output drive strength
+    #[inline(always)]
+    pub fn set_ch3_drive(&self, drive: OutputDrive) {
+        if let Some(pin) = &self.ch3 {
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
+        }
     }
 }
 

@@ -2,6 +2,12 @@
 
 set -eo pipefail
 
+# check-cfg is stable on rustc 1.79 but not cargo 1.79.
+# however, our cargo-batch is currently based on cargo 1.80, which does support check-cfg.
+# so, force build.rs scripts to emit check-cfg commands.
+# when 1.80 hits stable we can make build.rs unconditionally emit check-cfg and remove all this.
+export EMBASSY_FORCE_CHECK_CFG=1  
+
 export RUSTFLAGS=-Dwarnings
 export DEFMT_LOG=trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,smoltcp=info
 if [[ -z "${CARGO_TARGET_DIR}" ]]; then
@@ -169,6 +175,7 @@ cargo batch \
     --- build --release --manifest-path cyw43-pio/Cargo.toml --target thumbv6m-none-eabi --features 'overclock' \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
+    --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \
     --- build --release --manifest-path embassy-boot-rp/Cargo.toml --target thumbv6m-none-eabi \
     --- build --release --manifest-path embassy-boot-stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wl55jc-cm4 \
     --- build --release --manifest-path docs/examples/basic/Cargo.toml --target thumbv7em-none-eabi \
@@ -180,6 +187,8 @@ cargo batch \
     --- build --release --manifest-path examples/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840 \
     --- build --release --manifest-path examples/nrf5340/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf5340 \
     --- build --release --manifest-path examples/nrf9160/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9160 \
+    --- build --release --manifest-path examples/nrf9151/s/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9151/s \
+    --- build --release --manifest-path examples/nrf9151/ns/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9151/ns \
     --- build --release --manifest-path examples/nrf51/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/nrf51 \
     --- build --release --manifest-path examples/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/rp \
     --- build --release --manifest-path examples/stm32f0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32f0 \
@@ -195,6 +204,7 @@ cargo batch \
     --- build --release --manifest-path examples/stm32g4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32g4 \
     --- build --release --manifest-path examples/stm32h5/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32h5 \
     --- build --release --manifest-path examples/stm32h7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h7 \
+    --- build --release --manifest-path examples/stm32h735/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h735 \
     --- build --release --manifest-path examples/stm32h7rs/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h7rs \
     --- build --release --manifest-path examples/stm32l0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32l0 \
     --- build --release --manifest-path examples/stm32l1/Cargo.toml --target thumbv7m-none-eabi --out-dir out/examples/stm32l1 \
@@ -207,6 +217,7 @@ cargo batch \
     --- build --release --manifest-path examples/stm32wl/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32wl \
     --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840,skip-include --out-dir out/examples/boot/nrf52840 \
     --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns,skip-include --out-dir out/examples/boot/nrf9160 \
+    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns,skip-include --out-dir out/examples/boot/nrf9120 \
     --- build --release --manifest-path examples/boot/application/rp/Cargo.toml --target thumbv6m-none-eabi --features skip-include --out-dir out/examples/boot/rp \
     --- build --release --manifest-path examples/boot/application/stm32f3/Cargo.toml --target thumbv7em-none-eabi --features skip-include --out-dir out/examples/boot/stm32f3 \
     --- build --release --manifest-path examples/boot/application/stm32f7/Cargo.toml --target thumbv7em-none-eabi --features skip-include --out-dir out/examples/boot/stm32f7 \
@@ -218,6 +229,7 @@ cargo batch \
     --- build --release --manifest-path examples/boot/application/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/boot/stm32wb-dfu \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
+    --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \
     --- build --release --manifest-path examples/boot/bootloader/rp/Cargo.toml --target thumbv6m-none-eabi \
     --- build --release --manifest-path examples/boot/bootloader/stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wl55jc-cm4 \
     --- build --release --manifest-path examples/boot/bootloader/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wb55rg \
@@ -252,8 +264,12 @@ cargo batch \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h503rb --out-dir out/tests/stm32h503rb \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u083rc --out-dir out/tests/stm32u083rc \
     --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/rpi-pico \
-    --- build --release --manifest-path tests/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/tests/nrf52840-dk \
-    --- build --release --manifest-path tests/nrf51422/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/nrf51-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv6m-none-eabi --features nrf51422 --out-dir out/tests/nrf51422-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52832 --out-dir out/tests/nrf52832-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52833 --out-dir out/tests/nrf52833-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52840 --out-dir out/tests/nrf52840-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf5340 --out-dir out/tests/nrf5340-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf9160 --out-dir out/tests/nrf9160-dk \
     --- build --release --manifest-path tests/riscv32/Cargo.toml --target riscv32imac-unknown-none-elf \
     $BUILD_EXTRA
 

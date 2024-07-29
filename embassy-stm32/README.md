@@ -35,4 +35,4 @@ This crate can run on any executor.
 Optionally, some features requiring [`embassy-time`](https://crates.io/crates/embassy-time) can be activated with the `time` feature. If you enable it,
 you must link an `embassy-time` driver in your project.
 
-The `low-power` feature integrates specifically with `embassy-executor`, it can't be ued on other executors for now.
+The `low-power` feature integrates specifically with `embassy-executor`, it can't be used on other executors for now.

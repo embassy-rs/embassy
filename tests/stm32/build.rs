@@ -10,14 +10,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if cfg!(any(
         // too little RAM to run from RAM.
-        feature = "stm32f103c8",
-        feature = "stm32c031c6",
-        feature = "stm32wb55rg",
-        feature = "stm32l073rz",
-        feature = "stm32h503rb",
-        // wrong ram size in stm32-data
-        feature = "stm32wl55jc",
-        feature = "stm32u5a5zj",
+        feature = "stm32f103c8", // 20 kb
+        feature = "stm32c031c6", // 6 kb
+        feature = "stm32l073rz", // 20 kb
+        feature = "stm32h503rb", // 32 kb
         // no VTOR, so interrupts can't work when running from RAM
         feature = "stm32f091rc",
     )) {

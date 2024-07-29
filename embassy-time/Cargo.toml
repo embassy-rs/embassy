@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.3001.1"
+version = "0.3.1"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -406,8 +406,8 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 #! </details>
 
 [dependencies]
-embassy-time-driver = { version = "0.1001.0", registry = "artifactory", path = "../embassy-time-driver" }
-embassy-time-queue-driver = { version = "0.1001.0", registry = "artifactory", path = "../embassy-time-queue-driver" }
+embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver" }
+embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -431,4 +431,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.5001.0", registry = "artifactory", path = "../embassy-executor" }
+embassy-executor = { version = "0.5.0", path = "../embassy-executor" }

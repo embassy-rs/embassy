@@ -19,7 +19,7 @@ pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::{self, convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
-use crate::util::{slice_in_ram_or, slice_ptr_len, slice_ptr_parts, slice_ptr_parts_mut};
+use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
 
 /// SPIM error
@@ -240,14 +240,12 @@ impl<'d, T: Instance> Spim<'d, T> {
         }
 
         // Set up the DMA read.
-        let (ptr, len) = slice_ptr_parts_mut(rx);
-        let (rx_ptr, rx_len) = xfer_params(ptr as _, len as _, offset, length);
+        let (rx_ptr, rx_len) = xfer_params(rx as *mut u8 as _, rx.len() as _, offset, length);
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(rx_ptr) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx_len as _) });
 
         // Set up the DMA write.
-        let (ptr, len) = slice_ptr_parts(tx);
-        let (tx_ptr, tx_len) = xfer_params(ptr as _, len as _, offset, length);
+        let (tx_ptr, tx_len) = xfer_params(tx as *const u8 as _, tx.len() as _, offset, length);
         r.txd.ptr.write(|w| unsafe { w.ptr().bits(tx_ptr) });
         r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx_len as _) });
 
@@ -302,7 +300,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         // NOTE: RAM slice check for rx is not necessary, as a mutable
         // slice can only be built from data located in RAM.
 
-        let xfer_len = core::cmp::max(slice_ptr_len(rx), slice_ptr_len(tx));
+        let xfer_len = core::cmp::max(rx.len(), tx.len());
         for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
             let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
             self.blocking_inner_from_ram_chunk(rx, tx, offset, length);
@@ -356,7 +354,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         // NOTE: RAM slice check for rx is not necessary, as a mutable
         // slice can only be built from data located in RAM.
 
-        let xfer_len = core::cmp::max(slice_ptr_len(rx), slice_ptr_len(tx));
+        let xfer_len = core::cmp::max(rx.len(), tx.len());
         for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
             let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
             self.async_inner_from_ram_chunk(rx, tx, offset, length).await;
