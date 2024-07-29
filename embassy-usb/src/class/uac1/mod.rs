@@ -121,14 +121,12 @@ pub struct Uac1<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> Uac1<'d, D> {
-    /// Creates a new `Uac1` (USB audio class 1.0), split into a stream, and a control notifier.
+    /// Creates a new `Uac1` (USB audio class 1.0), always split into a stream, and a control notifier.
     ///
     /// The packet size should be chosen, based on the expected transfer size of samples per (micro)frame.
     /// For example, a stereo stream at 32 bit resolution and 48 kHz sample rate yields packets of 384 byte for
     /// full-speed USB (1 ms frame interval) or 48 byte for high-speed USB (125 us microframe interval).
     /// When using feedback, the packet size varies and thus, the `max_packet_size` should be increased (e.g. to double).
-    ///
-    /// Use `split` afterwards, in order to option the usable `Stream` and `ControlChanged` instances.
     ///
     /// # Arguments
     ///
@@ -443,8 +441,6 @@ impl SharedControl {
 }
 
 /// UAC1 stream for reading audio frames, and writing feedback information
-///
-/// You can obtain a `Stream` with [`Uac1::split`]
 pub struct Stream<'d, D: Driver<'d>> {
     streaming_endpoint: D::EndpointOut,
     feedback_endpoint: D::EndpointIn,
@@ -474,8 +470,6 @@ impl<'d, D: Driver<'d>> Stream<'d, D> {
 }
 
 /// UAC1 control status change monitor
-///
-/// You can obtain a `ControlChanged` with [`Uac1::split`]
 pub struct ControlChanged<'d> {
     control: &'d SharedControl,
 }
