@@ -20,7 +20,7 @@ use heapless::Vec;
 
 use crate::class::uac1::class_codes::*;
 use crate::class::uac1::terminal_type::TerminalType;
-use crate::class::uac1::{ChannelConfig, FeedbackRefreshPeriod, SampleResolution, MAX_AUDIO_CHANNEL_COUNT};
+use crate::class::uac1::{ChannelConfig, FeedbackRefreshPeriod, SampleWidth, MAX_AUDIO_CHANNEL_COUNT};
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
@@ -98,7 +98,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         builder: &mut Builder<'d, D>,
         state: &'d mut State<'d>,
         max_packet_size: u16,
-        resolution: SampleResolution,
+        resolution: SampleWidth,
         sample_rates_hz: &[u32],
         audio_channels: &[ChannelConfig],
         feedback_refresh_period: FeedbackRefreshPeriod,

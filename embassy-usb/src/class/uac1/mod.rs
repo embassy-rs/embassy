@@ -62,15 +62,17 @@ pub enum FeedbackRefreshPeriod {
 ///
 /// Stored in number of bytes per sample.
 #[repr(u8)]
-#[allow(missing_docs)]
 #[derive(Clone, Copy)]
-pub enum SampleResolution {
-    Resolution16Bit = 2,
-    Resolution24Bit = 3,
-    Resolution32Bit = 4,
+pub enum SampleWidth {
+    /// 16 bit audio
+    Width2Byte = 2,
+    /// 24 bit audio
+    Width3Byte = 3,
+    /// 32 bit audio
+    Width4Byte = 4,
 }
 
-impl SampleResolution {
+impl SampleWidth {
     /// Get the audio sample resolution in number of bit.
     pub fn in_bit(self) -> u8 {
         8 * self as u8
