@@ -34,6 +34,8 @@ use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 #[allow(unused_imports)]
 use heapless::Vec;
+#[cfg(feature = "dns")]
+pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "igmp")]
 pub use smoltcp::iface::MulticastError;
 #[allow(unused_imports)]
@@ -823,9 +825,17 @@ impl<D: Driver> Inner<D> {
 
         // Apply DNS servers
         #[cfg(feature = "dns")]
-        s.sockets
-            .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
-            .update_servers(&dns_servers[..]);
+        if !dns_servers.is_empty() {
+            let count = if dns_servers.len() > DNS_MAX_SERVER_COUNT {
+                warn!("Number of DNS servers exceeds DNS_MAX_SERVER_COUNT, truncating list.");
+                DNS_MAX_SERVER_COUNT
+            } else {
+                dns_servers.len()
+            };
+            s.sockets
+                .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
+                .update_servers(&dns_servers[..count]);
+        }
 
         self.config_waker.wake();
     }
