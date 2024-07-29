@@ -13,6 +13,7 @@ Synchronization primitives and data structures with async support:
 - [`WakerRegistration`](waitqueue::WakerRegistration) - Utility to register and wake a `Waker`.
 - [`AtomicWaker`](waitqueue::AtomicWaker) - A variant of `WakerRegistration` accessible using a non-mut API.
 - [`MultiWakerRegistration`](waitqueue::MultiWakerRegistration) - Utility registering and waking multiple `Waker`'s.
+- [`LazyLock`](lazy_lock::LazyLock) - A value which is initialized on the first access
 
 ## Interoperability
 
