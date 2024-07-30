@@ -10,14 +10,52 @@ mod terminal_type;
 
 /// The maximum number of supported audio channels
 /// FIXME: Use `core::mem::variant_count(...)` when stabilized.
-const MAX_AUDIO_CHANNEL_COUNT: usize = 12;
+const MAX_AUDIO_CHANNEL_INDEX: usize = 12;
+const MAX_AUDIO_CHANNEL_COUNT: usize = MAX_AUDIO_CHANNEL_INDEX + 1;
+
+/// USB Audio Channel
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(missing_docs)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Channel {
+    LeftFront,
+    RightFront,
+    CenterFront,
+    Lfe,
+    LeftSurround,
+    RightSurround,
+    LeftOfCenter,
+    RightOfCenter,
+    Surround,
+    SideLeft,
+    SideRight,
+    Top,
+}
+
+impl Channel {
+    fn get_channel_config(&self) -> ChannelConfig {
+        match self {
+            Channel::LeftFront => ChannelConfig::LeftFront,
+            Channel::RightFront => ChannelConfig::RightFront,
+            Channel::CenterFront => ChannelConfig::CenterFront,
+            Channel::Lfe => ChannelConfig::Lfe,
+            Channel::LeftSurround => ChannelConfig::LeftSurround,
+            Channel::RightSurround => ChannelConfig::RightSurround,
+            Channel::LeftOfCenter => ChannelConfig::LeftOfCenter,
+            Channel::RightOfCenter => ChannelConfig::RightOfCenter,
+            Channel::Surround => ChannelConfig::Surround,
+            Channel::SideLeft => ChannelConfig::SideLeft,
+            Channel::SideRight => ChannelConfig::SideRight,
+            Channel::Top => ChannelConfig::Top,
+        }
+    }
+}
 
 /// USB Audio Channel configuration
 #[repr(u16)]
 #[non_exhaustive]
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-#[allow(missing_docs)]
-pub enum ChannelConfig {
+// #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+enum ChannelConfig {
     None = 0x0000,
     LeftFront = 0x0001,
     RightFront = 0x0002,

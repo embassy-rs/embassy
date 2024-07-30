@@ -1,12 +1,14 @@
-//! USB Audio Class 1.0 speaker device
+//! USB Audio Class 1.0 - Speaker device
 //!
 //! Provides a class with a single audio streaming interface (host to device),
-//! including explicit sample rate feedback.
+//! that advertises itself as a speaker. Includes explicit sample rate feedback.
 //!
 //! Various aspects of the audio stream can be configured, for example:
 //! - sample rate
 //! - sample resolution
 //! - audio channel count and assignment
+//!
+//! The class provides volume and mute controls for each channel.
 
 use core::cell::{Cell, RefCell};
 use core::future::poll_fn;
@@ -18,9 +20,11 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::waitqueue::WakerRegistration;
 use heapless::Vec;
 
-use crate::class::uac1::class_codes::*;
-use crate::class::uac1::terminal_type::TerminalType;
-use crate::class::uac1::{ChannelConfig, FeedbackRefreshPeriod, SampleWidth, MAX_AUDIO_CHANNEL_COUNT};
+use super::class_codes::*;
+use super::terminal_type::TerminalType;
+use super::{
+    Channel, ChannelConfig, FeedbackRefreshPeriod, SampleWidth, MAX_AUDIO_CHANNEL_COUNT, MAX_AUDIO_CHANNEL_INDEX,
+};
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
@@ -49,21 +53,23 @@ const MAX_VOLUME_DB: i16 = 0;
 const MAX_SAMPLE_RATE_COUNT: usize = 10;
 
 /// Internal state for the USB Audio Class
-pub struct State<'a> {
-    control: MaybeUninit<Control<'a>>,
-    shared: SharedControl,
+pub struct State<'d> {
+    control: MaybeUninit<Control<'d>>,
+    // control: Option<Control<'d>>,
+    shared: SharedControl<'d>,
 }
 
-impl<'a> Default for State<'a> {
+impl<'d> Default for State<'d> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> State<'a> {
+impl<'d> State<'d> {
     /// Create a new `State`.
     pub fn new() -> Self {
         Self {
+            // control: None,
             control: MaybeUninit::uninit(),
             shared: SharedControl::default(),
         }
@@ -74,7 +80,7 @@ impl<'a> State<'a> {
 pub struct Speaker<'d, D: Driver<'d>> {
     streaming_endpoint: D::EndpointOut,
     feedback_endpoint: D::EndpointIn,
-    control: &'d SharedControl,
+    control: &'d SharedControl<'d>,
 }
 
 impl<'d, D: Driver<'d>> Speaker<'d, D> {
@@ -92,7 +98,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
     /// * `max_packet_size` - The maximum packet size per (micro)frame.
     /// * `resolution` - The audio sample resolution.
     /// * `sample_rates_hz` - The supported sample rates in Hz.
-    /// * `audio_channels` - The advertised audio channels (up to 12). Entries must be unique, or this function panics.
+    /// * `channels` - The advertised audio channels (up to 12). Entries must be unique, or this function panics.
     /// * `feedback_refresh_period` - The refresh period for the feedback value.
     pub fn new(
         builder: &mut Builder<'d, D>,
@@ -100,7 +106,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         max_packet_size: u16,
         resolution: SampleWidth,
         sample_rates_hz: &[u32],
-        audio_channels: &[ChannelConfig],
+        channels: &'d [Channel],
         feedback_refresh_period: FeedbackRefreshPeriod,
     ) -> (Stream<'d, D>, ControlChanged<'d>) {
         let mut func = builder.function(AUDIO_FUNCTION, FUNCTION_SUBCLASS_UNDEFINED, PROTOCOL_NONE);
@@ -121,8 +127,9 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         // Assemble channel configuration field
         let mut channel_config: u16 = ChannelConfig::None.into();
-        for audio_channel in audio_channels {
-            let channel: u16 = (*audio_channel).into();
+        for channel in channels {
+            let channel: u16 = channel.get_channel_config().into();
+
             if channel_config & channel != 0 {
                 panic!("Invalid channel config, duplicate channel {}.", channel);
             }
@@ -135,7 +142,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
             terminal_type as u8,
             (terminal_type >> 8) as u8, // wTerminalType
             0x00,                       // bAssocTerminal (none)
-            audio_channels.len() as u8, // bNrChannels
+            channels.len() as u8,       // bNrChannels
             channel_config as u8,
             (channel_config >> 8) as u8, // wChannelConfig
             0x00,                        // iChannelNames (none)
@@ -173,7 +180,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         // Add per-channel controls
         let mut feature_unit_descriptor: Vec<u8, { 1 + FEATURE_UNIT_DESCRIPTOR_SIZE + MAX_AUDIO_CHANNEL_COUNT }> =
             Vec::from_slice(&feature_unit_descriptor).unwrap();
-        for _ in 0..audio_channels.len() {
+        for _ in channels {
             feature_unit_descriptor.push(controls).unwrap();
         }
         feature_unit_descriptor.push(0x00).unwrap(); // iFeature (none)
@@ -182,11 +189,11 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         // Format desciptor [UAC 4.5.3]
         // Used later, for operational streaming interface
         let format_descriptor = &[
-            FORMAT_TYPE,                // bDescriptorSubtype
-            FORMAT_TYPE_I,              // bFormatType
-            audio_channels.len() as u8, // bNrChannels
-            resolution as u8,           // bSubframeSize
-            resolution.in_bit(),        // bBitResolution
+            FORMAT_TYPE,          // bDescriptorSubtype
+            FORMAT_TYPE_I,        // bFormatType
+            channels.len() as u8, // bNrChannels
+            resolution as u8,     // bSubframeSize
+            resolution.in_bit(),  // bBitResolution
         ];
 
         let mut format_descriptor: Vec<u8, { 6 + 3 * MAX_SAMPLE_RATE_COUNT }> =
@@ -300,12 +307,23 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         // Free up the builder.
         drop(func);
+        // Store channel information
+
+        state.shared.channels = channels;
         let control = state.control.write(Control {
             shared: &state.shared,
             streaming_endpoint_address: streaming_endpoint.info().addr.into(),
             control_interface_number: control_interface,
         });
         builder.handler(control);
+
+        // state.control = Some(Control {
+        //     shared: &state.shared,
+        //     streaming_endpoint_address: streaming_endpoint.info().addr.into(),
+        //     control_interface_number: control_interface,
+        // });
+
+        // builder.handler(state.control.as_mut().unwrap());
 
         let control = &state.shared;
 
@@ -339,30 +357,33 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AudioSettings {
     /// Channel mute states.
-    pub is_muted: [bool; MAX_AUDIO_CHANNEL_COUNT],
+    muted: [bool; MAX_AUDIO_CHANNEL_COUNT],
     /// Channel volume levels in 8.8 format (in dB).
-    pub volume_8q8_db: [i16; MAX_AUDIO_CHANNEL_COUNT],
+    volume_8q8_db: [i16; MAX_AUDIO_CHANNEL_COUNT],
 }
 
 impl Default for AudioSettings {
     fn default() -> Self {
         AudioSettings {
-            is_muted: [true; MAX_AUDIO_CHANNEL_COUNT],
+            muted: [true; MAX_AUDIO_CHANNEL_COUNT],
             volume_8q8_db: [MAX_VOLUME_DB * VOLUME_STEPS_PER_DB; MAX_AUDIO_CHANNEL_COUNT],
         }
     }
 }
 
-struct Control<'a> {
+struct Control<'d> {
     control_interface_number: InterfaceNumber,
     streaming_endpoint_address: u8,
-    shared: &'a SharedControl,
+    shared: &'d SharedControl<'d>,
 }
 
 /// Shared data between Control and the Audio Class
-struct SharedControl {
+struct SharedControl<'d> {
     /// The collection of audio settings (volumes, mute states).
     audio_settings: CriticalSectionMutex<Cell<AudioSettings>>,
+
+    /// Channel assignments.
+    channels: &'d [Channel],
 
     /// The audio sample rate in Hz.
     sample_rate_hz: AtomicU32,
@@ -371,10 +392,11 @@ struct SharedControl {
     changed: AtomicBool,
 }
 
-impl Default for SharedControl {
+impl<'d> Default for SharedControl<'d> {
     fn default() -> Self {
         SharedControl {
             audio_settings: CriticalSectionMutex::new(Cell::new(AudioSettings::default())),
+            channels: &[],
             sample_rate_hz: AtomicU32::new(0),
             waker: RefCell::new(WakerRegistration::new()),
             changed: AtomicBool::new(false),
@@ -382,7 +404,7 @@ impl Default for SharedControl {
     }
 }
 
-impl SharedControl {
+impl<'d> SharedControl<'d> {
     async fn changed(&self) {
         poll_fn(|context| {
             if self.changed.load(Ordering::Relaxed) {
@@ -428,15 +450,30 @@ impl<'d, D: Driver<'d>> Stream<'d, D> {
 
 /// UAC1 control status change monitor
 pub struct ControlChanged<'d> {
-    control: &'d SharedControl,
+    control: &'d SharedControl<'d>,
 }
 
 impl<'d> ControlChanged<'d> {
-    /// Return the audio channel settings
-    pub fn audio_settings(&self) -> AudioSettings {
+    fn audio_settings(&self) -> AudioSettings {
         let audio_settings = self.control.audio_settings.lock(|x| x.get());
 
         audio_settings
+    }
+
+    fn get_logical_channel(&self, search_channel: Channel) -> Option<usize> {
+        self.control.channels.iter().position(|&c| c == search_channel)
+    }
+
+    /// Get a channel's mute state.
+    pub fn is_muted(&self, channel: Channel) -> Option<bool> {
+        let channel = self.get_logical_channel(channel)?;
+        Some(self.audio_settings().muted[channel])
+    }
+
+    /// Get a channel's volume in 8q8 format in units of dB.
+    pub fn volume_8q8_db(&self, channel: Channel) -> Option<i16> {
+        let channel = self.get_logical_channel(channel)?;
+        Some(self.audio_settings().volume_8q8_db[channel])
     }
 
     /// Return a future for when the control settings change
@@ -445,8 +482,8 @@ impl<'d> ControlChanged<'d> {
     }
 }
 
-impl<'a> Control<'a> {
-    fn shared(&mut self) -> &'a SharedControl {
+impl<'d> Control<'d> {
+    fn shared(&mut self) -> &'d SharedControl<'d> {
         self.shared
     }
 
@@ -464,8 +501,8 @@ impl<'a> Control<'a> {
         let mute_state = data[0] != 0;
 
         match channel_index as usize {
-            1..=MAX_AUDIO_CHANNEL_COUNT => {
-                audio_settings.is_muted[channel_index as usize - 1] = mute_state;
+            ..=MAX_AUDIO_CHANNEL_INDEX => {
+                audio_settings.muted[channel_index as usize] = mute_state;
             }
             _ => {
                 debug!("Failed to set channel {} mute state: {}", channel_index, mute_state);
@@ -486,8 +523,8 @@ impl<'a> Control<'a> {
         let volume = i16::from_ne_bytes(data[..2].try_into().expect("Failed to read volume."));
 
         match channel_index as usize {
-            1..=MAX_AUDIO_CHANNEL_COUNT => {
-                audio_settings.volume_8q8_db[channel_index as usize - 1] = volume;
+            ..=MAX_AUDIO_CHANNEL_INDEX => {
+                audio_settings.volume_8q8_db[channel_index as usize] = volume;
             }
             _ => {
                 debug!("Failed to set channel {} volume: {}", channel_index, volume);
@@ -590,9 +627,7 @@ impl<'a> Control<'a> {
                     let volume: i16;
 
                     match channel_index as usize {
-                        1..=MAX_AUDIO_CHANNEL_COUNT => {
-                            volume = audio_settings.volume_8q8_db[channel_index as usize - 1]
-                        }
+                        ..=MAX_AUDIO_CHANNEL_INDEX => volume = audio_settings.volume_8q8_db[channel_index as usize],
                         _ => return Some(InResponse::Rejected),
                     }
 
@@ -606,7 +641,7 @@ impl<'a> Control<'a> {
                     let mute_state: bool;
 
                     match channel_index as usize {
-                        1..=MAX_AUDIO_CHANNEL_COUNT => mute_state = audio_settings.is_muted[channel_index as usize - 1],
+                        ..=MAX_AUDIO_CHANNEL_INDEX => mute_state = audio_settings.muted[channel_index as usize],
                         _ => return Some(InResponse::Rejected),
                     }
 
