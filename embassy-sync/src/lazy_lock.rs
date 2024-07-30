@@ -103,3 +103,50 @@ impl<T, F> Drop for LazyLock<T, F> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use core::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+
+    #[test]
+    fn test_lazy_lock() {
+        static VALUE: LazyLock<u32> = LazyLock::new(|| 20);
+        let reference = VALUE.get();
+        assert_eq!(reference, &20);
+    }
+    #[test]
+    fn test_lazy_lock_into_inner() {
+        let lazy: LazyLock<u32> = LazyLock::new(|| 20);
+        let value = lazy.into_inner();
+        assert_eq!(value, 20);
+    }
+
+    static DROP_CHECKER: AtomicU32 = AtomicU32::new(0);
+    struct DropCheck;
+
+    impl Drop for DropCheck {
+        fn drop(&mut self) {
+            DROP_CHECKER.fetch_add(1, Ordering::Acquire);
+        }
+    }
+
+    #[test]
+    fn test_lazy_drop() {
+        let lazy: LazyLock<DropCheck> = LazyLock::new(|| DropCheck);
+        assert_eq!(DROP_CHECKER.load(Ordering::Acquire), 0);
+        lazy.get();
+        drop(lazy);
+        assert_eq!(DROP_CHECKER.load(Ordering::Acquire), 1);
+
+        let dropper = DropCheck;
+        let lazy_fn: LazyLock<u32, _> = LazyLock::new(move || {
+            let _a = dropper;
+            20
+        });
+        assert_eq!(DROP_CHECKER.load(Ordering::Acquire), 1);
+        drop(lazy_fn);
+        assert_eq!(DROP_CHECKER.load(Ordering::Acquire), 2);
+    }
+}
