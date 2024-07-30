@@ -376,6 +376,17 @@ impl<'d, W: Word> I2S<'d, W> {
         self.clear();
     }
 
+    /// Read data from the I2S ringbuffer.
+    /// SAI is always receiving data in the background. This function pops already-received data from the buffer.
+    /// If there’s less than data.len() data in the buffer, this waits until there is.
+    pub async fn read(&mut self, data: &mut [W]) -> Result<(), Error> {
+        match &mut self.rx_ring_buffer {
+            Some(ring) => ring.read_exact(data).await?,
+            _ => return Err(Error::NotAReceiver),
+        };
+        Ok(())
+    }
+
     /// Write data to the I2S ringbuffer.
     /// This appends the data to the buffer and returns immediately. The data will be transmitted in the background.
     /// If thfre’s no space in the buffer, this waits until there is.
@@ -387,14 +398,15 @@ impl<'d, W: Word> I2S<'d, W> {
         Ok(())
     }
 
-    /// Read data from the I2S ringbuffer.
-    /// SAI is always receiving data in the background. This function pops already-received data from the buffer.
-    /// If there’s less than data.len() data in the buffer, this waits until there is.
-    pub async fn read(&mut self, data: &mut [W]) -> Result<(), Error> {
-        match &mut self.rx_ring_buffer {
-            Some(ring) => ring.read_exact(data).await?,
-            _ => return Err(Error::NotAReceiver),
+    /// Write and write data to the I2S ringbuffer simultanously.
+    pub async fn read_write(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
+        let (rx_fut, tx_fut) = match (&mut self.rx_ring_buffer, &mut self.tx_ring_buffer) {
+            (Some(rx), Some(tx)) => (rx.read_exact(read), tx.write_exact(write)),
+            (None, _) => return Err(Error::NotAReceiver),
+            (_, None) => return Err(Error::NotATransmitter),
         };
+        let (rx_res, tx_res) = join(rx_fut, tx_fut).await;
+        let _ = (rx_res?, tx_res?);
         Ok(())
     }
 
