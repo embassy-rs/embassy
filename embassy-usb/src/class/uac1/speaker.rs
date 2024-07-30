@@ -12,7 +12,6 @@
 
 use core::cell::{Cell, RefCell};
 use core::future::poll_fn;
-use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
 
