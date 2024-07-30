@@ -54,8 +54,7 @@ const MAX_SAMPLE_RATE_COUNT: usize = 10;
 
 /// Internal state for the USB Audio Class
 pub struct State<'d> {
-    control: MaybeUninit<Control<'d>>,
-    // control: Option<Control<'d>>,
+    control: Option<Control<'d>>,
     shared: SharedControl<'d>,
 }
 
@@ -69,8 +68,7 @@ impl<'d> State<'d> {
     /// Create a new `State`.
     pub fn new() -> Self {
         Self {
-            // control: None,
-            control: MaybeUninit::uninit(),
+            control: None,
             shared: SharedControl::default(),
         }
     }
@@ -307,23 +305,17 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         // Free up the builder.
         drop(func);
-        // Store channel information
 
+        // Store channel information
         state.shared.channels = channels;
-        let control = state.control.write(Control {
+
+        state.control = Some(Control {
             shared: &state.shared,
             streaming_endpoint_address: streaming_endpoint.info().addr.into(),
             control_interface_number: control_interface,
         });
-        builder.handler(control);
 
-        // state.control = Some(Control {
-        //     shared: &state.shared,
-        //     streaming_endpoint_address: streaming_endpoint.info().addr.into(),
-        //     control_interface_number: control_interface,
-        // });
-
-        // builder.handler(state.control.as_mut().unwrap());
+        builder.handler(state.control.as_mut().unwrap());
 
         let control = &state.shared;
 
@@ -461,7 +453,10 @@ impl<'d> ControlChanged<'d> {
     }
 
     fn get_logical_channel(&self, search_channel: Channel) -> Option<usize> {
-        self.control.channels.iter().position(|&c| c == search_channel)
+        let index = self.control.channels.iter().position(|&c| c == search_channel)?;
+
+        // The logical channels start at one (zero is the master channel).
+        Some(index + 1)
     }
 
     /// Get a channel's mute state.

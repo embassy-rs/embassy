@@ -8,9 +8,13 @@ pub mod speaker;
 mod class_codes;
 mod terminal_type;
 
-/// The maximum number of supported audio channels
+/// The maximum supported audio channel index (corresponds to `Top`).
 /// FIXME: Use `core::mem::variant_count(...)` when stabilized.
 const MAX_AUDIO_CHANNEL_INDEX: usize = 12;
+
+/// The maximum number of supported audio channels.
+///
+/// Includes all twelve channels from `Channel`, plus the Master channel.
 const MAX_AUDIO_CHANNEL_COUNT: usize = MAX_AUDIO_CHANNEL_INDEX + 1;
 
 /// USB Audio Channel
@@ -33,6 +37,7 @@ pub enum Channel {
 }
 
 impl Channel {
+    /// Map a `Channel` to its corresponding USB Audio `ChannelConfig`.
     fn get_channel_config(&self) -> ChannelConfig {
         match self {
             Channel::LeftFront => ChannelConfig::LeftFront,
