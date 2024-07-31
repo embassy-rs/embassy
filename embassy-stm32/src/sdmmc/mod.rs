@@ -1511,3 +1511,44 @@ foreach_peripheral!(
         }
     };
 );
+
+impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> block_device_driver::BlockDevice<512> for Sdmmc<'d, T, Dma> {
+    type Error = Error;
+    type Align = aligned::A4;
+
+    async fn read(
+        &mut self,
+        mut block_address: u32,
+        buf: &mut [aligned::Aligned<Self::Align, [u8; 512]>],
+    ) -> Result<(), Self::Error> {
+        // FIXME/TODO because of missing read_blocks multiple we have to do this one block at a time
+        for block in buf.iter_mut() {
+            // safety aligned by block device
+            let block = unsafe { &mut *(block as *mut _ as *mut crate::sdmmc::DataBlock) };
+            self.read_block(block_address, block).await?;
+            block_address += 1;
+        }
+
+        Ok(())
+    }
+
+    async fn write(
+        &mut self,
+        mut block_address: u32,
+        buf: &[aligned::Aligned<Self::Align, [u8; 512]>],
+    ) -> Result<(), Self::Error> {
+        // FIXME/TODO because of missing read_blocks multiple we have to do this one block at a time
+        for block in buf.iter() {
+            // safety aligned by block device
+            let block = unsafe { &*(block as *const _ as *const crate::sdmmc::DataBlock) };
+            self.write_block(block_address, block).await?;
+            block_address += 1;
+        }
+
+        Ok(())
+    }
+
+    async fn size(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.card()?.size())
+    }
+}
