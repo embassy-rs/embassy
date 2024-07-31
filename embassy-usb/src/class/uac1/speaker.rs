@@ -81,7 +81,7 @@ pub struct Speaker<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> Speaker<'d, D> {
-    /// Creates a new `Speaker` device, split into a stream, and a control change notifier.
+    /// Creates a new `Speaker` device, split into a stream, feedback, and a control change notifier.
     ///
     /// The packet size should be chosen, based on the expected transfer size of samples per (micro)frame.
     /// For example, a stereo stream at 32 bit resolution and 48 kHz sample rate yields packets of 384 byte for
@@ -105,7 +105,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         sample_rates_hz: &[u32],
         channels: &'d [Channel],
         feedback_refresh_period: FeedbackRefreshPeriod,
-    ) -> (Stream<'d, D>, ControlChanged<'d>) {
+    ) -> (Stream<'d, D>, Feedback<'d, D>, ControlChanged<'d>) {
         let mut func = builder.function(AUDIO_FUNCTION, FUNCTION_SUBCLASS_UNDEFINED, PROTOCOL_NONE);
 
         // Audio control interface (mandatory) [UAC 4.3.1]
@@ -264,7 +264,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         let streaming_endpoint = alt.alloc_endpoint_out(EndpointType::Isochronous, max_packet_size, 1);
         let feedback_endpoint = alt.alloc_endpoint_in(
             EndpointType::Isochronous,
-            4, // Feedback packets are 24 (10.14 format for full-speed) or 32 bit (16.16 format high-speed)
+            4, // Feedback packets are 24 bit (10.14 format).
             1,
         );
 
@@ -327,14 +327,16 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         class.split()
     }
 
-    /// Split the class into a stream, and control change notifier.
+    /// Split the class into a stream, feedback, and control change notifier.
     ///
     /// Allows concurrent streaming, and watching for control changes.
-    fn split(self) -> (Stream<'d, D>, ControlChanged<'d>) {
+    fn split(self) -> (Stream<'d, D>, Feedback<'d, D>, ControlChanged<'d>) {
         (
             Stream {
-                feedback_endpoint: self.feedback_endpoint,
                 streaming_endpoint: self.streaming_endpoint,
+            },
+            Feedback {
+                feedback_endpoint: self.feedback_endpoint,
             },
             ControlChanged { control: self.control },
         )
@@ -413,15 +415,9 @@ impl<'d> SharedControl<'d> {
 /// UAC1 stream for reading audio frames, and writing feedback information
 pub struct Stream<'d, D: Driver<'d>> {
     streaming_endpoint: D::EndpointOut,
-    feedback_endpoint: D::EndpointIn,
 }
 
 impl<'d, D: Driver<'d>> Stream<'d, D> {
-    /// Writes a single packet into the IN endpoint
-    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.feedback_endpoint.write(data).await
-    }
-
     /// Reads a single packet from the OUT endpoint
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
         self.streaming_endpoint.read(data).await
@@ -430,7 +426,6 @@ impl<'d, D: Driver<'d>> Stream<'d, D> {
     /// Waits for the USB host to enable this interface
     pub async fn wait_connection(&mut self) {
         self.streaming_endpoint.wait_enabled().await;
-        self.feedback_endpoint.wait_enabled().await;
     }
 
     /// Gets the maximum packet size in bytes for the streaming endpoint
@@ -439,7 +434,24 @@ impl<'d, D: Driver<'d>> Stream<'d, D> {
     }
 }
 
-/// UAC1 control status change monitor
+/// UAC1 feedback, for writing sample rate information
+pub struct Feedback<'d, D: Driver<'d>> {
+    feedback_endpoint: D::EndpointIn,
+}
+
+impl<'d, D: Driver<'d>> Feedback<'d, D> {
+    /// Writes a single packet into the IN endpoint
+    pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
+        self.feedback_endpoint.write(data).await
+    }
+
+    /// Waits for the USB host to enable this interface
+    pub async fn wait_connection(&mut self) {
+        self.feedback_endpoint.wait_enabled().await;
+    }
+}
+
+/// Control status change monitor
 pub struct ControlChanged<'d> {
     control: &'d SharedControl<'d>,
 }
