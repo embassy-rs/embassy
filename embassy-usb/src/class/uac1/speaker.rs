@@ -81,7 +81,7 @@ pub struct Speaker<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> Speaker<'d, D> {
-    /// Creates a new `Speaker` device, split into a stream, feedback, and a control change notifier.
+    /// Creates a new [`Speaker`] device, split into a stream, feedback, and a control change notifier.
     ///
     /// The packet size should be chosen, based on the expected transfer size of samples per (micro)frame.
     /// For example, a stereo stream at 32 bit resolution and 48 kHz sample rate yields packets of 384 byte for
@@ -370,7 +370,7 @@ struct Control<'d> {
     shared: &'d SharedControl<'d>,
 }
 
-/// Shared data between Control and the Audio Class
+/// Shared data between [`Control`] and the [`Speaker`] class.
 struct SharedControl<'d> {
     /// The collection of audio settings (volumes, mute states).
     audio_settings: CriticalSectionMutex<Cell<AudioSettings>>,
@@ -412,7 +412,7 @@ impl<'d> SharedControl<'d> {
     }
 }
 
-/// UAC1 stream for reading audio frames, and writing feedback information
+/// Used for reading audio frames.
 pub struct Stream<'d, D: Driver<'d>> {
     streaming_endpoint: D::EndpointOut,
 }
@@ -427,14 +427,9 @@ impl<'d, D: Driver<'d>> Stream<'d, D> {
     pub async fn wait_connection(&mut self) {
         self.streaming_endpoint.wait_enabled().await;
     }
-
-    /// Gets the maximum packet size in bytes for the streaming endpoint
-    pub fn max_packet_size(&self) -> u16 {
-        self.streaming_endpoint.info().max_packet_size
-    }
 }
 
-/// UAC1 feedback, for writing sample rate information
+/// Used for writing sample rate information over the feedback endpoint.
 pub struct Feedback<'d, D: Driver<'d>> {
     feedback_endpoint: D::EndpointIn,
 }
@@ -452,6 +447,9 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
 }
 
 /// Control status change monitor
+///
+/// Await [`ControlChanged::control_changed`] for being notified of configuration changes. Afterwards, the updated
+/// configuration settings can be read with [`ControlChanged::is_muted`] and [`ControlChanged::volume_8q8_db`].
 pub struct ControlChanged<'d> {
     control: &'d SharedControl<'d>,
 }
