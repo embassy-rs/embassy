@@ -1,7 +1,7 @@
 //! Synchronization primitive for initializing a value once, allowing others to get a reference to the value.
 
-use core::cell::Cell;
-use core::mem::MaybeUninit;
+use core::cell::UnsafeCell;
+use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 /// The `LazyLock` is a synchronization primitive that allows for
@@ -23,8 +23,12 @@ use core::sync::atomic::{AtomicBool, Ordering};
 /// ```
 pub struct LazyLock<T, F = fn() -> T> {
     init: AtomicBool,
-    init_fn: Cell<Option<F>>,
-    data: Cell<MaybeUninit<T>>,
+    data: UnsafeCell<Data<T, F>>,
+}
+
+union Data<T, F> {
+    value: ManuallyDrop<T>,
+    f: ManuallyDrop<F>,
 }
 
 unsafe impl<T, F> Sync for LazyLock<T, F> {}
@@ -34,8 +38,9 @@ impl<T, F: FnOnce() -> T> LazyLock<T, F> {
     pub const fn new(init_fn: F) -> Self {
         Self {
             init: AtomicBool::new(false),
-            init_fn: Cell::new(Some(init_fn)),
-            data: Cell::new(MaybeUninit::zeroed()),
+            data: UnsafeCell::new(Data {
+                f: ManuallyDrop::new(init_fn),
+            }),
         }
     }
 
@@ -44,7 +49,7 @@ impl<T, F: FnOnce() -> T> LazyLock<T, F> {
     #[inline]
     pub fn get(&self) -> &T {
         self.ensure_init_fast();
-        unsafe { (*self.data.as_ptr()).assume_init_ref() }
+        unsafe { &(*self.data.get()).value }
     }
 
     /// Consume the `LazyLock`, returning the underlying value. The
@@ -53,7 +58,10 @@ impl<T, F: FnOnce() -> T> LazyLock<T, F> {
     #[inline]
     pub fn into_inner(self) -> T {
         self.ensure_init_fast();
-        unsafe { self.data.into_inner().assume_init() }
+        let this = ManuallyDrop::new(self);
+        let data = unsafe { core::ptr::read(&this.data) }.into_inner();
+
+        ManuallyDrop::into_inner(unsafe { data.value })
     }
 
     /// Initialize the `LazyLock` if it has not been initialized yet.
@@ -75,10 +83,70 @@ impl<T, F: FnOnce() -> T> LazyLock<T, F> {
     fn ensure_init(&self) {
         critical_section::with(|_| {
             if !self.init.load(Ordering::Acquire) {
-                let init_fn = self.init_fn.take().unwrap();
-                self.data.set(MaybeUninit::new(init_fn()));
+                let data = unsafe { &mut *self.data.get() };
+                let f = unsafe { ManuallyDrop::take(&mut data.f) };
+                let value = f();
+                data.value = ManuallyDrop::new(value);
+
                 self.init.store(true, Ordering::Release);
             }
         });
+    }
+}
+
+impl<T, F> Drop for LazyLock<T, F> {
+    fn drop(&mut self) {
+        if self.init.load(Ordering::Acquire) {
+            unsafe { ManuallyDrop::drop(&mut self.data.get_mut().value) };
+        } else {
+            unsafe { ManuallyDrop::drop(&mut self.data.get_mut().f) };
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+
+    #[test]
+    fn test_lazy_lock() {
+        static VALUE: LazyLock<u32> = LazyLock::new(|| 20);
+        let reference = VALUE.get();
+        assert_eq!(reference, &20);
+    }
+    #[test]
+    fn test_lazy_lock_into_inner() {
+        let lazy: LazyLock<u32> = LazyLock::new(|| 20);
+        let value = lazy.into_inner();
+        assert_eq!(value, 20);
+    }
+
+    static DROP_CHECKER: AtomicU32 = AtomicU32::new(0);
+    struct DropCheck;
+
+    impl Drop for DropCheck {
+        fn drop(&mut self) {
+            DROP_CHECKER.fetch_add(1, Ordering::Acquire);
+        }
+    }
+
+    #[test]
+    fn test_lazy_drop() {
+        let lazy: LazyLock<DropCheck> = LazyLock::new(|| DropCheck);
+        assert_eq!(DROP_CHECKER.load(Ordering::Acquire), 0);
+        lazy.get();
+        drop(lazy);
+        assert_eq!(DROP_CHECKER.load(Ordering::Acquire), 1);
+
+        let dropper = DropCheck;
+        let lazy_fn: LazyLock<u32, _> = LazyLock::new(move || {
+            let _a = dropper;
+            20
+        });
+        assert_eq!(DROP_CHECKER.load(Ordering::Acquire), 1);
+        drop(lazy_fn);
+        assert_eq!(DROP_CHECKER.load(Ordering::Acquire), 2);
     }
 }
