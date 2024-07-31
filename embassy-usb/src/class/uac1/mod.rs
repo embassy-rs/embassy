@@ -117,7 +117,7 @@ pub enum SampleWidth {
 
 impl SampleWidth {
     /// Get the audio sample resolution in number of bit.
-    pub fn in_bit(self) -> u8 {
-        8 * self as u8
+    pub const fn in_bit(self) -> usize {
+        8 * self as usize
     }
 }

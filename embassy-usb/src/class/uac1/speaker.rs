@@ -186,11 +186,11 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         // Format desciptor [UAC 4.5.3]
         // Used later, for operational streaming interface
         let format_descriptor = &[
-            FORMAT_TYPE,          // bDescriptorSubtype
-            FORMAT_TYPE_I,        // bFormatType
-            channels.len() as u8, // bNrChannels
-            resolution as u8,     // bSubframeSize
-            resolution.in_bit(),  // bBitResolution
+            FORMAT_TYPE,               // bDescriptorSubtype
+            FORMAT_TYPE_I,             // bFormatType
+            channels.len() as u8,      // bNrChannels
+            resolution as u8,          // bSubframeSize
+            resolution.in_bit() as u8, // bBitResolution
         ];
 
         let mut format_descriptor: Vec<u8, { 6 + 3 * MAX_SAMPLE_RATE_COUNT }> =
