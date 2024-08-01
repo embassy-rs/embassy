@@ -1129,10 +1129,6 @@ pub(crate) trait SealedInstance {
     const REGS: Regs;
 }
 
-trait SealedWord {
-    const CONFIG: u8;
-}
-
 /// OSPI instance trait.
 #[cfg(octospim_v1)]
 #[allow(private_bounds)]
@@ -1202,17 +1198,14 @@ impl<'d, T: Instance, M: PeriMode> GetConfig for Ospi<'d, T, M> {
 
 /// Word sizes usable for OSPI.
 #[allow(private_bounds)]
-pub trait Word: word::Word + SealedWord {}
+pub trait Word: word::Word {}
 
 macro_rules! impl_word {
-    ($T:ty, $config:expr) => {
-        impl SealedWord for $T {
-            const CONFIG: u8 = $config;
-        }
+    ($T:ty) => {
         impl Word for $T {}
     };
 }
 
-impl_word!(u8, 8);
-impl_word!(u16, 16);
-impl_word!(u32, 32);
+impl_word!(u8);
+impl_word!(u16);
+impl_word!(u32);

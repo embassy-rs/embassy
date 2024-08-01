@@ -2,6 +2,7 @@
 
 #![macro_use]
 #![allow(missing_docs)] // TODO
+#![cfg_attr(adc_f3_v2, allow(unused))]
 
 #[cfg(not(adc_f3_v2))]
 #[cfg_attr(adc_f1, path = "f1.rs")]
@@ -27,6 +28,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
+
+dma_trait!(RxDma, Instance);
 
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {

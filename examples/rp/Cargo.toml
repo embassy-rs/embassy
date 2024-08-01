@@ -8,11 +8,11 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
 embassy-sync = { version = "0.6.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
+embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.3.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
 embassy-usb = { version = "0.2.0", path = "../../embassy-usb", features = ["defmt"] }
-embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet", "dns"] }
 embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-usb-logger = { version = "0.2.0", path = "../../embassy-usb-logger" }
@@ -23,6 +23,14 @@ defmt = "0.3"
 defmt-rtt = "0.4"
 fixed = "1.23.1"
 fixed-macro = "1.2"
+
+# for web request example
+reqwless = { version = "0.12.0", features = ["defmt",]}
+serde = { version = "1.0.203", default-features = false, features = ["derive"] }
+serde-json-core = "0.5.1"
+
+# for assign resources example
+assign-resources = { git = "https://github.com/adamgreig/assign-resources", rev = "94ad10e2729afdf0fd5a77cd12e68409a982f58a" }
 
 #cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m = { version = "0.7.6", features = ["inline-asm"] }
@@ -36,7 +44,7 @@ display-interface = "0.4.1"
 byte-slice-cast = { version = "1.2.0", default-features = false }
 smart-leds = "0.3.0"
 heapless = "0.8"
-usbd-hid = "0.7.0"
+usbd-hid = "0.8.1"
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0"
@@ -53,3 +61,7 @@ embedded-sdmmc = "0.7.0"
 
 [profile.release]
 debug = 2
+
+[profile.dev]
+lto = true
+opt-level = "z"

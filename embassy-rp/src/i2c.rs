@@ -312,26 +312,30 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         }
     }
 
-    /// Read from address into buffer using DMA.
-    pub async fn read_async(&mut self, addr: u16, buffer: &mut [u8]) -> Result<(), Error> {
-        Self::setup(addr)?;
+    /// Read from address into buffer asynchronously.
+    pub async fn read_async(&mut self, addr: impl Into<u16>, buffer: &mut [u8]) -> Result<(), Error> {
+        Self::setup(addr.into())?;
         self.read_async_internal(buffer, true, true).await
     }
 
-    /// Write to address from buffer using DMA.
-    pub async fn write_async(&mut self, addr: u16, bytes: impl IntoIterator<Item = u8>) -> Result<(), Error> {
-        Self::setup(addr)?;
+    /// Write to address from buffer asynchronously.
+    pub async fn write_async(
+        &mut self,
+        addr: impl Into<u16>,
+        bytes: impl IntoIterator<Item = u8>,
+    ) -> Result<(), Error> {
+        Self::setup(addr.into())?;
         self.write_async_internal(bytes, true).await
     }
 
-    /// Write to address from bytes and read from address into buffer using DMA.
+    /// Write to address from bytes and read from address into buffer asynchronously.
     pub async fn write_read_async(
         &mut self,
-        addr: u16,
+        addr: impl Into<u16>,
         bytes: impl IntoIterator<Item = u8>,
         buffer: &mut [u8],
     ) -> Result<(), Error> {
-        Self::setup(addr)?;
+        Self::setup(addr.into())?;
         self.write_async_internal(bytes, false).await?;
         self.read_async_internal(buffer, true, true).await
     }
@@ -595,20 +599,20 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     // =========================
 
     /// Read from address into buffer blocking caller until done.
-    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, address: impl Into<u16>, read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.read_blocking_internal(read, true, true)
         // Automatic Stop
     }
 
     /// Write to address from buffer blocking caller until done.
-    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, address: impl Into<u16>, write: &[u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.write_blocking_internal(write, true)
     }
 
     /// Write to address from bytes and read from address into buffer blocking caller until done.
-    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, address: impl Into<u16>, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.write_blocking_internal(write, false)?;
         self.read_blocking_internal(read, true, true)
@@ -719,25 +723,15 @@ where
     T: Instance + 'd,
 {
     async fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
-        let addr: u16 = address.into();
-
-        Self::setup(addr)?;
-        self.read_async_internal(read, false, true).await
+        self.read_async(address, read).await
     }
 
     async fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
-        let addr: u16 = address.into();
-
-        Self::setup(addr)?;
-        self.write_async_internal(write.iter().copied(), true).await
+        self.write_async(address, write.iter().copied()).await
     }
 
     async fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        let addr: u16 = address.into();
-
-        Self::setup(addr)?;
-        self.write_async_internal(write.iter().cloned(), false).await?;
-        self.read_async_internal(read, true, true).await
+        self.write_read_async(address, write.iter().copied(), read).await
     }
 
     async fn transaction(
@@ -785,9 +779,6 @@ pub fn i2c_reserved_addr(addr: u16) -> bool {
 }
 
 pub(crate) trait SealedInstance {
-    const TX_DREQ: u8;
-    const RX_DREQ: u8;
-
     fn regs() -> crate::pac::i2c::I2c;
     fn reset() -> crate::pac::resets::regs::Peripherals;
     fn waker() -> &'static AtomicWaker;
@@ -822,11 +813,8 @@ pub trait Instance: SealedInstance {
 }
 
 macro_rules! impl_instance {
-    ($type:ident, $irq:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
+    ($type:ident, $irq:ident, $reset:ident) => {
         impl SealedInstance for peripherals::$type {
-            const TX_DREQ: u8 = $tx_dreq;
-            const RX_DREQ: u8 = $rx_dreq;
-
             #[inline]
             fn regs() -> pac::i2c::I2c {
                 pac::$type
@@ -852,8 +840,8 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(I2C0, I2C0_IRQ, set_i2c0, 32, 33);
-impl_instance!(I2C1, I2C1_IRQ, set_i2c1, 34, 35);
+impl_instance!(I2C0, I2C0_IRQ, set_i2c0);
+impl_instance!(I2C1, I2C1_IRQ, set_i2c1);
 
 /// SDA pin.
 pub trait SdaPin<T: Instance>: crate::gpio::Pin {}

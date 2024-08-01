@@ -40,7 +40,7 @@
 //! g7.set_io2(context.PE3, PinType::Sample);
 //! g7.set_io3(context.PE4, PinType::Channel);
 //!
-//! let mut touch_controller = tsc::Tsc::new(
+//! let mut touch_controller = tsc::Tsc::new_blocking(
 //!     context.TSC,
 //!     Some(g1),
 //!     Some(g2),
@@ -65,15 +65,19 @@
 /// Enums defined for peripheral parameters
 pub mod enums;
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 pub use enums::*;
 
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
-use crate::pac::tsc::Tsc as Regs;
+use crate::interrupt::typelevel::Interrupt;
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
+use crate::{interrupt, peripherals, Peripheral};
 
 #[cfg(tsc_v1)]
 const TSC_NUM_GROUPS: u32 = 6;
@@ -88,6 +92,18 @@ const TSC_NUM_GROUPS: u32 = 8;
 pub enum Error {
     /// Test error for TSC
     Test,
+}
+
+/// TSC interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        T::regs().ier().write(|w| w.set_eoaie(false));
+        T::waker().wake();
+    }
 }
 
 /// Pin type definition to control IO parameters
@@ -172,7 +188,7 @@ pub struct Config {
     pub spread_spectrum_prescaler: bool,
     /// Selects AHB clock divider used to generate pulse generator clk
     pub pulse_generator_prescaler: PGPrescalerDivider,
-    /// Maximum number of charge tranfer pulses that can be generated before error
+    /// Maximum number of charge transfer pulses that can be generated before error
     pub max_count_value: MaxCount,
     /// Defines config of all IOs when no ongoing acquisition
     pub io_default_mode: bool,
@@ -490,7 +506,7 @@ pub enum G7 {}
 pub enum G8 {}
 
 /// TSC driver
-pub struct Tsc<'d, T: Instance> {
+pub struct Tsc<'d, T: Instance, K: PeriMode> {
     _peri: PeripheralRef<'d, T>,
     _g1: Option<PinGroup<'d, T, G1>>,
     _g2: Option<PinGroup<'d, T, G2>>,
@@ -504,11 +520,102 @@ pub struct Tsc<'d, T: Instance> {
     _g8: Option<PinGroup<'d, T, G8>>,
     state: State,
     config: Config,
+    _kind: PhantomData<K>,
 }
 
-impl<'d, T: Instance> Tsc<'d, T> {
-    /// Create new TSC driver
-    pub fn new(
+impl<'d, T: Instance> Tsc<'d, T, Async> {
+    /// Create a Tsc instance that can be awaited for completion
+    pub fn new_async(
+        peri: impl Peripheral<P = T> + 'd,
+        g1: Option<PinGroup<'d, T, G1>>,
+        g2: Option<PinGroup<'d, T, G2>>,
+        g3: Option<PinGroup<'d, T, G3>>,
+        g4: Option<PinGroup<'d, T, G4>>,
+        g5: Option<PinGroup<'d, T, G5>>,
+        g6: Option<PinGroup<'d, T, G6>>,
+        #[cfg(any(tsc_v2, tsc_v3))] g7: Option<PinGroup<'d, T, G7>>,
+        #[cfg(tsc_v3)] g8: Option<PinGroup<'d, T, G8>>,
+        config: Config,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
+        // Need to check valid pin configuration input
+        let g1 = g1.filter(|b| b.check_group().is_ok());
+        let g2 = g2.filter(|b| b.check_group().is_ok());
+        let g3 = g3.filter(|b| b.check_group().is_ok());
+        let g4 = g4.filter(|b| b.check_group().is_ok());
+        let g5 = g5.filter(|b| b.check_group().is_ok());
+        let g6 = g6.filter(|b| b.check_group().is_ok());
+        #[cfg(any(tsc_v2, tsc_v3))]
+        let g7 = g7.filter(|b| b.check_group().is_ok());
+        #[cfg(tsc_v3)]
+        let g8 = g8.filter(|b| b.check_group().is_ok());
+
+        match Self::check_shields(
+            &g1,
+            &g2,
+            &g3,
+            &g4,
+            &g5,
+            &g6,
+            #[cfg(any(tsc_v2, tsc_v3))]
+            &g7,
+            #[cfg(tsc_v3)]
+            &g8,
+        ) {
+            Ok(()) => Self::new_inner(
+                peri,
+                g1,
+                g2,
+                g3,
+                g4,
+                g5,
+                g6,
+                #[cfg(any(tsc_v2, tsc_v3))]
+                g7,
+                #[cfg(tsc_v3)]
+                g8,
+                config,
+            ),
+            Err(_) => Self::new_inner(
+                peri,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                #[cfg(any(tsc_v2, tsc_v3))]
+                None,
+                #[cfg(tsc_v3)]
+                None,
+                config,
+            ),
+        }
+    }
+    /// Asyncronously wait for the end of an acquisition
+    pub async fn pend_for_acquisition(&mut self) {
+        poll_fn(|cx| match self.get_state() {
+            State::Busy => {
+                T::waker().register(cx.waker());
+                T::regs().ier().write(|w| w.set_eoaie(true));
+                if self.get_state() != State::Busy {
+                    T::regs().ier().write(|w| w.set_eoaie(false));
+                    return Poll::Ready(());
+                }
+                Poll::Pending
+            }
+            _ => {
+                T::regs().ier().write(|w| w.set_eoaie(false));
+                Poll::Ready(())
+            }
+        })
+        .await;
+    }
+}
+
+impl<'d, T: Instance> Tsc<'d, T, Blocking> {
+    /// Create a Tsc instance that must be polled for completion
+    pub fn new_blocking(
         peri: impl Peripheral<P = T> + 'd,
         g1: Option<PinGroup<'d, T, G1>>,
         g2: Option<PinGroup<'d, T, G2>>,
@@ -574,7 +681,14 @@ impl<'d, T: Instance> Tsc<'d, T> {
             ),
         }
     }
+    /// Wait for end of acquisition
+    pub fn poll_for_acquisition(&mut self) {
+        while self.get_state() == State::Busy {}
+    }
+}
 
+impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
+    /// Create new TSC driver
     fn check_shields(
         g1: &Option<PinGroup<'d, T, G1>>,
         g2: &Option<PinGroup<'d, T, G2>>,
@@ -663,7 +777,7 @@ impl<'d, T: Instance> Tsc<'d, T> {
 
         rcc::enable_and_reset::<T>();
 
-        T::REGS.cr().modify(|w| {
+        T::regs().cr().modify(|w| {
             w.set_tsce(true);
             w.set_ctph(config.ct_pulse_high_length.into());
             w.set_ctpl(config.ct_pulse_low_length.into());
@@ -691,32 +805,38 @@ impl<'d, T: Instance> Tsc<'d, T> {
 
         // Set IO configuration
         // Disable Schmitt trigger hysteresis on all used TSC IOs
-        T::REGS
+        T::regs()
             .iohcr()
             .write(|w| w.0 = !(config.channel_ios | config.shield_ios | config.sampling_ios));
 
         // Set channel and shield IOs
-        T::REGS.ioccr().write(|w| w.0 = config.channel_ios | config.shield_ios);
+        T::regs()
+            .ioccr()
+            .write(|w| w.0 = config.channel_ios | config.shield_ios);
 
         // Set sampling IOs
-        T::REGS.ioscr().write(|w| w.0 = config.sampling_ios);
+        T::regs().ioscr().write(|w| w.0 = config.sampling_ios);
 
         // Set the groups to be acquired
-        T::REGS
+        T::regs()
             .iogcsr()
             .write(|w| w.0 = Self::extract_groups(config.channel_ios));
 
         // Disable interrupts
-        T::REGS.ier().modify(|w| {
+        T::regs().ier().modify(|w| {
             w.set_eoaie(false);
             w.set_mceie(false);
         });
 
         // Clear flags
-        T::REGS.icr().modify(|w| {
+        T::regs().icr().modify(|w| {
             w.set_eoaic(true);
             w.set_mceic(true);
         });
+
+        unsafe {
+            T::Interrupt::enable();
+        }
 
         Self {
             _peri: peri,
@@ -732,6 +852,7 @@ impl<'d, T: Instance> Tsc<'d, T> {
             _g8: g8,
             state: State::Ready,
             config,
+            _kind: PhantomData,
         }
     }
 
@@ -740,111 +861,53 @@ impl<'d, T: Instance> Tsc<'d, T> {
         self.state = State::Busy;
 
         // Disable interrupts
-        T::REGS.ier().modify(|w| {
+        T::regs().ier().modify(|w| {
             w.set_eoaie(false);
             w.set_mceie(false);
         });
 
         // Clear flags
-        T::REGS.icr().modify(|w| {
+        T::regs().icr().modify(|w| {
             w.set_eoaic(true);
             w.set_mceic(true);
         });
 
         // Set the touch sensing IOs not acquired to the default mode
-        T::REGS.cr().modify(|w| {
+        T::regs().cr().modify(|w| {
             w.set_iodef(self.config.io_default_mode);
         });
 
         // Start the acquisition
-        T::REGS.cr().modify(|w| {
-            w.set_start(true);
-        });
-    }
-
-    /// Start charge transfer acquisition with interrupts enabled
-    pub fn start_it(&mut self) {
-        self.state = State::Busy;
-
-        // Enable interrupts
-        T::REGS.ier().modify(|w| {
-            w.set_eoaie(true);
-            w.set_mceie(self.config.max_count_interrupt);
-        });
-
-        // Clear flags
-        T::REGS.icr().modify(|w| {
-            w.set_eoaic(true);
-            w.set_mceic(true);
-        });
-
-        // Set the touch sensing IOs not acquired to the default mode
-        T::REGS.cr().modify(|w| {
-            w.set_iodef(self.config.io_default_mode);
-        });
-
-        // Start the acquisition
-        T::REGS.cr().modify(|w| {
+        T::regs().cr().modify(|w| {
             w.set_start(true);
         });
     }
 
     /// Stop charge transfer acquisition
     pub fn stop(&mut self) {
-        T::REGS.cr().modify(|w| {
+        T::regs().cr().modify(|w| {
             w.set_start(false);
         });
 
         // Set the touch sensing IOs in low power mode
-        T::REGS.cr().modify(|w| {
+        T::regs().cr().modify(|w| {
             w.set_iodef(false);
         });
 
         // Clear flags
-        T::REGS.icr().modify(|w| {
+        T::regs().icr().modify(|w| {
             w.set_eoaic(true);
             w.set_mceic(true);
         });
 
         self.state = State::Ready;
-    }
-
-    /// Stop charge transfer acquisition and clear interrupts
-    pub fn stop_it(&mut self) {
-        T::REGS.cr().modify(|w| {
-            w.set_start(false);
-        });
-
-        // Set the touch sensing IOs in low power mode
-        T::REGS.cr().modify(|w| {
-            w.set_iodef(false);
-        });
-
-        // Disable interrupts
-        T::REGS.ier().modify(|w| {
-            w.set_eoaie(false);
-            w.set_mceie(false);
-        });
-
-        // Clear flags
-        T::REGS.icr().modify(|w| {
-            w.set_eoaic(true);
-            w.set_mceic(true);
-        });
-
-        self.state = State::Ready;
-    }
-
-    /// Wait for end of acquisition
-    pub fn poll_for_acquisition(&mut self) {
-        while self.get_state() == State::Busy {}
     }
 
     /// Get current state of acquisition
     pub fn get_state(&mut self) -> State {
         if self.state == State::Busy {
-            if T::REGS.isr().read().eoaf() {
-                if T::REGS.isr().read().mcef() {
+            if T::regs().isr().read().eoaf() {
+                if T::regs().isr().read().mcef() {
                     self.state = State::Error
                 } else {
                     self.state = State::Ready
@@ -859,16 +922,16 @@ impl<'d, T: Instance> Tsc<'d, T> {
         // Status bits are set by hardware when the acquisition on the corresponding
         // enabled analog IO group is complete, cleared when new acquisition is started
         let status = match index {
-            Group::One => T::REGS.iogcsr().read().g1s(),
-            Group::Two => T::REGS.iogcsr().read().g2s(),
-            Group::Three => T::REGS.iogcsr().read().g3s(),
-            Group::Four => T::REGS.iogcsr().read().g4s(),
-            Group::Five => T::REGS.iogcsr().read().g5s(),
-            Group::Six => T::REGS.iogcsr().read().g6s(),
+            Group::One => T::regs().iogcsr().read().g1s(),
+            Group::Two => T::regs().iogcsr().read().g2s(),
+            Group::Three => T::regs().iogcsr().read().g3s(),
+            Group::Four => T::regs().iogcsr().read().g4s(),
+            Group::Five => T::regs().iogcsr().read().g5s(),
+            Group::Six => T::regs().iogcsr().read().g6s(),
             #[cfg(any(tsc_v2, tsc_v3))]
-            Group::Seven => T::REGS.iogcsr().read().g7s(),
+            Group::Seven => T::regs().iogcsr().read().g7s(),
             #[cfg(tsc_v3)]
-            Group::Eight => T::REGS.iogcsr().read().g8s(),
+            Group::Eight => T::regs().iogcsr().read().g8s(),
         };
         match status {
             true => GroupStatus::Complete,
@@ -878,39 +941,51 @@ impl<'d, T: Instance> Tsc<'d, T> {
 
     /// Get the count for the acquisiton, valid once group status is set
     pub fn group_get_value(&mut self, index: Group) -> u16 {
-        T::REGS.iogcr(index.into()).read().cnt()
+        T::regs().iogcr(index.into()).read().cnt()
     }
 
     /// Discharge the IOs for subsequent acquisition
     pub fn discharge_io(&mut self, status: bool) {
         // Set the touch sensing IOs in low power mode
-        T::REGS.cr().modify(|w| {
+        T::regs().cr().modify(|w| {
             w.set_iodef(!status);
         });
     }
 }
 
-impl<'d, T: Instance> Drop for Tsc<'d, T> {
+impl<'d, T: Instance, K: PeriMode> Drop for Tsc<'d, T, K> {
     fn drop(&mut self) {
         rcc::disable::<T>();
     }
 }
 
 pub(crate) trait SealedInstance {
-    const REGS: Regs;
+    fn regs() -> crate::pac::tsc::Tsc;
+    fn waker() -> &'static AtomicWaker;
 }
 
 /// TSC instance trait
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {
+    /// Interrupt for this TSC instance
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
-foreach_peripheral!(
-    (tsc, $inst:ident) => {
-        impl SealedInstance for peripherals::$inst {
-            const REGS: Regs = crate::pac::$inst;
+foreach_interrupt!(
+    ($inst:ident, tsc, TSC, GLOBAL, $irq:ident) => {
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
 
-        impl Instance for peripherals::$inst {}
+        impl SealedInstance for peripherals::$inst {
+            fn regs() -> crate::pac::tsc::Tsc {
+                crate::pac::$inst
+            }
+            fn waker() -> &'static AtomicWaker {
+                static WAKER: AtomicWaker = AtomicWaker::new();
+                &WAKER
+            }
+        }
     };
 );
 
