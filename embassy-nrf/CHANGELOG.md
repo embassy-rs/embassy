@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.0 - 2024-08-02
+
+- Add collapse_debuginfo to fmt.rs macros.
+- support EGU peripheral
+- support nrf9151
 - Drop `sealed` mod
 - nrf52840: Add dcdc voltage parameter to configure REG0 regulator
 - radio: Add support for IEEE 802.15.4 and BLE via radio peripheral
