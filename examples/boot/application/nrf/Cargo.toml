@@ -11,7 +11,7 @@ embassy-time = { version = "0.3.1", path = "../../../../embassy-time", features 
 embassy-nrf = { version = "0.1.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", ] }
 embassy-boot = { version = "0.2.0", path = "../../../../embassy-boot", features = [] }
 embassy-boot-nrf = { version = "0.2.0", path = "../../../../embassy-boot-nrf", features = [] }
-embassy-embedded-hal = { version = "0.1.0", path = "../../../../embassy-embedded-hal" }
+embassy-embedded-hal = { version = "0.2.0", path = "../../../../embassy-embedded-hal" }
 
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.4", optional = true }
