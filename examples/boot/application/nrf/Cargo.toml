@@ -10,7 +10,7 @@ embassy-executor = { version = "0.6.0", path = "../../../../embassy-executor", f
 embassy-time = { version = "0.3.2", path = "../../../../embassy-time", features = [] }
 embassy-nrf = { version = "0.2.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", ] }
 embassy-boot = { version = "0.3.0", path = "../../../../embassy-boot", features = [] }
-embassy-boot-nrf = { version = "0.2.0", path = "../../../../embassy-boot-nrf", features = [] }
+embassy-boot-nrf = { version = "0.3.0", path = "../../../../embassy-boot-nrf", features = [] }
 embassy-embedded-hal = { version = "0.2.0", path = "../../../../embassy-embedded-hal" }
 
 defmt = { version = "0.3", optional = true }
