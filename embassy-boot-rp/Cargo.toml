@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "embassy-boot-rp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Bootloader lib for RP2040 chips"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
