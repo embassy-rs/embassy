@@ -382,8 +382,8 @@ impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
         }
 
         let eps = match D::dir() {
-            Direction::Out => &mut self.ep_out,
-            Direction::In => &mut self.ep_in,
+            Direction::Out => &mut self.ep_out[..self.instance.endpoint_count],
+            Direction::In => &mut self.ep_in[..self.instance.endpoint_count],
         };
 
         // Find free endpoint slot
