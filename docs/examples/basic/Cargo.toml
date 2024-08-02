@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-executor = { version = "0.5.0", path = "../../../embassy-executor", features = ["defmt", "integrated-timers", "arch-cortex-m", "executor-thread"] }
-embassy-time = { version = "0.3.1", path = "../../../embassy-time", features = ["defmt"] }
+embassy-time = { version = "0.3.2", path = "../../../embassy-time", features = ["defmt"] }
 embassy-nrf = { version = "0.1.0", path = "../../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote"] }
 
 defmt = "0.3"
