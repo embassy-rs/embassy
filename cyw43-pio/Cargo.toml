@@ -16,7 +16,7 @@ overclock = []
 
 [dependencies]
 cyw43 = { version = "0.1.0", path = "../cyw43" }
-embassy-rp = { version = "0.1.0", path = "../embassy-rp" }
+embassy-rp = { version = "0.2.0", path = "../embassy-rp" }
 pio-proc = "0.2"
 pio = "0.2.1"
 fixed = "1.23.1"
