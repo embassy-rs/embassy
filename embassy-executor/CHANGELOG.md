@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.0 - 2024-08-01
+
+- Add collapse_debuginfo to fmt.rs macros.
+- initial support for avr
+- use nightly waker_getters APIs 
+
 ## 0.5.0 - 2024-01-11
 
 - Updated to `embassy-time-driver 0.1`, `embassy-time-queue-driver 0.1`, compatible with `embassy-time v0.3` and higher.

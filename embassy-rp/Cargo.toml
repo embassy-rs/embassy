@@ -125,5 +125,5 @@ rp2040-boot2 = "0.3"
 document-features = "0.2.7"
 
 [dev-dependencies]
-embassy-executor = { version = "0.5.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
+embassy-executor = { version = "0.6.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }

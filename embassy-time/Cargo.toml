@@ -431,4 +431,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.5.0", path = "../embassy-executor" }
+embassy-executor = { version = "0.6.0", path = "../embassy-executor" }
