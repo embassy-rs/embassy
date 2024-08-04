@@ -12,6 +12,7 @@
 
 use core::cell::{Cell, RefCell};
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
 
@@ -75,9 +76,7 @@ impl<'d> State<'d> {
 
 /// Implementation of the USB audio class 1.0.
 pub struct Speaker<'d, D: Driver<'d>> {
-    streaming_endpoint: D::EndpointOut,
-    feedback_endpoint: D::EndpointIn,
-    control: &'d SharedControl<'d>,
+    phantom: PhantomData<&'d D>,
 }
 
 impl<'d, D: Driver<'d>> Speaker<'d, D> {
@@ -318,27 +317,13 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         let control = &state.shared;
 
-        let class = Speaker {
-            streaming_endpoint,
-            feedback_endpoint,
-            control,
-        };
-
-        class.split()
-    }
-
-    /// Split the class into a stream, feedback, and control change notifier.
-    ///
-    /// Allows concurrent streaming, and watching for control changes.
-    fn split(self) -> (Stream<'d, D>, Feedback<'d, D>, ControlChanged<'d>) {
         (
-            Stream {
-                streaming_endpoint: self.streaming_endpoint,
-            },
+            Stream { streaming_endpoint },
             Feedback {
-                feedback_endpoint: self.feedback_endpoint,
+                feedback_endpoint,
+                feedback_refresh_period,
             },
-            ControlChanged { control: self.control },
+            ControlChanged { control },
         )
     }
 }
@@ -432,15 +417,21 @@ impl<'d, D: Driver<'d>> Stream<'d, D> {
 /// Used for writing sample rate information over the feedback endpoint.
 pub struct Feedback<'d, D: Driver<'d>> {
     feedback_endpoint: D::EndpointIn,
+    feedback_refresh_period: FeedbackRefreshPeriod,
 }
 
 impl<'d, D: Driver<'d>> Feedback<'d, D> {
-    /// Writes a single packet into the IN endpoint
+    /// Get the refresh period of the feedback endpoint.
+    pub fn feedback_refresh_period(&self) -> FeedbackRefreshPeriod {
+        self.feedback_refresh_period
+    }
+
+    /// Writes a single packet into the IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         self.feedback_endpoint.write(data).await
     }
 
-    /// Waits for the USB host to enable this interface
+    /// Waits for the USB host to enable this interface.
     pub async fn wait_connection(&mut self) {
         self.feedback_endpoint.wait_enabled().await;
     }
@@ -480,7 +471,7 @@ impl<'d> ControlChanged<'d> {
         Some(self.audio_settings().volume_8q8_db[channel])
     }
 
-    /// Return a future for when the control settings change
+    /// Return a future for when the control settings change.
     pub async fn control_changed(&self) {
         self.control.changed().await;
     }

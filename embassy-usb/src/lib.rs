@@ -6,6 +6,7 @@
 pub(crate) mod fmt;
 
 pub use embassy_usb_driver as driver;
+use embassy_usb_driver::EnumeratedSpeed;
 
 mod builder;
 pub mod class;
@@ -198,6 +199,7 @@ struct Inner<'d, D: Driver<'d>> {
     suspended: bool,
     remote_wakeup_enabled: bool,
     self_powered: bool,
+    speed: EnumeratedSpeed,
 
     /// Our device address, or 0 if none.
     address: u8,
@@ -241,6 +243,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 suspended: false,
                 remote_wakeup_enabled: false,
                 self_powered: false,
+                speed: EnumeratedSpeed::Unknown,
                 address: 0,
                 set_address_pending: false,
                 interfaces,
@@ -435,6 +438,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             OutResponse::Rejected => self.control.reject().await,
         }
     }
+
+    /// Get the enumerated speed of the USB device (e.g. full-speed or high-speed).
+    pub fn enumerated_speed(&self) -> EnumeratedSpeed {
+        self.inner.speed
+    }
 }
 
 impl<'d, D: Driver<'d>> Inner<'d, D> {
@@ -446,6 +454,10 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 self.suspended = false;
                 self.remote_wakeup_enabled = false;
                 self.address = 0;
+
+                if let Ok(speed) = self.bus.enumerated_speed() {
+                    self.speed = speed;
+                }
 
                 for h in &mut self.handlers {
                     h.reset();

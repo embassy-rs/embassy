@@ -35,6 +35,20 @@ pub enum EndpointType {
     Interrupt = 0b11,
 }
 
+/// The enumerated speed of the USB device.
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum EnumeratedSpeed {
+    /// The device is enumerated in low-speed mode (1.5 MBit/s).
+    LowSpeed,
+    /// The device is enumerated in full-speed mode (12 MBit/s).
+    FullSpeed,
+    /// The device is enumerated in high-speed mode (480 MBit/s).
+    HighSpeed,
+    /// Unknown enumeration speed.
+    Unknown,
+}
+
 /// Type-safe endpoint address.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -216,6 +230,16 @@ pub trait Bus {
     /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
     ///   remote wakeup or it has not been enabled at creation time.
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported>;
+
+    /// Get the enumerated speed of the USB device.
+    ///
+    /// # Errors
+    ///
+    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
+    ///   reporting the enumerated speed or it has not been enabled at creation time.
+    fn enumerated_speed(&self) -> Result<EnumeratedSpeed, Unsupported> {
+        Err(Unsupported)
+    }
 }
 
 /// Endpoint trait, common for OUT and IN.

@@ -85,20 +85,31 @@ impl From<ChannelConfig> for u16 {
 /// Feedback period adjustment `bRefresh` [UAC 3.7.2.2]
 ///
 /// From the specification: "A new Ff value is available every 2^(10 – P) frames with P ranging from 1 to 9. The
-/// bRefresh field of the synch standard endpoint descriptor is used to report the exponent (10-P) to the Host.
-/// It can range from 9 down to 1. (512 ms down to 2 ms)"
+/// bRefresh field of the synch standard endpoint descriptor is used to report the exponent (10-P) to the Host."
+///
+/// This means:
+/// - 512 ms (2^9 frames) to 2 ms (2^1 frames) for USB full-speed
+/// - 64 ms (2^9 microframes) to 0.25 ms (2^1 microframes) for USB high-speed
 #[repr(u8)]
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub enum FeedbackRefreshPeriod {
-    Period2ms = 1,
-    Period4ms = 2,
-    Period8ms = 3,
-    Period16ms = 4,
-    Period32ms = 5,
-    Period64ms = 6,
-    Period128ms = 7,
-    Period256ms = 8,
-    Period512ms = 9,
+    Period2Frames = 1,
+    Period4Frames = 2,
+    Period8Frames = 3,
+    Period16Frames = 4,
+    Period32Frames = 5,
+    Period64Frames = 6,
+    Period128Frames = 7,
+    Period256Frames = 8,
+    Period512Frames = 9,
+}
+
+impl FeedbackRefreshPeriod {
+    /// Gets the number of frames, after which a new feedback frame is returned.
+    pub const fn frame_count(&self) -> usize {
+        1 << (*self as usize)
+    }
 }
 
 /// Audio sample resolution.
