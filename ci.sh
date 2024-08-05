@@ -179,7 +179,7 @@ cargo batch \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \
     --- build --release --manifest-path embassy-boot-rp/Cargo.toml --target thumbv6m-none-eabi \
-    --- build --release --manifest-path embassy-boot-stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wl55jc-cm4 \
+    --- build --release --manifest-path embassy-boot-stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32l496zg \
     --- build --release --manifest-path docs/examples/basic/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-pac/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-hal/Cargo.toml --target thumbv7em-none-eabi \
@@ -207,6 +207,8 @@ cargo batch \
     --- build --release --manifest-path examples/stm32h5/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32h5 \
     --- build --release --manifest-path examples/stm32h7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h7 \
     --- build --release --manifest-path examples/stm32h735/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h735 \
+    --- build --release --manifest-path examples/stm32h755cm4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h755cm4 \
+    --- build --release --manifest-path examples/stm32h755cm7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h755cm7 \
     --- build --release --manifest-path examples/stm32h7rs/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h7rs \
     --- build --release --manifest-path examples/stm32l0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32l0 \
     --- build --release --manifest-path examples/stm32l1/Cargo.toml --target thumbv7m-none-eabi --out-dir out/examples/stm32l1 \
@@ -233,7 +235,7 @@ cargo batch \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \
     --- build --release --manifest-path examples/boot/bootloader/rp/Cargo.toml --target thumbv6m-none-eabi \
-    --- build --release --manifest-path examples/boot/bootloader/stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wl55jc-cm4 \
+    --- build --release --manifest-path examples/boot/bootloader/stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32l496zg \
     --- build --release --manifest-path examples/boot/bootloader/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wb55rg \
     --- build --release --manifest-path examples/boot/bootloader/stm32-dual-bank/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32h747xi-cm7 \
     --- build --release --manifest-path examples/wasm/Cargo.toml --target wasm32-unknown-unknown --out-dir out/examples/wasm \
