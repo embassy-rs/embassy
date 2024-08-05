@@ -70,7 +70,7 @@ pub fn wasm() -> TokenStream {
             let executor = ::std::boxed::Box::leak(::std::boxed::Box::new(::embassy_executor::Executor::new()));
 
             executor.start(|spawner| {
-                spawner.spawn(__embassy_main(spawner)).unwrap();
+                spawner.must_spawn(__embassy_main(spawner));
             });
 
             Ok(())

@@ -312,13 +312,13 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         }
     }
 
-    /// Read from address into buffer using DMA.
+    /// Read from address into buffer asynchronously.
     pub async fn read_async(&mut self, addr: impl Into<u16>, buffer: &mut [u8]) -> Result<(), Error> {
         Self::setup(addr.into())?;
         self.read_async_internal(buffer, true, true).await
     }
 
-    /// Write to address from buffer using DMA.
+    /// Write to address from buffer asynchronously.
     pub async fn write_async(
         &mut self,
         addr: impl Into<u16>,
@@ -328,7 +328,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         self.write_async_internal(bytes, true).await
     }
 
-    /// Write to address from bytes and read from address into buffer using DMA.
+    /// Write to address from bytes and read from address into buffer asynchronously.
     pub async fn write_read_async(
         &mut self,
         addr: impl Into<u16>,
@@ -779,9 +779,6 @@ pub fn i2c_reserved_addr(addr: u16) -> bool {
 }
 
 pub(crate) trait SealedInstance {
-    const TX_DREQ: u8;
-    const RX_DREQ: u8;
-
     fn regs() -> crate::pac::i2c::I2c;
     fn reset() -> crate::pac::resets::regs::Peripherals;
     fn waker() -> &'static AtomicWaker;
@@ -816,11 +813,8 @@ pub trait Instance: SealedInstance {
 }
 
 macro_rules! impl_instance {
-    ($type:ident, $irq:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
+    ($type:ident, $irq:ident, $reset:ident) => {
         impl SealedInstance for peripherals::$type {
-            const TX_DREQ: u8 = $tx_dreq;
-            const RX_DREQ: u8 = $rx_dreq;
-
             #[inline]
             fn regs() -> pac::i2c::I2c {
                 pac::$type
@@ -846,8 +840,8 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(I2C0, I2C0_IRQ, set_i2c0, 32, 33);
-impl_instance!(I2C1, I2C1_IRQ, set_i2c1, 34, 35);
+impl_instance!(I2C0, I2C0_IRQ, set_i2c0);
+impl_instance!(I2C1, I2C1_IRQ, set_i2c1);
 
 /// SDA pin.
 pub trait SdaPin<T: Instance>: crate::gpio::Pin {}

@@ -766,6 +766,12 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         rx.pop_done(amt);
         U::regs().intenset.write(|w| w.rxstarted().set());
     }
+
+    /// we are ready to read if there is data in the buffer
+    fn read_ready() -> Result<bool, Error> {
+        let state = U::buffered_state();
+        Ok(!state.rx_buf.is_empty())
+    }
 }
 
 impl<'a, U: UarteInstance, T: TimerInstance> Drop for BufferedUarteRx<'a, U, T> {
@@ -824,6 +830,18 @@ mod _embedded_io {
     impl<'d: 'd, U: UarteInstance, T: TimerInstance> embedded_io_async::Read for BufferedUarteRx<'d, U, T> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             self.read(buf).await
+        }
+    }
+
+    impl<'d, U: UarteInstance, T: TimerInstance + 'd> embedded_io_async::ReadReady for BufferedUarte<'d, U, T> {
+        fn read_ready(&mut self) -> Result<bool, Self::Error> {
+            BufferedUarteRx::<'d, U, T>::read_ready()
+        }
+    }
+
+    impl<'d, U: UarteInstance, T: TimerInstance + 'd> embedded_io_async::ReadReady for BufferedUarteRx<'d, U, T> {
+        fn read_ready(&mut self) -> Result<bool, Self::Error> {
+            Self::read_ready()
         }
     }
 

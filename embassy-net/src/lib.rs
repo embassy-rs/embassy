@@ -34,6 +34,8 @@ use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 #[allow(unused_imports)]
 use heapless::Vec;
+#[cfg(feature = "dns")]
+pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "igmp")]
 pub use smoltcp::iface::MulticastError;
 #[allow(unused_imports)]
@@ -414,7 +416,7 @@ impl<D: Driver> Stack<D> {
     /// ```ignore
     /// let config = embassy_net::Config::dhcpv4(Default::default());
     ///// Init network stack
-    /// static RESOURCES: StaticCell<embassy_net::StackResources<2> = StaticCell::new();
+    /// static RESOURCES: StaticCell<embassy_net::StackResources<2>> = StaticCell::new();
     /// static STACK: StaticCell<embassy_net::Stack> = StaticCell::new();
     /// let stack = &*STACK.init(embassy_net::Stack::new(
     ///    device,
@@ -823,9 +825,17 @@ impl<D: Driver> Inner<D> {
 
         // Apply DNS servers
         #[cfg(feature = "dns")]
-        s.sockets
-            .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
-            .update_servers(&dns_servers[..]);
+        if !dns_servers.is_empty() {
+            let count = if dns_servers.len() > DNS_MAX_SERVER_COUNT {
+                warn!("Number of DNS servers exceeds DNS_MAX_SERVER_COUNT, truncating list.");
+                DNS_MAX_SERVER_COUNT
+            } else {
+                dns_servers.len()
+            };
+            s.sockets
+                .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
+                .update_servers(&dns_servers[..count]);
+        }
 
         self.config_waker.wake();
     }

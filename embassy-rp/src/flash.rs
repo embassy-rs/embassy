@@ -625,18 +625,18 @@ mod ram_helpers {
             "movs r3, #0", // r3 = 0
             "ldr r4, [{ptrs}, #8]",
             "cmp r4, #0",
-            "beq 1f",
+            "beq 2f",
             "blx r4", // flash_range_erase(addr, len, 1 << 31, 0)
-            "1:",
+            "2:",
 
             "mov r0, r8", // r0 = addr
             "mov r1, r9", // r0 = data
             "mov r2, r10", // r2 = len
             "ldr r4, [{ptrs}, #12]",
             "cmp r4, #0",
-            "beq 1f",
+            "beq 2f",
             "blx r4", // flash_range_program(addr, data, len);
-            "1:",
+            "2:",
 
             "ldr r4, [{ptrs}, #16]",
             "blx r4", // flash_flush_cache();
@@ -802,12 +802,12 @@ mod ram_helpers {
             "adds r2, 0x60", // &DR
             "ldr r0, [r3, #0]", // cmd_addr
             "ldr r1, [r3, #4]", // cmd_addr_len
-            "10:",
+            "3:",
             "ldrb r3, [r0]",
             "strb r3, [r2]", // DR
             "adds r0, #1",
             "subs r1, #1",
-            "bne 10b",
+            "bne 3b",
 
             // Skip any dummy cycles
             "mov r3, r10", // cmd
