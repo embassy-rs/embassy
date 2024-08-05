@@ -5,10 +5,8 @@ use core::mem::MaybeUninit;
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_stm32::{
-    gpio::{Input, Level, Output, Pull, Speed},
-    SharedData,
-};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::SharedData;
 use {defmt_rtt as _, panic_probe as _};
 
 #[link_section = ".shared_data"]
