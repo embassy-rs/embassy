@@ -16,8 +16,8 @@ embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defm
 embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-usb-logger = { version = "0.2.0", path = "../../embassy-usb-logger" }
-cyw43 = { version = "0.2.0", path = "../../cyw43", features = ["defmt", "firmware-logs"] }
-cyw43-pio = { version = "0.2.0", path = "../../cyw43-pio", features = ["defmt", "overclock"] }
+cyw43 = { version = "0.2.0", path = "../../cyw43", features = ["defmt", "firmware-logs", "bluetooth"] }
+cyw43-pio = { version = "0.2.0", path = "../../cyw43-pio", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -59,9 +59,22 @@ pio = "0.2.1"
 rand = { version = "0.8.5", default-features = false }
 embedded-sdmmc = "0.7.0"
 
+bt-hci = { version = "0.1.0", default-features = false, features = ["defmt"] }
+trouble-host = { version = "0.1.0", features = ["defmt", "gatt"] }
+
 [profile.release]
 debug = 2
 
 [profile.dev]
 lto = true
 opt-level = "z"
+
+[patch.crates-io]
+trouble-host = { git = "https://github.com/embassy-rs/trouble.git", rev = "4b8c0f499b34e46ca23a56e2d1640ede371722cf" }
+bt-hci = { git = "https://github.com/alexmoon/bt-hci.git", rev = "b9cd5954f6bd89b535cad9c418e9fdf12812d7c3" }
+embassy-executor = { path = "../../embassy-executor" }
+embassy-sync = { path = "../../embassy-sync" }
+embassy-futures = { path = "../../embassy-futures" }
+embassy-time = { path = "../../embassy-time" }
+embassy-time-driver = { path = "../../embassy-time-driver" }
+embassy-embedded-hal = { path = "../../embassy-embedded-hal" }
