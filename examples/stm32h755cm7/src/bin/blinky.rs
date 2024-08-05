@@ -10,7 +10,7 @@ use embassy_stm32::SharedData;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-#[link_section = ".ram_d3"]
+#[link_section = ".ram_d3.shared_data"]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[embassy_executor::main]

@@ -9,6 +9,7 @@ SECTIONS
 {
     .ram_d3 :
     {
+        *(.ram_d3.shared_data)
         *(.ram_d3)
     } > RAM_D3
 }

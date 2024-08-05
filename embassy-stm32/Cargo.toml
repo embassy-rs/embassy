@@ -80,7 +80,7 @@ stm32-fmc = "0.3.0"
 cfg-if = "1.0.0"
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
-chrono = { version = "^0.4", default-features = false, optional = true}
+chrono = { version = "^0.4", default-features = false, optional = true }
 bit_field = "0.10.2"
 document-features = "0.2.7"
 

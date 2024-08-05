@@ -59,8 +59,8 @@ static CLOCK_FREQS_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Clocks>> =
     core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 #[cfg(feature = "_dual-core")]
-pub(crate) fn set_freqs_ptr(freqs: &'static MaybeUninit<Clocks>) {
-    CLOCK_FREQS_PTR.store(freqs as *const _ as *mut _, core::sync::atomic::Ordering::SeqCst);
+pub(crate) fn set_freqs_ptr(freqs: *mut MaybeUninit<Clocks>) {
+    CLOCK_FREQS_PTR.store(freqs, core::sync::atomic::Ordering::SeqCst);
 }
 
 #[cfg(not(feature = "_dual-core"))]
