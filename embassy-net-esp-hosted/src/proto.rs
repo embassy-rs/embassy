@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use heapless::{String, Vec};
 
 /// internal supporting structures for CtrlMsg
