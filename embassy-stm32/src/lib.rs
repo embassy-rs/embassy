@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
 #![feature(array_chunks)]
+#![feature(iter_array_chunks)]
 #![feature(slice_as_chunks)]
 #![feature(pointer_is_aligned_to)]
 #![cfg_attr(
@@ -101,6 +102,8 @@ pub mod ltdc;
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
+#[cfg(pka)]
+pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
