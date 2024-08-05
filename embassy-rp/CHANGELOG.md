@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## 0.2.0 - 2024-08-02
+## 0.2.0 - 2024-08-05
 
 - Add read_to_break_with_count
 - add option to provide your own boot2

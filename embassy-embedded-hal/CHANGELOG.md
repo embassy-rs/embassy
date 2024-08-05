@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## 0.2.0 
+## 0.2.0 - 2024-08-05
 
 - Add Clone derive to flash Partition in embassy-embedded-hal
 - Add support for all word sizes to async shared spi
