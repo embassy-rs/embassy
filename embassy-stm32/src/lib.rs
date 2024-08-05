@@ -273,7 +273,120 @@ impl Default for Config {
 /// This returns the peripheral singletons that can be used for creating drivers.
 ///
 /// This should only be called once at startup, otherwise it panics.
+#[cfg(not(feature = "_dual-core"))]
 pub fn init(config: Config) -> Peripherals {
+    init_hw(config)
+}
+
+#[cfg(feature = "_dual-core")]
+mod dual_core {
+    use core::cell::UnsafeCell;
+    use core::mem::MaybeUninit;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    use rcc::Clocks;
+
+    use super::*;
+
+    /// Object containing data that embassy needs to share between cores.
+    ///
+    /// It cannot be initialized by the user. The intended use is:
+    ///
+    /// ```
+    /// #[link_section = ".ram_d3"]
+    /// static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
+    ///
+    /// init_secondary(&SHARED_DATA);
+    /// ```
+    ///
+    /// This static must be placed in the same position for both cores. How and where this is done is left to the user.
+    pub struct SharedData {
+        init_flag: AtomicUsize,
+        clocks: UnsafeCell<MaybeUninit<Clocks>>,
+    }
+
+    unsafe impl Sync for SharedData {}
+
+    const INIT_DONE_FLAG: usize = 0xca11ab1e;
+
+    /// Initialize the `embassy-stm32` HAL with the provided configuration.
+    /// This function does the actual initialization of the hardware, in contrast to [init_secondary] or [try_init_secondary].
+    /// Any core can do the init, but it's important only one core does it.
+    ///
+    /// This returns the peripheral singletons that can be used for creating drivers.
+    ///
+    /// This should only be called once at startup, otherwise it panics.
+    ///
+    /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
+    /// for more information on its requirements.
+    pub fn init_primary(config: Config, shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
+        let shared_data = unsafe { shared_data.assume_init_ref() };
+
+        rcc::set_freqs_ptr(shared_data.clocks.get());
+        let p = init_hw(config);
+
+        shared_data.init_flag.store(INIT_DONE_FLAG, Ordering::SeqCst);
+
+        p
+    }
+
+    /// Try to initialize the `embassy-stm32` HAL based on the init done by the other core using [init_primary].
+    ///
+    /// This returns the peripheral singletons that can be used for creating drivers if the other core is done with its init.
+    /// If the other core is not done yet, this will return `None`.
+    ///
+    /// This should only be called once at startup, otherwise it may panic.
+    ///
+    /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
+    /// for more information on its requirements.
+    pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
+        let shared_data = unsafe { shared_data.assume_init_ref() };
+
+        if shared_data.init_flag.load(Ordering::SeqCst) != INIT_DONE_FLAG {
+            return None;
+        }
+
+        // Separate load and store to support the CM0 of the STM32WL
+        shared_data.init_flag.store(0, Ordering::SeqCst);
+
+        Some(init_secondary_hw(shared_data))
+    }
+
+    /// Initialize the `embassy-stm32` HAL based on the init done by the other core using [init_primary].
+    ///
+    /// This returns the peripheral singletons that can be used for creating drivers when the other core is done with its init.
+    /// If the other core is not done yet, this will spinloop wait on it.
+    ///
+    /// This should only be called once at startup, otherwise it may panic.
+    ///
+    /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
+    /// for more information on its requirements.
+    pub fn init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
+        loop {
+            if let Some(p) = try_init_secondary(shared_data) {
+                return p;
+            }
+        }
+    }
+
+    fn init_secondary_hw(shared_data: &'static SharedData) -> Peripherals {
+        rcc::set_freqs_ptr(shared_data.clocks.get());
+
+        // We use different timers on the different cores, so we have to still initialize one here
+        #[cfg(feature = "_time-driver")]
+        critical_section::with(|cs| {
+            // must be after rcc init
+            time_driver::init(cs);
+        });
+
+        Peripherals::take()
+    }
+}
+
+#[cfg(feature = "_dual-core")]
+pub use dual_core::*;
+
+fn init_hw(config: Config) -> Peripherals {
     critical_section::with(|cs| {
         let p = Peripherals::take_with_cs(cs);
 
