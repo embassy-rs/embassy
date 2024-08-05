@@ -1,16 +1,21 @@
 #![no_std]
 #![no_main]
 
+use core::mem::MaybeUninit;
+
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::{gpio::{Input, Level, Output, Pull, Speed}, SharedData};
 use {defmt_rtt as _, panic_probe as _};
+
+#[link_section = ".shared_data"]
+static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[entry]
 fn main() -> ! {
     info!("Hello World!");
 
-    let p = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init_primary(Default::default(), &SHARED_DATA);
 
     let button = Input::new(p.PA0, Pull::Up);
     let mut led1 = Output::new(p.PB15, Level::High, Speed::Low);
