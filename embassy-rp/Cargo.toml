@@ -22,13 +22,13 @@ features = ["defmt", "unstable-pac", "time-driver"]
 
 [features]
 default = [ "rt" ]
-## Enable the rt feature of [`rp-pac`](https://docs.rs/crates/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
+## Enable the rt feature of [`rp-pac`](https://docs.rs/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
 rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
 
-## Configure the critical section crate to use an implementation that is safe for multicore use on rp2040.
+## Configure the [`critical-section`](https://docs.rs/critical-section) crate to use an implementation that is safe for multicore use on rp2040.
 critical-section-impl = ["critical-section/restore-state-u8"]
 
 ## Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
