@@ -112,7 +112,7 @@ impl FeedbackRefresh {
     }
 }
 
-/// Audio sample resolution.
+/// Audio sample width.
 ///
 /// Stored in number of bytes per sample.
 #[repr(u8)]
