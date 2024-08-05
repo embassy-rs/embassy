@@ -22,9 +22,7 @@ use heapless::Vec;
 
 use super::class_codes::*;
 use super::terminal_type::TerminalType;
-use super::{
-    Channel, ChannelConfig, FeedbackRefreshPeriod, SampleWidth, MAX_AUDIO_CHANNEL_COUNT, MAX_AUDIO_CHANNEL_INDEX,
-};
+use super::{Channel, ChannelConfig, FeedbackRefresh, SampleWidth, MAX_AUDIO_CHANNEL_COUNT, MAX_AUDIO_CHANNEL_INDEX};
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};
@@ -51,6 +49,15 @@ const MAX_VOLUME_DB: i16 = 0;
 
 // Maximum number of supported discrete sample rates.
 const MAX_SAMPLE_RATE_COUNT: usize = 10;
+
+/// The volume of an audio channel.
+#[derive(Debug)]
+pub enum Volume {
+    /// The channel is muted.
+    Muted(Channel),
+    /// The channel volume in dB. Ranges from -100.0 (quietest) to 0.0 (loudest).
+    DeciBel(Channel, f32),
+}
 
 /// Internal state for the USB Audio Class
 pub struct State<'d> {
@@ -103,8 +110,8 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         resolution: SampleWidth,
         sample_rates_hz: &[u32],
         channels: &'d [Channel],
-        feedback_refresh_period: FeedbackRefreshPeriod,
-    ) -> (Stream<'d, D>, Feedback<'d, D>, ControlChanged<'d>) {
+        feedback_refresh_period: FeedbackRefresh,
+    ) -> (Stream<'d, D>, Feedback<'d, D>, ControlMonitor<'d>) {
         let mut func = builder.function(AUDIO_FUNCTION, FUNCTION_SUBCLASS_UNDEFINED, PROTOCOL_NONE);
 
         // Audio control interface (mandatory) [UAC 4.3.1]
@@ -319,11 +326,8 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         (
             Stream { streaming_endpoint },
-            Feedback {
-                feedback_endpoint,
-                feedback_refresh_period,
-            },
-            ControlChanged { control },
+            Feedback { feedback_endpoint },
+            ControlMonitor { control },
         )
     }
 }
@@ -417,15 +421,9 @@ impl<'d, D: Driver<'d>> Stream<'d, D> {
 /// Used for writing sample rate information over the feedback endpoint.
 pub struct Feedback<'d, D: Driver<'d>> {
     feedback_endpoint: D::EndpointIn,
-    feedback_refresh_period: FeedbackRefreshPeriod,
 }
 
 impl<'d, D: Driver<'d>> Feedback<'d, D> {
-    /// Get the refresh period of the feedback endpoint.
-    pub fn feedback_refresh_period(&self) -> FeedbackRefreshPeriod {
-        self.feedback_refresh_period
-    }
-
     /// Writes a single packet into the IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         self.feedback_endpoint.write(data).await
@@ -439,13 +437,13 @@ impl<'d, D: Driver<'d>> Feedback<'d, D> {
 
 /// Control status change monitor
 ///
-/// Await [`ControlChanged::control_changed`] for being notified of configuration changes. Afterwards, the updated
-/// configuration settings can be read with [`ControlChanged::is_muted`] and [`ControlChanged::volume_8q8_db`].
-pub struct ControlChanged<'d> {
+/// Await [`ControlMonitor::changed`] for being notified of configuration changes. Afterwards, the updated
+/// configuration settings can be read with [`ControlMonitor::volume`] and [`ControlMonitor::sample_rate_hz`].
+pub struct ControlMonitor<'d> {
     control: &'d SharedControl<'d>,
 }
 
-impl<'d> ControlChanged<'d> {
+impl<'d> ControlMonitor<'d> {
     fn audio_settings(&self) -> AudioSettings {
         let audio_settings = self.control.audio_settings.lock(|x| x.get());
 
@@ -459,20 +457,27 @@ impl<'d> ControlChanged<'d> {
         Some(index + 1)
     }
 
-    /// Get a channel's mute state.
-    pub fn is_muted(&self, channel: Channel) -> Option<bool> {
-        let channel = self.get_logical_channel(channel)?;
-        Some(self.audio_settings().muted[channel])
+    /// Get the volume of a selected channel.
+    pub fn volume(&self, channel: Channel) -> Option<Volume> {
+        let channel_index = self.get_logical_channel(channel)?;
+
+        if self.audio_settings().muted[channel_index] {
+            return Some(Volume::Muted(channel));
+        }
+
+        Some(Volume::DeciBel(
+            channel,
+            (self.audio_settings().volume_8q8_db[channel_index] as f32) / 256.0f32,
+        ))
     }
 
-    /// Get a channel's volume in 8q8 format in units of dB.
-    pub fn volume_8q8_db(&self, channel: Channel) -> Option<i16> {
-        let channel = self.get_logical_channel(channel)?;
-        Some(self.audio_settings().volume_8q8_db[channel])
+    /// Get the streaming endpoint's sample rate in Hz.
+    pub fn sample_rate_hz(&self) -> u32 {
+        self.control.sample_rate_hz.load(Ordering::Relaxed)
     }
 
     /// Return a future for when the control settings change.
-    pub async fn control_changed(&self) {
+    pub async fn changed(&self) {
         self.control.changed().await;
     }
 }
@@ -592,7 +597,10 @@ impl<'d> Control<'d> {
 
         let sample_rate_hz: u32 = (data[0] as u32) | (data[1] as u32) << 8 | (data[2] as u32) << 16;
         self.shared().sample_rate_hz.store(sample_rate_hz, Ordering::Relaxed);
+
         debug!("Set endpoint {} sample rate to {} Hz", endpoint_address, sample_rate_hz);
+
+        self.changed();
 
         Some(OutResponse::Accepted)
     }

@@ -93,7 +93,7 @@ impl From<ChannelConfig> for u16 {
 #[repr(u8)]
 #[allow(missing_docs)]
 #[derive(Clone, Copy)]
-pub enum FeedbackRefreshPeriod {
+pub enum FeedbackRefresh {
     Period2Frames = 1,
     Period4Frames = 2,
     Period8Frames = 3,
@@ -105,7 +105,7 @@ pub enum FeedbackRefreshPeriod {
     Period512Frames = 9,
 }
 
-impl FeedbackRefreshPeriod {
+impl FeedbackRefresh {
     /// Gets the number of frames, after which a new feedback frame is returned.
     pub const fn frame_count(&self) -> usize {
         1 << (*self as usize)
