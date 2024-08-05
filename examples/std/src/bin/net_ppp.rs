@@ -102,7 +102,7 @@ async fn main_task(spawner: Spawner) {
     let stack = &*STACK.init(Stack::new(
         device,
         Config::default(), // don't configure IP yet
-        RESOURCES.init(StackResources::<3>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
     ));
 

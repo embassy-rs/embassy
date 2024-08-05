@@ -91,7 +91,7 @@ async fn main(spawner: Spawner) {
     let stack = &*STACK.init(Stack::new(
         net_device,
         config,
-        RESOURCES.init(StackResources::<5>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
     ));
 

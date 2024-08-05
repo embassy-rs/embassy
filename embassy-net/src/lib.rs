@@ -415,8 +415,11 @@ impl<D: Driver> Stack<D> {
     /// ## Example
     /// ```ignore
     /// let config = embassy_net::Config::dhcpv4(Default::default());
-    ///// Init network stack
-    /// static RESOURCES: StaticCell<embassy_net::StackResources<2>> = StaticCell::new();
+    /// // Init network stack
+    /// // NOTE: DHCP and DNS need one socket slot if enabled. This is why we're
+    /// // provisioning space for 3 sockets here: one for DHCP, one for DNS, and one for your code (e.g. TCP).
+    /// // If you use more sockets you must increase this. If you don't enable DHCP or DNS you can decrease it.
+    /// static RESOURCES: StaticCell<embassy_net::StackResources<3>> = StaticCell::new();
     /// static STACK: StaticCell<embassy_net::Stack> = StaticCell::new();
     /// let stack = &*STACK.init(embassy_net::Stack::new(
     ///    device,
