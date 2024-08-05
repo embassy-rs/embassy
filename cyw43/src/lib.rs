@@ -8,18 +8,18 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+#[cfg(feature = "bluetooth")]
+mod bluetooth;
 mod bus;
 mod consts;
+mod control;
 mod countries;
 mod events;
 mod ioctl;
-mod structs;
-
-mod control;
 mod nvram;
 mod runner;
-
-use core::slice;
+mod structs;
+mod util;
 
 use embassy_net_driver_channel as ch;
 use embedded_hal_1::digital::OutputPin;
@@ -56,6 +56,7 @@ impl Core {
 struct Chip {
     arm_core_base_address: u32,
     socsram_base_address: u32,
+    bluetooth_base_address: u32,
     socsram_wrapper_base_address: u32,
     sdiod_core_base_address: u32,
     pmu_base_address: u32,
@@ -83,6 +84,7 @@ const WRAPPER_REGISTER_OFFSET: u32 = 0x100000;
 const CHIP: Chip = Chip {
     arm_core_base_address: 0x18003000 + WRAPPER_REGISTER_OFFSET,
     socsram_base_address: 0x18004000,
+    bluetooth_base_address: 0x19000000,
     socsram_wrapper_base_address: 0x18004000 + WRAPPER_REGISTER_OFFSET,
     sdiod_core_base_address: 0x18002000,
     pmu_base_address: 0x18000000,
@@ -107,6 +109,12 @@ const CHIP: Chip = Chip {
 /// Driver state.
 pub struct State {
     ioctl_state: IoctlState,
+    net: NetState,
+    #[cfg(feature = "bluetooth")]
+    bt: bluetooth::BtState,
+}
+
+struct NetState {
     ch: ch::State<MTU, 4, 4>,
     events: Events,
 }
@@ -116,8 +124,12 @@ impl State {
     pub fn new() -> Self {
         Self {
             ioctl_state: IoctlState::new(),
-            ch: ch::State::new(),
-            events: Events::new(),
+            net: NetState {
+                ch: ch::State::new(),
+                events: Events::new(),
+            },
+            #[cfg(feature = "bluetooth")]
+            bt: bluetooth::BtState::new(),
         }
     }
 }
@@ -225,21 +237,60 @@ where
     PWR: OutputPin,
     SPI: SpiBusCyw43,
 {
-    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
 
-    let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
+    let mut runner = Runner::new(
+        ch_runner,
+        Bus::new(pwr, spi),
+        &state.ioctl_state,
+        &state.net.events,
+        #[cfg(feature = "bluetooth")]
+        None,
+    );
 
-    runner.init(firmware).await;
+    runner.init(firmware, None).await;
+    let control = Control::new(state_ch, &state.net.events, &state.ioctl_state);
 
-    (
-        device,
-        Control::new(state_ch, &state.events, &state.ioctl_state),
-        runner,
-    )
+    (device, control, runner)
 }
 
-fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
-    let len = x.len() * 4;
-    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
+/// Create a new instance of the CYW43 driver.
+///
+/// Returns a handle to the network device, control handle and a runner for driving the low level
+/// stack.
+#[cfg(feature = "bluetooth")]
+pub async fn new_with_bluetooth<'a, PWR, SPI>(
+    state: &'a mut State,
+    pwr: PWR,
+    spi: SPI,
+    wifi_firmware: &[u8],
+    bluetooth_firmware: &[u8],
+) -> (
+    NetDriver<'a>,
+    bluetooth::BtDriver<'a>,
+    Control<'a>,
+    Runner<'a, PWR, SPI>,
+)
+where
+    PWR: OutputPin,
+    SPI: SpiBusCyw43,
+{
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let state_ch = ch_runner.state_runner();
+
+    let (bt_runner, bt_driver) = bluetooth::new(&mut state.bt);
+    let mut runner = Runner::new(
+        ch_runner,
+        Bus::new(pwr, spi),
+        &state.ioctl_state,
+        &state.net.events,
+        #[cfg(feature = "bluetooth")]
+        Some(bt_runner),
+    );
+
+    runner.init(wifi_firmware, Some(bluetooth_firmware)).await;
+    let control = Control::new(state_ch, &state.net.events, &state.ioctl_state);
+
+    (device, bt_driver, control, runner)
 }
