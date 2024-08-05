@@ -1029,8 +1029,9 @@ impl<'d> Uart<'d, Async> {
     /// (when it is available for your chip). There is no functional difference between these methods, as both
     /// allow bidirectional communication.
     ///
-    /// The pin is always released when no data is transmitted. Thus, it acts as a standard
-    /// I/O in idle or in reception.
+    /// The TX pin is always released when no data is transmitted. Thus, it acts as a standard
+    /// I/O in idle or in reception. It means that the I/O must be configured so that TX is
+    /// configured as alternate function open-drain with an external pull-up
     /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[doc(alias("HDSEL"))]
@@ -1051,7 +1052,7 @@ impl<'d> Uart<'d, Async> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(tx, AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up)),
             None,
             None,
             None,
