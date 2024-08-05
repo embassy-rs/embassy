@@ -699,3 +699,21 @@ pub fn config() -> Config {
 
     config
 }
+
+#[allow(unused)]
+pub fn init() -> embassy_stm32::Peripherals {
+    init_with_config(config())
+}
+
+#[allow(unused)]
+pub fn init_with_config(config: Config) -> embassy_stm32::Peripherals {
+    #[cfg(feature = "stm32wl55jc")]
+    {
+        // Not in shared memory, but we're not running the second core, so it's fine
+        static SHARED_DATA: core::mem::MaybeUninit<embassy_stm32::SharedData> = core::mem::MaybeUninit::uninit();
+        embassy_stm32::init_primary(config, &SHARED_DATA)
+    }
+
+    #[cfg(not(feature = "stm32wl55jc"))]
+    embassy_stm32::init(config)
+}

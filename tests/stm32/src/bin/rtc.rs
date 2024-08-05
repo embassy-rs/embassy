@@ -18,7 +18,7 @@ async fn main(_spawner: Spawner) {
     let mut config = config();
     config.rcc.ls = LsConfig::default_lse();
 
-    let p = embassy_stm32::init(config);
+    let p = init_with_config(config);
     info!("Hello World!");
 
     let now = NaiveDate::from_ymd_opt(2020, 5, 15)

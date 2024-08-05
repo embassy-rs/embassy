@@ -38,7 +38,7 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let p = init();
     info!("Hello World!");
 
     // Generate random seed.

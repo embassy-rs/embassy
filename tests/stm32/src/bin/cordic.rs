@@ -29,7 +29,7 @@ const OUTPUT_LENGTH: usize = (INPUT_U32_COUNT - 1) * 2;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let dp = embassy_stm32::init(config());
+    let dp = init();
 
     //
     // use RNG generate random Q1.31 value

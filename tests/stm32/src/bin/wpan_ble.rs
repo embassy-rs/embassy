@@ -41,7 +41,7 @@ async fn main(spawner: Spawner) {
     let mut config = config();
     config.rcc = WPAN_DEFAULT;
 
-    let p = embassy_stm32::init(config);
+    let p = init_with_config(config);
     info!("Hello World!");
 
     let config = Config::default();
