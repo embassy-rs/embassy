@@ -9,27 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.2.0 - 2024-08-05
 
-- Add collapse_debuginfo to fmt.rs macros.
-- support EGU peripheral
-- support nrf9151
-- Drop `sealed` mod
-- nrf52840: Add dcdc voltage parameter to configure REG0 regulator
-- radio: Add support for IEEE 802.15.4 and BLE via radio peripheral
-- spim: Reduce trace-level messages ("Copying SPIM tx buffer..")
-- uart: Add support for rx- or tx-only BufferedUart
-- uart: Implement splitting Rx/Tx
-- spi: Allow specifying OutputDrive for SPI spins
-- pdm: Fix gain register value derivation
-- spim: Implement chunked DMA transfers
-- spi: Add bounds checks for EasyDMA buffer size
-- uarte: Add support for handling RX errors
-- nrf51: Implement support for nrf51 chip
-- pwm: Expose `duty` method
-- pwm: Fix infinite loop
-- spi: Add support for configuring bit order for bus
-- pwm: Expose `pwm::PWM_CLK_HZ` and add `is_enabled` method
-- gpio: Drop GPIO Pin generics (API break)
-- pwm: Allow specifying OutputDrive for PWM channels
+- Support for NRF chips:
+  - nrf51
+  - nrf9151
+- Support for new peripherals:
+  - EGU
+  - radio - low-level support for IEEE 802.15.4 and BLE via radio peripheral
+- Peripheral changes:
+  - gpio: Drop GPIO Pin generics (API break)
+  - pdm: Fix gain register value derivation
+  - pwm:
+    - Expose `duty` method
+    - Expose `pwm::PWM_CLK_HZ` and add `is_enabled` method
+    - Allow specifying OutputDrive for PWM channels
+    - Fix infinite loop
+  - spim:
+    - Reduce trace-level messages ("Copying SPIM tx buffer..")
+    - Support configuring bit order for bus
+    - Allow specifying OutputDrive for SPI pins
+    - Add bounds checks for EasyDMA buffer size
+    - Implement chunked DMA transfers
+  - uart:
+    - Add support for rx- or tx-only BufferedUart
+    - Implement splitting Rx/Tx
+    - Add support for handling RX errors
+- Miscellaneous changes:
+  - Add `collapse_debuginfo` to fmt.rs macros.
+  - Drop `sealed` mod
+  - nrf52840: Add dcdc voltage parameter to configure REG0 regulator
 
 ## 0.1.0 - 2024-01-12
 
