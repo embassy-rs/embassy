@@ -331,6 +331,9 @@ impl<'d, W: Word> I2S<'d, W> {
     /// Reset the ring buffer to its initial state.
     /// Can be used to recover from overrun.
     pub fn clear(&mut self) {
+        if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
+            rx_ring_buffer.clear();
+        }
         if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
             tx_ring_buffer.clear();
         }
