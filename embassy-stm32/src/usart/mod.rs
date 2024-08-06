@@ -211,6 +211,19 @@ impl Default for Config {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Half duplex IO mode
+pub enum HalfDuplexConfig {
+    /// Push pull allows for faster baudrates, may require series resistor
+    PushPull,
+    /// Open drain output using external pull up resistor
+    OpenDrainExternal,
+    #[cfg(not(gpio_v1))]
+    /// Open drain output using internal pull up resistor
+    OpenDrainInternal,
+}
+
 /// Serial error
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -1042,6 +1055,7 @@ impl<'d> Uart<'d, Async> {
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         mut config: Config,
+        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         #[cfg(not(any(usart_v1, usart_v2)))]
         {
@@ -1052,7 +1066,21 @@ impl<'d> Uart<'d, Async> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up)),
+            new_pin!(
+                tx,
+                match half_duplex {
+                    HalfDuplexConfig::PushPull => {
+                        AfType::output(OutputType::PushPull, Speed::Medium)
+                    }
+                    HalfDuplexConfig::OpenDrainExternal => {
+                        AfType::output(OutputType::OpenDrain, Speed::Medium)
+                    }
+                    #[cfg(not(gpio_v1))]
+                    HalfDuplexConfig::OpenDrainInternal => {
+                        AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up)
+                    }
+                }
+            ),
             None,
             None,
             None,
@@ -1080,6 +1108,7 @@ impl<'d> Uart<'d, Async> {
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         mut config: Config,
+        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         config.swap_rx_tx = true;
         config.half_duplex = true;
@@ -1088,7 +1117,21 @@ impl<'d> Uart<'d, Async> {
             peri,
             None,
             None,
-            new_pin!(rx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(
+                rx,
+                match half_duplex {
+                    HalfDuplexConfig::PushPull => {
+                        AfType::output(OutputType::PushPull, Speed::Medium)
+                    }
+                    HalfDuplexConfig::OpenDrainExternal => {
+                        AfType::output(OutputType::OpenDrain, Speed::Medium)
+                    }
+                    #[cfg(not(gpio_v1))]
+                    HalfDuplexConfig::OpenDrainInternal => {
+                        AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up)
+                    }
+                }
+            ),
             None,
             None,
             new_dma!(tx_dma),
@@ -1193,6 +1236,7 @@ impl<'d> Uart<'d, Blocking> {
         peri: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         mut config: Config,
+        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         #[cfg(not(any(usart_v1, usart_v2)))]
         {
@@ -1203,7 +1247,21 @@ impl<'d> Uart<'d, Blocking> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(
+                tx,
+                match half_duplex {
+                    HalfDuplexConfig::PushPull => {
+                        AfType::output(OutputType::PushPull, Speed::Medium)
+                    }
+                    HalfDuplexConfig::OpenDrainExternal => {
+                        AfType::output(OutputType::OpenDrain, Speed::Medium)
+                    }
+                    #[cfg(not(gpio_v1))]
+                    HalfDuplexConfig::OpenDrainInternal => {
+                        AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up)
+                    }
+                }
+            ),
             None,
             None,
             None,
@@ -1228,6 +1286,7 @@ impl<'d> Uart<'d, Blocking> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         mut config: Config,
+        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         config.swap_rx_tx = true;
         config.half_duplex = true;
@@ -1236,7 +1295,21 @@ impl<'d> Uart<'d, Blocking> {
             peri,
             None,
             None,
-            new_pin!(rx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(
+                rx,
+                match half_duplex {
+                    HalfDuplexConfig::PushPull => {
+                        AfType::output(OutputType::PushPull, Speed::Medium)
+                    }
+                    HalfDuplexConfig::OpenDrainExternal => {
+                        AfType::output(OutputType::OpenDrain, Speed::Medium)
+                    }
+                    #[cfg(not(gpio_v1))]
+                    HalfDuplexConfig::OpenDrainInternal => {
+                        AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up)
+                    }
+                }
+            ),
             None,
             None,
             None,
