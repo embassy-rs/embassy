@@ -5,3 +5,4 @@ Cargo.lock
 third_party
 /Cargo.toml
 out/
+Session.vim
