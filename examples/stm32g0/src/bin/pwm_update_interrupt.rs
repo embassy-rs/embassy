@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-use crate::peripherals::TIM3;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
@@ -11,6 +10,8 @@ use embassy_stm32::timer::{self, Channel};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+
+use crate::peripherals::TIM3;
 
 // This test is meant for the target nucleo G070 RB
 // On arduino pin d4 (pb5) a pwm signal of  1.0 hz can me measured, with increasing duty cycle

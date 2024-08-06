@@ -1,6 +1,9 @@
 //! Simple PWM driver.
 
+use core::future::Future;
 use core::marker::PhantomData;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
@@ -10,9 +13,6 @@ use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
 use crate::Peripheral;
-use core::future::Future;
-use core::pin::Pin;
-use core::task::{Context, Poll};
 
 /// Channel 1 marker type.
 pub enum Ch1 {}
