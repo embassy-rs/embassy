@@ -3,9 +3,9 @@
 
 // test is targeted for nucleo-g070RB board
 
-use core::fmt;
 use core::fmt::Write;
-use core::str;
+use core::{fmt, str};
+
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};

@@ -1,12 +1,12 @@
 use core::result::Result;
 
-use crate::i2c::Error;
-use crate::mode::Mode;
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Receiver};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Receiver;
 use stm32_metapac::i2c;
 
 use super::{AddressIndex, I2c, Instance};
-use crate::i2c::Dir;
+use crate::i2c::{Dir, Error};
+use crate::mode::Mode;
 
 /// buffer used for the transactions
 pub type I2cBuffer = [u8; SLAVE_BUFFER_SIZE];

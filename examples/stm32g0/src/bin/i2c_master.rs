@@ -1,9 +1,9 @@
 #![no_std]
 #![no_main]
 
-use core::fmt;
 use core::fmt::Write;
-use core::str;
+use core::{fmt, str};
+
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};

@@ -11,10 +11,10 @@ use core::cell::RefCell;
 use core::future::Future;
 use core::iter;
 use core::marker::PhantomData;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::Mutex;
 
 use embassy_hal_internal::{Peripheral, PeripheralRef};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
@@ -54,7 +54,7 @@ pub enum Error {
     NoTransaction,
 }
 
-/// Address 2 can be masked, so it will respond to a wider range of addresses. 
+/// Address 2 can be masked, so it will respond to a wider range of addresses.
 #[repr(u8)]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Address2Mask {
