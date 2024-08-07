@@ -5,4 +5,7 @@ Cargo.lock
 third_party
 /Cargo.toml
 out/
+# editor artifacts
 .zed
+.neoconf.json
+*.vim
