@@ -1,7 +1,13 @@
-use core::ops::BitOr;
+use core::marker::PhantomData;
+use core::ops::{BitAnd, BitOr, BitOrAssign};
+
+use super::tsc_pin_roles;
+use super::types::Group;
 
 /// Pin defines
 #[allow(missing_docs)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum TscIOPin {
     Group1Io1,
     Group1Io2,
@@ -45,6 +51,53 @@ pub enum TscIOPin {
     Group8Io4,
 }
 
+/// Represents a TSC I/O pin with associated group and role information.
+///
+/// This type combines a `TscIOPin` with phantom type parameters to statically
+/// encode the pin's group and role. This allows for type-safe operations
+/// on TSC pins within their specific contexts.
+///
+/// - `Group`: A type parameter representing the TSC group (e.g., `G1`, `G2`).
+/// - `Role`: A type parameter representing the pin's role (e.g., `Channel`, `Sample`).
+#[derive(Clone, Copy, Debug)]
+pub struct TscIOPinWithRole<Group, Role: tsc_pin_roles::Role> {
+    /// The underlying TSC I/O pin.
+    pub pin: TscIOPin,
+    pub(super) phantom: PhantomData<(Group, Role)>,
+}
+
+impl<G, R: tsc_pin_roles::Role> TscIOPinWithRole<G, R> {
+    pub(super) fn get_pin(wrapped_pin: TscIOPinWithRole<G, R>) -> TscIOPin {
+        wrapped_pin.pin
+    }
+}
+
+impl TscIOPin {
+    /// Maps this TscIOPin to the Group it belongs to.
+    ///
+    /// This method provides a convenient way to determine which Group
+    /// a specific TSC I/O pin is associated with.
+    pub const fn group(&self) -> Group {
+        match self {
+            TscIOPin::Group1Io1 | TscIOPin::Group1Io2 | TscIOPin::Group1Io3 | TscIOPin::Group1Io4 => Group::One,
+            TscIOPin::Group2Io1 | TscIOPin::Group2Io2 | TscIOPin::Group2Io3 | TscIOPin::Group2Io4 => Group::Two,
+            TscIOPin::Group3Io1 | TscIOPin::Group3Io2 | TscIOPin::Group3Io3 | TscIOPin::Group3Io4 => Group::Three,
+            TscIOPin::Group4Io1 | TscIOPin::Group4Io2 | TscIOPin::Group4Io3 | TscIOPin::Group4Io4 => Group::Four,
+            TscIOPin::Group5Io1 | TscIOPin::Group5Io2 | TscIOPin::Group5Io3 | TscIOPin::Group5Io4 => Group::Five,
+            TscIOPin::Group6Io1 | TscIOPin::Group6Io2 | TscIOPin::Group6Io3 | TscIOPin::Group6Io4 => Group::Six,
+            #[cfg(any(tsc_v2, tsc_v3))]
+            TscIOPin::Group7Io1 | TscIOPin::Group7Io2 | TscIOPin::Group7Io3 | TscIOPin::Group7Io4 => Group::Seven,
+            #[cfg(tsc_v3)]
+            TscIOPin::Group8Io1 | TscIOPin::Group8Io2 | TscIOPin::Group8Io3 | TscIOPin::Group8Io4 => Group::Eight,
+        }
+    }
+
+    /// Returns the `Group` associated with the given `TscIOPin`.
+    pub fn get_group(pin: TscIOPin) -> Group {
+        pin.group()
+    }
+}
+
 impl BitOr<TscIOPin> for u32 {
     type Output = u32;
     fn bitor(self, rhs: TscIOPin) -> Self::Output {
@@ -70,8 +123,31 @@ impl BitOr for TscIOPin {
     }
 }
 
-impl Into<u32> for TscIOPin {
-    fn into(self) -> u32 {
+impl BitOrAssign<TscIOPin> for u32 {
+    fn bitor_assign(&mut self, rhs: TscIOPin) {
+        let rhs: u32 = rhs.into();
+        *self |= rhs;
+    }
+}
+
+impl BitAnd<TscIOPin> for u32 {
+    type Output = u32;
+    fn bitand(self, rhs: TscIOPin) -> Self::Output {
+        let rhs: u32 = rhs.into();
+        self & rhs
+    }
+}
+
+impl BitAnd<u32> for TscIOPin {
+    type Output = u32;
+    fn bitand(self, rhs: u32) -> Self::Output {
+        let val: u32 = self.into();
+        val & rhs
+    }
+}
+
+impl TscIOPin {
+    const fn to_u32(self) -> u32 {
         match self {
             TscIOPin::Group1Io1 => 0x00000001,
             TscIOPin::Group1Io2 => 0x00000002,
@@ -117,122 +193,8 @@ impl Into<u32> for TscIOPin {
     }
 }
 
-/// Spread Spectrum Deviation
-#[derive(Copy, Clone)]
-pub struct SSDeviation(u8);
-impl SSDeviation {
-    /// Create new deviation value, acceptable inputs are 1-128
-    pub fn new(val: u8) -> Result<Self, ()> {
-        if val == 0 || val > 128 {
-            return Err(());
-        }
-        Ok(Self(val - 1))
-    }
-}
-
-impl Into<u8> for SSDeviation {
-    fn into(self) -> u8 {
-        self.0
-    }
-}
-
-/// Charge transfer pulse cycles
-#[allow(missing_docs)]
-#[derive(Copy, Clone, PartialEq)]
-pub enum ChargeTransferPulseCycle {
-    _1,
-    _2,
-    _3,
-    _4,
-    _5,
-    _6,
-    _7,
-    _8,
-    _9,
-    _10,
-    _11,
-    _12,
-    _13,
-    _14,
-    _15,
-    _16,
-}
-
-impl Into<u8> for ChargeTransferPulseCycle {
-    fn into(self) -> u8 {
-        match self {
-            ChargeTransferPulseCycle::_1 => 0,
-            ChargeTransferPulseCycle::_2 => 1,
-            ChargeTransferPulseCycle::_3 => 2,
-            ChargeTransferPulseCycle::_4 => 3,
-            ChargeTransferPulseCycle::_5 => 4,
-            ChargeTransferPulseCycle::_6 => 5,
-            ChargeTransferPulseCycle::_7 => 6,
-            ChargeTransferPulseCycle::_8 => 7,
-            ChargeTransferPulseCycle::_9 => 8,
-            ChargeTransferPulseCycle::_10 => 9,
-            ChargeTransferPulseCycle::_11 => 10,
-            ChargeTransferPulseCycle::_12 => 11,
-            ChargeTransferPulseCycle::_13 => 12,
-            ChargeTransferPulseCycle::_14 => 13,
-            ChargeTransferPulseCycle::_15 => 14,
-            ChargeTransferPulseCycle::_16 => 15,
-        }
-    }
-}
-
-/// Prescaler divider
-#[allow(missing_docs)]
-#[derive(Copy, Clone, PartialEq)]
-pub enum PGPrescalerDivider {
-    _1,
-    _2,
-    _4,
-    _8,
-    _16,
-    _32,
-    _64,
-    _128,
-}
-
-impl Into<u8> for PGPrescalerDivider {
-    fn into(self) -> u8 {
-        match self {
-            PGPrescalerDivider::_1 => 0,
-            PGPrescalerDivider::_2 => 1,
-            PGPrescalerDivider::_4 => 2,
-            PGPrescalerDivider::_8 => 3,
-            PGPrescalerDivider::_16 => 4,
-            PGPrescalerDivider::_32 => 5,
-            PGPrescalerDivider::_64 => 6,
-            PGPrescalerDivider::_128 => 7,
-        }
-    }
-}
-
-/// Max count
-#[allow(missing_docs)]
-#[derive(Copy, Clone)]
-pub enum MaxCount {
-    _255,
-    _511,
-    _1023,
-    _2047,
-    _4095,
-    _8191,
-    _16383,
-}
-
-impl Into<u8> for MaxCount {
-    fn into(self) -> u8 {
-        match self {
-            MaxCount::_255 => 0,
-            MaxCount::_511 => 1,
-            MaxCount::_1023 => 2,
-            MaxCount::_2047 => 3,
-            MaxCount::_4095 => 4,
-            MaxCount::_8191 => 5,
-            MaxCount::_16383 => 6,
-        }
+impl Into<u32> for TscIOPin {
+    fn into(self) -> u32 {
+        self.to_u32()
     }
 }
