@@ -11,6 +11,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_futures::select::{select, Either};
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
+use mode::Master;
 
 use super::*;
 use crate::mode::Mode as PeriMode;
@@ -41,7 +42,7 @@ pub unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-impl<'d, M: PeriMode> I2c<'d, M> {
+impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     pub(crate) fn init(&mut self, freq: Hertz, _config: Config) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
@@ -354,7 +355,7 @@ impl<'d, M: PeriMode> I2c<'d, M> {
     }
 }
 
-impl<'d> I2c<'d, Async> {
+impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     async fn write_frame(&mut self, address: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error> {
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
@@ -800,7 +801,7 @@ impl Timings {
     }
 }
 
-impl<'d, M: PeriMode> SetConfig for I2c<'d, M> {
+impl<'d, M: PeriMode> SetConfig for I2c<'d, M, Master> {
     type Config = Hertz;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
@@ -818,5 +819,75 @@ impl<'d, M: PeriMode> SetConfig for I2c<'d, M> {
         });
 
         Ok(())
+    }
+}
+
+// ======== Embedded HAL impls ========
+
+impl<'d, M: PeriMode, IM: MasterMode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M, IM> {
+    type Error = Error;
+
+    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(address, buffer)
+    }
+}
+
+impl<'d, M: PeriMode, IM: MasterMode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M, IM> {
+    type Error = Error;
+
+    fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(address, write)
+    }
+}
+
+impl<'d, M: PeriMode, IM: MasterMode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M, IM> {
+    type Error = Error;
+
+    fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(address, write, read)
+    }
+}
+
+impl<'d, M: PeriMode, IM: MasterMode> embedded_hal_1::i2c::I2c for I2c<'d, M, IM> {
+    fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(address, read)
+    }
+
+    fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(address, write)
+    }
+
+    fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(address, write, read)
+    }
+
+    fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        self.blocking_transaction(address, operations)
+    }
+}
+
+impl<'d, IM: MasterMode> embedded_hal_async::i2c::I2c for I2c<'d, Async, IM> {
+    async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.read(address, read).await
+    }
+
+    async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+        self.write(address, write).await
+    }
+
+    async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.write_read(address, write, read).await
+    }
+
+    async fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        self.transaction(address, operations).await
     }
 }
