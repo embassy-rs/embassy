@@ -1,5 +1,3 @@
-// required-features: not-gpdma
-
 #![no_std]
 #![no_main]
 #[path = "../common.rs"]
