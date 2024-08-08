@@ -2,15 +2,18 @@
 
 use embassy_hal_internal::into_ref;
 
+use super::ll_async::TimerEventFuture;
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
 use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
 use crate::gpio::{AfType, Pull};
+use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
 use crate::Peripheral;
 
 /// PWM Input driver.
 pub struct PwmInput<'d, T: GeneralInstance4Channel> {
-    channel: Channel,
+    ch1: Channel,
+    ch2: Channel,
     inner: Timer<'d, T>,
 }
 
@@ -67,9 +70,11 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
         inner.set_slave_mode(SlaveMode::RESET_MODE);
 
-        // Must call the `enable` function after
+        // enable NVIC interrupt
+        T::CaptureCompareInterrupt::unpend();
+        unsafe { T::CaptureCompareInterrupt::enable() };
 
-        Self { channel: ch1, inner }
+        Self { ch1, ch2, inner }
     }
 
     /// Enable the given channel.
@@ -91,16 +96,12 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
     /// Get the period tick count
     pub fn get_period_ticks(&self) -> u32 {
-        self.inner.get_capture_value(self.channel)
+        self.inner.get_capture_value(self.ch1)
     }
 
     /// Get the pulse width tick count
     pub fn get_width_ticks(&self) -> u32 {
-        self.inner.get_capture_value(match self.channel {
-            Channel::Ch1 => Channel::Ch2,
-            Channel::Ch2 => Channel::Ch1,
-            _ => panic!("Invalid channel for PWM input"),
-        })
+        self.inner.get_capture_value(self.ch2)
     }
 
     /// Get the duty cycle in 100%
@@ -110,5 +111,25 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
             return 0.;
         }
         100. * (self.get_width_ticks() as f32) / (period as f32)
+    }
+
+    /// Asynchronously wait until the pin sees a rising edge (period measurement).
+    pub async fn wait_for_rising_edge(&self) -> u32 {
+        self.inner.clear_input_interrupt(self.ch1);
+        self.inner.enable_input_interrupt(self.ch1, true);
+
+        // Rising edge is always on the main channel
+        let future: TimerEventFuture<T> = TimerEventFuture::new(self.ch1.into());
+        future.await
+    }
+
+    /// Asynchronously wait until the pin sees a falling edge (width measurement).
+    pub async fn wait_for_falling_edge(&self) -> u32 {
+        // Falling edge is always on the alternate channel
+        self.inner.clear_input_interrupt(self.ch2);
+        self.inner.enable_input_interrupt(self.ch2, true);
+
+        let future: TimerEventFuture<T> = TimerEventFuture::new(self.ch2.into());
+        future.await
     }
 }
