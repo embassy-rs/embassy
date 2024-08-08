@@ -365,6 +365,13 @@ where
                     }
                     Either4::Fourth(()) => {
                         self.handle_irq(&mut buf).await;
+
+                        // If we do busy-polling, make sure to yield.
+                        // `handle_irq` will only do a 32bit read if there's no work to do, which is really fast.
+                        // Depending on optimization level, it is possible that the 32-bit read finishes on
+                        // first poll, so it never yields and we starve all other tasks.
+                        #[cfg(feature = "bluetooth")]
+                        embassy_futures::yield_now().await;
                     }
                 }
             } else {
