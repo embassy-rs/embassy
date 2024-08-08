@@ -302,7 +302,14 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         // pac::XIP_CTRL.stream_fifo().as_ptr()) to avoid DMA stalling on
         // general XIP access.
         const XIP_AUX_BASE: *const u32 = 0x50400000 as *const _;
-        let transfer = unsafe { crate::dma::read(self.dma.as_mut().unwrap(), XIP_AUX_BASE, data, 37) };
+        let transfer = unsafe {
+            crate::dma::read(
+                self.dma.as_mut().unwrap(),
+                XIP_AUX_BASE,
+                data,
+                pac::dma::vals::TreqSel::XIP_STREAM,
+            )
+        };
 
         Ok(BackgroundRead {
             flash: PhantomData,
@@ -597,6 +604,7 @@ mod ram_helpers {
     /// addr must be aligned to 4096
     #[inline(never)]
     #[link_section = ".data.ram_func"]
+    #[cfg(feature = "rp2040")]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
         /*
          Should be equivalent to:
@@ -658,6 +666,11 @@ mod ram_helpers {
             clobber_abi("C"),
         );
     }
+
+    #[inline(never)]
+    #[link_section = ".data.ram_func"]
+    #[cfg(feature = "rp235x")]
+    unsafe fn write_flash_inner(_addr: u32, _len: u32, _data: Option<&[u8]>, _ptrs: *const FlashFunctionPointers) {}
 
     #[repr(C)]
     struct FlashCommand {
@@ -758,6 +771,7 @@ mod ram_helpers {
     /// Credit: taken from `rp2040-flash` (also licensed Apache+MIT)
     #[inline(never)]
     #[link_section = ".data.ram_func"]
+    #[cfg(feature = "rp2040")]
     unsafe fn read_flash_inner(cmd: FlashCommand, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]
         core::arch::asm!(
@@ -874,6 +888,11 @@ mod ram_helpers {
             clobber_abi("C"),
         );
     }
+
+    #[inline(never)]
+    #[link_section = ".data.ram_func"]
+    #[cfg(feature = "rp235x")]
+    unsafe fn read_flash_inner(_cmd: FlashCommand, _ptrs: *const FlashFunctionPointers) {}
 }
 
 /// Make sure to uphold the contract points with rp2040-flash.
@@ -887,7 +906,7 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
     }
 
     // Make sure CORE1 is paused during the entire duration of the RAM function
-    crate::multicore::pause_core1();
+    //crate::multicore::pause_core1();
 
     critical_section::with(|_| {
         // Wait for all DMA channels in flash to finish before ram operation
@@ -904,7 +923,7 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
     });
 
     // Resume CORE1 execution
-    crate::multicore::resume_core1();
+    //crate::multicore::resume_core1();
     Ok(())
 }
 

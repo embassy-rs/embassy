@@ -11,6 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::gpio::{self, AnyPin, Pull, SealedPin as GpioPin};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::InterruptExt;
+use crate::pac::dma::vals::TreqSel;
 use crate::peripherals::{ADC, ADC_TEMP_SENSOR};
 use crate::{dma, interrupt, pac, peripherals, Peripheral, RegExt};
 
@@ -229,7 +230,10 @@ impl<'d> Adc<'d, Async> {
         div: u16,
         dma: impl Peripheral<P = impl dma::Channel>,
     ) -> Result<(), Error> {
+        #[cfg(feature = "rp2040")]
         let mut rrobin = 0_u8;
+        #[cfg(feature = "rp235x")]
+        let mut rrobin = 0_u16;
         for c in channels {
             rrobin |= 1 << c;
         }
@@ -278,7 +282,7 @@ impl<'d> Adc<'d, Async> {
         }
         let auto_reset = ResetDmaConfig;
 
-        let dma = unsafe { dma::read(dma, r.fifo().as_ptr() as *const W, buf as *mut [W], 36) };
+        let dma = unsafe { dma::read(dma, r.fifo().as_ptr() as *const W, buf as *mut [W], TreqSel::ADC) };
         // start conversions and wait for dma to finish. we can't report errors early
         // because there's no interrupt to signal them, and inspecting every element
         // of the fifo is too costly to do here.
@@ -423,10 +427,31 @@ macro_rules! impl_pin {
     };
 }
 
+#[cfg(any(feature = "rp235xa", feature = "rp2040"))]
 impl_pin!(PIN_26, 0);
+#[cfg(any(feature = "rp235xa", feature = "rp2040"))]
 impl_pin!(PIN_27, 1);
+#[cfg(any(feature = "rp235xa", feature = "rp2040"))]
 impl_pin!(PIN_28, 2);
+#[cfg(any(feature = "rp235xa", feature = "rp2040"))]
 impl_pin!(PIN_29, 3);
+
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_40, 0);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_41, 1);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, 2);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, 3);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_44, 4);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_45, 5);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, 6);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, 7);
 
 impl SealedAdcChannel for peripherals::ADC_TEMP_SENSOR {}
 impl AdcChannel for peripherals::ADC_TEMP_SENSOR {}

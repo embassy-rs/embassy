@@ -15,6 +15,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-rp/sr
 features = ["defmt", "unstable-pac", "time-driver"]
 flavors = [
     { name = "rp2040", target = "thumbv6m-none-eabi" },
+    { name = "rp235x", target = "thumbv8m.main-none-eabi" },
 ]
 
 [package.metadata.docs.rs]
@@ -23,7 +24,9 @@ features = ["defmt", "unstable-pac", "time-driver"]
 [features]
 default = [ "rt" ]
 ## Enable the rt feature of [`rp-pac`](https://docs.rs/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
-rt = [ "rp-pac/rt" ]
+rt = []
+rt-2040 = [ "rt", "rp-pac/rt" ]
+rt-235x = [ "rt", "rp23-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
@@ -88,6 +91,17 @@ boot2-w25x10cl = []
 ## ```
 boot2-none = []
 
+rp2040 = ["dep:rp-pac"]
+rp235x = ["dep:rp23-pac"]
+rp235xa = ["rp235x"]
+rp235xb = ["rp235x"]
+
+# Add a binary-info header block containing picotool-compatible metadata.
+#
+# Takes up a little flash space, but picotool can then report the name of your
+# program and other details.
+binary-info = [ "rt-235x" ]
+
 [dependencies]
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
@@ -112,7 +126,8 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-rp-pac = { version = "6" }
+rp-pac = { path = "/home/cbjamo/235x/rp-pac", feature = ["rt"], optional = true }
+rp23-pac = { path = "/home/cbjamo/235x/rp23-pac/", feature = ["rt"], optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -123,6 +138,7 @@ pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
 document-features = "0.2.7"
+sha2-const-stable = "0.1"
 
 [dev-dependencies]
 embassy-executor = { version = "0.6.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }

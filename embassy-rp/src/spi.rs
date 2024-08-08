@@ -106,15 +106,55 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 
         if let Some(pin) = &clk {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "rp235x")]
+                w.set_iso(false);
+                w.set_schmitt(true);
+                w.set_slewfast(false);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(false);
+                w.set_pde(false);
+            });
         }
         if let Some(pin) = &mosi {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "rp235x")]
+                w.set_iso(false);
+                w.set_schmitt(true);
+                w.set_slewfast(false);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(false);
+                w.set_pde(false);
+            });
         }
         if let Some(pin) = &miso {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "rp235x")]
+                w.set_iso(false);
+                w.set_schmitt(true);
+                w.set_slewfast(false);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(false);
+                w.set_pde(false);
+            });
         }
         if let Some(pin) = &cs {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "rp235x")]
+                w.set_iso(false);
+                w.set_schmitt(true);
+                w.set_slewfast(false);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(false);
+                w.set_pde(false);
+            });
         }
         Self {
             inner,
@@ -442,8 +482,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 trait SealedMode {}
 
 trait SealedInstance {
-    const TX_DREQ: u8;
-    const RX_DREQ: u8;
+    const TX_DREQ: pac::dma::vals::TreqSel;
+    const RX_DREQ: pac::dma::vals::TreqSel;
 
     fn regs(&self) -> pac::spi::Spi;
 }
@@ -459,8 +499,8 @@ pub trait Instance: SealedInstance {}
 macro_rules! impl_instance {
     ($type:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl SealedInstance for peripherals::$type {
-            const TX_DREQ: u8 = $tx_dreq;
-            const RX_DREQ: u8 = $rx_dreq;
+            const TX_DREQ: pac::dma::vals::TreqSel = $tx_dreq;
+            const RX_DREQ: pac::dma::vals::TreqSel = $rx_dreq;
 
             fn regs(&self) -> pac::spi::Spi {
                 pac::$type
@@ -470,8 +510,18 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(SPI0, Spi0, 16, 17);
-impl_instance!(SPI1, Spi1, 18, 19);
+impl_instance!(
+    SPI0,
+    Spi0,
+    pac::dma::vals::TreqSel::SPI0_TX,
+    pac::dma::vals::TreqSel::SPI0_RX
+);
+impl_instance!(
+    SPI1,
+    Spi1,
+    pac::dma::vals::TreqSel::SPI1_TX,
+    pac::dma::vals::TreqSel::SPI1_RX
+);
 
 /// CLK pin.
 pub trait ClkPin<T: Instance>: GpioPin {}
@@ -518,6 +568,42 @@ impl_pin!(PIN_26, SPI1, ClkPin);
 impl_pin!(PIN_27, SPI1, MosiPin);
 impl_pin!(PIN_28, SPI1, MisoPin);
 impl_pin!(PIN_29, SPI1, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_30, SPI1, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_31, SPI1, MosiPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_32, SPI0, MisoPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_33, SPI0, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_34, SPI0, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_35, SPI0, MosiPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_36, SPI0, MisoPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_37, SPI0, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_38, SPI0, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_39, SPI0, MosiPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_40, SPI1, MisoPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_41, SPI1, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, SPI1, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, SPI1, MosiPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_44, SPI1, MisoPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_45, SPI1, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, SPI1, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, SPI1, MosiPin);
 
 macro_rules! impl_mode {
     ($name:ident) => {
