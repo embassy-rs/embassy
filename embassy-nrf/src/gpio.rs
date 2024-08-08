@@ -534,11 +534,13 @@ mod eh02 {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -580,11 +582,13 @@ mod eh02 {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -628,11 +632,13 @@ impl<'d> embedded_hal_1::digital::ErrorType for Output<'d> {
 
 impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -665,11 +671,13 @@ impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
 
 impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 

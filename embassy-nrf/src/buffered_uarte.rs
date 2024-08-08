@@ -219,6 +219,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         uarte: impl Peripheral<P = U> + 'd,
         timer: impl Peripheral<P = T> + 'd,
@@ -254,6 +255,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_rtscts(
         uarte: impl Peripheral<P = U> + 'd,
         timer: impl Peripheral<P = T> + 'd,
@@ -286,6 +288,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_inner(
         peri: PeripheralRef<'d, U>,
         timer: PeripheralRef<'d, T>,
@@ -534,6 +537,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         uarte: impl Peripheral<P = U> + 'd,
         timer: impl Peripheral<P = T> + 'd,
@@ -564,6 +568,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_rts(
         uarte: impl Peripheral<P = U> + 'd,
         timer: impl Peripheral<P = T> + 'd,
@@ -590,6 +595,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_inner(
         peri: PeripheralRef<'d, U>,
         timer: PeripheralRef<'d, T>,
@@ -614,6 +620,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         this
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_innerer(
         peri: PeripheralRef<'d, U>,
         timer: PeripheralRef<'d, T>,
