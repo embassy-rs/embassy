@@ -24,6 +24,7 @@ pub use _version::*;
 #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
 use embassy_sync::waitqueue::AtomicWaker;
 
+pub use crate::pac::adc::vals;
 #[cfg(not(any(adc_f1, adc_f3_v2)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
