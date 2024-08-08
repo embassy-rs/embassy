@@ -74,7 +74,7 @@ async fn main(spawner: Spawner) {
     let stack = &*STACK.init(Stack::new(
         net_device,
         Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::<2>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
     ));
 
