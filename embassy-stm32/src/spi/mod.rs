@@ -311,7 +311,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         }
     }
 
-    fn set_word_size(&mut self, word_size: word_impl::Config) {
+    pub(crate) fn set_word_size(&mut self, word_size: word_impl::Config) {
         if self.current_word_size == word_size {
             return;
         }
@@ -915,7 +915,7 @@ fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
     kernel_clock / div
 }
 
-trait RegsExt {
+pub(crate) trait RegsExt {
     fn tx_ptr<W>(&self) -> *mut W;
     fn rx_ptr<W>(&self) -> *mut W;
 }
@@ -1003,7 +1003,7 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     }
 }
 
-fn flush_rx_fifo(regs: Regs) {
+pub(crate) fn flush_rx_fifo(regs: Regs) {
     #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
     while regs.sr().read().rxne() {
         #[cfg(not(spi_v2))]
@@ -1017,7 +1017,7 @@ fn flush_rx_fifo(regs: Regs) {
     }
 }
 
-fn set_txdmaen(regs: Regs, val: bool) {
+pub(crate) fn set_txdmaen(regs: Regs, val: bool) {
     #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
     regs.cr2().modify(|reg| {
         reg.set_txdmaen(val);
@@ -1028,7 +1028,7 @@ fn set_txdmaen(regs: Regs, val: bool) {
     });
 }
 
-fn set_rxdmaen(regs: Regs, val: bool) {
+pub(crate) fn set_rxdmaen(regs: Regs, val: bool) {
     #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
     regs.cr2().modify(|reg| {
         reg.set_rxdmaen(val);
@@ -1189,7 +1189,7 @@ impl<'d, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, Async> {
     }
 }
 
-trait SealedWord {
+pub(crate) trait SealedWord {
     const CONFIG: word_impl::Config;
 }
 
