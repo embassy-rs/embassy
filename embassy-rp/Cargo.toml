@@ -126,8 +126,8 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-rp-pac = { path = "/home/cbjamo/235x/rp-pac", feature = ["rt"], optional = true }
-rp23-pac = { path = "/home/cbjamo/235x/rp23-pac/", feature = ["rt"], optional = true }
+rp-pac = { git = "https://github.com/CBJamo/rp-pac.git", feature = ["rt"], optional = true }
+rp23-pac = { git = "https://github.com/HellbenderInc/rp23-pac.git", feature = ["rt"], optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
