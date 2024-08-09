@@ -1,5 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-rs run --chip nRF9160_xxAA"
+# runner = "probe-rs run --chip nRF9160_xxAA"
+runner = [ "probe-rs", "run", "--chip=nRF9160_xxAA", "--always-print-stacktrace", "--log-format={t} {[{L}]%bold} {s}  {{c} {ff}:{l:1}%dimmed}" ]
 
 [build]
 target = "thumbv8m.main-none-eabihf"
