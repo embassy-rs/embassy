@@ -935,6 +935,9 @@ impl<D: Driver> Inner<D> {
 
                         #[cfg(feature = "dhcpv4-domainname")]
                         if let Some(packet) = config.packet {
+                            for option in packet.options() {
+                                trace!("   DHCP option ({}): {}", option.kind, option.data);
+                            }
                             if let Some(domainname) = packet.options().find(|o| o.kind == 15) {
                                 self.domainname.clear();
                                 if let Ok(name) = core::str::from_utf8(domainname.data) {
