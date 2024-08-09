@@ -24,9 +24,7 @@ features = ["defmt", "unstable-pac", "time-driver"]
 [features]
 default = [ "rt" ]
 ## Enable the rt feature of [`rp-pac`](https://docs.rs/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
-rt = []
-rt-2040 = [ "rt", "rp-pac/rt" ]
-rt-235x = [ "rt", "rp23-pac/rt" ]
+rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
@@ -91,8 +89,8 @@ boot2-w25x10cl = []
 ## ```
 boot2-none = []
 
-rp2040 = ["dep:rp-pac"]
-rp235x = ["dep:rp23-pac"]
+rp2040 = ["rp-pac/rp2040"]
+rp235x = ["rp-pac/rp235x"]
 rp235xa = ["rp235x"]
 rp235xb = ["rp235x"]
 
@@ -100,7 +98,7 @@ rp235xb = ["rp235x"]
 #
 # Takes up a little flash space, but picotool can then report the name of your
 # program and other details.
-binary-info = [ "rt-235x" ]
+binary-info = [ "rt" ]
 
 [dependencies]
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
@@ -126,8 +124,7 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-rp-pac = { git = "https://github.com/CBJamo/rp-pac.git", feature = ["rt"], optional = true }
-rp23-pac = { git = "https://github.com/HellbenderInc/rp23-pac.git", feature = ["rt"], optional = true }
+rp-pac = { git = "https://github.com/CBJamo/rp-pac.git", feature = ["rt"] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
