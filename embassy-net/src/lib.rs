@@ -33,7 +33,7 @@ use embassy_net_driver::{Driver, LinkState};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 #[allow(unused_imports)]
-use heapless::Vec;
+use heapless::{String, Vec};
 #[cfg(feature = "dns")]
 pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "igmp")]
@@ -66,6 +66,10 @@ const LOCAL_PORT_MAX: u16 = 65535;
 const MAX_QUERIES: usize = 4;
 #[cfg(feature = "dhcpv4-hostname")]
 const MAX_HOSTNAME_LEN: usize = 32;
+#[cfg(feature = "dhcpv4-domainname")]
+const MAX_DOMAINNAME_LEN: usize = 64;
+#[cfg(all(feature = "dhcpv4-domainname", feature = "dns"))]
+const MAX_DNS_QUERY_LEN: usize = 128;
 
 /// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
@@ -146,7 +150,7 @@ pub struct DhcpConfig {
     pub client_port: u16,
     /// Our hostname. This will be sent to the DHCP server as Option 12.
     #[cfg(feature = "dhcpv4-hostname")]
-    pub hostname: Option<heapless::String<MAX_HOSTNAME_LEN>>,
+    pub hostname: Option<String<MAX_HOSTNAME_LEN>>,
 }
 
 #[cfg(feature = "dhcpv4")]
@@ -263,6 +267,8 @@ struct Inner<D: Driver> {
     dns_waker: WakerRegistration,
     #[cfg(feature = "dhcpv4-hostname")]
     hostname: &'static mut core::cell::UnsafeCell<HostnameResources>,
+    #[cfg(feature = "dhcpv4-domainname")]
+    domainname: String<MAX_DOMAINNAME_LEN>,
 }
 
 pub(crate) struct SocketStack {
@@ -345,6 +351,8 @@ impl<D: Driver> Stack<D> {
             dns_waker: WakerRegistration::new(),
             #[cfg(feature = "dhcpv4-hostname")]
             hostname: &mut resources.hostname,
+            #[cfg(feature = "dhcpv4-domainname")]
+            domainname: String::new(),
         };
 
         #[cfg(feature = "proto-ipv4")]
@@ -526,6 +534,20 @@ impl<D: Driver> Stack<D> {
             }
             _ => {}
         }
+
+        // Form name together with domain name.
+        #[cfg(feature = "dhcpv4-domainname")]
+        let name = &{
+            use core::str::FromStr;
+
+            let domainname = &self.inner.borrow().domainname;
+            let mut name = String::<MAX_DNS_QUERY_LEN>::from_str(name).map_err(|_| dns::Error::NameTooLong)?;
+            if !domainname.is_empty() {
+                name.push('.').map_err(|_| dns::Error::NameTooLong)?;
+                name.push_str(domainname).map_err(|_| dns::Error::NameTooLong)?;
+            }
+            name
+        };
 
         let query = poll_fn(|cx| {
             self.with_mut(|s, i| {
@@ -746,6 +768,12 @@ impl<D: Driver> Inner<D> {
                     socket.set_outgoing_options(core::slice::from_ref(&hostname.option));
                 }
 
+                // The domain-search (119) option specifies a list of domains to use when looking up bare
+                // hostnames, and is specified in resolv.conf with the search keyword. If this option
+                // isn't provided it defaults to the single domain provided by domain-name (15).
+                #[cfg(feature = "dhcpv4-domainname")]
+                socket.set_parameter_request_list(&[1, 3, 6, 15, 119]);
+
                 socket.reset();
             }
             _ => {
@@ -904,6 +932,21 @@ impl<D: Driver> Inner<D> {
                             dns_servers: config.dns_servers,
                         });
                         apply_config = true;
+
+                        #[cfg(feature = "dhcpv4-domainname")]
+                        if let Some(packet) = config.packet {
+                            if let Some(domainname) = packet.options().find(|o| o.kind == 15) {
+                                self.domainname.clear();
+                                if let Ok(name) = core::str::from_utf8(domainname.data) {
+                                    if self.domainname.push_str(name).is_err() {
+                                        warn!("Domain name is too long, skipping");
+                                    } else {
+                                        debug!("DHCP: Got domain name");
+                                        debug!("   Domain name: '{}'", self.domainname);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             } else if old_link_up {
