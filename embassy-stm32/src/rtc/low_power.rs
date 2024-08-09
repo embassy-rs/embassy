@@ -65,7 +65,7 @@ pub(crate) enum WakeupPrescaler {
     Div16 = 16,
 }
 
-#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l5, stm32wb, stm32h5, stm32g0))]
+#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0))]
 impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     fn from(val: WakeupPrescaler) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -79,7 +79,7 @@ impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     }
 }
 
-#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l5, stm32wb, stm32h5, stm32g0))]
+#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0))]
 impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
         use crate::pac::rtc::vals::Wucksel;
