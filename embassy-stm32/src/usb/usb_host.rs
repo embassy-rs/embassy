@@ -81,20 +81,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
         if istr.ctr() {
             let index = istr.ep_id() as usize;
-            // let dir = istr.dir() as usize;
-            let mut epr = regs.epr(index).read();
-            // debug!("1. EPR: {:?}", epr.0);
 
-            // debug!("Got ctr interrupt for index: {}, dir: {}", index, dir);
+            if index == 0 {
+                EP0_TRANSFER_COMPLETE.store(true, Ordering::Relaxed);
+            }
 
-            // debug!("epr: {:?}", epr);
-            // debug!("epr: {:08X}", epr.0);
-            // debug!("2. ctr_rx: {}, ctr_tx: {}", epr.ctr_rx(), epr.ctr_tx());
-            // debug!("2. stat_rx: {}, stat_tx: {}", epr.stat_rx() as u8, epr.stat_tx() as u8);
-
+            let epr = regs.epr(index).read();
             let mut epr = invariant(epr);
-
-            // debug!("dtog_rx: {}, dtog_tx: {}", epr.dtog_rx(), epr.dtog_tx());
 
             if epr.err_tx() {
                 debug!("err_tx, nack: {}", epr.nak());
@@ -102,23 +95,12 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 debug!("stat_tx: {:02X}", epr.stat_tx() as u8);
             }
 
-            // debug!("ep_type: {:?}", epr.ep_type());
-            // debug!("ep_kind: {:?}", epr.ep_kind());
-            // debug!("setup: {}", epr.setup());
-
-            // epr.set_stat_rx(Stat::from_bits(0));
-            // epr.set_stat_tx(epr.stat_tx());
-            if epr.stat_tx().to_bits() > 0 {
-                epr.set_stat_tx(Stat::VALID);
-            }
+            // if epr.stat_tx().to_bits() > 0 {
+            //     epr.set_stat_tx(Stat::VALID);
+            // }
             epr.set_ctr_tx(!epr.ctr_tx());
-            // epr.set_
 
             regs.epr(index).write_value(epr);
-
-            let epr = regs.epr(index).read();
-            // debug!("3. EPR: {:?}", epr.0);
-            debug!("4. ctr_tx: {}, stat_tx: {}", epr.ctr_tx() as u8, epr.stat_tx() as u8);
 
             // Wake main thread.
             BUS_WAKER.wake();
@@ -167,7 +149,7 @@ const USBRAM_ALIGN: usize = 4;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
-static EP0_SETUP: AtomicBool = AtomicBool::new(false);
+static EP0_TRANSFER_COMPLETE: AtomicBool = AtomicBool::new(false);
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
@@ -795,7 +777,16 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
             w.set_ctr_tx(false);
         });
 
-        trace!("WRITE OK");
+        poll_fn(move |cx| {
+            BUS_WAKER.register(cx.waker());
+            if EP0_TRANSFER_COMPLETE.load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        // Await transfer completion
 
         // Ok(())
     }
@@ -938,238 +929,6 @@ impl<'d, T: Instance> HostControlPipe<'d, T> {
         // Ok(())
     }
     // self.ep_out.write_data(buf)
-}
-
-/// USB control pipe.
-pub struct ControlPipe<'d, T: Instance> {
-    _phantom: PhantomData<&'d mut T>,
-    max_packet_size: u16,
-    ep_in: Endpoint<'d, T, In>,
-    ep_out: Endpoint<'d, T, Out>,
-}
-
-impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
-    fn max_packet_size(&self) -> usize {
-        usize::from(self.max_packet_size)
-    }
-
-    async fn setup(&mut self) -> [u8; 8] {
-        loop {
-            trace!("SETUP read waiting");
-            poll_fn(|cx| {
-                EP_OUT_WAKERS[0].register(cx.waker());
-                if EP0_SETUP.load(Ordering::Relaxed) {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            let mut buf = [0; 8];
-            let rx_len = self.ep_out.read_data(&mut buf);
-            if rx_len != Ok(8) {
-                trace!("SETUP read failed: {:?}", rx_len);
-                continue;
-            }
-
-            EP0_SETUP.store(false, Ordering::Relaxed);
-
-            trace!("SETUP read ok");
-            return buf;
-        }
-    }
-
-    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {
-        let regs = T::regs();
-
-        // When a SETUP is received, Stat/Stat is set to NAK.
-        // On first transfer, we must set Stat=VALID, to get the OUT data stage.
-        // We want Stat=STALL so that the host gets a STALL if it switches to the status
-        // stage too soon, except in the last transfer we set Stat=NAK so that it waits
-        // for the status stage, which we will ACK or STALL later.
-        if first || last {
-            let mut stat_rx = 0;
-            let mut stat_tx = 0;
-            if first {
-                // change NAK -> VALID
-                stat_rx ^= Stat::NAK.to_bits() ^ Stat::VALID.to_bits();
-                stat_tx ^= Stat::NAK.to_bits() ^ Stat::STALL.to_bits();
-            }
-            if last {
-                // change STALL -> VALID
-                stat_tx ^= Stat::STALL.to_bits() ^ Stat::NAK.to_bits();
-            }
-            // Note: if this is the first AND last transfer, the above effectively
-            // changes stat_tx like NAK -> NAK, so noop.
-            regs.epr(0).write(|w| {
-                w.set_ep_type(EpType::CONTROL);
-                w.set_stat_rx(Stat::from_bits(stat_rx));
-                w.set_stat_tx(Stat::from_bits(stat_tx));
-                w.set_ctr_rx(true); // don't clear
-                w.set_ctr_tx(true); // don't clear
-            });
-        }
-
-        trace!("data_out WAITING, buf.len() = {}", buf.len());
-        poll_fn(|cx| {
-            EP_OUT_WAKERS[0].register(cx.waker());
-            let regs = T::regs();
-            if regs.epr(0).read().stat_rx() == Stat::NAK {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        if EP0_SETUP.load(Ordering::Relaxed) {
-            trace!("received another SETUP, aborting data_out.");
-            return Err(EndpointError::Disabled);
-        }
-
-        let rx_len = self.ep_out.read_data(buf)?;
-
-        regs.epr(0).write(|w| {
-            w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat::from_bits(match last {
-                // If last, set STAT_RX=STALL.
-                true => Stat::NAK.to_bits() ^ Stat::STALL.to_bits(),
-                // Otherwise, set STAT_RX=VALID, to allow the host to send the next packet.
-                false => Stat::NAK.to_bits() ^ Stat::VALID.to_bits(),
-            }));
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
-
-        Ok(rx_len)
-    }
-
-    async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError> {
-        trace!("control: data_in");
-
-        if data.len() > self.ep_in.info.max_packet_size as usize {
-            return Err(EndpointError::BufferOverflow);
-        }
-
-        let regs = T::regs();
-
-        // When a SETUP is received, Stat is set to NAK.
-        // We want it to be STALL in non-last transfers.
-        // We want it to be VALID in last transfer, so the HW does the status stage.
-        if first || last {
-            let mut stat_rx = 0;
-            if first {
-                // change NAK -> STALL
-                stat_rx ^= Stat::NAK.to_bits() ^ Stat::STALL.to_bits();
-            }
-            if last {
-                // change STALL -> VALID
-                stat_rx ^= Stat::STALL.to_bits() ^ Stat::VALID.to_bits();
-            }
-            // Note: if this is the first AND last transfer, the above effectively
-            // does a change of NAK -> VALID.
-            regs.epr(0).write(|w| {
-                w.set_ep_type(EpType::CONTROL);
-                w.set_stat_rx(Stat::from_bits(stat_rx));
-                w.set_ep_kind(last); // set OUT_STATUS if last.
-                w.set_ctr_rx(true); // don't clear
-                w.set_ctr_tx(true); // don't clear
-            });
-        }
-
-        trace!("WRITE WAITING");
-        poll_fn(|cx| {
-            EP_IN_WAKERS[0].register(cx.waker());
-            EP_OUT_WAKERS[0].register(cx.waker());
-            let regs = T::regs();
-            if regs.epr(0).read().stat_tx() == Stat::NAK {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        if EP0_SETUP.load(Ordering::Relaxed) {
-            trace!("received another SETUP, aborting data_in.");
-            return Err(EndpointError::Disabled);
-        }
-
-        self.ep_in.write_data(data);
-
-        let regs = T::regs();
-        regs.epr(0).write(|w| {
-            w.set_ep_type(EpType::CONTROL);
-            w.set_stat_tx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
-            w.set_ep_kind(last); // set OUT_STATUS if last.
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
-
-        trace!("WRITE OK");
-
-        Ok(())
-    }
-
-    async fn accept(&mut self) {
-        let regs = T::regs();
-        trace!("control: accept");
-
-        self.ep_in.write_data(&[]);
-
-        // Set OUT=stall, IN=accept
-        let epr = regs.epr(0).read();
-        regs.epr(0).write(|w| {
-            w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::STALL.to_bits()));
-            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::VALID.to_bits()));
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
-        trace!("control: accept WAITING");
-
-        // Wait is needed, so that we don't set the address too soon, breaking the status stage.
-        // (embassy-usb sets the address after accept() returns)
-        poll_fn(|cx| {
-            EP_IN_WAKERS[0].register(cx.waker());
-            let regs = T::regs();
-            if regs.epr(0).read().stat_tx() == Stat::NAK {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        trace!("control: accept OK");
-    }
-
-    async fn reject(&mut self) {
-        let regs = T::regs();
-        trace!("control: reject");
-
-        // Set IN+OUT to stall
-        let epr = regs.epr(0).read();
-        regs.epr(0).write(|w| {
-            w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::STALL.to_bits()));
-            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::STALL.to_bits()));
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
-    }
-
-    async fn accept_set_address(&mut self, addr: u8) {
-        self.accept().await;
-
-        let regs = T::regs();
-        trace!("setting addr: {}", addr);
-        regs.daddr().write(|w| {
-            w.set_ef(true);
-            w.set_add(addr);
-        });
-    }
 }
 
 trait SealedInstance {
