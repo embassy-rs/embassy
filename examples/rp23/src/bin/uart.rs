@@ -8,9 +8,9 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_rp::block::ImageDef;
 use embassy_rp::uart;
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]

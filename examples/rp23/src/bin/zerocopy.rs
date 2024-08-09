@@ -10,6 +10,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Async, Config, InterruptHandler};
 use embassy_rp::bind_interrupts;
+use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::DMA_CH0;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -17,7 +18,6 @@ use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embassy_time::{Duration, Ticker, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -32,7 +32,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 type SampleBuffer = [u16; 512];
 

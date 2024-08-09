@@ -8,11 +8,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::block::ImageDef;
 use embassy_rp::i2c::{self, Config};
 use embassy_time::Timer;
 use embedded_hal_1::i2c::I2c;
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -27,7 +27,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 #[allow(dead_code)]
 mod mcp23017 {

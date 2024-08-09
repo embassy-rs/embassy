@@ -6,14 +6,13 @@ use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
-
-use crate::interrupt::InterruptExt;
-use crate::{interrupt, pac};
-
 #[cfg(feature = "rp2040")]
 use pac::TIMER;
 #[cfg(feature = "rp235x")]
 use pac::TIMER0 as TIMER;
+
+use crate::interrupt::InterruptExt;
+use crate::{interrupt, pac};
 
 struct AlarmState {
     timestamp: Cell<u64>,

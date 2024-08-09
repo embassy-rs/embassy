@@ -59,12 +59,12 @@
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
 use embassy_executor::{Executor, InterruptExecutor};
+use embassy_rp::block::ImageDef;
 use embassy_rp::interrupt;
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_time::{Instant, Timer, TICK_HZ};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -79,7 +79,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 #[embassy_executor::task]
 async fn run_high() {

@@ -7,9 +7,9 @@
 #![no_main]
 
 use defmt::*;
+use embassy_rp::block::ImageDef;
 use embassy_rp::i2c::InterruptHandler;
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -24,7 +24,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 // Our anonymous hypotetical temperature sensor could be:
 // a 12-bit sensor, with 100ms startup time, range of -40*C - 125*C, and precision 0.25*C

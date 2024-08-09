@@ -21,6 +21,7 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
+use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler};
 use embassy_usb::class::web_usb::{Config as WebUsbConfig, State, Url, WebUsb};
@@ -28,7 +29,6 @@ use embassy_usb::driver::{Driver, Endpoint, EndpointIn, EndpointOut};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config};
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -43,7 +43,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;

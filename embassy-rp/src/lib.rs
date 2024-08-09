@@ -48,11 +48,10 @@ pub(crate) mod relocate;
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 #[cfg(all(feature = "unstable-pac", feature = "rp235x"))]
 pub use rp23_pac as pac;
-#[cfg(all(feature = "unstable-pac", feature = "rp2040"))]
-pub use rp_pac as pac;
-
 #[cfg(all(not(feature = "unstable-pac"), feature = "rp235x"))]
 pub(crate) use rp23_pac as pac;
+#[cfg(all(feature = "unstable-pac", feature = "rp2040"))]
+pub use rp_pac as pac;
 #[cfg(all(not(feature = "unstable-pac"), feature = "rp2040"))]
 pub(crate) use rp_pac as pac;
 

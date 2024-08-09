@@ -8,6 +8,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
+use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{AnyPin, Level, Output};
 use embassy_rp::i2c::{self, I2c, InterruptHandler};
 use embassy_rp::peripherals::{I2C1, SPI1};
@@ -17,7 +18,6 @@ use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -32,7 +32,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 type Spi1Bus = Mutex<NoopRawMutex, Spi<'static, SPI1, spi::Async>>;
 type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, i2c::Async>>;

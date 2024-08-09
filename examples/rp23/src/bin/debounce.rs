@@ -6,10 +6,10 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{Input, Level, Pull};
 use embassy_time::{with_deadline, Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -24,7 +24,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 pub struct Debouncer<'a> {
     input: Input<'a>,

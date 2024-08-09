@@ -7,13 +7,13 @@
 /// [Link explaining it](https://www.physicsclassroom.com/class/sound/Lesson-3/Interference-and-Beats)
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::block::ImageDef;
 use embassy_rp::gpio;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
 use gpio::{AnyPin, Level, Output};
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -28,7 +28,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 type LedType = Mutex<ThreadModeRawMutex, Option<Output<'static>>>;
 static LED: LedType = Mutex::new(None);

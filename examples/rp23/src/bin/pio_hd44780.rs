@@ -7,6 +7,7 @@
 use core::fmt::Write;
 
 use embassy_executor::Spawner;
+use embassy_rp::block::ImageDef;
 use embassy_rp::dma::{AnyChannel, Channel};
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{
@@ -16,7 +17,6 @@ use embassy_rp::pwm::{self, Pwm};
 use embassy_rp::{bind_interrupts, into_ref, Peripheral, PeripheralRef};
 use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -31,7 +31,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 bind_interrupts!(pub struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;

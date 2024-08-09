@@ -8,6 +8,7 @@ use core::mem::{self, MaybeUninit};
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
+use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{Common, Config, Direction, Instance, InterruptHandler, Irq, Pio, PioPin, StateMachine};
 use embassy_time::{with_timeout, Duration, Timer};
@@ -15,7 +16,6 @@ use fixed::traits::ToFixed;
 use fixed::types::extra::U8;
 use fixed::FixedU32;
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -30,7 +30,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;

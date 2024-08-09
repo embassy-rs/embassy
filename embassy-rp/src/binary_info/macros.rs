@@ -10,8 +10,7 @@ macro_rules! binary_info_env {
             // # Safety
             //
             // We used `concat!` to null-terminate on the line above.
-            let value_cstr =
-                unsafe { core::ffi::CStr::from_bytes_with_nul_unchecked(value.as_bytes()) };
+            let value_cstr = unsafe { core::ffi::CStr::from_bytes_with_nul_unchecked(value.as_bytes()) };
             value_cstr
         })
     };
@@ -25,8 +24,7 @@ macro_rules! binary_info_env {
 #[macro_export]
 macro_rules! binary_info_str {
     ($tag:expr, $id:expr, $str:expr) => {{
-        static ENTRY: $crate::binary_info::StringEntry =
-            $crate::binary_info::StringEntry::new($tag, $id, $str);
+        static ENTRY: $crate::binary_info::StringEntry = $crate::binary_info::StringEntry::new($tag, $id, $str);
         ENTRY.addr()
     }};
 }
@@ -39,8 +37,7 @@ macro_rules! binary_info_str {
 #[macro_export]
 macro_rules! binary_info_int {
     ($tag:expr, $id:expr, $int:expr) => {{
-        static ENTRY: $crate::binary_info::IntegerEntry =
-            $crate::binary_info::IntegerEntry::new($tag, $id, $int);
+        static ENTRY: $crate::binary_info::IntegerEntry = $crate::binary_info::IntegerEntry::new($tag, $id, $int);
         ENTRY.addr()
     }};
 }

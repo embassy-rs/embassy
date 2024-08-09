@@ -19,8 +19,9 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use cortex_m_rt::entry;
 use defmt::info;
 use embassy_executor::{Executor, InterruptExecutor};
+use embassy_rp::block::ImageDef;
 use embassy_rp::clocks::RoscRng;
-use embassy_rp::interrupt::{Priority, InterruptExt};
+use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{self, InterruptHandler, UartTx};
 use embassy_rp::{bind_interrupts, interrupt};
@@ -30,7 +31,6 @@ use embassy_time::{Duration, Ticker};
 use rand::RngCore;
 use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
@@ -45,7 +45,6 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info_rp_program_description!(c"Blinky"),
     embassy_rp::binary_info_rp_program_build_attribute!(),
 ];
-
 
 type UartAsyncMutex = mutex::Mutex<CriticalSectionRawMutex, UartTx<'static, UART0, uart::Async>>;
 

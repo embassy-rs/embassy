@@ -7,11 +7,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::block::ImageDef;
 use embassy_rp::gpio;
 use embassy_time::Timer;
 use gpio::{Level, Output};
 use {defmt_rtt as _, panic_probe as _};
-use embassy_rp::block::ImageDef;
 
 #[link_section = ".start_block"]
 #[used]
