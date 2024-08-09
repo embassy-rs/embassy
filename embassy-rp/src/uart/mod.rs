@@ -247,7 +247,7 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(ch, buffer, T::regs().uartdr().as_ptr() as *mut _, T::TX_DREQ)
+            crate::dma::write(ch, buffer, T::regs().uartdr().as_ptr() as *mut _, T::TX_DREQ.into())
         };
         transfer.await;
         Ok(())
@@ -422,7 +422,7 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
         let transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(ch, T::regs().uartdr().as_ptr() as *const _, buffer, T::RX_DREQ)
+            crate::dma::read(ch, T::regs().uartdr().as_ptr() as *const _, buffer, T::RX_DREQ.into())
         };
 
         // wait for either the transfer to complete or an error to happen.
@@ -571,7 +571,12 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             let transfer = unsafe {
                 // If we don't assign future to a variable, the data register pointer
                 // is held across an await and makes the future non-Send.
-                crate::dma::read(&mut ch, T::regs().uartdr().as_ptr() as *const _, sbuffer, T::RX_DREQ)
+                crate::dma::read(
+                    &mut ch,
+                    T::regs().uartdr().as_ptr() as *const _,
+                    sbuffer,
+                    T::RX_DREQ.into(),
+                )
             };
 
             // wait for either the transfer to complete or an error to happen.
@@ -830,8 +835,16 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
     ) {
         let r = T::regs();
         if let Some(pin) = &tx {
+            let funcsel = {
+                let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
+                if (pin_number % 4) == 0 {
+                    2
+                } else {
+                    11
+                }
+            };
             pin.gpio().ctrl().write(|w| {
-                w.set_funcsel(2);
+                w.set_funcsel(funcsel);
                 w.set_outover(if config.invert_tx {
                     Outover::INVERT
                 } else {
@@ -841,8 +854,16 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             pin.pad_ctrl().write(|w| w.set_ie(true));
         }
         if let Some(pin) = &rx {
+            let funcsel = {
+                let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
+                if ((pin_number - 1) % 4) == 0 {
+                    2
+                } else {
+                    11
+                }
+            };
             pin.gpio().ctrl().write(|w| {
-                w.set_funcsel(2);
+                w.set_funcsel(funcsel);
                 w.set_inover(if config.invert_rx {
                     Inover::INVERT
                 } else {
@@ -904,7 +925,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         });
     }
 
-    fn lcr_modify<R>(f: impl FnOnce(&mut rp_pac::uart::regs::UartlcrH) -> R) -> R {
+    fn lcr_modify<R>(f: impl FnOnce(&mut crate::pac::uart::regs::UartlcrH) -> R) -> R {
         let r = T::regs();
 
         // Notes from PL011 reference manual:
@@ -1332,3 +1353,92 @@ impl_pin!(PIN_26, UART1, CtsPin);
 impl_pin!(PIN_27, UART1, RtsPin);
 impl_pin!(PIN_28, UART0, TxPin);
 impl_pin!(PIN_29, UART0, RxPin);
+
+// Additional functions added by all 2350s
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_2, UART0, TxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_3, UART0, RxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_6, UART1, TxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_7, UART1, RxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_10, UART1, TxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_11, UART1, RxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_14, UART0, TxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_15, UART0, RxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_18, UART0, TxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_19, UART0, RxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_22, UART1, TxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_23, UART1, RxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_26, UART1, TxPin);
+#[cfg(feature = "rp235x")]
+impl_pin!(PIN_27, UART1, RxPin);
+
+// Additional pins added by larger 2350 packages.
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_30, UART0, CtsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_31, UART0, RtsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_32, UART0, TxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_33, UART0, RxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_34, UART0, CtsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_35, UART0, RtsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_36, UART1, TxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_37, UART1, RxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_38, UART1, CtsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_39, UART1, RtsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_40, UART1, TxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_41, UART1, RxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, UART1, CtsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, UART1, RtsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_44, UART0, TxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_45, UART0, RxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, UART0, CtsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, UART0, RtsPin);
+
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_30, UART0, TxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_31, UART0, RxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_34, UART0, TxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_35, UART0, RxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_38, UART1, TxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_39, UART1, RxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, UART1, TxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, UART1, RxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, UART0, TxPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, UART0, RxPin);

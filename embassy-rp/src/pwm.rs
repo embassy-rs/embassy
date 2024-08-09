@@ -363,6 +363,15 @@ slice!(PWM_SLICE5, 5);
 slice!(PWM_SLICE6, 6);
 slice!(PWM_SLICE7, 7);
 
+#[cfg(feature = "rp235x")]
+slice!(PWM_SLICE8, 8);
+#[cfg(feature = "rp235x")]
+slice!(PWM_SLICE9, 9);
+#[cfg(feature = "rp235x")]
+slice!(PWM_SLICE10, 10);
+#[cfg(feature = "rp235x")]
+slice!(PWM_SLICE11, 11);
+
 /// PWM Channel A.
 pub trait ChannelAPin<T: Slice>: GpioPin {}
 /// PWM Channel B.
@@ -404,3 +413,39 @@ impl_pin!(PIN_26, PWM_SLICE5, ChannelAPin);
 impl_pin!(PIN_27, PWM_SLICE5, ChannelBPin);
 impl_pin!(PIN_28, PWM_SLICE6, ChannelAPin);
 impl_pin!(PIN_29, PWM_SLICE6, ChannelBPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_30, PWM_SLICE7, ChannelAPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_31, PWM_SLICE7, ChannelBPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_32, PWM_SLICE8, ChannelAPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_33, PWM_SLICE8, ChannelBPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_34, PWM_SLICE9, ChannelAPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_35, PWM_SLICE9, ChannelBPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_36, PWM_SLICE10, ChannelAPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_37, PWM_SLICE10, ChannelBPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_38, PWM_SLICE11, ChannelAPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_39, PWM_SLICE11, ChannelBPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_40, PWM_SLICE8, ChannelAPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_41, PWM_SLICE8, ChannelBPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, PWM_SLICE9, ChannelAPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, PWM_SLICE9, ChannelBPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_44, PWM_SLICE10, ChannelAPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_45, PWM_SLICE10, ChannelBPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, PWM_SLICE11, ChannelAPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, PWM_SLICE11, ChannelBPin);
