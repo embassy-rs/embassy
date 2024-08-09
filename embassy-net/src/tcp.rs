@@ -515,7 +515,7 @@ impl<'d> TcpIo<'d> {
     async fn flush(&mut self) -> Result<(), Error> {
         poll_fn(move |cx| {
             self.with_mut(|s, _| {
-                let data_pending = s.send_queue() > 0;
+                let data_pending = (s.send_queue() > 0) && s.state() != tcp::State::Closed;
                 let fin_pending = matches!(
                     s.state(),
                     tcp::State::FinWait1 | tcp::State::Closing | tcp::State::LastAck
