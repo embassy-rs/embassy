@@ -48,6 +48,8 @@ dns = ["smoltcp/socket-dns", "smoltcp/proto-dns"]
 dhcpv4 = ["proto-ipv4", "medium-ethernet", "smoltcp/socket-dhcpv4"]
 ## Enable DHCPv4 support with hostname
 dhcpv4-hostname = ["dhcpv4"]
+## Enable DHCP option 15 (domain-name) for use in DNS queries
+dhcpv4-domainname = ["dhcpv4"]
 ## Enable IPv4 support
 proto-ipv4 = ["smoltcp/proto-ipv4"]
 ## Enable IPv6 support
@@ -66,7 +68,7 @@ igmp = ["smoltcp/proto-igmp"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { version = "0.11.0", default-features = false, features = [
+smoltcp = { git = "https://github.com/korken89/smoltcp.git", branch = "dhcp-option-15", default-features = false, features = [
   "socket",
   "async",
 ] }
@@ -80,3 +82,4 @@ managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
 heapless = { version = "0.8", default-features = false }
 embedded-nal-async = { version = "0.7.1" }
 document-features = "0.2.7"
+

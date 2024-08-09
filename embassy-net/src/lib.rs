@@ -33,7 +33,7 @@ use embassy_net_driver::{Driver, LinkState};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 #[allow(unused_imports)]
-use heapless::Vec;
+use heapless::{String, Vec};
 #[cfg(feature = "dns")]
 pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "igmp")]
@@ -66,6 +66,8 @@ const LOCAL_PORT_MAX: u16 = 65535;
 const MAX_QUERIES: usize = 4;
 #[cfg(feature = "dhcpv4-hostname")]
 const MAX_HOSTNAME_LEN: usize = 32;
+#[cfg(all(feature = "dhcpv4-domainname", feature = "dns"))]
+const MAX_DNS_QUERY_LEN: usize = 128;
 
 /// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
@@ -110,6 +112,9 @@ pub struct StaticConfigV4 {
     pub gateway: Option<Ipv4Address>,
     /// DNS servers.
     pub dns_servers: Vec<Ipv4Address, 3>,
+    /// Domain name.
+    #[cfg(feature = "dhcpv4-domainname")]
+    pub domain_name: Option<String<{ smoltcp::config::DHCP_MAX_DOMAIN_NAME_SIZE }>>,
 }
 
 /// Static IPv6 address configuration
@@ -146,7 +151,7 @@ pub struct DhcpConfig {
     pub client_port: u16,
     /// Our hostname. This will be sent to the DHCP server as Option 12.
     #[cfg(feature = "dhcpv4-hostname")]
-    pub hostname: Option<heapless::String<MAX_HOSTNAME_LEN>>,
+    pub hostname: Option<String<MAX_HOSTNAME_LEN>>,
 }
 
 #[cfg(feature = "dhcpv4")]
@@ -527,6 +532,15 @@ impl<D: Driver> Stack<D> {
             _ => {}
         }
 
+        #[cfg(feature = "dhcpv4-domainname")]
+        let name = if name.contains(".") {
+            // Already a FQDN.
+            name
+        } else {
+            &self.create_fqdn(name)?
+        };
+        debug!("Performing DNS lookup of: {}", name);
+
         let query = poll_fn(|cx| {
             self.with_mut(|s, i| {
                 let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
@@ -601,6 +615,23 @@ impl<D: Driver> Stack<D> {
         drop.defuse();
 
         res
+    }
+
+    #[cfg(feature = "dhcpv4-domainname")]
+    fn create_fqdn(&self, name: &str) -> Result<String<MAX_DNS_QUERY_LEN>, dns::Error> {
+        use core::str::FromStr;
+
+        // Form name together with domain name.
+        let mut name = String::<MAX_DNS_QUERY_LEN>::from_str(name).map_err(|_| dns::Error::NameTooLong)?;
+
+        if let Some(Some(domain_name)) = &self.inner.borrow().static_v4.as_ref().map(|c| &c.domain_name) {
+            if !domain_name.is_empty() {
+                name.push('.').map_err(|_| dns::Error::NameTooLong)?;
+                name.push_str(&domain_name).map_err(|_| dns::Error::NameTooLong)?;
+            }
+        }
+
+        Ok(name)
     }
 }
 
@@ -788,6 +819,8 @@ impl<D: Driver> Inner<D> {
                 debug!("   DNS server:      {:?}", s);
                 unwrap!(dns_servers.push(s.clone().into()).ok());
             }
+            #[cfg(feature = "dhcpv4-domainname")]
+            debug!("   Domain name: {:?}", config.domain_name);
         } else {
             info!("IPv4: DOWN");
         }
@@ -902,6 +935,8 @@ impl<D: Driver> Inner<D> {
                             address: config.address,
                             gateway: config.router,
                             dns_servers: config.dns_servers,
+                            #[cfg(feature = "dhcpv4-domainname")]
+                            domain_name: config.domain_name,
                         });
                         apply_config = true;
                     }
