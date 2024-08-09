@@ -24,6 +24,7 @@ pub mod bootsel;
 pub mod clocks;
 pub mod dma;
 pub mod flash;
+#[cfg(feature = "rp2040")]
 mod float;
 pub mod gpio;
 pub mod i2c;
@@ -32,6 +33,7 @@ pub mod multicore;
 pub mod pwm;
 mod reset;
 pub mod rom_data;
+#[cfg(feature = "rp2040")]
 pub mod rtc;
 pub mod spi;
 #[cfg(feature = "time-driver")]

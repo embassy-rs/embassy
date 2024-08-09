@@ -1,4 +1,3 @@
-#![cfg(feature = "rp2040")]
 //! RTC driver.
 mod filter;
 
