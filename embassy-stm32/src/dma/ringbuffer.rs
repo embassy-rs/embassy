@@ -40,6 +40,22 @@ pub struct ReadableDmaRingBuffer<'a, W: Word> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;
 
+// We use this because it is not sufficient to use a critical section
+// since the get_remaining_transfers fetches directly from the DMA register
+// which is not affected by it.
+//
+// The main issue occurs when retrieving right at the cycle boundary
+// where we can't know the cycle of the retrieved position.
+
+fn get_pos_and_count(cap: usize, dma: &impl DmaCtrl) -> (usize, usize) {
+    let fst_pos = cap - dma.get_remaining_transfers();
+    let fst_count = dma.get_complete_count();
+    let pos = cap - dma.get_remaining_transfers();
+    let snd_count = dma.get_complete_count();
+    let count = if pos < fst_pos { snd_count } else { fst_count };
+    (pos, count)
+}
+
 pub trait DmaCtrl {
     /// Get the NDTR register value, i.e. the space left in the underlying
     /// buffer until the dma writer wraps.
@@ -155,7 +171,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
                 then, get the current position of of the dma write and check
                 if it's inside data we could have copied
             */
-            let (pos, complete_count) = critical_section::with(|_| (self.pos(dma), dma.get_complete_count()));
+            let (pos, complete_count) = get_pos_and_count(self.cap(), dma);
+
             if (pos >= self.start && pos < end) || (complete_count > 0 && pos >= end) || complete_count > 1 {
                 Err(OverrunError)
             } else {
@@ -311,7 +328,8 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
             compiler_fence(Ordering::SeqCst);
 
             // Confirm that the DMA is not inside data we could have written
-            let (pos, complete_count) = critical_section::with(|_| (self.pos(dma), dma.get_complete_count()));
+            let (pos, complete_count) = get_pos_and_count(self.cap(), dma);
+
             if (pos >= self.end && pos < start) || (complete_count > 0 && pos >= start) || complete_count > 1 {
                 Err(OverrunError)
             } else {
