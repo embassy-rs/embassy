@@ -851,7 +851,11 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                     Outover::NORMAL
                 });
             });
-            pin.pad_ctrl().write(|w| w.set_ie(true));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "rp235x")]
+                w.set_iso(false);
+                w.set_ie(true);
+            });
         }
         if let Some(pin) = &rx {
             let funcsel = {
@@ -870,7 +874,11 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                     Inover::NORMAL
                 });
             });
-            pin.pad_ctrl().write(|w| w.set_ie(true));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "rp235x")]
+                w.set_iso(false);
+                w.set_ie(true);
+            });
         }
         if let Some(pin) = &cts {
             pin.gpio().ctrl().write(|w| {
@@ -881,7 +889,11 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                     Inover::NORMAL
                 });
             });
-            pin.pad_ctrl().write(|w| w.set_ie(true));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "rp235x")]
+                w.set_iso(false);
+                w.set_ie(true);
+            });
         }
         if let Some(pin) = &rts {
             pin.gpio().ctrl().write(|w| {
@@ -892,7 +904,11 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                     Outover::NORMAL
                 });
             });
-            pin.pad_ctrl().write(|w| w.set_ie(true));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "rp235x")]
+                w.set_iso(false);
+                w.set_ie(true);
+            });
         }
 
         Self::set_baudrate_inner(config.baudrate);

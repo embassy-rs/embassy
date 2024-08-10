@@ -110,6 +110,8 @@ impl<'d> Pwm<'d> {
         if let Some(pin) = &b {
             pin.gpio().ctrl().write(|w| w.set_funcsel(4));
             pin.pad_ctrl().modify(|w| {
+                #[cfg(feature = "rp235x")]
+                w.set_iso(false);
                 w.set_pue(b_pull == Pull::Up);
                 w.set_pde(b_pull == Pull::Down);
             });

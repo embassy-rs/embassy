@@ -35,6 +35,8 @@ impl<'p> Channel<'p> {
     pub fn new_pin(pin: impl Peripheral<P = impl AdcPin + 'p> + 'p, pull: Pull) -> Self {
         into_ref!(pin);
         pin.pad_ctrl().modify(|w| {
+            #[cfg(feature = "rp235x")]
+            w.set_iso(false);
             // manual says:
             //
             // > When using an ADC input shared with a GPIO pin, the pin’s

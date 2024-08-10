@@ -581,6 +581,8 @@ impl<'d> Flex<'d> {
         into_ref!(pin);
 
         pin.pad_ctrl().write(|w| {
+            #[cfg(feature = "rp235x")]
+            w.set_iso(false);
             w.set_ie(true);
         });
 
@@ -589,11 +591,6 @@ impl<'d> Flex<'d> {
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0 as _);
             #[cfg(feature = "rp235x")]
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIOB_PROC_0 as _);
-        });
-
-        #[cfg(feature = "rp235x")]
-        pin.pad_ctrl().modify(|w| {
-            w.set_iso(false);
         });
 
         Self { pin: pin.map_into() }
