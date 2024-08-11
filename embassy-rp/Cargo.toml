@@ -124,7 +124,7 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-rp-pac = { version = "6.0.0", feature = ["rt"] }
+rp-pac = { git = "https://github.com/embassy-rs/rp-pac.git", rev = "a7f42d25517f7124ad3b4ed492dec8b0f50a0e6c", feature = ["rt"] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -140,6 +140,3 @@ sha2-const-stable = "0.1"
 [dev-dependencies]
 embassy-executor = { version = "0.6.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }
-
-[patch.crates-io]
-rp-pac = { git = "https://github.com/embassy-rs/rp-pac.git" }

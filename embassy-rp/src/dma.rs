@@ -15,7 +15,7 @@ use crate::{interrupt, pac, peripherals};
 #[cfg(feature = "rt")]
 #[interrupt]
 fn DMA_IRQ_0() {
-    let ints0 = pac::DMA.ints0().read().ints0();
+    let ints0 = pac::DMA.ints(0).read();
     for channel in 0..CHANNEL_COUNT {
         let ctrl_trig = pac::DMA.ch(channel).ctrl_trig().read();
         if ctrl_trig.ahb_error() {
@@ -26,14 +26,14 @@ fn DMA_IRQ_0() {
             CHANNEL_WAKERS[channel].wake();
         }
     }
-    pac::DMA.ints0().write(|w| w.set_ints0(ints0));
+    pac::DMA.ints(0).write_value(ints0);
 }
 
 pub(crate) unsafe fn init() {
     interrupt::DMA_IRQ_0.disable();
     interrupt::DMA_IRQ_0.set_priority(interrupt::Priority::P3);
 
-    pac::DMA.inte0().write(|w| w.set_inte0(0xFFFF));
+    pac::DMA.inte(0).write_value(0xFFFF);
 
     interrupt::DMA_IRQ_0.enable();
 }
