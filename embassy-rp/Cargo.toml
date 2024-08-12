@@ -15,8 +15,8 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-rp/sr
 features = ["defmt", "unstable-pac", "time-driver"]
 flavors = [
     { name = "rp2040", target = "thumbv6m-none-eabi", features = ["rp2040"] },
-    { name = "rp235xa", target = "thumbv8m.main-none-eabi", features = ["rp235xa"] },
-    { name = "rp235xb", target = "thumbv8m.main-none-eabi", features = ["rp235xb"] },
+    { name = "rp235xa", target = "thumbv8m.main-none-eabihf", features = ["rp235xa"] },
+    { name = "rp235xb", target = "thumbv8m.main-none-eabihf", features = ["rp235xb"] },
 ]
 
 [package.metadata.docs.rs]
