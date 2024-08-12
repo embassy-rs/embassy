@@ -14,8 +14,9 @@ src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/emba
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-rp/src/"
 features = ["defmt", "unstable-pac", "time-driver"]
 flavors = [
-    { name = "rp2040", target = "thumbv6m-none-eabi" },
-    { name = "rp235x", target = "thumbv8m.main-none-eabi" },
+    { name = "rp2040", target = "thumbv6m-none-eabi", features = ["rp2040"] },
+    { name = "rp235xa", target = "thumbv8m.main-none-eabi", features = ["rp235xa"] },
+    { name = "rp235xb", target = "thumbv8m.main-none-eabi", features = ["rp235xb"] },
 ]
 
 [package.metadata.docs.rs]
@@ -89,10 +90,13 @@ boot2-w25x10cl = []
 ## ```
 boot2-none = []
 
+## Configure the hal for use with the rp2040
 rp2040 = ["rp-pac/rp2040"]
-rp235x = ["rp-pac/rp235x"]
-rp235xa = ["rp235x"]
-rp235xb = ["rp235x"]
+_rp235x = ["rp-pac/rp235x"]
+## Configure the hal for use with the rp235xA
+rp235xa = ["_rp235x"]
+## Configure the hal for use with the rp235xB
+rp235xb = ["_rp235x"]
 
 # Add a binary-info header block containing picotool-compatible metadata.
 #

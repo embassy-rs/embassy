@@ -110,7 +110,7 @@ impl<'d> Pwm<'d> {
         if let Some(pin) = &b {
             pin.gpio().ctrl().write(|w| w.set_funcsel(4));
             pin.pad_ctrl().modify(|w| {
-                #[cfg(feature = "rp235x")]
+                #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_pue(b_pull == Pull::Up);
                 w.set_pde(b_pull == Pull::Down);
@@ -365,13 +365,13 @@ slice!(PWM_SLICE5, 5);
 slice!(PWM_SLICE6, 6);
 slice!(PWM_SLICE7, 7);
 
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 slice!(PWM_SLICE8, 8);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 slice!(PWM_SLICE9, 9);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 slice!(PWM_SLICE10, 10);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 slice!(PWM_SLICE11, 11);
 
 /// PWM Channel A.

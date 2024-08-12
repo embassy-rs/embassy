@@ -311,10 +311,10 @@ pub struct SysClkConfig {
     #[cfg(feature = "rp2040")]
     pub div_frac: u8,
     /// SYS clock divider.
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     pub div_int: u16,
     /// SYS clock fraction.
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     pub div_frac: u16,
 }
 
@@ -430,12 +430,12 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     c.clk_sys_ctrl().modify(|w| w.set_src(ClkSysCtrlSrc::CLK_REF));
     #[cfg(feature = "rp2040")]
     while c.clk_sys_selected().read() != 1 {}
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1) {}
     c.clk_ref_ctrl().modify(|w| w.set_src(ClkRefCtrlSrc::ROSC_CLKSRC_PH));
     #[cfg(feature = "rp2040")]
     while c.clk_ref_selected().read() != 1 {}
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1) {}
 
     // Reset the PLLs
@@ -506,7 +506,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     });
     #[cfg(feature = "rp2040")]
     while c.clk_ref_selected().read() != (1 << ref_src as u32) {}
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1 << ref_src as u32) {}
     c.clk_ref_div().write(|w| {
         w.set_int(config.ref_clk.div);
@@ -539,7 +539,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         c.clk_sys_ctrl().write(|w| w.set_src(ClkSysCtrlSrc::CLK_REF));
         #[cfg(feature = "rp2040")]
         while c.clk_sys_selected().read() != (1 << ClkSysCtrlSrc::CLK_REF as u32) {}
-        #[cfg(feature = "rp235x")]
+        #[cfg(feature = "_rp235x")]
         while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1 << ClkSysCtrlSrc::CLK_REF as u32) {}
     }
     c.clk_sys_ctrl().write(|w| {
@@ -549,7 +549,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
 
     #[cfg(feature = "rp2040")]
     while c.clk_sys_selected().read() != (1 << sys_src as u32) {}
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1 << sys_src as u32) {}
 
     c.clk_sys_div().write(|w| {
@@ -661,7 +661,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     }
 
     // rp235x specific clocks
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     {
         // TODO hstx clock
         peris.set_hstx(false);
@@ -903,7 +903,8 @@ pub enum GpoutSrc {
     /// ADC.
     Adc = ClkGpoutCtrlAuxsrc::CLK_ADC as _,
     // RTC.
-    //Rtc = ClkGpoutCtrlAuxsrc::CLK_RTC as _,
+    #[cfg(feature = "rp2040")]
+    Rtc = ClkGpoutCtrlAuxsrc::CLK_RTC as _,
     /// REF.
     Ref = ClkGpoutCtrlAuxsrc::CLK_REF as _,
 }
@@ -934,7 +935,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     }
 
     /// Set clock divider.
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     pub fn set_div(&self, int: u16, frac: u16) {
         let c = pac::CLOCKS;
         c.clk_gpout_div(self.gpout.number()).write(|w| {

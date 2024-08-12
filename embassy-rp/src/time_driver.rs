@@ -8,7 +8,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_time_driver::{AlarmHandle, Driver};
 #[cfg(feature = "rp2040")]
 use pac::TIMER;
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 use pac::TIMER0 as TIMER;
 
 use crate::interrupt::InterruptExt;
@@ -155,7 +155,7 @@ pub unsafe fn init() {
         interrupt::TIMER_IRQ_2.enable();
         interrupt::TIMER_IRQ_3.enable();
     }
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     {
         interrupt::TIMER0_IRQ_0.enable();
         interrupt::TIMER0_IRQ_1.enable();
@@ -188,25 +188,25 @@ fn TIMER_IRQ_3() {
     DRIVER.check_alarm(3)
 }
 
-#[cfg(all(feature = "rt", feature = "rp235x"))]
+#[cfg(all(feature = "rt", feature = "_rp235x"))]
 #[interrupt]
 fn TIMER0_IRQ_0() {
     DRIVER.check_alarm(0)
 }
 
-#[cfg(all(feature = "rt", feature = "rp235x"))]
+#[cfg(all(feature = "rt", feature = "_rp235x"))]
 #[interrupt]
 fn TIMER0_IRQ_1() {
     DRIVER.check_alarm(1)
 }
 
-#[cfg(all(feature = "rt", feature = "rp235x"))]
+#[cfg(all(feature = "rt", feature = "_rp235x"))]
 #[interrupt]
 fn TIMER0_IRQ_2() {
     DRIVER.check_alarm(2)
 }
 
-#[cfg(all(feature = "rt", feature = "rp235x"))]
+#[cfg(all(feature = "rt", feature = "_rp235x"))]
 #[interrupt]
 fn TIMER0_IRQ_3() {
     DRIVER.check_alarm(3)

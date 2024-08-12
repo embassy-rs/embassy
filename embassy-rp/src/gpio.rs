@@ -14,7 +14,12 @@ use crate::pac::SIO;
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
+
+#[cfg(any(feature = "rp2040", feature = "rp235xa"))]
 const BANK0_PIN_COUNT: usize = 30;
+#[cfg(feature = "rp235xb")]
+const BANK0_PIN_COUNT: usize = 48;
+
 static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [NEW_AW; BANK0_PIN_COUNT];
 #[cfg(feature = "qspi-as-gpio")]
 const QSPI_PIN_COUNT: usize = 6;
@@ -180,7 +185,7 @@ impl<'d> Input<'d> {
     }
 
     /// Set the pin's pad isolation
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     #[inline]
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.set_pad_isolation(isolate)
@@ -422,7 +427,7 @@ impl<'d> Output<'d> {
     }
 
     /// Set the pin's pad isolation
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     #[inline]
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.set_pad_isolation(isolate)
@@ -555,7 +560,7 @@ impl<'d> OutputOpenDrain<'d> {
     }
 
     /// Set the pin's pad isolation
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     #[inline]
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.set_pad_isolation(isolate)
@@ -581,7 +586,7 @@ impl<'d> Flex<'d> {
         into_ref!(pin);
 
         pin.pad_ctrl().write(|w| {
-            #[cfg(feature = "rp235x")]
+            #[cfg(feature = "_rp235x")]
             w.set_iso(false);
             w.set_ie(true);
         });
@@ -589,7 +594,7 @@ impl<'d> Flex<'d> {
         pin.gpio().ctrl().write(|w| {
             #[cfg(feature = "rp2040")]
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0 as _);
-            #[cfg(feature = "rp235x")]
+            #[cfg(feature = "_rp235x")]
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIOB_PROC_0 as _);
         });
 
@@ -788,7 +793,7 @@ impl<'d> Flex<'d> {
     }
 
     /// Set the pin's pad isolation
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     #[inline]
     pub fn set_pad_isolation(&mut self, isolate: bool) {
         self.pin.pad_ctrl().modify(|w| {

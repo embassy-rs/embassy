@@ -107,7 +107,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         if let Some(pin) = &clk {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
             pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "rp235x")]
+                #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_schmitt(true);
                 w.set_slewfast(false);
@@ -120,7 +120,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         if let Some(pin) = &mosi {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
             pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "rp235x")]
+                #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_schmitt(true);
                 w.set_slewfast(false);
@@ -133,7 +133,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         if let Some(pin) = &miso {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
             pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "rp235x")]
+                #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_schmitt(true);
                 w.set_slewfast(false);
@@ -146,7 +146,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         if let Some(pin) = &cs {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
             pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "rp235x")]
+                #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_schmitt(true);
                 w.set_slewfast(false);

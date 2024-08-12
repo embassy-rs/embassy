@@ -15,9 +15,9 @@ mod critical_section_impl;
 mod intrinsics;
 
 pub mod adc;
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 pub mod binary_info;
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 pub mod block;
 #[cfg(feature = "rp2040")]
 pub mod bootsel;
@@ -92,7 +92,7 @@ embassy_hal_internal::interrupt_mod!(
     SWI_IRQ_5,
 );
 
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 embassy_hal_internal::interrupt_mod!(
     TIMER0_IRQ_0,
     TIMER0_IRQ_1,
@@ -267,7 +267,7 @@ embassy_hal_internal::peripherals! {
     BOOTSEL,
 }
 
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 embassy_hal_internal::peripherals! {
     PIN_0,
     PIN_1,
@@ -497,7 +497,7 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     Ok(())
 }
 
-#[cfg(feature = "rp235x")]
+#[cfg(all(feature = "_rp235x", armv8m))]
 #[inline(always)]
 fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     let core = unsafe { cortex_m::Peripherals::steal() };
@@ -512,6 +512,14 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
         core.MPU.rbar.write(stack_bottom as u32 & !0xff); // set address
         core.MPU.rlar.write(1); // enable region
     }
+    Ok(())
+}
+
+// This is to hack around cortex_m defaulting to ARMv7 when building tests,
+// so the compile fails when we try to use ARMv8 peripherals.
+#[cfg(all(feature = "_rp235x", not(armv8m)))]
+#[inline(always)]
+fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     Ok(())
 }
 

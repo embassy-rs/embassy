@@ -147,7 +147,7 @@ fn copy_inner<'a, C: Channel>(
     p.trans_count().write(|w| {
         *w = len as u32;
     });
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     p.trans_count().write(|w| {
         w.set_mode(0.into());
         w.set_count(len as u32);
@@ -208,7 +208,10 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
     }
 }
 
+#[cfg(feature = "rp2040")]
 pub(crate) const CHANNEL_COUNT: usize = 12;
+#[cfg(feature = "_rp235x")]
+pub(crate) const CHANNEL_COUNT: usize = 16;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 
@@ -303,11 +306,11 @@ channel!(DMA_CH8, 8);
 channel!(DMA_CH9, 9);
 channel!(DMA_CH10, 10);
 channel!(DMA_CH11, 11);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 channel!(DMA_CH12, 12);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 channel!(DMA_CH13, 13);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 channel!(DMA_CH14, 14);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 channel!(DMA_CH15, 15);

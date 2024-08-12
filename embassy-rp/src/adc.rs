@@ -35,7 +35,7 @@ impl<'p> Channel<'p> {
     pub fn new_pin(pin: impl Peripheral<P = impl AdcPin + 'p> + 'p, pull: Pull) -> Self {
         into_ref!(pin);
         pin.pad_ctrl().modify(|w| {
-            #[cfg(feature = "rp235x")]
+            #[cfg(feature = "_rp235x")]
             w.set_iso(false);
             // manual says:
             //
@@ -234,7 +234,7 @@ impl<'d> Adc<'d, Async> {
     ) -> Result<(), Error> {
         #[cfg(feature = "rp2040")]
         let mut rrobin = 0_u8;
-        #[cfg(feature = "rp235x")]
+        #[cfg(feature = "_rp235x")]
         let mut rrobin = 0_u16;
         for c in channels {
             rrobin |= 1 << c;

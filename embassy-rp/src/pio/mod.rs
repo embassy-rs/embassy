@@ -354,7 +354,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
         #[cfg(feature = "rp2040")]
         p.trans_count().write(|w| *w = data.len() as u32);
-        #[cfg(feature = "rp235x")]
+        #[cfg(feature = "_rp235x")]
         p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
@@ -439,7 +439,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         p.write_addr().write_value(PIO::PIO.txf(SM).as_ptr() as u32);
         #[cfg(feature = "rp2040")]
         p.trans_count().write(|w| *w = data.len() as u32);
-        #[cfg(feature = "rp235x")]
+        #[cfg(feature = "_rp235x")]
         p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
@@ -529,7 +529,7 @@ pub struct PinConfig {
 /// Comparison level or IRQ index for the MOV x, STATUS instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 pub enum StatusN {
     /// IRQ flag in this PIO block
     This(u8),
@@ -539,14 +539,14 @@ pub enum StatusN {
     Higher(u8),
 }
 
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl Default for StatusN {
     fn default() -> Self {
         Self::This(0)
     }
 }
 
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl Into<crate::pac::pio::vals::ExecctrlStatusN> for StatusN {
     fn into(self) -> crate::pac::pio::vals::ExecctrlStatusN {
         let x = match self {
@@ -576,7 +576,7 @@ pub struct Config<'d, PIO: Instance> {
     #[cfg(feature = "rp2040")]
     pub status_n: u8,
     // This cfg probably shouldn't be required, but the SVD for the 2040 doesn't have the enum
-    #[cfg(feature = "rp235x")]
+    #[cfg(feature = "_rp235x")]
     /// Status comparison level.
     pub status_n: StatusN,
     exec: ExecConfig,
@@ -709,7 +709,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_out_sticky(config.out_sticky);
             w.set_wrap_top(config.exec.wrap_top);
             w.set_wrap_bottom(config.exec.wrap_bottom);
-            #[cfg(feature = "rp235x")]
+            #[cfg(feature = "_rp235x")]
             w.set_status_sel(match config.status_sel {
                 StatusSource::TxFifoLevel => pac::pio::vals::ExecctrlStatusSel::TXLEVEL,
                 StatusSource::RxFifoLevel => pac::pio::vals::ExecctrlStatusSel::RXLEVEL,
@@ -1250,7 +1250,7 @@ macro_rules! impl_pio {
 
 impl_pio!(PIO0, 0, PIO0, PIO0_0, PIO0_IRQ_0);
 impl_pio!(PIO1, 1, PIO1, PIO1_0, PIO1_IRQ_0);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pio!(PIO2, 2, PIO2, PIO2_0, PIO2_IRQ_0);
 
 /// PIO pin.

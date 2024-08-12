@@ -852,7 +852,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                 });
             });
             pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "rp235x")]
+                #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_ie(true);
             });
@@ -875,7 +875,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                 });
             });
             pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "rp235x")]
+                #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_ie(true);
             });
@@ -890,7 +890,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                 });
             });
             pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "rp235x")]
+                #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_ie(true);
             });
@@ -905,7 +905,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                 });
             });
             pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "rp235x")]
+                #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_ie(true);
             });
@@ -1371,33 +1371,33 @@ impl_pin!(PIN_28, UART0, TxPin);
 impl_pin!(PIN_29, UART0, RxPin);
 
 // Additional functions added by all 2350s
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_2, UART0, TxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_3, UART0, RxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_6, UART1, TxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_7, UART1, RxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_10, UART1, TxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_11, UART1, RxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_14, UART0, TxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_15, UART0, RxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_18, UART0, TxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_19, UART0, RxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_22, UART1, TxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_23, UART1, RxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_26, UART1, TxPin);
-#[cfg(feature = "rp235x")]
+#[cfg(feature = "_rp235x")]
 impl_pin!(PIN_27, UART1, RxPin);
 
 // Additional pins added by larger 2350 packages.

@@ -109,7 +109,7 @@ unsafe fn SIO_IRQ_PROC1() {
     }
 }
 
-#[cfg(all(feature = "rt", feature = "rp235x"))]
+#[cfg(all(feature = "rt", feature = "_rp235x"))]
 #[interrupt]
 #[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_FIFO() {
@@ -164,7 +164,7 @@ where
         unsafe {
             interrupt::SIO_IRQ_PROC1.enable()
         };
-        #[cfg(feature = "rp235x")]
+        #[cfg(feature = "_rp235x")]
         unsafe {
             interrupt::SIO_IRQ_FIFO.enable()
         };

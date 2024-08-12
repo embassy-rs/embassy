@@ -669,8 +669,10 @@ mod ram_helpers {
 
     #[inline(never)]
     #[link_section = ".data.ram_func"]
-    #[cfg(feature = "rp235x")]
-    unsafe fn write_flash_inner(_addr: u32, _len: u32, _data: Option<&[u8]>, _ptrs: *const FlashFunctionPointers) {}
+    #[cfg(feature = "_rp235x")]
+    unsafe fn write_flash_inner(_addr: u32, _len: u32, _data: Option<&[u8]>, _ptrs: *const FlashFunctionPointers) {
+        todo!();
+    }
 
     #[repr(C)]
     struct FlashCommand {
@@ -891,8 +893,10 @@ mod ram_helpers {
 
     #[inline(never)]
     #[link_section = ".data.ram_func"]
-    #[cfg(feature = "rp235x")]
-    unsafe fn read_flash_inner(_cmd: FlashCommand, _ptrs: *const FlashFunctionPointers) {}
+    #[cfg(feature = "_rp235x")]
+    unsafe fn read_flash_inner(_cmd: FlashCommand, _ptrs: *const FlashFunctionPointers) {
+        todo!();
+    }
 }
 
 /// Make sure to uphold the contract points with rp2040-flash.
@@ -906,7 +910,7 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
     }
 
     // Make sure CORE1 is paused during the entire duration of the RAM function
-    //crate::multicore::pause_core1();
+    crate::multicore::pause_core1();
 
     critical_section::with(|_| {
         // Wait for all DMA channels in flash to finish before ram operation

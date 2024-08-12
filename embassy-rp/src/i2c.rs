@@ -363,7 +363,7 @@ where
 {
     pin.gpio().ctrl().write(|w| w.set_funcsel(3));
     pin.pad_ctrl().write(|w| {
-        #[cfg(feature = "rp235x")]
+        #[cfg(feature = "_rp235x")]
         w.set_iso(false);
         w.set_schmitt(true);
         w.set_slewfast(false);

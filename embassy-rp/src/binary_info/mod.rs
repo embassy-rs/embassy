@@ -4,13 +4,12 @@
 //! and "rt" features:
 //!
 //! ```
-//! # use rp235x_hal as hal;
 //! #[link_section = ".bi_entries"]
 //! #[used]
-//! pub static PICOTOOL_ENTRIES: [hal::binary_info::EntryAddr; 3] = [
-//!     hal::binary_info_rp_program_name!(c"Program Name Here"),
-//!     hal::binary_info_rp_cargo_version!(),
-//!     hal::binary_info_int!(hal::binary_info::make_tag(b"JP"), 0x0000_0001, 0x12345678),
+//! pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 3] = [
+//!     embassy_rp::binary_info_rp_program_name!(c"Program Name Here"),
+//!     embassy_rp::binary_info_rp_cargo_version!(),
+//!     embassy_rp::binary_info_int!(embassy_rp::binary_info::make_tag(b"JP"), 0x0000_0001, 0x12345678),
 //! ];
 //! ```
 
@@ -163,8 +162,7 @@ pub const fn rp_boot2_name(value: &'static core::ffi::CStr) -> StringEntry {
 /// Create a tag from two ASCII letters.
 ///
 /// ```
-/// # use rp235x_hal as hal;
-/// let tag = hal::binary_info::make_tag(b"RP");
+/// let tag = embassy_rp::binary_info::make_tag(b"RP");
 /// assert_eq!(tag, 0x5052);
 /// ```
 pub const fn make_tag(c: &[u8; 2]) -> u16 {
