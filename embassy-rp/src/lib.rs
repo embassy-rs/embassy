@@ -497,7 +497,7 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     Ok(())
 }
 
-#[cfg(all(feature = "_rp235x", armv8m))]
+#[cfg(all(feature = "_rp235x", not(test)))]
 #[inline(always)]
 fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     let core = unsafe { cortex_m::Peripherals::steal() };
@@ -517,9 +517,9 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
 
 // This is to hack around cortex_m defaulting to ARMv7 when building tests,
 // so the compile fails when we try to use ARMv8 peripherals.
-#[cfg(all(feature = "_rp235x", not(armv8m)))]
+#[cfg(test)]
 #[inline(always)]
-fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
+fn install_stack_guard(_stack_bottom: *mut usize) -> Result<(), ()> {
     Ok(())
 }
 

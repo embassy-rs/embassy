@@ -902,7 +902,7 @@ pub enum GpoutSrc {
     Usb = ClkGpoutCtrlAuxsrc::CLK_USB as _,
     /// ADC.
     Adc = ClkGpoutCtrlAuxsrc::CLK_ADC as _,
-    // RTC.
+    /// RTC.
     #[cfg(feature = "rp2040")]
     Rtc = ClkGpoutCtrlAuxsrc::CLK_RTC as _,
     /// REF.
