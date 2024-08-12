@@ -2,7 +2,7 @@ pub use pac::resets::regs::Peripherals;
 
 use crate::pac;
 
-pub const ALL_PERIPHERALS: Peripherals = Peripherals(0x01ffffff);
+pub const ALL_PERIPHERALS: Peripherals = Peripherals(0x01ff_ffff);
 
 pub(crate) fn reset(peris: Peripherals) {
     pac::RESETS.reset().write_value(peris);
