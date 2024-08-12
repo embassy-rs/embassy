@@ -103,12 +103,12 @@ nrf9160-ns = ["_nrf9160", "_ns", "_nrf91"]
 ## The nRF9120 is the internal part number for the nRF9161 and nRF9151.
 ## nRF9120 in Secure mode
 nrf9120-s = ["_nrf9120", "_s", "_nrf91"]
-nrf9151-s = ["_nrf9120", "_s", "_nrf91"]
-nrf9161-s = ["_nrf9120", "_s", "_nrf91"]
+nrf9151-s = ["nrf9120-s"]
+nrf9161-s = ["nrf9120-s"]
 ## nRF9120 in Non-Secure mode
 nrf9120-ns = ["_nrf9120", "_ns", "_nrf91"]
-nrf9151-ns = ["_nrf9120", "_ns", "_nrf91"]
-nrf9161-ns = ["_nrf9120", "_ns", "_nrf91"]
+nrf9151-ns = ["nrf9120-ns"]
+nrf9161-ns = ["nrf9120-ns"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
