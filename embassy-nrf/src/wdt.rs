@@ -184,8 +184,9 @@ impl WatchdogHandle {
 
     /// Steal a watchdog handle by index.
     ///
-    /// Safety: watchdog must be initialized, index must be between 0 and N-1 where
-    /// N is the handle count when initializing.
+    /// # Safety
+    /// Watchdog must be initialized and `index` must be between `0` and `N-1`
+    /// where `N` is the handle count when initializing.
     pub unsafe fn steal(index: u8) -> Self {
         Self { index }
     }

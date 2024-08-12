@@ -1,6 +1,6 @@
 [package]
 name = "embassy-rp"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for the Raspberry Pi RP2040 microcontroller"
@@ -22,13 +22,13 @@ features = ["defmt", "unstable-pac", "time-driver"]
 
 [features]
 default = [ "rt" ]
-## Enable the rt feature of [`rp-pac`](https://docs.rs/crates/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
+## Enable the rt feature of [`rp-pac`](https://docs.rs/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
 rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
 
-## Configure the critical section crate to use an implementation that is safe for multicore use on rp2040.
+## Configure the [`critical-section`](https://docs.rs/critical-section) crate to use an implementation that is safe for multicore use on rp2040.
 critical-section-impl = ["critical-section/restore-state-u8"]
 
 ## Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
@@ -91,10 +91,10 @@ boot2-none = []
 [dependencies]
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
-embassy-time = { version = "0.3.1", path = "../embassy-time" }
+embassy-time = { version = "0.3.2", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
+embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
+embassy-embedded-hal = {version = "0.2.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
 atomic-polyfill = "1.0.1"
 defmt = { version = "0.3", optional = true }
@@ -125,5 +125,5 @@ rp2040-boot2 = "0.3"
 document-features = "0.2.7"
 
 [dev-dependencies]
-embassy-executor = { version = "0.5.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
+embassy-executor = { version = "0.6.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }

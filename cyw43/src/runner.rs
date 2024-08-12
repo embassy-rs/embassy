@@ -1,4 +1,4 @@
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{select4, Either4};
 use embassy_net_driver_channel as ch;
 use embassy_time::{block_for, Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
@@ -11,7 +11,8 @@ use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 use crate::nvram::NVRAM;
 use crate::structs::*;
-use crate::{events, slice8_mut, Core, CHIP, MTU};
+use crate::util::slice8_mut;
+use crate::{events, Core, CHIP, MTU};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -36,7 +37,7 @@ impl Default for LogState {
 /// Driver communicating with the WiFi chip.
 pub struct Runner<'a, PWR, SPI> {
     ch: ch::Runner<'a, MTU>,
-    bus: Bus<PWR, SPI>,
+    pub(crate) bus: Bus<PWR, SPI>,
 
     ioctl_state: &'a IoctlState,
     ioctl_id: u16,
@@ -47,6 +48,9 @@ pub struct Runner<'a, PWR, SPI> {
 
     #[cfg(feature = "firmware-logs")]
     log: LogState,
+
+    #[cfg(feature = "bluetooth")]
+    pub(crate) bt: Option<crate::bluetooth::BtRunner<'a>>,
 }
 
 impl<'a, PWR, SPI> Runner<'a, PWR, SPI>
@@ -59,6 +63,7 @@ where
         bus: Bus<PWR, SPI>,
         ioctl_state: &'a IoctlState,
         events: &'a Events,
+        #[cfg(feature = "bluetooth")] bt: Option<crate::bluetooth::BtRunner<'a>>,
     ) -> Self {
         Self {
             ch,
@@ -70,33 +75,52 @@ where
             events,
             #[cfg(feature = "firmware-logs")]
             log: LogState::default(),
+            #[cfg(feature = "bluetooth")]
+            bt,
         }
     }
 
-    pub(crate) async fn init(&mut self, firmware: &[u8]) {
-        self.bus.init().await;
+    pub(crate) async fn init(&mut self, wifi_fw: &[u8], bt_fw: Option<&[u8]>) {
+        self.bus.init(bt_fw.is_some()).await;
 
         // Init ALP (Active Low Power) clock
+        debug!("init alp");
         self.bus
             .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
             .await;
+
+        debug!("set f2 watermark");
+        self.bus
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x10)
+            .await;
+        let watermark = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK).await;
+        debug!("watermark = {:02x}", watermark);
+        assert!(watermark == 0x10);
+
         debug!("waiting for clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL == 0 {}
         debug!("clock ok");
+
+        // clear request for ALP
+        debug!("clear request for ALP");
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0).await;
 
         let chip_id = self.bus.bp_read16(0x1800_0000).await;
         debug!("chip ID: {}", chip_id);
 
         // Upload firmware.
         self.core_disable(Core::WLAN).await;
+        self.core_disable(Core::SOCSRAM).await; // TODO: is this needed if we reset right after?
         self.core_reset(Core::SOCSRAM).await;
+
+        // this is 4343x specific stuff: Disable remap for SRAM_3
         self.bus.bp_write32(CHIP.socsram_base_address + 0x10, 3).await;
         self.bus.bp_write32(CHIP.socsram_base_address + 0x44, 0).await;
 
         let ram_addr = CHIP.atcm_ram_base_address;
 
         debug!("loading fw");
-        self.bus.bp_write(ram_addr, firmware).await;
+        self.bus.bp_write(ram_addr, wifi_fw).await;
 
         debug!("loading nvram");
         // Round up to 4 bytes.
@@ -116,10 +140,23 @@ where
         self.core_reset(Core::WLAN).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
+        // wait until HT clock is available; takes about 29ms
+        debug!("wait for HT clock");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
 
         // "Set up the interrupt mask and enable interrupts"
-        // self.bus.bp_write32(CHIP.sdiod_core_base_address + 0x24, 0xF0).await;
+        debug!("setup interrupt mask");
+        self.bus
+            .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_SW_MASK)
+            .await;
+
+        // Set up the interrupt mask and enable interrupts
+        if bt_fw.is_some() {
+            debug!("bluetooth setup interrupt mask");
+            self.bus
+                .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_FC_CHANGE)
+                .await;
+        }
 
         self.bus
             .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_PACKET_AVAILABLE)
@@ -128,11 +165,11 @@ where
         // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
         // Sounds scary...
         self.bus
-            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 32)
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, SPI_F2_WATERMARK)
             .await;
 
-        // wait for wifi startup
-        debug!("waiting for wifi init...");
+        // wait for F2 to be ready
+        debug!("waiting for F2 to be ready...");
         while self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY == 0 {}
 
         // Some random configs related to sleep.
@@ -153,19 +190,27 @@ where
          */
 
         // clear pulls
+        debug!("clear pad pulls");
         self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP, 0).await;
         let _ = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP).await;
 
         // start HT clock
-        //self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10).await;
-        //debug!("waiting for HT clock...");
-        //while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
-        //debug!("clock ok");
+        self.bus
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10)
+            .await; // SBSDIO_HT_AVAIL_REQ
+        debug!("waiting for HT clock...");
+        while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
+        debug!("clock ok");
 
         #[cfg(feature = "firmware-logs")]
         self.log_init().await;
 
-        debug!("wifi init done");
+        #[cfg(feature = "bluetooth")]
+        if let Some(bt_fw) = bt_fw {
+            self.bt.as_mut().unwrap().init_bluetooth(&mut self.bus, bt_fw).await;
+        }
+
+        debug!("cyw43 runner init done");
     }
 
     #[cfg(feature = "firmware-logs")]
@@ -222,7 +267,7 @@ where
         }
     }
 
-    /// Run the
+    /// Run the CYW43 event handling loop.
     pub async fn run(mut self) -> ! {
         let mut buf = [0; 512];
         loop {
@@ -231,11 +276,27 @@ where
 
             if self.has_credit() {
                 let ioctl = self.ioctl_state.wait_pending();
-                let tx = self.ch.tx_buf();
+                let wifi_tx = self.ch.tx_buf();
+                #[cfg(feature = "bluetooth")]
+                let bt_tx = async {
+                    match &mut self.bt {
+                        Some(bt) => bt.tx_chan.receive().await,
+                        None => core::future::pending().await,
+                    }
+                };
+                #[cfg(not(feature = "bluetooth"))]
+                let bt_tx = core::future::pending::<()>();
+
+                // interrupts aren't working yet for bluetooth. Do busy-polling instead.
+                // Note for this to work `ev` has to go last in the `select()`. It prefers
+                // first futures if they're ready, so other select branches don't get starved.`
+                #[cfg(feature = "bluetooth")]
+                let ev = core::future::ready(());
+                #[cfg(not(feature = "bluetooth"))]
                 let ev = self.bus.wait_for_event();
 
-                match select3(ioctl, tx, ev).await {
-                    Either3::First(PendingIoctl {
+                match select4(ioctl, wifi_tx, bt_tx, ev).await {
+                    Either4::First(PendingIoctl {
                         buf: iobuf,
                         kind,
                         cmd,
@@ -244,7 +305,7 @@ where
                         self.send_ioctl(kind, cmd, iface, unsafe { &*iobuf }, &mut buf).await;
                         self.check_status(&mut buf).await;
                     }
-                    Either3::Second(packet) => {
+                    Either4::Second(packet) => {
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
                         let buf8 = slice8_mut(&mut buf);
@@ -298,8 +359,19 @@ where
                         self.ch.tx_done();
                         self.check_status(&mut buf).await;
                     }
-                    Either3::Third(()) => {
+                    Either4::Third(_) => {
+                        #[cfg(feature = "bluetooth")]
+                        self.bt.as_mut().unwrap().hci_write(&mut self.bus).await;
+                    }
+                    Either4::Fourth(()) => {
                         self.handle_irq(&mut buf).await;
+
+                        // If we do busy-polling, make sure to yield.
+                        // `handle_irq` will only do a 32bit read if there's no work to do, which is really fast.
+                        // Depending on optimization level, it is possible that the 32-bit read finishes on
+                        // first poll, so it never yields and we starve all other tasks.
+                        #[cfg(feature = "bluetooth")]
+                        embassy_futures::yield_now().await;
                     }
                 }
             } else {
@@ -314,16 +386,23 @@ where
     async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
         // Receive stuff
         let irq = self.bus.read16(FUNC_BUS, REG_BUS_INTERRUPT).await;
-        trace!("irq{}", FormatInterrupt(irq));
+        if irq != 0 {
+            trace!("irq{}", FormatInterrupt(irq));
+        }
 
         if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
             self.check_status(buf).await;
         }
 
         if irq & IRQ_DATA_UNAVAILABLE != 0 {
-            // TODO what should we do here?
-            warn!("IRQ DATA_UNAVAILABLE, clearing...");
+            // this seems to be ignorable with no ill effects.
+            trace!("IRQ DATA_UNAVAILABLE, clearing...");
             self.bus.write16(FUNC_BUS, REG_BUS_INTERRUPT, 1).await;
+        }
+
+        #[cfg(feature = "bluetooth")]
+        if let Some(bt) = &mut self.bt {
+            bt.handle_irq(&mut self.bus).await;
         }
     }
 

@@ -48,11 +48,22 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
+#[cfg(not(feature = "_dual-core"))]
 /// Frozen clock frequencies
 ///
 /// The existence of this value indicates that the clock configuration can no longer be changed
 static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
 
+#[cfg(feature = "_dual-core")]
+static CLOCK_FREQS_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Clocks>> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+
+#[cfg(feature = "_dual-core")]
+pub(crate) fn set_freqs_ptr(freqs: *mut MaybeUninit<Clocks>) {
+    CLOCK_FREQS_PTR.store(freqs, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(not(feature = "_dual-core"))]
 /// Sets the clock frequencies
 ///
 /// Safety: Sets a mutable global.
@@ -61,9 +72,27 @@ pub(crate) unsafe fn set_freqs(freqs: Clocks) {
     CLOCK_FREQS = MaybeUninit::new(freqs);
 }
 
+#[cfg(feature = "_dual-core")]
+/// Sets the clock frequencies
+///
+/// Safety: Sets a mutable global.
+pub(crate) unsafe fn set_freqs(freqs: Clocks) {
+    debug!("rcc: {:?}", freqs);
+    CLOCK_FREQS_PTR
+        .load(core::sync::atomic::Ordering::SeqCst)
+        .write(MaybeUninit::new(freqs));
+}
+
+#[cfg(not(feature = "_dual-core"))]
 /// Safety: Reads a mutable global.
 pub(crate) unsafe fn get_freqs() -> &'static Clocks {
     CLOCK_FREQS.assume_init_ref()
+}
+
+#[cfg(feature = "_dual-core")]
+/// Safety: Reads a mutable global.
+pub(crate) unsafe fn get_freqs() -> &'static Clocks {
+    unwrap!(CLOCK_FREQS_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init_ref()
 }
 
 pub(crate) trait SealedRccPeripheral {

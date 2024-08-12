@@ -1282,6 +1282,7 @@ pub(crate) struct Info {
 struct State {}
 
 impl State {
+    #[allow(unused)]
     const fn new() -> Self {
         Self {}
     }

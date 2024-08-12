@@ -5,19 +5,33 @@ pub(crate) const FUNC_BACKPLANE: u32 = 1;
 pub(crate) const FUNC_WLAN: u32 = 2;
 pub(crate) const FUNC_BT: u32 = 3;
 
+// Register addresses
 pub(crate) const REG_BUS_CTRL: u32 = 0x0;
+pub(crate) const REG_BUS_RESPONSE_DELAY: u32 = 0x1;
+pub(crate) const REG_BUS_STATUS_ENABLE: u32 = 0x2;
 pub(crate) const REG_BUS_INTERRUPT: u32 = 0x04; // 16 bits - Interrupt status
 pub(crate) const REG_BUS_INTERRUPT_ENABLE: u32 = 0x06; // 16 bits - Interrupt mask
 pub(crate) const REG_BUS_STATUS: u32 = 0x8;
 pub(crate) const REG_BUS_TEST_RO: u32 = 0x14;
 pub(crate) const REG_BUS_TEST_RW: u32 = 0x18;
 pub(crate) const REG_BUS_RESP_DELAY: u32 = 0x1c;
+
+// SPI_BUS_CONTROL Bits
 pub(crate) const WORD_LENGTH_32: u32 = 0x1;
+pub(crate) const ENDIAN_BIG: u32 = 0x2;
+pub(crate) const CLOCK_PHASE: u32 = 0x4;
+pub(crate) const CLOCK_POLARITY: u32 = 0x8;
 pub(crate) const HIGH_SPEED: u32 = 0x10;
-pub(crate) const INTERRUPT_HIGH: u32 = 1 << 5;
-pub(crate) const WAKE_UP: u32 = 1 << 7;
-pub(crate) const STATUS_ENABLE: u32 = 1 << 16;
-pub(crate) const INTERRUPT_WITH_STATUS: u32 = 1 << 17;
+pub(crate) const INTERRUPT_POLARITY_HIGH: u32 = 0x20;
+pub(crate) const WAKE_UP: u32 = 0x80;
+
+// SPI_STATUS_ENABLE bits
+pub(crate) const STATUS_ENABLE: u32 = 0x01;
+pub(crate) const INTR_WITH_STATUS: u32 = 0x02;
+pub(crate) const RESP_DELAY_ALL: u32 = 0x04;
+pub(crate) const DWORD_PKT_LEN_EN: u32 = 0x08;
+pub(crate) const CMD_ERR_CHK_EN: u32 = 0x20;
+pub(crate) const DATA_ERR_CHK_EN: u32 = 0x40;
 
 // SPI_STATUS_REGISTER bits
 pub(crate) const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
@@ -50,6 +64,13 @@ pub(crate) const REG_BACKPLANE_READ_FRAME_BC_LOW: u32 = 0x1001B;
 pub(crate) const REG_BACKPLANE_READ_FRAME_BC_HIGH: u32 = 0x1001C;
 pub(crate) const REG_BACKPLANE_WAKEUP_CTRL: u32 = 0x1001E;
 pub(crate) const REG_BACKPLANE_SLEEP_CSR: u32 = 0x1001F;
+
+pub(crate) const I_HMB_SW_MASK: u32 = 0x000000f0;
+pub(crate) const I_HMB_FC_CHANGE: u32 = 1 << 5;
+pub(crate) const SDIO_INT_STATUS: u32 = 0x20;
+pub(crate) const SDIO_INT_HOST_MASK: u32 = 0x24;
+
+pub(crate) const SPI_F2_WATERMARK: u8 = 0x20;
 
 pub(crate) const BACKPLANE_WINDOW_SIZE: usize = 0x8000;
 pub(crate) const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
@@ -118,6 +139,44 @@ pub(crate) const WPA2_SECURITY: u32 = 0x00400000;
 
 pub(crate) const MIN_PSK_LEN: usize = 8;
 pub(crate) const MAX_PSK_LEN: usize = 64;
+
+// Bluetooth firmware extraction constants.
+pub(crate) const BTFW_ADDR_MODE_UNKNOWN: i32 = 0;
+pub(crate) const BTFW_ADDR_MODE_EXTENDED: i32 = 1;
+pub(crate) const BTFW_ADDR_MODE_SEGMENT: i32 = 2;
+pub(crate) const BTFW_ADDR_MODE_LINEAR32: i32 = 3;
+
+pub(crate) const BTFW_HEX_LINE_TYPE_DATA: u8 = 0;
+pub(crate) const BTFW_HEX_LINE_TYPE_END_OF_DATA: u8 = 1;
+pub(crate) const BTFW_HEX_LINE_TYPE_EXTENDED_SEGMENT_ADDRESS: u8 = 2;
+pub(crate) const BTFW_HEX_LINE_TYPE_EXTENDED_ADDRESS: u8 = 4;
+pub(crate) const BTFW_HEX_LINE_TYPE_ABSOLUTE_32BIT_ADDRESS: u8 = 5;
+
+// Bluetooth constants.
+pub(crate) const SPI_RESP_DELAY_F1: u32 = 0x001d;
+pub(crate) const WHD_BUS_SPI_BACKPLANE_READ_PADD_SIZE: u8 = 4;
+
+pub(crate) const BT2WLAN_PWRUP_WAKE: u32 = 3;
+pub(crate) const BT2WLAN_PWRUP_ADDR: u32 = 0x640894;
+
+pub(crate) const BT_CTRL_REG_ADDR: u32 = 0x18000c7c;
+pub(crate) const HOST_CTRL_REG_ADDR: u32 = 0x18000d6c;
+pub(crate) const WLAN_RAM_BASE_REG_ADDR: u32 = 0x18000d68;
+
+pub(crate) const BTSDIO_REG_DATA_VALID_BITMASK: u32 = 1 << 1;
+pub(crate) const BTSDIO_REG_BT_AWAKE_BITMASK: u32 = 1 << 8;
+pub(crate) const BTSDIO_REG_WAKE_BT_BITMASK: u32 = 1 << 17;
+pub(crate) const BTSDIO_REG_SW_RDY_BITMASK: u32 = 1 << 24;
+pub(crate) const BTSDIO_REG_FW_RDY_BITMASK: u32 = 1 << 24;
+
+pub(crate) const BTSDIO_FWBUF_SIZE: u32 = 0x1000;
+pub(crate) const BTSDIO_OFFSET_HOST_WRITE_BUF: u32 = 0;
+pub(crate) const BTSDIO_OFFSET_HOST_READ_BUF: u32 = BTSDIO_FWBUF_SIZE;
+
+pub(crate) const BTSDIO_OFFSET_HOST2BT_IN: u32 = 0x00002000;
+pub(crate) const BTSDIO_OFFSET_HOST2BT_OUT: u32 = 0x00002004;
+pub(crate) const BTSDIO_OFFSET_BT2HOST_IN: u32 = 0x00002008;
+pub(crate) const BTSDIO_OFFSET_BT2HOST_OUT: u32 = 0x0000200C;
 
 // Security type (authentication and encryption types are combined using bit mask)
 #[allow(non_camel_case_types)]
