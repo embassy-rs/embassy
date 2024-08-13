@@ -60,30 +60,53 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             let index = istr.ep_id() as usize;
 
             let epr = regs.epr(index).read();
-            let mut epr = invariant(epr);
 
-            if epr.nak() {
-                epr.set_nak(false);
-            } else {
-                if index == 0 {
-                    EP0_TRANSFER_COMPLETE.store(true, Ordering::Relaxed);
+            // Valid USB transaction transmitted
+            if epr.ctr_tx() {
+                // Either NAK, STALL, ACK, ERROR
+                match epr.stat_tx() {
+                    Stat::DISABLED => {
+                        EP0_TRANSFER_COMPLETE.store(true, Ordering::Relaxed);
+                    }
+                    Stat::NAK => {
+                        // device still busy
+                    }
+                    Stat::STALL => debug!("tx Stat::STALL"),
+                    Stat::VALID => debug!("tx Stat::VALID"),
                 }
             }
 
+            // Valid USB transaction transmitted
+            if epr.ctr_rx() {
+                // Either NAK, STALL, ACK, ERROR
+                match epr.stat_rx() {
+                    Stat::DISABLED => {
+                        EP0_TRANSFER_COMPLETE.store(true, Ordering::Relaxed);
+                    }
+                    Stat::NAK => {
+                        // device still busy
+                    }
+                    Stat::STALL => debug!("rx Stat::STALL"),
+                    Stat::VALID => debug!("rx Stat::VALID"),
+                }
+            }
+
+            let mut epr_value = invariant(epr);
+
             if epr.err_tx() {
-                epr.set_err_tx(false);
+                epr_value.set_err_tx(false);
                 warn!("err_tx");
             }
             if epr.err_rx() {
-                epr.set_err_rx(false);
+                epr_value.set_err_rx(false);
                 warn!("err_rx");
             }
 
             // Clear ctr flag
-            epr.set_ctr_tx(!epr.ctr_tx());
-            epr.set_ctr_rx(!epr.ctr_rx());
+            epr_value.set_ctr_tx(!epr.ctr_tx());
+            epr_value.set_ctr_rx(!epr.ctr_rx());
 
-            regs.epr(index).write_value(epr);
+            regs.epr(index).write_value(epr_value);
 
             // Wake main thread.
             BUS_WAKER.wake();
@@ -710,9 +733,6 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
 
         let epr0 = T::regs().epr(0);
 
-        let epr_val = epr0.read();
-        info!("epr_val = {:08x}", epr_val.0);
-
         // setup stage
         let mut epr_val = invariant(epr0.read());
         epr_val.set_devaddr(addr);
@@ -768,9 +788,6 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
         self.ep_out.write_data(bytes);
 
         let epr0 = T::regs().epr(0);
-
-        let epr_val = epr0.read();
-        info!("epr_val = {:08x}", epr_val.0);
 
         // setup stage
         let mut epr_val = invariant(epr0.read());
