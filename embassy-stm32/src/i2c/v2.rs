@@ -365,21 +365,21 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     //  Blocking public API
 
     /// Blocking read.
-    pub fn blocking_read(&mut self, address: Address, read: &mut [u8]) -> Result<(), Error> {
-        self.read_internal(address, read, false, self.timeout())
+    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
+        self.read_internal(address.into(), read, false, self.timeout())
         // Automatic Stop
     }
 
     /// Blocking write.
-    pub fn blocking_write(&mut self, address: Address, write: &[u8]) -> Result<(), Error> {
-        self.write_internal(address, write, true, self.timeout())
+    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+        self.write_internal(address.into(), write, true, self.timeout())
     }
 
     /// Blocking write, restart, read.
-    pub fn blocking_write_read(&mut self, address: Address, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         let timeout = self.timeout();
-        self.write_internal(address, write, false, timeout)?;
-        self.read_internal(address, read, true, timeout)
+        self.write_internal(address.into(), write, false, timeout)?;
+        self.read_internal(address.into(), read, true, timeout)
         // Automatic Stop
     }
 
@@ -388,7 +388,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub fn blocking_transaction(&mut self, addr: Address, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+    pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let _ = addr;
         let _ = operations;
         todo!()
@@ -397,7 +397,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// Blocking write multiple buffers.
     ///
     /// The buffers are concatenated in a single write transaction.
-    pub fn blocking_write_vectored(&mut self, address: Address, write: &[&[u8]]) -> Result<(), Error> {
+    pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
         if write.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
@@ -409,7 +409,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         if let Err(err) = Self::master_write(
             self.info,
-            address,
+            address.into(),
             first_length.min(255),
             Stop::Software,
             (first_length > 255) || (last_slice_index != 0),
@@ -639,13 +639,13 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     //  Async public API
 
     /// Write.
-    pub async fn write(&mut self, address: Address, write: &[u8]) -> Result<(), Error> {
+    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         let timeout = self.timeout();
         if write.is_empty() {
-            self.write_internal(address, write, true, timeout)
+            self.write_internal(address.into(), write, true, timeout)
         } else {
             timeout
-                .with(self.write_dma_internal(address, write, true, true, timeout))
+                .with(self.write_dma_internal(address.into(), write, true, true, timeout))
                 .await
         }
     }
@@ -676,32 +676,32 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 
     /// Read.
-    pub async fn read(&mut self, address: Address, buffer: &mut [u8]) -> Result<(), Error> {
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
         let timeout = self.timeout();
 
         if buffer.is_empty() {
-            self.read_internal(address, buffer, false, timeout)
+            self.read_internal(address.into(), buffer, false, timeout)
         } else {
-            let fut = self.read_dma_internal(address, buffer, false, timeout);
+            let fut = self.read_dma_internal(address.into(), buffer, false, timeout);
             timeout.with(fut).await
         }
     }
 
     /// Write, restart, read.
-    pub async fn write_read(&mut self, address: Address, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         let timeout = self.timeout();
 
         if write.is_empty() {
-            self.write_internal(address, write, false, timeout)?;
+            self.write_internal(address.into(), write, false, timeout)?;
         } else {
-            let fut = self.write_dma_internal(address, write, true, true, timeout);
+            let fut = self.write_dma_internal(address.into(), write, true, true, timeout);
             timeout.with(fut).await?;
         }
 
         if read.is_empty() {
-            self.read_internal(address, read, true, timeout)?;
+            self.read_internal(address.into(), read, true, timeout)?;
         } else {
-            let fut = self.read_dma_internal(address, read, true, timeout);
+            let fut = self.read_dma_internal(address.into(), read, true, timeout);
             timeout.with(fut).await?;
         }
 
@@ -713,7 +713,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub async fn transaction(&mut self, addr: Address, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let _ = addr;
         let _ = operations;
         todo!()
@@ -1230,93 +1230,5 @@ impl<'d, M: Mode> SetConfig for I2c<'d, M, MultiMaster> {
         self.init_slave(*addr_config);
 
         Ok(())
-    }
-}
-
-// ======== Embedded HAL impls ========
-
-impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_02::blocking::i2c::AddressMode>
-    embedded_hal_02::blocking::i2c::Read<A> for I2c<'d, M, IM>
-where
-    A: Into<Address>,
-{
-    type Error = Error;
-
-    fn read(&mut self, address: A, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(address.into(), buffer)
-    }
-}
-
-impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_02::blocking::i2c::AddressMode>
-    embedded_hal_02::blocking::i2c::Write<A> for I2c<'d, M, IM>
-where
-    A: Into<Address>,
-{
-    type Error = Error;
-
-    fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(address.into(), write)
-    }
-}
-
-impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_02::blocking::i2c::AddressMode>
-    embedded_hal_02::blocking::i2c::WriteRead<A> for I2c<'d, M, IM>
-where
-    A: Into<Address>,
-{
-    type Error = Error;
-
-    fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_write_read(address.into(), write, read)
-    }
-}
-
-impl<'d, M: Mode, IM: MasterMode, A: embedded_hal_1::i2c::AddressMode> embedded_hal_1::i2c::I2c<A> for I2c<'d, M, IM>
-where
-    Address: From<A>,
-{
-    fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(address.into(), read)
-    }
-
-    fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(address.into(), write)
-    }
-
-    fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_write_read(address.into(), write, read)
-    }
-
-    fn transaction(
-        &mut self,
-        address: A,
-        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
-    ) -> Result<(), Self::Error> {
-        self.blocking_transaction(address.into(), operations)
-    }
-}
-
-impl<'d, IM: MasterMode, A: embedded_hal_async::i2c::AddressMode> embedded_hal_async::i2c::I2c<A> for I2c<'d, Async, IM>
-where
-    Address: From<A>,
-{
-    async fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(address.into(), read).await
-    }
-
-    async fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
-        self.write(address.into(), write).await
-    }
-
-    async fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.write_read(address.into(), write, read).await
-    }
-
-    async fn transaction(
-        &mut self,
-        address: A,
-        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
-    ) -> Result<(), Self::Error> {
-        self.transaction(address.into(), operations).await
     }
 }
