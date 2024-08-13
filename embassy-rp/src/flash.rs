@@ -927,7 +927,7 @@ pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
     });
 
     // Resume CORE1 execution
-    //crate::multicore::resume_core1();
+    crate::multicore::resume_core1();
     Ok(())
 }
 
