@@ -24,7 +24,9 @@ pub trait USBHostDriverTrait {
 
     async fn wait_for_device_disconnect(&mut self);
 
-    async fn device_set_address(&mut self, addr: u8);
+    async fn get_descriptor(&mut self, packet: &[u8]);
+
+    async fn request_out(&mut self, addr: u8, bytes: &[u8]);
 }
 
 /// Interrupt handler.
@@ -90,15 +92,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             let mut epr = invariant(epr);
 
             if epr.err_tx() {
-                debug!("err_tx, nack: {}", epr.nak());
+                trace!("err_tx, nack: {}", epr.nak());
             } else {
-                debug!("stat_tx: {:02X}", epr.stat_tx() as u8);
+                trace!("stat_tx: {:02X}", epr.stat_tx() as u8);
             }
 
             // if epr.stat_tx().to_bits() > 0 {
             //     epr.set_stat_tx(Stat::VALID);
             // }
             epr.set_ctr_tx(!epr.ctr_tx());
+            epr.set_ctr_rx(!epr.ctr_rx());
 
             regs.epr(index).write_value(epr);
 
@@ -120,15 +123,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             epr.set_stat_rx(Stat::DISABLED);
             epr.set_stat_tx(Stat::DISABLED);
             regs.epr(index).write_value(epr);
-
-            let x = regs.istr().read().0;
-            // trace!("USB IRQ: {:08x}", x);
-
-            // // Debug usb in rst
-            // regs.cntr().write(|w| {
-            //     w.set_fres(true);
-            //     w.set_host(true);
-            // });
         }
     }
 }
@@ -456,10 +450,10 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
         let ep_in: Endpoint<'d, T, In> = self
             .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
             .unwrap();
-        let ep_bulk_in: Endpoint<'d, T, In> = self.alloc_endpoint(EndpointType::Bulk, 64, 0).unwrap();
+        // let ep_bulk_in: Endpoint<'d, T, In> = self.alloc_endpoint(EndpointType::Bulk, 64, 0).unwrap();
         assert_eq!(ep_out.info.addr.index(), 0);
         assert_eq!(ep_in.info.addr.index(), 0);
-        assert_eq!(ep_bulk_in.info.addr.index(), 1);
+        // assert_eq!(ep_bulk_in.info.addr.index(), 1);
 
         let regs = T::regs();
 
@@ -482,12 +476,7 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
         #[cfg(stm32l1)]
         crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
 
-        HostControlPipe {
-            _phantom: PhantomData,
-            ep_out,
-            ep_in,
-            max_packet_size: control_max_packet_size,
-        }
+        HostControlPipe::new(ep_in, ep_out, control_max_packet_size)
     }
 
     pub fn print_all(&self) {
@@ -734,21 +723,69 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
         .await;
     }
 
-    async fn device_set_address(&mut self, addr: u8) {
-        let index = self.ep_out.info.addr.index();
+    async fn request_out(&mut self, addr: u8, bytes: &[u8]) {
+        EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
+        // Write data to USB RAM
+        self.ep_out.write_data(bytes);
 
-        // Create setup package
-        let buf: [u8; 8] = [
-            0,    // bmRequestType
-            0x05, // bRequest SET_ADDRESS,
-            addr, // wValue
-            0,    // wValue
-            0, 0, // wIndex
-            0, 0, // wLength
-        ];
+        let epr0 = T::regs().epr(0);
+
+        let epr_val = epr0.read();
+        info!("epr_val = {:08x}", epr_val.0);
+
+        // setup stage
+        let mut epr_val = invariant(epr0.read());
+        epr_val.set_devaddr(addr);
+        epr_val.set_setup(true);
+        epr_val.set_stat_tx(Stat::VALID);
+
+        epr_val.set_ep_type(EpType::CONTROL);
+        epr_val.set_ea(0);
+
+        epr0.write_value(epr_val);
+
+        poll_fn(move |cx| {
+            BUS_WAKER.register(cx.waker());
+            if EP0_TRANSFER_COMPLETE.load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        // data stage
+        EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
+
+        // todo
+
+        // status stage
+        EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
+
+        let epr_val = epr0.read();
+
+        let mut epr_val = invariant(epr_val);
+
+        epr_val.set_stat_rx(Stat::VALID);
+        epr_val.set_setup(false);
+        epr0.write_value(epr_val);
+
+        poll_fn(move |cx| {
+            BUS_WAKER.register(cx.waker());
+            if EP0_TRANSFER_COMPLETE.load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+    }
+
+    async fn get_descriptor(&mut self, packet: &[u8]) {
+        let index: usize = self.ep_out.info.addr.index();
 
         // Write data to USB RAM
-        self.ep_out.write_data(&buf);
+        self.ep_out.write_data(packet);
 
         let regs = T::regs();
         regs.epr(index).write(|w| {
@@ -763,12 +800,12 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
             // control write or control read then STATTX or STATRX are set to 11 (ACTIVE) in order to
             // trigger the control transfer via the host frame scheduler.
             w.set_stat_tx(Stat::VALID);
-            w.set_stat_rx(Stat::DISABLED);
+            w.set_stat_rx(Stat::VALID);
 
             w.set_err_tx(false);
             w.set_err_rx(false);
 
-            w.set_devaddr(0); // address 0 during setup
+            w.set_devaddr(1); // address 0 during setup
 
             w.set_ep_type(convert_type(self.ep_out.info.ep_type));
             w.set_ea(self.ep_out.info.addr.index() as _);
@@ -786,9 +823,6 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
             }
         })
         .await;
-        // Await transfer completion
-
-        // Ok(())
     }
 }
 pub struct HostControlPipe<'d, T: Instance> {
@@ -799,136 +833,21 @@ pub struct HostControlPipe<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> HostControlPipe<'d, T> {
-    pub fn check(&self) {
-        debug!(
-            "ep_out index: {}, ep_in index: {}",
-            self.ep_out.info.addr.index(),
-            self.ep_in.info.addr.index()
-        );
+    pub fn new(channel_in: Endpoint<'d, T, In>, channel_out: Endpoint<'d, T, Out>, max_packet_size: u16) -> Self {
+        let epr0 = T::regs().epr(0);
+        let mut epr_val = invariant(epr0.read());
+        epr_val.set_devaddr(0);
+        epr_val.set_ep_type(EpType::CONTROL);
+        epr_val.set_ea(0);
+        epr0.write_value(epr_val);
+
+        Self {
+            _phantom: PhantomData,
+            max_packet_size,
+            ep_in: channel_in,
+            ep_out: channel_out,
+        }
     }
-
-    pub async fn wait_for_device_connect(&mut self) {
-        poll_fn(|cx| {
-            let istr = T::regs().istr().read();
-            if istr.dcon_stat() {
-                return Poll::Ready(());
-            }
-
-            BUS_WAKER.register(cx.waker());
-
-            if IRQ_RESET.load(Ordering::Acquire) && istr.dcon_stat() {
-                // device has been detected
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-    }
-
-    pub async fn wait_for_device_disconnect(&mut self) {
-        poll_fn(|cx| {
-            let istr = T::regs().istr().read();
-            if !istr.dcon_stat() {
-                return Poll::Ready(());
-            }
-
-            BUS_WAKER.register(cx.waker());
-
-            if IRQ_RESET.load(Ordering::Acquire) && !istr.dcon_stat() {
-                // device has dosconnected
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-    }
-
-    pub async fn bus_reset(&mut self) {
-        let regs = T::regs();
-
-        trace!("Bus reset");
-        // Set bus in reset state
-        regs.cntr().modify(|w| {
-            w.set_fres(true);
-        });
-
-        // USB Spec says wait 50ms
-        Timer::after_millis(50).await;
-
-        // Clear reset state; device will be in default state
-        regs.cntr().modify(|w| {
-            w.set_fres(false);
-        });
-    }
-
-    pub async fn poll(&mut self) {
-        // first wait for connect
-
-        debug!("Wait for device detection");
-        self.wait_for_device_connect().await;
-
-        debug!("Device connected");
-
-        self.bus_reset().await;
-
-        self.device_set_address(1);
-
-        debug!("Wait for device disconnect");
-        self.wait_for_device_disconnect().await;
-
-        debug!("Poll done for now");
-    }
-
-    pub fn device_set_address(&mut self, addr: u8) {
-        let index = self.ep_out.info.addr.index();
-
-        // Create setup package
-        let buf: [u8; 8] = [
-            0,    // bmRequestType
-            0x05, // bRequest SET_ADDRESS,
-            addr, // wValue
-            0,    // wValue
-            0, 0, // wIndex
-            0, 0, // wLength
-        ];
-
-        // Write data to USB RAM
-        self.ep_out.write_data(&buf);
-
-        let regs = T::regs();
-        regs.epr(index).write(|w| {
-            // must set the SETUP bit
-            w.set_setup(true);
-            // The values of DTOGTX and
-            // DTOGRX bits of the addressed endpoint registers are set to 0
-            w.set_dtog_tx(false);
-            w.set_dtog_rx(false);
-
-            // Depending on whether it is a
-            // control write or control read then STATTX or STATRX are set to 11 (ACTIVE) in order to
-            // trigger the control transfer via the host frame scheduler.
-            w.set_stat_tx(Stat::VALID);
-            w.set_stat_rx(Stat::DISABLED);
-
-            w.set_err_tx(false);
-            w.set_err_rx(false);
-
-            w.set_devaddr(0); // address 0 during setup
-
-            w.set_ep_type(convert_type(self.ep_out.info.ep_type));
-            w.set_ea(self.ep_out.info.addr.index() as _);
-
-            w.set_ctr_rx(false);
-            w.set_ctr_tx(false);
-        });
-
-        trace!("WRITE OK");
-
-        // Ok(())
-    }
-    // self.ep_out.write_data(buf)
 }
 
 trait SealedInstance {
