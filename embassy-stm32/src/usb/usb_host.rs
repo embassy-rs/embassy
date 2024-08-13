@@ -24,9 +24,9 @@ pub trait USBHostDriverTrait {
 
     async fn wait_for_device_disconnect(&mut self);
 
-    async fn get_descriptor(&mut self, packet: &[u8]);
-
     async fn request_out(&mut self, addr: u8, bytes: &[u8]);
+
+    async fn request_in(&mut self, addr: u8, bytes: &[u8]);
 }
 
 /// Interrupt handler.
@@ -56,50 +56,30 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             BUS_WAKER.wake();
         }
 
-        if istr.dcon_stat() {}
-
-        // if istr.ctr() {
-        //     let index = istr.ep_id() as usize;
-        //     let mut epr = regs.epr(index).read();
-        //     if epr.ctr_rx() {
-        //         if index == 0 && epr.setup() {
-        //             EP0_SETUP.store(true, Ordering::Relaxed);
-        //         }
-        //         //trace!("EP {} RX, setup={}", index, epr.setup());
-        //         EP_OUT_WAKERS[index].wake();
-        //     }
-        //     if epr.ctr_tx() {
-        //         //trace!("EP {} TX", index);
-        //         EP_IN_WAKERS[index].wake();
-        //     }
-        //     epr.set_dtog_rx(false);
-        //     epr.set_dtog_tx(false);
-        //     epr.set_stat_rx(Stat::from_bits(0));
-        //     epr.set_stat_tx(Stat::from_bits(0));
-        //     epr.set_ctr_rx(!epr.ctr_rx());
-        //     epr.set_ctr_tx(!epr.ctr_tx());
-        //     regs.epr(index).write_value(epr);
-        // }
-
         if istr.ctr() {
             let index = istr.ep_id() as usize;
-
-            if index == 0 {
-                EP0_TRANSFER_COMPLETE.store(true, Ordering::Relaxed);
-            }
 
             let epr = regs.epr(index).read();
             let mut epr = invariant(epr);
 
-            if epr.err_tx() {
-                trace!("err_tx, nack: {}", epr.nak());
+            if epr.nak() {
+                epr.set_nak(false);
             } else {
-                trace!("stat_tx: {:02X}", epr.stat_tx() as u8);
+                if index == 0 {
+                    EP0_TRANSFER_COMPLETE.store(true, Ordering::Relaxed);
+                }
             }
 
-            // if epr.stat_tx().to_bits() > 0 {
-            //     epr.set_stat_tx(Stat::VALID);
-            // }
+            if epr.err_tx() {
+                epr.set_err_tx(false);
+                warn!("err_tx");
+            }
+            if epr.err_rx() {
+                epr.set_err_rx(false);
+                warn!("err_rx");
+            }
+
+            // Clear ctr flag
             epr.set_ctr_tx(!epr.ctr_tx());
             epr.set_ctr_rx(!epr.ctr_rx());
 
@@ -781,38 +761,81 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
         .await;
     }
 
-    async fn get_descriptor(&mut self, packet: &[u8]) {
-        let index: usize = self.ep_out.info.addr.index();
+    async fn request_in(&mut self, addr: u8, bytes: &[u8]) {
+        EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
 
         // Write data to USB RAM
-        self.ep_out.write_data(packet);
+        self.ep_out.write_data(bytes);
 
-        let regs = T::regs();
-        regs.epr(index).write(|w| {
-            // must set the SETUP bit
-            w.set_setup(true);
-            // The values of DTOGTX and
-            // DTOGRX bits of the addressed endpoint registers are set to 0
-            w.set_dtog_tx(false);
-            w.set_dtog_rx(false);
+        let epr0 = T::regs().epr(0);
 
-            // Depending on whether it is a
-            // control write or control read then STATTX or STATRX are set to 11 (ACTIVE) in order to
-            // trigger the control transfer via the host frame scheduler.
-            w.set_stat_tx(Stat::VALID);
-            w.set_stat_rx(Stat::VALID);
+        let epr_val = epr0.read();
+        info!("epr_val = {:08x}", epr_val.0);
 
-            w.set_err_tx(false);
-            w.set_err_rx(false);
+        // setup stage
+        let mut epr_val = invariant(epr0.read());
+        epr_val.set_devaddr(addr);
+        epr_val.set_setup(true);
+        epr_val.set_stat_tx(Stat::VALID);
 
-            w.set_devaddr(1); // address 0 during setup
+        epr_val.set_ep_type(EpType::CONTROL);
+        epr_val.set_ea(0);
 
-            w.set_ep_type(convert_type(self.ep_out.info.ep_type));
-            w.set_ea(self.ep_out.info.addr.index() as _);
+        epr0.write_value(epr_val);
 
-            w.set_ctr_rx(false);
-            w.set_ctr_tx(false);
-        });
+        poll_fn(move |cx| {
+            BUS_WAKER.register(cx.waker());
+            if EP0_TRANSFER_COMPLETE.load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        // data stage
+        EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
+
+        let epr_val = epr0.read();
+
+        let mut epr_val = invariant(epr_val);
+
+        epr_val.set_stat_rx(Stat::VALID);
+        epr_val.set_setup(false);
+        epr0.write_value(epr_val);
+
+        poll_fn(move |cx| {
+            BUS_WAKER.register(cx.waker());
+            if EP0_TRANSFER_COMPLETE.load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        // todo read data from memory
+        let mut in_bytes = [0u8; 18];
+        match self.ep_in.read_data(in_bytes.as_mut_slice()) {
+            Ok(_) => debug!("in_bytes = {:?}", in_bytes),
+            Err(err) => error!("read error: {:?}", err),
+        }
+
+        // status stage
+        EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
+
+        // Send 0 bytes
+
+        let zero = [0u8; 0];
+        self.ep_out.write_data(&zero);
+
+        let epr_val = epr0.read();
+
+        let mut epr_val = invariant(epr_val);
+
+        epr_val.set_stat_tx(Stat::VALID);
+        epr_val.set_setup(false);
+        epr0.write_value(epr_val);
 
         poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
