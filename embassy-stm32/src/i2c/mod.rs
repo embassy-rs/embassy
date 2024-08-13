@@ -16,7 +16,7 @@ use embassy_hal_internal::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
-use mode::{MasterMode};
+use mode::MasterMode;
 pub use mode::{Master, MultiMaster};
 
 use crate::dma::ChannelAndRequest;
