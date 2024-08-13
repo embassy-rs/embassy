@@ -70,19 +70,19 @@ pub mod mode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// The command kind to the slave from the master
-pub enum CommandKind {
+pub enum SlaveCommandKind {
     /// Write to the slave
-    SlaveReceive,
+    Write,
     /// Read from the slave
-    SlaveSend,
+    Read,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// The command kind to the slave from the master and the address that the slave matched
-pub struct Command {
+pub struct SlaveCommand {
     /// The kind of command
-    pub kind: CommandKind,
+    pub kind: SlaveCommandKind,
     /// The address that the slave matched
     pub address: Address,
 }

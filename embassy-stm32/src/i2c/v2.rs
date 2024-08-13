@@ -887,7 +887,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     /// Listen for incoming I2C messages.
     ///
     /// The listen method is an asynchronous method but it does not require DMA to be asynchronous.
-    pub async fn listen(&mut self) -> Result<Command, Error> {
+    pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
         let state = self.state;
         self.info.regs.cr1().modify(|reg| {
             reg.set_addrie(true);
@@ -902,12 +902,12 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
                 // we do not clear the address flag here as it will be cleared by the dma read/write
                 // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
                 match isr.dir() {
-                    i2c::vals::Dir::WRITE => Poll::Ready(Ok(Command {
-                        kind: CommandKind::SlaveReceive,
+                    i2c::vals::Dir::WRITE => Poll::Ready(Ok(SlaveCommand {
+                        kind: SlaveCommandKind::Write,
                         address: self.determine_matched_address()?,
                     })),
-                    i2c::vals::Dir::READ => Poll::Ready(Ok(Command {
-                        kind: CommandKind::SlaveSend,
+                    i2c::vals::Dir::READ => Poll::Ready(Ok(SlaveCommand {
+                        kind: SlaveCommandKind::Read,
                         address: self.determine_matched_address()?,
                     })),
                 }
@@ -916,30 +916,30 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         .await
     }
 
-    /// Respond to a receive command.
-    pub fn blocking_respond_to_receive(&self, read: &mut [u8]) -> Result<(), Error> {
+    /// Respond to a write command.
+    pub fn blocking_respond_to_write(&self, read: &mut [u8]) -> Result<(), Error> {
         let timeout = self.timeout();
         self.slave_read_internal(read, timeout)
     }
 
-    /// Respond to a send command.
-    pub fn blocking_respond_to_send(&mut self, write: &[u8]) -> Result<(), Error> {
+    /// Respond to a read command.
+    pub fn blocking_respond_to_read(&mut self, write: &[u8]) -> Result<(), Error> {
         let timeout = self.timeout();
         self.slave_write_internal(write, timeout)
     }
 }
 
 impl<'d> I2c<'d, Async, MultiMaster> {
-    /// Respond to a receive command.
+    /// Respond to a write command.
     ///
     /// Returns the total number of bytes received.
-    pub async fn respond_to_receive(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+    pub async fn respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         let timeout = self.timeout();
         timeout.with(self.read_dma_internal_slave(buffer, timeout)).await
     }
 
-    /// Respond to a send request from an I2C master.
-    pub async fn respond_to_send(&mut self, write: &[u8]) -> Result<SendStatus, Error> {
+    /// Respond to a read request from an I2C master.
+    pub async fn respond_to_read(&mut self, write: &[u8]) -> Result<SendStatus, Error> {
         let timeout = self.timeout();
         timeout.with(self.write_dma_internal_slave(write, timeout)).await
     }
