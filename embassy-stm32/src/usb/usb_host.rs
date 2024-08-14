@@ -18,6 +18,8 @@ use crate::rcc::RccPeripheral;
 use crate::{interrupt, Peripheral};
 
 pub trait USBHostDriverTrait {
+    async fn set_packet_size(&mut self, channel_index: u8, size: u16);
+
     async fn bus_reset(&mut self);
 
     async fn wait_for_device_connect(&mut self);
@@ -26,7 +28,7 @@ pub trait USBHostDriverTrait {
 
     async fn request_out(&mut self, addr: u8, bytes: &[u8]);
 
-    async fn request_in(&mut self, addr: u8, bytes: &[u8]);
+    async fn request_in(&mut self, addr: u8, bytes: &[u8], dest: &mut [u8]) -> Result<usize, ()>;
 }
 
 /// Interrupt handler.
@@ -446,7 +448,7 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
 
     /// Start the USB peripheral
     pub fn start(&mut self) -> HostControlPipe<'d, T> {
-        let control_max_packet_size = 64;
+        let control_max_packet_size = 8;
         let ep_out: Endpoint<'d, T, Out> = self
             .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
             .unwrap();
@@ -781,7 +783,7 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
         .await;
     }
 
-    async fn request_in(&mut self, addr: u8, bytes: &[u8]) {
+    async fn request_in(&mut self, addr: u8, bytes: &[u8], dest: &mut [u8]) -> Result<usize, ()> {
         EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
 
         // Write data to USB RAM
@@ -800,7 +802,7 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
 
         epr0.write_value(epr_val);
 
-        poll_fn(move |cx| {
+        poll_fn(|cx| {
             BUS_WAKER.register(cx.waker());
             if EP0_TRANSFER_COMPLETE.load(Ordering::Acquire) {
                 Poll::Ready(())
@@ -821,28 +823,35 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
         epr_val.set_setup(false);
         epr0.write_value(epr_val);
 
-        poll_fn(move |cx| {
+        let mut count = 0;
+
+        poll_fn(|cx| {
             BUS_WAKER.register(cx.waker());
             if EP0_TRANSFER_COMPLETE.load(Ordering::Acquire) {
-                Poll::Ready(())
+                // data available
+                let idest = &mut dest[count..];
+                let n = self.ep_in.read_data(idest).map_err(|_| ()).unwrap();
+                count += n;
+                if count == dest.len() || n < self.ep_in.info.max_packet_size as usize {
+                    Poll::Ready(())
+                } else {
+                    // issue another read
+                    EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
+                    let mut epr_val = invariant(epr0.read());
+                    epr_val.set_stat_rx(Stat::VALID);
+                    epr0.write_value(epr_val);
+                    Poll::Pending
+                }
             } else {
                 Poll::Pending
             }
         })
         .await;
 
-        // todo read data from memory
-        let mut in_bytes = [0u8; 18];
-        match self.ep_in.read_data(in_bytes.as_mut_slice()) {
-            Ok(_) => debug!("in_bytes = {:?}", in_bytes),
-            Err(err) => error!("read error: {:?}", err),
-        }
-
         // status stage
         EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
 
         // Send 0 bytes
-
         let zero = [0u8; 0];
         self.ep_out.write_data(&zero);
 
@@ -863,6 +872,12 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
             }
         })
         .await;
+
+        Ok(count)
+    }
+
+    async fn set_packet_size(&mut self, channel_index: u8, size: u16) {
+        todo!()
     }
 }
 pub struct HostControlPipe<'d, T: Instance> {
