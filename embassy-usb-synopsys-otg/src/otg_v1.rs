@@ -389,6 +389,8 @@ impl Otg {
     }
 }
 pub mod regs {
+    use super::vals::FrameListLen;
+
     #[doc = "Core ID register"]
     #[repr(transparent)]
     #[derive(Copy, Clone, Eq, PartialEq)]
@@ -3482,6 +3484,28 @@ pub mod regs {
             Haintmsk(0)
         }
     }
+    #[doc = "Host frame list base address"]
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct Hflbaddr(pub u32);
+    impl Hflbaddr {
+        #[doc = "Host frame list base address"]
+        #[inline(always)]
+        pub const fn hflbaddr(&self) -> u32 {
+            return self.0;
+        }
+        #[doc = "Host frame list base address"]
+        #[inline(always)]
+        pub fn set_hflbaddr(&mut self, val: u32) {
+            self.0 = val
+        }
+    }
+    impl Default for Hflbaddr {
+        #[inline(always)]
+        fn default() -> Hflbaddr {
+            Hflbaddr(0)
+        }
+    }
     #[doc = "Host channel characteristics register"]
     #[repr(transparent)]
     #[derive(Copy, Clone, Eq, PartialEq)]
@@ -3630,6 +3654,28 @@ pub mod regs {
         #[inline(always)]
         pub fn set_fslss(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 2usize)) | (((val as u32) & 0x01) << 2usize);
+        }
+        #[doc = "Period scheduling enable"]
+        #[inline(always)]
+        pub fn set_perschedena(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 25)) | ((val as u32) << 25);
+        }
+        #[doc = "Period scheduling enable"]
+        #[inline(always)]
+        pub fn perschedena(&mut self) -> bool {
+            let val = (self.0 >> 25) & 0x1;
+            val != 0
+        }
+        #[doc = "Frame list length (x+3 pow 2)"]
+        #[inline(always)]
+        pub fn frlistlen(&self) -> FrameListLen {
+            let val = (self.0 << 24) & 0x2;
+            (val as u8).into()
+        }
+        #[doc = "Frame list length (x+3 pow 2)"]
+        #[inline(always)]
+        pub fn set_frlistlen(&mut self, val: FrameListLen) {
+            self.0 = (self.0 & !(0x2 << 24)) | ((val as u32) & 0x2) << 24
         }
     }
     impl Default for Hcfg {
@@ -4265,6 +4311,38 @@ pub mod regs {
     }
 }
 pub mod vals {
+    #[repr(u8)]
+    #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+    #[allow(non_camel_case_types)]
+    pub enum FrameListLen {
+        LEN8 = 0x0,
+        LEN16 = 0x1,
+        LEN32 = 0x2,
+        LEN64 = 0x3,
+    }
+    impl FrameListLen {
+        #[inline(always)]
+        pub const fn from_bits(val: u8) -> FrameListLen {
+            unsafe { core::mem::transmute(val & 0x03) }
+        }
+        #[inline(always)]
+        pub const fn to_bits(self) -> u8 {
+            unsafe { core::mem::transmute(self) }
+        }
+    }
+    impl From<u8> for FrameListLen {
+        #[inline(always)]
+        fn from(val: u8) -> FrameListLen {
+            FrameListLen::from_bits(val)
+        }
+    }
+    impl From<FrameListLen> for u8 {
+        #[inline(always)]
+        fn from(val: FrameListLen) -> u8 {
+            FrameListLen::to_bits(val)
+        }
+    }
+
     #[repr(u8)]
     #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
     #[allow(non_camel_case_types)]
