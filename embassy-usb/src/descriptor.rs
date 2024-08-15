@@ -13,6 +13,8 @@ pub mod descriptor_type {
     pub const STRING: u8 = 3;
     pub const INTERFACE: u8 = 4;
     pub const ENDPOINT: u8 = 5;
+    pub const DEVICE_QUALIFIER: u8 = 6;
+    pub const OTHER_SPEED_CONFIGURATION: u8 = 7;
     pub const IAD: u8 = 11;
     pub const BOS: u8 = 15;
     pub const CAPABILITY: u8 = 16;
@@ -269,6 +271,25 @@ pub(crate) fn device_descriptor(config: &Config) -> [u8; 18] {
         config.product.map_or(0, |_| 2),       // iProduct
         config.serial_number.map_or(0, |_| 3), // iSerialNumber
         1,                                     // bNumConfigurations
+    ]
+}
+
+/// Create a new Device Qualifier Descriptor array.
+///
+/// All device qualifier descriptors are always 10 bytes, so there's no need for
+/// a variable-length buffer or DescriptorWriter.
+pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
+    [
+        10,   // bLength
+        0x06, // bDescriptorType
+        0x10,
+        0x02,                     // bcdUSB 2.1
+        config.device_class,      // bDeviceClass
+        config.device_sub_class,  // bDeviceSubClass
+        config.device_protocol,   // bDeviceProtocol
+        config.max_packet_size_0, // bMaxPacketSize0
+        1,                        // bNumConfigurations
+        0,                        // Reserved
     ]
 }
 
