@@ -270,7 +270,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(feature = "time")]
         embassy_time::block_for(embassy_time::Duration::from_millis(100));
         #[cfg(not(feature = "time"))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 10);
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 10);
 
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));

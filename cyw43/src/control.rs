@@ -83,8 +83,7 @@ impl<'a> Control<'a> {
         }
     }
 
-    /// Initialize WiFi controller.
-    pub async fn init(&mut self, clm: &[u8]) {
+    async fn load_clm(&mut self, clm: &[u8]) {
         const CHUNK_SIZE: usize = 1024;
 
         debug!("Downloading CLM...");
@@ -116,6 +115,11 @@ impl<'a> Control<'a> {
 
         // check clmload ok
         assert_eq!(self.get_iovar_u32("clmload_status").await, 0);
+    }
+
+    /// Initialize WiFi controller.
+    pub async fn init(&mut self, clm: &[u8]) {
+        self.load_clm(&clm).await;
 
         debug!("Configuring misc stuff...");
 
@@ -186,7 +190,7 @@ impl<'a> Control<'a> {
 
         self.state_ch.set_hardware_address(HardwareAddress::Ethernet(mac_addr));
 
-        debug!("INIT DONE");
+        debug!("cyw43 control init done");
     }
 
     /// Set the WiFi interface up.

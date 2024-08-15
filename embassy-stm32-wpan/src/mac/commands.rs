@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use core::{mem, slice};
 
 use super::opcodes::OpcodeM4ToM0;

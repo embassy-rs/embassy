@@ -25,7 +25,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
-    let p: embassy_stm32::Peripherals = embassy_stm32::init(config());
+    let p: embassy_stm32::Peripherals = init();
 
     let adc = peri!(p, ADC);
     let dac = peri!(p, DAC);

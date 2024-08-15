@@ -38,7 +38,7 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let p = init();
     info!("Hello World!");
 
     // Generate random seed.
@@ -101,12 +101,7 @@ async fn main(spawner: Spawner) {
     // Init network stack
     static STACK: StaticCell<Stack<Device>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        device,
-        config,
-        RESOURCES.init(StackResources::<2>::new()),
-        seed,
-    ));
+    let stack = &*STACK.init(Stack::new(device, config, RESOURCES.init(StackResources::new()), seed));
 
     // Launch network task
     unwrap!(spawner.spawn(net_task(&stack)));

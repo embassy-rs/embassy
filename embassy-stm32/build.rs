@@ -480,7 +480,7 @@ fn main() {
             self.clock_names.insert(name.to_ascii_lowercase());
             quote!(unsafe {
                 unwrap!(
-                    crate::rcc::get_freqs().#clock_name,
+                    crate::rcc::get_freqs().#clock_name.to_hertz(),
                     "peripheral '{}' is configured to use the '{}' clock, which is not running. \
                     Either enable it in 'config.rcc' or change 'config.rcc.mux' to use another clock",
                     #peripheral,
@@ -713,9 +713,10 @@ fn main() {
     g.extend(quote! {
         #[derive(Clone, Copy, Debug)]
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        #[repr(C)]
         pub struct Clocks {
             #(
-                pub #clock_idents: Option<crate::time::Hertz>,
+                pub #clock_idents: crate::time::MaybeHertz,
             )*
         }
     });
@@ -732,7 +733,7 @@ fn main() {
                         $($(#[$m])* $k: $v,)*
                     };
                     crate::rcc::set_freqs(crate::rcc::Clocks {
-                        #( #clock_idents: all.#clock_idents, )*
+                        #( #clock_idents: all.#clock_idents.into(), )*
                     });
                 }
             };

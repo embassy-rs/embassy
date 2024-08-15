@@ -65,7 +65,7 @@ pub(crate) enum WakeupPrescaler {
     Div16 = 16,
 }
 
-#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l5, stm32wb, stm32h5, stm32g0))]
+#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0))]
 impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     fn from(val: WakeupPrescaler) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -79,7 +79,7 @@ impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     }
 }
 
-#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l5, stm32wb, stm32h5, stm32g0))]
+#[cfg(any(stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0))]
 impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -132,7 +132,7 @@ impl Rtc {
 
         // Panic if the rcc mod knows we're not using low-power rtc
         #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
-        unsafe { crate::rcc::get_freqs() }.rtc.unwrap();
+        unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap();
 
         let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
         let rtc_hz = Self::frequency().0 as u64;

@@ -363,6 +363,8 @@ where
 {
     pin.gpio().ctrl().write(|w| w.set_funcsel(3));
     pin.pad_ctrl().write(|w| {
+        #[cfg(feature = "_rp235x")]
+        w.set_iso(false);
         w.set_schmitt(true);
         w.set_slewfast(false);
         w.set_ie(true);
@@ -884,3 +886,39 @@ impl_pin!(PIN_26, I2C1, SdaPin);
 impl_pin!(PIN_27, I2C1, SclPin);
 impl_pin!(PIN_28, I2C0, SdaPin);
 impl_pin!(PIN_29, I2C0, SclPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_30, I2C1, SdaPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_31, I2C1, SclPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_32, I2C0, SdaPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_33, I2C0, SclPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_34, I2C1, SdaPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_35, I2C1, SclPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_36, I2C0, SdaPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_37, I2C0, SclPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_38, I2C1, SdaPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_39, I2C1, SclPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_40, I2C0, SdaPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_41, I2C0, SclPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, I2C1, SdaPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, I2C1, SclPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_44, I2C0, SdaPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_45, I2C0, SclPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, I2C1, SdaPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, I2C1, SclPin);

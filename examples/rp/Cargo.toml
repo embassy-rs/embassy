@@ -6,18 +6,18 @@ license = "MIT OR Apache-2.0"
 
 
 [dependencies]
-embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
+embassy-embedded-hal = { version = "0.2.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
 embassy-sync = { version = "0.6.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.3.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
-embassy-usb = { version = "0.2.0", path = "../../embassy-usb", features = ["defmt"] }
+embassy-executor = { version = "0.6.0", path = "../../embassy-executor", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.3.2", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { version = "0.2.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
+embassy-usb = { version = "0.3.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet", "dns"] }
 embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-usb-logger = { version = "0.2.0", path = "../../embassy-usb-logger" }
-cyw43 = { version = "0.1.0", path = "../../cyw43", features = ["defmt", "firmware-logs"] }
-cyw43-pio = { version = "0.1.0", path = "../../cyw43-pio", features = ["defmt", "overclock"] }
+cyw43 = { version = "0.2.0", path = "../../cyw43", features = ["defmt", "firmware-logs", "bluetooth"] }
+cyw43-pio = { version = "0.2.0", path = "../../cyw43-pio", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -51,7 +51,7 @@ embedded-hal-async = "1.0"
 embedded-hal-bus = { version = "0.1", features = ["async"] }
 embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 embedded-storage = { version = "0.3" }
-static_cell = "2"
+static_cell = "2.1"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
 pio-proc = "0.2"
@@ -59,9 +59,25 @@ pio = "0.2.1"
 rand = { version = "0.8.5", default-features = false }
 embedded-sdmmc = "0.7.0"
 
+bt-hci = { version = "0.1.0", default-features = false, features = ["defmt"] }
+trouble-host = { version = "0.1.0", features = ["defmt", "gatt"] }
+
 [profile.release]
 debug = 2
+lto = true
+opt-level = 'z'
 
 [profile.dev]
+debug = 2
 lto = true
 opt-level = "z"
+
+[patch.crates-io]
+trouble-host = { git = "https://github.com/embassy-rs/trouble.git", rev = "4b8c0f499b34e46ca23a56e2d1640ede371722cf" }
+bt-hci = { git = "https://github.com/alexmoon/bt-hci.git", rev = "b9cd5954f6bd89b535cad9c418e9fdf12812d7c3" }
+embassy-executor = { path = "../../embassy-executor" }
+embassy-sync = { path = "../../embassy-sync" }
+embassy-futures = { path = "../../embassy-futures" }
+embassy-time = { path = "../../embassy-time" }
+embassy-time-driver = { path = "../../embassy-time-driver" }
+embassy-embedded-hal = { path = "../../embassy-embedded-hal" }
