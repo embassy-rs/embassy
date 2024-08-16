@@ -18,6 +18,8 @@ use crate::pac::gpdma::vals;
 pub(crate) struct ChannelInfo {
     pub(crate) dma: pac::gpdma::Gpdma,
     pub(crate) num: usize,
+    #[cfg(feature = "_dual-core")]
+    pub(crate) irq: pac::Interrupt,
 }
 
 /// GPDMA transfer options.
@@ -57,6 +59,7 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: P
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
+            #[cfg(not(feature = "_dual-core"))]
             crate::interrupt::typelevel::$irq::enable();
         };
     }
@@ -67,6 +70,12 @@ impl AnyChannel {
     /// Safety: Must be called with a matching set of parameters for a valid dma channel
     pub(crate) unsafe fn on_irq(&self) {
         let info = self.info();
+        #[cfg(feature = "_dual-core")]
+        {
+            use embassy_hal_internal::interrupt::InterruptExt as _;
+            info.irq.enable();
+        }
+
         let state = &STATE[self.id as usize];
 
         let ch = info.dma.ch(info.num);

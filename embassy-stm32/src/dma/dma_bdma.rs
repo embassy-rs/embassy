@@ -15,6 +15,8 @@ use crate::{interrupt, pac};
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
     pub(crate) num: usize,
+    #[cfg(feature = "_dual-core")]
+    pub(crate) irq: pac::Interrupt,
     #[cfg(dmamux)]
     pub(crate) dmamux: super::DmamuxInfo,
 }
@@ -259,10 +261,12 @@ pub(crate) unsafe fn init(
     foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, dma_priority);
+            #[cfg(not(feature = "_dual-core"))]
             crate::interrupt::typelevel::$irq::enable();
         };
         ($peri:ident, bdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, bdma_priority);
+            #[cfg(not(feature = "_dual-core"))]
             crate::interrupt::typelevel::$irq::enable();
         };
     }
@@ -341,6 +345,11 @@ impl AnyChannel {
         options: TransferOptions,
     ) {
         let info = self.info();
+        #[cfg(feature = "_dual-core")]
+        {
+            use embassy_hal_internal::interrupt::InterruptExt as _;
+            info.irq.enable();
+        }
 
         #[cfg(dmamux)]
         super::dmamux::configure_dmamux(&info.dmamux, _request);
