@@ -1,5 +1,8 @@
 //! Constants for binary info
 
+// Credit: Taken from https://github.com/thejpster/rp-hal-rp2350-public (also licensed Apache 2.0 + MIT).
+// Copyright (c) rp-rs organization
+
 /// All Raspberry Pi specified IDs have this tag.
 ///
 /// You can create your own for custom fields.
