@@ -16,6 +16,7 @@ pub enum LseMode {
     Bypass,
 }
 
+#[derive(Clone, Copy)]
 pub struct LseConfig {
     pub frequency: Hertz,
     pub mode: LseMode,
@@ -80,6 +81,7 @@ fn bdcr() -> Reg<Bdcr, RW> {
     return crate::pac::RCC.csr1();
 }
 
+#[derive(Clone, Copy)]
 pub struct LsConfig {
     pub rtc: RtcClockSource,
     pub lsi: bool,

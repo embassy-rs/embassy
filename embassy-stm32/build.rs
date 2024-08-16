@@ -1494,6 +1494,36 @@ fn main() {
         .flat_map(|p| &p.registers)
         .any(|p| p.kind == "dmamux");
 
+    let mut dma_irqs: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+
+    for p in METADATA.peripherals {
+        if let Some(r) = &p.registers {
+            if r.kind == "dma" || r.kind == "bdma" || r.kind == "gpdma" || r.kind == "lpdma" {
+                for irq in p.interrupts {
+                    let ch_name = format!("{}_{}", p.name, irq.signal);
+                    let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name).unwrap();
+
+                    // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
+                    if has_dmamux && ch.dmamux.is_none() {
+                        continue;
+                    }
+
+                    dma_irqs.entry(irq.interrupt).or_default().push(ch_name);
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "_dual-core")]
+    let mut dma_ch_to_irq: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+
+    #[cfg(feature = "_dual-core")]
+    for (irq, channels) in &dma_irqs {
+        for channel in channels {
+            dma_ch_to_irq.entry(channel).or_default().push(irq.to_string());
+        }
+    }
+
     for (ch_idx, ch) in METADATA.dma_channels.iter().enumerate() {
         // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
         if has_dmamux && ch.dmamux.is_none() {
@@ -1502,6 +1532,16 @@ fn main() {
 
         let name = format_ident!("{}", ch.name);
         let idx = ch_idx as u8;
+        #[cfg(feature = "_dual-core")]
+        let irq = {
+            let irq_name = if let Some(x) = &dma_ch_to_irq.get(ch.name) {
+                format_ident!("{}", x.get(0).unwrap())
+            } else {
+                panic!("failed to find dma interrupt")
+            };
+            quote!(crate::pac::Interrupt::#irq_name)
+        };
+
         g.extend(quote!(dma_channel_impl!(#name, #idx);));
 
         let dma = format_ident!("{}", ch.dma);
@@ -1532,6 +1572,7 @@ fn main() {
             None => quote!(),
         };
 
+        #[cfg(not(feature = "_dual-core"))]
         dmas.extend(quote! {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
@@ -1539,30 +1580,19 @@ fn main() {
                 #dmamux
             },
         });
+        #[cfg(feature = "_dual-core")]
+        dmas.extend(quote! {
+            crate::dma::ChannelInfo {
+                dma: #dma_info,
+                num: #ch_num,
+                irq: #irq,
+                #dmamux
+            },
+        });
     }
 
     // ========
     // Generate DMA IRQs.
-
-    let mut dma_irqs: BTreeMap<&str, Vec<String>> = BTreeMap::new();
-
-    for p in METADATA.peripherals {
-        if let Some(r) = &p.registers {
-            if r.kind == "dma" || r.kind == "bdma" || r.kind == "gpdma" {
-                for irq in p.interrupts {
-                    let ch_name = format!("{}_{}", p.name, irq.signal);
-                    let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name).unwrap();
-
-                    // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
-                    if has_dmamux && ch.dmamux.is_none() {
-                        continue;
-                    }
-
-                    dma_irqs.entry(irq.interrupt).or_default().push(ch_name);
-                }
-            }
-        }
-    }
 
     let dma_irqs: TokenStream = dma_irqs
         .iter()

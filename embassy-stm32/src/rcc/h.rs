@@ -120,7 +120,7 @@ impl From<TimerPrescaler> for Timpre {
 /// Power supply configuration
 /// See RM0433 Rev 4 7.4
 #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468, pwr_h7rs))]
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum SupplyConfig {
     /// Default power supply configuration.
     /// V CORE Power Domains are supplied from the LDO according to VOS.
@@ -180,6 +180,7 @@ pub enum SMPSSupplyVoltage {
 
 /// Configuration of the core clocks
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Config {
     pub hsi: Option<HSIPrescaler>,
     pub hse: Option<Hse>,

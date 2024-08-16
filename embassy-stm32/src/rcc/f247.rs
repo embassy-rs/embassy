@@ -63,6 +63,7 @@ pub struct Pll {
 /// Used to calculate flash waitstates. See
 /// RM0033 - Table 3. Number of wait states according to Cortex®-M3 clock frequency
 #[cfg(stm32f2)]
+#[derive(Clone, Copy)]
 pub enum VoltageScale {
     /// 2.7 to 3.6 V
     Range0,
@@ -76,6 +77,7 @@ pub enum VoltageScale {
 
 /// Configuration of the core clocks
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Config {
     pub hsi: bool,
     pub hse: Option<Hse>,

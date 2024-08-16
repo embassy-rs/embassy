@@ -197,6 +197,7 @@ pub use crate::pac::NVIC_PRIO_BITS;
 
 /// `embassy-stm32` global configuration.
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Config {
     /// RCC config.
     pub rcc: rcc::Config,
@@ -303,6 +304,7 @@ mod dual_core {
     pub struct SharedData {
         init_flag: AtomicUsize,
         clocks: UnsafeCell<MaybeUninit<Clocks>>,
+        config: UnsafeCell<MaybeUninit<Config>>,
     }
 
     unsafe impl Sync for SharedData {}
@@ -324,6 +326,8 @@ mod dual_core {
 
         rcc::set_freqs_ptr(shared_data.clocks.get());
         let p = init_hw(config);
+
+        unsafe { *shared_data.config.get() }.write(config);
 
         shared_data.init_flag.store(INIT_DONE_FLAG, Ordering::SeqCst);
 
@@ -372,9 +376,23 @@ mod dual_core {
     fn init_secondary_hw(shared_data: &'static SharedData) -> Peripherals {
         rcc::set_freqs_ptr(shared_data.clocks.get());
 
+        let config = unsafe { (*shared_data.config.get()).assume_init() };
+
         // We use different timers on the different cores, so we have to still initialize one here
-        #[cfg(feature = "_time-driver")]
         critical_section::with(|cs| {
+            unsafe {
+                dma::init(
+                    cs,
+                    #[cfg(bdma)]
+                    config.bdma_interrupt_priority,
+                    #[cfg(dma)]
+                    config.dma_interrupt_priority,
+                    #[cfg(gpdma)]
+                    config.gpdma_interrupt_priority,
+                )
+            }
+
+            #[cfg(feature = "_time-driver")]
             // must be after rcc init
             time_driver::init(cs);
         });
