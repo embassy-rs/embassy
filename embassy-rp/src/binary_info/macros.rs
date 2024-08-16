@@ -1,5 +1,8 @@
 //! Handy macros for making Binary Info entries
 
+// Credit: Taken from https://github.com/thejpster/rp-hal-rp2350-public (also licensed Apache 2.0 + MIT).
+// Copyright (c) rp-rs organization
+
 /// Generate a static item containing the given environment variable,
 /// and return its [`EntryAddr`](super::EntryAddr).
 #[macro_export]
