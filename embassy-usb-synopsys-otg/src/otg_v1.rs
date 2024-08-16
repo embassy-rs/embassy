@@ -3492,7 +3492,7 @@ pub mod regs {
         #[doc = "Host frame list base address"]
         #[inline(always)]
         pub const fn hflbaddr(&self) -> u32 {
-            return self.0;
+            self.0
         }
         #[doc = "Host frame list base address"]
         #[inline(always)]
@@ -4328,6 +4328,15 @@ pub mod vals {
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
             unsafe { core::mem::transmute(self) }
+        }
+        #[inline(always)]
+        pub const fn as_value(self) -> u8 {
+            match self {
+                Self::LEN8 => 8,
+                Self::LEN16 => 16,
+                Self::LEN32 => 32,
+                Self::LEN64 => 64,
+            }
         }
     }
     impl From<u8> for FrameListLen {
