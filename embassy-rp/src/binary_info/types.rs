@@ -1,5 +1,8 @@
 //! Types for the Binary Info system
 
+// Credit: Taken from https://github.com/thejpster/rp-hal-rp2350-public (also licensed Apache 2.0 + MIT).
+// Copyright (c) rp-rs organization
+
 /// This is the 'Binary Info' header block that `picotool` looks for in your UF2
 /// file/ELF file/Pico in Bootloader Mode to give you useful metadata about your
 /// program.
