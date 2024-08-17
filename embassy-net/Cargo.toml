@@ -44,6 +44,8 @@ raw = ["smoltcp/socket-raw"]
 tcp = ["smoltcp/socket-tcp"]
 ## Enable DNS support
 dns = ["smoltcp/socket-dns", "smoltcp/proto-dns"]
+## Enable mDNS support
+mdns = ["dns", "smoltcp/socket-mdns"]
 ## Enable DHCPv4 support
 dhcpv4 = ["proto-ipv4", "medium-ethernet", "smoltcp/socket-dhcpv4"]
 ## Enable DHCPv4 support with hostname
