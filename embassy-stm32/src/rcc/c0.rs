@@ -37,6 +37,7 @@ pub struct Hsi {
 
 /// Clocks configutation
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Config {
     /// HSI Configuration
     pub hsi: Option<Hsi>,
