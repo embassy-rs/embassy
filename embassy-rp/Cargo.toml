@@ -105,7 +105,7 @@ _test = []
 ##
 ## Takes up a little flash space, but picotool can then report the name of your
 ## program and other details.
-binary-info = [ "rt" ]
+binary-info = ["rt", "dep:rp-binary-info", "rp-binary-info?/binary-info"]
 
 [dependencies]
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
@@ -143,6 +143,7 @@ pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
 document-features = "0.2.7"
 sha2-const-stable = "0.1"
+rp-binary-info = { version = "0.1.0", optional = true }
 
 [dev-dependencies]
 embassy-executor = { version = "0.6.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }

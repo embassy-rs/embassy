@@ -40,10 +40,10 @@ pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 #[link_section = ".bi_entries"]
 #[used]
 pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
-    embassy_rp::binary_info_rp_cargo_bin_name!(),
-    embassy_rp::binary_info_rp_cargo_version!(),
-    embassy_rp::binary_info_rp_program_description!(c"Blinky"),
-    embassy_rp::binary_info_rp_program_build_attribute!(),
+    embassy_rp::binary_info::rp_program_name!(c"example"),
+    embassy_rp::binary_info::rp_cargo_version!(),
+    embassy_rp::binary_info::rp_program_description!(c"Blinky"),
+    embassy_rp::binary_info::rp_program_build_attribute!(),
 ];
 
 type UartAsyncMutex = mutex::Mutex<CriticalSectionRawMutex, UartTx<'static, UART0, uart::Async>>;
