@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut ucpd = Ucpd::new(p.UCPD1, Irqs {}, p.PB6, p.PB4);
+    let mut ucpd = Ucpd::new(p.UCPD1, Irqs {}, p.PB6, p.PB4, Default::default());
     ucpd.cc_phy().set_pull(CcPull::Sink);
 
     info!("Waiting for USB connection...");
