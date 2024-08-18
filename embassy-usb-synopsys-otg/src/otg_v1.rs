@@ -3955,6 +3955,17 @@ pub mod regs {
         pub fn set_dpid(&mut self, val: u8) {
             self.0 = (self.0 & !(0x03 << 29usize)) | (((val as u32) & 0x03) << 29usize);
         }
+        #[doc = "Do Ping"]
+        #[inline(always)]
+        pub const fn doping(&self) -> bool {
+            let val = (self.0 >> 31usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Do Ping"]
+        #[inline(always)]
+        pub fn set_doping(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 31usize)) | (((val as u32) & 0x01) << 31usize);
+        }
     }
     impl Default for Hctsiz {
         #[inline(always)]
