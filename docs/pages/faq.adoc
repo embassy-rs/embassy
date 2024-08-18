@@ -362,3 +362,13 @@ Practically, there's not a LOT of difference either way - so go with what makes 
 == splitting peripherals resources between tasks
 
 There are two ways to split resources between tasks, either manually assigned or by a convenient macro. See link:https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/assign_resources.rs[this example]
+
+== My code/driver works in debug mode, but not release mode (or with LTO)
+
+Issues like these while implementing drivers often fall into one of the following general causes, which are a good list of common errors to check for:
+
+1. Some kind of race condition - the faster code means you miss an interrupt or something
+2. Some kind of UB, if you have unsafe code, or something like DMA with fences missing
+3. Some kind of hardware errata, or some hardware misconfiguration like wrong clock speeds
+4. Some issue with an interrupt handler, either enabling, disabling, or re-enabling of interrupts when necessary
+5. Some kind of async issue, like not registering wakers fully before checking flags, or not registering or pending wakers at the right time
