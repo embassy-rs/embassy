@@ -3929,23 +3929,23 @@ pub mod regs {
     #[derive(Copy, Clone, Eq, PartialEq)]
     pub struct Hctsiz(pub u32);
     impl Hctsiz {
-        #[doc = "Transfer size"]
+        #[doc = "Transfer size for non-isochronuous/interrupt pipes"]
         #[inline(always)]
         pub const fn xfrsiz(&self) -> u32 {
             let val = (self.0 >> 0usize) & 0x0007_ffff;
             val as u32
         }
-        #[doc = "Transfer size"]
+        #[doc = "Transfer size for non-isochronuous/interrupt pipes"]
         #[inline(always)]
         pub fn set_xfrsiz(&mut self, val: u32) {
             self.0 = (self.0 & !(0x0007_ffff << 0usize)) | (((val as u32) & 0x0007_ffff) << 0usize);
         }
-        #[doc = "NTD descriptor list length (xfersiz[15:8], note val+1 is actual length)"]
+        #[doc = "NTD descriptor list length for isochronuous & interrupt pipes (xfersiz[15:8], note val+1 is actual length)"]
         #[inline(always)]
         pub const fn ntdl(&self) -> u8 {
             (self.0 >> 8) as u8
         }
-        #[doc = "NTD descriptor list length (xfrsiz[15:8], note val-1 is actual length)"]
+        #[doc = "NTD descriptor list length for isochronuous & interrupt pipes (xfrsiz[15:8], note val-1 is actual length)"]
         #[inline(always)]
         pub fn set_ntdl(&mut self, val: u8) {
             self.0 = (self.0 & !(0xFF << 8)) | ((val as u32) << 8)
@@ -4015,15 +4015,16 @@ pub mod regs {
         pub fn set_cqtd(&mut self, val: u8) {
             self.0 = (self.0 & !(0x3f << 3)) | (val as u32 & 0x3F) << 3;
         }
-        #[doc = "DMA base address"]
+        #[doc = "QTD list base address"]
         #[inline(always)]
-        pub const fn dmaaddr(&self) -> u32 {
-            self.0 >> 9
+        pub const fn qtdaddr(&self) -> u32 {
+            self.0 & 0xFFFFFE00
         }
-        #[doc = "DMA base address"]
+        #[doc = "QTD list base address"]
         #[inline(always)]
-        pub fn set_dmaaddr(&mut self, val: u32) {
-            self.0 = (self.0 & !0xFFFFFE00) | val << 9;
+        pub fn set_qtdaddr(&mut self, val: u32) {
+            debug_assert!(val & 0xFFFFFE00 == val, "QTD list needs to be 512 byte aligned");
+            self.0 = (self.0 & !0xFFFFFE00) | val;
         }
     }
     impl Default for Hcdma {
