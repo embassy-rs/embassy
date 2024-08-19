@@ -18,8 +18,6 @@ use crate::rcc::RccPeripheral;
 use crate::{interrupt, Peripheral};
 
 pub trait USBHostDriverTrait {
-    async fn set_packet_size(&mut self, channel_index: u8, size: u16);
-
     async fn bus_reset(&mut self);
 
     async fn wait_for_device_connect(&mut self);
@@ -29,6 +27,18 @@ pub trait USBHostDriverTrait {
     async fn request_out(&mut self, addr: u8, bytes: &[u8]);
 
     async fn request_in(&mut self, addr: u8, bytes: &[u8], dest: &mut [u8]) -> Result<usize, ()>;
+
+    async fn reconfigure_channels(&mut self, options: &[ChannelOptions]) -> Result<(), ()>;
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ChannelOptions {
+    pub index: u8,
+    pub max_packet_size: u16,
+    pub ep_type: EndpointType,
+    pub in_enabled: bool,
+    pub out_enabled: bool,
 }
 
 /// Interrupt handler.
@@ -222,10 +232,12 @@ mod btable {
             .write_value((addr as u32) | ((max_len_bits as u32) << 16));
     }
 
-    pub(super) fn write_out<T: Instance>(index: usize, addr: u16, max_len_bits: u16) {
-        USBRAM
-            .mem(index * 2 + 1)
-            .write_value((addr as u32) | ((max_len_bits as u32) << 16));
+    pub(super) fn update_rx_packet_size<T: Instance>(index: usize, max_len_bits: u16) {
+        // Address offset: index*8 + 4 [bytes] thus index*2 + 1 in 32 bit words
+        let reg = USBRAM.mem(index * 2 + 1);
+        let curr_val = reg.read();
+        let new_value = (curr_val & 0x0000FFF) | ((max_len_bits as u32) << 16);
+        reg.write_value(new_value);
     }
 
     pub(super) fn read_out_len<T: Instance>(index: usize) -> u16 {
@@ -233,6 +245,7 @@ mod btable {
     }
 }
 
+// Maybe replace with struct that only knows its index
 struct EndpointBuffer<T: Instance> {
     addr: u16,
     len: u16,
@@ -276,8 +289,9 @@ struct EndpointData {
 /// USB host driver.
 pub struct USBHostDriver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
-    alloc: [EndpointData; EP_COUNT],
     ep_mem_free: u16, // first free address in EP mem, in bytes.
+    control_channel_in: Channel<'d, T, In>,
+    control_channel_out: Channel<'d, T, Out>,
 }
 
 impl<'d, T: Instance> USBHostDriver<'d, T> {
@@ -318,147 +332,37 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
         #[cfg(stm32l1)]
         let _ = (dp, dm); // suppress "unused" warnings.
 
-        // TODO is this required for host?
-        // Initialize the bus so that it signals that power is available
-        BUS_WAKER.wake();
-
         Self {
             phantom: PhantomData,
-            alloc: [EndpointData {
-                ep_type: EndpointType::Bulk,
-                used_in: false,
-                used_out: false,
-            }; EP_COUNT],
             ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
+            control_channel_in: Channel::new(0, 0, 0, 0),
+            control_channel_out: Channel::new(0, 0, 0, 0),
         }
     }
-
-    // Can be shared with device
-    fn alloc_ep_mem(&mut self, len: u16) -> u16 {
-        assert!(len as usize % USBRAM_ALIGN == 0);
-        let addr = self.ep_mem_free;
-        if addr + len > USBRAM_SIZE as _ {
-            panic!("Endpoint memory full");
-        }
-        self.ep_mem_free += len;
-        addr
-    }
-
-    // Similar to device, but IN/OUT reversed
-    fn alloc_endpoint<D: Dir>(
-        &mut self,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
-        trace!(
-            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
-            ep_type,
-            max_packet_size,
-            interval_ms,
-            D::dir()
-        );
-
-        // Find the first available and unused endpoint/channel
-        let index = self.alloc.iter_mut().enumerate().find(|(i, ep)| {
-            if *i == 0 && ep_type != EndpointType::Control {
-                return false; // reserved for control pipe
-            }
-            let used = ep.used_out || ep.used_in;
-            let used_dir = match D::dir() {
-                Direction::Out => ep.used_out,
-                Direction::In => ep.used_in,
-            };
-            !used || (ep.ep_type == ep_type && !used_dir)
-        });
-
-        let (index, ep) = match index {
-            Some(x) => x,
-            None => return Err(EndpointAllocError),
-        };
-
-        ep.ep_type = ep_type;
-
-        let buf = match D::dir() {
-            Direction::In => {
-                assert!(!ep.used_in);
-                ep.used_in = true;
-
-                let (len, len_bits) = calc_receive_len_bits(max_packet_size);
-                let addr = self.alloc_ep_mem(len);
-
-                trace!("  len_bits = {:04x}", len_bits);
-                btable::write_receive_buffer_descriptor::<T>(index, addr, len_bits);
-
-                EndpointBuffer {
-                    addr,
-                    len,
-                    _phantom: PhantomData,
-                }
-            }
-            Direction::Out => {
-                assert!(!ep.used_out);
-                ep.used_out = true;
-
-                let len = align_len_up(max_packet_size);
-                let addr = self.alloc_ep_mem(len);
-
-                // ep_in_len is written when actually TXing packets.
-                btable::write_in::<T>(index, addr);
-
-                EndpointBuffer {
-                    addr,
-                    len,
-                    _phantom: PhantomData,
-                }
-            }
-        };
-
-        trace!("  index={} addr={} len={}", index, buf.addr, buf.len);
-
-        Ok(Endpoint {
-            _phantom: PhantomData,
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(index, D::dir()),
-                ep_type,
-                max_packet_size,
-                interval_ms,
-            },
-            buf,
-        })
-    }
-
-    // fn alloc_endpoint_in(
-    //     &mut self,
-    //     ep_type: EndpointType,
-    //     max_packet_size: u16,
-    //     interval_ms: u8,
-    // ) -> Result<Endpoint<'d, T, In>, driver::EndpointAllocError> {
-    //     self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
-    // }
-
-    // fn alloc_endpoint_out(
-    //     &mut self,
-    //     ep_type: EndpointType,
-    //     max_packet_size: u16,
-    //     interval_ms: u8,
-    // ) -> Result<Endpoint<'d, T, Out>, driver::EndpointAllocError> {
-    //     self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
-    // }
 
     /// Start the USB peripheral
-    pub fn start(&mut self) -> HostControlPipe<'d, T> {
-        let control_max_packet_size = 8;
-        let ep_out: Endpoint<'d, T, Out> = self
-            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
-            .unwrap();
-        let ep_in: Endpoint<'d, T, In> = self
-            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
-            .unwrap();
-        // let ep_bulk_in: Endpoint<'d, T, In> = self.alloc_endpoint(EndpointType::Bulk, 64, 0).unwrap();
-        assert_eq!(ep_out.info.addr.index(), 0);
-        assert_eq!(ep_in.info.addr.index(), 0);
+    pub fn start(&mut self) {
+        // let control_max_packet_size = 8;
+        // let ep_out: Endpoint<'d, T, Out> = self
+        //     .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
+        //     .unwrap();
+        // let ep_in: Endpoint<'d, T, In> = self
+        //     .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
+        //     .unwrap();
+        // // let ep_bulk_in: Endpoint<'d, T, In> = self.alloc_endpoint(EndpointType::Bulk, 64, 0).unwrap();
+        // assert_eq!(ep_out.info.addr.index(), 0);
+        // assert_eq!(ep_in.info.addr.index(), 0);
         // assert_eq!(ep_bulk_in.info.addr.index(), 1);
+
+        let options: [ChannelOptions; 1] = [ChannelOptions {
+            index: 0,
+            max_packet_size: 8,
+            ep_type: EndpointType::Control,
+            in_enabled: true,
+            out_enabled: true,
+        }];
+
+        let _ = self.reconfigure_channels(&options);
 
         let regs = T::regs();
 
@@ -481,7 +385,7 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
         #[cfg(stm32l1)]
         crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
 
-        HostControlPipe::new(ep_in, ep_out, control_max_packet_size)
+        // HostControlPipe::new(ep_in, ep_out, control_max_packet_size)
     }
 
     pub fn print_all(&self) {
@@ -498,6 +402,58 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
         let istr = regs.istr().read();
 
         istr.0
+    }
+
+    fn reset_alloc(&mut self) {
+        // Reset alloc pointer.
+        self.ep_mem_free = EP_COUNT as u16 * 8; // for each EP, 4 regs, so 8 bytes
+    }
+
+    fn alloc_channel_mem(&mut self, len: u16) -> u16 {
+        assert!(len as usize % USBRAM_ALIGN == 0);
+        let addr = self.ep_mem_free;
+        if addr + len > USBRAM_SIZE as _ {
+            panic!("Endpoint memory full");
+        }
+        self.ep_mem_free += len;
+        addr
+    }
+
+    // Similar to device, but IN/OUT reversed
+    fn alloc_channel(&mut self, opt: &ChannelOptions) -> Result<(), ()> {
+        trace!("allocating channel={:?} opt={:?}", opt.index, opt,);
+
+        let index = opt.index as usize;
+
+        if opt.in_enabled {
+            let (len, len_bits) = calc_receive_len_bits(opt.max_packet_size);
+            let addr = self.alloc_channel_mem(len);
+
+            trace!("  len_bits = {:04x}", len_bits);
+            btable::write_receive_buffer_descriptor::<T>(index, addr, len_bits);
+
+            let in_channel: Channel<T, In> = Channel::new(index, addr, len, opt.max_packet_size);
+
+            if index == 0 {
+                self.control_channel_in = in_channel;
+            }
+        }
+
+        if opt.out_enabled {
+            let len = align_len_up(opt.max_packet_size);
+            let addr = self.alloc_channel_mem(len);
+
+            // ep_in_len is written when actually TXing packets.
+            btable::write_in::<T>(index, addr);
+
+            // todo move somewhere
+            let out_channel: Channel<T, Out> = Channel::new(index, addr, len, opt.max_packet_size);
+            if index == 0 {
+                self.control_channel_out = out_channel;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -522,21 +478,35 @@ impl Dir for Out {
 }
 
 /// USB endpoint.
-pub struct Endpoint<'d, T: Instance, D> {
+pub struct Channel<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
-    info: EndpointInfo,
+    index: usize,
+    max_packet_size: u16,
     buf: EndpointBuffer<T>,
 }
 
-impl<'d, T: Instance, D> Endpoint<'d, T, D> {
+impl<'d, T: Instance, D> Channel<'d, T, D> {
+    fn new(index: usize, addr: u16, len: u16, max_packet_size: u16) -> Self {
+        Self {
+            _phantom: PhantomData,
+            index,
+            max_packet_size,
+            buf: EndpointBuffer {
+                addr,
+                len,
+                _phantom: PhantomData,
+            },
+        }
+    }
+    // This is probably only needed to do once
     fn write_data(&mut self, buf: &[u8]) {
-        let index = self.info.addr.index();
+        let index = self.index;
         self.buf.write(buf);
         btable::write_transmit_buffer_descriptor::<T>(index, self.buf.addr, buf.len() as _);
     }
 
     fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        let index = self.info.addr.index();
+        let index = self.index;
         let rx_len = btable::read_out_len::<T>(index) as usize & 0x3FF;
         trace!("READ DONE, rx_len = {}", rx_len);
         if rx_len > buf.len() {
@@ -547,131 +517,108 @@ impl<'d, T: Instance, D> Endpoint<'d, T, D> {
     }
 }
 
-impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
-    }
+// impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
+//     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+//         trace!("READ WAITING, buf.len() = {}", buf.len());
+//         let index = self.info.addr.index();
+//         let stat = poll_fn(|cx| {
+//             EP_OUT_WAKERS[index].register(cx.waker());
+//             let regs = T::regs();
+//             let stat = regs.epr(index).read().stat_rx();
+//             if matches!(stat, Stat::NAK | Stat::DISABLED) {
+//                 Poll::Ready(stat)
+//             } else {
+//                 Poll::Pending
+//             }
+//         })
+//         .await;
 
-    async fn wait_enabled(&mut self) {
-        trace!("wait_enabled IN WAITING");
-        let index = self.info.addr.index();
-        poll_fn(|cx| {
-            EP_IN_WAKERS[index].register(cx.waker());
-            let regs = T::regs();
-            if regs.epr(index).read().stat_tx() == Stat::DISABLED {
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
-        trace!("wait_enabled IN OK");
-    }
-}
+//         if stat == Stat::DISABLED {
+//             return Err(EndpointError::Disabled);
+//         }
 
-impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
-    }
+//         let rx_len = self.read_data(buf)?;
 
-    async fn wait_enabled(&mut self) {
-        trace!("wait_enabled OUT WAITING");
-        let index = self.info.addr.index();
-        poll_fn(|cx| {
-            EP_OUT_WAKERS[index].register(cx.waker());
-            let regs = T::regs();
-            if regs.epr(index).read().stat_rx() == Stat::DISABLED {
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
-        trace!("wait_enabled OUT OK");
-    }
-}
+//         let regs = T::regs();
+//         regs.epr(index).write(|w| {
+//             w.set_ep_type(convert_type(self.info.ep_type));
+//             w.set_ea(self.info.addr.index() as _);
+//             w.set_stat_rx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
+//             w.set_stat_tx(Stat::from_bits(0));
+//             w.set_ctr_rx(true); // don't clear
+//             w.set_ctr_tx(true); // don't clear
+//         });
+//         trace!("READ OK, rx_len = {}", rx_len);
 
-impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
-        trace!("READ WAITING, buf.len() = {}", buf.len());
-        let index = self.info.addr.index();
-        let stat = poll_fn(|cx| {
-            EP_OUT_WAKERS[index].register(cx.waker());
-            let regs = T::regs();
-            let stat = regs.epr(index).read().stat_rx();
-            if matches!(stat, Stat::NAK | Stat::DISABLED) {
-                Poll::Ready(stat)
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
+//         Ok(rx_len)
+//     }
+// }
 
-        if stat == Stat::DISABLED {
-            return Err(EndpointError::Disabled);
+// impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
+//     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+//         if buf.len() > self.info.max_packet_size as usize {
+//             return Err(EndpointError::BufferOverflow);
+//         }
+
+//         let index = self.info.addr.index();
+
+//         trace!("WRITE WAITING");
+//         let stat = poll_fn(|cx| {
+//             EP_IN_WAKERS[index].register(cx.waker());
+//             let regs = T::regs();
+//             let stat = regs.epr(index).read().stat_tx();
+//             if matches!(stat, Stat::NAK | Stat::DISABLED) {
+//                 Poll::Ready(stat)
+//             } else {
+//                 Poll::Pending
+//             }
+//         })
+//         .await;
+
+//         if stat == Stat::DISABLED {
+//             return Err(EndpointError::Disabled);
+//         }
+
+//         self.write_data(buf);
+
+//         let regs = T::regs();
+//         regs.epr(index).write(|w| {
+//             w.set_ep_type(convert_type(self.info.ep_type));
+//             w.set_ea(self.info.addr.index() as _);
+//             w.set_stat_tx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
+//             w.set_stat_rx(Stat::from_bits(0));
+//             w.set_ctr_rx(true); // don't clear
+//             w.set_ctr_tx(true); // don't clear
+//         });
+
+//         trace!("WRITE OK");
+
+//         Ok(())
+//     }
+// }
+
+impl<'d, T: Instance> USBHostDriverTrait for USBHostDriver<'d, T> {
+    async fn reconfigure_channels(&mut self, options: &[ChannelOptions]) -> Result<(), ()> {
+        // Clear all buffer memory
+        self.reset_alloc();
+
+        for opt in options {
+            // trace!("reconfigure_channels: {:?}", opt);
+
+            self.alloc_channel(opt);
         }
 
-        let rx_len = self.read_data(buf)?;
-
-        let regs = T::regs();
-        regs.epr(index).write(|w| {
-            w.set_ep_type(convert_type(self.info.ep_type));
-            w.set_ea(self.info.addr.index() as _);
-            w.set_stat_rx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
-            w.set_stat_tx(Stat::from_bits(0));
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
-        trace!("READ OK, rx_len = {}", rx_len);
-
-        Ok(rx_len)
-    }
-}
-
-impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        if buf.len() > self.info.max_packet_size as usize {
-            return Err(EndpointError::BufferOverflow);
-        }
-
-        let index = self.info.addr.index();
-
-        trace!("WRITE WAITING");
-        let stat = poll_fn(|cx| {
-            EP_IN_WAKERS[index].register(cx.waker());
-            let regs = T::regs();
-            let stat = regs.epr(index).read().stat_tx();
-            if matches!(stat, Stat::NAK | Stat::DISABLED) {
-                Poll::Ready(stat)
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        if stat == Stat::DISABLED {
-            return Err(EndpointError::Disabled);
-        }
-
-        self.write_data(buf);
-
-        let regs = T::regs();
-        regs.epr(index).write(|w| {
-            w.set_ep_type(convert_type(self.info.ep_type));
-            w.set_ea(self.info.addr.index() as _);
-            w.set_stat_tx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
-            w.set_stat_rx(Stat::from_bits(0));
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
-
-        trace!("WRITE OK");
+        // Configure channel 0
+        let epr0 = T::regs().epr(0);
+        let mut epr_val = invariant(epr0.read());
+        epr_val.set_devaddr(0);
+        epr_val.set_ep_type(EpType::CONTROL);
+        epr_val.set_ea(0);
+        epr0.write_value(epr_val);
 
         Ok(())
     }
-}
 
-impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
     async fn bus_reset(&mut self) {
         let regs = T::regs();
 
@@ -731,7 +678,7 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
     async fn request_out(&mut self, addr: u8, bytes: &[u8]) {
         EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
         // Write data to USB RAM
-        self.ep_out.write_data(bytes);
+        self.control_channel_out.write_data(bytes);
 
         let epr0 = T::regs().epr(0);
 
@@ -787,7 +734,7 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
         EP0_TRANSFER_COMPLETE.store(false, Ordering::Relaxed);
 
         // Write data to USB RAM
-        self.ep_out.write_data(bytes);
+        self.control_channel_out.write_data(bytes);
 
         let epr0 = T::regs().epr(0);
 
@@ -830,9 +777,9 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
             if EP0_TRANSFER_COMPLETE.load(Ordering::Acquire) {
                 // data available
                 let idest = &mut dest[count..];
-                let n = self.ep_in.read_data(idest).map_err(|_| ()).unwrap();
+                let n = self.control_channel_in.read_data(idest).map_err(|_| ()).unwrap();
                 count += n;
-                if count == dest.len() || n < self.ep_in.info.max_packet_size as usize {
+                if count == dest.len() || n < self.control_channel_in.max_packet_size as usize {
                     Poll::Ready(())
                 } else {
                     // issue another read
@@ -853,7 +800,7 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
 
         // Send 0 bytes
         let zero = [0u8; 0];
-        self.ep_out.write_data(&zero);
+        self.control_channel_out.write_data(&zero);
 
         let epr_val = epr0.read();
 
@@ -874,34 +821,6 @@ impl<'d, T: Instance> USBHostDriverTrait for HostControlPipe<'d, T> {
         .await;
 
         Ok(count)
-    }
-
-    async fn set_packet_size(&mut self, channel_index: u8, size: u16) {
-        todo!()
-    }
-}
-pub struct HostControlPipe<'d, T: Instance> {
-    _phantom: PhantomData<&'d mut T>,
-    max_packet_size: u16,
-    ep_in: Endpoint<'d, T, In>,
-    ep_out: Endpoint<'d, T, Out>,
-}
-
-impl<'d, T: Instance> HostControlPipe<'d, T> {
-    pub fn new(channel_in: Endpoint<'d, T, In>, channel_out: Endpoint<'d, T, Out>, max_packet_size: u16) -> Self {
-        let epr0 = T::regs().epr(0);
-        let mut epr_val = invariant(epr0.read());
-        epr_val.set_devaddr(0);
-        epr_val.set_ep_type(EpType::CONTROL);
-        epr_val.set_ea(0);
-        epr0.write_value(epr_val);
-
-        Self {
-            _phantom: PhantomData,
-            max_packet_size,
-            ep_in: channel_in,
-            ep_out: channel_out,
-        }
     }
 }
 
