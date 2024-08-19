@@ -272,11 +272,17 @@ impl Otg {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0510usize + n * 32usize) as _) }
     }
-    #[doc = "Host channel DMA address register"]
+    #[doc = "Host channel DMA address register (config)"]
     #[inline(always)]
-    pub const fn hcdma(self, n: usize) -> Reg<u32, RW> {
+    pub const fn hcdma(self, n: usize) -> Reg<regs::Hcdma, RW> {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0514usize + n * 32usize) as _) }
+    }
+    #[doc = "Host channel DMA address register (buffer)"]
+    #[inline(always)]
+    pub const fn hcdmab(self, n: usize) -> Reg<u32, RW> {
+        assert!(n < 12usize);
+        unsafe { Reg::from_ptr(self.ptr.add(0x051cusize + n * 32usize) as _) }
     }
     #[doc = "Device configuration register"]
     #[inline(always)]
@@ -1032,6 +1038,7 @@ pub mod regs {
         pub fn set_xfrsiz(&mut self, val: u32) {
             self.0 = (self.0 & !(0x0007_ffff << 0usize)) | (((val as u32) & 0x0007_ffff) << 0usize);
         }
+
         #[doc = "Packet count"]
         #[inline(always)]
         pub const fn pktcnt(&self) -> u16 {
@@ -3933,6 +3940,26 @@ pub mod regs {
         pub fn set_xfrsiz(&mut self, val: u32) {
             self.0 = (self.0 & !(0x0007_ffff << 0usize)) | (((val as u32) & 0x0007_ffff) << 0usize);
         }
+        #[doc = "NTD descriptor list length (xfersiz[15:8], note val+1 is actual length)"]
+        #[inline(always)]
+        pub const fn ntdl(&self) -> u8 {
+            (self.0 >> 8) as u8
+        }
+        #[doc = "NTD descriptor list length (xfrsiz[15:8], note val-1 is actual length)"]
+        #[inline(always)]
+        pub fn set_ntdl(&mut self, val: u8) {
+            self.0 = (self.0 & !(0xFF << 8)) | ((val as u32) << 8)
+        }
+        #[doc = "Schedule info for isochronuous & interrupt pipes (xfrsiz[7:0])"]
+        #[inline(always)]
+        pub const fn schedinfo(&self) -> u8 {
+            self.0 as u8
+        }
+        #[doc = "Schedule info for isochronuous & interrupt pipes (xfrsiz[7:0])"]
+        #[inline(always)]
+        pub fn set_schedinfo(&mut self, val: u8) {
+            self.0 = (self.0 & !(0xFF << 8)) | ((val as u32) << 8)
+        }
         #[doc = "Packet count"]
         #[inline(always)]
         pub const fn pktcnt(&self) -> u16 {
@@ -3973,6 +4000,39 @@ pub mod regs {
             Hctsiz(0)
         }
     }
+    #[doc = "Host channel DMA config register"]
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct Hcdma(pub u32);
+    impl Hcdma {
+        #[doc = "Current QTD (transfer descriptor) index"]
+        #[inline(always)]
+        pub const fn cqtd(&self) -> u8 {
+            ((self.0 >> 3) & 0x3F) as u8
+        }
+        #[doc = "Current QTD (transfer descriptor) index"]
+        #[inline(always)]
+        pub fn set_cqtd(&mut self, val: u8) {
+            self.0 = (self.0 & !(0x3f << 3)) | (val as u32 & 0x3F) << 3;
+        }
+        #[doc = "DMA base address"]
+        #[inline(always)]
+        pub const fn dmaaddr(&self) -> u32 {
+            self.0 >> 9
+        }
+        #[doc = "DMA base address"]
+        #[inline(always)]
+        pub fn set_dmaaddr(&mut self, val: u32) {
+            self.0 = (self.0 & !0xFFFFFE00) | val << 9;
+        }
+    }
+    impl Default for Hcdma {
+        #[inline(always)]
+        fn default() -> Hcdma {
+            Hcdma(0)
+        }
+    }
+
     #[doc = "Host frame interval register"]
     #[repr(transparent)]
     #[derive(Copy, Clone, Eq, PartialEq)]
