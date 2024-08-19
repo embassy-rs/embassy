@@ -225,7 +225,7 @@ pub enum HalfDuplexConfig {
 }
 
 impl HalfDuplexConfig {
-    pub fn af_type(self) -> gpio::AfType {
+    fn af_type(self) -> gpio::AfType {
         match self {
             HalfDuplexConfig::PushPull => AfType::output(OutputType::PushPull, Speed::Medium),
             HalfDuplexConfig::OpenDrainExternal => AfType::output(OutputType::OpenDrain, Speed::Medium),
