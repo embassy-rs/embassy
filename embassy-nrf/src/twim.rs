@@ -105,14 +105,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        // Workaround for lack of LASTRX_SUSPEND short in some nRF chips
-        // Do this first to minimize latency
-        #[cfg(any(feature = "nrf52832", feature = "_nrf5340", feature = "_nrf9120"))]
-        if r.events_lastrx.read().bits() != 0 {
-            r.tasks_suspend.write(|w| unsafe { w.bits(1) });
-            r.events_lastrx.reset();
-        }
-
         if r.events_suspended.read().bits() != 0 {
             s.end_waker.wake();
             r.intenclr.write(|w| w.suspended().clear());
@@ -381,7 +373,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         operations: &mut [Operation<'_>],
         tx_ram_buffer: Option<&mut [MaybeUninit<u8>; FORCE_COPY_BUFFER_SIZE]>,
         inten: bool,
-        stop: bool,
     ) -> Result<(), Error> {
         let r = T::regs();
 
@@ -401,14 +392,12 @@ impl<'d, T: Instance> Twim<'d, T> {
             r.intenclr
                 .write(|w| w.suspended().clear().stopped().clear().error().clear());
         }
-        #[cfg(any(feature = "nrf52832", feature = "_nrf5340", feature = "_nrf9120"))]
-        r.intenclr.write(|w| w.lastrx().clear());
 
         match operations {
             [Operation::Read(rd_buffer), Operation::Write(wr_buffer), rest @ ..]
                 if !rd_buffer.is_empty() && !wr_buffer.is_empty() =>
             {
-                let stop = stop && rest.is_empty();
+                let stop = rest.is_empty();
 
                 // Set up DMA buffers.
                 unsafe {
@@ -433,11 +422,9 @@ impl<'d, T: Instance> Twim<'d, T> {
                     r.tasks_resume.write(|w| unsafe { w.bits(1) });
                 }
             }
-            [Operation::Write(wr_buffer), Operation::Read(rd_buffer), rest @ ..]
+            [Operation::Write(wr_buffer), Operation::Read(rd_buffer)]
                 if !wr_buffer.is_empty() && !rd_buffer.is_empty() =>
             {
-                let stop = stop && rest.is_empty();
-
                 // Set up DMA buffers.
                 unsafe {
                     self.set_tx_buffer(wr_buffer, tx_ram_buffer)?;
@@ -447,18 +434,9 @@ impl<'d, T: Instance> Twim<'d, T> {
                 // Start write+read operation.
                 r.shorts.write(|w| {
                     w.lasttx_startrx().enabled();
-                    if stop {
-                        w.lastrx_stop().enabled();
-                    } else {
-                        #[cfg(not(any(feature = "nrf52832", feature = "_nrf5340", feature = "_nrf9120")))]
-                        w.lastrx_suspend().enabled();
-                    }
+                    w.lastrx_stop().enabled();
                     w
                 });
-                #[cfg(any(feature = "nrf52832", feature = "_nrf5340", feature = "_nrf9120"))]
-                if !stop {
-                    r.intenset.write(|w| w.lastrx().set());
-                }
 
                 r.tasks_starttx.write(|w| unsafe { w.bits(1) });
 
@@ -466,9 +444,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                     r.tasks_resume.write(|w| unsafe { w.bits(1) });
                 }
             }
-            [Operation::Read(buffer), rest @ ..] => {
-                let stop = stop && rest.is_empty();
-
+            [Operation::Read(buffer)] => {
                 // Set up DMA buffers.
                 unsafe {
                     self.set_rx_buffer(buffer)?;
@@ -476,18 +452,9 @@ impl<'d, T: Instance> Twim<'d, T> {
 
                 // Start read operation.
                 r.shorts.write(|w| {
-                    if stop {
-                        w.lastrx_stop().enabled();
-                    } else {
-                        #[cfg(not(any(feature = "nrf52832", feature = "_nrf5340", feature = "_nrf9120")))]
-                        w.lastrx_suspend().enabled();
-                    }
+                    w.lastrx_stop().enabled();
                     w
                 });
-                #[cfg(any(feature = "nrf52832", feature = "_nrf5340", feature = "_nrf9120"))]
-                if !stop {
-                    r.intenset.write(|w| w.lastrx().set());
-                }
 
                 r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
@@ -496,16 +463,15 @@ impl<'d, T: Instance> Twim<'d, T> {
                 }
 
                 if buffer.is_empty() {
-                    // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STOP/SUSPEND ourselves.
-                    if stop {
-                        r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                    } else {
-                        r.tasks_suspend.write(|w| unsafe { w.bits(1) });
-                    }
+                    // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STOP ourselves.
+                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
                 }
             }
+            [Operation::Read(_), ..] => {
+                panic!("Suspending after a read is not supported!");
+            }
             [Operation::Write(buffer), rest @ ..] => {
-                let stop = stop && rest.is_empty();
+                let stop = rest.is_empty();
 
                 // Set up DMA buffers.
                 unsafe {
@@ -538,13 +504,11 @@ impl<'d, T: Instance> Twim<'d, T> {
                 }
             }
             [] => {
-                if stop {
-                    if was_suspended {
-                        r.tasks_resume.write(|w| unsafe { w.bits(1) });
-                    }
-
-                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                if was_suspended {
+                    r.tasks_resume.write(|w| unsafe { w.bits(1) });
                 }
+
+                r.tasks_stop.write(|w| unsafe { w.bits(1) });
             }
         }
 
@@ -557,17 +521,18 @@ impl<'d, T: Instance> Twim<'d, T> {
 
         match operations {
             [Operation::Read(rd_buffer), Operation::Write(wr_buffer), ..]
-            | [Operation::Write(wr_buffer), Operation::Read(rd_buffer), ..]
+            | [Operation::Write(wr_buffer), Operation::Read(rd_buffer)]
                 if !rd_buffer.is_empty() && !wr_buffer.is_empty() =>
             {
                 self.check_tx(wr_buffer.len())?;
                 self.check_rx(rd_buffer.len())?;
                 Ok(2)
             }
-            [Operation::Read(buffer), ..] => {
+            [Operation::Read(buffer)] => {
                 self.check_rx(buffer.len())?;
                 Ok(1)
             }
+            [Operation::Read(_), ..] => unreachable!(),
             [Operation::Write(buffer), ..] => {
                 self.check_tx(buffer.len())?;
                 Ok(1)
@@ -583,26 +548,17 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// Each buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     ///
-    /// If `stop` is set, the transaction will be terminated with a STOP
-    /// condition and the Twim will be stopped. Otherwise, the bus will be
-    /// left busy via clock stretching and Twim will be suspended.
-    ///
-    /// The nrf52832, nrf5340, and nrf9120 do not have hardware support for
-    /// suspending following a read operation therefore it is emulated by the
-    /// interrupt handler. If the latency of servicing that interrupt is
-    /// longer than a byte worth of clocks on the bus, the SCL clock will
-    /// continue to run for one or more additional bytes. This applies to
-    /// consecutive read operations, certain write-read-write sequences, or
-    /// any sequence of operations ending in a read when `stop == false`.
-    pub fn blocking_transaction(
-        &mut self,
-        address: u8,
-        mut operations: &mut [Operation<'_>],
-        stop: bool,
-    ) -> Result<(), Error> {
+    /// Consecutive `Read` operations are not supported because the Twim
+    /// hardware does not support suspending after a read operation. (Setting
+    /// the SUSPEND task in response to a LASTRX event causes the final byte of
+    /// the operation to be ACKed instead of NAKed. When the TWIM is resumed,
+    /// one more byte will be read before the new operation is started, leading
+    /// to an Overrun error if the RXD has not been updated, or an extraneous
+    /// byte read into the new buffer if the RXD has been updated.)
+    pub fn blocking_transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
         while !operations.is_empty() {
-            self.setup_operations(address, operations, Some(&mut tx_ram_buffer), false, stop)?;
+            self.setup_operations(address, operations, Some(&mut tx_ram_buffer), false)?;
             self.blocking_wait();
             let consumed = self.check_operations(operations)?;
             operations = &mut operations[consumed..];
@@ -615,10 +571,9 @@ impl<'d, T: Instance> Twim<'d, T> {
         &mut self,
         address: u8,
         mut operations: &mut [Operation<'_>],
-        stop: bool,
     ) -> Result<(), Error> {
         while !operations.is_empty() {
-            self.setup_operations(address, operations, None, false, stop)?;
+            self.setup_operations(address, operations, None, false)?;
             self.blocking_wait();
             let consumed = self.check_operations(operations)?;
             operations = &mut operations[consumed..];
@@ -634,12 +589,11 @@ impl<'d, T: Instance> Twim<'d, T> {
         &mut self,
         address: u8,
         mut operations: &mut [Operation<'_>],
-        stop: bool,
         timeout: Duration,
     ) -> Result<(), Error> {
         let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
         while !operations.is_empty() {
-            self.setup_operations(address, operations, Some(&mut tx_ram_buffer), false, stop)?;
+            self.setup_operations(address, operations, Some(&mut tx_ram_buffer), false)?;
             self.blocking_wait_timeout(timeout)?;
             let consumed = self.check_operations(operations)?;
             operations = &mut operations[consumed..];
@@ -653,11 +607,10 @@ impl<'d, T: Instance> Twim<'d, T> {
         &mut self,
         address: u8,
         mut operations: &mut [Operation<'_>],
-        stop: bool,
         timeout: Duration,
     ) -> Result<(), Error> {
         while !operations.is_empty() {
-            self.setup_operations(address, operations, None, false, stop)?;
+            self.setup_operations(address, operations, None, false)?;
             self.blocking_wait_timeout(timeout)?;
             let consumed = self.check_operations(operations)?;
             operations = &mut operations[consumed..];
@@ -670,26 +623,17 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// Each buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     ///
-    /// If `stop` is set, the transaction will be terminated with a STOP
-    /// condition and the Twim will be stopped. Otherwise, the bus will be
-    /// left busy via clock stretching and Twim will be suspended.
-    ///
-    /// The nrf52832, nrf5340, and nrf9120 do not have hardware support for
-    /// suspending following a read operation therefore it is emulated by the
-    /// interrupt handler. If the latency of servicing that interrupt is
-    /// longer than a byte worth of clocks on the bus, the SCL clock will
-    /// continue to run for one or more additional bytes. This applies to
-    /// consecutive read operations, certain write-read-write sequences, or
-    /// any sequence of operations ending in a read when `stop == false`.
-    pub async fn transaction(
-        &mut self,
-        address: u8,
-        mut operations: &mut [Operation<'_>],
-        stop: bool,
-    ) -> Result<(), Error> {
+    /// Consecutive `Read` operations are not supported because the Twim
+    /// hardware does not support suspending after a read operation. (Setting
+    /// the SUSPEND task in response to a LASTRX event causes the final byte of
+    /// the operation to be ACKed instead of NAKed. When the TWIM is resumed,
+    /// one more byte will be read before the new operation is started, leading
+    /// to an Overrun error if the RXD has not been updated, or an extraneous
+    /// byte read into the new buffer if the RXD has been updated.)
+    pub async fn transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
         while !operations.is_empty() {
-            self.setup_operations(address, operations, Some(&mut tx_ram_buffer), true, stop)?;
+            self.setup_operations(address, operations, Some(&mut tx_ram_buffer), true)?;
             self.async_wait().await;
             let consumed = self.check_operations(operations)?;
             operations = &mut operations[consumed..];
@@ -702,10 +646,9 @@ impl<'d, T: Instance> Twim<'d, T> {
         &mut self,
         address: u8,
         mut operations: &mut [Operation<'_>],
-        stop: bool,
     ) -> Result<(), Error> {
         while !operations.is_empty() {
-            self.setup_operations(address, operations, None, true, stop)?;
+            self.setup_operations(address, operations, None, true)?;
             self.async_wait().await;
             let consumed = self.check_operations(operations)?;
             operations = &mut operations[consumed..];
@@ -720,12 +663,12 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     pub fn blocking_write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.blocking_transaction(address, &mut [Operation::Write(buffer)], true)
+        self.blocking_transaction(address, &mut [Operation::Write(buffer)])
     }
 
     /// Same as [`blocking_write`](Twim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.blocking_transaction_from_ram(address, &mut [Operation::Write(buffer)], true)
+        self.blocking_transaction_from_ram(address, &mut [Operation::Write(buffer)])
     }
 
     /// Read from an I2C slave.
@@ -733,7 +676,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     pub fn blocking_read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_transaction(address, &mut [Operation::Read(buffer)], true)
+        self.blocking_transaction(address, &mut [Operation::Read(buffer)])
     }
 
     /// Write data to an I2C slave, then read data from the slave without
@@ -742,11 +685,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// The buffers must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     pub fn blocking_write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_transaction(
-            address,
-            &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)],
-            true,
-        )
+        self.blocking_transaction(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
     }
 
     /// Same as [`blocking_write_read`](Twim::blocking_write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
@@ -756,11 +695,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         wr_buffer: &[u8],
         rd_buffer: &mut [u8],
     ) -> Result<(), Error> {
-        self.blocking_transaction_from_ram(
-            address,
-            &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)],
-            true,
-        )
+        self.blocking_transaction_from_ram(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
     }
 
     // ===========================================
@@ -770,7 +705,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// See [`blocking_write`].
     #[cfg(feature = "time")]
     pub fn blocking_write_timeout(&mut self, address: u8, buffer: &[u8], timeout: Duration) -> Result<(), Error> {
-        self.blocking_transaction_timeout(address, &mut [Operation::Write(buffer)], true, timeout)
+        self.blocking_transaction_timeout(address, &mut [Operation::Write(buffer)], timeout)
     }
 
     /// Same as [`blocking_write`](Twim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
@@ -781,7 +716,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         buffer: &[u8],
         timeout: Duration,
     ) -> Result<(), Error> {
-        self.blocking_transaction_from_ram_timeout(address, &mut [Operation::Write(buffer)], true, timeout)
+        self.blocking_transaction_from_ram_timeout(address, &mut [Operation::Write(buffer)], timeout)
     }
 
     /// Read from an I2C slave.
@@ -790,7 +725,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// and at most 65535 bytes on the nRF52840.
     #[cfg(feature = "time")]
     pub fn blocking_read_timeout(&mut self, address: u8, buffer: &mut [u8], timeout: Duration) -> Result<(), Error> {
-        self.blocking_transaction_timeout(address, &mut [Operation::Read(buffer)], true, timeout)
+        self.blocking_transaction_timeout(address, &mut [Operation::Read(buffer)], timeout)
     }
 
     /// Write data to an I2C slave, then read data from the slave without
@@ -809,7 +744,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         self.blocking_transaction_timeout(
             address,
             &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)],
-            true,
             timeout,
         )
     }
@@ -826,7 +760,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         self.blocking_transaction_from_ram_timeout(
             address,
             &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)],
-            true,
             timeout,
         )
     }
@@ -838,7 +771,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.transaction(address, &mut [Operation::Read(buffer)], true).await
+        self.transaction(address, &mut [Operation::Read(buffer)]).await
     }
 
     /// Write to an I2C slave.
@@ -846,12 +779,12 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// The buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     pub async fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.transaction(address, &mut [Operation::Write(buffer)], true).await
+        self.transaction(address, &mut [Operation::Write(buffer)]).await
     }
 
     /// Same as [`write`](Twim::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub async fn write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.transaction_from_ram(address, &mut [Operation::Write(buffer)], true)
+        self.transaction_from_ram(address, &mut [Operation::Write(buffer)])
             .await
     }
 
@@ -861,12 +794,8 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// The buffers must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     pub async fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Error> {
-        self.transaction(
-            address,
-            &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)],
-            true,
-        )
-        .await
+        self.transaction(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
+            .await
     }
 
     /// Same as [`write_read`](Twim::write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
@@ -876,12 +805,8 @@ impl<'d, T: Instance> Twim<'d, T> {
         wr_buffer: &[u8],
         rd_buffer: &mut [u8],
     ) -> Result<(), Error> {
-        self.transaction_from_ram(
-            address,
-            &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)],
-            true,
-        )
-        .await
+        self.transaction_from_ram(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
+            .await
     }
 }
 
@@ -999,13 +924,13 @@ impl<'d, T: Instance> embedded_hal_1::i2c::ErrorType for Twim<'d, T> {
 
 impl<'d, T: Instance> embedded_hal_1::i2c::I2c for Twim<'d, T> {
     fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
-        self.blocking_transaction(address, operations, true)
+        self.blocking_transaction(address, operations)
     }
 }
 
 impl<'d, T: Instance> embedded_hal_async::i2c::I2c for Twim<'d, T> {
     async fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
-        self.transaction(address, operations, true).await
+        self.transaction(address, operations).await
     }
 }
 
