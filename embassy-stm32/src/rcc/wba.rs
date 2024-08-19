@@ -15,6 +15,7 @@ pub struct Hse {
 }
 
 /// Clocks configuration
+#[derive(Clone, Copy)]
 pub struct Config {
     // base clock sources
     pub hsi: bool,

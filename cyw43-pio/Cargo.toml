@@ -26,3 +26,4 @@ defmt = { version = "0.3", optional = true }
 src_base = "https://github.com/embassy-rs/embassy/blob/cyw43-pio-v$VERSION/cyw43-pio/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/cyw43-pio/src/"
 target = "thumbv6m-none-eabi"
+features = ["embassy-rp/rp2040"]

@@ -14,7 +14,9 @@ src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/emba
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-rp/src/"
 features = ["defmt", "unstable-pac", "time-driver"]
 flavors = [
-    { name = "rp2040", target = "thumbv6m-none-eabi" },
+    { name = "rp2040", target = "thumbv6m-none-eabi", features = ["rp2040"] },
+    { name = "rp235xa", target = "thumbv8m.main-none-eabihf", features = ["rp235xa"] },
+    { name = "rp235xb", target = "thumbv8m.main-none-eabihf", features = ["rp235xb"] },
 ]
 
 [package.metadata.docs.rs]
@@ -88,6 +90,23 @@ boot2-w25x10cl = []
 ## ```
 boot2-none = []
 
+## Configure the hal for use with the rp2040
+rp2040 = ["rp-pac/rp2040"]
+_rp235x = ["rp-pac/rp235x"]
+## Configure the hal for use with the rp235xA
+rp235xa = ["_rp235x"]
+## Configure the hal for use with the rp235xB
+rp235xb = ["_rp235x"]
+
+# hack around cortex-m peripherals being wrong when running tests.
+_test = []
+
+## Add a binary-info header block containing picotool-compatible metadata.
+##
+## Takes up a little flash space, but picotool can then report the name of your
+## program and other details.
+binary-info = ["rt", "dep:rp-binary-info", "rp-binary-info?/binary-info"]
+
 [dependencies]
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
@@ -112,7 +131,7 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-rp-pac = { version = "6" }
+rp-pac = { git = "https://github.com/embassy-rs/rp-pac.git", rev = "a7f42d25517f7124ad3b4ed492dec8b0f50a0e6c", feature = ["rt"] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -123,6 +142,8 @@ pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
 document-features = "0.2.7"
+sha2-const-stable = "0.1"
+rp-binary-info = { version = "0.1.0", optional = true }
 
 [dev-dependencies]
 embassy-executor = { version = "0.6.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }

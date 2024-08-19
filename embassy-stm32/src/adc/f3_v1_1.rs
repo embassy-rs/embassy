@@ -74,7 +74,7 @@ impl<T: Instance> super::SealedAdcChannel<T> for Vref<T> {
 impl<T: Instance> Vref<T> {
     /// The value that vref would be if vdda was at 3000mv
     pub fn calibrated_value(&self) -> u16 {
-        crate::pac::VREFINTCAL.data().read().value()
+        crate::pac::VREFINTCAL.data().read()
     }
 
     pub async fn calibrate(&mut self, adc: &mut Adc<'_, T>) -> Calibration {

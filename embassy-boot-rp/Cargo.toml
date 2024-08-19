@@ -16,6 +16,7 @@ categories = [
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-rp-v$VERSION/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot-rp/src/"
 target = "thumbv6m-none-eabi"
+features = ["embassy-rp/rp2040"]
 
 [lib]
 

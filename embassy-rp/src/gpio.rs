@@ -14,7 +14,12 @@ use crate::pac::SIO;
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
+
+#[cfg(any(feature = "rp2040", feature = "rp235xa"))]
 const BANK0_PIN_COUNT: usize = 30;
+#[cfg(feature = "rp235xb")]
+const BANK0_PIN_COUNT: usize = 48;
+
 static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [NEW_AW; BANK0_PIN_COUNT];
 #[cfg(feature = "qspi-as-gpio")]
 const QSPI_PIN_COUNT: usize = 6;
@@ -177,6 +182,13 @@ impl<'d> Input<'d> {
     #[inline]
     pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<'_> {
         self.pin.dormant_wake(cfg)
+    }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.set_pad_isolation(isolate)
     }
 }
 
@@ -413,6 +425,13 @@ impl<'d> Output<'d> {
     pub fn toggle(&mut self) {
         self.pin.toggle()
     }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.set_pad_isolation(isolate)
+    }
 }
 
 /// GPIO output open-drain.
@@ -539,6 +558,13 @@ impl<'d> OutputOpenDrain<'d> {
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await;
     }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.set_pad_isolation(isolate)
+    }
 }
 
 /// GPIO flexible pin.
@@ -560,11 +586,16 @@ impl<'d> Flex<'d> {
         into_ref!(pin);
 
         pin.pad_ctrl().write(|w| {
+            #[cfg(feature = "_rp235x")]
+            w.set_iso(false);
             w.set_ie(true);
         });
 
         pin.gpio().ctrl().write(|w| {
+            #[cfg(feature = "rp2040")]
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0 as _);
+            #[cfg(feature = "_rp235x")]
+            w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIOB_PROC_0 as _);
         });
 
         Self { pin: pin.map_into() }
@@ -759,6 +790,15 @@ impl<'d> Flex<'d> {
             pin: self.pin.reborrow(),
             cfg,
         }
+    }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.pad_ctrl().modify(|w| {
+            w.set_iso(isolate);
+        });
     }
 }
 
@@ -956,6 +996,44 @@ impl_pin!(PIN_27, Bank::Bank0, 27);
 impl_pin!(PIN_28, Bank::Bank0, 28);
 impl_pin!(PIN_29, Bank::Bank0, 29);
 
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_30, Bank::Bank0, 30);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_31, Bank::Bank0, 31);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_32, Bank::Bank0, 32);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_33, Bank::Bank0, 33);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_34, Bank::Bank0, 34);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_35, Bank::Bank0, 35);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_36, Bank::Bank0, 36);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_37, Bank::Bank0, 37);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_38, Bank::Bank0, 38);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_39, Bank::Bank0, 39);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_40, Bank::Bank0, 40);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_41, Bank::Bank0, 41);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, Bank::Bank0, 42);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, Bank::Bank0, 43);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_44, Bank::Bank0, 44);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_45, Bank::Bank0, 45);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, Bank::Bank0, 46);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, Bank::Bank0, 47);
+
+// TODO rp235x bank1 as gpio support
 #[cfg(feature = "qspi-as-gpio")]
 impl_pin!(PIN_QSPI_SCLK, Bank::Qspi, 0);
 #[cfg(feature = "qspi-as-gpio")]

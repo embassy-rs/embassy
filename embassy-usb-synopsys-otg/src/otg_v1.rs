@@ -272,6 +272,12 @@ impl Otg {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0510usize + n * 32usize) as _) }
     }
+    #[doc = "Host channel DMA address register"]
+    #[inline(always)]
+    pub const fn hcdma(self, n: usize) -> Reg<u32, RW> {
+        assert!(n < 12usize);
+        unsafe { Reg::from_ptr(self.ptr.add(0x0514usize + n * 32usize) as _) }
+    }
     #[doc = "Device configuration register"]
     #[inline(always)]
     pub const fn dcfg(self) -> Reg<regs::Dcfg, RW> {
@@ -363,6 +369,12 @@ impl Otg {
     pub const fn doeptsiz(self, n: usize) -> Reg<regs::Doeptsiz, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b10usize + n * 32usize) as _) }
+    }
+    #[doc = "Device OUT/IN endpoint DMA address register"]
+    #[inline(always)]
+    pub const fn doepdma(self, n: usize) -> Reg<u32, RW> {
+        assert!(n < 16usize);
+        unsafe { Reg::from_ptr(self.ptr.add(0x0b14usize + n * 32usize) as _) }
     }
     #[doc = "Power and clock gating control register"]
     #[inline(always)]

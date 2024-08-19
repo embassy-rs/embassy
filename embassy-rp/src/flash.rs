@@ -302,7 +302,14 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         // pac::XIP_CTRL.stream_fifo().as_ptr()) to avoid DMA stalling on
         // general XIP access.
         const XIP_AUX_BASE: *const u32 = 0x50400000 as *const _;
-        let transfer = unsafe { crate::dma::read(self.dma.as_mut().unwrap(), XIP_AUX_BASE, data, 37) };
+        let transfer = unsafe {
+            crate::dma::read(
+                self.dma.as_mut().unwrap(),
+                XIP_AUX_BASE,
+                data,
+                pac::dma::vals::TreqSel::XIP_STREAM,
+            )
+        };
 
         Ok(BackgroundRead {
             flash: PhantomData,
@@ -597,6 +604,7 @@ mod ram_helpers {
     /// addr must be aligned to 4096
     #[inline(never)]
     #[link_section = ".data.ram_func"]
+    #[cfg(feature = "rp2040")]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
         /*
          Should be equivalent to:
@@ -657,6 +665,13 @@ mod ram_helpers {
             lateout("r10") _,
             clobber_abi("C"),
         );
+    }
+
+    #[inline(never)]
+    #[link_section = ".data.ram_func"]
+    #[cfg(feature = "_rp235x")]
+    unsafe fn write_flash_inner(_addr: u32, _len: u32, _data: Option<&[u8]>, _ptrs: *const FlashFunctionPointers) {
+        todo!();
     }
 
     #[repr(C)]
@@ -758,6 +773,7 @@ mod ram_helpers {
     /// Credit: taken from `rp2040-flash` (also licensed Apache+MIT)
     #[inline(never)]
     #[link_section = ".data.ram_func"]
+    #[cfg(feature = "rp2040")]
     unsafe fn read_flash_inner(cmd: FlashCommand, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]
         core::arch::asm!(
@@ -873,6 +889,13 @@ mod ram_helpers {
             out("r10") _,
             clobber_abi("C"),
         );
+    }
+
+    #[inline(never)]
+    #[link_section = ".data.ram_func"]
+    #[cfg(feature = "_rp235x")]
+    unsafe fn read_flash_inner(_cmd: FlashCommand, _ptrs: *const FlashFunctionPointers) {
+        todo!();
     }
 }
 

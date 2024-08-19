@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.4", optional = true }
 
-embassy-rp = { path = "../../../../embassy-rp", features = [] }
+embassy-rp = { path = "../../../../embassy-rp", features = ["rp2040"] }
 embassy-boot-rp = { path = "../../../../embassy-boot-rp" }
 embassy-sync = { version = "0.6.0", path = "../../../../embassy-sync" }
 embassy-time = { path = "../../../../embassy-time", features = [] }
