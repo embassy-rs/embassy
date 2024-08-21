@@ -520,6 +520,21 @@ impl<'d, M: Mode> UartTx<'d, M> {
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         blocking_flush(self.info)
     }
+
+    /// Send break character
+    pub fn send_break(&self) {
+        // Busy wait until previous break has been sent
+        #[cfg(any(usart_v1, usart_v2))]
+        while self.info.regs.cr1().read().sbk() {}
+        #[cfg(any(usart_v3, usart_v4))]
+        while self.info.regs.isr().read().sbkf() {}
+
+        // Send break right after completing the current character transmission
+        #[cfg(any(usart_v1, usart_v2))]
+        self.info.regs.cr1().modify(|w| w.set_sbk(true));
+        #[cfg(any(usart_v3, usart_v4))]
+        self.info.regs.rqr().write(|w| w.set_sbkrq(true));
+    }
 }
 
 fn blocking_flush(info: &Info) -> Result<(), Error> {
@@ -1364,6 +1379,11 @@ impl<'d, M: Mode> Uart<'d, M> {
     /// transmitting and receiving.
     pub fn split(self) -> (UartTx<'d, M>, UartRx<'d, M>) {
         (self.tx, self.rx)
+    }
+
+    /// Send break character
+    pub fn send_break(&self) {
+        self.tx.send_break();
     }
 }
 
