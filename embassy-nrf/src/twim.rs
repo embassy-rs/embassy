@@ -311,6 +311,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         let r = T::regs();
         loop {
             if r.events_suspended.read().bits() != 0 || r.events_stopped.read().bits() != 0 {
+                r.events_suspended.reset();
                 r.events_stopped.reset();
                 break;
             }
@@ -372,15 +373,15 @@ impl<'d, T: Instance> Twim<'d, T> {
         address: u8,
         operations: &mut [Operation<'_>],
         tx_ram_buffer: Option<&mut [MaybeUninit<u8>; FORCE_COPY_BUFFER_SIZE]>,
+        last_op: Option<&Operation<'_>>,
         inten: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         let r = T::regs();
 
         compiler_fence(SeqCst);
 
         r.address.write(|w| unsafe { w.address().bits(address) });
 
-        let was_suspended = r.events_suspended.read().bits() != 0;
         r.events_suspended.reset();
         r.events_stopped.reset();
         r.events_error.reset();
@@ -393,10 +394,12 @@ impl<'d, T: Instance> Twim<'d, T> {
                 .write(|w| w.suspended().clear().stopped().clear().error().clear());
         }
 
+        assert!(!operations.is_empty());
         match operations {
-            [Operation::Read(rd_buffer), Operation::Write(wr_buffer), rest @ ..]
-                if !rd_buffer.is_empty() && !wr_buffer.is_empty() =>
-            {
+            [Operation::Read(_), Operation::Read(_), ..] => {
+                panic!("Consecutive read operations are not supported!")
+            }
+            [Operation::Read(rd_buffer), Operation::Write(wr_buffer), rest @ ..] => {
                 let stop = rest.is_empty();
 
                 // Set up DMA buffers.
@@ -417,10 +420,38 @@ impl<'d, T: Instance> Twim<'d, T> {
 
                 // Start read+write operation.
                 r.tasks_startrx.write(|w| unsafe { w.bits(1) });
-
-                if was_suspended {
+                if last_op.is_some() {
                     r.tasks_resume.write(|w| unsafe { w.bits(1) });
                 }
+
+                // TODO: Handle empty write buffer
+                if rd_buffer.is_empty() {
+                    // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STARTTX ourselves.
+                    r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+                }
+
+                Ok(2)
+            }
+            [Operation::Read(buffer)] => {
+                // Set up DMA buffers.
+                unsafe {
+                    self.set_rx_buffer(buffer)?;
+                }
+
+                r.shorts.write(|w| w.lastrx_stop().enabled());
+
+                // Start read operation.
+                r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+                if last_op.is_some() {
+                    r.tasks_resume.write(|w| unsafe { w.bits(1) });
+                }
+
+                if buffer.is_empty() {
+                    // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STOP ourselves.
+                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                }
+
+                Ok(1)
             }
             [Operation::Write(wr_buffer), Operation::Read(rd_buffer)]
                 if !wr_buffer.is_empty() && !rd_buffer.is_empty() =>
@@ -439,36 +470,11 @@ impl<'d, T: Instance> Twim<'d, T> {
                 });
 
                 r.tasks_starttx.write(|w| unsafe { w.bits(1) });
-
-                if was_suspended {
-                    r.tasks_resume.write(|w| unsafe { w.bits(1) });
-                }
-            }
-            [Operation::Read(buffer)] => {
-                // Set up DMA buffers.
-                unsafe {
-                    self.set_rx_buffer(buffer)?;
-                }
-
-                // Start read operation.
-                r.shorts.write(|w| {
-                    w.lastrx_stop().enabled();
-                    w
-                });
-
-                r.tasks_startrx.write(|w| unsafe { w.bits(1) });
-
-                if was_suspended {
+                if last_op.is_some() {
                     r.tasks_resume.write(|w| unsafe { w.bits(1) });
                 }
 
-                if buffer.is_empty() {
-                    // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STOP ourselves.
-                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                }
-            }
-            [Operation::Read(_), ..] => {
-                panic!("Suspending after a read is not supported!");
+                Ok(2)
             }
             [Operation::Write(buffer), rest @ ..] => {
                 let stop = rest.is_empty();
@@ -489,8 +495,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 });
 
                 r.tasks_starttx.write(|w| unsafe { w.bits(1) });
-
-                if was_suspended {
+                if last_op.is_some() {
                     r.tasks_resume.write(|w| unsafe { w.bits(1) });
                 }
 
@@ -502,43 +507,33 @@ impl<'d, T: Instance> Twim<'d, T> {
                         r.tasks_suspend.write(|w| unsafe { w.bits(1) });
                     }
                 }
-            }
-            [] => {
-                if was_suspended {
-                    r.tasks_resume.write(|w| unsafe { w.bits(1) });
-                }
 
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                Ok(1)
             }
+            [] => unreachable!(),
         }
-
-        Ok(())
     }
 
-    fn check_operations(&mut self, operations: &mut [Operation<'_>]) -> Result<usize, Error> {
+    fn check_operations(&mut self, operations: &[Operation<'_>]) -> Result<(), Error> {
         compiler_fence(SeqCst);
         self.check_errorsrc()?;
 
+        assert!(operations.len() == 1 || operations.len() == 2);
         match operations {
-            [Operation::Read(rd_buffer), Operation::Write(wr_buffer), ..]
-            | [Operation::Write(wr_buffer), Operation::Read(rd_buffer)]
-                if !rd_buffer.is_empty() && !wr_buffer.is_empty() =>
-            {
-                self.check_tx(wr_buffer.len())?;
+            [Operation::Read(rd_buffer), Operation::Write(wr_buffer)]
+            | [Operation::Write(wr_buffer), Operation::Read(rd_buffer)] => {
                 self.check_rx(rd_buffer.len())?;
-                Ok(2)
+                self.check_tx(wr_buffer.len())?;
             }
             [Operation::Read(buffer)] => {
                 self.check_rx(buffer.len())?;
-                Ok(1)
             }
-            [Operation::Read(_), ..] => unreachable!(),
             [Operation::Write(buffer), ..] => {
                 self.check_tx(buffer.len())?;
-                Ok(1)
             }
-            [] => Ok(0),
+            _ => unreachable!(),
         }
+        Ok(())
     }
 
     // ===========================================
@@ -548,20 +543,21 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// Each buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     ///
-    /// Consecutive `Read` operations are not supported because the Twim
-    /// hardware does not support suspending after a read operation. (Setting
-    /// the SUSPEND task in response to a LASTRX event causes the final byte of
-    /// the operation to be ACKed instead of NAKed. When the TWIM is resumed,
-    /// one more byte will be read before the new operation is started, leading
-    /// to an Overrun error if the RXD has not been updated, or an extraneous
-    /// byte read into the new buffer if the RXD has been updated.)
+    /// Consecutive `Operation::Read`s are not supported due to hardware
+    /// limitations.
+    ///
+    /// An `Operation::Write` following an `Operation::Read` must have a
+    /// non-empty buffer.
     pub fn blocking_transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
+        let mut last_op = None;
         while !operations.is_empty() {
-            self.setup_operations(address, operations, Some(&mut tx_ram_buffer), false)?;
+            let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, false)?;
+            let (in_progress, rest) = operations.split_at_mut(ops);
             self.blocking_wait();
-            let consumed = self.check_operations(operations)?;
-            operations = &mut operations[consumed..];
+            self.check_operations(in_progress)?;
+            last_op = in_progress.last();
+            operations = rest;
         }
         Ok(())
     }
@@ -572,11 +568,14 @@ impl<'d, T: Instance> Twim<'d, T> {
         address: u8,
         mut operations: &mut [Operation<'_>],
     ) -> Result<(), Error> {
+        let mut last_op = None;
         while !operations.is_empty() {
-            self.setup_operations(address, operations, None, false)?;
+            let ops = self.setup_operations(address, operations, None, last_op, false)?;
+            let (in_progress, rest) = operations.split_at_mut(ops);
             self.blocking_wait();
-            let consumed = self.check_operations(operations)?;
-            operations = &mut operations[consumed..];
+            self.check_operations(in_progress)?;
+            last_op = in_progress.last();
+            operations = rest;
         }
         Ok(())
     }
@@ -592,11 +591,14 @@ impl<'d, T: Instance> Twim<'d, T> {
         timeout: Duration,
     ) -> Result<(), Error> {
         let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
+        let mut last_op = None;
         while !operations.is_empty() {
-            self.setup_operations(address, operations, Some(&mut tx_ram_buffer), false)?;
+            let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, false)?;
+            let (in_progress, rest) = operations.split_at_mut(ops);
             self.blocking_wait_timeout(timeout)?;
-            let consumed = self.check_operations(operations)?;
-            operations = &mut operations[consumed..];
+            self.check_operations(in_progress)?;
+            last_op = in_progress.last();
+            operations = rest;
         }
         Ok(())
     }
@@ -609,11 +611,14 @@ impl<'d, T: Instance> Twim<'d, T> {
         mut operations: &mut [Operation<'_>],
         timeout: Duration,
     ) -> Result<(), Error> {
+        let mut last_op = None;
         while !operations.is_empty() {
-            self.setup_operations(address, operations, None, false)?;
+            let ops = self.setup_operations(address, operations, None, last_op, false)?;
+            let (in_progress, rest) = operations.split_at_mut(ops);
             self.blocking_wait_timeout(timeout)?;
-            let consumed = self.check_operations(operations)?;
-            operations = &mut operations[consumed..];
+            self.check_operations(in_progress)?;
+            last_op = in_progress.last();
+            operations = rest;
         }
         Ok(())
     }
@@ -623,20 +628,21 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// Each buffer must have a length of at most 255 bytes on the nRF52832
     /// and at most 65535 bytes on the nRF52840.
     ///
-    /// Consecutive `Read` operations are not supported because the Twim
-    /// hardware does not support suspending after a read operation. (Setting
-    /// the SUSPEND task in response to a LASTRX event causes the final byte of
-    /// the operation to be ACKed instead of NAKed. When the TWIM is resumed,
-    /// one more byte will be read before the new operation is started, leading
-    /// to an Overrun error if the RXD has not been updated, or an extraneous
-    /// byte read into the new buffer if the RXD has been updated.)
+    /// Consecutive `Operation::Read`s are not supported due to hardware
+    /// limitations.
+    ///
+    /// An `Operation::Write` following an `Operation::Read` must have a
+    /// non-empty buffer.
     pub async fn transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
+        let mut last_op = None;
         while !operations.is_empty() {
-            self.setup_operations(address, operations, Some(&mut tx_ram_buffer), true)?;
+            let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, true)?;
+            let (in_progress, rest) = operations.split_at_mut(ops);
             self.async_wait().await;
-            let consumed = self.check_operations(operations)?;
-            operations = &mut operations[consumed..];
+            self.check_operations(in_progress)?;
+            last_op = in_progress.last();
+            operations = rest;
         }
         Ok(())
     }
@@ -647,11 +653,14 @@ impl<'d, T: Instance> Twim<'d, T> {
         address: u8,
         mut operations: &mut [Operation<'_>],
     ) -> Result<(), Error> {
+        let mut last_op = None;
         while !operations.is_empty() {
-            self.setup_operations(address, operations, None, true)?;
+            let ops = self.setup_operations(address, operations, None, last_op, true)?;
+            let (in_progress, rest) = operations.split_at_mut(ops);
             self.async_wait().await;
-            let consumed = self.check_operations(operations)?;
-            operations = &mut operations[consumed..];
+            self.check_operations(in_progress)?;
+            last_op = in_progress.last();
+            operations = rest;
         }
         Ok(())
     }
