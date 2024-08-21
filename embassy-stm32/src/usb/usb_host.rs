@@ -8,7 +8,7 @@ use core::task::Poll;
 use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
-use embassy_usb_driver as driver;
+use embassy_usb_driver::host::{EndpointDescriptor, USBHostDriverTrait};
 use embassy_usb_driver::{Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType};
 
 use crate::pac::usb::regs;
@@ -16,20 +16,6 @@ use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, Peripheral};
-
-pub trait USBHostDriverTrait {
-    async fn bus_reset(&mut self);
-
-    async fn wait_for_device_connect(&mut self);
-
-    async fn wait_for_device_disconnect(&mut self);
-
-    async fn request_out(&mut self, addr: u8, bytes: &[u8]);
-
-    async fn request_in(&mut self, addr: u8, bytes: &[u8], dest: &mut [u8]) -> Result<usize, ()>;
-
-    async fn reconfigure_channels(&mut self, options: &[ChannelOptions]) -> Result<(), ()>;
-}
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -292,6 +278,8 @@ pub struct USBHostDriver<'d, T: Instance> {
     ep_mem_free: u16, // first free address in EP mem, in bytes.
     control_channel_in: Channel<'d, T, In>,
     control_channel_out: Channel<'d, T, Out>,
+    channels_in_used: u8,
+    channels_out_used: u8,
 }
 
 impl<'d, T: Instance> USBHostDriver<'d, T> {
@@ -337,6 +325,8 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
             ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
             control_channel_in: Channel::new(0, 0, 0, 0),
             control_channel_out: Channel::new(0, 0, 0, 0),
+            channels_in_used: 0,
+            channels_out_used: 0,
         }
     }
 
@@ -362,7 +352,7 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
             out_enabled: true,
         }];
 
-        let _ = self.reconfigure_channels(&options);
+        let _ = self.reconfigure_channel0(8, 0);
 
         let regs = T::regs();
 
@@ -407,53 +397,61 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
     fn reset_alloc(&mut self) {
         // Reset alloc pointer.
         self.ep_mem_free = EP_COUNT as u16 * 8; // for each EP, 4 regs, so 8 bytes
+
+        self.channels_in_used = 0;
+        self.channels_out_used = 0;
     }
 
-    fn alloc_channel_mem(&mut self, len: u16) -> u16 {
+    fn alloc_channel_mem(&mut self, len: u16) -> Result<u16, ()> {
         assert!(len as usize % USBRAM_ALIGN == 0);
         let addr = self.ep_mem_free;
         if addr + len > USBRAM_SIZE as _ {
-            panic!("Endpoint memory full");
+            // panic!("Endpoint memory full");
+            error!("Endpoint memory full");
+            return Err(());
         }
         self.ep_mem_free += len;
-        addr
+        Ok(addr)
     }
 
-    // Similar to device, but IN/OUT reversed
-    fn alloc_channel(&mut self, opt: &ChannelOptions) -> Result<(), ()> {
-        trace!("allocating channel={:?} opt={:?}", opt.index, opt,);
-
-        let index = opt.index as usize;
-
-        if opt.in_enabled {
-            let (len, len_bits) = calc_receive_len_bits(opt.max_packet_size);
-            let addr = self.alloc_channel_mem(len);
-
-            trace!("  len_bits = {:04x}", len_bits);
-            btable::write_receive_buffer_descriptor::<T>(index, addr, len_bits);
-
-            let in_channel: Channel<T, In> = Channel::new(index, addr, len, opt.max_packet_size);
-
-            if index == 0 {
-                self.control_channel_in = in_channel;
-            }
+    fn claim_channel_in(&mut self, index: usize, max_packet_size: u16) -> Result<Channel<'d, T, In>, ()> {
+        if self.channels_in_used & (1 << index) != 0 {
+            error!("Channel {} In already in use", index);
+            return Err(());
         }
 
-        if opt.out_enabled {
-            let len = align_len_up(opt.max_packet_size);
-            let addr = self.alloc_channel_mem(len);
+        self.channels_in_used |= 1 << index;
 
-            // ep_in_len is written when actually TXing packets.
-            btable::write_in::<T>(index, addr);
+        let (len, len_bits) = calc_receive_len_bits(max_packet_size);
+        let Ok(addr) = self.alloc_channel_mem(len) else {
+            return Err(());
+        };
 
-            // todo move somewhere
-            let out_channel: Channel<T, Out> = Channel::new(index, addr, len, opt.max_packet_size);
-            if index == 0 {
-                self.control_channel_out = out_channel;
-            }
+        btable::write_receive_buffer_descriptor::<T>(index, addr, len_bits);
+
+        let in_channel: Channel<T, In> = Channel::new(index, addr, len, max_packet_size);
+
+        Ok(in_channel)
+    }
+
+    fn claim_channel_out(&mut self, index: usize, max_packet_size: u16) -> Result<Channel<'d, T, Out>, ()> {
+        if self.channels_out_used & (1 << index) != 0 {
+            error!("Channel {} In already in use", index);
+            return Err(());
         }
+        self.channels_out_used |= 1 << index;
 
-        Ok(())
+        let len = align_len_up(max_packet_size);
+        let Ok(addr) = self.alloc_channel_mem(len) else {
+            return Err(());
+        };
+
+        // ep_in_len is written when actually TXing packets.
+        btable::write_in::<T>(index, addr);
+
+        let out_channel: Channel<T, Out> = Channel::new(index, addr, len, max_packet_size);
+
+        Ok(out_channel)
     }
 }
 
@@ -498,13 +496,9 @@ impl<'d, T: Instance, D> Channel<'d, T, D> {
             },
         }
     }
-    // This is probably only needed to do once
-    fn write_data(&mut self, buf: &[u8]) {
-        let index = self.index;
-        self.buf.write(buf);
-        btable::write_transmit_buffer_descriptor::<T>(index, self.buf.addr, buf.len() as _);
-    }
+}
 
+impl<'d, T: Instance> Channel<'d, T, In> {
     fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let index = self.index;
         let rx_len = btable::read_out_len::<T>(index) as usize & 0x3FF;
@@ -514,6 +508,14 @@ impl<'d, T: Instance, D> Channel<'d, T, D> {
         }
         self.buf.read(&mut buf[..rx_len]);
         Ok(rx_len)
+    }
+}
+
+impl<'d, T: Instance> Channel<'d, T, Out> {
+    fn write_data(&mut self, buf: &[u8]) {
+        let index = self.index;
+        self.buf.write(buf);
+        btable::write_transmit_buffer_descriptor::<T>(index, self.buf.addr, buf.len() as _);
     }
 }
 
@@ -598,20 +600,32 @@ impl<'d, T: Instance, D> Channel<'d, T, D> {
 // }
 
 impl<'d, T: Instance> USBHostDriverTrait for USBHostDriver<'d, T> {
-    async fn reconfigure_channels(&mut self, options: &[ChannelOptions]) -> Result<(), ()> {
+    type ChannelIn = Channel<'d, T, In>;
+    type ChannelOut = Channel<'d, T, Out>;
+
+    fn alloc_channel_in(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelIn, ()> {
+        let max_packet_size = desc.max_packet_size;
+        let index = (desc.endpoint_address - 0x80) as usize;
+        self.claim_channel_in(index, max_packet_size)
+    }
+
+    fn alloc_channel_out(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelOut, ()> {
+        let max_packet_size = desc.max_packet_size;
+        let index = desc.endpoint_address as usize;
+        self.claim_channel_out(index, max_packet_size)
+    }
+
+    fn reconfigure_channel0(&mut self, max_packet_size: u16, dev_addr: u8) -> Result<(), ()> {
         // Clear all buffer memory
         self.reset_alloc();
 
-        for opt in options {
-            // trace!("reconfigure_channels: {:?}", opt);
-
-            self.alloc_channel(opt);
-        }
+        self.control_channel_in = self.claim_channel_in(0, max_packet_size)?;
+        self.control_channel_out = self.claim_channel_out(0, max_packet_size)?;
 
         // Configure channel 0
         let epr0 = T::regs().epr(0);
         let mut epr_val = invariant(epr0.read());
-        epr_val.set_devaddr(0);
+        epr_val.set_devaddr(dev_addr);
         epr_val.set_ep_type(EpType::CONTROL);
         epr_val.set_ea(0);
         epr0.write_value(epr_val);
