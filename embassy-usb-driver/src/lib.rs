@@ -3,6 +3,8 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+pub mod host;
+
 /// Direction of USB traffic. Note that in the USB standard the direction is always indicated from
 /// the perspective of the host, which is backward for devices, but the standard directions are used
 /// for consistency.
