@@ -74,7 +74,6 @@ opt-level = "z"
 
 [patch.crates-io]
 trouble-host = { git = "https://github.com/embassy-rs/trouble.git", rev = "4b8c0f499b34e46ca23a56e2d1640ede371722cf" }
-bt-hci = { git = "https://github.com/alexmoon/bt-hci.git", rev = "b9cd5954f6bd89b535cad9c418e9fdf12812d7c3" }
 embassy-executor = { path = "../../embassy-executor" }
 embassy-sync = { path = "../../embassy-sync" }
 embassy-futures = { path = "../../embassy-futures" }
