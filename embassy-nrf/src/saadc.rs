@@ -482,6 +482,12 @@ impl<'d, const N: usize> Drop for Saadc<'d, N> {
     fn drop(&mut self) {
         let r = Self::regs();
         r.enable.write(|w| w.enable().disabled());
+        for channel in r.ch.iter() {
+            channel.pselp.reset();
+            channel.pseln.reset();
+            channel.config.reset();
+            channel.limit.reset();
+        }
     }
 }
 
