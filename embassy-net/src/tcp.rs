@@ -80,8 +80,14 @@ impl<'a> TcpReader<'a> {
     /// Returns how many bytes were read, or an error. If no data is available, it waits
     /// until there is at least one byte available.
     ///
-    /// A return value of Ok(0) means that the socket was closed and is longer able to
-    /// accept bytes or that the buffer provided is empty.
+    /// # Note
+    /// A return value of Ok(0) means that we have read all data and the remote
+    /// side has closed our receive half of the socket. The remote can no longer
+    /// send bytes.
+    ///
+    /// The send half of the socket is still open. If you want to reconnect using
+    /// the socket you split this reader off the send half needs to be closed using
+    /// [`abort()`](TcpSocket::abort).
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
     }
@@ -277,8 +283,8 @@ impl<'a> TcpSocket<'a> {
     /// Returns how many bytes were read, or an error. If no data is available, it waits
     /// until there is at least one byte available.
     ///
-    /// A return value of Ok(0) means that the socket was closed and is longer able to
-    /// accept bytes or that the buffer provided is empty.
+    /// A return value of Ok(0) means that the socket was closed and is longer
+    /// able to receive any data.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
     }
@@ -303,6 +309,10 @@ impl<'a> TcpSocket<'a> {
     ///
     /// If the timeout is set, the socket will be closed if no data is received for the
     /// specified duration.
+    ///
+    /// # Note:
+    /// Set a keep alive interval ([`set_keep_alive`] to prevent timeouts when
+    /// the remote could still respond.
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
         self.io
             .with_mut(|s, _| s.set_timeout(duration.map(duration_to_smoltcp)))
@@ -314,6 +324,9 @@ impl<'a> TcpSocket<'a> {
     /// the specified duration of inactivity.
     ///
     /// If not set, the socket will not send keep-alive packets.
+    ///
+    /// By setting a [`timeout`](Self::timeout) larger then the keep alive you
+    /// can detect a remote endpoint that no longer answers.
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
         self.io
             .with_mut(|s, _| s.set_keep_alive(interval.map(duration_to_smoltcp)))
