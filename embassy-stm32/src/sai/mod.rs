@@ -571,6 +571,9 @@ impl MasterClockDivider {
     }
 }
 
+/// Use this value for a frame length of 256. (256 won't fit in u8).
+pub const MAX_FRAME_LENGTH: u8 = 0;
+
 /// [`SAI`] configuration.
 #[allow(missing_docs)]
 #[non_exhaustive]
@@ -618,7 +621,7 @@ impl Default for Config {
             slot_enable: 0b11,
             data_size: DataSize::Data16,
             stereo_mono: StereoMono::Stereo,
-            bit_order: BitOrder::LsbFirst,
+            bit_order: BitOrder::MsbFirst,
             frame_sync_offset: FrameSyncOffset::BeforeFirstBit,
             frame_sync_polarity: FrameSyncPolarity::ActiveLow,
             frame_sync_active_level_length: word::U7(16),
@@ -680,7 +683,6 @@ fn get_ring_buffer<'d, T: Instance, W: word::Word>(
     tx_rx: TxRx,
 ) -> RingBuffer<'d, W> {
     let opts = TransferOptions {
-        half_transfer_ir: true,
         //the new_write() and new_read() always use circular mode
         ..Default::default()
     };
@@ -921,7 +923,11 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
                 w.set_fspol(config.frame_sync_polarity.fspol());
                 w.set_fsdef(config.frame_sync_definition.fsdef());
                 w.set_fsall(config.frame_sync_active_level_length.0 as u8 - 1);
-                w.set_frl(config.frame_length - 1);
+                if config.frame_length == MAX_FRAME_LENGTH {
+                    w.set_frl(255);
+                } else {
+                    w.set_frl(config.frame_length - 1);
+                }
             });
 
             ch.slotr().modify(|w| {
@@ -985,6 +991,41 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     pub fn set_mute(&mut self, value: bool) {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr2().modify(|w| w.set_mute(value));
+    }
+
+    /// Returns true if the hardware is running.
+    pub fn is_running(&mut self) -> bool {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => buffer.is_running(),
+            RingBuffer::Readable(buffer) => buffer.is_running(),
+        }
+    }
+
+    /// Stops the hardware from reading/writing once the current buffers are exhausted.
+    /// After awaiting, the hardware will be off.
+    pub async fn stop(&mut self) {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => buffer.stop().await,
+            RingBuffer::Readable(buffer) => buffer.stop().await,
+        }
+    }
+
+    /// Clear the ring buffer. Doesn't write any value. Just resets the internal pointers.
+    pub fn clear(&mut self) {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => buffer.clear(),
+            RingBuffer::Readable(buffer) => buffer.clear(),
+        }
+    }
+
+    /// Write elements directly to the raw buffer.
+    /// This should be used before starting the audio stream. This will give the CPU time to
+    /// prepare the next audio frame while the initial audio frame is playing.
+    pub fn write_immediate(self: &mut Self, source_buffer: &[W]) -> Result<(usize, usize), Error> {
+        match self.ring_buffer {
+            RingBuffer::Writable(ref mut rb) => Ok(rb.write_immediate(source_buffer)?),
+            RingBuffer::Readable(_) => Err(Error::NotATransmitter),
+        }
     }
 
     /// Write data to the SAI ringbuffer.
