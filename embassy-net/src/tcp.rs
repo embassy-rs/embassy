@@ -79,6 +79,9 @@ impl<'a> TcpReader<'a> {
     ///
     /// Returns how many bytes were read, or an error. If no data is available, it waits
     /// until there is at least one byte available.
+    ///
+    /// A return value of Ok(0) means that the socket was closed and is longer able to
+    /// accept bytes or that the buffer provided is empty.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
     }
@@ -273,6 +276,9 @@ impl<'a> TcpSocket<'a> {
     ///
     /// Returns how many bytes were read, or an error. If no data is available, it waits
     /// until there is at least one byte available.
+    ///
+    /// A return value of Ok(0) means that the socket was closed and is longer able to
+    /// accept bytes or that the buffer provided is empty.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
     }
