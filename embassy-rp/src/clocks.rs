@@ -512,12 +512,18 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         w.set_int(config.ref_clk.div);
     });
 
-    // Configure tick generation on the 2040. On the 2350 the timers are driven from the sysclk.
+    // Configure tick generation on the 2040.
     #[cfg(feature = "rp2040")]
     pac::WATCHDOG.tick().write(|w| {
         w.set_cycles((clk_ref_freq / 1_000_000) as u16);
         w.set_enable(true);
     });
+    // Configure tick generator on the 2350
+    #[cfg(feature = "_rp235x")]
+    {
+        pac::TICKS.timer0_cycles().write(|w| w.0 = clk_ref_freq / 1_000_000);
+        pac::TICKS.timer0_ctrl().write(|w| w.set_enable(true));
+    }
 
     let (sys_src, sys_aux, clk_sys_freq) = {
         use {ClkSysCtrlAuxsrc as Aux, ClkSysCtrlSrc as Src};
