@@ -179,6 +179,8 @@ pub enum PhyType {
     ///
     /// Available on a few STM32 chips.
     InternalHighSpeed,
+    /// External ULPI Full-Speed PHY (or High-Speed PHY in Full-Speed mode)
+    ExternalFullSpeed,
     /// External ULPI High-Speed PHY
     ExternalHighSpeed,
 }
@@ -188,14 +190,14 @@ impl PhyType {
     pub fn internal(&self) -> bool {
         match self {
             PhyType::InternalFullSpeed | PhyType::InternalHighSpeed => true,
-            PhyType::ExternalHighSpeed => false,
+            PhyType::ExternalHighSpeed | PhyType::ExternalFullSpeed => false,
         }
     }
 
     /// Get whether this PHY is any of the high-speed types.
     pub fn high_speed(&self) -> bool {
         match self {
-            PhyType::InternalFullSpeed => false,
+            PhyType::InternalFullSpeed | PhyType::ExternalFullSpeed => false,
             PhyType::ExternalHighSpeed | PhyType::InternalHighSpeed => true,
         }
     }
@@ -204,6 +206,7 @@ impl PhyType {
         match self {
             PhyType::InternalFullSpeed => vals::Dspd::FULL_SPEED_INTERNAL,
             PhyType::InternalHighSpeed => vals::Dspd::HIGH_SPEED,
+            PhyType::ExternalFullSpeed => vals::Dspd::FULL_SPEED_EXTERNAL,
             PhyType::ExternalHighSpeed => vals::Dspd::HIGH_SPEED,
         }
     }
