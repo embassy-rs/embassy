@@ -987,6 +987,21 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         ch.cr2().modify(|w| w.set_mute(value));
     }
 
+    /// Determine the mute state of the receiver.
+    ///
+    /// Clears the mute state flag in the status register.
+    pub fn is_muted(&self) -> Result<bool, Error> {
+        match &self.ring_buffer {
+            RingBuffer::Readable(_) => {
+                let ch = T::REGS.ch(self.sub_block as usize);
+                let mute_state = ch.sr().read().mutedet();
+                ch.clrfr().write(|w| w.set_cmutedet(true));
+                Ok(mute_state)
+            }
+            _ => Err(Error::NotAReceiver),
+        }
+    }
+
     /// Write data to the SAI ringbuffer.
     ///
     /// This appends the data to the buffer and returns immediately. The
