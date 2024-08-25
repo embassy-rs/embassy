@@ -138,6 +138,35 @@ impl<'a> UdpSocket<'a> {
         })
     }
 
+    /// Receive a datagram with a zero-copy function.
+    ///
+    /// When no datagram is available, this method will return `Poll::Pending` and
+    /// register the current task to be notified when a datagram is received.
+    ///
+    /// When a datagram is received, this method will call the provided function
+    /// with the number of bytes received and the remote endpoint and return
+    /// `Poll::Ready` with the function's returned value.
+    pub async fn recv_from_with<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&[u8], UdpMetadata) -> R,
+    {
+        let mut f = Some(f);
+        poll_fn(move |cx| {
+            self.with_mut(|s, _| {
+                match s.recv() {
+                    Ok((buffer, endpoint)) => Poll::Ready(unwrap!(f.take())(buffer, endpoint)),
+                    Err(udp::RecvError::Truncated) => unreachable!(),
+                    Err(udp::RecvError::Exhausted) => {
+                        // socket buffer is empty wait until at least one byte has arrived
+                        s.register_recv_waker(cx.waker());
+                        Poll::Pending
+                    }
+                }
+            })
+        })
+        .await
+    }
+
     /// Send a datagram to the specified remote endpoint.
     ///
     /// This method will wait until the datagram has been sent.
@@ -179,6 +208,40 @@ impl<'a> UdpSocket<'a> {
                 }
             }
         })
+    }
+
+    /// Send a datagram to the specified remote endpoint with a zero-copy function.
+    ///
+    /// This method will wait until the buffer can fit the requested size before
+    /// calling the function to fill its contents.
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
+    pub async fn send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
+    where
+        T: Into<UdpMetadata> + Copy,
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let mut f = Some(f);
+        poll_fn(move |cx| {
+            self.with_mut(|s, _| {
+                match s.send(size, remote_endpoint) {
+                    Ok(buffer) => Poll::Ready(Ok(unwrap!(f.take())(buffer))),
+                    Err(udp::SendError::BufferFull) => {
+                        s.register_send_waker(cx.waker());
+                        Poll::Pending
+                    }
+                    Err(udp::SendError::Unaddressable) => {
+                        // If no sender/outgoing port is specified, there is not really "no route"
+                        if s.endpoint().port == 0 {
+                            Poll::Ready(Err(SendError::SocketNotBound))
+                        } else {
+                            Poll::Ready(Err(SendError::NoRoute))
+                        }
+                    }
+                }
+            })
+        })
+        .await
     }
 
     /// Returns the local endpoint of the socket.
