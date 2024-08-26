@@ -189,7 +189,7 @@ macro_rules! rom_functions {
         declare_rom_function! {
             $(#[$outer])*
             fn $name( $($argname: $ty),* ) -> $ret {
-                $crate::rom_data::rom_table_lookup($crate::rom_data::FUNC_TABLE, *$c)
+                $crate::rom_data::inner::rom_table_lookup($crate::rom_data::inner::FUNC_TABLE, *$c)
             }
         }
 
@@ -205,7 +205,7 @@ macro_rules! rom_functions {
         declare_rom_function! {
             $(#[$outer])*
             unsafe fn $name( $($argname: $ty),* ) -> $ret {
-                $crate::rom_data::rom_table_lookup($crate::rom_data::FUNC_TABLE, *$c)
+                $crate::rom_data::inner::rom_table_lookup($crate::rom_data::inner::FUNC_TABLE, *$c)
             }
         }
 

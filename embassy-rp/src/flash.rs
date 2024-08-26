@@ -510,11 +510,19 @@ mod ram_helpers {
     ///
     /// `addr` and `len` parameters must be valid and are not checked.
     pub unsafe fn flash_range_erase(addr: u32, len: u32) {
+        #[cfg(feature = "rp2040")]
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if USE_BOOT2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
-            flash_function_pointers_with_boot2(true, false, &boot2)
-        } else {
+        let ptrs = {
+            #[cfg(feature = "rp2040")]
+            {
+                if USE_BOOT2 {
+                    rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
+                    flash_function_pointers_with_boot2(true, false, &boot2)
+                } else {
+                    flash_function_pointers(true, false)
+                }
+            }
+            #[cfg(feature = "_rp235x")]
             flash_function_pointers(true, false)
         };
 
@@ -540,11 +548,19 @@ mod ram_helpers {
     ///
     /// `addr` and `len` parameters must be valid and are not checked.
     pub unsafe fn flash_range_erase_and_program(addr: u32, data: &[u8]) {
+        #[cfg(feature = "rp2040")]
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if USE_BOOT2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
-            flash_function_pointers_with_boot2(true, true, &boot2)
-        } else {
+        let ptrs = {
+            #[cfg(feature = "rp2040")]
+            {
+                if USE_BOOT2 {
+                    rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
+                    flash_function_pointers_with_boot2(true, true, &boot2)
+                } else {
+                    flash_function_pointers(true, true)
+                }
+            }
+            #[cfg(feature = "_rp235x")]
             flash_function_pointers(true, true)
         };
 
@@ -575,11 +591,19 @@ mod ram_helpers {
     ///
     /// `addr` and `len` parameters must be valid and are not checked.
     pub unsafe fn flash_range_program(addr: u32, data: &[u8]) {
+        #[cfg(feature = "rp2040")]
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if USE_BOOT2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
-            flash_function_pointers_with_boot2(false, true, &boot2)
-        } else {
+        let ptrs = {
+            #[cfg(feature = "rp2040")]
+            {
+                if USE_BOOT2 {
+                    rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
+                    flash_function_pointers_with_boot2(false, true, &boot2)
+                } else {
+                    flash_function_pointers(false, true)
+                }
+            }
+            #[cfg(feature = "_rp235x")]
             flash_function_pointers(false, true)
         };
 
@@ -708,13 +732,22 @@ mod ram_helpers {
     ///
     /// Credit: taken from `rp2040-flash` (also licensed Apache+MIT)
     pub unsafe fn flash_unique_id(out: &mut [u8]) {
+        #[cfg(feature = "rp2040")]
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if USE_BOOT2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
-            flash_function_pointers_with_boot2(false, false, &boot2)
-        } else {
+        let ptrs = {
+            #[cfg(feature = "rp2040")]
+            {
+                if USE_BOOT2 {
+                    rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
+                    flash_function_pointers_with_boot2(false, false, &boot2)
+                } else {
+                    flash_function_pointers(false, false)
+                }
+            }
+            #[cfg(feature = "_rp235x")]
             flash_function_pointers(false, false)
         };
+
         // 4B - read unique ID
         let cmd = [0x4B];
         read_flash(&cmd[..], 4, out, &ptrs as *const FlashFunctionPointers);
@@ -736,13 +769,22 @@ mod ram_helpers {
     ///
     /// Credit: taken from `rp2040-flash` (also licensed Apache+MIT)
     pub unsafe fn flash_jedec_id() -> u32 {
+        #[cfg(feature = "rp2040")]
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if USE_BOOT2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
-            flash_function_pointers_with_boot2(false, false, &boot2)
-        } else {
+        let ptrs = {
+            #[cfg(feature = "rp2040")]
+            {
+                if USE_BOOT2 {
+                    rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
+                    flash_function_pointers_with_boot2(false, false, &boot2)
+                } else {
+                    flash_function_pointers(false, false)
+                }
+            }
+            #[cfg(feature = "_rp235x")]
             flash_function_pointers(false, false)
         };
+
         let mut id = [0u8; 4];
         // 9F - read JEDEC ID
         let cmd = [0x9F];
