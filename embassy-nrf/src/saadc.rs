@@ -352,11 +352,10 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         // Establish mode and sample rate
         r.samplerate.write(|w| unsafe {
-            w.cc().bits(sample_rate_divisor as u16);
-            w.mode().timers();
+            w.cc().bits(0);
+            w.mode().task();
             w
         });
-        r.tasks_sample.write(|w| unsafe { w.bits(1) }); // Need to kick-start the internal timer
 
         // Set up the initial DMA
         r.result.ptr.write(|w| unsafe { w.ptr().bits(vec_raw_parts[0].0 as _) });
