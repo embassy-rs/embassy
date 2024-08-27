@@ -402,7 +402,7 @@ embassy_hal_internal::peripherals! {
     BOOTSEL,
 }
 
-#[cfg(not(feature = "boot2-none"))]
+#[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
 macro_rules! select_bootloader {
     ( $( $feature:literal => $loader:ident, )+ default => $default:ident ) => {
         $(
@@ -419,7 +419,7 @@ macro_rules! select_bootloader {
     }
 }
 
-#[cfg(not(feature = "boot2-none"))]
+#[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
 select_bootloader! {
     "boot2-at25sf128a" => BOOT_LOADER_AT25SF128A,
     "boot2-gd25q64cs" => BOOT_LOADER_GD25Q64CS,
