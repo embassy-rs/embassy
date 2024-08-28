@@ -1,3 +1,5 @@
+use crate::{EndpointError, EndpointType};
+
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EndpointDescriptor {
@@ -9,9 +11,21 @@ pub struct EndpointDescriptor {
     pub interval: u8,
 }
 
+impl EndpointDescriptor {
+    pub fn ep_type(&self) -> EndpointType {
+        match self.attributes & 0x03 {
+            0 => EndpointType::Control,
+            1 => EndpointType::Isochronous,
+            2 => EndpointType::Bulk,
+            3 => EndpointType::Interrupt,
+            _ => unreachable!(),
+        }
+    }
+}
+
 pub trait USBHostDriverTrait {
-    type ChannelIn;
-    type ChannelOut;
+    type ChannelIn: ChannelIn;
+    type ChannelOut: ChannelOut;
 
     async fn bus_reset(&mut self);
 
@@ -28,4 +42,12 @@ pub trait USBHostDriverTrait {
 
     fn alloc_channel_in(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelIn, ()>;
     fn alloc_channel_out(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelOut, ()>;
+}
+
+pub trait ChannelIn {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
+}
+
+pub trait ChannelOut {
+    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
 }
