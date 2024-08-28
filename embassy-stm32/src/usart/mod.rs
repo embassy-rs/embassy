@@ -523,17 +523,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
 
     /// Send break character
     pub fn send_break(&self) {
-        // Busy wait until previous break has been sent
-        #[cfg(any(usart_v1, usart_v2))]
-        while self.info.regs.cr1().read().sbk() {}
-        #[cfg(any(usart_v3, usart_v4))]
-        while self.info.regs.isr().read().sbkf() {}
-
-        // Send break right after completing the current character transmission
-        #[cfg(any(usart_v1, usart_v2))]
-        self.info.regs.cr1().modify(|w| w.set_sbk(true));
-        #[cfg(any(usart_v3, usart_v4))]
-        self.info.regs.rqr().write(|w| w.set_sbkrq(true));
+        send_break(&self.info.regs);
     }
 }
 
@@ -547,6 +537,21 @@ fn blocking_flush(info: &Info) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+/// Send break character
+pub fn send_break(regs: &Regs) {
+    // Busy wait until previous break has been sent
+    #[cfg(any(usart_v1, usart_v2))]
+    while regs.cr1().read().sbk() {}
+    #[cfg(any(usart_v3, usart_v4))]
+    while regs.isr().read().sbkf() {}
+
+    // Send break right after completing the current character transmission
+    #[cfg(any(usart_v1, usart_v2))]
+    regs.cr1().modify(|w| w.set_sbk(true));
+    #[cfg(any(usart_v3, usart_v4))]
+    regs.rqr().write(|w| w.set_sbkrq(true));
 }
 
 impl<'d> UartRx<'d, Async> {
