@@ -98,7 +98,7 @@ pub trait Driver: Send + Sync + 'static {
     ///
     /// Implementations MUST ensure that:
     /// - This is guaranteed to be monotonic, i.e. a call to now() will always return
-    ///   a greater or equal value than earler calls. Time can't "roll backwards".
+    ///   a greater or equal value than earlier calls. Time can't "roll backwards".
     /// - It "never" overflows. It must not overflow in a sufficiently long time frame, say
     ///   in 10_000 years (Human civilization is likely to already have self-destructed
     ///   10_000 years from now.). This means if your hardware only has 16bit/32bit timers
