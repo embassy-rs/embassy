@@ -9,7 +9,7 @@ use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
 use embassy_usb_driver::host::{ChannelIn, ChannelOut, EndpointDescriptor, USBHostDriverTrait};
-use embassy_usb_driver::{Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType};
+use embassy_usb_driver::{Direction, EndpointError, EndpointType};
 
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
@@ -114,7 +114,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
                 // debug!("INT EP {}", index);
                 match epr.stat_rx() {
-                    Stat::DISABLED => debug!("Stat::DISABLED"),
+                    Stat::DISABLED => {} // debug!("Stat::DISABLED"),
                     Stat::STALL => debug!("Stat::STALL"),
                     Stat::NAK => {} //debug!("Stat::NAK"),
                     Stat::VALID => debug!("Stat::VALID"),
@@ -402,14 +402,6 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
         // HostControlPipe::new(ep_in, ep_out, control_max_packet_size)
     }
 
-    pub fn print_all(&self) {
-        let regs = T::regs();
-
-        debug!("USB Cntr: {:08x}", regs.cntr().read().0);
-        debug!("USB Istr: {:08x}", regs.istr().read().0);
-        debug!("USB Fnr: {:08x}", regs.fnr().read().0);
-    }
-
     pub fn get_status(&self) -> u32 {
         let regs = T::regs();
 
@@ -582,7 +574,6 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
         regs.epr(index).write_value(epr);
 
         let epr = regs.epr(index).read();
-        debug!("READ: {:08X}", epr.0);
         let stat = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let regs = T::regs();
@@ -600,7 +591,6 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
         }
 
         let rx_len = self.read_data(buf)?;
-        debug!("READ OK, rx_len = {}", rx_len);
 
         Ok(rx_len)
     }
