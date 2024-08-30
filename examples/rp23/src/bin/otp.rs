@@ -34,8 +34,8 @@ async fn main(_spawner: Spawner) {
     // https://github.com/knurling-rs/defmt/pull/683
     Timer::after_millis(10).await;
 
-    let unique_id = unwrap!(otp::get_unique_id());
-    info!("Unique id:{:X}", unique_id);
+    let chip_id = unwrap!(otp::get_chipid());
+    info!("Unique id:{:X}", chip_id);
 
     let private_rand = unwrap!(otp::get_private_random_number());
     info!("Private Rand:{:X}", private_rand);
