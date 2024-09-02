@@ -44,38 +44,43 @@ impl embedded_hal_async::delay::DelayNs for Delay {
     }
 }
 
-impl embedded_hal_02::blocking::delay::DelayMs<u8> for Delay {
-    fn delay_ms(&mut self, ms: u8) {
-        block_for(Duration::from_millis(ms as u64))
-    }
-}
+#[cfg(feature = "embedded-hal-02")]
+mod embedded_hal_02_impls {
+    use super::{block_for, Delay, Duration};
 
-impl embedded_hal_02::blocking::delay::DelayMs<u16> for Delay {
-    fn delay_ms(&mut self, ms: u16) {
-        block_for(Duration::from_millis(ms as u64))
+    impl embedded_hal_02::blocking::delay::DelayMs<u8> for Delay {
+        fn delay_ms(&mut self, ms: u8) {
+            block_for(Duration::from_millis(ms as u64))
+        }
     }
-}
 
-impl embedded_hal_02::blocking::delay::DelayMs<u32> for Delay {
-    fn delay_ms(&mut self, ms: u32) {
-        block_for(Duration::from_millis(ms as u64))
+    impl embedded_hal_02::blocking::delay::DelayMs<u16> for Delay {
+        fn delay_ms(&mut self, ms: u16) {
+            block_for(Duration::from_millis(ms as u64))
+        }
     }
-}
 
-impl embedded_hal_02::blocking::delay::DelayUs<u8> for Delay {
-    fn delay_us(&mut self, us: u8) {
-        block_for(Duration::from_micros(us as u64))
+    impl embedded_hal_02::blocking::delay::DelayMs<u32> for Delay {
+        fn delay_ms(&mut self, ms: u32) {
+            block_for(Duration::from_millis(ms as u64))
+        }
     }
-}
 
-impl embedded_hal_02::blocking::delay::DelayUs<u16> for Delay {
-    fn delay_us(&mut self, us: u16) {
-        block_for(Duration::from_micros(us as u64))
+    impl embedded_hal_02::blocking::delay::DelayUs<u8> for Delay {
+        fn delay_us(&mut self, us: u8) {
+            block_for(Duration::from_micros(us as u64))
+        }
     }
-}
 
-impl embedded_hal_02::blocking::delay::DelayUs<u32> for Delay {
-    fn delay_us(&mut self, us: u32) {
-        block_for(Duration::from_micros(us as u64))
+    impl embedded_hal_02::blocking::delay::DelayUs<u16> for Delay {
+        fn delay_us(&mut self, us: u16) {
+            block_for(Duration::from_micros(us as u64))
+        }
+    }
+
+    impl embedded_hal_02::blocking::delay::DelayUs<u32> for Delay {
+        fn delay_us(&mut self, us: u32) {
+            block_for(Duration::from_micros(us as u64))
+        }
     }
 }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- `embedded-hal 0.2` support is now locked behind the `embedded-hal-02` feature, to be removed in a future breaking version.
+
 ## 0.3.2 - 2024-08-05
 
 - Implement with_timeout()/with_deadline() method style call on Future
