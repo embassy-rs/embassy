@@ -8,7 +8,7 @@ use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
 use embassy_usb_driver::host::{ChannelError, ChannelIn, ChannelOut, EndpointDescriptor, USBHostDriverTrait};
-use embassy_usb_driver::{Direction, EndpointType};
+use embassy_usb_driver::EndpointType;
 
 use super::{DmPin, DpPin, Instance};
 use crate::pac::usb::regs;
@@ -183,14 +183,6 @@ mod btable {
             .write_value((addr as u32) | ((max_len_bits as u32) << 16));
     }
 
-    pub(super) fn update_rx_packet_size<T: Instance>(index: usize, max_len_bits: u16) {
-        // Address offset: index*8 + 4 [bytes] thus index*2 + 1 in 32 bit words
-        let reg = USBRAM.mem(index * 2 + 1);
-        let curr_val = reg.read();
-        let new_value = (curr_val & 0x0000FFF) | ((max_len_bits as u32) << 16);
-        reg.write_value(new_value);
-    }
-
     pub(super) fn read_out_len<T: Instance>(index: usize) -> u16 {
         (USBRAM.mem(index * 2 + 1).read() >> 16) as u16
     }
@@ -280,8 +272,8 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
         Self {
             phantom: PhantomData,
             ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
-            control_channel_in: Channel::new(0, 0, 0, 0, EpType::CONTROL),
-            control_channel_out: Channel::new(0, 0, 0, 0, EpType::CONTROL),
+            control_channel_in: Channel::new(0, 0, 0, 0),
+            control_channel_out: Channel::new(0, 0, 0, 0),
             channels_in_used: 0,
             channels_out_used: 0,
         }
@@ -364,7 +356,7 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
 
         btable::write_receive_buffer_descriptor::<T>(index, addr, len_bits);
 
-        let in_channel: Channel<T, In> = Channel::new(index, addr, len, max_packet_size, ep_type);
+        let in_channel: Channel<T, In> = Channel::new(index, addr, len, max_packet_size);
 
         // configure channel register
         let epr_reg = T::regs().epr(index);
@@ -398,7 +390,7 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
         // ep_in_len is written when actually TXing packets.
         btable::write_in::<T>(index, addr);
 
-        let out_channel: Channel<T, Out> = Channel::new(index, addr, len, max_packet_size, ep_type);
+        let out_channel: Channel<T, Out> = Channel::new(index, addr, len, max_packet_size);
 
         // configure channel register
         let epr_reg = T::regs().epr(index);
@@ -412,42 +404,26 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
     }
 }
 
-trait Dir {
-    fn dir() -> Direction;
-}
-
 /// Marker type for the "IN" direction.
 pub enum In {}
-impl Dir for In {
-    fn dir() -> Direction {
-        Direction::In
-    }
-}
 
 /// Marker type for the "OUT" direction.
 pub enum Out {}
-impl Dir for Out {
-    fn dir() -> Direction {
-        Direction::Out
-    }
-}
 
 /// USB endpoint.
 pub struct Channel<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
     index: usize,
     max_packet_size: u16,
-    ep_type: EpType,
     buf: EndpointBuffer<T>,
 }
 
 impl<'d, T: Instance, D> Channel<'d, T, D> {
-    fn new(index: usize, addr: u16, len: u16, max_packet_size: u16, ep_type: EpType) -> Self {
+    fn new(index: usize, addr: u16, len: u16, max_packet_size: u16) -> Self {
         Self {
             _phantom: PhantomData,
             index,
             max_packet_size,
-            ep_type,
             buf: EndpointBuffer {
                 addr,
                 len,

@@ -1,3 +1,5 @@
+//! USB host driver traits and data types.
+
 use crate::EndpointType;
 
 /// Errors returned by [`ChannelOut::write`] and [`ChannelIn::read`]
