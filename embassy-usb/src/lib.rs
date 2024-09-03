@@ -15,6 +15,8 @@ mod descriptor_reader;
 pub mod msos;
 pub mod types;
 
+pub mod host;
+
 mod config {
     #![allow(unused)]
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
