@@ -33,10 +33,9 @@ pub trait USBHostDriverTrait {
 
     async fn wait_for_device_disconnect(&mut self);
 
-    // Control request
-    async fn request_out(&mut self, addr: u8, bytes: &[u8]);
+    async fn control_request_out(&mut self, bytes: &[u8]) -> Result<(), ()>;
 
-    async fn request_in(&mut self, addr: u8, bytes: &[u8], dest: &mut [u8]) -> Result<usize, ()>;
+    async fn control_request_in(&mut self, bytes: &[u8], dest: &mut [u8]) -> Result<usize, ()>;
 
     fn reconfigure_channel0(&mut self, max_packet_size: u16, dev_addr: u8) -> Result<(), ()>;
 
