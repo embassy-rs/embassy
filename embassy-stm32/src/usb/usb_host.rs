@@ -2,27 +2,26 @@
 #![allow(missing_docs)]
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
-use embassy_usb_driver::host::{ChannelIn, ChannelOut, EndpointDescriptor, USBHostDriverTrait};
-use embassy_usb_driver::{Direction, EndpointError, EndpointType};
+use embassy_usb_driver::host::{ChannelError, ChannelIn, ChannelOut, EndpointDescriptor, USBHostDriverTrait};
+use embassy_usb_driver::{Direction, EndpointType};
 
+use super::{DmPin, DpPin, Instance};
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
-use crate::rcc::RccPeripheral;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
-pub struct InterruptHandler<T: Instance> {
+pub struct USBHostInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for USBHostInterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
         let x = regs.istr().read().0;
@@ -230,14 +229,6 @@ impl<T: Instance> EndpointBuffer<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-struct EndpointData {
-    ep_type: EndpointType, // only valid if used_in || used_out
-    used_in: bool,
-    used_out: bool,
-}
-
 /// USB host driver.
 pub struct USBHostDriver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
@@ -252,13 +243,13 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
     /// Create a new USB driver.
     pub fn new(
         _usb: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, USBHostInterruptHandler<T>> + 'd,
         dp: impl Peripheral<P = impl DpPin<T>> + 'd,
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
     ) -> Self {
         into_ref!(dp, dm);
 
-        super::common_init::<T>();
+        super::super::common_init::<T>();
 
         let regs = T::regs();
 
@@ -467,12 +458,12 @@ impl<'d, T: Instance, D> Channel<'d, T, D> {
 }
 
 impl<'d, T: Instance> Channel<'d, T, In> {
-    fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+    fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
         let index = self.index;
         let rx_len = btable::read_out_len::<T>(index) as usize & 0x3FF;
         trace!("READ DONE, rx_len = {}", rx_len);
         if rx_len > buf.len() {
-            return Err(EndpointError::BufferOverflow);
+            return Err(ChannelError::BufferOverflow);
         }
         self.buf.read(&mut buf[..rx_len]);
         Ok(rx_len)
@@ -480,7 +471,7 @@ impl<'d, T: Instance> Channel<'d, T, In> {
 }
 
 impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
         let index = self.index;
 
         let regs = T::regs();
@@ -521,7 +512,7 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
                 }
                 Stat::STALL => {
                     // error
-                    Poll::Ready(Err(EndpointError::Disabled))
+                    Poll::Ready(Err(ChannelError::Stall))
                 }
                 Stat::NAK => {
                     // pending
@@ -548,7 +539,7 @@ impl<'d, T: Instance> Channel<'d, T, Out> {
 }
 
 impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+    async fn write(&mut self, buf: &[u8]) -> Result<(), ChannelError> {
         self.write_data(buf);
 
         let index = self.index;
@@ -578,8 +569,7 @@ impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
         .await;
 
         if stat == Stat::STALL {
-            // TODO better error
-            return Err(EndpointError::Disabled);
+            return Err(ChannelError::Stall);
         }
 
         Ok(())
@@ -733,32 +723,3 @@ impl<'d, T: Instance> USBHostDriverTrait for USBHostDriver<'d, T> {
         Ok(count)
     }
 }
-
-trait SealedInstance {
-    fn regs() -> crate::pac::usb::Usb;
-}
-
-/// USB instance trait.
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + 'static {
-    /// Interrupt for this USB instance.
-    type Interrupt: interrupt::typelevel::Interrupt;
-}
-
-// Internal PHY pins
-pin_trait!(DpPin, Instance);
-pin_trait!(DmPin, Instance);
-
-foreach_interrupt!(
-    ($inst:ident, usb, $block:ident, LP, $irq:ident) => {
-        impl SealedInstance for crate::peripherals::$inst {
-            fn regs() -> crate::pac::usb::Usb {
-                crate::pac::$inst
-            }
-        }
-
-        impl Instance for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$irq;
-        }
-    };
-);
