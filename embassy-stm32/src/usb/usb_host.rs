@@ -88,8 +88,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
             let index = istr.ep_id() as usize;
             let mut epr = regs.epr(index).read();
-            epr.set_stat_rx(Stat::DISABLED);
-            epr.set_stat_tx(Stat::DISABLED);
+            // Toggle endponit to disabled
+            epr.set_stat_rx(epr.stat_rx());
+            epr.set_stat_tx(epr.stat_tx());
             regs.epr(index).write_value(epr);
         }
     }
