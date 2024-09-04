@@ -73,6 +73,11 @@ async fn main(_spawner: Spawner) {
 
     let mut led = Output::new(p.PA5, Level::High, Speed::Low);
 
+    // This example assumes we're using the NUCLE0-G0B1RE together with X-NUCLEO-DRP1M1 USB-C expansion board.
+    // We need to turn on USB C power delivery by interfacing with the TCPP03-M20 IC.
+    // This is done setting enable high and by sending a command over I2C.
+    // See the TCPP03-M20 datasheet for more details.
+
     let mut enable = Output::new(p.PC8, Level::High, Speed::Low);
     enable.set_high();
 
@@ -104,7 +109,7 @@ async fn main(_spawner: Spawner) {
     let mut read_buf = [255u8; 1];
     i2c.write_read(i2c_address, &[reg], &mut read_buf).await.unwrap();
 
-    info!("Value 1: {:02X}", read_buf[0]);
+    debug!("TCPP03-M20 Value 1: {:02X}", read_buf[0]);
 
     // Create the driver, from the HAL.
     let mut driver = USBHostDriver::new(p.USB, Irqs, p.PA12, p.PA11);
