@@ -6,6 +6,8 @@
 // must be first
 mod fmt;
 
+pub mod context;
+
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;

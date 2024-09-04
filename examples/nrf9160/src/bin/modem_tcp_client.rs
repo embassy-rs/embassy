@@ -2,14 +2,15 @@
 #![no_main]
 
 use core::mem::MaybeUninit;
+use core::net::IpAddr;
 use core::ptr::addr_of_mut;
 use core::str::FromStr;
 use core::{slice, str};
 
-use defmt::{assert, *};
+use defmt::{assert, info, warn, unwrap};
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources};
-use embassy_net_nrf91::{Runner, State};
+use embassy_net_nrf91::{Runner, State, context};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
 use embassy_nrf::uarte::Baudrate;
@@ -63,9 +64,9 @@ async fn blink_task(pin: AnyPin) {
     let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
     loop {
         led.set_high();
-        Timer::after_millis(100).await;
+        Timer::after_millis(1000).await;
         led.set_low();
-        Timer::after_millis(100).await;
+        Timer::after_millis(1000).await;
     }
 }
 
@@ -123,51 +124,30 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(net_task(stack)));
 
-    control.wait_init().await;
-    info!("INIT OK");
+    let control = context::Control::new(control, 0).await;
 
-    let mut buf = [0u8; 256];
-
-    let n = control.at_command(b"AT+CFUN?", &mut buf).await;
-    info!("AT resp: '{}'", unsafe { str::from_utf8_unchecked(&buf[..n]) });
-
-    let n = control
-        .at_command(b"AT+CGDCONT=0,\"IP\",\"iot.nat.es\"", &mut buf)
-        .await;
-    info!("AT resp: '{}'", unsafe { str::from_utf8_unchecked(&buf[..n]) });
-    let n = control
-        .at_command(b"AT+CGAUTH=0,1,\"orange\",\"orange\"", &mut buf)
-        .await;
-    info!("AT resp: '{}'", unsafe { str::from_utf8_unchecked(&buf[..n]) });
-
-    let n = control.at_command(b"AT+CFUN=1", &mut buf).await;
-    info!("AT resp: '{}'", unsafe { str::from_utf8_unchecked(&buf[..n]) });
+    unwrap!(control.configure(context::Config {
+        gateway: "iot.nat.es",
+        auth_prot: context::AuthProt::Pap,
+        auth: Some(("orange", "orange")),
+    }).await);
 
     info!("waiting for attach...");
-    loop {
-        Timer::after_millis(500).await;
-        let n = control.at_command(b"AT+CGATT?", &mut buf).await;
-        let mut res = &buf[..n];
-        pop_prefix(&mut res, b"+CGATT: ");
-        let res = split_field(&mut res);
-        info!("AT resp field: '{}'", unsafe { str::from_utf8_unchecked(res) });
-        if res == b"1" {
-            break;
-        }
+
+    let mut status = unwrap!(control.status().await);
+    while !status.attached && status.ip.is_none() {
+        Timer::after_millis(1000).await;
+        status = unwrap!(control.status().await);
+        info!("STATUS: {:?}", status);
     }
 
-    let n = control.at_command(b"AT+CGPADDR=0", &mut buf).await;
-    let mut res = &buf[..n];
-    pop_prefix(&mut res, b"+CGPADDR: 0,");
-    let ip = split_field(&mut res);
-    let ip = Ipv4Address::from_str(unsafe { str::from_utf8_unchecked(ip) }).unwrap();
-    info!("IP: '{}'", ip);
-
-    info!("============== OPENING SOCKET");
-    control.open_raw_socket().await;
+    let Some(IpAddr::V4(addr)) = status.ip else {
+        panic!("Unexpected IP address");
+    };
+    let addr = Ipv4Address(addr.octets());
 
     stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
-        address: Ipv4Cidr::new(ip, 32),
+        address: Ipv4Cidr::new(addr, 32),
         gateway: None,
         dns_servers: Default::default(),
     }));
