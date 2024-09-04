@@ -5,6 +5,7 @@ use core::str::FromStr;
 use at_commands::builder::CommandBuilder;
 use at_commands::parser::CommandParser;
 use heapless::Vec;
+use embassy_time::{Timer, Duration};
 
 /// Provides a higher level API for controlling a given context.
 pub struct Control<'a> {
@@ -23,6 +24,8 @@ pub struct Config<'a> {
 }
 
 /// Authentication protocol.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum AuthProt {
     /// No authentication.
@@ -84,7 +87,7 @@ impl<'a> Control<'a> {
     }
 
     /// Configures the modem with the provided config.
-    pub async fn configure(&self, config: Config<'_>) -> Result<(), Error> {
+    pub async fn configure(&self, config: &Config<'_>) -> Result<(), Error> {
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
 
@@ -118,7 +121,62 @@ impl<'a> Control<'a> {
         let n = self.control.at_command(op, &mut buf).await;
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
+        let op = CommandBuilder::create_set(&mut cmd, true)
+            .named("%XPDNCFG")
+            .with_int_parameter(1)
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+
+
+
         Ok(())
+    }
+
+    /// Attach to the PDN
+    pub async fn attach(&self) -> Result<(), Error> {
+        let mut cmd: [u8; 256] = [0; 256];
+        let mut buf: [u8; 256] = [0; 256];
+        let op = CommandBuilder::create_set(&mut cmd, true)
+            .named("+CGATT")
+            .with_int_parameter(1)
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+        Ok(())
+    }
+
+    /// Read current connectivity status for modem.
+    pub async fn detach(&self) -> Result<(), Error> {
+        let mut cmd: [u8; 256] = [0; 256];
+        let mut buf: [u8; 256] = [0; 256];
+        let op = CommandBuilder::create_set(&mut cmd, true)
+            .named("+CGATT")
+            .with_int_parameter(0)
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+        Ok(())
+    }
+
+    async fn attached(&self) -> Result<bool, Error> {
+        let mut cmd: [u8; 256] = [0; 256];
+        let mut buf: [u8; 256] = [0; 256];
+
+        let op = CommandBuilder::create_query(&mut cmd, true)
+            .named("+CGATT")
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        let (res,) = CommandParser::parse(&buf[..n])
+            .expect_identifier(b"+CGATT: ")
+            .expect_int_parameter()
+            .expect_identifier(b"\r\nOK")
+            .finish()?;
+        Ok(res == 1)
     }
 
     /// Read current connectivity status for modem.
@@ -162,7 +220,6 @@ impl<'a> Control<'a> {
 
         let ip = if let Some(ip) = ip1 {
             let ip = IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?;
-            self.control.open_raw_socket().await;
             Some(ip)
         } else {
             None
@@ -218,5 +275,30 @@ impl<'a> Control<'a> {
             gateway,
             dns,
         })
+    }
+
+    /// Run a control loop for this context, ensuring that reaattach is handled.
+    pub async fn run<F: Fn(&Status)>(&self, config: &Config<'_>, reattach: F) -> Result<(), Error> {
+        self.configure(config).await?;
+        while !self.attached().await? {
+            Timer::after(Duration::from_secs(1)).await;
+        }
+        let status = self.status().await?;
+        let mut fd = self.control.open_raw_socket().await;
+        reattach(&status);
+
+        loop {
+            if !self.attached().await? {
+                // TODO: self.control.close_raw_socket(fd).await;
+                self.attach().await?;
+                while !self.attached().await? {
+                    Timer::after(Duration::from_secs(1)).await;
+                }
+                let status = self.status().await?;
+                // TODO: let mut fd = self.control.open_raw_socket().await;
+                reattach(&status);
+            }
+            Timer::after(Duration::from_secs(10)).await;
+        }
     }
 }

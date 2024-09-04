@@ -844,7 +844,7 @@ impl<'a> Control<'a> {
     /// Open the raw socket used for sending/receiving IP packets.
     ///
     /// This must be done after `AT+CFUN=1` (?)
-    async fn open_raw_socket(&self) {
+    async fn open_raw_socket(&self) -> u32 {
         let mut msg: Message = unsafe { mem::zeroed() };
         msg.channel = 2; // data
         msg.id = 0x7001_0004; // open socket
@@ -867,7 +867,8 @@ impl<'a> Control<'a> {
         assert_eq!(status, 0);
         assert_eq!(msg.param_len, 16);
         let fd = u32::from_le_bytes(msg.param[12..16].try_into().unwrap());
-        debug!("got FD: {}", fd);
+        trace!("got FD: {}", fd);
+        fd
     }
 }
 

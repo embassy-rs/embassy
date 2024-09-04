@@ -50,6 +50,43 @@ async fn net_task(stack: &'static Stack<embassy_net_nrf91::NetDriver<'static>>) 
 }
 
 #[embassy_executor::task]
+async fn control_task(
+    control: &'static context::Control<'static>,
+    config: context::Config<'static>,
+    stack: &'static Stack<embassy_net_nrf91::NetDriver<'static>>,
+) {
+    unwrap!(
+        control
+            .run(&config, |status| {
+                let Some(IpAddr::V4(addr)) = status.ip else {
+                    panic!("Unexpected IP address");
+                };
+                let addr = Ipv4Address(addr.octets());
+
+                let gateway = if let Some(IpAddr::V4(addr)) = status.gateway {
+                    Some(Ipv4Address(addr.octets()))
+                } else {
+                    None
+                };
+
+                let mut dns_servers = Vec::new();
+                for dns in status.dns.iter() {
+                    if let IpAddr::V4(ip) = dns {
+                        unwrap!(dns_servers.push(Ipv4Address(ip.octets())));
+                    }
+                }
+
+                stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
+                    address: Ipv4Cidr::new(addr, 32),
+                    gateway,
+                    dns_servers,
+                }));
+            })
+            .await
+    );
+}
+
+#[embassy_executor::task]
 async fn blink_task(pin: AnyPin) {
     let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
     loop {
@@ -117,50 +154,20 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(net_task(stack)));
 
-    let control = context::Control::new(control, 0).await;
+    static CONTROL: StaticCell<context::Control<'static>> = StaticCell::new();
+    let control = CONTROL.init(context::Control::new(control, 0).await);
 
-    unwrap!(
-        control
-            .configure(context::Config {
-                apn: "iot.nat.es",
-                auth_prot: context::AuthProt::Pap,
-                auth: Some(("orange", "orange")),
-            })
-            .await
-    );
+    unwrap!(spawner.spawn(control_task(
+        control,
+        context::Config {
+            apn: "iot.nat.es",
+            auth_prot: context::AuthProt::Pap,
+            auth: Some(("orange", "orange")),
+        },
+        stack
+    )));
 
-    info!("waiting for attach...");
-
-    let mut status = unwrap!(control.status().await);
-    while !status.attached && status.ip.is_none() {
-        Timer::after_millis(1000).await;
-        status = unwrap!(control.status().await);
-        info!("STATUS: {:?}", status);
-    }
-
-    let Some(IpAddr::V4(addr)) = status.ip else {
-        panic!("Unexpected IP address");
-    };
-    let addr = Ipv4Address(addr.octets());
-
-    let gateway = if let Some(IpAddr::V4(addr)) = status.gateway {
-        Some(Ipv4Address(addr.octets()))
-    } else {
-        None
-    };
-
-    let mut dns_servers = Vec::new();
-    for dns in status.dns {
-        if let IpAddr::V4(ip) = dns {
-            unwrap!(dns_servers.push(Ipv4Address(ip.octets())));
-        }
-    }
-
-    stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
-        address: Ipv4Cidr::new(addr, 32),
-        gateway,
-        dns_servers,
-    }));
+    stack.wait_config_up().await;
 
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
@@ -172,7 +179,7 @@ async fn main(spawner: Spawner) {
         let host_addr = embassy_net::Ipv4Address::from_str("45.79.112.203").unwrap();
         if let Err(e) = socket.connect((host_addr, 4242)).await {
             warn!("connect error: {:?}", e);
-            Timer::after_secs(1).await;
+            Timer::after_secs(10).await;
             continue;
         }
         info!("Connected to {:?}", socket.remote_endpoint());
