@@ -35,7 +35,7 @@ pub(crate) trait SealedInstance: RccPeripheral {
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + 'static {}
 foreach_interrupt! {
-    ($inst:ident, lptim, LPTIM_ADV, UP, $irq:ident) => {
+    ($inst:ident, lptim, LPTIM_ADV, GLOBAL, $irq:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::lptim::LptimAdv {
                 crate::pac::$inst
