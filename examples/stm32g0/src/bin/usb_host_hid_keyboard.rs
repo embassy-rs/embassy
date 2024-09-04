@@ -20,46 +20,6 @@ bind_interrupts!(struct Irqs {
     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
 });
 
-#[derive(defmt::Format)]
-struct HIDDescriptor {
-    len: u8,
-    descriptor_type: u8,
-    bcd_hid: u16,
-    country_code: u8,
-    num_descriptors: u8,
-
-    // num_descriptors determines how many pairs of descriptor_typeI/descriptor_lengthI follow.
-    descriptor_type0: u8,
-    descriptor_length0: u16,
-}
-
-impl USBDescriptor for HIDDescriptor {
-    const SIZE: usize = 9; // only valid for 1 descriptor
-
-    const DESC_TYPE: u8 = 33;
-
-    type Error = ();
-
-    fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(());
-        }
-        if bytes[1] != Self::DESC_TYPE {
-            return Err(());
-        }
-
-        Ok(Self {
-            len: bytes[0],
-            descriptor_type: bytes[1],
-            bcd_hid: u16::from_le_bytes([bytes[2], bytes[3]]),
-            country_code: bytes[4],
-            num_descriptors: bytes[5],
-            descriptor_type0: bytes[6],
-            descriptor_length0: u16::from_le_bytes([bytes[7], bytes[8]]),
-        })
-    }
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
@@ -171,7 +131,7 @@ async fn main(_spawner: Spawner) {
     info!("Endpoints: {:?}", endpoints[0]);
 
     if hid_keyboard::is_compatible(&interface0) {
-        let hid_desc: HIDDescriptor = interface0.parse_class_descriptor().unwrap();
+        let hid_desc: hid_keyboard::HIDDescriptor = interface0.parse_class_descriptor().unwrap();
 
         info!("HID descriptor: {:?}", hid_desc);
 
@@ -228,6 +188,46 @@ mod hid_keyboard {
 
     pub fn is_compatible(desc: &InterfaceDescriptor) -> bool {
         desc.interface_class == 3 && desc.interface_subclass == 1 && desc.interface_protocol == 1
+    }
+
+    #[derive(defmt::Format)]
+    pub struct HIDDescriptor {
+        pub len: u8,
+        pub descriptor_type: u8,
+        pub bcd_hid: u16,
+        pub country_code: u8,
+        pub num_descriptors: u8,
+
+        // num_descriptors determines how many pairs of descriptor_typeI/descriptor_lengthI follow.
+        pub descriptor_type0: u8,
+        pub descriptor_length0: u16,
+    }
+
+    impl USBDescriptor for HIDDescriptor {
+        const SIZE: usize = 9; // only valid for 1 descriptor
+
+        const DESC_TYPE: u8 = 33;
+
+        type Error = ();
+
+        fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+            if bytes.len() < Self::SIZE {
+                return Err(());
+            }
+            if bytes[1] != Self::DESC_TYPE {
+                return Err(());
+            }
+
+            Ok(Self {
+                len: bytes[0],
+                descriptor_type: bytes[1],
+                bcd_hid: u16::from_le_bytes([bytes[2], bytes[3]]),
+                country_code: bytes[4],
+                num_descriptors: bytes[5],
+                descriptor_type0: bytes[6],
+                descriptor_length0: u16::from_le_bytes([bytes[7], bytes[8]]),
+            })
+        }
     }
 
     pub struct HIDBootKeyboard<D>

@@ -24,8 +24,8 @@ pub struct USBHostInterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for USBHostInterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
-        let x = regs.istr().read().0;
-        trace!("USB IRQ: {:08x}", x);
+        // let x = regs.istr().read().0;
+        // trace!("USB IRQ: {:08x}", x);
 
         let istr = regs.istr().read();
 
@@ -47,7 +47,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for USBHostInterru
 
             let epr = regs.epr(index).read();
 
-            // debug!("INT EP {}", index);
             match epr.stat_rx() {
                 Stat::DISABLED => {} // debug!("Stat::DISABLED"),
                 Stat::STALL => debug!("Stat::STALL"),
