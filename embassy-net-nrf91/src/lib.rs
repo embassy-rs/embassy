@@ -17,13 +17,12 @@ use core::slice;
 use core::sync::atomic::{compiler_fence, fence, Ordering};
 use core::task::{Poll, Waker};
 
-use embassy_net_driver_channel as ch;
-use embassy_sync::waitqueue::{AtomicWaker, WakerRegistration};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use heapless::Vec;
-use nrf9160_pac as pac;
-use pac::NVIC;
 use embassy_sync::pipe;
+use embassy_sync::waitqueue::{AtomicWaker, WakerRegistration};
+use heapless::Vec;
+use pac::NVIC;
+use {embassy_net_driver_channel as ch, nrf9160_pac as pac};
 
 const RX_SIZE: usize = 8 * 1024;
 const TRACE_SIZE: usize = 16 * 1024;
@@ -268,7 +267,6 @@ pub struct State {
     ch: ch::State<MTU, 4, 4>,
     inner: MaybeUninit<RefCell<StateInner>>,
 }
-
 
 impl State {
     /// Create a new State.

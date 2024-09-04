@@ -1,8 +1,10 @@
 //! Helper utility to configure a specific modem context.
 use core::net::IpAddr;
 use core::str::FromStr;
+
+use at_commands::builder::CommandBuilder;
+use at_commands::parser::CommandParser;
 use heapless::Vec;
-use at_commands::{builder::CommandBuilder, parser::CommandParser};
 
 /// Provides a higher level API for controlling a given context.
 pub struct Control<'a> {
@@ -91,7 +93,8 @@ impl<'a> Control<'a> {
             .with_int_parameter(self.cid)
             .with_string_parameter("IP")
             .with_string_parameter(config.apn)
-            .finish().map_err(|_| Error::BufferTooSmall)?;
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
@@ -110,7 +113,8 @@ impl<'a> Control<'a> {
         let op = CommandBuilder::create_set(&mut cmd, true)
             .named("+CFUN")
             .with_int_parameter(1)
-            .finish().map_err(|_| Error::BufferTooSmall)?;
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
@@ -124,28 +128,37 @@ impl<'a> Control<'a> {
 
         let op = CommandBuilder::create_query(&mut cmd, true)
             .named("+CGATT")
-            .finish().map_err(|_| Error::BufferTooSmall)?;
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
-        let (res, ) = CommandParser::parse(&buf[..n])
+        let (res,) = CommandParser::parse(&buf[..n])
             .expect_identifier(b"+CGATT: ")
             .expect_int_parameter()
-            .expect_identifier(b"\r\nOK").finish()?;
+            .expect_identifier(b"\r\nOK")
+            .finish()?;
         let attached = res == 1;
         if !attached {
-            return Ok(Status { attached, ip: None, gateway: None, dns: Vec::new() })
+            return Ok(Status {
+                attached,
+                ip: None,
+                gateway: None,
+                dns: Vec::new(),
+            });
         }
 
         let op = CommandBuilder::create_set(&mut cmd, true)
             .named("+CGPADDR")
             .with_int_parameter(self.cid)
-            .finish().map_err(|_| Error::BufferTooSmall)?;
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
-        let (_, ip1, _ip2, ) = CommandParser::parse(&buf[..n])
+        let (_, ip1, _ip2) = CommandParser::parse(&buf[..n])
             .expect_identifier(b"+CGPADDR: ")
             .expect_int_parameter()
             .expect_optional_string_parameter()
             .expect_optional_string_parameter()
-            .expect_identifier(b"\r\nOK").finish()?;
+            .expect_identifier(b"\r\nOK")
+            .finish()?;
 
         let ip = if let Some(ip) = ip1 {
             let ip = IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?;
@@ -158,7 +171,8 @@ impl<'a> Control<'a> {
         let op = CommandBuilder::create_set(&mut cmd, true)
             .named("+CGCONTRDP")
             .with_int_parameter(self.cid)
-            .finish().map_err(|_| Error::BufferTooSmall)?;
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
         let (_cid, _bid, _apn, _mask, gateway, dns1, dns2, _, _, _, _, _mtu) = CommandParser::parse(&buf[..n])
             .expect_identifier(b"+CGCONTRDP: ")
@@ -174,7 +188,8 @@ impl<'a> Control<'a> {
             .expect_optional_int_parameter()
             .expect_optional_int_parameter()
             .expect_optional_int_parameter()
-            .expect_identifier(b"\r\nOK").finish()?;
+            .expect_identifier(b"\r\nOK")
+            .finish()?;
 
         let gateway = if let Some(ip) = gateway {
             if ip.is_empty() {
@@ -188,11 +203,13 @@ impl<'a> Control<'a> {
 
         let mut dns = Vec::new();
         if let Some(ip) = dns1 {
-            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?).unwrap();
+            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
+                .unwrap();
         }
 
         if let Some(ip) = dns2 {
-            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?).unwrap();
+            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
+                .unwrap();
         }
 
         Ok(Status {
