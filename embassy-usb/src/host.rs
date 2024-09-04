@@ -10,8 +10,10 @@ use heapless::Vec;
 use crate::control::Request;
 use crate::descriptor::descriptor_type;
 
+/// USB Control Setup Packet
 #[repr(C, packed)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[allow(missing_docs)]
 pub struct SetupPacket {
     pub request_type: RequestType,
     pub request: u8,
@@ -21,6 +23,7 @@ pub struct SetupPacket {
 }
 
 impl SetupPacket {
+    /// Get a reference to the underlying bytes of the setup packet.
     pub fn as_bytes(&self) -> &[u8] {
         // Safe because we know that the size of SetupPacket is 8 bytes.
         unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, 8) }
@@ -28,25 +31,40 @@ impl SetupPacket {
 }
 
 defmt::bitflags! {
+    /// RequestType bitfields for the setup packet
     pub struct RequestType: u8 {
         // Recipient
+        /// The request is intended for the entire device.
         const RECIPIENT_DEVICE    = 0;
+        /// The request is intended for an interface.
         const RECIPIENT_INTERFACE = 1;
+        /// The request is intended for an endpoint.
         const RECIPIENT_ENDPOINT  = 2;
+        /// The recipient of the request is unspecified.
         const RECIPIENT_OTHER     = 3;
+
         // Type
+        /// The request is a standard USB request.
         const TYPE_STANDARD = 0 << 5;
+        /// The request is a class-specific request.
         const TYPE_CLASS    = 1 << 5;
+        /// The request is a vendor-specific request.
         const TYPE_VENDOR   = 2 << 5;
+        /// Reserved.
         const TYPE_RESERVED = 3 << 5;
         // Direction
+        /// The request will send data to the device.
         const OUT = 0 << 7;
+        /// The request expects to receive data from the device.
         const IN  = 1 << 7;
     }
 }
 
 type StringIndex = u8;
 
+/// First 8 bytes of the DeviceDescriptor. This is used to figure out the `max_packet_size0` value to reconfigure channel 0.
+/// All USB devices support max_packet_size0=8 which is why the first 8 bytes of the descriptor can always be read.
+#[allow(missing_docs)]
 #[derive(Debug)]
 pub struct DeviceDescriptorPartial {
     _padding: [u8; 7],
@@ -55,6 +73,7 @@ pub struct DeviceDescriptorPartial {
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(missing_docs)]
 pub struct DeviceDescriptor {
     pub len: u8,
     pub descriptor_type: u8,
@@ -74,6 +93,7 @@ pub struct DeviceDescriptor {
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(missing_docs)]
 pub struct ConfigurationDescriptor {
     pub len: u8,
     pub descriptor_type: u8,
@@ -84,11 +104,14 @@ pub struct ConfigurationDescriptor {
     pub attributes: u8,
     pub max_power: u8,
 
+    /// All additional bytes end up in this buffer.
+    /// This includes the interface descriptors
     pub buffer: [u8; 256],
 }
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(missing_docs)]
 pub struct InterfaceDescriptor<'a> {
     pub len: u8,
     pub descriptor_type: u8,
@@ -100,17 +123,24 @@ pub struct InterfaceDescriptor<'a> {
     pub interface_protocol: u8,
     pub interface_name: StringIndex,
 
+    /// All additional bytes end up in this buffer.
+    /// This buffer can then be used to parse endpoint descriptors or class descriptors
     pub buffer: &'a [u8],
 }
 
+/// Trait to be implemented by fixed size descriptors for automatic parsing.
 pub trait USBDescriptor {
-    // todo SIZE is fixed for every descriptor type.
+    /// Fixed size of the descriptor
+    /// For varying length descriptors, this cannot be used and they have to be parsed outside of this module.
     const SIZE: usize;
 
+    /// The descriptor type that has to match the type of this descriptor.
     const DESC_TYPE: u8;
 
+    /// The type returned on error
     type Error;
 
+    /// Try to parse the descriptor from a byte slice
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error>
     where
         Self: Sized;
@@ -294,12 +324,15 @@ impl<'a> InterfaceDescriptor<'a> {
         })
     }
 
+    /// Try to parse a class descriptor of a given type
     pub fn parse_class_descriptor<T: USBDescriptor>(&self) -> Option<T> {
         Self::identify_descriptor::<T>(self.buffer)
             .map(|i| T::try_from_bytes(&self.buffer[i..]).ok())
             .flatten()
     }
 
+    /// Parse up to `L` endpoints corresponding to this interface.
+    /// Returns a vector of EndpointDescriptors. The length of the vector is `min(L, self.num_endpoints)`.
     pub fn parse_endpoints<const L: usize>(&self) -> Vec<EndpointDescriptor, L> {
         let mut endpoints: Vec<EndpointDescriptor, L> = Vec::new();
 
@@ -367,16 +400,14 @@ impl USBDescriptor for EndpointDescriptor {
     }
 }
 
-// pub struct ConfigurationDescriptor {
-//     descriptor_buffer: [u8; 64], // buffer
-// }
-
+/// USB Host instance
 pub struct UsbHost<D: USBHostDriverTrait> {
     driver: D,
     device_address: u8,
 }
 
 impl<D: USBHostDriverTrait> UsbHost<D> {
+    /// Create a new USB Host instance with the given driver
     pub fn new(driver: D) -> Self {
         Self {
             driver,
@@ -384,7 +415,9 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
         }
     }
 
-    pub async fn device_set_address(&mut self, addr: u8) -> Result<(), ()> {
+    /// Execute the SET_ADDRESS control request. Assign the given address to the device.
+    /// Usually done during enumeration.
+    async fn device_set_address(&mut self, addr: u8) -> Result<(), ()> {
         let packet = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
             request: Request::SET_ADDRESS,
@@ -398,6 +431,7 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
         Ok(())
     }
 
+    /// Request and try to parse the device descriptor.
     pub async fn device_request_descriptor<T: USBDescriptor, const SIZE: usize>(&mut self) -> Result<T, ()> {
         let mut buf = [0u8; SIZE];
 
@@ -418,6 +452,9 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
         T::try_from_bytes(&buf).map_err(|_| ())
     }
 
+    /// Request the underlying bytes for a descriptor of a specific type.
+    /// bytes.len() determines how many bytes are read at maximum.
+    /// This can be used for descriptors of varying length, which are parsed by the caller.
     pub async fn device_request_descriptor_bytes<T: USBDescriptor>(&mut self, bytes: &mut [u8]) -> Result<usize, ()> {
         // The wValue field specifies the descriptor type in the high byte
         // and the descriptor index in the low byte.
@@ -434,6 +471,9 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
         self.driver.control_request_in(packet.as_bytes(), bytes).await
     }
 
+    /// Request the underlying bytes for an additional descriptor of a specific interface.
+    /// Useful for class specific descriptors of varying length.
+    /// bytes.len() determines how many bytes are read at maximum.
     pub async fn interface_request_descriptor_bytes<T: USBDescriptor>(
         &mut self,
         interface_num: u8,
@@ -454,6 +494,7 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
         self.driver.control_request_in(packet.as_bytes(), bytes).await
     }
 
+    /// Execute a control request with request type Class and recipient Interface
     pub async fn class_request_out(&mut self, request: u8, value: u16, index: u16, buf: &mut [u8]) -> Result<(), ()> {
         let packet = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
@@ -466,11 +507,13 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
         self.driver.control_request_out(packet.as_bytes()).await
     }
 
-    pub async fn set_configuration(&mut self, config: u8) -> Result<(), ()> {
+    /// SET_CONFIGURATION control request.
+    /// Selects the configuration with the given index `config_no`.
+    pub async fn set_configuration(&mut self, config_no: u8) -> Result<(), ()> {
         let packet = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
             request: Request::SET_CONFIGURATION,
-            value: config as u16,
+            value: config_no as u16,
             index: 0,
             length: 0,
         };
