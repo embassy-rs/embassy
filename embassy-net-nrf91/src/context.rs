@@ -121,7 +121,6 @@ impl<'a> Control<'a> {
 
         write!(s, "+CGPADDR: {},", self.cid)?;
 
-        info!("RES: {:?}", unsafe {core::str::from_utf8_unchecked(res)});
         if s.len() > res.len() {
             let res = split_field(&mut res);
             if res == b"OK" {
