@@ -14,6 +14,7 @@ embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defm
 defmt = "0.3"
 defmt-rtt = "0.4"
 
+heapless = "0.8"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }

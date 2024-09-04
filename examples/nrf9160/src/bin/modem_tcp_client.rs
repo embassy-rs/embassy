@@ -5,9 +5,10 @@ use core::mem::MaybeUninit;
 use core::net::IpAddr;
 use core::ptr::addr_of_mut;
 use core::str::FromStr;
-use core::{slice, str};
+use core::slice;
 
 use defmt::{assert, info, warn, unwrap};
+use heapless::Vec;
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources};
 use embassy_net_nrf91::{Runner, State, context};
@@ -146,10 +147,23 @@ async fn main(spawner: Spawner) {
     };
     let addr = Ipv4Address(addr.octets());
 
+    let gateway = if let Some(IpAddr::V4(addr)) = status.gateway {
+        Some(Ipv4Address(addr.octets()))
+    } else {
+        None
+    };
+
+    let mut dns_servers = Vec::new();
+    for dns in status.dns {
+        if let IpAddr::V4(ip) = dns {
+            unwrap!(dns_servers.push(Ipv4Address(ip.octets())));
+        }
+    }
+
     stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
         address: Ipv4Cidr::new(addr, 32),
-        gateway: None,
-        dns_servers: Default::default(),
+        gateway,
+        dns_servers,
     }));
 
     let mut rx_buffer = [0; 4096];
@@ -159,15 +173,16 @@ async fn main(spawner: Spawner) {
         socket.set_timeout(Some(Duration::from_secs(10)));
 
         info!("Connecting...");
-        let host_addr = embassy_net::Ipv4Address::from_str("83.51.182.206").unwrap();
-        if let Err(e) = socket.connect((host_addr, 8000)).await {
+        let host_addr = embassy_net::Ipv4Address::from_str("45.79.112.203").unwrap();
+        if let Err(e) = socket.connect((host_addr, 4242)).await {
             warn!("connect error: {:?}", e);
+            Timer::after_secs(1).await;
             continue;
         }
         info!("Connected to {:?}", socket.remote_endpoint());
 
         let msg = b"Hello world!\n";
-        loop {
+        for _ in 0..10 {
             if let Err(e) = socket.write_all(msg).await {
                 warn!("write error: {:?}", e);
                 break;
@@ -176,55 +191,4 @@ async fn main(spawner: Spawner) {
             Timer::after_secs(1).await;
         }
     }
-}
-
-fn is_whitespace(char: u8) -> bool {
-    match char {
-        b'\r' | b'\n' | b' ' => true,
-        _ => false,
-    }
-}
-
-fn is_separator(char: u8) -> bool {
-    match char {
-        b',' | b'\r' | b'\n' | b' ' => true,
-        _ => false,
-    }
-}
-
-fn split_field<'a>(data: &mut &'a [u8]) -> &'a [u8] {
-    while !data.is_empty() && is_whitespace(data[0]) {
-        *data = &data[1..];
-    }
-
-    if data.is_empty() {
-        return &[];
-    }
-
-    if data[0] == b'"' {
-        let data2 = &data[1..];
-        let end = data2.iter().position(|&x| x == b'"').unwrap_or(data2.len());
-        let field = &data2[..end];
-        let mut rest = &data2[data2.len().min(end + 1)..];
-        if rest.first() == Some(&b'\"') {
-            rest = &rest[1..];
-        }
-        while !rest.is_empty() && is_separator(rest[0]) {
-            rest = &rest[1..];
-        }
-        *data = rest;
-        field
-    } else {
-        let end = data.iter().position(|&x| is_separator(x)).unwrap_or(data.len());
-        let field = &data[0..end];
-        let rest = &data[data.len().min(end + 1)..];
-        *data = rest;
-        field
-    }
-}
-
-fn pop_prefix(data: &mut &[u8], prefix: &[u8]) {
-    assert!(data.len() >= prefix.len());
-    assert!(&data[..prefix.len()] == prefix);
-    *data = &data[prefix.len()..];
 }

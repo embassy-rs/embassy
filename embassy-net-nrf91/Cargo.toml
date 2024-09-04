@@ -26,6 +26,7 @@ embassy-net-driver-channel = { version = "0.3.0", path = "../embassy-net-driver-
 
 heapless = "0.8"
 embedded-io = "0.6.1"
+at-commands = "0.5.4"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-nrf91-v$VERSION/embassy-net-nrf91/src/"
