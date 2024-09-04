@@ -1,38 +1,46 @@
+//! Helper utility to configure a specific modem context.
 use core::net::IpAddr;
-use heapless::String;
 use core::str::FromStr;
-use core::fmt::Write;
 use heapless::Vec;
 use at_commands::{builder::CommandBuilder, parser::CommandParser};
 
-/// Provides a higher level API for configuring and reading information for a given
-/// context id.
+/// Provides a higher level API for controlling a given context.
 pub struct Control<'a> {
     control: crate::Control<'a>,
     cid: u8,
 }
 
+/// Configuration for a given context
 pub struct Config<'a> {
-    pub gateway: &'a str,
+    /// Desired APN address.
+    pub apn: &'a str,
+    /// Desired authentication protocol.
     pub auth_prot: AuthProt,
+    /// Credentials.
     pub auth: Option<(&'a str, &'a str)>,
 }
 
+/// Authentication protocol.
 #[repr(u8)]
 pub enum AuthProt {
+    /// No authentication.
     None = 0,
+    /// PAP authentication.
     Pap = 1,
+    /// CHAP authentication.
     Chap = 2,
 }
 
+/// Error returned by control.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Not enough space for command.
     BufferTooSmall,
-    AtCommand,
+    /// Error parsing response from modem.
     AtParseError,
+    /// Error parsing IP addresses.
     AddrParseError,
-    Format,
 }
 
 impl From<at_commands::parser::ParseError> for Error {
@@ -41,17 +49,16 @@ impl From<at_commands::parser::ParseError> for Error {
     }
 }
 
-impl From<core::fmt::Error> for Error {
-    fn from(_: core::fmt::Error) -> Self {
-        Self::Format
-    }
-}
-
+/// Status of a given context.
 #[derive(PartialEq, Debug)]
 pub struct Status {
+    /// Attached to APN or not.
     pub attached: bool,
+    /// IP if assigned.
     pub ip: Option<IpAddr>,
+    /// Gateway if assigned.
     pub gateway: Option<IpAddr>,
+    /// DNS servers if assigned.
     pub dns: Vec<IpAddr, 2>,
 }
 
@@ -66,14 +73,12 @@ impl defmt::Format for Status {
 }
 
 impl<'a> Control<'a> {
+    /// Create a new instance of a control handle for a given context.
+    ///
+    /// Will wait for the modem to be initialized if not.
     pub async fn new(control: crate::Control<'a>, cid: u8) -> Self {
         control.wait_init().await;
         Self { control, cid }
-    }
-
-    /// Bypass modem configurator
-    pub async fn at_command(&self, req: &[u8], resp: &mut [u8]) -> usize {
-        self.control.at_command(req, resp).await
     }
 
     /// Configures the modem with the provided config.
@@ -85,7 +90,7 @@ impl<'a> Control<'a> {
             .named("+CGDCONT")
             .with_int_parameter(self.cid)
             .with_string_parameter("IP")
-            .with_string_parameter(config.gateway)
+            .with_string_parameter(config.apn)
             .finish().map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
@@ -112,6 +117,7 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
+    /// Read current connectivity status for modem.
     pub async fn status(&self) -> Result<Status, Error> {
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
@@ -134,7 +140,7 @@ impl<'a> Control<'a> {
             .with_int_parameter(self.cid)
             .finish().map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
-        let (_, ip1, ip2, ) = CommandParser::parse(&buf[..n])
+        let (_, ip1, _ip2, ) = CommandParser::parse(&buf[..n])
             .expect_identifier(b"+CGPADDR: ")
             .expect_int_parameter()
             .expect_optional_string_parameter()
@@ -154,7 +160,7 @@ impl<'a> Control<'a> {
             .with_int_parameter(self.cid)
             .finish().map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
-        let (_cid, _bid, _apn, _mask, gateway, dns1, dns2, _, _, _, _, mtu) = CommandParser::parse(&buf[..n])
+        let (_cid, _bid, _apn, _mask, gateway, dns1, dns2, _, _, _, _, _mtu) = CommandParser::parse(&buf[..n])
             .expect_identifier(b"+CGCONTRDP: ")
             .expect_int_parameter()
             .expect_optional_int_parameter()

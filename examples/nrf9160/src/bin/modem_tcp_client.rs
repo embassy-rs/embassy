@@ -7,7 +7,7 @@ use core::ptr::addr_of_mut;
 use core::str::FromStr;
 use core::slice;
 
-use defmt::{assert, info, warn, unwrap};
+use defmt::{info, warn, unwrap};
 use heapless::Vec;
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources};
@@ -93,7 +93,7 @@ async fn main(spawner: Spawner) {
 
     static mut TRACE_BUF: [u8; 4096] = [0u8; 4096];
     let mut config = uarte::Config::default();
-    config.baudrate = Baudrate::BAUD1M;
+    config.baudrate = Baudrate::BAUD115200;
     let trace_writer = TraceWriter(BufferedUarteTx::new(
         //let trace_uart = BufferedUarteTx::new(
         unsafe { peripherals::SERIAL0::steal() },
@@ -128,7 +128,7 @@ async fn main(spawner: Spawner) {
     let control = context::Control::new(control, 0).await;
 
     unwrap!(control.configure(context::Config {
-        gateway: "iot.nat.es",
+        apn: "iot.nat.es",
         auth_prot: context::AuthProt::Pap,
         auth: Some(("orange", "orange")),
     }).await);
