@@ -627,7 +627,7 @@ mod ram_helpers {
     #[link_section = ".data.ram_func"]
     #[cfg(feature = "rp2040")]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
-        //#[cfg(target_arch = "arm")]
+        #[cfg(target_arch = "arm")]
         core::arch::asm!(
             "mov r8, r0",
             "mov r9, r2",
