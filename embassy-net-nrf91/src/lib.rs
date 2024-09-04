@@ -19,12 +19,15 @@ use core::task::{Poll, Waker};
 
 use embassy_net_driver_channel as ch;
 use embassy_sync::waitqueue::{AtomicWaker, WakerRegistration};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use heapless::Vec;
 use nrf9160_pac as pac;
 use pac::NVIC;
+use embassy_sync::pipe;
 
 const RX_SIZE: usize = 8 * 1024;
 const TRACE_SIZE: usize = 16 * 1024;
+const TRACE_BUF: usize = 1024;
 const MTU: usize = 1500;
 
 /// Network driver.
@@ -91,11 +94,30 @@ impl<'a> Allocator<'a> {
 }
 
 /// Create a new nRF91 embassy-net driver.
-pub async fn new<'a, TW: embedded_io::Write>(
+pub async fn new<'a>(
     state: &'a mut State,
     shmem: &'a mut [MaybeUninit<u8>],
-    trace_writer: TW,
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, TW>) {
+) -> (NetDriver<'a>, Control<'a>, Runner<'a>) {
+    let (n, c, r, _) = new_internal(state, shmem, None).await;
+    (n, c, r)
+}
+
+/// Create a new nRF91 embassy-net driver with trace.
+pub async fn new_with_trace<'a>(
+    state: &'a mut State,
+    shmem: &'a mut [MaybeUninit<u8>],
+    trace_buffer: &'a mut TraceBuffer,
+) -> (NetDriver<'a>, Control<'a>, Runner<'a>, TraceReader<'a>) {
+    let (n, c, r, t) = new_internal(state, shmem, Some(trace_buffer)).await;
+    (n, c, r, t.unwrap())
+}
+
+/// Create a new nRF91 embassy-net driver.
+async fn new_internal<'a>(
+    state: &'a mut State,
+    shmem: &'a mut [MaybeUninit<u8>],
+    trace_buffer: Option<&'a mut TraceBuffer>,
+) -> (NetDriver<'a>, Control<'a>, Runner<'a>, Option<TraceReader<'a>>) {
     let shmem_len = shmem.len();
     let shmem_ptr = shmem.as_mut_ptr() as *mut u8;
 
@@ -205,20 +227,48 @@ pub async fn new<'a, TW: embedded_io::Write>(
     let state_ch = ch_runner.state_runner();
     state_ch.set_link_state(ch::driver::LinkState::Up);
 
+    let (trace_reader, trace_writer) = if let Some(trace) = trace_buffer {
+        let (r, w) = trace.trace.split();
+        (Some(r), Some(w))
+    } else {
+        (None, None)
+    };
+
     let runner = Runner {
         ch: ch_runner,
         state: state_inner,
         trace_writer,
     };
 
-    (device, control, runner)
+    (device, control, runner, trace_reader)
 }
 
-/// Shared state for the drivver.
+/// State holding modem traces.
+pub struct TraceBuffer {
+    trace: pipe::Pipe<NoopRawMutex, TRACE_BUF>,
+}
+
+/// Represents writer half of the trace buffer.
+pub type TraceWriter<'a> = pipe::Writer<'a, NoopRawMutex, TRACE_BUF>;
+
+/// Represents the reader half of the trace buffer.
+pub type TraceReader<'a> = pipe::Reader<'a, NoopRawMutex, TRACE_BUF>;
+
+impl TraceBuffer {
+    /// Create a new TraceBuffer.
+    pub const fn new() -> Self {
+        Self {
+            trace: pipe::Pipe::new(),
+        }
+    }
+}
+
+/// Shared state for the driver.
 pub struct State {
     ch: ch::State<MTU, 4, 4>,
     inner: MaybeUninit<RefCell<StateInner>>,
 }
+
 
 impl State {
     /// Create a new State.
@@ -272,7 +322,7 @@ struct StateInner {
 }
 
 impl StateInner {
-    fn poll(&mut self, trace_writer: &mut impl embedded_io::Write, ch: &mut ch::Runner<MTU>) {
+    fn poll(&mut self, trace_writer: &mut Option<TraceWriter<'_>>, ch: &mut ch::Runner<MTU>) {
         trace!("poll!");
         let ipc = unsafe { &*pac::IPC_NS::ptr() };
 
@@ -399,15 +449,17 @@ impl StateInner {
         });
     }
 
-    fn handle_trace(writer: &mut impl embedded_io::Write, id: u8, data: &[u8]) {
-        trace!("trace: {} {}", id, data.len());
-        let mut header = [0u8; 5];
-        header[0] = 0xEF;
-        header[1] = 0xBE;
-        header[2..4].copy_from_slice(&(data.len() as u16).to_le_bytes());
-        header[4] = id;
-        writer.write_all(&header).unwrap();
-        writer.write_all(data).unwrap();
+    fn handle_trace(writer: &mut Option<TraceWriter<'_>>, id: u8, data: &[u8]) {
+        if let Some(writer) = writer {
+            trace!("trace: {} {}", id, data.len());
+            let mut header = [0u8; 5];
+            header[0] = 0xEF;
+            header[1] = 0xBE;
+            header[2..4].copy_from_slice(&(data.len() as u16).to_le_bytes());
+            header[4] = id;
+            writer.try_write(&header).ok();
+            writer.try_write(data).ok();
+        }
     }
 
     fn process(&mut self, list: *mut List, is_control: bool, ch: &mut ch::Runner<MTU>) -> bool {
@@ -794,7 +846,7 @@ impl<'a> Control<'a> {
     /// Open the raw socket used for sending/receiving IP packets.
     ///
     /// This must be done after `AT+CFUN=1` (?)
-    pub async fn open_raw_socket(&self) {
+    async fn open_raw_socket(&self) {
         let mut msg: Message = unsafe { mem::zeroed() };
         msg.channel = 2; // data
         msg.id = 0x7001_0004; // open socket
@@ -822,13 +874,13 @@ impl<'a> Control<'a> {
 }
 
 /// Background runner for the driver.
-pub struct Runner<'a, TW: embedded_io::Write> {
+pub struct Runner<'a> {
     ch: ch::Runner<'a, MTU>,
     state: &'a RefCell<StateInner>,
-    trace_writer: TW,
+    trace_writer: Option<TraceWriter<'a>>,
 }
 
-impl<'a, TW: embedded_io::Write> Runner<'a, TW> {
+impl<'a> Runner<'a> {
     /// Run the driver operation in the background.
     ///
     /// You must run this in a background task, concurrently with all network operations.

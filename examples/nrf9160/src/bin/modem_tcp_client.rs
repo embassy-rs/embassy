@@ -4,20 +4,20 @@
 use core::mem::MaybeUninit;
 use core::net::IpAddr;
 use core::ptr::addr_of_mut;
-use core::str::FromStr;
 use core::slice;
+use core::str::FromStr;
 
-use defmt::{info, warn, unwrap};
-use heapless::Vec;
+use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources};
-use embassy_net_nrf91::{Runner, State, context};
+use embassy_net_nrf91::{context, Runner, State, TraceBuffer, TraceReader};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
 use embassy_nrf::uarte::Baudrate;
 use embassy_nrf::{bind_interrupts, interrupt, peripherals, uarte};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
+use heapless::Vec;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -30,28 +30,17 @@ bind_interrupts!(struct Irqs {
     UARTE0_SPIM0_SPIS0_TWIM0_TWIS0 => buffered_uarte::InterruptHandler<peripherals::SERIAL0>;
 });
 
-// embassy-net-nrf91 only supports blocking trace write for now.
-// We don't want to block packet processing with slow uart writes, so
-// we make an adapter that writes whatever fits in the buffer and drops
-// data if it's full.
-struct TraceWriter(BufferedUarteTx<'static, peripherals::SERIAL0>);
-
-impl embedded_io::ErrorType for TraceWriter {
-    type Error = core::convert::Infallible;
-}
-
-impl embedded_io::Write for TraceWriter {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let _ = self.0.try_write(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
+#[embassy_executor::task]
+async fn trace_task(mut uart: BufferedUarteTx<'static, peripherals::SERIAL0>, reader: TraceReader<'static>) -> ! {
+    let mut rx = [0u8; 1024];
+    loop {
+        let n = reader.read(&mut rx[..]).await;
+        unwrap!(uart.write_all(&rx[..n]).await);
     }
 }
 
 #[embassy_executor::task]
-async fn modem_task(runner: Runner<'static, TraceWriter>) -> ! {
+async fn modem_task(runner: Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -93,8 +82,8 @@ async fn main(spawner: Spawner) {
 
     static mut TRACE_BUF: [u8; 4096] = [0u8; 4096];
     let mut config = uarte::Config::default();
-    config.baudrate = Baudrate::BAUD115200;
-    let trace_writer = TraceWriter(BufferedUarteTx::new(
+    config.baudrate = Baudrate::BAUD1M;
+    let uart = BufferedUarteTx::new(
         //let trace_uart = BufferedUarteTx::new(
         unsafe { peripherals::SERIAL0::steal() },
         Irqs,
@@ -102,11 +91,14 @@ async fn main(spawner: Spawner) {
         //unsafe { peripherals::P0_14::steal() },
         config,
         unsafe { &mut *addr_of_mut!(TRACE_BUF) },
-    ));
+    );
 
     static STATE: StaticCell<State> = StaticCell::new();
-    let (device, control, runner) = embassy_net_nrf91::new(STATE.init(State::new()), ipc_mem, trace_writer).await;
+    static TRACE: StaticCell<TraceBuffer> = StaticCell::new();
+    let (device, control, runner, tracer) =
+        embassy_net_nrf91::new_with_trace(STATE.init(State::new()), ipc_mem, TRACE.init(TraceBuffer::new())).await;
     unwrap!(spawner.spawn(modem_task(runner)));
+    unwrap!(spawner.spawn(trace_task(uart, tracer)));
 
     let config = embassy_net::Config::default();
 
@@ -127,11 +119,15 @@ async fn main(spawner: Spawner) {
 
     let control = context::Control::new(control, 0).await;
 
-    unwrap!(control.configure(context::Config {
-        apn: "iot.nat.es",
-        auth_prot: context::AuthProt::Pap,
-        auth: Some(("orange", "orange")),
-    }).await);
+    unwrap!(
+        control
+            .configure(context::Config {
+                apn: "iot.nat.es",
+                auth_prot: context::AuthProt::Pap,
+                auth: Some(("orange", "orange")),
+            })
+            .await
+    );
 
     info!("waiting for attach...");
 
