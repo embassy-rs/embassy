@@ -870,6 +870,21 @@ impl<'a> Control<'a> {
         trace!("got FD: {}", fd);
         fd
     }
+
+    async fn close_raw_socket(&self, fd: u32) {
+        let mut msg: Message = unsafe { mem::zeroed() };
+        msg.channel = 2; // data
+        msg.id = 0x7009_0004; // close socket
+        msg.param_len = 8;
+        msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
+
+        self.request(&mut msg, &[], &mut []).await;
+
+        assert_eq!(msg.id, 0x80090004);
+        assert!(msg.param_len >= 12);
+        let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
+        assert_eq!(status, 0);
+    }
 }
 
 /// Background runner for the driver.

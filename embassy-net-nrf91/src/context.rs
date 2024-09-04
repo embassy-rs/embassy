@@ -4,8 +4,8 @@ use core::str::FromStr;
 
 use at_commands::builder::CommandBuilder;
 use at_commands::parser::CommandParser;
+use embassy_time::{Duration, Timer};
 use heapless::Vec;
-use embassy_time::{Timer, Duration};
 
 /// Provides a higher level API for controlling a given context.
 pub struct Control<'a> {
@@ -128,8 +128,6 @@ impl<'a> Control<'a> {
             .map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
-
-
 
         Ok(())
     }
@@ -289,13 +287,13 @@ impl<'a> Control<'a> {
 
         loop {
             if !self.attached().await? {
-                // TODO: self.control.close_raw_socket(fd).await;
+                self.control.close_raw_socket(fd).await;
                 self.attach().await?;
                 while !self.attached().await? {
                     Timer::after(Duration::from_secs(1)).await;
                 }
                 let status = self.status().await?;
-                // TODO: let mut fd = self.control.open_raw_socket().await;
+                fd = self.control.open_raw_socket().await;
                 reattach(&status);
             }
             Timer::after(Duration::from_secs(10)).await;

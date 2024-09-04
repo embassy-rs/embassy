@@ -193,5 +193,7 @@ async fn main(spawner: Spawner) {
             info!("txd: {}", core::str::from_utf8(msg).unwrap());
             Timer::after_secs(1).await;
         }
+        // Test auto-attach
+        unwrap!(control.detach().await);
     }
 }
