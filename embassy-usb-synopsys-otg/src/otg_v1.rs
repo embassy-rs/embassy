@@ -795,15 +795,15 @@ pub mod regs {
         pub fn set_sd0pid_sevnfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 28usize)) | (((val as u32) & 0x01) << 28usize);
         }
-        #[doc = "SODDFRM/SD1PID"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub const fn soddfrm_sd1pid(&self) -> bool {
+        pub const fn sd1pid_soddfrm(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
         }
-        #[doc = "SODDFRM/SD1PID"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub fn set_soddfrm_sd1pid(&mut self, val: bool) {
+        pub fn set_sd1pid_soddfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 29usize)) | (((val as u32) & 0x01) << 29usize);
         }
         #[doc = "EPDIS"]
@@ -1174,15 +1174,15 @@ pub mod regs {
         pub fn set_sd0pid_sevnfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 28usize)) | (((val as u32) & 0x01) << 28usize);
         }
-        #[doc = "SODDFRM"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub const fn soddfrm(&self) -> bool {
+        pub const fn sd1pid_soddfrm(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
         }
-        #[doc = "SODDFRM"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub fn set_soddfrm(&mut self, val: bool) {
+        pub fn set_sd1pid_soddfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 29usize)) | (((val as u32) & 0x01) << 29usize);
         }
         #[doc = "EPDIS"]
