@@ -28,16 +28,16 @@ pin_trait!(Channel1Pin, Instance);
 pin_trait!(Channel2Pin, Instance);
 
 pub(crate) trait SealedInstance: RccPeripheral {
-    fn regs() -> crate::pac::lptim::LptimAdv;
+    fn regs() -> crate::pac::lptim::Lptim;
 }
 
 /// LPTIM instance trait.
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + 'static {}
 foreach_interrupt! {
-    ($inst:ident, lptim, LPTIM_ADV, GLOBAL, $irq:ident) => {
+    ($inst:ident, lptim, LPTIM, UP, $irq:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
-            fn regs() -> crate::pac::lptim::LptimAdv {
+            fn regs() -> crate::pac::lptim::Lptim {
                 crate::pac::$inst
             }
         }

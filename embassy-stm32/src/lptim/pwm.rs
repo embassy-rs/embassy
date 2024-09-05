@@ -66,6 +66,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
         this.inner.enable();
         this.set_frequency(freq);
 
+        #[cfg(any(lptim_v2a, lptim_v2b))]
         [Channel::Ch1, Channel::Ch2].iter().for_each(|&channel| {
             this.inner.set_channel_direction(channel, ChannelDirection::OutputPwm);
         });

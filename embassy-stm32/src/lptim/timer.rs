@@ -8,6 +8,7 @@ use crate::rcc;
 use crate::time::Hertz;
 
 /// Direction of a low-power timer channel
+#[cfg(any(lptim_v2a, lptim_v2b))]
 pub enum ChannelDirection {
     /// Use channel as a PWM output
     OutputPwm,
@@ -15,6 +16,7 @@ pub enum ChannelDirection {
     InputCapture,
 }
 
+#[cfg(any(lptim_v2a, lptim_v2b))]
 impl From<ChannelDirection> for vals::Ccsel {
     fn from(direction: ChannelDirection) -> Self {
         match direction {
@@ -147,9 +149,10 @@ impl<'d, T: Instance> Timer<'d, T> {
     }
 
     /// Set channel direction.
+    #[cfg(any(lptim_v2a, lptim_v2b))]
     pub fn set_channel_direction(&self, channel: Channel, direction: ChannelDirection) {
         T::regs()
-            .ccmr()
+            .ccmr(0)
             .modify(|w| w.set_ccsel(channel.index(), direction.into()));
     }
 
@@ -185,14 +188,14 @@ impl<'d, T: Instance> Timer<'d, T> {
 
     /// Enable/disable a channel.
     pub fn enable_channel(&self, channel: Channel, enable: bool) {
-        T::regs().ccmr().modify(|w| {
+        T::regs().ccmr(0).modify(|w| {
             w.set_cce(channel.index(), enable);
         });
     }
 
     /// Get enable/disable state of a channel
     pub fn get_channel_enable_state(&self, channel: Channel) -> bool {
-        T::regs().ccmr().read().cce(channel.index())
+        T::regs().ccmr(0).read().cce(channel.index())
     }
 
     /// Set compare value for a channel.
