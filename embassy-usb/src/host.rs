@@ -30,7 +30,39 @@ impl SetupPacket {
     }
 }
 
+#[cfg(feature = "defmt")]
 defmt::bitflags! {
+    /// RequestType bitfields for the setup packet
+    pub struct RequestType: u8 {
+        // Recipient
+        /// The request is intended for the entire device.
+        const RECIPIENT_DEVICE    = 0;
+        /// The request is intended for an interface.
+        const RECIPIENT_INTERFACE = 1;
+        /// The request is intended for an endpoint.
+        const RECIPIENT_ENDPOINT  = 2;
+        /// The recipient of the request is unspecified.
+        const RECIPIENT_OTHER     = 3;
+
+        // Type
+        /// The request is a standard USB request.
+        const TYPE_STANDARD = 0 << 5;
+        /// The request is a class-specific request.
+        const TYPE_CLASS    = 1 << 5;
+        /// The request is a vendor-specific request.
+        const TYPE_VENDOR   = 2 << 5;
+        /// Reserved.
+        const TYPE_RESERVED = 3 << 5;
+        // Direction
+        /// The request will send data to the device.
+        const OUT = 0 << 7;
+        /// The request expects to receive data from the device.
+        const IN  = 1 << 7;
+    }
+}
+
+#[cfg(not(feature = "defmt"))]
+bitflags::bitflags! {
     /// RequestType bitfields for the setup packet
     pub struct RequestType: u8 {
         // Recipient
