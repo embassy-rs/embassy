@@ -6,24 +6,12 @@ pub mod timer;
 use crate::rcc::RccPeripheral;
 
 /// Timer channel.
-#[derive(Clone, Copy)]
-pub enum Channel {
-    /// Channel 1.
-    Ch1,
-    /// Channel 2.
-    Ch2,
-}
+#[cfg(any(lptim_v2a, lptim_v2b))]
+mod channel;
+#[cfg(any(lptim_v2a, lptim_v2b))]
+pub use channel::Channel;
 
-impl Channel {
-    /// Get the channel index (0..1)
-    pub fn index(&self) -> usize {
-        match self {
-            Channel::Ch1 => 0,
-            Channel::Ch2 => 1,
-        }
-    }
-}
-
+pin_trait!(OutputPin, Instance);
 pin_trait!(Channel1Pin, Instance);
 pin_trait!(Channel2Pin, Instance);
 
