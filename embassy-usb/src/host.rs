@@ -63,6 +63,7 @@ defmt::bitflags! {
 
 #[cfg(not(feature = "defmt"))]
 bitflags::bitflags! {
+    #[derive(Copy, Clone, Eq, PartialEq, Debug)]
     /// RequestType bitfields for the setup packet
     pub struct RequestType: u8 {
         // Recipient
