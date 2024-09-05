@@ -1016,7 +1016,7 @@ fn main() {
         (("hrtim", "CHF1"), quote!(crate::hrtim::ChannelFPin)),
         (("hrtim", "CHF2"), quote!(crate::hrtim::ChannelFComplementaryPin)),
         (("lptim", "CH1"), quote!(crate::lptim::Channel1Pin)),
-        (("lptim", "CH2"), quote!(crate::lptim::Channel1Pin)),
+        (("lptim", "CH2"), quote!(crate::lptim::Channel2Pin)),
         (("lptim", "OUT"), quote!(crate::lptim::OutputPin)),
         (("sdmmc", "CK"), quote!(crate::sdmmc::CkPin)),
         (("sdmmc", "CMD"), quote!(crate::sdmmc::CmdPin)),
