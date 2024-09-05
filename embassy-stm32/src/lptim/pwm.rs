@@ -5,11 +5,11 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::timer::Timer;
-use super::Instance;
 #[cfg(not(any(lptim_v2a, lptim_v2b)))]
 use super::OutputPin;
 #[cfg(any(lptim_v2a, lptim_v2b))]
 use super::{channel::Channel, timer::ChannelDirection, Channel1Pin, Channel2Pin};
+use super::{BasicInstance, Instance};
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -31,7 +31,7 @@ pub struct PwmPin<'d, T, C> {
 
 macro_rules! channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: Instance> PwmPin<'d, T, $channel> {
+        impl<'d, T: BasicInstance> PwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
             pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd) -> Self {
                 into_ref!(pin);
