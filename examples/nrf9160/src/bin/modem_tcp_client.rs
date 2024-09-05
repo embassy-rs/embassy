@@ -56,9 +56,10 @@ async fn control_task(
     config: context::Config<'static>,
     stack: &'static Stack<embassy_net_nrf91::NetDriver<'static>>,
 ) {
+    unwrap!(control.configure(&config).await);
     unwrap!(
         control
-            .run(&config, |status| {
+            .run(|status| {
                 stack.set_config_v4(status_to_config(status));
             })
             .await

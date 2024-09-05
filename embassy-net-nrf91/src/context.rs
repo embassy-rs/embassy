@@ -284,8 +284,7 @@ impl<'a> Control<'a> {
     }
 
     /// Run a control loop for this context, ensuring that reaattach is handled.
-    pub async fn run<F: Fn(&Status)>(&self, config: &Config<'_>, reattach: F) -> Result<(), Error> {
-        self.configure(config).await?;
+    pub async fn run<F: Fn(&Status)>(&self, reattach: F) -> Result<(), Error> {
         let status = self.wait_attached().await?;
         let mut fd = self.control.open_raw_socket().await;
         reattach(&status);
