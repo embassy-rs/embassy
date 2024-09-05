@@ -118,7 +118,6 @@ async fn main(_spawner: Spawner) {
     driver.start();
     let mut host = UsbHost::new(driver);
 
-    // loop {
     host.wait_for_device().await;
 
     let (_device_desc, cfg_desc) = host.enumerate().await.unwrap();
