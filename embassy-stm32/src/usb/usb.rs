@@ -1,7 +1,7 @@
 #![macro_use]
 
-#[cfg_attr(usb_v4, path = "usb_host.rs")]
-mod host;
+#[cfg(usb_v4)]
+mod usb_host;
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -15,7 +15,7 @@ use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 #[cfg(usb_v4)]
-pub use host::*;
+pub use usb_host::*;
 
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
