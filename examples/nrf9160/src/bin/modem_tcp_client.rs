@@ -10,6 +10,7 @@ use core::str::FromStr;
 use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{context, Runner, State, TraceBuffer, TraceReader};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
@@ -58,32 +59,36 @@ async fn control_task(
     unwrap!(
         control
             .run(&config, |status| {
-                let Some(IpAddr::V4(addr)) = status.ip else {
-                    panic!("Unexpected IP address");
-                };
-                let addr = Ipv4Address(addr.octets());
-
-                let gateway = if let Some(IpAddr::V4(addr)) = status.gateway {
-                    Some(Ipv4Address(addr.octets()))
-                } else {
-                    None
-                };
-
-                let mut dns_servers = Vec::new();
-                for dns in status.dns.iter() {
-                    if let IpAddr::V4(ip) = dns {
-                        unwrap!(dns_servers.push(Ipv4Address(ip.octets())));
-                    }
-                }
-
-                stack.set_config_v4(embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
-                    address: Ipv4Cidr::new(addr, 32),
-                    gateway,
-                    dns_servers,
-                }));
+                stack.set_config_v4(status_to_config(status));
             })
             .await
     );
+}
+
+fn status_to_config(status: &Status) -> embassy_net::ConfigV4 {
+    let Some(IpAddr::V4(addr)) = status.ip else {
+        panic!("Unexpected IP address");
+    };
+    let addr = Ipv4Address(addr.octets());
+
+    let gateway = if let Some(IpAddr::V4(addr)) = status.gateway {
+        Some(Ipv4Address(addr.octets()))
+    } else {
+        None
+    };
+
+    let mut dns_servers = Vec::new();
+    for dns in status.dns.iter() {
+        if let IpAddr::V4(ip) = dns {
+            unwrap!(dns_servers.push(Ipv4Address(ip.octets())));
+        }
+    }
+
+    embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
+        address: Ipv4Cidr::new(addr, 32),
+        gateway,
+        dns_servers,
+    })
 }
 
 #[embassy_executor::task]
@@ -193,7 +198,6 @@ async fn main(spawner: Spawner) {
             info!("txd: {}", core::str::from_utf8(msg).unwrap());
             Timer::after_secs(1).await;
         }
-        // Test auto-attach
-        unwrap!(control.detach().await);
+        Timer::after_secs(4).await;
     }
 }

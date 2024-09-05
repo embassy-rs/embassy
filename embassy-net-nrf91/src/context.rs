@@ -275,24 +275,28 @@ impl<'a> Control<'a> {
         })
     }
 
-    /// Run a control loop for this context, ensuring that reaattach is handled.
-    pub async fn run<F: Fn(&Status)>(&self, config: &Config<'_>, reattach: F) -> Result<(), Error> {
-        self.configure(config).await?;
+    async fn wait_attached(&self) -> Result<Status, Error> {
         while !self.attached().await? {
             Timer::after(Duration::from_secs(1)).await;
         }
         let status = self.status().await?;
+        Ok(status)
+    }
+
+    /// Run a control loop for this context, ensuring that reaattach is handled.
+    pub async fn run<F: Fn(&Status)>(&self, config: &Config<'_>, reattach: F) -> Result<(), Error> {
+        self.configure(config).await?;
+        let status = self.wait_attached().await?;
         let mut fd = self.control.open_raw_socket().await;
         reattach(&status);
 
         loop {
             if !self.attached().await? {
+                trace!("detached");
+
                 self.control.close_raw_socket(fd).await;
-                self.attach().await?;
-                while !self.attached().await? {
-                    Timer::after(Duration::from_secs(1)).await;
-                }
-                let status = self.status().await?;
+                let status = self.wait_attached().await?;
+                trace!("attached");
                 fd = self.control.open_raw_socket().await;
                 reattach(&status);
             }
