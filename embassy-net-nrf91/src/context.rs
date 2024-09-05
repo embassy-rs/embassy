@@ -86,6 +86,11 @@ impl<'a> Control<'a> {
         Self { control, cid }
     }
 
+    /// Perform a raw AT command
+    pub async fn at_command(&self, req: &[u8], resp: &mut [u8]) -> usize {
+        self.control.at_command(req, resp).await
+    }
+
     /// Configures the modem with the provided config.
     pub async fn configure(&self, config: &Config<'_>) -> Result<(), Error> {
         let mut cmd: [u8; 256] = [0; 256];
