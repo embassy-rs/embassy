@@ -51,6 +51,96 @@ channel_impl!(new_ch2, Ch2, Channel2Pin);
 channel_impl!(new_ch3, Ch3, Channel3Pin);
 channel_impl!(new_ch4, Ch4, Channel4Pin);
 
+/// A single channel of a pwm, obtained from [`SimplePwm::split`].
+///
+/// It is not possible to change the pwm frequency because
+/// the frequency configuration is shared with all four channels.
+pub struct SimplePwmChannel<'d, T: GeneralInstance4Channel> {
+    timer: &'d Timer<'d, T>,
+    channel: Channel,
+}
+
+// TODO: check for RMW races
+impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
+    /// Enable the given channel.
+    pub fn enable(&mut self) {
+        self.timer.enable_channel(self.channel, true);
+    }
+
+    /// Disable the given channel.
+    pub fn disable(&mut self) {
+        self.timer.enable_channel(self.channel, false);
+    }
+
+    /// Check whether given channel is enabled
+    pub fn is_enabled(&self) -> bool {
+        self.timer.get_channel_enable_state(self.channel)
+    }
+
+    /// Get max duty value.
+    ///
+    /// This value depends on the configured frequency and the timer's clock rate from RCC.
+    pub fn get_max_duty(&self) -> u32 {
+        self.timer.get_max_compare_value() + 1
+    }
+
+    /// Set the duty for a given channel.
+    ///
+    /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
+    pub fn set_duty(&mut self, duty: u32) {
+        assert!(duty <= self.get_max_duty());
+        self.timer.set_compare_value(self.channel, duty)
+    }
+
+    /// Get the duty for a given channel.
+    ///
+    /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
+    pub fn get_duty(&self) -> u32 {
+        self.timer.get_compare_value(self.channel)
+    }
+
+    /// Set the output polarity for a given channel.
+    pub fn set_polarity(&mut self, polarity: OutputPolarity) {
+        self.timer.set_output_polarity(self.channel, polarity);
+    }
+
+    /// Set the output compare mode for a given channel.
+    pub fn set_output_compare_mode(&mut self, mode: OutputCompareMode) {
+        self.timer.set_output_compare_mode(self.channel, mode);
+    }
+}
+
+/// A group of four [`SimplePwmChannel`]s, obtained from [`SimplePwm::split`].
+pub struct SimplePwmChannels<'d, T: GeneralInstance4Channel> {
+    /// Channel 1
+    pub ch1: SimplePwmChannel<'d, T>,
+    /// Channel 2
+    pub ch2: SimplePwmChannel<'d, T>,
+    /// Channel 3
+    pub ch3: SimplePwmChannel<'d, T>,
+    /// Channel 4
+    pub ch4: SimplePwmChannel<'d, T>,
+}
+
+impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::ErrorType for SimplePwmChannel<'d, T> {
+    type Error = core::convert::Infallible;
+}
+
+impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::SetDutyCycle for SimplePwmChannel<'d, T> {
+    fn max_duty_cycle(&self) -> u16 {
+        // TODO: panics if CCR is 0xFFFF
+        // TODO: rename get_max_duty to max_duty_cycle
+        unwrap!(self.get_max_duty().try_into())
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        self.set_duty(duty.into());
+        Ok(())
+    }
+
+    // TODO: default methods?
+}
+
 /// Simple PWM driver.
 pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
@@ -87,6 +177,28 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             });
 
         this
+    }
+
+    fn channel(&self, channel: Channel) -> SimplePwmChannel<'_, T> {
+        SimplePwmChannel {
+            timer: &self.inner,
+            channel,
+        }
+    }
+
+    /// Splits a [`SimplePwm`] into four pwm channels.
+    ///
+    /// This returns all four channels, including channels that
+    /// aren't configured with a [`PwmPin`].
+    // TODO: I hate the name "split"
+    pub fn split(&mut self) -> SimplePwmChannels<'_, T> {
+        // TODO: pre-enable channels?
+        SimplePwmChannels {
+            ch1: self.channel(Channel::Ch1),
+            ch2: self.channel(Channel::Ch2),
+            ch3: self.channel(Channel::Ch3),
+            ch4: self.channel(Channel::Ch4),
+        }
     }
 
     /// Enable the given channel.
