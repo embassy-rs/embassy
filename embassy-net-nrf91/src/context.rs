@@ -92,9 +92,20 @@ impl<'a> Control<'a> {
     }
 
     /// Configures the modem with the provided config.
+    ///
+    /// NOTE: This will disconnect the modem from any current APN and should not
+    /// be called if the configuration has not been changed.
     pub async fn configure(&self, config: &Config<'_>) -> Result<(), Error> {
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
+
+        let op = CommandBuilder::create_set(&mut cmd, true)
+            .named("+CFUN")
+            .with_int_parameter(0)
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
         let op = CommandBuilder::create_set(&mut cmd, true)
             .named("+CGDCONT")
@@ -104,6 +115,7 @@ impl<'a> Control<'a> {
             .finish()
             .map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
+        // info!("RES1: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
         let mut op = CommandBuilder::create_set(&mut cmd, true)
@@ -116,6 +128,7 @@ impl<'a> Control<'a> {
         let op = op.finish().map_err(|_| Error::BufferTooSmall)?;
 
         let n = self.control.at_command(op, &mut buf).await;
+        // info!("RES2: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
         let op = CommandBuilder::create_set(&mut cmd, true)
