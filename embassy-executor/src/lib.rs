@@ -1,5 +1,4 @@
 #![cfg_attr(not(any(feature = "arch-std", feature = "arch-wasm")), no_std)]
-#![cfg_attr(feature = "nightly", feature(waker_getters))]
 #![allow(clippy::new_without_default)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
