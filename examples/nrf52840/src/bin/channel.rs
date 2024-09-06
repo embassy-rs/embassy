@@ -35,8 +35,8 @@ async fn main(spawner: Spawner) {
 
     loop {
         match CHANNEL.receive().await {
-            LedState::On => led.set_high(),
-            LedState::Off => led.set_low(),
+            LedState::On => led.set_low(),
+            LedState::Off => led.set_high(),
         }
     }
 }
