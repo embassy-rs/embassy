@@ -50,8 +50,7 @@ pub fn task_from_waker(waker: &Waker) -> TaskRef {
 
         #[cfg(feature = "nightly")]
         {
-            let raw_waker = waker.as_raw();
-            (raw_waker.vtable(), raw_waker.data())
+            (waker.vtable(), waker.data())
         }
     };
 
