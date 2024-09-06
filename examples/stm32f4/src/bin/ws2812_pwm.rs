@@ -84,7 +84,7 @@ async fn main(_spawner: Spawner) {
     let pwm_channel = Channel::Ch1;
 
     // make sure PWM output keep low on first start
-    ws2812_pwm.channel(pwm_channel).set_duty(0);
+    ws2812_pwm.channel(pwm_channel).set_duty_cycle(0);
 
     // flip color at 2 Hz
     let mut ticker = Ticker::every(Duration::from_millis(500));

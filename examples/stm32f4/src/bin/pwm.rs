@@ -6,7 +6,6 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::timer::Channel;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -28,7 +27,7 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(300).await;
         ch1.set_duty_cycle_fraction(1, 4);
         Timer::after_millis(300).await;
-        ch1.set_dutycycle_fraction(1, 2);
+        ch1.set_duty_cycle_fraction(1, 2);
         Timer::after_millis(300).await;
         ch1.set_duty_cycle(ch1.max_duty_cycle() - 1);
         Timer::after_millis(300).await;

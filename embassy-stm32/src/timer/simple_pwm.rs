@@ -129,7 +129,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     /// Get the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`max_duty_cycle`](Self::max_duty_cycle) for 100% duty, both included.
-    pub fn get_duty(&self) -> u16 {
+    pub fn current_duty_cycle(&self) -> u16 {
         unwrap!(self.timer.get_compare_value(self.channel).try_into())
     }
 
@@ -300,7 +300,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
 
-        let original_duty_state = self.channel(channel).get_duty();
+        let original_duty_state = self.channel(channel).current_duty_cycle();
         let original_enable_state = self.channel(channel).is_enabled();
         let original_update_dma_state = self.inner.get_update_dma_state();
 
@@ -370,7 +370,7 @@ macro_rules! impl_waveform_chx {
 
                 let cc_channel = Channel::$cc_ch;
 
-                let original_duty_state = self.channel(cc_channel).get_duty();
+                let original_duty_state = self.channel(cc_channel).current_duty_cycle();
                 let original_enable_state = self.channel(cc_channel).is_enabled();
                 let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ONUPDATE;
                 let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
