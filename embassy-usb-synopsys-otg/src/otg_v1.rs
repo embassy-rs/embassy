@@ -196,10 +196,51 @@ impl Otg {
     pub fn cid(self) -> Reg<regs::Cid, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x3cusize) as _) }
     }
+    #[doc = "Synopsis ID Register"]
+    #[inline(always)]
+    pub const fn snpsid(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x40usize) as _) }
+    }
+    // TODO: https://github.com/nfeske/dwc_otg/blob/177687793c884a9ffc2e5b08acf99cf75990a88c/dwc_otg/dwc_otg_regs.h#L724
+    #[doc = "User HW Config 1 register"]
+    #[inline(always)]
+    pub const fn hwcfg1(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x44usize) as _) }
+    }
+    #[doc = "User HW Config 2 register"]
+    #[inline(always)]
+    pub const fn hwcfg2(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x48usize) as _) }
+    }
+    #[doc = "User HW Config 3 register"]
+    #[inline(always)]
+    pub const fn hwcfg3(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x4cusize) as _) }
+    }
+    #[doc = "User HW Config 4 register"]
+    #[inline(always)]
+    pub const fn hwcfg4(self) -> Reg<u32, R> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x50usize) as _) }
+    }
     #[doc = "OTG core LPM configuration register"]
     #[inline(always)]
     pub fn glpmcfg(self) -> Reg<regs::Glpmcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x54usize) as _) }
+    }
+    #[doc = "Global PowerDn Register"]
+    #[inline(always)]
+    pub const fn gpwrdn(self) -> Reg<u32, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x58usize) as _) }
+    }
+    #[doc = "Global DFIFO SW Config Register"]
+    #[inline(always)]
+    pub const fn gdfifocfg(self) -> Reg<u32, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x5cusize) as _) }
+    }
+    #[doc = "ADP (Attach Detection Protocol) Control Register"]
+    #[inline(always)]
+    pub const fn adpctl(self) -> Reg<regs::AdpCtl, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x60usize) as _) }
     }
     #[doc = "Host periodic transmit FIFO size register"]
     #[inline(always)]
@@ -277,7 +318,7 @@ impl Otg {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0510usize + n * 32usize) as _) }
     }
-    #[doc = "Host channel DMA address register (config)"]
+    #[doc = "Host channel DMA address register (config for scatter/gather)"]
     #[inline(always)]
     pub const fn hcdma(self, n: usize) -> Reg<regs::Hcdma, RW> {
         assert!(n < 12usize);
@@ -413,11 +454,6 @@ pub mod regs {
             let val = (self.0 >> 0usize) & 0xffff_ffff;
             val as u32
         }
-        #[doc = "Product ID field"]
-        #[inline(always)]
-        pub fn set_product_id(&mut self, val: u32) {
-            self.0 = (self.0 & !(0xffff_ffff << 0usize)) | (((val as u32) & 0xffff_ffff) << 0usize);
-        }
     }
     impl Default for Cid {
         #[inline(always)]
@@ -425,6 +461,160 @@ pub mod regs {
             Cid(0)
         }
     }
+
+    #[doc = "Core ID register"]
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct AdpCtl(pub u32);
+    impl AdpCtl {
+        #[doc = "Probe Discharge time (times for TADP_DSCHG)"]
+        #[inline(always)]
+        pub const fn prb_dschg(&self) -> u8 {
+            self.0 as u8 & 0b11
+        }
+        #[doc = "Probe Discharge time (times for TADP_DSCHG)"]
+        #[inline(always)]
+        pub fn set_prb_dschg(&mut self, val: u8) {
+            self.0 = (self.0 & !(0b11u32)) | ((val as u32) & 0b11);
+        }
+        #[doc = "Probe Delta (resolution for RTIM)"]
+        #[inline(always)]
+        pub const fn prb_delta(&self) -> u8 {
+            (self.0 >> 2) as u8 & 0b11
+        }
+        #[doc = "Probe Delta (resolution for RTIM)"]
+        #[inline(always)]
+        pub fn set_prb_delta(&mut self, val: u8) {
+            self.0 = (self.0 & !(0b11 << 2)) | (((val as u32) & 0b11) << 2usize);
+        }
+        #[doc = "Probe Period (TADP_PRD)"]
+        #[inline(always)]
+        pub const fn prb_per(&self) -> u8 {
+            (self.0 >> 4) as u8 & 0b11
+        }
+        #[doc = "Probe Period (TADP_PRD)"]
+        #[inline(always)]
+        pub fn set_prb_per(&mut self, val: u8) {
+            self.0 = (self.0 & !(0b11 << 4)) | (((val as u32) & 0b11) << 4usize);
+        }
+        #[doc = "Probe Period (TADP_PRD)"]
+        #[inline(always)]
+        pub const fn rtim(&self) -> u16 {
+            (self.0 >> 6) as u16 & 0x7ff
+        }
+        #[doc = "Probe Period (TADP_PRD)"]
+        #[inline(always)]
+        pub fn set_rtim(&mut self, val: u16) {
+            self.0 = (self.0 & !(0x7ff << 6)) | (((val as u32) & 0x7ff) << 6usize);
+        }
+        #[doc = "Enable Probe"]
+        #[inline(always)]
+        pub const fn enaprb(&self) -> bool {
+            (self.0 >> 17) & 0b1 != 0
+        }
+        #[doc = "Enable Probe"]
+        #[inline(always)]
+        pub fn set_enaprb(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 17)) | ((val as u32) << 17usize);
+        }
+        #[doc = "Enable Sense"]
+        #[inline(always)]
+        pub const fn enasns(&self) -> bool {
+            (self.0 >> 18) & 0b1 != 0
+        }
+        #[doc = "Enable Sense"]
+        #[inline(always)]
+        pub fn set_enasns(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 18)) | ((val as u32) << 18usize);
+        }
+        #[doc = "ADP Reset"]
+        #[inline(always)]
+        pub const fn adpres(&self) -> bool {
+            (self.0 >> 19) & 0b1 != 0
+        }
+        #[doc = "ADP Reset"]
+        #[inline(always)]
+        pub fn set_adpres(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 19)) | ((val as u32) << 19usize);
+        }
+        #[doc = "ADP Enable"]
+        #[inline(always)]
+        pub const fn adpen(&self) -> bool {
+            (self.0 >> 20) & 0b1 != 0
+        }
+        #[doc = "ADP Enable"]
+        #[inline(always)]
+        pub fn set_adpen(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 20)) | ((val as u32) << 20usize);
+        }
+        #[doc = "ADP Probe Interrupt Enable"]
+        #[inline(always)]
+        pub const fn adp_prb_int(&self) -> bool {
+            (self.0 >> 21) & 0b1 != 0
+        }
+        #[doc = "ADP Probe Interrupt Enable"]
+        #[inline(always)]
+        pub fn set_adp_prb_int(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 21)) | ((val as u32) << 21usize);
+        }
+        #[doc = "ADP Sense Interrupt Enable"]
+        #[inline(always)]
+        pub const fn adp_sns_int(&self) -> bool {
+            (self.0 >> 22) & 0b1 != 0
+        }
+        #[doc = "ADP Sense Interrupt Enable"]
+        #[inline(always)]
+        pub fn set_adp_sns_int(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 22)) | ((val as u32) << 22usize);
+        }
+        #[doc = "ADP Timeout Interrupt Enable"]
+        #[inline(always)]
+        pub const fn adp_tmout_int(&self) -> bool {
+            (self.0 >> 23) & 0b1 != 0
+        }
+        #[doc = "ADP Timeout Interrupt Enable"]
+        #[inline(always)]
+        pub fn set_adp_tmout_int(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 23)) | ((val as u32) << 23usize);
+        }
+        #[doc = "ADP Probe Interrupt Mask"]
+        #[inline(always)]
+        pub const fn adp_prb_msk(&self) -> bool {
+            (self.0 >> 24) & 0b1 != 0
+        }
+        #[doc = "ADP Probe Interrupt Mask"]
+        #[inline(always)]
+        pub fn set_adp_prb_msk(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 24)) | ((val as u32) << 24usize);
+        }
+        #[doc = "ADP Timeout Interrupt Mask"]
+        #[inline(always)]
+        pub const fn adp_tmout_msk(&self) -> bool {
+            (self.0 >> 25) & 0b1 != 0
+        }
+        #[doc = "ADP Timeout Interrupt Mask"]
+        #[inline(always)]
+        pub fn set_adp_tmout_msk(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 25)) | ((val as u32) << 25usize);
+        }
+        #[doc = "Access Request"]
+        #[inline(always)]
+        pub const fn ar(&self) -> u8 {
+            (self.0 >> 26) as u8 & 0b11
+        }
+        #[doc = "Access Request"]
+        #[inline(always)]
+        pub fn set_ar(&mut self, val: u8) {
+            self.0 = (self.0 & !(0b11 << 26)) | ((val as u32) << 26usize);
+        }
+    }
+    impl Default for AdpCtl {
+        #[inline(always)]
+        fn default() -> AdpCtl {
+            AdpCtl(0)
+        }
+    }
+
     #[doc = "Device all endpoints interrupt register"]
     #[repr(transparent)]
     #[derive(Copy, Clone, Eq, PartialEq)]
