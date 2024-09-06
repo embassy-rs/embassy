@@ -16,11 +16,11 @@ pub struct Control<'a> {
 /// Configuration for a given context
 pub struct Config<'a> {
     /// Desired APN address.
-    pub apn: &'a str,
+    pub apn: &'a [u8],
     /// Desired authentication protocol.
     pub auth_prot: AuthProt,
     /// Credentials.
-    pub auth: Option<(&'a str, &'a str)>,
+    pub auth: Option<(&'a [u8], &'a [u8])>,
 }
 
 /// Authentication protocol.

@@ -166,9 +166,9 @@ async fn main(spawner: Spawner) {
     unwrap!(spawner.spawn(control_task(
         control,
         context::Config {
-            apn: "iot.nat.es",
+            apn: b"iot.nat.es",
             auth_prot: context::AuthProt::Pap,
-            auth: Some(("orange", "orange")),
+            auth: Some((b"orange", b"orange")),
         },
         stack
     )));
