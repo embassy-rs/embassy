@@ -95,14 +95,20 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.timer.set_compare_value(self.channel, duty.into())
     }
 
+    /// Set the duty cycle to 0%, or always inactive.
     pub fn set_duty_cycle_fully_off(&mut self) {
         self.set_duty_cycle(0);
     }
 
+    /// Set the duty cycle to 100%, or always active.
     pub fn set_duty_cycle_fully_on(&mut self) {
         self.set_duty_cycle((*self).max_duty_cycle());
     }
 
+    /// Set the duty cycle to `num / denom`.
+    ///
+    /// The caller is responsible for ensuring that `num` is less than or equal to `denom`,
+    /// and that `denom` is not zero.
     pub fn set_duty_cycle_fraction(&mut self, num: u16, denom: u16) {
         assert!(denom != 0);
         assert!(num <= denom);
@@ -113,6 +119,9 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.set_duty_cycle(duty as u16);
     }
 
+    /// Set the duty cycle to `percent / 100`
+    ///
+    /// The caller is responsible for ensuring that `percent` is less than or equal to 100.
     pub fn set_duty_cycle_percent(&mut self, percent: u8) {
         self.set_duty_cycle_fraction(u16::from(percent), 100)
     }
