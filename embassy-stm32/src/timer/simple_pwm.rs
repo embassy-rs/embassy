@@ -95,15 +95,15 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.timer.set_compare_value(self.channel, duty.into())
     }
 
-    fn set_duty_cycle_fully_off(&mut self) {
+    pub fn set_duty_cycle_fully_off(&mut self) {
         self.set_duty_cycle(0);
     }
 
-    fn set_duty_cycle_fully_on(&mut self) {
+    pub fn set_duty_cycle_fully_on(&mut self) {
         self.set_duty_cycle((*self).max_duty_cycle());
     }
 
-    fn set_duty_cycle_fraction(&mut self, num: u16, denom: u16) {
+    pub fn set_duty_cycle_fraction(&mut self, num: u16, denom: u16) {
         assert!(denom != 0);
         assert!(num <= denom);
         let duty = u32::from(num) * u32::from(self.max_duty_cycle()) / u32::from(denom);
@@ -113,7 +113,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.set_duty_cycle(duty as u16);
     }
 
-    fn set_duty_cycle_percent(&mut self, percent: u8) {
+    pub fn set_duty_cycle_percent(&mut self, percent: u8) {
         self.set_duty_cycle_fraction(u16::from(percent), 100)
     }
 
