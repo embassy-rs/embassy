@@ -95,6 +95,8 @@ impl<'a> Control<'a> {
     ///
     /// NOTE: This will disconnect the modem from any current APN and should not
     /// be called if the configuration has not been changed.
+    ///
+    /// After configuring, invoke [`enable()`] to activate the configuration.
     pub async fn configure(&self, config: &Config<'_>) -> Result<(), Error> {
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
@@ -129,22 +131,6 @@ impl<'a> Control<'a> {
 
         let n = self.control.at_command(op, &mut buf).await;
         // info!("RES2: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
-        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
-
-        let op = CommandBuilder::create_set(&mut cmd, true)
-            .named("+CFUN")
-            .with_int_parameter(1)
-            .finish()
-            .map_err(|_| Error::BufferTooSmall)?;
-        let n = self.control.at_command(op, &mut buf).await;
-        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
-
-        let op = CommandBuilder::create_set(&mut cmd, true)
-            .named("%XPDNCFG")
-            .with_int_parameter(1)
-            .finish()
-            .map_err(|_| Error::BufferTooSmall)?;
-        let n = self.control.at_command(op, &mut buf).await;
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
         Ok(())
@@ -301,20 +287,49 @@ impl<'a> Control<'a> {
         Ok(status)
     }
 
-    /// Run a control loop for this context, ensuring that reaattach is handled.
-    pub async fn run<F: Fn(&Status)>(&self, reattach: F) -> Result<(), Error> {
+    /// Disable modem
+    pub async fn disable(&self) -> Result<(), Error> {
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
 
-        // Make sure modem is enabled
+        let op = CommandBuilder::create_set(&mut cmd, true)
+            .named("+CFUN")
+            .with_int_parameter(0)
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+
+        Ok(())
+    }
+
+    /// Enable modem
+    pub async fn enable(&self) -> Result<(), Error> {
+        let mut cmd: [u8; 256] = [0; 256];
+        let mut buf: [u8; 256] = [0; 256];
+
         let op = CommandBuilder::create_set(&mut cmd, true)
             .named("+CFUN")
             .with_int_parameter(1)
             .finish()
             .map_err(|_| Error::BufferTooSmall)?;
-
         let n = self.control.at_command(op, &mut buf).await;
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+
+        // Make modem survive PDN detaches
+        let op = CommandBuilder::create_set(&mut cmd, true)
+            .named("%XPDNCFG")
+            .with_int_parameter(1)
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+        Ok(())
+    }
+
+    /// Run a control loop for this context, ensuring that reaattach is handled.
+    pub async fn run<F: Fn(&Status)>(&self, reattach: F) -> Result<(), Error> {
+        self.enable().await?;
         let status = self.wait_attached().await?;
         let mut fd = self.control.open_raw_socket().await;
         reattach(&status);
