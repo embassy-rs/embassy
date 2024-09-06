@@ -303,6 +303,18 @@ impl<'a> Control<'a> {
 
     /// Run a control loop for this context, ensuring that reaattach is handled.
     pub async fn run<F: Fn(&Status)>(&self, reattach: F) -> Result<(), Error> {
+        let mut cmd: [u8; 256] = [0; 256];
+        let mut buf: [u8; 256] = [0; 256];
+
+        // Make sure modem is enabled
+        let op = CommandBuilder::create_set(&mut cmd, true)
+            .named("+CFUN")
+            .with_int_parameter(1)
+            .finish()
+            .map_err(|_| Error::BufferTooSmall)?;
+
+        let n = self.control.at_command(op, &mut buf).await;
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
         let status = self.wait_attached().await?;
         let mut fd = self.control.open_raw_socket().await;
         reattach(&status);
