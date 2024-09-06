@@ -51,7 +51,8 @@ channel_impl!(new_ch2, Ch2, Channel2Pin);
 channel_impl!(new_ch3, Ch3, Channel3Pin);
 channel_impl!(new_ch4, Ch4, Channel4Pin);
 
-/// A single channel of a pwm, obtained from [`SimplePwm::split`].
+/// A single channel of a pwm, obtained from [`SimplePwm::split`],
+/// [`SimplePwm::channel`], [`SimplePwm::ch1`], etc.
 ///
 /// It is not possible to change the pwm frequency because
 /// the frequency configuration is shared with all four channels.
@@ -179,11 +180,50 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         this
     }
 
-    fn channel(&self, channel: Channel) -> SimplePwmChannel<'_, T> {
+    /// Get a single channel
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn channel(&mut self, channel: Channel) -> SimplePwmChannel<'_, T> {
         SimplePwmChannel {
             timer: &self.inner,
             channel,
         }
+    }
+
+    /// Channel 1
+    ///
+    /// This is just a convenience wrapper around [`Self::channel`].
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn ch1(&mut self) -> SimplePwmChannel<'_, T> {
+        self.channel(Channel::Ch1)
+    }
+
+    /// Channel 2
+    ///
+    /// This is just a convenience wrapper around [`Self::channel`].
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn ch2(&mut self) -> SimplePwmChannel<'_, T> {
+        self.channel(Channel::Ch2)
+    }
+
+    /// Channel 3
+    ///
+    /// This is just a convenience wrapper around [`Self::channel`].
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn ch3(&mut self) -> SimplePwmChannel<'_, T> {
+        self.channel(Channel::Ch3)
+    }
+
+    /// Channel 4
+    ///
+    /// This is just a convenience wrapper around [`Self::channel`].
+    ///
+    /// If you need to use multiple channels, use [`Self::split`].
+    pub fn ch4(&mut self) -> SimplePwmChannel<'_, T> {
+        self.channel(Channel::Ch4)
     }
 
     /// Splits a [`SimplePwm`] into four pwm channels.
@@ -193,27 +233,19 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     // TODO: I hate the name "split"
     pub fn split(&mut self) -> SimplePwmChannels<'_, T> {
         // TODO: pre-enable channels?
+
+        // we can't use self.channel() because that takes &mut self
+        let ch = |channel| SimplePwmChannel {
+            timer: &self.inner,
+            channel,
+        };
+
         SimplePwmChannels {
-            ch1: self.channel(Channel::Ch1),
-            ch2: self.channel(Channel::Ch2),
-            ch3: self.channel(Channel::Ch3),
-            ch4: self.channel(Channel::Ch4),
+            ch1: ch(Channel::Ch1),
+            ch2: ch(Channel::Ch2),
+            ch3: ch(Channel::Ch3),
+            ch4: ch(Channel::Ch4),
         }
-    }
-
-    /// Enable the given channel.
-    pub fn enable(&mut self, channel: Channel) {
-        self.inner.enable_channel(channel, true);
-    }
-
-    /// Disable the given channel.
-    pub fn disable(&mut self, channel: Channel) {
-        self.inner.enable_channel(channel, false);
-    }
-
-    /// Check whether given channel is enabled
-    pub fn is_enabled(&self, channel: Channel) -> bool {
-        self.inner.get_channel_enable_state(channel)
     }
 
     /// Set PWM frequency.
@@ -236,31 +268,6 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.get_max_compare_value() + 1
     }
 
-    /// Set the duty for a given channel.
-    ///
-    /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
-    pub fn set_duty(&mut self, channel: Channel, duty: u32) {
-        assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty)
-    }
-
-    /// Get the duty for a given channel.
-    ///
-    /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
-    pub fn get_duty(&self, channel: Channel) -> u32 {
-        self.inner.get_compare_value(channel)
-    }
-
-    /// Set the output polarity for a given channel.
-    pub fn set_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
-        self.inner.set_output_polarity(channel, polarity);
-    }
-
-    /// Set the output compare mode for a given channel.
-    pub fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode) {
-        self.inner.set_output_compare_mode(channel, mode);
-    }
-
     /// Generate a sequence of PWM waveform
     ///
     /// Note:  
@@ -276,8 +283,8 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
 
-        let original_duty_state = self.get_duty(channel);
-        let original_enable_state = self.is_enabled(channel);
+        let original_duty_state = self.channel(channel).get_duty();
+        let original_enable_state = self.channel(channel).is_enabled();
         let original_update_dma_state = self.inner.get_update_dma_state();
 
         if !original_update_dma_state {
@@ -285,7 +292,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         }
 
         if !original_enable_state {
-            self.enable(channel);
+            self.channel(channel).enable();
         }
 
         unsafe {
@@ -313,10 +320,10 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
         // restore output compare state
         if !original_enable_state {
-            self.disable(channel);
+            self.channel(channel).disable();
         }
 
-        self.set_duty(channel, original_duty_state);
+        self.channel(channel).set_duty(original_duty_state);
 
         // Since DMA is closed before timer update event trigger DMA is turn off,
         // this can almost always trigger a DMA FIFO error.
@@ -346,8 +353,8 @@ macro_rules! impl_waveform_chx {
 
                 let cc_channel = Channel::$cc_ch;
 
-                let original_duty_state = self.get_duty(cc_channel);
-                let original_enable_state = self.is_enabled(cc_channel);
+                let original_duty_state = self.channel(cc_channel).get_duty();
+                let original_enable_state = self.channel(cc_channel).is_enabled();
                 let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ONUPDATE;
                 let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
 
@@ -361,7 +368,7 @@ macro_rules! impl_waveform_chx {
                 }
 
                 if !original_enable_state {
-                    self.enable(cc_channel);
+                    self.channel(cc_channel).enable();
                 }
 
                 unsafe {
@@ -389,10 +396,10 @@ macro_rules! impl_waveform_chx {
 
                 // restore output compare state
                 if !original_enable_state {
-                    self.disable(cc_channel);
+                    self.channel(cc_channel).disable();
                 }
 
-                self.set_duty(cc_channel, original_duty_state);
+                self.channel(cc_channel).set_duty(original_duty_state);
 
                 // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
                 // this can almost always trigger a DMA FIFO error.
