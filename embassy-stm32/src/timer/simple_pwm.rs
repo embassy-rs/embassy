@@ -82,7 +82,9 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
     pub fn max_duty_cycle(&self) -> u16 {
-        unwrap!(self.timer.get_max_compare_value().checked_add(1))
+        let max = self.timer.get_max_compare_value();
+        assert!(max < u16::MAX as u32);
+        max as u16 + 1
     }
 
     /// Set the duty for a given channel.
@@ -269,7 +271,9 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
     pub fn max_duty_cycle(&self) -> u16 {
-        unwrap!(self.inner.get_max_compare_value().checked_add(1))
+        let max = self.inner.get_max_compare_value();
+        assert!(max < u16::MAX as u32);
+        max as u16 + 1
     }
 
     /// Generate a sequence of PWM waveform
