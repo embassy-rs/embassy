@@ -29,7 +29,7 @@ pub trait BasicInstance: SealedBasicInstance + 'static {}
 pub trait Instance: BasicInstance + SealedInstance + 'static {}
 
 foreach_interrupt! {
-    ($inst:ident, lptim, LPTIM, UP, $irq:ident) => {
+    ($inst:ident, lptim, LPTIM, GLOBAL, $irq:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::lptim::Lptim {
                 crate::pac::$inst
@@ -40,7 +40,7 @@ foreach_interrupt! {
         impl BasicInstance for crate::peripherals::$inst {}
         impl Instance for crate::peripherals::$inst {}
     };
-    ($inst:ident, lptim, LPTIM_BASIC, UP, $irq:ident) => {
+    ($inst:ident, lptim, LPTIM_BASIC, GLOBAL, $irq:ident) => {
         impl SealedBasicInstance for crate::peripherals::$inst {
         }
         impl BasicInstance for crate::peripherals::$inst {}
