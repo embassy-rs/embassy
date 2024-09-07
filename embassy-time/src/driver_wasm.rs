@@ -143,12 +143,6 @@ impl<T> UninitCell<T> {
     }
 }
 
-impl<T: Copy> UninitCell<T> {
-    pub unsafe fn read(&self) -> T {
-        ptr::read(self.as_mut_ptr())
-    }
-}
-
 fn is_web_worker_thread() -> bool {
     js_sys::eval("typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope")
         .unwrap()
