@@ -176,7 +176,6 @@ extern "C" {
     pub(super) fn now(this: &Performance) -> f64;
 
     /// Binding to [`Performance.timeOrigin`](https://developer.mozilla.org/en-US/docs/Web/API/Performance/timeOrigin).
-    #[cfg(target_feature = "atomics")]
     #[wasm_bindgen(method, getter, js_name = timeOrigin)]
     pub(super) fn time_origin(this: &Performance) -> f64;
 }
