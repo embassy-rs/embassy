@@ -2,6 +2,7 @@
 
 use core::marker::PhantomData;
 
+use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]

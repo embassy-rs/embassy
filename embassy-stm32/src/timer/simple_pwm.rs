@@ -1,6 +1,7 @@
 //! Simple PWM driver.
 
 use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
@@ -57,7 +58,7 @@ channel_impl!(new_ch4, Ch4, Channel4Pin);
 /// It is not possible to change the pwm frequency because
 /// the frequency configuration is shared with all four channels.
 pub struct SimplePwmChannel<'d, T: GeneralInstance4Channel> {
-    timer: &'d Timer<'d, T>,
+    timer: ManuallyDrop<Timer<'d, T>>,
     channel: Channel,
 }
 
@@ -199,7 +200,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn channel(&mut self, channel: Channel) -> SimplePwmChannel<'_, T> {
         SimplePwmChannel {
-            timer: &self.inner,
+            timer: unsafe { self.inner.clone_unchecked() },
             channel,
         }
     }
@@ -245,12 +246,16 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// This returns all four channels, including channels that
     /// aren't configured with a [`PwmPin`].
     // TODO: I hate the name "split"
-    pub fn split(&mut self) -> SimplePwmChannels<'_, T> {
-        // TODO: pre-enable channels?
+    pub fn split(self) -> SimplePwmChannels<'static, T>
+    where
+        // must be static because the timer will never be dropped/disabled
+        'd: 'static,
+    {
+        // without this, the timer would be disabled at the end of this function
+        let timer = ManuallyDrop::new(self.inner);
 
-        // we can't use self.channel() because that takes &mut self
         let ch = |channel| SimplePwmChannel {
-            timer: &self.inner,
+            timer: unsafe { timer.clone_unchecked() },
             channel,
         };
 
