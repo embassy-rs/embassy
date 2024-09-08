@@ -481,7 +481,7 @@ impl<'a> Control<'a> {
     }
 
     async fn set_iovar_v<const BUFSIZE: usize>(&mut self, name: &str, val: &[u8]) {
-        debug!("set {} = {:02x}", name, Bytes(val));
+        debug!("iovar set {} = {:02x}", name, Bytes(val));
 
         let mut buf = [0; BUFSIZE];
         buf[..name.len()].copy_from_slice(name.as_bytes());
@@ -489,13 +489,13 @@ impl<'a> Control<'a> {
         buf[name.len() + 1..][..val.len()].copy_from_slice(val);
 
         let total_len = name.len() + 1 + val.len();
-        self.ioctl(IoctlType::Set, Ioctl::SetVar, 0, &mut buf[..total_len])
+        self.ioctl_inner(IoctlType::Set, Ioctl::SetVar, 0, &mut buf[..total_len])
             .await;
     }
 
     // TODO this is not really working, it always returns all zeros.
     async fn get_iovar(&mut self, name: &str, res: &mut [u8]) -> usize {
-        debug!("get {}", name);
+        debug!("iovar get {}", name);
 
         let mut buf = [0; 64];
         buf[..name.len()].copy_from_slice(name.as_bytes());
@@ -503,7 +503,7 @@ impl<'a> Control<'a> {
 
         let total_len = max(name.len() + 1, res.len());
         let res_len = self
-            .ioctl(IoctlType::Get, Ioctl::GetVar, 0, &mut buf[..total_len])
+            .ioctl_inner(IoctlType::Get, Ioctl::GetVar, 0, &mut buf[..total_len])
             .await;
 
         let out_len = min(res.len(), res_len);
@@ -517,6 +517,14 @@ impl<'a> Control<'a> {
     }
 
     async fn ioctl(&mut self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
+        if kind == IoctlType::Set {
+            debug!("ioctl set {:?} iface {} = {:02x}", cmd, iface, Bytes(buf));
+        }
+        let n = self.ioctl_inner(kind, cmd, iface, buf).await;
+        n
+    }
+
+    async fn ioctl_inner(&mut self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
         struct CancelOnDrop<'a>(&'a IoctlState);
 
         impl CancelOnDrop<'_> {

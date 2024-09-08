@@ -7,7 +7,7 @@ use embassy_sync::waitqueue::WakerRegistration;
 use crate::consts::Ioctl;
 use crate::fmt::Bytes;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum IoctlType {
     Get = 0,
     Set = 2,
