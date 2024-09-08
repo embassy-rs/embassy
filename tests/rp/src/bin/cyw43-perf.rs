@@ -2,6 +2,7 @@
 #![no_main]
 teleprobe_meta::target!(b"rpi-pico");
 
+use cyw43::JoinOptions;
 use cyw43_pio::PioSpi;
 use defmt::{panic, *};
 use embassy_executor::Spawner;
@@ -81,7 +82,10 @@ async fn main(spawner: Spawner) {
     unwrap!(spawner.spawn(net_task(stack)));
 
     loop {
-        match control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await {
+        match control
+            .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
+            .await
+        {
             Ok(_) => break,
             Err(err) => {
                 panic!("join failed with status={}", err.status);

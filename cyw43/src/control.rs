@@ -35,7 +35,7 @@ pub struct Control<'a> {
     ioctl_state: &'a IoctlState,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScanType {
     Active,
@@ -43,8 +43,9 @@ pub enum ScanType {
 }
 
 /// Scan options.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub struct ScanOptions {
     /// SSID to scan for.
     pub ssid: Option<heapless::String<32>>,
@@ -70,6 +71,79 @@ impl Default for ScanOptions {
             home_time: None,
             scan_type: ScanType::Passive,
             dwell_time: None,
+        }
+    }
+}
+
+/// Authentication type, used in [`JoinOptions::auth`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum JoinAuth {
+    /// Open network
+    Open,
+    /// WPA only
+    Wpa,
+    /// WPA2 only
+    Wpa2,
+    /// WPA3 only
+    Wpa3,
+    /// WPA2 + WPA3
+    Wpa2Wpa3,
+}
+
+/// Options for [`Control::join`].
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct JoinOptions<'a> {
+    /// Authentication type. Default `Wpa2Wpa3`.
+    pub auth: JoinAuth,
+    /// Enable TKIP encryption. Default false.
+    pub cipher_tkip: bool,
+    /// Enable AES encryption. Default true.
+    pub cipher_aes: bool,
+    /// Passphrase. Default empty.
+    pub passphrase: &'a [u8],
+    /// If false, `passphrase` is the human-readable passphrase string.
+    /// If true, `passphrase` is the result of applying the PBKDF2 hash to the
+    /// passphrase string. This makes it possible to avoid storing unhashed passwords.
+    ///
+    /// This is not compatible with WPA3.
+    /// Default false.
+    pub passphrase_is_prehashed: bool,
+}
+
+impl<'a> JoinOptions<'a> {
+    /// Create a new `JoinOptions` for joining open networks.
+    pub fn new_open() -> Self {
+        Self {
+            auth: JoinAuth::Open,
+            cipher_tkip: false,
+            cipher_aes: false,
+            passphrase: &[],
+            passphrase_is_prehashed: false,
+        }
+    }
+
+    /// Create a new `JoinOptions` for joining encrypted networks.
+    ///
+    /// Defaults to supporting WPA2+WPA3 with AES only, you may edit
+    /// the returned options to change this.
+    pub fn new(passphrase: &'a [u8]) -> Self {
+        let mut this = Self::default();
+        this.passphrase = passphrase;
+        this
+    }
+}
+
+impl<'a> Default for JoinOptions<'a> {
+    fn default() -> Self {
+        Self {
+            auth: JoinAuth::Wpa2Wpa3,
+            cipher_tkip: false,
+            cipher_aes: true,
+            passphrase: &[],
+            passphrase_is_prehashed: false,
         }
     }
 }
@@ -217,13 +291,70 @@ impl<'a> Control<'a> {
     }
 
     /// Join an unprotected network with the provided ssid.
-    pub async fn join_open(&mut self, ssid: &str) -> Result<(), Error> {
+    pub async fn join(&mut self, ssid: &str, options: JoinOptions<'_>) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
-        self.ioctl_set_u32(Ioctl::SetWsec, 0, 0).await; // wsec = open
-        self.set_iovar_u32x2("bsscfg:sup_wpa", 0, 0).await;
-        self.ioctl_set_u32(Ioctl::SetInfra, 0, 1).await; // set_infra = 1
-        self.ioctl_set_u32(Ioctl::SetAuth, 0, 0).await; // set_auth = open (0)
+        if options.auth == JoinAuth::Open {
+            self.ioctl_set_u32(Ioctl::SetWsec, 0, 0).await;
+            self.set_iovar_u32x2("bsscfg:sup_wpa", 0, 0).await;
+            self.ioctl_set_u32(Ioctl::SetInfra, 0, 1).await;
+            self.ioctl_set_u32(Ioctl::SetAuth, 0, 0).await;
+            self.ioctl_set_u32(Ioctl::SetWpaAuth, 0, WPA_AUTH_DISABLED).await;
+        } else {
+            let mut wsec = 0;
+            if options.cipher_aes {
+                wsec |= WSEC_AES;
+            }
+            if options.cipher_tkip {
+                wsec |= WSEC_TKIP;
+            }
+            self.ioctl_set_u32(Ioctl::SetWsec, 0, wsec).await;
+
+            self.set_iovar_u32x2("bsscfg:sup_wpa", 0, 1).await;
+            self.set_iovar_u32x2("bsscfg:sup_wpa2_eapver", 0, 0xFFFF_FFFF).await;
+            self.set_iovar_u32x2("bsscfg:sup_wpa_tmo", 0, 2500).await;
+
+            Timer::after_millis(100).await;
+
+            let (wpa12, wpa3, auth, mfp, wpa_auth) = match options.auth {
+                JoinAuth::Open => unreachable!(),
+                JoinAuth::Wpa => (true, false, AUTH_OPEN, MFP_NONE, WPA_AUTH_WPA_PSK),
+                JoinAuth::Wpa2 => (true, false, AUTH_OPEN, MFP_CAPABLE, WPA_AUTH_WPA2_PSK),
+                JoinAuth::Wpa3 => (false, true, AUTH_SAE, MFP_REQUIRED, WPA_AUTH_WPA3_SAE_PSK),
+                JoinAuth::Wpa2Wpa3 => (true, true, AUTH_SAE, MFP_CAPABLE, WPA_AUTH_WPA3_SAE_PSK),
+            };
+
+            if wpa12 {
+                let mut flags = 0;
+                if !options.passphrase_is_prehashed {
+                    flags |= 1;
+                }
+                let mut pfi = PassphraseInfo {
+                    len: options.passphrase.len() as _,
+                    flags,
+                    passphrase: [0; 64],
+                };
+                pfi.passphrase[..options.passphrase.len()].copy_from_slice(options.passphrase);
+                Timer::after_millis(3).await;
+                self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes())
+                    .await;
+            }
+
+            if wpa3 {
+                let mut pfi = SaePassphraseInfo {
+                    len: options.passphrase.len() as _,
+                    passphrase: [0; 128],
+                };
+                pfi.passphrase[..options.passphrase.len()].copy_from_slice(options.passphrase);
+                Timer::after_millis(3).await;
+                self.set_iovar("sae_password", &pfi.to_bytes()).await;
+            }
+
+            self.ioctl_set_u32(Ioctl::SetInfra, 0, 1).await;
+            self.ioctl_set_u32(Ioctl::SetAuth, 0, auth).await;
+            self.set_iovar_u32("mfp", mfp).await;
+            self.ioctl_set_u32(Ioctl::SetWpaAuth, 0, wpa_auth).await;
+        }
 
         let mut i = SsidInfo {
             len: ssid.len() as _,
@@ -232,55 +363,6 @@ impl<'a> Control<'a> {
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
         self.wait_for_join(i).await
-    }
-
-    /// Join a protected network with the provided ssid and [`PassphraseInfo`].
-    async fn join_wpa2_passphrase_info(&mut self, ssid: &str, passphrase_info: &PassphraseInfo) -> Result<(), Error> {
-        self.set_iovar_u32("ampdu_ba_wsize", 8).await;
-
-        self.ioctl_set_u32(Ioctl::SetWsec, 0, 4).await; // wsec = open
-        self.set_iovar_u32x2("bsscfg:sup_wpa", 0, 1).await;
-        self.set_iovar_u32x2("bsscfg:sup_wpa2_eapver", 0, 0xFFFF_FFFF).await;
-        self.set_iovar_u32x2("bsscfg:sup_wpa_tmo", 0, 2500).await;
-
-        Timer::after_millis(100).await;
-
-        self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut passphrase_info.to_bytes())
-            .await; // WLC_SET_WSEC_PMK
-
-        self.ioctl_set_u32(Ioctl::SetInfra, 0, 1).await; // set_infra = 1
-        self.ioctl_set_u32(Ioctl::SetAuth, 0, 0).await; // set_auth = 0 (open)
-        self.ioctl_set_u32(Ioctl::SetWpaAuth, 0, 0x80).await;
-
-        let mut i = SsidInfo {
-            len: ssid.len() as _,
-            ssid: [0; 32],
-        };
-        i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
-
-        self.wait_for_join(i).await
-    }
-
-    /// Join a protected network with the provided ssid and passphrase.
-    pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) -> Result<(), Error> {
-        let mut pfi = PassphraseInfo {
-            len: passphrase.len() as _,
-            flags: 1,
-            passphrase: [0; 64],
-        };
-        pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
-        self.join_wpa2_passphrase_info(ssid, &pfi).await
-    }
-
-    /// Join a protected network with the provided ssid and precomputed PSK.
-    pub async fn join_wpa2_psk(&mut self, ssid: &str, psk: &[u8; 32]) -> Result<(), Error> {
-        let mut pfi = PassphraseInfo {
-            len: psk.len() as _,
-            flags: 0,
-            passphrase: [0; 64],
-        };
-        pfi.passphrase[..psk.len()].copy_from_slice(psk);
-        self.join_wpa2_passphrase_info(ssid, &pfi).await
     }
 
     async fn wait_for_join(&mut self, i: SsidInfo) -> Result<(), Error> {
@@ -477,7 +559,7 @@ impl<'a> Control<'a> {
     }
 
     async fn set_iovar(&mut self, name: &str, val: &[u8]) {
-        self.set_iovar_v::<64>(name, val).await
+        self.set_iovar_v::<196>(name, val).await
     }
 
     async fn set_iovar_v<const BUFSIZE: usize>(&mut self, name: &str, val: &[u8]) {

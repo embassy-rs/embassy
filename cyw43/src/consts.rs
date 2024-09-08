@@ -653,3 +653,18 @@ pub(crate) enum Ioctl {
     GetWsecPmk = 318,
     GetRandomBytes = 319,
 }
+
+pub(crate) const WSEC_TKIP: u32 = 0x02;
+pub(crate) const WSEC_AES: u32 = 0x04;
+
+pub(crate) const AUTH_OPEN: u32 = 0x00;
+pub(crate) const AUTH_SAE: u32 = 0x03;
+
+pub(crate) const MFP_NONE: u32 = 0;
+pub(crate) const MFP_CAPABLE: u32 = 1;
+pub(crate) const MFP_REQUIRED: u32 = 2;
+
+pub(crate) const WPA_AUTH_DISABLED: u32 = 0x0000;
+pub(crate) const WPA_AUTH_WPA_PSK: u32 = 0x0004;
+pub(crate) const WPA_AUTH_WPA2_PSK: u32 = 0x0080;
+pub(crate) const WPA_AUTH_WPA3_SAE_PSK: u32 = 0x40000;
