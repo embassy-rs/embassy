@@ -560,7 +560,7 @@ where
         self.sdpcm_seq != self.sdpcm_seq_max && self.sdpcm_seq_max.wrapping_sub(self.sdpcm_seq) & 0x80 == 0
     }
 
-    async fn send_ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, data: &[u8], buf: &mut [u32; 512]) {
+    async fn send_ioctl(&mut self, kind: IoctlType, cmd: Ioctl, iface: u32, data: &[u8], buf: &mut [u32; 512]) {
         let buf8 = slice8_mut(buf);
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
@@ -582,7 +582,7 @@ where
         };
 
         let cdc_header = CdcHeader {
-            cmd: cmd,
+            cmd: cmd as u32,
             len: data.len() as _,
             flags: kind as u16 | (iface as u16) << 12,
             id: self.ioctl_id,

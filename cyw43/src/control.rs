@@ -109,7 +109,7 @@ impl<'a> Control<'a> {
             buf[0..8].copy_from_slice(b"clmload\x00");
             buf[8..20].copy_from_slice(&header.to_bytes());
             buf[20..][..chunk.len()].copy_from_slice(&chunk);
-            self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..8 + 12 + chunk.len()])
+            self.ioctl(IoctlType::Set, Ioctl::SetVar, 0, &mut buf[..8 + 12 + chunk.len()])
                 .await;
         }
 
@@ -145,7 +145,7 @@ impl<'a> Control<'a> {
         Timer::after_millis(100).await;
 
         // Set antenna to chip antenna
-        self.ioctl_set_u32(IOCTL_CMD_ANTDIV, 0, 0).await;
+        self.ioctl_set_u32(Ioctl::SetAntdiv, 0, 0).await;
 
         self.set_iovar_u32("bus:txglom", 0).await;
         Timer::after_millis(100).await;
@@ -183,8 +183,8 @@ impl<'a> Control<'a> {
 
         Timer::after_millis(100).await;
 
-        self.ioctl_set_u32(110, 0, 1).await; // SET_GMODE = auto
-        self.ioctl_set_u32(142, 0, 0).await; // SET_BAND = any
+        self.ioctl_set_u32(Ioctl::SetGmode, 0, 1).await; // SET_GMODE = auto
+        self.ioctl_set_u32(Ioctl::SetBand, 0, 0).await; // SET_BAND = any
 
         Timer::after_millis(100).await;
 
@@ -195,12 +195,12 @@ impl<'a> Control<'a> {
 
     /// Set the WiFi interface up.
     async fn up(&mut self) {
-        self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
+        self.ioctl(IoctlType::Set, Ioctl::Up, 0, &mut []).await;
     }
 
     /// Set the interface down.
     async fn down(&mut self) {
-        self.ioctl(IoctlType::Set, IOCTL_CMD_DOWN, 0, &mut []).await;
+        self.ioctl(IoctlType::Set, Ioctl::Down, 0, &mut []).await;
     }
 
     /// Set power management mode.
@@ -213,17 +213,17 @@ impl<'a> Control<'a> {
             self.set_iovar_u32("bcn_li_dtim", mode.dtim_period() as u32).await;
             self.set_iovar_u32("assoc_listen", mode.assoc() as u32).await;
         }
-        self.ioctl_set_u32(86, 0, mode_num).await;
+        self.ioctl_set_u32(Ioctl::SetPm, 0, mode_num).await;
     }
 
     /// Join an unprotected network with the provided ssid.
     pub async fn join_open(&mut self, ssid: &str) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
-        self.ioctl_set_u32(134, 0, 0).await; // wsec = open
+        self.ioctl_set_u32(Ioctl::SetWsec, 0, 0).await; // wsec = open
         self.set_iovar_u32x2("bsscfg:sup_wpa", 0, 0).await;
-        self.ioctl_set_u32(20, 0, 1).await; // set_infra = 1
-        self.ioctl_set_u32(22, 0, 0).await; // set_auth = open (0)
+        self.ioctl_set_u32(Ioctl::SetInfra, 0, 1).await; // set_infra = 1
+        self.ioctl_set_u32(Ioctl::SetAuth, 0, 0).await; // set_auth = open (0)
 
         let mut i = SsidInfo {
             len: ssid.len() as _,
@@ -238,24 +238,19 @@ impl<'a> Control<'a> {
     async fn join_wpa2_passphrase_info(&mut self, ssid: &str, passphrase_info: &PassphraseInfo) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
-        self.ioctl_set_u32(134, 0, 4).await; // wsec = wpa2
+        self.ioctl_set_u32(Ioctl::SetWsec, 0, 4).await; // wsec = open
         self.set_iovar_u32x2("bsscfg:sup_wpa", 0, 1).await;
         self.set_iovar_u32x2("bsscfg:sup_wpa2_eapver", 0, 0xFFFF_FFFF).await;
         self.set_iovar_u32x2("bsscfg:sup_wpa_tmo", 0, 2500).await;
 
         Timer::after_millis(100).await;
 
-        self.ioctl(
-            IoctlType::Set,
-            IOCTL_CMD_SET_PASSPHRASE,
-            0,
-            &mut passphrase_info.to_bytes(),
-        )
-        .await; // WLC_SET_WSEC_PMK
+        self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut passphrase_info.to_bytes())
+            .await; // WLC_SET_WSEC_PMK
 
-        self.ioctl_set_u32(20, 0, 1).await; // set_infra = 1
-        self.ioctl_set_u32(22, 0, 0).await; // set_auth = 0 (open)
-        self.ioctl_set_u32(165, 0, 0x80).await; // set_wpa_auth
+        self.ioctl_set_u32(Ioctl::SetInfra, 0, 1).await; // set_infra = 1
+        self.ioctl_set_u32(Ioctl::SetAuth, 0, 0).await; // set_auth = 0 (open)
+        self.ioctl_set_u32(Ioctl::SetWpaAuth, 0, 0x80).await;
 
         let mut i = SsidInfo {
             len: ssid.len() as _,
@@ -294,9 +289,7 @@ impl<'a> Control<'a> {
         // the actual join operation starts here
         // we make sure to enable events before so we don't miss any
 
-        // set_ssid
-        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
-            .await;
+        self.ioctl(IoctlType::Set, Ioctl::SetSsid, 0, &mut i.to_bytes()).await;
 
         // to complete the join, we wait for a SET_SSID event
         // we also save the AUTH status for the user, it may be interesting
@@ -357,7 +350,7 @@ impl<'a> Control<'a> {
         self.up().await;
 
         // Turn on AP mode
-        self.ioctl_set_u32(IOCTL_CMD_SET_AP, 0, 1).await;
+        self.ioctl_set_u32(Ioctl::SetAp, 0, 1).await;
 
         // Set SSID
         let mut i = SsidInfoWithIndex {
@@ -371,7 +364,7 @@ impl<'a> Control<'a> {
         self.set_iovar("bsscfg:ssid", &i.to_bytes()).await;
 
         // Set channel number
-        self.ioctl_set_u32(IOCTL_CMD_SET_CHANNEL, 0, channel as u32).await;
+        self.ioctl_set_u32(Ioctl::SetChannel, 0, channel as u32).await;
 
         // Set security
         self.set_iovar_u32x2("bsscfg:wsec", 0, (security as u32) & 0xFF).await;
@@ -388,7 +381,7 @@ impl<'a> Control<'a> {
                 passphrase: [0; 64],
             };
             pfi.passphrase[..passphrase.as_bytes().len()].copy_from_slice(passphrase.as_bytes());
-            self.ioctl(IoctlType::Set, IOCTL_CMD_SET_PASSPHRASE, 0, &mut pfi.to_bytes())
+            self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes())
                 .await;
         }
 
@@ -405,7 +398,7 @@ impl<'a> Control<'a> {
         self.set_iovar_u32x2("bss", 0, 0).await; // bss = BSS_DOWN
 
         // Turn off AP mode
-        self.ioctl_set_u32(IOCTL_CMD_SET_AP, 0, 0).await;
+        self.ioctl_set_u32(Ioctl::SetAp, 0, 0).await;
 
         // Temporarily set wifi down
         self.down().await;
@@ -496,7 +489,7 @@ impl<'a> Control<'a> {
         buf[name.len() + 1..][..val.len()].copy_from_slice(val);
 
         let total_len = name.len() + 1 + val.len();
-        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..total_len])
+        self.ioctl(IoctlType::Set, Ioctl::SetVar, 0, &mut buf[..total_len])
             .await;
     }
 
@@ -510,7 +503,7 @@ impl<'a> Control<'a> {
 
         let total_len = max(name.len() + 1, res.len());
         let res_len = self
-            .ioctl(IoctlType::Get, IOCTL_CMD_GET_VAR, 0, &mut buf[..total_len])
+            .ioctl(IoctlType::Get, Ioctl::GetVar, 0, &mut buf[..total_len])
             .await;
 
         let out_len = min(res.len(), res_len);
@@ -518,12 +511,12 @@ impl<'a> Control<'a> {
         out_len
     }
 
-    async fn ioctl_set_u32(&mut self, cmd: u32, iface: u32, val: u32) {
+    async fn ioctl_set_u32(&mut self, cmd: Ioctl, iface: u32, val: u32) {
         let mut buf = val.to_le_bytes();
         self.ioctl(IoctlType::Set, cmd, iface, &mut buf).await;
     }
 
-    async fn ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
+    async fn ioctl(&mut self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
         struct CancelOnDrop<'a>(&'a IoctlState);
 
         impl CancelOnDrop<'_> {
@@ -615,7 +608,7 @@ impl<'a> Control<'a> {
     }
     /// Leave the wifi, with which we are currently associated.
     pub async fn leave(&mut self) {
-        self.ioctl(IoctlType::Set, IOCTL_CMD_DISASSOC, 0, &mut []).await;
+        self.ioctl(IoctlType::Set, Ioctl::Disassoc, 0, &mut []).await;
         info!("Disassociated")
     }
 
