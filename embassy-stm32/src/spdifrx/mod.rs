@@ -28,6 +28,7 @@ pub struct Spdifrx<'d, T: Instance> {
     channel_status_ring_buffer: Option<ReadableRingBuffer<'d, u32>>,
 }
 
+/// Gives the address of the data register.
 fn dr_address(r: Regs) -> *mut u32 {
     #[cfg(spdifrx_v1)]
     let address = r.dr().as_ptr() as _;
@@ -37,31 +38,29 @@ fn dr_address(r: Regs) -> *mut u32 {
     return address;
 }
 
+/// Gives the address of the channel status register.
 fn csr_address(r: Regs) -> *mut u32 {
     r.csr().as_ptr() as _
 }
 
+/// Select the channel for capturing control information.
 pub enum ControlChannelSelection {
+    /// Capture control info from channel A.
     A,
+    /// Capture control info from channel B.
     B,
 }
 
+/// Configuration options for the SPDIFRX driver.
 pub struct Config {
-    control_channel_selection: ControlChannelSelection,
-    enable_preamble_bits: bool,
-    enable_channel_and_user_bits: bool,
-    enable_validity_bit: bool,
-    enable_parity_bit: bool,
+    /// Select the channel for capturing control information.
+    pub control_channel_selection: ControlChannelSelection,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             control_channel_selection: ControlChannelSelection::A,
-            enable_preamble_bits: false,
-            enable_channel_and_user_bits: false,
-            enable_validity_bit: false,
-            enable_parity_bit: false,
         }
     }
 }
@@ -162,10 +161,12 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
             cr.set_rxsteo(true); // Operate in stereo mode.
             cr.set_drfmt(0x01); // Data is left-aligned (MSB).
 
-            cr.set_pmsk(config.enable_parity_bit); // Write parity error bit to the data register.
-            cr.set_vmsk(config.enable_validity_bit); // Write validity to the data register.
-            cr.set_cumsk(config.enable_channel_and_user_bits); // C and U bits are written to the data register.
-            cr.set_ptmsk(config.enable_preamble_bits); // Preamble bits are written to the data register.
+            // Disable all status fields in the data register.
+            // Status can be obtained directly with the status register DMA.
+            cr.set_pmsk(false); // Write parity error bit to the data register.
+            cr.set_vmsk(false); // Write validity to the data register.
+            cr.set_cumsk(false); // C and U bits are written to the data register.
+            cr.set_ptmsk(false); // Preamble bits are written to the data register.
 
             cr.set_chsel(match config.control_channel_selection {
                 ControlChannelSelection::A => false,
