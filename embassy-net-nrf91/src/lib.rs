@@ -279,7 +279,7 @@ impl State {
 }
 
 const TX_BUF_COUNT: usize = 4;
-const TX_BUF_SIZE: usize = 1024;
+const TX_BUF_SIZE: usize = 1500;
 
 struct TraceChannelInfo {
     ptr: *mut TraceChannel,
