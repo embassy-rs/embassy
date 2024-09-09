@@ -4421,6 +4421,16 @@ pub mod regs {
         pub fn set_frivl(&mut self, val: u16) {
             self.0 = (self.0 & !(0xffff << 0usize)) | (((val as u32) & 0xffff) << 0usize);
         }
+        #[doc = "Dynamic Loading Control"]
+        #[inline(always)]
+        pub const fn rldctrl(&self) -> bool {
+            (self.0 >> 16usize) & 0x1 != 0
+        }
+        #[doc = "Dynamic Loading Control"]
+        #[inline(always)]
+        pub fn set_rldctrl(&mut self, val: bool) {
+            self.0 = (self.0 & !(0b1 << 16usize)) | ((val as u32) << 16usize);
+        }
     }
     impl Default for Hfir {
         #[inline(always)]
