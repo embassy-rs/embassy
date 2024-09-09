@@ -797,10 +797,6 @@ fn main() {
         (("sai", "MCLK_A"), quote!(crate::sai::MclkPin<A>)),
         (("sai", "MCLK_B"), quote!(crate::sai::MclkPin<B>)),
         (("sai", "WS"), quote!(crate::sai::WsPin)),
-        (("spdifrx", "IN0"), quote!(crate::spdifrx::In0Pin)),
-        (("spdifrx", "IN1"), quote!(crate::spdifrx::In1Pin)),
-        (("spdifrx", "IN2"), quote!(crate::spdifrx::In2Pin)),
-        (("spdifrx", "IN3"), quote!(crate::spdifrx::In3Pin)),
         (("spi", "SCK"), quote!(crate::spi::SckPin)),
         (("spi", "MOSI"), quote!(crate::spi::MosiPin)),
         (("spi", "MISO"), quote!(crate::spi::MisoPin)),
@@ -1180,6 +1176,17 @@ fn main() {
 
                     g.extend(quote! {
                     impl_dac_pin!( #peri, #pin_name, #ch);
+                    })
+                }
+
+                if regs.kind == "spdifrx" {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let af = pin.af.unwrap_or(0);
+                    let sel: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
+
+                    g.extend(quote! {
+                    impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
                     })
                 }
             }

@@ -18,6 +18,28 @@ use crate::pac::spdifrx::Spdifrx as Regs;
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
 
+macro_rules! new_spdif_pin {
+    ($name:ident, $af_type:expr) => {{
+        let pin = $name.into_ref();
+        let input_sel = pin.input_sel();
+        pin.set_as_af(pin.af_num(), $af_type);
+        (Some(pin.map_into()), input_sel)
+    }};
+}
+
+macro_rules! impl_spdifrx_pin {
+    ($inst:ident, $pin:ident, $af:expr, $sel:expr) => {
+        impl crate::spdifrx::InPin<peripherals::$inst> for crate::peripherals::$pin {
+            fn af_num(&self) -> u8 {
+                $af
+            }
+            fn input_sel(&self) -> u8 {
+                $sel
+            }
+        }
+    };
+}
+
 /// Ring-buffered SPDIFRX driver.
 ///
 /// Data and, optionally, channel status information are read by DMAs and stored in ring buffers.
@@ -80,12 +102,12 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>> + 'd,
         config: Config,
-        spdifrx_in: impl Peripheral<P = impl In0Pin<T>> + 'd,
+        spdifrx_in: impl Peripheral<P = impl InPin<T>> + 'd,
         data_dma: impl Peripheral<P = impl Channel + Dma<T>> + 'd,
         data_dma_buf: &'d mut [u32],
     ) -> Self {
-        let spdifrx_in = new_pin!(spdifrx_in, AfType::input(Pull::None));
-        Self::setup(false, config);
+        let (spdifrx_in, input_sel) = new_spdif_pin!(spdifrx_in, AfType::input(Pull::None));
+        Self::setup(false, config, input_sel);
 
         into_ref!(peri, data_dma);
 
@@ -107,14 +129,14 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>> + 'd,
         config: Config,
-        spdifrx_in: impl Peripheral<P = impl In0Pin<T>> + 'd,
+        spdifrx_in: impl Peripheral<P = impl InPin<T>> + 'd,
         data_dma: impl Peripheral<P = impl Channel + Dma<T>> + 'd,
         data_dma_buf: &'d mut [u32],
         channel_status_dma: impl Peripheral<P = impl Channel + Dma<T>> + 'd,
         channel_status_dma_buf: &'d mut [u32],
     ) -> Self {
-        let spdifrx_in = new_pin!(spdifrx_in, AfType::input(Pull::None));
-        Self::setup(true, config);
+        let (spdifrx_in, input_sel) = new_spdif_pin!(spdifrx_in, AfType::input(Pull::None));
+        Self::setup(true, config, input_sel);
 
         into_ref!(peri, data_dma, channel_status_dma);
 
@@ -142,7 +164,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         }
     }
 
-    fn setup(read_channel_info: bool, config: Config) {
+    fn setup(read_channel_info: bool, config: Config, in_sel: u8) {
         T::info().rcc.enable_and_reset();
         T::GlobalInterrupt::unpend();
         unsafe { T::GlobalInterrupt::enable() };
@@ -175,7 +197,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
 
             cr.set_nbtr(0x02); // 16 attempts are allowed.
             cr.set_wfa(true); // Wait for activity before going to synchronization phase.
-            cr.set_insel(0); // FIXME: Input selection.
+            cr.set_insel(in_sel); // Input pin selection.
             cr.set_cksen(true); // Generate a symbol clock.
             cr.set_cksbkpen(true); // Do not generate a backup symbol clock.
         });
@@ -248,10 +270,13 @@ peri_trait!(
     irqs: [GlobalInterrupt],
 );
 
-pin_trait!(In0Pin, Instance);
-pin_trait!(In1Pin, Instance);
-pin_trait!(In2Pin, Instance);
-pin_trait!(In3Pin, Instance);
+/// SPIDFRX pin trait
+pub trait InPin<T: Instance>: crate::gpio::Pin {
+    /// Get the GPIO AF number needed to use this pin.
+    fn af_num(&self) -> u8;
+    /// Get the SPIDFRX INSEL number needed to use this pin.
+    fn input_sel(&self) -> u8;
+}
 
 dma_trait!(Dma, Instance);
 
