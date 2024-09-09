@@ -4026,13 +4026,23 @@ pub mod regs {
         #[doc = "Period scheduling enable"]
         #[inline(always)]
         pub fn set_perschedena(&mut self, val: bool) {
-            self.0 = (self.0 & !(0x01 << 25)) | ((val as u32) << 25);
+            self.0 = (self.0 & !(0x01 << 26)) | ((val as u32) << 26);
         }
         #[doc = "Period scheduling enable"]
         #[inline(always)]
         pub fn perschedena(&mut self) -> bool {
-            let val = (self.0 >> 25) & 0x1;
+            let val = (self.0 >> 26) & 0x1;
             val != 0
+        }
+        #[doc = "Descriptor DMA-mode enable (qtd)"]
+        #[inline(always)]
+        pub fn descdma(&self) -> bool {
+            (self.0 << 23) & 0x1 != 0
+        }
+        #[doc = "Descriptor DMA-mode enable (qtd)"]
+        #[inline(always)]
+        pub fn set_descdma(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x1 << 23)) | (val as u32) << 23
         }
         #[doc = "Frame list length (x+3 pow 2)"]
         #[inline(always)]
