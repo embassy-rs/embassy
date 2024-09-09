@@ -5,6 +5,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::ringbuffer::OverrunError;
 pub use crate::dma::word;
@@ -16,7 +17,6 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::spdifrx::Spdifrx as Regs;
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
-use embassy_sync::waitqueue::AtomicWaker;
 
 /// Ring-buffered SPDIFRX driver.
 ///
