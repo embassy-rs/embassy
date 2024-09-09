@@ -18,7 +18,7 @@ use crate::pac::spdifrx::Spdifrx as Regs;
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
 
-macro_rules! new_spdif_pin {
+macro_rules! new_spdifrx_pin {
     ($name:ident, $af_type:expr) => {{
         let pin = $name.into_ref();
         let input_sel = pin.input_sel();
@@ -106,7 +106,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         data_dma: impl Peripheral<P = impl Channel + Dma<T>> + 'd,
         data_dma_buf: &'d mut [u32],
     ) -> Self {
-        let (spdifrx_in, input_sel) = new_spdif_pin!(spdifrx_in, AfType::input(Pull::None));
+        let (spdifrx_in, input_sel) = new_spdifrx_pin!(spdifrx_in, AfType::input(Pull::None));
         Self::setup(false, config, input_sel);
 
         into_ref!(peri, data_dma);
@@ -135,7 +135,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         channel_status_dma: impl Peripheral<P = impl Channel + Dma<T>> + 'd,
         channel_status_dma_buf: &'d mut [u32],
     ) -> Self {
-        let (spdifrx_in, input_sel) = new_spdif_pin!(spdifrx_in, AfType::input(Pull::None));
+        let (spdifrx_in, input_sel) = new_spdifrx_pin!(spdifrx_in, AfType::input(Pull::None));
         Self::setup(true, config, input_sel);
 
         into_ref!(peri, data_dma, channel_status_dma);
@@ -164,7 +164,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         }
     }
 
-    fn setup(read_channel_info: bool, config: Config, in_sel: u8) {
+    fn setup(read_channel_info: bool, config: Config, input_sel: u8) {
         T::info().rcc.enable_and_reset();
         T::GlobalInterrupt::unpend();
         unsafe { T::GlobalInterrupt::enable() };
@@ -197,7 +197,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
 
             cr.set_nbtr(0x02); // 16 attempts are allowed.
             cr.set_wfa(true); // Wait for activity before going to synchronization phase.
-            cr.set_insel(in_sel); // Input pin selection.
+            cr.set_insel(input_sel); // Input pin selection.
             cr.set_cksen(true); // Generate a symbol clock.
             cr.set_cksbkpen(true); // Do not generate a backup symbol clock.
         });
