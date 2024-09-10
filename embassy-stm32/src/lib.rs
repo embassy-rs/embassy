@@ -89,6 +89,8 @@ pub mod i2s;
 pub mod ipcc;
 #[cfg(feature = "low-power")]
 pub mod low_power;
+#[cfg(lptim)]
+pub mod lptim;
 #[cfg(ltdc)]
 pub mod ltdc;
 #[cfg(opamp)]
