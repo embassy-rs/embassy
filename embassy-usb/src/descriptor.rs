@@ -308,6 +308,9 @@ impl<'a> BosWriter<'a> {
     }
 
     pub(crate) fn bos(&mut self) {
+        if (self.writer.buf.len() - self.writer.position) < 5 {
+            return;
+        }
         self.num_caps_mark = Some(self.writer.position + 4);
         self.writer.write(
             descriptor_type::BOS,
@@ -350,6 +353,9 @@ impl<'a> BosWriter<'a> {
     }
 
     pub(crate) fn end_bos(&mut self) {
+        if self.writer.position == 0 {
+            return;
+        }
         self.num_caps_mark = None;
         let position = self.writer.position as u16;
         self.writer.buf[2..4].copy_from_slice(&position.to_le_bytes());
