@@ -777,6 +777,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let dir = Dir::PeripheralToMemory;
         let data_size = W::size();
 
+        options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
         options.circular = true;
 
