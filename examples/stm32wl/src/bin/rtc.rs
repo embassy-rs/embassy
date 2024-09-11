@@ -1,14 +1,19 @@
 #![no_std]
 #![no_main]
 
+use core::mem::MaybeUninit;
+
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::Config;
+use embassy_stm32::{Config, SharedData};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+
+#[link_section = ".shared_data"]
+static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -31,7 +36,7 @@ async fn main(_spawner: Spawner) {
             divr: Some(PllRDiv::DIV2), // sysclk 48Mhz clock (32 / 2 * 6 / 2)
         });
     }
-    let p = embassy_stm32::init(config);
+    let p = embassy_stm32::init_primary(config, &SHARED_DATA);
     info!("Hello World!");
 
     let now = NaiveDate::from_ymd_opt(2020, 5, 15)

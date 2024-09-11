@@ -1,6 +1,6 @@
 [package]
 name = "embassy-executor"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "async/await executor designed for embedded usage"
@@ -33,7 +33,7 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.2", optional = true }
 
-embassy-executor-macros = { version = "0.4.0", path = "../embassy-executor-macros" }
+embassy-executor-macros = { version = "0.5.0", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver", optional = true }
 critical-section = "1.1"
@@ -79,7 +79,7 @@ arch-cortex-m = ["_arch", "dep:cortex-m"]
 ## RISC-V 32
 arch-riscv32 = ["_arch"]
 ## WASM
-arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
+arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys", "critical-section/std"]
 ## AVR
 arch-avr = ["_arch", "dep:portable-atomic", "dep:avr-device"]
 

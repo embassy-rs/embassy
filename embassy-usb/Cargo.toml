@@ -1,6 +1,6 @@
 [package]
 name = "embassy-usb"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Async USB device stack for embedded devices in Rust."
@@ -49,12 +49,12 @@ max-handler-count-8 = []
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
-embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel" }
+embassy-net-driver-channel = { version = "0.3.0", path = "../embassy-net-driver-channel" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 heapless = "0.8"
 
 # for HID
-usbd-hid = { version = "0.7.0", optional = true }
+usbd-hid = { version = "0.8.1", optional = true }
 ssmarshal = { version = "1.0", default-features = false, optional = true }

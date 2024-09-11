@@ -84,10 +84,35 @@ impl<const SIZE: usize> Stack<SIZE> {
     }
 }
 
-#[cfg(feature = "rt")]
+#[cfg(all(feature = "rt", feature = "rp2040"))]
 #[interrupt]
 #[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_PROC1() {
+    let sio = pac::SIO;
+    // Clear IRQ
+    sio.fifo().st().write(|w| w.set_wof(false));
+
+    while sio.fifo().st().read().vld() {
+        // Pause CORE1 execution and disable interrupts
+        if fifo_read_wfe() == PAUSE_TOKEN {
+            cortex_m::interrupt::disable();
+            // Signal to CORE0 that execution is paused
+            fifo_write(PAUSE_TOKEN);
+            // Wait for `resume` signal from CORE0
+            while fifo_read_wfe() != RESUME_TOKEN {
+                cortex_m::asm::nop();
+            }
+            cortex_m::interrupt::enable();
+            // Signal to CORE0 that execution is resumed
+            fifo_write(RESUME_TOKEN);
+        }
+    }
+}
+
+#[cfg(all(feature = "rt", feature = "_rp235x"))]
+#[interrupt]
+#[link_section = ".data.ram_func"]
+unsafe fn SIO_IRQ_FIFO() {
     let sio = pac::SIO;
     // Clear IRQ
     sio.fifo().st().write(|w| w.set_wof(false));
@@ -135,7 +160,14 @@ where
 
         IS_CORE1_INIT.store(true, Ordering::Release);
         // Enable fifo interrupt on CORE1 for `pause` functionality.
-        unsafe { interrupt::SIO_IRQ_PROC1.enable() };
+        #[cfg(feature = "rp2040")]
+        unsafe {
+            interrupt::SIO_IRQ_PROC1.enable()
+        };
+        #[cfg(feature = "_rp235x")]
+        unsafe {
+            interrupt::SIO_IRQ_FIFO.enable()
+        };
 
         entry()
     }

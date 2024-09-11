@@ -53,9 +53,9 @@ pub enum OutputChannelPolarity {
 
 fn regs() -> &'static pac::gpiote::RegisterBlock {
     cfg_if::cfg_if! {
-        if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s"))] {
+        if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s", feature="nrf9120-s"))] {
             unsafe { &*pac::GPIOTE0::ptr() }
-        } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns"))] {
+        } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns", feature="nrf9120-ns"))] {
             unsafe { &*pac::GPIOTE1::ptr() }
         } else {
             unsafe { &*pac::GPIOTE::ptr() }
@@ -81,9 +81,9 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     }
 
     // Enable interrupts
-    #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+    #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s", feature = "nrf9120-s"))]
     let irq = interrupt::GPIOTE0;
-    #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+    #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns", feature = "nrf9120-ns"))]
     let irq = interrupt::GPIOTE1;
     #[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "nrf5340-net"))]
     let irq = interrupt::GPIOTE;
@@ -96,14 +96,14 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     g.intenset.write(|w| w.port().set());
 }
 
-#[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+#[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s", feature = "nrf9120-s"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE0() {
     unsafe { handle_gpiote_interrupt() };
 }
 
-#[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+#[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns", feature = "nrf9120-ns"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE1() {

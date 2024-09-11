@@ -236,10 +236,10 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     ///
     pub fn prepare_boot(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
         const {
-            assert!(Self::PAGE_SIZE % ACTIVE::WRITE_SIZE as u32 == 0);
-            assert!(Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32 == 0);
-            assert!(Self::PAGE_SIZE % DFU::WRITE_SIZE as u32 == 0);
-            assert!(Self::PAGE_SIZE % DFU::ERASE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % ACTIVE::WRITE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % DFU::WRITE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % DFU::ERASE_SIZE as u32 == 0);
         }
 
         // Ensure we have enough progress pages to store copy progress

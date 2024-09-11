@@ -79,6 +79,15 @@ impl<'a> TcpReader<'a> {
     ///
     /// Returns how many bytes were read, or an error. If no data is available, it waits
     /// until there is at least one byte available.
+    ///
+    /// # Note
+    /// A return value of Ok(0) means that we have read all data and the remote
+    /// side has closed our receive half of the socket. The remote can no longer
+    /// send bytes.
+    ///
+    /// The send half of the socket is still open. If you want to reconnect using
+    /// the socket you split this reader off the send half needs to be closed using
+    /// [`abort()`](TcpSocket::abort).
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
     }
@@ -273,6 +282,9 @@ impl<'a> TcpSocket<'a> {
     ///
     /// Returns how many bytes were read, or an error. If no data is available, it waits
     /// until there is at least one byte available.
+    ///
+    /// A return value of Ok(0) means that the socket was closed and is longer
+    /// able to receive any data.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
     }
@@ -297,6 +309,10 @@ impl<'a> TcpSocket<'a> {
     ///
     /// If the timeout is set, the socket will be closed if no data is received for the
     /// specified duration.
+    ///
+    /// # Note:
+    /// Set a keep alive interval ([`set_keep_alive`] to prevent timeouts when
+    /// the remote could still respond.
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
         self.io
             .with_mut(|s, _| s.set_timeout(duration.map(duration_to_smoltcp)))
@@ -308,6 +324,9 @@ impl<'a> TcpSocket<'a> {
     /// the specified duration of inactivity.
     ///
     /// If not set, the socket will not send keep-alive packets.
+    ///
+    /// By setting a [`timeout`](Self::timeout) larger then the keep alive you
+    /// can detect a remote endpoint that no longer answers.
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
         self.io
             .with_mut(|s, _| s.set_keep_alive(interval.map(duration_to_smoltcp)))
@@ -515,7 +534,7 @@ impl<'d> TcpIo<'d> {
     async fn flush(&mut self) -> Result<(), Error> {
         poll_fn(move |cx| {
             self.with_mut(|s, _| {
-                let data_pending = s.send_queue() > 0;
+                let data_pending = (s.send_queue() > 0) && s.state() != tcp::State::Closed;
                 let fin_pending = matches!(
                     s.state(),
                     tcp::State::FinWait1 | tcp::State::Closing | tcp::State::LastAck
@@ -660,12 +679,25 @@ pub mod client {
     pub struct TcpClient<'d, D: Driver, const N: usize, const TX_SZ: usize = 1024, const RX_SZ: usize = 1024> {
         stack: &'d Stack<D>,
         state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
+        socket_timeout: Option<Duration>,
     }
 
     impl<'d, D: Driver, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClient<'d, D, N, TX_SZ, RX_SZ> {
         /// Create a new `TcpClient`.
         pub fn new(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Self {
-            Self { stack, state }
+            Self {
+                stack,
+                state,
+                socket_timeout: None,
+            }
+        }
+
+        /// Set the timeout for each socket created by this `TcpClient`.
+        ///
+        /// If the timeout is set, the socket will be closed if no data is received for the
+        /// specified duration.
+        pub fn set_timeout(&mut self, timeout: Option<Duration>) {
+            self.socket_timeout = timeout;
         }
     }
 
@@ -691,6 +723,7 @@ pub mod client {
             };
             let remote_endpoint = (addr, remote.port());
             let mut socket = TcpConnection::new(&self.stack, self.state)?;
+            socket.socket.set_timeout(self.socket_timeout.clone());
             socket
                 .socket
                 .connect(remote_endpoint)

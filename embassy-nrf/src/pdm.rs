@@ -21,7 +21,7 @@ pub use crate::pac::pdm::pdmclkctrl::FREQ_A as Frequency;
     feature = "nrf52840",
     feature = "nrf52833",
     feature = "_nrf5340-app",
-    feature = "_nrf9160",
+    feature = "_nrf91",
 ))]
 pub use crate::pac::pdm::ratio::RATIO_A as Ratio;
 use crate::{interrupt, Peripheral};
@@ -121,7 +121,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
             feature = "nrf52840",
             feature = "nrf52833",
             feature = "_nrf5340-app",
-            feature = "_nrf9160",
+            feature = "_nrf91",
         ))]
         r.ratio.write(|w| w.ratio().variant(config.ratio));
         r.mode.write(|w| {
@@ -374,7 +374,7 @@ pub struct Config {
         feature = "nrf52840",
         feature = "nrf52833",
         feature = "_nrf5340-app",
-        feature = "_nrf9160",
+        feature = "_nrf91",
     ))]
     pub ratio: Ratio,
     /// Gain left in dB
@@ -393,7 +393,7 @@ impl Default for Config {
                 feature = "nrf52840",
                 feature = "nrf52833",
                 feature = "_nrf5340-app",
-                feature = "_nrf9160",
+                feature = "_nrf91",
             ))]
             ratio: Ratio::RATIO80,
             gain_left: I7F1::ZERO,

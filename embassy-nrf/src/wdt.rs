@@ -30,9 +30,9 @@ impl Config {
     pub fn try_new(_wdt: &peripherals::WDT) -> Option<Self> {
         let r = unsafe { &*WDT::ptr() };
 
-        #[cfg(not(feature = "_nrf9160"))]
+        #[cfg(not(feature = "_nrf91"))]
         let runstatus = r.runstatus.read().runstatus().bit();
-        #[cfg(feature = "_nrf9160")]
+        #[cfg(feature = "_nrf91")]
         let runstatus = r.runstatus.read().runstatuswdt().bit();
 
         if runstatus {
@@ -83,9 +83,9 @@ impl Watchdog {
         let crv = config.timeout_ticks.max(MIN_TICKS);
         let rren = (1u32 << N) - 1;
 
-        #[cfg(not(feature = "_nrf9160"))]
+        #[cfg(not(feature = "_nrf91"))]
         let runstatus = r.runstatus.read().runstatus().bit();
-        #[cfg(feature = "_nrf9160")]
+        #[cfg(feature = "_nrf91")]
         let runstatus = r.runstatus.read().runstatuswdt().bit();
 
         if runstatus {
@@ -184,8 +184,9 @@ impl WatchdogHandle {
 
     /// Steal a watchdog handle by index.
     ///
-    /// Safety: watchdog must be initialized, index must be between 0 and N-1 where
-    /// N is the handle count when initializing.
+    /// # Safety
+    /// Watchdog must be initialized and `index` must be between `0` and `N-1`
+    /// where `N` is the handle count when initializing.
     pub unsafe fn steal(index: u8) -> Self {
         Self { index }
     }

@@ -7,6 +7,7 @@
 
 use core::str::from_utf8;
 
+use cyw43::JoinOptions;
 use cyw43_pio::PioSpi;
 use defmt::*;
 use embassy_executor::Spawner;
@@ -34,7 +35,7 @@ const WIFI_NETWORK: &str = "ssid"; // change to your network SSID
 const WIFI_PASSWORD: &str = "pwd"; // change to your network password
 
 #[embassy_executor::task]
-async fn wifi_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
+async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
     runner.run().await
 }
 
@@ -67,7 +68,7 @@ async fn main(spawner: Spawner) {
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    unwrap!(spawner.spawn(cyw43_task(runner)));
 
     control.init(clm).await;
     control
@@ -91,15 +92,17 @@ async fn main(spawner: Spawner) {
     let stack = &*STACK.init(Stack::new(
         net_device,
         config,
-        RESOURCES.init(StackResources::<5>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
     ));
 
     unwrap!(spawner.spawn(net_task(stack)));
 
     loop {
-        //match control.join_open(WIFI_NETWORK).await { // for open networks
-        match control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await {
+        match control
+            .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
+            .await
+        {
             Ok(_) => break,
             Err(err) => {
                 info!("join failed with status={}", err.status);

@@ -78,7 +78,8 @@ impl Default for Config {
 
 /// Used to configure an individual SAADC peripheral channel.
 ///
-/// See the `Default` impl for suitable default values.
+/// Construct using the `single_ended` or `differential` methods.  These provide sensible defaults
+/// for the public fields, which can be overridden if required.
 #[non_exhaustive]
 pub struct ChannelConfig<'d> {
     /// Reference voltage of the SAADC input.
@@ -722,9 +723,9 @@ macro_rules! impl_saadc_input {
 pub struct VddInput;
 
 impl_peripheral!(VddInput);
-#[cfg(not(feature = "_nrf9160"))]
+#[cfg(not(feature = "_nrf91"))]
 impl_saadc_input!(@local, VddInput, VDD);
-#[cfg(feature = "_nrf9160")]
+#[cfg(feature = "_nrf91")]
 impl_saadc_input!(@local, VddInput, VDDGPIO);
 
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the

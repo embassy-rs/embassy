@@ -1,6 +1,6 @@
 [package]
 name = "cyw43-pio"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "RP2040 PIO SPI implementation for cyw43"
 keywords = ["embedded", "cyw43", "embassy-net", "embedded-hal-async", "wifi"]
@@ -15,8 +15,8 @@ documentation = "https://docs.embassy.dev/cyw43-pio"
 overclock = []
 
 [dependencies]
-cyw43 = { version = "0.1.0", path = "../cyw43" }
-embassy-rp = { version = "0.1.0", path = "../embassy-rp" }
+cyw43 = { version = "0.2.0", path = "../cyw43" }
+embassy-rp = { version = "0.2.0", path = "../embassy-rp" }
 pio-proc = "0.2"
 pio = "0.2.1"
 fixed = "1.23.1"
@@ -26,3 +26,4 @@ defmt = { version = "0.3", optional = true }
 src_base = "https://github.com/embassy-rs/embassy/blob/cyw43-pio-v$VERSION/cyw43-pio/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/cyw43-pio/src/"
 target = "thumbv6m-none-eabi"
+features = ["embassy-rp/rp2040"]

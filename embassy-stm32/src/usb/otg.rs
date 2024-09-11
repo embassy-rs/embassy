@@ -97,6 +97,55 @@ impl<'d, T: Instance> Driver<'d, T> {
         }
     }
 
+    /// Initializes USB OTG peripheral with external Full-speed PHY (usually, a High-speed PHY in Full-speed mode).
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
+    /// Must be large enough to fit all OUT endpoint max packet sizes.
+    /// Endpoint allocation will fail if it is too small.
+    pub fn new_fs_ulpi(
+        _peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
+        ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
+        ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,
+        ulpi_stp: impl Peripheral<P = impl UlpiStpPin<T>> + 'd,
+        ulpi_d0: impl Peripheral<P = impl UlpiD0Pin<T>> + 'd,
+        ulpi_d1: impl Peripheral<P = impl UlpiD1Pin<T>> + 'd,
+        ulpi_d2: impl Peripheral<P = impl UlpiD2Pin<T>> + 'd,
+        ulpi_d3: impl Peripheral<P = impl UlpiD3Pin<T>> + 'd,
+        ulpi_d4: impl Peripheral<P = impl UlpiD4Pin<T>> + 'd,
+        ulpi_d5: impl Peripheral<P = impl UlpiD5Pin<T>> + 'd,
+        ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
+        ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
+        ep_out_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        config_ulpi_pins!(
+            ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4, ulpi_d5, ulpi_d6,
+            ulpi_d7
+        );
+
+        let regs = T::regs();
+
+        let instance = OtgInstance {
+            regs: T::regs(),
+            state: T::state(),
+            fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
+            endpoint_count: T::ENDPOINT_COUNT,
+            phy_type: PhyType::ExternalFullSpeed,
+            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
+            calculate_trdt_fn: calculate_trdt::<T>,
+        };
+
+        Self {
+            inner: OtgDriver::new(ep_out_buffer, instance, config),
+            phantom: PhantomData,
+        }
+    }
+
     /// Initializes USB OTG peripheral with external High-Speed PHY.
     ///
     /// # Arguments

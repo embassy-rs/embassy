@@ -11,7 +11,7 @@ use embassy_time::{block_for, Duration, Instant};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let p = init();
     info!("Hello World!");
 
     // Arduino pins D0 and D1

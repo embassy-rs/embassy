@@ -99,12 +99,7 @@ async fn main(spawner: Spawner) -> ! {
     // Init network stack
     static STACK: StaticCell<Stack<Device>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        device,
-        config,
-        RESOURCES.init(StackResources::<3>::new()),
-        seed,
-    ));
+    let stack = &*STACK.init(Stack::new(device, config, RESOURCES.init(StackResources::new()), seed));
 
     // Launch network task
     unwrap!(spawner.spawn(net_task(stack)));

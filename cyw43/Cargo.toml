@@ -1,6 +1,6 @@
 [package]
 name = "cyw43"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Rust driver for the CYW43439 WiFi chip, used in the Raspberry Pi Pico W."
 keywords = ["embedded", "cyw43", "embassy-net", "embedded-hal-async", "wifi"]
@@ -10,17 +10,18 @@ repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/cyw43"
 
 [features]
-defmt = ["dep:defmt", "heapless/defmt-03", "embassy-time/defmt"]
+defmt = ["dep:defmt", "heapless/defmt-03", "embassy-time/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt-03"]
 log = ["dep:log"]
+bluetooth = ["dep:bt-hci", "dep:embedded-io-async"]
 
 # Fetch console logs from the WiFi firmware and forward them to `log` or `defmt`.
 firmware-logs = []
 
 [dependencies]
-embassy-time = { version = "0.3.1", path = "../embassy-time"}
+embassy-time = { version = "0.3.2", path = "../embassy-time"}
 embassy-sync = { version = "0.6.0", path = "../embassy-sync"}
 embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
-embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel"}
+embassy-net-driver-channel = { version = "0.3.0", path = "../embassy-net-driver-channel"}
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.17", optional = true }
@@ -31,8 +32,11 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 num_enum = { version = "0.5.7", default-features = false }
-
 heapless = "0.8.0"
+
+# Bluetooth deps
+embedded-io-async = { version = "0.6.0", optional = true }
+bt-hci = { version = "0.1.0", optional = true }
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/cyw43-v$VERSION/cyw43/src/"

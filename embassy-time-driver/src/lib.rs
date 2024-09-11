@@ -98,7 +98,7 @@ pub trait Driver: Send + Sync + 'static {
     ///
     /// Implementations MUST ensure that:
     /// - This is guaranteed to be monotonic, i.e. a call to now() will always return
-    ///   a greater or equal value than earler calls. Time can't "roll backwards".
+    ///   a greater or equal value than earlier calls. Time can't "roll backwards".
     /// - It "never" overflows. It must not overflow in a sufficiently long time frame, say
     ///   in 10_000 years (Human civilization is likely to already have self-destructed
     ///   10_000 years from now.). This means if your hardware only has 16bit/32bit timers
@@ -113,24 +113,52 @@ pub trait Driver: Send + Sync + 'static {
     /// It is UB to make the alarm fire before setting a callback.
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle>;
 
-    /// Sets the callback function to be called when the alarm triggers.
+    /// Set the callback function to be called when the alarm triggers.
     /// The callback may be called from any context (interrupt or thread mode).
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ());
 
-    /// Sets an alarm at the given timestamp. When the current timestamp reaches the alarm
-    /// timestamp, the provided callback function will be called.
+    /// Set an alarm at the given timestamp.
     ///
-    /// The `Driver` implementation should guarantee that the alarm callback is never called synchronously from `set_alarm`.
-    /// Rather - if `timestamp` is already in the past - `false` should be returned and alarm should not be set,
-    /// or alternatively, the driver should return `true` and arrange to call the alarm callback as soon as possible, but not synchronously.
-    /// There is a rare third possibility that the alarm was barely in the future, and by the time it was enabled, it had slipped into the
-    /// past.  This is can be detected by double-checking that the alarm is still in the future after enabling it; if it isn't, `false`
-    /// should also be returned to indicate that the callback may have been called already by the alarm, but it is not guaranteed, so the
-    /// caller should also call the callback, just like in the more common `false` case. (Note: This requires idempotency of the callback.)
+    /// ## Behavior
     ///
-    /// When callback is called, it is guaranteed that now() will return a value greater or equal than timestamp.
+    /// If `timestamp` is in the future, `set_alarm` schedules calling the callback function
+    /// at that time, and returns `true`.
     ///
-    /// Only one alarm can be active at a time for each AlarmHandle. This overwrites any previously-set alarm if any.
+    /// If `timestamp` is in the past, `set_alarm` has two allowed behaviors. Implementations can pick whether to:
+    ///
+    /// - Schedule calling the callback function "immediately", as if the requested timestamp was "now+epsilon" and return `true`, or
+    /// - Not schedule the callback, and return `false`.
+    ///
+    /// Callers must ensure to behave correctly with either behavior.
+    ///
+    /// When callback is called, it is guaranteed that `now()` will return a value greater than or equal to `timestamp`.
+    ///
+    /// ## Reentrancy
+    ///
+    /// Calling the callback from `set_alarm` synchronously is not allowed. If the implementation chooses the first option above,
+    /// it must still call the callback from another context (i.e. an interrupt handler or background thread), it's not allowed
+    /// to call it synchronously in the context `set_alarm` is running.
+    ///
+    /// The reason for the above is callers are explicitly permitted to do both of:
+    /// - Lock a mutex in the alarm callback.
+    /// - Call `set_alarm` while having that mutex locked.
+    ///
+    /// If `set_alarm` called the callback synchronously, it'd cause a deadlock or panic because it'd cause the
+    /// mutex to be locked twice reentrantly in the same context.
+    ///
+    /// ## Overwriting alarms
+    ///
+    /// Only one alarm can be active at a time for each `AlarmHandle`. This overwrites any previously-set alarm if any.
+    ///
+    /// ## Unsetting the alarm
+    ///
+    /// There is no `unset_alarm` API. Instead, callers can call `set_alarm` with `timestamp` set to `u64::MAX`.
+    ///
+    /// This allows for more efficient implementations, since they don't need to distinguish between the "alarm set" and
+    /// "alarm not set" cases, thanks to the fact "Alarm set for u64::MAX" is effectively equivalent for "alarm not set".
+    ///
+    /// This means implementations need to be careful to avoid timestamp overflows. The recommendation is to make `timestamp`
+    /// be in the same units as hardware ticks to avoid any conversions, which makes avoiding overflow easier.
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool;
 }
 

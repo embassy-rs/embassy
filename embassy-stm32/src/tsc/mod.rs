@@ -40,7 +40,7 @@
 //! g7.set_io2(context.PE3, PinType::Sample);
 //! g7.set_io3(context.PE4, PinType::Channel);
 //!
-//! let mut touch_controller = tsc::Tsc::new(
+//! let mut touch_controller = tsc::Tsc::new_blocking(
 //!     context.TSC,
 //!     Some(g1),
 //!     Some(g2),
@@ -188,7 +188,7 @@ pub struct Config {
     pub spread_spectrum_prescaler: bool,
     /// Selects AHB clock divider used to generate pulse generator clk
     pub pulse_generator_prescaler: PGPrescalerDivider,
-    /// Maximum number of charge tranfer pulses that can be generated before error
+    /// Maximum number of charge transfer pulses that can be generated before error
     pub max_count_value: MaxCount,
     /// Defines config of all IOs when no ongoing acquisition
     pub io_default_mode: bool,

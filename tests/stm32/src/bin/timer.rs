@@ -10,7 +10,7 @@ use embassy_time::{Instant, Timer};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let _p = embassy_stm32::init(config());
+    let _p = init();
     info!("Hello World!");
 
     let start = Instant::now();
