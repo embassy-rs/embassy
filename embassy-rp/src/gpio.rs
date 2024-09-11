@@ -846,12 +846,12 @@ pub(crate) trait SealedPin: Sized {
 
     #[inline]
     fn _pin(&self) -> u8 {
-        self.pin_bank() & 0x1f
+        self.pin_bank() & 0x7f
     }
 
     #[inline]
     fn _bank(&self) -> Bank {
-        match self.pin_bank() >> 5 {
+        match self.pin_bank() >> 7 {
             #[cfg(feature = "qspi-as-gpio")]
             1 => Bank::Qspi,
             _ => Bank::Bank0,
@@ -880,15 +880,27 @@ pub(crate) trait SealedPin: Sized {
     }
 
     fn sio_out(&self) -> pac::sio::Gpio {
-        SIO.gpio_out(self._bank() as _)
+        if cfg!(feature = "rp2040") {
+            SIO.gpio_out(self._bank() as _)
+        } else {
+            SIO.gpio_out((self._pin() / 32) as _)
+        }
     }
 
     fn sio_oe(&self) -> pac::sio::Gpio {
-        SIO.gpio_oe(self._bank() as _)
+        if cfg!(feature = "rp2040") {
+            SIO.gpio_oe(self._bank() as _)
+        } else {
+            SIO.gpio_oe((self._pin() / 32) as _)
+        }
     }
 
     fn sio_in(&self) -> Reg<u32, RW> {
-        SIO.gpio_in(self._bank() as _)
+        if cfg!(feature = "rp2040") {
+            SIO.gpio_in(self._bank() as _)
+        } else {
+            SIO.gpio_in((self._pin() / 32) as _)
+        }
     }
 
     fn int_proc(&self) -> pac::io::Int {
@@ -953,7 +965,7 @@ macro_rules! impl_pin {
         impl SealedPin for peripherals::$name {
             #[inline]
             fn pin_bank(&self) -> u8 {
-                ($bank as u8) * 32 + $pin_num
+                ($bank as u8) * 64 + $pin_num
             }
         }
 
