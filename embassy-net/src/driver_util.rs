@@ -74,7 +74,7 @@ where
 {
     fn consume<R, F>(self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> R,
+        F: FnOnce(&[u8]) -> R,
     {
         self.0.consume(|buf| {
             #[cfg(feature = "packet-trace")]

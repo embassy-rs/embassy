@@ -1,6 +1,5 @@
 //! Raw sockets.
 
-use core::cell::RefCell;
 use core::future::poll_fn;
 use core::mem;
 use core::task::{Context, Poll};
@@ -11,7 +10,7 @@ use smoltcp::socket::raw;
 pub use smoltcp::socket::raw::PacketMetadata;
 use smoltcp::wire::{IpProtocol, IpVersion};
 
-use crate::{SocketStack, Stack};
+use crate::Stack;
 
 /// Error returned by [`RawSocket::recv`] and [`RawSocket::send`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -23,14 +22,14 @@ pub enum RecvError {
 
 /// An Raw socket.
 pub struct RawSocket<'a> {
-    stack: &'a RefCell<SocketStack>,
+    stack: Stack<'a>,
     handle: SocketHandle,
 }
 
 impl<'a> RawSocket<'a> {
     /// Create a new Raw socket using the provided stack and buffers.
     pub fn new<D: Driver>(
-        stack: &'a Stack<D>,
+        stack: Stack<'a>,
         ip_version: IpVersion,
         ip_protocol: IpProtocol,
         rx_meta: &'a mut [PacketMetadata],
@@ -38,31 +37,29 @@ impl<'a> RawSocket<'a> {
         tx_meta: &'a mut [PacketMetadata],
         tx_buffer: &'a mut [u8],
     ) -> Self {
-        let s = &mut *stack.socket.borrow_mut();
+        let handle = stack.with_mut(|i| {
+            let rx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(rx_meta) };
+            let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
+            let tx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(tx_meta) };
+            let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
+            i.sockets.add(raw::Socket::new(
+                ip_version,
+                ip_protocol,
+                raw::PacketBuffer::new(rx_meta, rx_buffer),
+                raw::PacketBuffer::new(tx_meta, tx_buffer),
+            ))
+        });
 
-        let rx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(rx_meta) };
-        let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
-        let tx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(tx_meta) };
-        let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
-        let handle = s.sockets.add(raw::Socket::new(
-            ip_version,
-            ip_protocol,
-            raw::PacketBuffer::new(rx_meta, rx_buffer),
-            raw::PacketBuffer::new(tx_meta, tx_buffer),
-        ));
-
-        Self {
-            stack: &stack.socket,
-            handle,
-        }
+        Self { stack, handle }
     }
 
     fn with_mut<R>(&self, f: impl FnOnce(&mut raw::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.borrow_mut();
-        let socket = s.sockets.get_mut::<raw::Socket>(self.handle);
-        let res = f(socket, &mut s.iface);
-        s.waker.wake();
-        res
+        self.stack.with_mut(|i| {
+            let socket = i.sockets.get_mut::<raw::Socket>(self.handle);
+            let res = f(socket, &mut i.iface);
+            i.waker.wake();
+            res
+        })
     }
 
     /// Receive a datagram.
@@ -115,6 +112,10 @@ impl<'a> RawSocket<'a> {
 
 impl Drop for RawSocket<'_> {
     fn drop(&mut self) {
-        self.stack.borrow_mut().sockets.remove(self.handle);
+        self.stack.with_mut(|i| i.sockets.remove(self.handle));
     }
+}
+
+fn _assert_covariant<'a, 'b: 'a>(x: RawSocket<'b>) -> RawSocket<'a> {
+    x
 }
