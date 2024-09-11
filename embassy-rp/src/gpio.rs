@@ -965,7 +965,7 @@ macro_rules! impl_pin {
         impl SealedPin for peripherals::$name {
             #[inline]
             fn pin_bank(&self) -> u8 {
-                ($bank as u8) * 64 + $pin_num
+                ($bank as u8) * 128 + $pin_num
             }
         }
 
