@@ -13,6 +13,7 @@
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_u0), path = "v3.rs")]
 #[cfg_attr(adc_v4, path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
+#[cfg_attr(adc_u5, path = "u5.rs")]
 mod _version;
 
 use core::marker::PhantomData;
@@ -63,7 +64,7 @@ trait SealedInstance {
 }
 
 pub(crate) trait SealedAdcChannel<T> {
-    #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4))]
+    #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
     fn setup(&mut self) {}
 
     #[allow(unused)]
@@ -97,7 +98,8 @@ pub(crate) fn blocking_delay_us(us: u32) {
     adc_f3_v1_1,
     adc_g0,
     adc_u0,
-    adc_h5
+    adc_h5,
+    adc_u5
 )))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::Peripheral<P = Self> {
@@ -116,7 +118,8 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> {
     adc_f3_v1_1,
     adc_g0,
     adc_u0,
-    adc_h5
+    adc_h5,
+    adc_u5
 ))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {
@@ -128,7 +131,7 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::R
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
     #[allow(unused_mut)]
     fn degrade_adc(mut self) -> AnyAdcChannel<T> {
-        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4))]
+        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
         self.setup();
 
         AnyAdcChannel {
@@ -183,7 +186,7 @@ macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::peripherals::$pin {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::peripherals::$pin {
-            #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4))]
+            #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
             fn setup(&mut self) {
                 <Self as crate::gpio::SealedPin>::set_as_analog(self);
             }
