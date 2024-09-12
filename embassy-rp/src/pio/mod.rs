@@ -833,8 +833,6 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 }
             };
 
-            info!("shift: {}", shift_gpio_base);
-
             if shift_gpio_base {
                 sm.pinctrl().write(|w| {
                     w.set_sideset_count(config.pins.sideset_count);
