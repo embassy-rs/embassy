@@ -655,6 +655,10 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
 
     /// Set pin used to signal jump.
     pub fn set_jmp_pin(&mut self, pin: &Pin<'d, PIO>) {
+        #[cfg(feature = "_rp235x")]
+        pin.pin.pad_ctrl().modify(|w| {
+            w.set_iso(false);
+        });
         self.exec.jmp_pin = pin.pin();
     }
 
@@ -664,6 +668,12 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     pub fn set_set_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
         assert!(pins.len() <= 5);
         assert_consecutive(pins);
+        #[cfg(feature = "_rp235x")]
+        for pin in pins {
+            pin.pin.pad_ctrl().modify(|w| {
+                w.set_iso(false);
+            })
+        }
         self.pins.set_base = pins.first().map_or(0, |p| p.pin());
         self.pins.set_count = pins.len() as u8;
     }
@@ -673,6 +683,12 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     /// effective.
     pub fn set_out_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
         assert_consecutive(pins);
+        #[cfg(feature = "_rp235x")]
+        for pin in pins {
+            pin.pin.pad_ctrl().modify(|w| {
+                w.set_iso(false);
+            })
+        }
         self.pins.out_base = pins.first().map_or(0, |p| p.pin());
         self.pins.out_count = pins.len() as u8;
     }
@@ -682,6 +698,12 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     /// effective.
     pub fn set_in_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
         assert_consecutive(pins);
+        #[cfg(feature = "_rp235x")]
+        for pin in pins {
+            pin.pin.pad_ctrl().modify(|w| {
+                w.set_iso(false);
+            })
+        }
         self.pins.in_base = pins.first().map_or(0, |p| p.pin());
         self.in_count = pins.len() as u8;
     }
@@ -731,6 +753,8 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_autopull(config.shift_out.auto_fill);
             w.set_autopush(config.shift_in.auto_fill);
         });
+
+        #[cfg(feature = "rp2040")]
         sm.pinctrl().write(|w| {
             w.set_sideset_count(config.pins.sideset_count);
             w.set_set_count(config.pins.set_count);
@@ -740,6 +764,102 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_set_base(config.pins.set_base);
             w.set_out_base(config.pins.out_base);
         });
+
+        #[cfg(feature = "_rp235x")]
+        {
+            let shift_gpio_base = {
+                match (
+                    if config.in_count > 0 {
+                        Some(config.pins.in_base)
+                    } else {
+                        None
+                    },
+                    if config.pins.sideset_count > 0 {
+                        Some(config.pins.sideset_base)
+                    } else {
+                        None
+                    },
+                    if config.pins.set_count > 0 {
+                        Some(config.pins.set_base)
+                    } else {
+                        None
+                    },
+                    if config.pins.out_count > 0 {
+                        Some(config.pins.out_base)
+                    } else {
+                        None
+                    },
+                ) {
+                    (None, None, None, None) => false,
+
+                    (Some(0..31), None, None, None) => false,
+                    (None, Some(0..31), None, None) => false,
+                    (None, None, Some(0..31), None) => false,
+                    (None, None, None, Some(0..31)) => false,
+
+                    (Some(0..31), Some(0..31), None, None) => false,
+                    (None, Some(0..31), Some(0..31), None) => false,
+                    (None, None, Some(0..31), Some(0..31)) => false,
+                    (Some(0..31), None, None, Some(0..31)) => false,
+
+                    (None, Some(0..31), Some(0..31), Some(0..31)) => false,
+                    (Some(0..31), None, Some(0..31), Some(0..31)) => false,
+                    (Some(0..31), Some(0..31), None, Some(0..31)) => false,
+                    (Some(0..31), Some(0..31), Some(0..31), None) => false,
+
+                    (Some(0..31), Some(0..31), Some(0..31), Some(0..31)) => false,
+
+                    (Some(16..48), None, None, None) => true,
+                    (None, Some(16..48), None, None) => true,
+                    (None, None, Some(16..48), None) => true,
+                    (None, None, None, Some(16..48)) => true,
+
+                    (Some(16..48), Some(16..48), None, None) => true,
+                    (None, Some(16..48), Some(16..48), None) => true,
+                    (None, None, Some(16..48), Some(16..48)) => true,
+                    (Some(16..48), None, None, Some(16..48)) => true,
+
+                    (None, Some(16..48), Some(16..48), Some(16..48)) => true,
+                    (Some(16..48), None, Some(16..48), Some(16..48)) => true,
+                    (Some(16..48), Some(16..48), None, Some(16..48)) => true,
+                    (Some(16..48), Some(16..48), Some(16..48), None) => true,
+
+                    (Some(16..48), Some(16..48), Some(16..48), Some(16..48)) => true,
+
+                    (i, side, set, out) => panic!(
+                        "All pins must either be < 31 or >16, in:{}, side:{}, set:{}, out:{}",
+                        i, side, set, out
+                    ),
+                }
+            };
+
+            info!("shift: {}", shift_gpio_base);
+
+            if shift_gpio_base {
+                sm.pinctrl().write(|w| {
+                    w.set_sideset_count(config.pins.sideset_count);
+                    w.set_set_count(config.pins.set_count);
+                    w.set_out_count(config.pins.out_count);
+                    w.set_in_base(config.pins.in_base - 16);
+                    w.set_sideset_base(config.pins.sideset_base - 16);
+                    w.set_set_base(config.pins.set_base - 16);
+                    w.set_out_base(config.pins.out_base - 16);
+                });
+            } else {
+                sm.pinctrl().write(|w| {
+                    w.set_sideset_count(config.pins.sideset_count);
+                    w.set_set_count(config.pins.set_count);
+                    w.set_out_count(config.pins.out_count);
+                    w.set_in_base(config.pins.in_base);
+                    w.set_sideset_base(config.pins.sideset_base);
+                    w.set_set_base(config.pins.set_base);
+                    w.set_out_base(config.pins.out_base);
+                });
+            }
+
+            PIO::PIO.gpiobase().write(|w| w.set_gpiobase(shift_gpio_base));
+        }
+
         if let Some(origin) = config.origin {
             unsafe { instr::exec_jmp(self, origin) }
         }
