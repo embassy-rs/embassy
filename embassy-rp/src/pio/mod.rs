@@ -827,7 +827,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                     (Some(16..48), Some(16..48), Some(16..48), Some(16..48)) => true,
 
                     (i, side, set, out) => panic!(
-                        "All pins must either be < 31 or >16, in:{}, side:{}, set:{}, out:{}",
+                        "All pins must either be < 31 or >16, in:{:?}, side:{:?}, set:{:?}, out:{:?}",
                         i, side, set, out
                     ),
                 }
