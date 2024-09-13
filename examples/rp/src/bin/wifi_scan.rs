@@ -27,11 +27,6 @@ async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'stat
     runner.run().await
 }
 
-#[embassy_executor::task]
-async fn net_task(stack: &'static Stack<cyw43::NetDriver<'static>>) -> ! {
-    stack.run().await
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Hello World!");
