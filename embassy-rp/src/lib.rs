@@ -42,6 +42,8 @@ pub mod rtc;
 pub mod spi;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
+#[cfg(feature = "_rp235x")]
+pub mod trng;
 pub mod uart;
 pub mod usb;
 pub mod watchdog;
@@ -402,6 +404,8 @@ embassy_hal_internal::peripherals! {
 
     WATCHDOG,
     BOOTSEL,
+
+    TRNG
 }
 
 #[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
