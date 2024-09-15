@@ -698,7 +698,7 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(stm32h7rs)]
         clk48mohci: None, // TODO
         #[cfg(stm32h7rs)]
-        usb: None, // TODO
+        usb: Some(Hertz(48_000_000)),
     );
 }
 
@@ -769,7 +769,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
         if num == 0 {
             // on PLL1, DIVP must be even for most series.
             // The enum value is 1 less than the divider, so check it's odd.
-            #[cfg(not(pwr_h7rm0468))]
+            #[cfg(not(any(pwr_h7rm0468, stm32h7rs)))]
             assert!(div.to_bits() % 2 == 1);
             #[cfg(pwr_h7rm0468)]
             assert!(div.to_bits() % 2 == 1 || div.to_bits() == 0);

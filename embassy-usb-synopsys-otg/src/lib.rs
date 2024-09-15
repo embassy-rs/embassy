@@ -584,6 +584,22 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         });
     }
 
+    pub fn config_v5(&mut self) {
+        let r = self.instance.regs;
+
+        r.gccfg_v3().modify(|w| {
+            w.set_vbvaloven(true);
+            w.set_vbvaloval(true);
+            w.set_vbden(self.config.vbus_detection);
+        });
+
+        // Force B-peripheral session
+        r.gotgctl().modify(|w| {
+            w.set_vbvaloen(!self.config.vbus_detection);
+            w.set_bvaloval(true);
+        });
+    }
+
     fn init(&mut self) {
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
