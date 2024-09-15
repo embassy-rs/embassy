@@ -763,10 +763,6 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
         self.0.get_remaining_transfers() as _
     }
 
-    fn get_complete_count(&self) -> usize {
-        STATE[self.0.id as usize].complete_count.load(Ordering::Acquire)
-    }
-
     fn reset_complete_count(&mut self) -> usize {
         let state = &STATE[self.0.id as usize];
         #[cfg(not(armv6m))]
