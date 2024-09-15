@@ -554,7 +554,7 @@ fn calculate_trdt<T: Instance>(speed: Dspd) -> u8 {
     match speed {
         Dspd::HIGH_SPEED => {
             // From RM0431 (F72xx), RM0090 (F429), RM0390 (F446)
-            if ahb_freq >= 30_000_000 {
+            if ahb_freq >= 30_000_000 || cfg!(stm32h7rs) {
                 0x9
             } else {
                 panic!("AHB frequency is too low")
