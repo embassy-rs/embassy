@@ -449,6 +449,47 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         ctrl.read().stall()
     }
 
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: usize) {
+        todo!();
+        /*
+        trace!("set_buffersize {:?} {:?}", ep_addr, buf_size);
+        if ep_addr.index() == 0 {
+            return;
+        }
+
+        let n = ep_addr.index();
+        match ep_addr.direction() {
+            Direction::In => {
+                T::dpram().ep_in_control(n - 1).modify(|w| w.set_buffersize(buf_size));
+            }
+            Direction::Out => {
+                T::dpram().ep_out_control(n - 1).modify(|w| w.set_buffersize(buf_size));
+            }
+        }
+        */
+    }
+
+    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType) {
+        todo!();
+
+        /*
+        trace!("set_buffersize {:?} {:?}", ep_addr, ep_type);
+        if ep_addr.index() == 0 {
+            return;
+        }
+
+        let n = ep_addr.index();
+        match ep_addr.direction() {
+            Direction::In => {
+                T::dpram().ep_in_control(n - 1).modify(|w| w.endpoint_type(ep_type));
+            }
+            Direction::Out => {
+                T::dpram().ep_out_control(n - 1).modify(|w| w.endpoint_type(ep_type));
+            }
+        }
+        */
+    }
+
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("set_enabled {:?} {}", ep_addr, enabled);
         if ep_addr.index() == 0 {

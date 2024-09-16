@@ -642,6 +642,14 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         }
     }
 
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: usize) {
+        todo!();
+    }
+
+    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type :EndpointType) {
+        todo!();
+    }
+
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("set_enabled {:x} {}", ep_addr, enabled);
         // This can race, so do a retry loop.

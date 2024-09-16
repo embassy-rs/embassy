@@ -306,6 +306,14 @@ impl<'d, T: Instance, V: VbusDetect> driver::Bus for Bus<'d, T, V> {
         }
     }
 
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: usize) {
+        todo!();
+    }
+
+    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type :EndpointType) {
+        todo!();
+    }
+
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         let regs = T::regs();
 
