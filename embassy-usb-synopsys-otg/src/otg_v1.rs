@@ -459,6 +459,11 @@ pub mod regs {
             let val = (self.0 >> 0usize) & 0xffff_ffff;
             val as u32
         }
+        #[doc = "Product ID field"]
+        #[inline(always)]
+        pub fn set_product_id(&mut self, val: u32) {
+            self.0 = val
+        }
     }
     impl Default for Cid {
         #[inline(always)]
