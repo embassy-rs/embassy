@@ -290,8 +290,9 @@ cargo batch \
     $BUILD_EXTRA
 
 
-# temporarily disabled, bluepill board got bricked
+# temporarily disabled, these boards are dead.
 rm -rf out/tests/stm32f103c8
+rm -rf out/tests/nrf52840-dk
 
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
