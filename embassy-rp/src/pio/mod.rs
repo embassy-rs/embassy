@@ -655,10 +655,6 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
 
     /// Set pin used to signal jump.
     pub fn set_jmp_pin(&mut self, pin: &Pin<'d, PIO>) {
-        #[cfg(feature = "_rp235x")]
-        pin.pin.pad_ctrl().modify(|w| {
-            w.set_iso(false);
-        });
         self.exec.jmp_pin = pin.pin();
     }
 
@@ -668,12 +664,6 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     pub fn set_set_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
         assert!(pins.len() <= 5);
         assert_consecutive(pins);
-        #[cfg(feature = "_rp235x")]
-        for pin in pins {
-            pin.pin.pad_ctrl().modify(|w| {
-                w.set_iso(false);
-            })
-        }
         self.pins.set_base = pins.first().map_or(0, |p| p.pin());
         self.pins.set_count = pins.len() as u8;
     }
@@ -683,12 +673,6 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     /// effective.
     pub fn set_out_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
         assert_consecutive(pins);
-        #[cfg(feature = "_rp235x")]
-        for pin in pins {
-            pin.pin.pad_ctrl().modify(|w| {
-                w.set_iso(false);
-            })
-        }
         self.pins.out_base = pins.first().map_or(0, |p| p.pin());
         self.pins.out_count = pins.len() as u8;
     }
@@ -698,12 +682,6 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     /// effective.
     pub fn set_in_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
         assert_consecutive(pins);
-        #[cfg(feature = "_rp235x")]
-        for pin in pins {
-            pin.pin.pad_ctrl().modify(|w| {
-                w.set_iso(false);
-            })
-        }
         self.pins.in_base = pins.first().map_or(0, |p| p.pin());
         self.in_count = pins.len() as u8;
     }
@@ -778,10 +756,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 config.pins.set_base + config.pins.set_count,
                 config.pins.out_base,
                 config.pins.out_base + config.pins.out_count,
-            ]
-            .iter()
-            .flatten()
-            {
+            ] {
                 low_ok &= pin < 32;
                 high_ok &= pin >= 16;
             }
@@ -1080,6 +1055,10 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
         into_ref!(pin);
         pin.gpio().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL as _));
+        #[cfg(feature = "_rp235x")]
+        pin.pad_ctrl().modify(|w| {
+            w.set_iso(false);
+        });
         // we can be relaxed about this because we're &mut here and nothing is cached
         PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
         Pin {
