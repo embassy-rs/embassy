@@ -792,42 +792,42 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 ) {
                     (None, None, None, None) => false,
 
-                    (Some(0..31), None, None, None) => false,
-                    (None, Some(0..31), None, None) => false,
-                    (None, None, Some(0..31), None) => false,
-                    (None, None, None, Some(0..31)) => false,
+                    (Some(..32), None, None, None) => false,
+                    (None, Some(..32), None, None) => false,
+                    (None, None, Some(..32), None) => false,
+                    (None, None, None, Some(..32)) => false,
 
-                    (Some(0..31), Some(0..31), None, None) => false,
-                    (None, Some(0..31), Some(0..31), None) => false,
-                    (None, None, Some(0..31), Some(0..31)) => false,
-                    (Some(0..31), None, None, Some(0..31)) => false,
+                    (Some(..32), Some(..32), None, None) => false,
+                    (None, Some(..32), Some(..32), None) => false,
+                    (None, None, Some(..32), Some(..32)) => false,
+                    (Some(..32), None, None, Some(..32)) => false,
 
-                    (None, Some(0..31), Some(0..31), Some(0..31)) => false,
-                    (Some(0..31), None, Some(0..31), Some(0..31)) => false,
-                    (Some(0..31), Some(0..31), None, Some(0..31)) => false,
-                    (Some(0..31), Some(0..31), Some(0..31), None) => false,
+                    (None, Some(..32), Some(..32), Some(..32)) => false,
+                    (Some(..32), None, Some(..32), Some(..32)) => false,
+                    (Some(..32), Some(..32), None, Some(..32)) => false,
+                    (Some(..32), Some(..32), Some(..32), None) => false,
 
-                    (Some(0..31), Some(0..31), Some(0..31), Some(0..31)) => false,
+                    (Some(..32), Some(..32), Some(..32), Some(..32)) => false,
 
-                    (Some(16..48), None, None, None) => true,
-                    (None, Some(16..48), None, None) => true,
-                    (None, None, Some(16..48), None) => true,
-                    (None, None, None, Some(16..48)) => true,
+                    (Some(16..), None, None, None) => true,
+                    (None, Some(16..), None, None) => true,
+                    (None, None, Some(16..), None) => true,
+                    (None, None, None, Some(16..)) => true,
 
-                    (Some(16..48), Some(16..48), None, None) => true,
-                    (None, Some(16..48), Some(16..48), None) => true,
-                    (None, None, Some(16..48), Some(16..48)) => true,
-                    (Some(16..48), None, None, Some(16..48)) => true,
+                    (Some(16..), Some(16..), None, None) => true,
+                    (None, Some(16..), Some(16..), None) => true,
+                    (None, None, Some(16..), Some(16..)) => true,
+                    (Some(16..), None, None, Some(16..)) => true,
 
-                    (None, Some(16..48), Some(16..48), Some(16..48)) => true,
-                    (Some(16..48), None, Some(16..48), Some(16..48)) => true,
-                    (Some(16..48), Some(16..48), None, Some(16..48)) => true,
-                    (Some(16..48), Some(16..48), Some(16..48), None) => true,
+                    (None, Some(16..), Some(16..), Some(16..)) => true,
+                    (Some(16..), None, Some(16..), Some(16..)) => true,
+                    (Some(16..), Some(16..), None, Some(16..)) => true,
+                    (Some(16..), Some(16..), Some(16..), None) => true,
 
-                    (Some(16..48), Some(16..48), Some(16..48), Some(16..48)) => true,
+                    (Some(16..), Some(16..), Some(16..), Some(16..)) => true,
 
                     (i, side, set, out) => panic!(
-                        "All pins must either be < 31 or >16, in:{:?}, side:{:?}, set:{:?}, out:{:?}",
+                        "All pins must either be <=31 or >=16, in:{:?}, side:{:?}, set:{:?}, out:{:?}",
                         i, side, set, out
                     ),
                 }
