@@ -467,6 +467,25 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep
     }
 
+    fn endpoint_in_allocated(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+        ep_allocated: &D::EndpointIn,
+    ) {
+        let ep_info = EndpointInfo {
+            addr: ep_allocated.info().addr,
+            ep_type,
+            max_packet_size,
+            interval_ms,
+        };
+        self.endpoint_descriptor(&ep_info, synchronization_type, usage_type, extra_fields);
+    }
+
     /// Allocate an OUT endpoint, without writing its descriptor.
     ///
     /// Use for granular control over the order of endpoint and descriptor creation.
@@ -500,6 +519,25 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         ep
     }
 
+    fn endpoint_out_allocated(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+        ep_allocated: &D::EndpointOut,
+    ) {
+        let ep_info = EndpointInfo {
+            addr: ep_allocated.info().addr,
+            ep_type,
+            max_packet_size,
+            interval_ms,
+        };
+        self.endpoint_descriptor(&ep_info, synchronization_type, usage_type, extra_fields);
+    }
+
     /// Allocate a BULK IN endpoint and write its descriptor.
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
@@ -515,6 +553,22 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         )
     }
 
+    /// Reuse an allocated BULK IN endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_bulk_in_allocated(&mut self, max_packet_size: u16, ep_allocated: &D::EndpointIn) {
+        self.endpoint_in_allocated(
+            EndpointType::Bulk,
+            max_packet_size,
+            0,
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+            ep_allocated,
+        );
+    }
+
     /// Allocate a BULK OUT endpoint and write its descriptor.
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
@@ -527,6 +581,22 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             SynchronizationType::NoSynchronization,
             UsageType::DataEndpoint,
             &[],
+        )
+    }
+
+    /// Reuse an allocated BULK OUT endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_bulk_out_allocated(&mut self, max_packet_size: u16, ep_allocated: &D::EndpointOut) {
+        self.endpoint_out_allocated(
+            EndpointType::Bulk,
+            max_packet_size,
+            0,
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+            ep_allocated,
         )
     }
 
@@ -545,7 +615,31 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         )
     }
 
+    /// Reuse an allocated INTERRUPT IN endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_interrupt_in_allocated(
+        &mut self,
+        max_packet_size: u16,
+        interval_ms: u8,
+        ep_allocated: &D::EndpointIn,
+    ) {
+        self.endpoint_in_allocated(
+            EndpointType::Interrupt,
+            max_packet_size,
+            interval_ms,
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+            ep_allocated,
+        )
+    }
+
     /// Allocate a INTERRUPT OUT endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
     pub fn endpoint_interrupt_out(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointOut {
         self.endpoint_out(
             EndpointType::Interrupt,
@@ -554,6 +648,27 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             SynchronizationType::NoSynchronization,
             UsageType::DataEndpoint,
             &[],
+        )
+    }
+
+    /// Reuse an allocated INTERRUPT OUT endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_interrupt_out_allocated(
+        &mut self,
+        max_packet_size: u16,
+        interval_ms: u8,
+        ep_allocated: &D::EndpointOut,
+    ) {
+        self.endpoint_out_allocated(
+            EndpointType::Interrupt,
+            max_packet_size,
+            interval_ms,
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+            ep_allocated,
         )
     }
 
@@ -579,7 +694,34 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         )
     }
 
+    /// Reuse an allocated ISOCHRONOUS IN endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_isochronous_in_allocated(
+        &mut self,
+        max_packet_size: u16,
+        interval_ms: u8,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+        ep_allocated: &D::EndpointIn,
+    ) {
+        self.endpoint_in_allocated(
+            EndpointType::Isochronous,
+            max_packet_size,
+            interval_ms,
+            synchronization_type,
+            usage_type,
+            extra_fields,
+            ep_allocated,
+        )
+    }
+
     /// Allocate a ISOCHRONOUS OUT endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
     pub fn endpoint_isochronous_out(
         &mut self,
         max_packet_size: u16,
@@ -595,6 +737,30 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             synchronization_type,
             usage_type,
             extra_fields,
+        )
+    }
+
+    /// Reuse an allocated ISOCHRONOUS OUT endpoint and write its descriptor.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    pub fn endpoint_isochronous_out_allocated(
+        &mut self,
+        max_packet_size: u16,
+        interval_ms: u8,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+        ep_allocated: &D::EndpointOut,
+    ) {
+        self.endpoint_out_allocated(
+            EndpointType::Isochronous,
+            max_packet_size,
+            interval_ms,
+            synchronization_type,
+            usage_type,
+            extra_fields,
+            ep_allocated,
         )
     }
 }
