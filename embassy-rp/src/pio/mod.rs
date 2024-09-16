@@ -764,13 +764,13 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 panic!(
                     "All pins must either be <32 or >=16, in:{:?}-{:?}, side:{:?}-{:?}, set:{:?}-{:?}, out:{:?}-{:?}",
                     config.pins.in_base,
-                    config.pins.in_base + config.in_count,
+                    config.pins.in_base + config.in_count - 1,
                     config.pins.sideset_base,
-                    config.pins.sideset_base + config.pins.sideset_count,
+                    config.pins.sideset_base + config.pins.sideset_count - 1,
                     config.pins.set_base,
-                    config.pins.set_base + config.pins.set_count,
+                    config.pins.set_base + config.pins.set_count - 1,
                     config.pins.out_base,
-                    config.pins.out_base + config.pins.out_count,
+                    config.pins.out_base + config.pins.out_count - 1,
                 )
             }
             let shift = if low_ok { 0 } else { 16 };
