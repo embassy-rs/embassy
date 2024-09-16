@@ -1730,7 +1730,7 @@ pub mod regs {
         #[doc = "Data"]
         #[inline(always)]
         pub fn set_data(&mut self, val: u32) {
-            self.0 = (self.0 & !(0xffff_ffff << 0usize)) | (((val as u32) & 0xffff_ffff) << 0usize);
+            self.0 = val
         }
     }
     impl Default for Fifo {
@@ -4047,7 +4047,7 @@ pub mod regs {
         }
         #[doc = "Period scheduling enable"]
         #[inline(always)]
-        pub fn perschedena(&mut self) -> bool {
+        pub fn perschedena(&self) -> bool {
             let val = (self.0 >> 26) & 0x1;
             val != 0
         }
