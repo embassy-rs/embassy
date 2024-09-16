@@ -743,22 +743,21 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_out_base(config.pins.out_base);
         });
 
-        #[cfg(feature = "_rp235x")]
+        //#[cfg(feature = "_rp235x")]
         {
             let mut low_ok = true;
             let mut high_ok = true;
-            for pin in [
-                config.pins.in_base,
-                config.pins.in_base + config.in_count,
-                config.pins.sideset_base,
-                config.pins.sideset_base + config.pins.sideset_count,
-                config.pins.set_base,
-                config.pins.set_base + config.pins.set_count,
-                config.pins.out_base,
-                config.pins.out_base + config.pins.out_count,
-            ] {
-                low_ok &= pin < 32;
-                high_ok &= pin >= 16;
+
+            let in_pins = config.pins.in_base..config.pins.in_base + config.in_count;
+            let side_pins = config.pins.sideset_base..config.pins.sideset_base + config.pins.sideset_count;
+            let set_pins = config.pins.set_base..config.pins.set_base + config.pins.set_count;
+            let out_pins = config.pins.out_base..config.pins.out_base + config.pins.out_count;
+
+            for pin_range in [in_pins, side_pins, set_pins, out_pins] {
+                for pin in pin_range {
+                    low_ok &= pin < 32;
+                    high_ok &= pin >= 16;
+                }
             }
 
             if !low_ok && !high_ok {
