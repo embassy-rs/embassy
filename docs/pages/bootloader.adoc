@@ -19,6 +19,8 @@ The bootloader supports
 
 In general, the bootloader works on any platform that implements the `embedded-storage` traits for its internal flash, but may require custom initialization code to work.
 
+STM32L0x1 devices require the `flash-erase-zero` feature to be enabled.
+
 == Design
 
 image::bootloader_flash.png[Bootloader flash layout]
