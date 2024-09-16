@@ -5,7 +5,7 @@ use core::pin::Pin as FuturePin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
-use atomic_polyfill::{AtomicU32, AtomicU8};
+use atomic_polyfill::{AtomicU64, AtomicU8};
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::extra::U8;
@@ -1305,7 +1305,7 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
 // other way.
 pub struct State {
     users: AtomicU8,
-    used_pins: AtomicU32,
+    used_pins: AtomicU64,
 }
 
 fn on_pio_drop<PIO: Instance>() {
@@ -1313,8 +1313,7 @@ fn on_pio_drop<PIO: Instance>() {
     if state.users.fetch_sub(1, Ordering::AcqRel) == 1 {
         let used_pins = state.used_pins.load(Ordering::Relaxed);
         let null = pac::io::vals::Gpio0ctrlFuncsel::NULL as _;
-        // we only have 30 pins. don't test the other two since gpio() asserts.
-        for i in 0..30 {
+        for i in 0..crate::gpio::BANK0_PIN_COUNT {
             if used_pins & (1 << i) != 0 {
                 pac::IO_BANK0.gpio(i).ctrl().write(|w| w.set_funcsel(null));
             }
@@ -1339,7 +1338,7 @@ trait SealedInstance {
     fn state() -> &'static State {
         static STATE: State = State {
             users: AtomicU8::new(0),
-            used_pins: AtomicU32::new(0),
+            used_pins: AtomicU64::new(0),
         };
 
         &STATE

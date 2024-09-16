@@ -16,9 +16,9 @@ use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 
 #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
-const BANK0_PIN_COUNT: usize = 30;
+pub(crate) const BANK0_PIN_COUNT: usize = 30;
 #[cfg(feature = "rp235xb")]
-const BANK0_PIN_COUNT: usize = 48;
+pub(crate) const BANK0_PIN_COUNT: usize = 48;
 
 static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [NEW_AW; BANK0_PIN_COUNT];
 #[cfg(feature = "qspi-as-gpio")]
