@@ -743,7 +743,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_out_base(config.pins.out_base);
         });
 
-        //#[cfg(feature = "_rp235x")]
+        #[cfg(feature = "_rp235x")]
         {
             let mut low_ok = true;
             let mut high_ok = true;
