@@ -273,6 +273,11 @@ impl Otg {
     pub const fn haint(self) -> Reg<regs::Haint, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0414usize) as _) }
     }
+    #[doc = "Host Frame Scheduling List Register"]
+    #[inline(always)]
+    pub const fn hflbaddr(self) -> Reg<regs::Hflbaddr, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x41cusize) as _) }
+    }
     #[doc = "Host all channels interrupt mask register"]
     #[inline(always)]
     pub const fn haintmsk(self) -> Reg<regs::Haintmsk, RW> {
@@ -313,13 +318,13 @@ impl Otg {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0510usize + n * 32usize) as _) }
     }
-    #[doc = "Host channel DMA address register (config for scatter/gather)"]
+    #[doc = "Host channel DMA address register (config for scatter/gather, ptr for buffer-dma)"]
     #[inline(always)]
     pub const fn hcdma(self, n: usize) -> Reg<regs::Hcdma, RW> {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0514usize + n * 32usize) as _) }
     }
-    #[doc = "Host channel DMA address register (buffer)"]
+    #[doc = "Host channel DMA address register (addr buffer; unknown use)"]
     #[inline(always)]
     pub const fn hcdmab(self, n: usize) -> Reg<u32, RW> {
         assert!(n < 12usize);
@@ -2675,6 +2680,18 @@ pub mod regs {
         pub fn set_datafsusp(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 22usize)) | (((val as u32) & 0x01) << 22usize);
         }
+        #[doc = "Reset detected"]
+        #[inline(always)]
+        pub const fn resetdet(&self) -> bool {
+            let val = (self.0 >> 23usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Reset detected"]
+        #[inline(always)]
+        pub fn set_resetdet(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 23usize)) | (((val as u32) & 0x01) << 23usize);
+        }
+
         #[doc = "Host port interrupt"]
         #[inline(always)]
         pub const fn hprtint(&self) -> bool {
@@ -4379,7 +4396,7 @@ pub mod regs {
             let val = (self.0 >> 2usize) & 0x01;
             val != 0
         }
-        #[doc = "Port enable"]
+        #[doc = "Port enable (write 1 to disable)"]
         #[inline(always)]
         pub fn set_pena(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 2usize)) | (((val as u32) & 0x01) << 2usize);
