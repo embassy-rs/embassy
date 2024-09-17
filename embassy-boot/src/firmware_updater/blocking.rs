@@ -142,7 +142,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
             let mut chunk_buf = [0; 2];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message)?;
 
-            public_key.verify(&message, &signature).map_err(into_signature_error)?
+            public_key.verify(&message, &signature).map_err(into_signature_error)?;
+            return self.state.mark_updated();
         }
         #[cfg(feature = "ed25519-salty")]
         {
@@ -169,10 +170,13 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
                 message,
                 r.is_ok()
             );
-            r.map_err(into_signature_error)?
+            r.map_err(into_signature_error)?;
+            return self.state.mark_updated();
         }
-
-        self.state.mark_updated()
+        #[cfg(not(any(feature = "ed25519-dalek", feature = "ed25519-salty")))]
+        {
+            Err(FirmwareUpdaterError::Signature(signature::Error::new()))
+        }
     }
 
     /// Verify the update in DFU with any digest.

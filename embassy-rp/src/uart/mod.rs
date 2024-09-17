@@ -224,6 +224,17 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
 }
 
 impl<'d, T: Instance> UartTx<'d, T, Blocking> {
+    /// Create a new UART TX instance for blocking mode operations.
+    pub fn new_blocking(
+        _uart: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(tx);
+        Uart::<T, Blocking>::init(Some(tx.map_into()), None, None, None, config);
+        Self::new_inner(None)
+    }
+
     /// Convert this uart TX instance into a buffered uart using the provided
     /// irq and transmit buffer.
     pub fn into_buffered(
