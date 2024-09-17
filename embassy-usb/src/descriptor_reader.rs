@@ -79,6 +79,8 @@ pub struct EndpointInfo {
     pub interface: InterfaceNumber,
     pub interface_alt: u8,
     pub ep_address: EndpointAddress,
+    pub ep_attributes: u8,
+    pub ep_max_packet_size: u16,
 }
 
 pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<(), ReadError> {
@@ -87,6 +89,7 @@ pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<
         interface: InterfaceNumber(0),
         interface_alt: 0,
         ep_address: EndpointAddress::from(0),
+        ep_max_packet_size: 0,
     };
     for res in Reader::new(data).read_descriptors() {
         let (kind, mut r) = res?;
@@ -102,6 +105,8 @@ pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<
             }
             descriptor_type::ENDPOINT => {
                 ep.ep_address = EndpointAddress::from(r.read_u8()?);
+                ep.ep_attributes = r.read_u8()?;
+                ep.ep_max_packet_size = r.read_u16()?;
                 f(ep);
             }
             _ => {}
