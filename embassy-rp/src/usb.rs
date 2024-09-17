@@ -14,6 +14,8 @@ use embassy_usb_driver::{
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
+use crate::pac::usb_dpram::vals::EpControlEndpointType;
+
 trait SealedInstance {
     fn regs() -> crate::pac::usb::Usb;
     fn dpram() -> crate::pac::usb_dpram::UsbDpram;
@@ -449,45 +451,52 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         ctrl.read().stall()
     }
 
-    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: usize) {
-        todo!();
-        /*
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: u16) {
         trace!("set_buffersize {:?} {:?}", ep_addr, buf_size);
         if ep_addr.index() == 0 {
             return;
         }
 
-        let n = ep_addr.index();
         match ep_addr.direction() {
             Direction::In => {
-                T::dpram().ep_in_control(n - 1).modify(|w| w.set_buffersize(buf_size));
+                T::dpram().ep_in_buffer_control(ep_addr.index()).write(|w| {
+                    w.set_length(0, buf_size as u16);
+                });
             }
             Direction::Out => {
-                T::dpram().ep_out_control(n - 1).modify(|w| w.set_buffersize(buf_size));
+                T::dpram().ep_out_buffer_control(ep_addr.index()).write(|w| {
+                    w.set_length(0, buf_size as u16);
+                });
             }
         }
-        */
     }
 
     fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType) {
-        todo!();
-
-        /*
         trace!("set_buffersize {:?} {:?}", ep_addr, ep_type);
         if ep_addr.index() == 0 {
             return;
         }
 
+        let ep_type_reg = match ep_type {
+            EndpointType::Bulk => pac::usb_dpram::vals::EpControlEndpointType::BULK,
+            EndpointType::Control => pac::usb_dpram::vals::EpControlEndpointType::CONTROL,
+            EndpointType::Interrupt => pac::usb_dpram::vals::EpControlEndpointType::INTERRUPT,
+            EndpointType::Isochronous => pac::usb_dpram::vals::EpControlEndpointType::ISOCHRONOUS,
+        };
+
         let n = ep_addr.index();
         match ep_addr.direction() {
             Direction::In => {
-                T::dpram().ep_in_control(n - 1).modify(|w| w.endpoint_type(ep_type));
+                T::dpram()
+                    .ep_in_control(n - 1)
+                    .modify(|w| w.set_endpoint_type(ep_type_reg));
             }
             Direction::Out => {
-                T::dpram().ep_out_control(n - 1).modify(|w| w.endpoint_type(ep_type));
+                T::dpram()
+                    .ep_out_control(n - 1)
+                    .modify(|w| w.set_endpoint_type(ep_type_reg));
             }
         }
-        */
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {

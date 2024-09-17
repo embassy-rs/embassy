@@ -186,10 +186,10 @@ pub trait Bus {
     async fn poll(&mut self) -> Event;
 
     /// Change buffersize of endpoint
-    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: usize);
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: u16);
 
     /// Change type of endpoint
-    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type :EndpointType);
+    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType);
 
     /// Enable or disable an endpoint.
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool);

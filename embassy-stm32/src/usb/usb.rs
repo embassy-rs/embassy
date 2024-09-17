@@ -642,11 +642,11 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         }
     }
 
-    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: usize) {
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: u16) {
         todo!();
     }
 
-    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type :EndpointType) {
+    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType) {
         todo!();
     }
 
