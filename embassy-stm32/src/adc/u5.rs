@@ -1,19 +1,19 @@
 #[allow(unused)]
 use pac::adc::vals::{Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
-use crate::peripherals::ADC4;
+use pac::PWR;
 
 use super::{
-    blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel
+    blocking_delay_us, Adc, AdcChannel, Instance, Resolution, SampleTime, SealedAdcChannel
 };
 use crate::time::Hertz;
 use crate::{pac, rcc, Peripheral};
 
-// TODO: not correct
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
-const VREF_CHANNEL: u8 = 19;
-const TEMP_CHANNEL: u8 = 18;
-const VBAT_CHANNEL: u8 = 17;
+
+const VREF_CHANNEL: u8 = 1;
+const VBAT_CHANNEL: u8 = 18;
+const TEMP_CHANNEL: u8 = 19;
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -140,9 +140,17 @@ pub enum Averaging {
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
+        // move to u5 init (RCC)?
+        PWR.svmcr().modify(|w| {
+            w.set_avm1en(true);
+        });
+        while !PWR.svmsr().read().vdda1rdy() {}
+        PWR.svmcr().modify(|w| {
+            w.set_asv(true);
+        });
+
         embassy_hal_internal::into_ref!(adc);
         rcc::enable_and_reset::<T>();
-
         let prescaler = Prescaler::from_ker_ck(T::frequency());
 
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
@@ -158,26 +166,15 @@ impl<'d, T: Instance> Adc<'d, T> {
             adc,
             sample_time: SampleTime::from_bits(0),
         };
-        crate::pac::RCC.ahb2enr1().modify(|w| {
-            w.set_adc12en(true);
-        });
-        blocking_delay_us(100);
 
-        info!("chungus {}", line!());
         s.power_up();
-        info!("chungus {}", line!());
         s.configure_differential_inputs();
 
-        info!("chungus {}", line!());
         s.calibrate();
-        info!("chungus {}", line!());
         blocking_delay_us(1);
 
-        info!("chungus {}", line!());
         s.enable();
-        info!("chungus {}", line!());
         s.configure();
-        info!("chungus {}", line!());
 
         s
     }
@@ -186,19 +183,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().isr().modify(|reg| {
             reg.set_ldordy(true);
         });
-        info!("yummmum {}", T::regs().cr().as_ptr() as u32);
         T::regs().cr().modify(|reg| {
-            info!("bajssis {}", reg.0);
             reg.set_deeppwd(false);
-            info!("bajssis {}", reg.0);
             reg.set_advregen(true);
-            info!("bajssis {}", reg.0);
         });
-        info!("kissis {}", T::regs().as_ptr() as u32);
-        info!("basdsadasadjsisssss{}", T::regs().isr().as_ptr() as u32);
-        while !T::regs().isr().read().ldordy() {
-            // info!("bajsisssss{}", T::regs().isr().read().0);
-        };
+        while !T::regs().isr().read().ldordy() { };
 
         T::regs().isr().modify(|reg| {
             reg.set_ldordy(true);
