@@ -1,4 +1,6 @@
 //! Register definitions for Synopsys DesignWare USB OTG core
+//! This core is well known for being poorly documented publicly, but register descriptions are available at:
+//!  https://www.intel.com/content/www/us/en/programmable/hps/agilex5/index_frames.html under USBOTG
 
 #![allow(missing_docs)]
 
@@ -329,7 +331,7 @@ impl Otg {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0514usize + n * 32usize) as _) }
     }
-    #[doc = "Host channel DMA address register (addr buffer; unknown use)"]
+    #[doc = "Host channel DMA address register (addr buffer for current transfer; used to debug ddma)"]
     #[inline(always)]
     pub const fn hcdmab(self, n: usize) -> Reg<u32, RW> {
         assert!(n < 12usize);
@@ -3980,6 +3982,7 @@ pub mod regs {
         }
         #[doc = "Odd frame"]
         #[inline(always)]
+        /// Indicates to the USBOTG core that the (iso or intr) transaction must be performed on an odd (micro)frame
         pub const fn oddfrm(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
@@ -4802,7 +4805,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
         #[inline(always)]
         pub const fn as_value(self) -> u8 {
@@ -4843,7 +4846,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Dpid {
@@ -4908,7 +4911,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Eptyp {
@@ -4943,7 +4946,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Pfivl {
@@ -4991,7 +4994,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Pktstsd {
@@ -5038,7 +5041,7 @@ pub mod vals {
         }
         #[inline(always)]
         pub const fn to_bits(self) -> u8 {
-            unsafe { core::mem::transmute(self) }
+            self as u8
         }
     }
     impl From<u8> for Pktstsh {
