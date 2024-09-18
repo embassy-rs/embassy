@@ -137,7 +137,7 @@ where
     let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
 
-    let mut runner = Runner {
+    let runner = Runner {
         ch: ch_runner,
         state_ch,
         shared: &state.shared,
@@ -148,7 +148,6 @@ where
         spi,
         heartbeat_deadline: Instant::now() + HEARTBEAT_MAX_GAP,
     };
-    runner.init().await;
 
     (device, Control::new(state_ch, &state.shared), runner)
 }
@@ -174,8 +173,6 @@ where
     IN: InputPin + Wait,
     OUT: OutputPin,
 {
-    async fn init(&mut self) {}
-
     /// Run the packet processing.
     pub async fn run(mut self) -> ! {
         debug!("resetting...");
