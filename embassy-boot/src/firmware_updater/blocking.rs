@@ -324,7 +324,8 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
 
     // Make sure we are running a booted firmware to avoid reverting to a bad state.
     fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
-        if self.get_state()? == State::Boot || self.get_state()? == State::DfuDetach {
+        let state = self.get_state()?;
+        if state == State::Boot || state == State::DfuDetach || state == State::Revert {
             Ok(())
         } else {
             Err(FirmwareUpdaterError::BadState)

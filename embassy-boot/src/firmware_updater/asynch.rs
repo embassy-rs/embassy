@@ -289,7 +289,8 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
 
     // Make sure we are running a booted firmware to avoid reverting to a bad state.
     async fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
-        if self.get_state().await? == State::Boot {
+        let state = self.get_state().await?;
+        if state == State::Boot || state == State::DfuDetach || state == State::Revert {
             Ok(())
         } else {
             Err(FirmwareUpdaterError::BadState)
