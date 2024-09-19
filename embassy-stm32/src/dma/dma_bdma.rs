@@ -498,15 +498,15 @@ impl AnyChannel {
         match self.info().dma {
             #[cfg(dma)]
             DmaInfo::Dma(r) => {
+                // Disable the channel without overwriting the existing configuration
                 r.st(info.num).cr().modify(|w| {
-                    // Disable the channel without overwriting the existing configuration
                     w.set_en(false);
                 });
             }
             #[cfg(bdma)]
             DmaInfo::Bdma(r) => {
+                // Disable the channel without overwriting the existing configuration
                 r.ch(info.num).cr().modify(|w| {
-                    // Disable the channel without overwriting the existing configuration
                     w.set_en(false);
                 });
             }
