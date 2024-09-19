@@ -120,7 +120,7 @@ impl<'d> RingBufferedUartRx<'d> {
 
     /// Stop uart background receive
     fn teardown_uart(&mut self) {
-        self.ring_buf.request_stop();
+        self.ring_buf.request_pause();
 
         let r = self.info.regs;
         // clear all interrupts and DMA Rx Request
