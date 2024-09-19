@@ -81,9 +81,9 @@ impl<'d> RingBufferedUartRx<'d> {
     /// Note: This is also done automatically by [`read()`] if required.
     pub fn start_uart(&mut self) {
         // Clear the buffer so that it is ready to receive data
-        self.ring_buf.clear();
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
+        self.ring_buf.clear();
 
         let r = self.info.regs;
         // clear all interrupts and DMA Rx Request
