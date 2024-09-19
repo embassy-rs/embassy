@@ -2,13 +2,15 @@
 #![no_main]
 #![macro_use]
 
+#[cfg(feature = "defmt")]
+use defmt_rtt as _;
+use embassy_boot::State;
 use embassy_boot_nrf::{FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::nvmc::Nvmc;
 use embassy_nrf::wdt::{self, Watchdog};
-use embassy_boot::State;
 use embassy_sync::mutex::Mutex;
 use panic_reset as _;
 
