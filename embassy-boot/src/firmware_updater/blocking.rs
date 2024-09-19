@@ -339,14 +339,7 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
     /// `mark_booted`.
     pub fn get_state(&mut self) -> Result<State, FirmwareUpdaterError> {
         self.state.read(0, &mut self.aligned)?;
-
-        if !self.aligned.iter().any(|&b| b != SWAP_MAGIC) {
-            Ok(State::Swap)
-        } else if !self.aligned.iter().any(|&b| b != DFU_DETACH_MAGIC) {
-            Ok(State::DfuDetach)
-        } else {
-            Ok(State::Boot)
-        }
+        Ok(State::from(&self.aligned))
     }
 
     /// Mark to trigger firmware swap on next boot.

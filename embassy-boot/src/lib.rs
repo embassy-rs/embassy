@@ -44,6 +44,24 @@ pub enum State {
     DfuDetach,
 }
 
+impl<T> From<T> for State
+where
+    T: AsRef<[u8]>,
+{
+    fn from(magic: T) -> State {
+        let magic = magic.as_ref();
+        if !magic.iter().any(|&b| b != SWAP_MAGIC) {
+            State::Swap
+        } else if !magic.iter().any(|&b| b != REVERT_MAGIC) {
+            State::Revert
+        } else if !magic.iter().any(|&b| b != DFU_DETACH_MAGIC) {
+            State::DfuDetach
+        } else {
+            State::Boot
+        }
+    }
+}
+
 /// Buffer aligned to 32 byte boundary, largest known alignment requirement for embassy-boot.
 #[repr(align(32))]
 pub struct AlignedBuffer<const N: usize>(pub [u8; N]);
