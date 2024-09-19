@@ -179,6 +179,8 @@ pub enum PhyType {
     ///
     /// Available on a few STM32 chips.
     InternalHighSpeed,
+    /// External ULPI Full-Speed PHY (or High-Speed PHY in Full-Speed mode)
+    ExternalFullSpeed,
     /// External ULPI High-Speed PHY
     ExternalHighSpeed,
 }
@@ -188,14 +190,14 @@ impl PhyType {
     pub fn internal(&self) -> bool {
         match self {
             PhyType::InternalFullSpeed | PhyType::InternalHighSpeed => true,
-            PhyType::ExternalHighSpeed => false,
+            PhyType::ExternalHighSpeed | PhyType::ExternalFullSpeed => false,
         }
     }
 
     /// Get whether this PHY is any of the high-speed types.
     pub fn high_speed(&self) -> bool {
         match self {
-            PhyType::InternalFullSpeed => false,
+            PhyType::InternalFullSpeed | PhyType::ExternalFullSpeed => false,
             PhyType::ExternalHighSpeed | PhyType::InternalHighSpeed => true,
         }
     }
@@ -204,6 +206,7 @@ impl PhyType {
         match self {
             PhyType::InternalFullSpeed => vals::Dspd::FULL_SPEED_INTERNAL,
             PhyType::InternalHighSpeed => vals::Dspd::HIGH_SPEED,
+            PhyType::ExternalFullSpeed => vals::Dspd::FULL_SPEED_EXTERNAL,
             PhyType::ExternalHighSpeed => vals::Dspd::HIGH_SPEED,
         }
     }
@@ -382,8 +385,8 @@ impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
         }
 
         let eps = match D::dir() {
-            Direction::Out => &mut self.ep_out,
-            Direction::In => &mut self.ep_in,
+            Direction::Out => &mut self.ep_out[..self.instance.endpoint_count],
+            Direction::In => &mut self.ep_in[..self.instance.endpoint_count],
         };
 
         // Find free endpoint slot
@@ -1068,6 +1071,21 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                         w.set_pktcnt(1);
                     });
 
+                    if self.info.ep_type == EndpointType::Isochronous {
+                        // Isochronous endpoints must set the correct even/odd frame bit to
+                        // correspond with the next frame's number.
+                        let frame_number = self.regs.dsts().read().fnsof();
+                        let frame_is_odd = frame_number & 0x01 == 1;
+
+                        self.regs.doepctl(index).modify(|r| {
+                            if frame_is_odd {
+                                r.set_sd0pid_sevnfrm(true);
+                            } else {
+                                r.set_sd1pid_soddfrm(true);
+                            }
+                        });
+                    }
+
                     // Clear NAK to indicate we are ready to receive more data
                     self.regs.doepctl(index).modify(|w| {
                         w.set_cnak(true);
@@ -1154,6 +1172,21 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
                 w.set_pktcnt(1);
                 w.set_xfrsiz(buf.len() as _);
             });
+
+            if self.info.ep_type == EndpointType::Isochronous {
+                // Isochronous endpoints must set the correct even/odd frame bit to
+                // correspond with the next frame's number.
+                let frame_number = self.regs.dsts().read().fnsof();
+                let frame_is_odd = frame_number & 0x01 == 1;
+
+                self.regs.diepctl(index).modify(|r| {
+                    if frame_is_odd {
+                        r.set_sd0pid_sevnfrm(true);
+                    } else {
+                        r.set_sd1pid_soddfrm(true);
+                    }
+                });
+            }
 
             // Enable endpoint
             self.regs.diepctl(index).modify(|w| {

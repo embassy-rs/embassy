@@ -168,7 +168,7 @@ impl Rtc {
 
     fn frequency() -> Hertz {
         let freqs = unsafe { crate::rcc::get_freqs() };
-        freqs.rtc.unwrap()
+        freqs.rtc.to_hertz().unwrap()
     }
 
     /// Acquire a [`RtcTimeProvider`] instance.

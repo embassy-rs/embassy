@@ -1,6 +1,6 @@
 = Starting a new project
 
-Once you’ve successfully xref:getting_started.adoc[run some example projects], the next step is to make a standalone Embassy project.
+Once you’ve successfully xref:#_getting_started[run some example projects], the next step is to make a standalone Embassy project.
 
 == Tools for generating Embassy projects
 

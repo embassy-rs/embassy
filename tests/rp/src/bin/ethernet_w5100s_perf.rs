@@ -5,7 +5,7 @@ teleprobe_meta::timeout!(120);
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_net::{Stack, StackResources};
+use embassy_net::StackResources;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
@@ -32,8 +32,8 @@ async fn ethernet_task(
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<Device<'static>>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -67,17 +67,16 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
-    static STACK: StaticCell<Stack<Device<'static>>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
+    let (stack, runner) = embassy_net::new(
         device,
         embassy_net::Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::<2>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
-    ));
+    );
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(&stack)));
+    unwrap!(spawner.spawn(net_task(runner)));
 
     perf_client::run(
         stack,

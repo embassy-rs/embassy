@@ -34,6 +34,7 @@ impl Watchdog {
     ///
     /// * `cycles` - Total number of tick cycles before the next tick is generated.
     ///   It is expected to be the frequency in MHz of clk_ref.
+    #[cfg(feature = "rp2040")]
     pub fn enable_tick_generation(&mut self, cycles: u8) {
         let watchdog = pac::WATCHDOG;
         watchdog.tick().write(|w| {

@@ -7,11 +7,12 @@
 
 use core::str::from_utf8;
 
+use cyw43::JoinOptions;
 use cyw43_pio::PioSpi;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Config, Stack, StackResources};
+use embassy_net::{Config, StackResources};
 use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
@@ -27,17 +28,17 @@ bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
 
-const WIFI_NETWORK: &str = "EmbassyTest";
-const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
+const WIFI_NETWORK: &str = "LadronDeWifi";
+const WIFI_PASSWORD: &str = "MBfcaedHmyRFE4kaQ1O5SsY8";
 
 #[embassy_executor::task]
-async fn wifi_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
+async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
     runner.run().await
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<cyw43::NetDriver<'static>>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'static>>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -65,7 +66,7 @@ async fn main(spawner: Spawner) {
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    unwrap!(spawner.spawn(cyw43_task(runner)));
 
     control.init(clm).await;
     control
@@ -83,20 +84,16 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
-    static STACK: StaticCell<Stack<cyw43::NetDriver<'static>>> = StaticCell::new();
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        net_device,
-        config,
-        RESOURCES.init(StackResources::<2>::new()),
-        seed,
-    ));
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let (stack, runner) = embassy_net::new(net_device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(stack)));
+    unwrap!(spawner.spawn(net_task(runner)));
 
     loop {
-        //control.join_open(WIFI_NETWORK).await;
-        match control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await {
+        match control
+            .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
+            .await
+        {
             Ok(_) => break,
             Err(err) => {
                 info!("join failed with status={}", err.status);

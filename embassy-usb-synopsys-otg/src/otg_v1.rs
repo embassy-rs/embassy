@@ -272,6 +272,12 @@ impl Otg {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0510usize + n * 32usize) as _) }
     }
+    #[doc = "Host channel DMA address register"]
+    #[inline(always)]
+    pub const fn hcdma(self, n: usize) -> Reg<u32, RW> {
+        assert!(n < 12usize);
+        unsafe { Reg::from_ptr(self.ptr.add(0x0514usize + n * 32usize) as _) }
+    }
     #[doc = "Device configuration register"]
     #[inline(always)]
     pub const fn dcfg(self) -> Reg<regs::Dcfg, RW> {
@@ -363,6 +369,12 @@ impl Otg {
     pub const fn doeptsiz(self, n: usize) -> Reg<regs::Doeptsiz, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b10usize + n * 32usize) as _) }
+    }
+    #[doc = "Device OUT/IN endpoint DMA address register"]
+    #[inline(always)]
+    pub const fn doepdma(self, n: usize) -> Reg<u32, RW> {
+        assert!(n < 16usize);
+        unsafe { Reg::from_ptr(self.ptr.add(0x0b14usize + n * 32usize) as _) }
     }
     #[doc = "Power and clock gating control register"]
     #[inline(always)]
@@ -783,15 +795,15 @@ pub mod regs {
         pub fn set_sd0pid_sevnfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 28usize)) | (((val as u32) & 0x01) << 28usize);
         }
-        #[doc = "SODDFRM/SD1PID"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub const fn soddfrm_sd1pid(&self) -> bool {
+        pub const fn sd1pid_soddfrm(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
         }
-        #[doc = "SODDFRM/SD1PID"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub fn set_soddfrm_sd1pid(&mut self, val: bool) {
+        pub fn set_sd1pid_soddfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 29usize)) | (((val as u32) & 0x01) << 29usize);
         }
         #[doc = "EPDIS"]
@@ -1162,15 +1174,15 @@ pub mod regs {
         pub fn set_sd0pid_sevnfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 28usize)) | (((val as u32) & 0x01) << 28usize);
         }
-        #[doc = "SODDFRM"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub const fn soddfrm(&self) -> bool {
+        pub const fn sd1pid_soddfrm(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
         }
-        #[doc = "SODDFRM"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub fn set_soddfrm(&mut self, val: bool) {
+        pub fn set_sd1pid_soddfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 29usize)) | (((val as u32) & 0x01) << 29usize);
         }
         #[doc = "EPDIS"]

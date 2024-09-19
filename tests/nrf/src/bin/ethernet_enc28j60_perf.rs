@@ -6,7 +6,7 @@ teleprobe_meta::timeout!(120);
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_net::{Stack, StackResources};
+use embassy_net::StackResources;
 use embassy_net_enc28j60::Enc28j60;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::rng::Rng;
@@ -25,8 +25,8 @@ bind_interrupts!(struct Irqs {
 type MyDriver = Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>;
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<MyDriver>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, MyDriver>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -65,16 +65,10 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static STACK: StaticCell<Stack<MyDriver>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        device,
-        config,
-        RESOURCES.init(StackResources::<2>::new()),
-        seed,
-    ));
+    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(stack)));
+    unwrap!(spawner.spawn(net_task(runner)));
 
     perf_client::run(
         stack,

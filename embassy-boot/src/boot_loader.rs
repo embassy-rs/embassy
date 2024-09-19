@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{State, DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -276,7 +276,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
                 self.state.erase(0, self.state.capacity() as u32)?;
 
                 // Set magic
-                state_word.fill(BOOT_MAGIC);
+                state_word.fill(REVERT_MAGIC);
                 self.state.write(0, state_word)?;
             }
         }
@@ -411,6 +411,8 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
             Ok(State::Swap)
         } else if !state_word.iter().any(|&b| b != DFU_DETACH_MAGIC) {
             Ok(State::DfuDetach)
+        } else if !state_word.iter().any(|&b| b != REVERT_MAGIC) {
+            Ok(State::Revert)
         } else {
             Ok(State::Boot)
         }

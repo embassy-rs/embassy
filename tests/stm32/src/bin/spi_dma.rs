@@ -12,7 +12,7 @@ use embassy_stm32::time::Hertz;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let p = init();
     info!("Hello World!");
 
     let mut spi_peri = peri!(p, SPI);

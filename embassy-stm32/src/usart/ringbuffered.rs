@@ -184,20 +184,6 @@ impl<'d> RingBufferedUartRx<'d> {
     async fn wait_for_data_or_idle(&mut self) -> Result<(), Error> {
         compiler_fence(Ordering::SeqCst);
 
-        let mut dma_init = false;
-        // Future which completes when there is dma is half full or full
-        let dma = poll_fn(|cx| {
-            self.ring_buf.set_waker(cx.waker());
-
-            let status = match dma_init {
-                false => Poll::Pending,
-                true => Poll::Ready(()),
-            };
-
-            dma_init = true;
-            status
-        });
-
         // Future which completes when idle line is detected
         let s = self.state;
         let uart = poll_fn(|cx| {
@@ -219,9 +205,23 @@ impl<'d> RingBufferedUartRx<'d> {
             }
         });
 
-        match select(dma, uart).await {
-            Either::Left(((), _)) => Ok(()),
-            Either::Right((result, _)) => result,
+        let mut dma_init = false;
+        // Future which completes when there is dma is half full or full
+        let dma = poll_fn(|cx| {
+            self.ring_buf.set_waker(cx.waker());
+
+            let status = match dma_init {
+                false => Poll::Pending,
+                true => Poll::Ready(()),
+            };
+
+            dma_init = true;
+            status
+        });
+
+        match select(uart, dma).await {
+            Either::Left((result, _)) => result,
+            Either::Right(((), _)) => Ok(()),
         }
     }
 }

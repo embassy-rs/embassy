@@ -42,7 +42,7 @@ impl<T: Instance> super::SealedAdcChannel<T> for Vref {
 impl Vref {
     /// The value that vref would be if vdda was at 3300mv
     pub fn value(&self) -> u16 {
-        crate::pac::VREFINTCAL.data().read().value()
+        crate::pac::VREFINTCAL.data().read()
     }
 }
 

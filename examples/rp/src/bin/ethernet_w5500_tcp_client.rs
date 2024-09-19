@@ -38,8 +38,8 @@ async fn ethernet_task(
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<Device<'static>>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -74,17 +74,16 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
-    static STACK: StaticCell<Stack<Device<'static>>> = StaticCell::new();
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let (stack, runner) = embassy_net::new(
         device,
         embassy_net::Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::<2>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
-    ));
+    );
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(&stack)));
+    unwrap!(spawner.spawn(net_task(runner)));
 
     info!("Waiting for DHCP...");
     let cfg = wait_for_config(stack).await;
@@ -119,7 +118,7 @@ async fn main(spawner: Spawner) {
     }
 }
 
-async fn wait_for_config(stack: &'static Stack<Device<'static>>) -> embassy_net::StaticConfigV4 {
+async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
     loop {
         if let Some(config) = stack.config_v4() {
             return config.clone();

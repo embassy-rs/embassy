@@ -2,10 +2,11 @@
 #![no_main]
 teleprobe_meta::target!(b"rpi-pico");
 
+use cyw43::JoinOptions;
 use cyw43_pio::PioSpi;
 use defmt::{panic, *};
 use embassy_executor::Spawner;
-use embassy_net::{Config, Stack, StackResources};
+use embassy_net::{Config, StackResources};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
@@ -29,8 +30,8 @@ async fn wifi_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'stati
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<cyw43::NetDriver<'static>>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'static>>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -69,19 +70,21 @@ async fn main(spawner: Spawner) {
     let seed = 0x0123_4567_89ab_cdef; // chosen by fair dice roll. guarenteed to be random.
 
     // Init network stack
-    static STACK: StaticCell<Stack<cyw43::NetDriver<'static>>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
+    let (stack, runner) = embassy_net::new(
         net_device,
         Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::<2>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
-    ));
+    );
 
-    unwrap!(spawner.spawn(net_task(stack)));
+    unwrap!(spawner.spawn(net_task(runner)));
 
     loop {
-        match control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await {
+        match control
+            .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
+            .await
+        {
             Ok(_) => break,
             Err(err) => {
                 panic!("join failed with status={}", err.status);

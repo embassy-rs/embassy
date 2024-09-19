@@ -23,5 +23,5 @@ The `embassy-rp` HAL implements the traits from [embedded-hal](https://crates.io
 
 This crate can run on any executor.
 
-Optionally, some features requiring [`embassy-time`](https://crates.io/crates/embassy-time) can be activated with the `time` feature. If you enable it,
+Optionally, some features requiring [`embassy-time`](https://crates.io/crates/embassy-time) can be activated with the `time-driver` feature. If you enable it,
 you must link an `embassy-time` driver in your project.

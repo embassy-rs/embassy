@@ -48,7 +48,7 @@ link:https://github.com/lora-rs/lora-rs[lora-rs] supports LoRa networking on a w
 link:https://docs.embassy.dev/embassy-usb/[embassy-usb] implements a device-side USB stack. Implementations for common classes such as USB serial (CDC ACM) and USB HID are available, and a rich builder API allows building your own.
 
 === Bootloader and DFU
-link:https://github.com/embassy-rs/embassy/tree/master/embassy-boot[embassy-boot] is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
+link:https://github.com/embassy-rs/embassy/tree/main/embassy-boot[embassy-boot] is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
 
 == What is DMA?
 
@@ -77,3 +77,7 @@ For more reading material on async Rust and Embassy:
 * link:https://tweedegolf.nl/en/blog/65/async-rust-vs-rtos-showdown[Comparsion of FreeRTOS and Embassy]
 * link:https://dev.to/apollolabsbin/series/20707[Tutorials]
 * link:https://blog.drogue.io/firmware-updates-part-1/[Firmware Updates with Embassy]
+
+Videos:
+
+* link:https://www.youtube.com/watch?v=wni5h5vIPhU[From Zero to Async in Embedded Rust]

@@ -16,11 +16,11 @@ categories = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "igmp", "dhcpv4-hostname"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname"]
 
 [features]
 default = []
@@ -44,6 +44,8 @@ raw = ["smoltcp/socket-raw"]
 tcp = ["smoltcp/socket-tcp"]
 ## Enable DNS support
 dns = ["smoltcp/socket-dns", "smoltcp/proto-dns"]
+## Enable mDNS support
+mdns = ["dns", "smoltcp/socket-mdns"]
 ## Enable DHCPv4 support
 dhcpv4 = ["proto-ipv4", "medium-ethernet", "smoltcp/socket-dhcpv4"]
 ## Enable DHCPv4 support with hostname
@@ -58,21 +60,21 @@ medium-ethernet = ["smoltcp/medium-ethernet"]
 medium-ip = ["smoltcp/medium-ip"]
 ## Enable the IEEE 802.15.4 medium
 medium-ieee802154 = ["smoltcp/medium-ieee802154"]
-## Enable IGMP support
-igmp = ["smoltcp/proto-igmp"]
+## Enable multicast support (for both ipv4 and/or ipv6 if enabled)
+multicast = ["smoltcp/multicast"]
 
 [dependencies]
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { version = "0.11.0", default-features = false, features = [
+smoltcp = { git="https://github.com/smoltcp-rs/smoltcp", rev="dd43c8f189178b0ab3bda798ed8578b5b0a6f094", default-features = false, features = [
   "socket",
   "async",
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.3.1", path = "../embassy-time" }
+embassy-time = { version = "0.3.2", path = "../embassy-time" }
 embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
 embedded-io-async = { version = "0.6.1" }
 

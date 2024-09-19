@@ -8,8 +8,6 @@
 
 use std::collections::HashSet;
 use std::env;
-use std::ffi::OsString;
-use std::process::Command;
 
 /// Helper for emitting cargo instruction for enabling configs (`cargo:rustc-cfg=X`) and declaring
 /// them (`cargo:rust-check-cfg=cfg(X)`).
@@ -17,7 +15,6 @@ use std::process::Command;
 pub struct CfgSet {
     enabled: HashSet<String>,
     declared: HashSet<String>,
-    emit_declared: bool,
 }
 
 impl CfgSet {
@@ -25,7 +22,6 @@ impl CfgSet {
         Self {
             enabled: HashSet::new(),
             declared: HashSet::new(),
-            emit_declared: is_rustc_nightly(),
         }
     }
 
@@ -49,7 +45,7 @@ impl CfgSet {
     ///
     /// This enables rustc to check that the configs in `#[cfg(...)]` attributes are valid.
     pub fn declare(&mut self, cfg: impl AsRef<str>) {
-        if self.declared.insert(cfg.as_ref().to_owned()) && self.emit_declared {
+        if self.declared.insert(cfg.as_ref().to_owned()) {
             println!("cargo:rustc-check-cfg=cfg({})", cfg.as_ref());
         }
     }
@@ -67,21 +63,6 @@ impl CfgSet {
         }
         self.declare(cfg);
     }
-}
-
-fn is_rustc_nightly() -> bool {
-    if env::var_os("EMBASSY_FORCE_CHECK_CFG").is_some() {
-        return true;
-    }
-
-    let rustc = env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc"));
-
-    let output = Command::new(rustc)
-        .arg("--version")
-        .output()
-        .expect("failed to run `rustc --version`");
-
-    String::from_utf8_lossy(&output.stdout).contains("nightly")
 }
 
 /// Sets configs that describe the target platform.

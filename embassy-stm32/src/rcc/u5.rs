@@ -59,6 +59,7 @@ pub struct Pll {
     pub divr: Option<PllDiv>,
 }
 
+#[derive(Clone, Copy)]
 pub struct Config {
     // base clock sources
     pub msi: Option<MSIRange>,

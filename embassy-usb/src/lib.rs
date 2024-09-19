@@ -190,6 +190,7 @@ struct Inner<'d, D: Driver<'d>> {
 
     config: Config<'d>,
     device_descriptor: [u8; 18],
+    device_qualifier_descriptor: [u8; 10],
     config_descriptor: &'d [u8],
     bos_descriptor: &'d [u8],
     msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
@@ -225,6 +226,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         // This prevent further allocation by consuming the driver.
         let (bus, control) = driver.start(config.max_packet_size_0 as u16);
         let device_descriptor = descriptor::device_descriptor(&config);
+        let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
 
         Self {
             control_buf,
@@ -233,6 +235,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 bus,
                 config,
                 device_descriptor,
+                device_qualifier_descriptor,
                 config_descriptor,
                 bos_descriptor,
                 msos_descriptor,
@@ -764,6 +767,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     }
                 }
             }
+            descriptor_type::DEVICE_QUALIFIER => InResponse::Accepted(&self.device_qualifier_descriptor),
             _ => InResponse::Rejected,
         }
     }

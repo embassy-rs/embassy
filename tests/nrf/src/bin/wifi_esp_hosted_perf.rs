@@ -6,7 +6,7 @@ teleprobe_meta::timeout!(120);
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_net::{Config, Stack, StackResources};
+use embassy_net::{Config, StackResources};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
@@ -40,8 +40,8 @@ async fn wifi_task(
 type MyDriver = hosted::NetDriver<'static>;
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<MyDriver>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, MyDriver>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -86,16 +86,15 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static STACK: StaticCell<Stack<MyDriver>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
+    let (stack, runner) = embassy_net::new(
         device,
         Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::<2>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
-    ));
+    );
 
-    unwrap!(spawner.spawn(net_task(stack)));
+    unwrap!(spawner.spawn(net_task(runner)));
 
     perf_client::run(
         stack,

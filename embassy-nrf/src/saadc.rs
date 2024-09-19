@@ -78,7 +78,8 @@ impl Default for Config {
 
 /// Used to configure an individual SAADC peripheral channel.
 ///
-/// See the `Default` impl for suitable default values.
+/// Construct using the `single_ended` or `differential` methods.  These provide sensible defaults
+/// for the public fields, which can be overridden if required.
 #[non_exhaustive]
 pub struct ChannelConfig<'d> {
     /// Reference voltage of the SAADC input.

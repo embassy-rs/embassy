@@ -219,6 +219,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         uarte: impl Peripheral<P = U> + 'd,
         timer: impl Peripheral<P = T> + 'd,
@@ -254,6 +255,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_rtscts(
         uarte: impl Peripheral<P = U> + 'd,
         timer: impl Peripheral<P = T> + 'd,
@@ -286,6 +288,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_inner(
         peri: PeripheralRef<'d, U>,
         timer: PeripheralRef<'d, T>,
@@ -353,6 +356,11 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// Write a buffer into this writer, returning how many bytes were written.
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         self.tx.write(buf).await
+    }
+
+    /// Try writing a buffer without waiting, returning how many bytes were written.
+    pub fn try_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.tx.try_write(buf)
     }
 
     /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.
@@ -479,6 +487,29 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
         .await
     }
 
+    /// Try writing a buffer without waiting, returning how many bytes were written.
+    pub fn try_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        //trace!("poll_write: {:?}", buf.len());
+        let s = U::buffered_state();
+        let mut tx = unsafe { s.tx_buf.writer() };
+
+        let tx_buf = tx.push_slice();
+        if tx_buf.is_empty() {
+            return Ok(0);
+        }
+
+        let n = min(tx_buf.len(), buf.len());
+        tx_buf[..n].copy_from_slice(&buf[..n]);
+        tx.push_done(n);
+
+        //trace!("poll_write: queued {:?}", n);
+
+        compiler_fence(Ordering::SeqCst);
+        U::Interrupt::pend();
+
+        Ok(n)
+    }
+
     /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.
     pub async fn flush(&mut self) -> Result<(), Error> {
         poll_fn(move |cx| {
@@ -534,6 +565,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         uarte: impl Peripheral<P = U> + 'd,
         timer: impl Peripheral<P = T> + 'd,
@@ -564,6 +596,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_rts(
         uarte: impl Peripheral<P = U> + 'd,
         timer: impl Peripheral<P = T> + 'd,
@@ -590,6 +623,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_inner(
         peri: PeripheralRef<'d, U>,
         timer: PeripheralRef<'d, T>,
@@ -614,6 +648,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         this
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_innerer(
         peri: PeripheralRef<'d, U>,
         timer: PeripheralRef<'d, T>,

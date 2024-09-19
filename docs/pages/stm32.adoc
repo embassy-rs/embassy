@@ -1,6 +1,6 @@
 = Embassy STM32 HAL
 
-The link:https://github.com/embassy-rs/embassy/tree/master/embassy-stm32[Embassy STM32 HAL] is based on the `stm32-metapac` project.
+The link:https://github.com/embassy-rs/embassy/tree/main/embassy-stm32[Embassy STM32 HAL] is based on the `stm32-metapac` project.
 
 == The infinite variant problem
 

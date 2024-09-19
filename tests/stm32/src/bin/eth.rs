@@ -6,7 +6,7 @@
 mod common;
 use common::*;
 use embassy_executor::Spawner;
-use embassy_net::{Stack, StackResources};
+use embassy_net::StackResources;
 use embassy_stm32::eth::generic_smi::GenericSMI;
 use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::peripherals::ETH;
@@ -32,13 +32,13 @@ bind_interrupts!(struct Irqs {
 type Device = Ethernet<'static, ETH, GenericSMI>;
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<Device>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let p = init();
     info!("Hello World!");
 
     // Generate random seed.
@@ -99,17 +99,11 @@ async fn main(spawner: Spawner) {
     //});
 
     // Init network stack
-    static STACK: StaticCell<Stack<Device>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        device,
-        config,
-        RESOURCES.init(StackResources::<2>::new()),
-        seed,
-    ));
+    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(&stack)));
+    unwrap!(spawner.spawn(net_task(runner)));
 
     perf_client::run(
         stack,

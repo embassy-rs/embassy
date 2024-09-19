@@ -2,8 +2,9 @@
 
 #![macro_use]
 #![allow(missing_docs)] // TODO
+#![cfg_attr(adc_f3_v2, allow(unused))]
 
-#[cfg(not(adc_f3_v2))]
+#[cfg(not(any(adc_f3_v2, adc_u5)))]
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_f3, path = "f3.rs")]
 #[cfg_attr(adc_f3_v1_1, path = "f3_v1_1.rs")]
@@ -18,13 +19,16 @@ mod _version;
 use core::marker::PhantomData;
 
 #[allow(unused)]
-#[cfg(not(adc_f3_v2))]
+#[cfg(not(any(adc_f3_v2, adc_u5)))]
 pub use _version::*;
 #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
 use embassy_sync::waitqueue::AtomicWaker;
 
-#[cfg(not(any(adc_f1, adc_f3_v2)))]
+#[cfg(not(any(adc_u5)))]
+pub use crate::pac::adc::vals;
+#[cfg(not(any(adc_f1, adc_f3_v2, adc_u5)))]
 pub use crate::pac::adc::vals::Res as Resolution;
+#[cfg(not(any(adc_u5)))]
 pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
 
@@ -34,7 +38,7 @@ dma_trait!(RxDma, Instance);
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
     adc: crate::PeripheralRef<'d, T>,
-    #[cfg(not(any(adc_f3_v2, adc_f3_v1_1)))]
+    #[cfg(not(any(adc_f3_v2, adc_f3_v1_1, adc_u5)))]
     sample_time: SampleTime,
 }
 
@@ -55,7 +59,7 @@ impl State {
 trait SealedInstance {
     #[allow(unused)]
     fn regs() -> crate::pac::adc::Adc;
-    #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
+    #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0, adc_u5)))]
     #[allow(unused)]
     fn common_regs() -> crate::pac::adccommon::AdcCommon;
     #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
@@ -77,7 +81,7 @@ pub(crate) fn blocking_delay_us(us: u32) {
     embassy_time::block_for(embassy_time::Duration::from_micros(us as u64));
     #[cfg(not(feature = "time"))]
     {
-        let freq = unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 as u64;
+        let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
         let us = us as u64;
         let cycles = freq * us / 1_000_000;
         cortex_m::asm::delay(cycles as u32);
@@ -161,7 +165,7 @@ foreach_adc!(
                 crate::pac::$inst
             }
 
-            #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
+            #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0, adc_u5)))]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 return crate::pac::$common_inst
             }
@@ -198,7 +202,7 @@ macro_rules! impl_adc_pin {
 /// Get the maximum reading value for this resolution.
 ///
 /// This is `2**n - 1`.
-#[cfg(not(any(adc_f1, adc_f3_v2)))]
+#[cfg(not(any(adc_f1, adc_f3_v2, adc_u5)))]
 pub const fn resolution_to_max_count(res: Resolution) -> u32 {
     match res {
         #[cfg(adc_v4)]
