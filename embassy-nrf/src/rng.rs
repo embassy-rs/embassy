@@ -3,6 +3,7 @@
 #![macro_use]
 
 use core::cell::{RefCell, RefMut};
+use core::convert::Infallible;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
@@ -199,8 +200,25 @@ impl<'d, T: Instance> rand_core::RngCore for Rng<'d, T> {
         self.blocking_fill_bytes(&mut bytes);
         u64::from_ne_bytes(bytes)
     }
+}
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+impl<'d, T: crate::rng::Instance> rand_core::TryRngCore for Rng<'d, T> {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        let mut bytes = [0; 4];
+        self.blocking_fill_bytes(&mut bytes);
+        // We don't care about the endianness, so just use the native one.
+        Ok(u32::from_ne_bytes(bytes))
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        let mut bytes = [0; 8];
+        self.blocking_fill_bytes(&mut bytes);
+        Ok(u64::from_ne_bytes(bytes))
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_fill_bytes(dest);
         Ok(())
     }
