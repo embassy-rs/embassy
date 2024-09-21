@@ -6,6 +6,7 @@
 pub(crate) mod fmt;
 
 pub use embassy_usb_driver as driver;
+use embassy_usb_driver::EndpointType;
 
 mod builder;
 pub mod class;
@@ -588,7 +589,17 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                                 self.bus
                                     .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
                                 self.bus.endpoint_set_buffersize(ep.ep_address, ep.ep_max_packet_size);
-                                self.bus.endpoint_set_type(ep.ep_address, EndpointType::from(ep.ep_attributes & 0b11));
+
+                                self.bus.endpoint_set_type(
+                                    ep.ep_address,
+                                    match ep.ep_attributes & 0b11 {
+                                        0b00 => EndpointType::Control,
+                                        0b01 => EndpointType::Isochronous,
+                                        0b10 => EndpointType::Bulk,
+                                        0b11 => EndpointType::Interrupt,
+                                        4_u8..=u8::MAX => unreachable!(),
+                                    },
+                                );
                                 // TODO also implement this for other endpoint changes, like reconfiguration.
                                 // TODO add changes of buffersize, maybe always redo the memory layout or lay out addresses based on largest buffer and reconfigure start addresses and sizes only.
                             }

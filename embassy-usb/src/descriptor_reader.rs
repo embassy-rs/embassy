@@ -89,6 +89,7 @@ pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<
         interface: InterfaceNumber(0),
         interface_alt: 0,
         ep_address: EndpointAddress::from(0),
+        ep_attributes: 0,
         ep_max_packet_size: 0,
     };
     for res in Reader::new(data).read_descriptors() {
