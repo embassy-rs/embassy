@@ -783,7 +783,7 @@ impl<'d> Spi<'d, Async> {
         let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read(rx_src, data, Default::default()) };
 
         let tx_dst = self.info.regs.tx_ptr();
-        let clock_byte = 0x00u8;
+        let clock_byte = W::default();
         let tx_f = unsafe {
             self.tx_dma
                 .as_mut()
@@ -1195,7 +1195,7 @@ trait SealedWord {
 
 /// Word sizes usable for SPI.
 #[allow(private_bounds)]
-pub trait Word: word::Word + SealedWord {}
+pub trait Word: word::Word + SealedWord + Default {}
 
 macro_rules! impl_word {
     ($T:ty, $config:expr) => {
