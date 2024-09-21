@@ -10,6 +10,7 @@ use embassy_usb_driver::{self as driver};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
+pub use embassy_usb_driver::{SynchronizationType, UsageType};
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
@@ -493,17 +494,13 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         }
     }
 
-    fn endpoint_set_sync_type(
-        &mut self,
-        ep_addr: EndpointAddress,
-        synchronization_type: embassy_usb_driver::SynchronizationType,
-    ) {
+    fn endpoint_set_sync_type(&mut self, ep_addr: EndpointAddress, synchronization_type: SynchronizationType) {
         let _ = ep_addr;
         let _ = synchronization_type;
         // Not hardware related on rp2040
     }
 
-    fn endpoint_set_usage_type(&mut self, ep_addr: EndpointAddress, usage_type: embassy_usb_driver::UsageType) {
+    fn endpoint_set_usage_type(&mut self, ep_addr: EndpointAddress, usage_type: UsageType) {
         let _ = usage_type;
         let _ = ep_addr;
         // Not hardware related on rp2040
