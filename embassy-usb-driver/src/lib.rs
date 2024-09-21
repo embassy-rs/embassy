@@ -35,6 +35,40 @@ pub enum EndpointType {
     Interrupt = 0b11,
 }
 
+/// USB endpoint synchronization type. The values of this enum can be directly
+/// cast into `u8` to get the bmAttributes synchronization type bits.
+/// Values other than `NoSynchronization` are only allowed on isochronous endpoints.
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SynchronizationType {
+    /// No synchronization is used.
+    NoSynchronization = 0b00,
+    /// Unsynchronized, although sinks provide data rate feedback.
+    Asynchronous = 0b01,
+    /// Synchronized using feedback or feedforward data rate information.
+    Adaptive = 0b10,
+    /// Synchronized to the USB’s SOF.
+    Synchronous = 0b11,
+}
+
+/// USB endpoint usage type. The values of this enum can be directly cast into
+/// `u8` to get the bmAttributes usage type bits.
+/// Values other than `DataEndpoint` are only allowed on isochronous endpoints.
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum UsageType {
+    /// Use the endpoint for regular data transfer.
+    DataEndpoint = 0b00,
+    /// Endpoint conveys explicit feedback information for one or more data endpoints.
+    FeedbackEndpoint = 0b01,
+    /// A data endpoint that also serves as an implicit feedback endpoint for one or more data endpoints.
+    ImplicitFeedbackDataEndpoint = 0b10,
+    /// Reserved usage type.
+    Reserved = 0b11,
+}
+
 /// Type-safe endpoint address.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

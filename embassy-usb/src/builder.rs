@@ -1,8 +1,8 @@
 use heapless::Vec;
 
 use crate::config::MAX_HANDLER_COUNT;
-use crate::descriptor::{BosWriter, DescriptorWriter, SynchronizationType, UsageType};
-use crate::driver::{Driver, Endpoint, EndpointInfo, EndpointType};
+use crate::descriptor::{BosWriter, DescriptorWriter};
+use crate::driver::{Driver, Endpoint, EndpointInfo, EndpointType, SynchronizationType, UsageType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
 use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Handler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START};
