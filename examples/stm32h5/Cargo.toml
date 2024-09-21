@@ -26,7 +26,7 @@ embedded-io-async = { version = "0.6.1" }
 embedded-nal-async = { version = "0.7.1" }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
-rand_core = "0.6.3"
+rand_core = "0.9.0-alpha.2"
 critical-section = "1.1"
 micromath = "2.0.0"
 stm32-fmc = "0.3.0"

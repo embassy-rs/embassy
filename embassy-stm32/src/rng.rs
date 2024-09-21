@@ -1,13 +1,14 @@
 //! Random Number Generator (RNG)
 #![macro_use]
 
+use core::convert::Infallible;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use rand_core::{CryptoRng, RngCore};
+use rand_core::{CryptoRng, RngCore, TryRngCore};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac, peripherals, rcc, Peripheral};
@@ -213,9 +214,21 @@ impl<'d, T: Instance> RngCore for Rng<'d, T> {
             }
         }
     }
+}
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
+impl<'d, T: crate::rng::Instance> TryRngCore for Rng<'d, T> {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
+        self.fill_bytes(dst);
         Ok(())
     }
 }
