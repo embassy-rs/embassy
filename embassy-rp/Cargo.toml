@@ -128,7 +128,7 @@ embedded-io = { version = "0.6.1" }
 embedded-io-async = { version = "0.6.1" }
 embedded-storage = { version = "0.3" }
 embedded-storage-async = { version = "0.4.1" }
-rand_core = "0.6.4"
+rand_core = "0.9.0-alpha.2"
 fixed = "1.23.1"
 
 rp-pac = { git = "https://github.com/embassy-rs/rp-pac.git", rev = "a7f42d25517f7124ad3b4ed492dec8b0f50a0e6c", feature = ["rt"] }

@@ -2,6 +2,7 @@
 
 #[cfg(feature = "rp2040")]
 use core::arch::asm;
+use core::convert::Infallible;
 use core::marker::PhantomData;
 #[cfg(feature = "rp2040")]
 use core::sync::atomic::AtomicU16;
@@ -9,6 +10,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use pac::clocks::vals::*;
+use rand_core::RngCore;
 
 use crate::gpio::{AnyPin, SealedPin};
 #[cfg(feature = "rp2040")]
@@ -1032,10 +1034,6 @@ impl RoscRng {
 }
 
 impl rand_core::RngCore for RoscRng {
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        Ok(self.fill_bytes(dest))
-    }
-
     fn next_u32(&mut self) -> u32 {
         rand_core::impls::next_u32_via_fill(self)
     }
@@ -1046,6 +1044,22 @@ impl rand_core::RngCore for RoscRng {
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         dest.fill_with(Self::next_u8)
+    }
+}
+
+impl rand_core::TryRngCore for RoscRng {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        Ok(self.fill_bytes(dest))
     }
 }
 /// Enter the `DORMANT` sleep state. This will stop *all* internal clocks
