@@ -47,7 +47,7 @@ embassy-time = { version = "0.3.2", path = "../embassy-time", optional = true }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
-embassy-embedded-hal = {version = "0.2.0", path = "../embassy-embedded-hal" }
+embassy-embedded-hal = {version = "0.2.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = {version = "0.1.0", path = "../embassy-usb-synopsys-otg" }
@@ -129,7 +129,7 @@ unstable-pac = []
 #! ## Time
 
 ## Enables additional driver features that depend on embassy-time
-time = ["dep:embassy-time"]
+time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
