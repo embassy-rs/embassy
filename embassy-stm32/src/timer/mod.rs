@@ -67,7 +67,7 @@ impl State {
     }
 }
 
-trait SealedInstance: RccPeripheral {
+trait SealedInstance: RccPeripheral + Peripheral<P = Self> {
     /// Async state for this timer
     fn state() -> &'static State;
 }

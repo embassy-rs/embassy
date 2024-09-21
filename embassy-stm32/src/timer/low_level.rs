@@ -201,9 +201,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     }
 
     pub(crate) unsafe fn clone_unchecked(&self) -> ManuallyDrop<Self> {
-        // this doesn't work for some reason
-        // let tim = unsafe { self.tim.clone_unchecked() };
-        let tim = todo!();
+        let tim = unsafe { self.tim.clone_unchecked() };
         ManuallyDrop::new(Self { tim })
     }
 
