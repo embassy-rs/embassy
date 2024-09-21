@@ -205,6 +205,7 @@ impl<'d, T: Instance> Driver<'d, T> {
             return Err(EndpointAllocError);
         }
         self.ep_mem_free += len;
+        self.ep_mem_curr_addr = addr;
 
         let buf = EndpointBuffer {
             addr,
@@ -356,19 +357,21 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     }
 
     fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_size: u16) {
-        if self.ep_mem_curr_addr - ep.buf.len != ep.buf.addr {
+        if self.ep_mem_curr_addr != ep.buf.addr {
             panic!("Can only grow buffer if it's the last allocated buffer!");
         }
-        self.ep_mem_curr_addr = self.ep_mem_curr_addr - ep.buf.len + new_size;
+        self.ep_mem_free = self.ep_mem_curr_addr - ep.buf.len / 4 + new_size / 4;
         ep.buf.grow(new_size);
+        ep.info.max_packet_size = ep.buf.len;
     }
 
     fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_size: u16) {
-        if self.ep_mem_curr_addr - ep.buf.len != ep.buf.addr {
+        if self.ep_mem_curr_addr != ep.buf.addr {
             panic!("Can only grow buffer if it's the last allocated buffer!");
         }
-        self.ep_mem_curr_addr = self.ep_mem_curr_addr - ep.buf.len + new_size;
+        self.ep_mem_free = self.ep_mem_curr_addr - ep.buf.len / 4 + new_size / 4;
         ep.buf.grow(new_size);
+        ep.info.max_packet_size = ep.buf.len;
     }
 }
 
