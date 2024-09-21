@@ -34,11 +34,10 @@ pub enum VoltageScale {
     Scale2,
     Scale3,
 }
-#[cfg(any(stm32h7rs))]
-pub use crate::pac::{
-    pwr::vals::Vos as VoltageScale,
-    rcc::vals::{Usbphycsel, Usbrefcksel},
-};
+#[cfg(stm32h7rs)]
+pub use crate::pac::pwr::vals::Vos as VoltageScale;
+#[cfg(all(stm32h7rs, peri_usb_otg_hs))]
+pub use crate::pac::rcc::vals::{Usbphycsel, Usbrefcksel};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum HseMode {
@@ -560,14 +559,14 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
-    #[cfg(stm32h7rs)]
+    #[cfg(all(stm32h7rs, peri_usb_otg_hs))]
     let usb_refck = match config.mux.usbphycsel {
         Usbphycsel::HSE => hse,
         Usbphycsel::HSE_DIV_2 => hse.map(|hse_val| hse_val / 2u8),
         Usbphycsel::PLL3_Q => pll3.q,
         _ => None,
     };
-    #[cfg(stm32h7rs)]
+    #[cfg(all(stm32h7rs, peri_usb_otg_hs))]
     let usb_refck_sel = match usb_refck {
         Some(clk_val) => match clk_val {
             Hertz(16_000_000) => Usbrefcksel::MHZ16,
@@ -618,6 +617,7 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_ppre5(config.apb5_pre);
         });
 
+        #[cfg(peri_usb_otg_hs)]
         RCC.ahbperckselr().modify(|w| {
             w.set_usbrefcksel(usb_refck_sel);
         });
