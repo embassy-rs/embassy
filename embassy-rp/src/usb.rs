@@ -6,7 +6,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver as driver;
+use embassy_usb_driver::{self as driver};
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
@@ -80,6 +80,10 @@ impl<T: Instance> EndpointBuffer<T> {
         mem.copy_from_slice(buf);
         compiler_fence(Ordering::SeqCst);
     }
+
+    fn grow(&mut self, new_size: u16) {
+        self.len = self.len.max(new_size);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -106,6 +110,7 @@ pub struct Driver<'d, T: Instance> {
     ep_in: [EndpointData; EP_COUNT],
     ep_out: [EndpointData; EP_COUNT],
     ep_mem_free: u16, // first free address in EP mem, in bytes.
+    ep_mem_curr_addr: u16,
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
@@ -148,7 +153,8 @@ impl<'d, T: Instance> Driver<'d, T> {
             phantom: PhantomData,
             ep_in: [EndpointData::new(); EP_COUNT],
             ep_out: [EndpointData::new(); EP_COUNT],
-            ep_mem_free: 0x180, // data buffer region
+            ep_mem_free: 0x180,      // data buffer region
+            ep_mem_curr_addr: 0x180, // first ep address is start of ep mem region
         }
     }
 
@@ -212,10 +218,10 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep.max_packet_size = max_packet_size;
 
         let ep_type_reg = match ep_type {
-            EndpointType::Bulk => pac::usb_dpram::vals::EpControlEndpointType::BULK,
-            EndpointType::Control => pac::usb_dpram::vals::EpControlEndpointType::CONTROL,
-            EndpointType::Interrupt => pac::usb_dpram::vals::EpControlEndpointType::INTERRUPT,
-            EndpointType::Isochronous => pac::usb_dpram::vals::EpControlEndpointType::ISOCHRONOUS,
+            EndpointType::Bulk => EpControlEndpointType::BULK,
+            EndpointType::Control => EpControlEndpointType::CONTROL,
+            EndpointType::Interrupt => EpControlEndpointType::INTERRUPT,
+            EndpointType::Isochronous => EpControlEndpointType::ISOCHRONOUS,
         };
 
         match D::dir() {
@@ -347,6 +353,22 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             },
         )
     }
+
+    fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_size: u16) {
+        if self.ep_mem_curr_addr - ep.buf.len != ep.buf.addr {
+            panic!("Can only grow buffer if it's the last allocated buffer!");
+        }
+        self.ep_mem_curr_addr = self.ep_mem_curr_addr - ep.buf.len + new_size;
+        ep.buf.grow(new_size);
+    }
+
+    fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_size: u16) {
+        if self.ep_mem_curr_addr - ep.buf.len != ep.buf.addr {
+            panic!("Can only grow buffer if it's the last allocated buffer!");
+        }
+        self.ep_mem_curr_addr = self.ep_mem_curr_addr - ep.buf.len + new_size;
+        ep.buf.grow(new_size);
+    }
 }
 
 /// Type representing the RP USB bus.
@@ -471,6 +493,22 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         }
     }
 
+    fn endpoint_set_sync_type(
+        &mut self,
+        ep_addr: EndpointAddress,
+        synchronization_type: embassy_usb_driver::SynchronizationType,
+    ) {
+        let _ = ep_addr;
+        let _ = synchronization_type;
+        // Not hardware related on rp2040
+    }
+
+    fn endpoint_set_usage_type(&mut self, ep_addr: EndpointAddress, usage_type: embassy_usb_driver::UsageType) {
+        let _ = usage_type;
+        let _ = ep_addr;
+        // Not hardware related on rp2040
+    }
+
     fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType) {
         trace!("set_buffersize {:?} {:?}", ep_addr, ep_type);
         if ep_addr.index() == 0 {
@@ -478,10 +516,10 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         }
 
         let ep_type_reg = match ep_type {
-            EndpointType::Bulk => pac::usb_dpram::vals::EpControlEndpointType::BULK,
-            EndpointType::Control => pac::usb_dpram::vals::EpControlEndpointType::CONTROL,
-            EndpointType::Interrupt => pac::usb_dpram::vals::EpControlEndpointType::INTERRUPT,
-            EndpointType::Isochronous => pac::usb_dpram::vals::EpControlEndpointType::ISOCHRONOUS,
+            EndpointType::Bulk => EpControlEndpointType::BULK,
+            EndpointType::Control => EpControlEndpointType::CONTROL,
+            EndpointType::Interrupt => EpControlEndpointType::INTERRUPT,
+            EndpointType::Isochronous => EpControlEndpointType::ISOCHRONOUS,
         };
 
         let n = ep_addr.index();

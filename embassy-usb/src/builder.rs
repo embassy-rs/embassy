@@ -475,7 +475,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
-        ep_allocated: &D::EndpointIn,
+        ep_allocated: &mut D::EndpointIn,
     ) {
         let ep_info = EndpointInfo {
             addr: ep_allocated.info().addr,
@@ -483,6 +483,9 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             max_packet_size,
             interval_ms,
         };
+        self.builder
+            .driver
+            .grow_endpoint_in_buffer(ep_allocated, max_packet_size);
         self.endpoint_descriptor(&ep_info, synchronization_type, usage_type, extra_fields);
     }
 
@@ -527,7 +530,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
-        ep_allocated: &D::EndpointOut,
+        ep_allocated: &mut D::EndpointOut,
     ) {
         let ep_info = EndpointInfo {
             addr: ep_allocated.info().addr,
@@ -535,6 +538,9 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             max_packet_size,
             interval_ms,
         };
+        self.builder
+            .driver
+            .grow_endpoint_out_buffer(ep_allocated, max_packet_size);
         self.endpoint_descriptor(&ep_info, synchronization_type, usage_type, extra_fields);
     }
 
@@ -557,7 +563,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
-    pub fn endpoint_bulk_in_allocated(&mut self, max_packet_size: u16, ep_allocated: &D::EndpointIn) {
+    pub fn endpoint_bulk_in_allocated(&mut self, max_packet_size: u16, ep_allocated: &mut D::EndpointIn) {
         self.endpoint_in_allocated(
             EndpointType::Bulk,
             max_packet_size,
@@ -588,7 +594,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
-    pub fn endpoint_bulk_out_allocated(&mut self, max_packet_size: u16, ep_allocated: &D::EndpointOut) {
+    pub fn endpoint_bulk_out_allocated(&mut self, max_packet_size: u16, ep_allocated: &mut D::EndpointOut) {
         self.endpoint_out_allocated(
             EndpointType::Bulk,
             max_packet_size,
@@ -623,7 +629,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         &mut self,
         max_packet_size: u16,
         interval_ms: u8,
-        ep_allocated: &D::EndpointIn,
+        ep_allocated: &mut D::EndpointIn,
     ) {
         self.endpoint_in_allocated(
             EndpointType::Interrupt,
@@ -659,7 +665,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         &mut self,
         max_packet_size: u16,
         interval_ms: u8,
-        ep_allocated: &D::EndpointOut,
+        ep_allocated: &mut D::EndpointOut,
     ) {
         self.endpoint_out_allocated(
             EndpointType::Interrupt,
@@ -705,7 +711,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
-        ep_allocated: &D::EndpointIn,
+        ep_allocated: &mut D::EndpointIn,
     ) {
         self.endpoint_in_allocated(
             EndpointType::Isochronous,
@@ -751,7 +757,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         synchronization_type: SynchronizationType,
         usage_type: UsageType,
         extra_fields: &[u8],
-        ep_allocated: &D::EndpointOut,
+        ep_allocated: &mut D::EndpointOut,
     ) {
         self.endpoint_out_allocated(
             EndpointType::Isochronous,

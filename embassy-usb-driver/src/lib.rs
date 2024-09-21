@@ -236,6 +236,12 @@ pub trait Driver<'a> {
     /// This consumes the `Driver` instance, so it's no longer possible to allocate more
     /// endpoints.
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe);
+
+    /// Grows the endpoint buffer to the maximum size necessary to service all associated enpoint descriptors to the point of calling it
+    fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_size: u16);
+
+    /// Grows the endpoint buffer to the maximum size necessary to service all associated enpoint descriptors to the point of calling it
+    fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_size: u16);
 }
 
 /// USB bus trait.
@@ -254,6 +260,12 @@ pub trait Bus {
     /// This method should asynchronously wait for an event to happen, then
     /// return it. See [`Event`] for the list of events this method should return.
     async fn poll(&mut self) -> Event;
+
+    /// Change buffersize of endpoint
+    fn endpoint_set_sync_type(&mut self, ep_addr: EndpointAddress, synchronization_type: SynchronizationType);
+
+    /// Change buffersize of endpoint
+    fn endpoint_set_usage_type(&mut self, ep_addr: EndpointAddress, usage_type: UsageType);
 
     /// Change buffersize of endpoint
     fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: u16);
