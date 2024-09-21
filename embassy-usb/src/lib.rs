@@ -6,7 +6,7 @@
 pub(crate) mod fmt;
 
 pub use embassy_usb_driver as driver;
-use embassy_usb_driver::EndpointType;
+use embassy_usb_driver::{EndpointType, SynchronizationType, UsageType};
 
 mod builder;
 pub mod class;
@@ -592,13 +592,15 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
                                 self.bus.endpoint_set_type(
                                     ep.ep_address,
-                                    match ep.ep_attributes & 0b11 {
-                                        0b00 => EndpointType::Control,
-                                        0b01 => EndpointType::Isochronous,
-                                        0b10 => EndpointType::Bulk,
-                                        0b11 => EndpointType::Interrupt,
-                                        4_u8..=u8::MAX => unreachable!(),
-                                    },
+                                    EndpointType::from((ep.ep_attributes >> 0) & 0b11),
+                                );
+                                self.bus.endpoint_set_sync_type(
+                                    ep.ep_address,
+                                    SynchronizationType::from((ep.ep_attributes >> 2) & 0b11),
+                                );
+                                self.bus.endpoint_set_usage_type(
+                                    ep.ep_address,
+                                    UsageType::from((ep.ep_attributes >> 4) & 0b11),
                                 );
                                 // TODO also implement this for other endpoint changes, like reconfiguration.
                                 // TODO add changes of buffersize, maybe always redo the memory layout or lay out addresses based on largest buffer and reconfigure start addresses and sizes only.

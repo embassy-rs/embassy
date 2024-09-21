@@ -35,6 +35,18 @@ pub enum EndpointType {
     Interrupt = 0b11,
 }
 
+impl From<u8> for EndpointType {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => Self::Control,
+            0b01 => Self::Isochronous,
+            0b10 => Self::Bulk,
+            0b11 => Self::Interrupt,
+            4_u8..=u8::MAX => unreachable!(),
+        }
+    }
+}
+
 /// USB endpoint synchronization type. The values of this enum can be directly
 /// cast into `u8` to get the bmAttributes synchronization type bits.
 /// Values other than `NoSynchronization` are only allowed on isochronous endpoints.
@@ -52,6 +64,18 @@ pub enum SynchronizationType {
     Synchronous = 0b11,
 }
 
+impl From<u8> for SynchronizationType {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => Self::NoSynchronization,
+            0b01 => Self::Asynchronous,
+            0b10 => Self::Adaptive,
+            0b11 => Self::Synchronous,
+            4_u8..=u8::MAX => unreachable!(),
+        }
+    }
+}
+
 /// USB endpoint usage type. The values of this enum can be directly cast into
 /// `u8` to get the bmAttributes usage type bits.
 /// Values other than `DataEndpoint` are only allowed on isochronous endpoints.
@@ -67,6 +91,18 @@ pub enum UsageType {
     ImplicitFeedbackDataEndpoint = 0b10,
     /// Reserved usage type.
     Reserved = 0b11,
+}
+
+impl From<u8> for UsageType {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => Self::DataEndpoint,
+            0b01 => Self::FeedbackEndpoint,
+            0b10 => Self::ImplicitFeedbackDataEndpoint,
+            0b11 => Self::Reserved,
+            4_u8..=u8::MAX => unreachable!(),
+        }
+    }
 }
 
 /// Type-safe endpoint address.
