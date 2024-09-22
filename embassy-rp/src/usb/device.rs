@@ -1,8 +1,6 @@
-//! USB driver.
+
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::slice;
-use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
@@ -15,10 +13,19 @@ use embassy_usb_driver::{
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{interrupt, pac, peripherals, Peri, RegExt};
 
-trait SealedInstance {
-    fn regs() -> crate::pac::usb::Usb;
-    fn dpram() -> crate::pac::usb_dpram::UsbDpram;
-}
+use super::{
+    Instance, 
+    EndpointBuffer, 
+    EP_MEMORY, 
+    EP_MEMORY_SIZE,
+    BUS_WAKER, 
+    EP_COUNT, 
+    EP_IN_WAKERS, 
+    EP_OUT_WAKERS,
+    In,
+    Out,
+    Dir,
+};
 
 /// USB peripheral instance.
 #[allow(private_bounds)]
@@ -488,26 +495,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
-    }
-}
-
-trait Dir {
-    fn dir() -> Direction;
-}
-
-/// Type for In direction.
-pub enum In {}
-impl Dir for In {
-    fn dir() -> Direction {
-        Direction::In
-    }
-}
-
-/// Type for Out direction.
-pub enum Out {}
-impl Dir for Out {
-    fn dir() -> Direction {
-        Direction::Out
     }
 }
 
