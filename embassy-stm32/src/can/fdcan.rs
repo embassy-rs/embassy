@@ -335,9 +335,24 @@ impl<'d> Can<'d> {
         self.state.tx_mode.write(self.info, frame).await
     }
 
+    /// Queues the message to be sent. Handles rescheduling lower priority message
+    /// if one was removed from the mailbox.
+    pub async fn write_blocking(&mut self, frame: &Frame) {
+        let mut frame_opt = self.state.tx_mode.write(self.info, frame).await;
+        while let Some(frame) = frame_opt {
+            frame_opt = self.state.tx_mode.write(self.info, &frame).await;
+        }
+    }
+
     /// Returns the next received message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.state.rx_mode.read_classic(self.info, self.state).await
+    }
+
+    /// Returns the next received message frame, if available.
+    /// If there is no frame currently available to be read, this will return immediately.
+    pub fn try_read(&mut self) -> Option<Result<Envelope, BusError>> {
+        self.state.rx_mode.try_read_classic(self.info, self.state)
     }
 
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
@@ -348,9 +363,24 @@ impl<'d> Can<'d> {
         self.state.tx_mode.write_fd(self.info, frame).await
     }
 
+    /// Queues the message to be sent. Handles rescheduling lower priority message
+    /// if one was removed from the mailbox.
+    pub async fn write_fd_blocking(&mut self, frame: &FdFrame) {
+        let mut frame_opt = self.state.tx_mode.write_fd(self.info, frame).await;
+        while let Some(frame) = frame_opt {
+            frame_opt = self.state.tx_mode.write_fd(self.info, &frame).await;
+        }
+    }
+
     /// Returns the next received message frame
     pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
         self.state.rx_mode.read_fd(self.info, self.state).await
+    }
+
+    /// Returns the next received message frame, if available.
+    /// If there is no frame currently available to be read, this will return immediately.
+    pub fn try_read_fd(&mut self) -> Option<Result<FdEnvelope, BusError>> {
+        self.state.rx_mode.try_read_fd(self.info, self.state)
     }
 
     /// Split instance into separate portions: Tx(write), Rx(read), common properties
@@ -647,9 +677,21 @@ impl<'d> CanRx<'d> {
         self.state.rx_mode.read_classic(&self.info, &self.state).await
     }
 
+    /// Returns the next received message frame, if available.
+    /// If there is no frame currently available to be read, this will return immediately.
+    pub fn try_read(&mut self) -> Option<Result<Envelope, BusError>> {
+        self.state.rx_mode.try_read_classic(self.info, self.state)
+    }
+
     /// Returns the next received message frame
     pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
         self.state.rx_mode.read_fd(&self.info, &self.state).await
+    }
+
+    /// Returns the next received message frame, if available.
+    /// If there is no frame currently available to be read, this will return immediately.
+    pub fn try_read_fd(&mut self) -> Option<Result<FdEnvelope, BusError>> {
+        self.state.rx_mode.try_read_fd(self.info, self.state)
     }
 }
 
@@ -671,12 +713,30 @@ impl<'c, 'd> CanTx<'d> {
         self.state.tx_mode.write(self.info, frame).await
     }
 
+    /// Queues the message to be sent. Handles rescheduling lower priority message
+    /// if one was removed from the mailbox.
+    pub async fn write_blocking(&mut self, frame: &Frame) {
+        let mut frame_opt = self.state.tx_mode.write(self.info, frame).await;
+        while let Some(frame) = frame_opt {
+            frame_opt = self.state.tx_mode.write(self.info, &frame).await;
+        }
+    }
+
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
     /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
         self.state.tx_mode.write_fd(self.info, frame).await
+    }
+
+    /// Queues the message to be sent. Handles rescheduling lower priority message
+    /// if one was removed from the mailbox.
+    pub async fn write_fd_blocking(&mut self, frame: &FdFrame) {
+        let mut frame_opt = self.state.tx_mode.write_fd(self.info, frame).await;
+        while let Some(frame) = frame_opt {
+            frame_opt = self.state.tx_mode.write_fd(self.info, &frame).await;
+        }
     }
 }
 
@@ -703,60 +763,31 @@ impl RxMode {
                 waker.wake();
             }
             RxMode::ClassicBuffered(buf) => {
-                if let Some(result) = self.try_read::<T>() {
+                if let Some(result) = self.try_read::<Frame>(T::info(), T::state()) {
+                    let result = result.map(|(frame, ts)| Envelope { ts, frame });
                     let _ = buf.rx_sender.try_send(result);
                 }
             }
             RxMode::FdBuffered(buf) => {
-                if let Some(result) = self.try_read_fd::<T>() {
+                if let Some(result) = self.try_read::<FdFrame>(T::info(), T::state()) {
+                    let result = result.map(|(frame, ts)| FdEnvelope { ts, frame });
                     let _ = buf.rx_sender.try_send(result);
                 }
             }
         }
     }
 
-    //async fn read_classic<T: Instance>(&self) -> Result<Envelope, BusError> {
-    fn try_read<T: Instance>(&self) -> Option<Result<Envelope, BusError>> {
-        if let Some((frame, ts)) = T::registers().read(0) {
-            let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-            Some(Ok(Envelope { ts, frame }))
-        } else if let Some((frame, ts)) = T::registers().read(1) {
-            let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-            Some(Ok(Envelope { ts, frame }))
-        } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
-        } else {
-            None
-        }
-    }
-
-    fn try_read_fd<T: Instance>(&self) -> Option<Result<FdEnvelope, BusError>> {
-        if let Some((frame, ts)) = T::registers().read(0) {
-            let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
-        } else if let Some((frame, ts)) = T::registers().read(1) {
-            let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
-        } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
-        } else {
-            None
-        }
-    }
-
-    fn read<F: CanHeader>(
+    fn try_read<F: CanHeader>(
         &self,
         info: &'static Info,
         state: &'static State,
     ) -> Option<Result<(F, Timestamp), BusError>> {
-        if let Some((msg, ts)) = info.regs.read(0) {
+        if let Some((frame, ts)) = info.regs.read(0) {
             let ts = info.calc_timestamp(state.ns_per_timer_tick, ts);
-            Some(Ok((msg, ts)))
-        } else if let Some((msg, ts)) = info.regs.read(1) {
+            Some(Ok((frame, ts)))
+        } else if let Some((frame, ts)) = info.regs.read(1) {
             let ts = info.calc_timestamp(state.ns_per_timer_tick, ts);
-            Some(Ok((msg, ts)))
+            Some(Ok((frame, ts)))
         } else if let Some(err) = info.regs.curr_error() {
             // TODO: this is probably wrong
             Some(Err(err))
@@ -770,11 +801,10 @@ impl RxMode {
         info: &'static Info,
         state: &'static State,
     ) -> Result<(F, Timestamp), BusError> {
-        //let _ = self.read::<F>(info, state);
         poll_fn(move |cx| {
             state.err_waker.register(cx.waker());
             self.register(cx.waker());
-            match self.read::<_>(info, state) {
+            match self.try_read::<_>(info, state) {
                 Some(result) => Poll::Ready(result),
                 None => Poll::Pending,
             }
@@ -782,18 +812,26 @@ impl RxMode {
         .await
     }
 
+    fn try_read_classic(&self, info: &'static Info, state: &'static State) -> Option<Result<Envelope, BusError>> {
+        self.try_read::<_>(info, state)
+            .map(|r| r.map(|(frame, ts)| Envelope { frame, ts }))
+    }
+
+    fn try_read_fd(&self, info: &'static Info, state: &'static State) -> Option<Result<FdEnvelope, BusError>> {
+        self.try_read::<_>(info, state)
+            .map(|r| r.map(|(frame, ts)| FdEnvelope { frame, ts }))
+    }
+
     async fn read_classic(&self, info: &'static Info, state: &'static State) -> Result<Envelope, BusError> {
-        match self.read_async::<_>(info, state).await {
-            Ok((frame, ts)) => Ok(Envelope { ts, frame }),
-            Err(e) => Err(e),
-        }
+        self.read_async::<_>(info, state)
+            .await
+            .map(|(frame, ts)| Envelope { frame, ts })
     }
 
     async fn read_fd(&self, info: &'static Info, state: &'static State) -> Result<FdEnvelope, BusError> {
-        match self.read_async::<_>(info, state).await {
-            Ok((frame, ts)) => Ok(FdEnvelope { ts, frame }),
-            Err(e) => Err(e),
-        }
+        self.read_async::<_>(info, state)
+            .await
+            .map(|(frame, ts)| FdEnvelope { frame, ts })
     }
 }
 
