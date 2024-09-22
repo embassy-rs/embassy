@@ -584,6 +584,29 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         });
     }
 
+    /// Applies configuration specific to
+    /// Core ID 0x0000_5000
+    pub fn config_v5(&mut self) {
+        let r = self.instance.regs;
+        let phy_type = self.instance.phy_type;
+
+        if phy_type == PhyType::InternalHighSpeed {
+            r.gccfg_v3().modify(|w| {
+                w.set_vbvaloven(!self.config.vbus_detection);
+                w.set_vbvaloval(!self.config.vbus_detection);
+                w.set_vbden(self.config.vbus_detection);
+            });
+        } else {
+            r.gotgctl().modify(|w| {
+                w.set_bvaloen(!self.config.vbus_detection);
+                w.set_bvaloval(!self.config.vbus_detection);
+            });
+            r.gccfg_v3().modify(|w| {
+                w.set_vbden(self.config.vbus_detection);
+            });
+        }
+    }
+
     fn init(&mut self) {
         let r = self.instance.regs;
         let phy_type = self.instance.phy_type;
