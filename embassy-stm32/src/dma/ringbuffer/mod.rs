@@ -27,10 +27,6 @@ struct DmaIndex {
     pos: usize,
 }
 
-fn pos(cap: usize, dma: &impl DmaCtrl) -> usize {
-    cap - dma.get_remaining_transfers()
-}
-
 impl DmaIndex {
     fn reset(&mut self) {
         self.pos = 0;
@@ -42,9 +38,9 @@ impl DmaIndex {
     }
 
     fn dma_sync(&mut self, cap: usize, dma: &mut impl DmaCtrl) {
-        let fst_pos = pos(cap, dma);
+        let fst_pos = cap - dma.get_remaining_transfers();
         let fst_count = dma.reset_complete_count();
-        let pos = pos(cap, dma);
+        let pos = cap - dma.get_remaining_transfers();
 
         let wrap_count = if pos >= fst_pos {
             fst_count
@@ -68,8 +64,7 @@ impl DmaIndex {
         rhs.completion_count -= min_count;
     }
 
-    fn diff(&mut self, cap: usize, rhs: &mut DmaIndex) -> isize {
-        Self::normalize(self, rhs);
+    fn diff(&self, cap: usize, rhs: &DmaIndex) -> isize {
         (self.completion_count * cap + self.pos) as isize - (rhs.completion_count * cap + rhs.pos) as isize
     }
 }
@@ -94,13 +89,24 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     pub fn clear(&mut self, dma: &mut impl DmaCtrl) {
         dma.reset_complete_count();
         self.write_index.reset();
-        self.update_dma_index(dma);
+        self.write_index.dma_sync(self.cap(), dma);
         self.read_index = self.write_index;
     }
 
-    /// The capacity of the ringbuffer
+    /// Get the full ringbuffer capacity.
     pub const fn cap(&self) -> usize {
         self.dma_buf.len()
+    }
+
+    /// Get the available readable dma samples.
+    pub fn len(&self) -> Result<usize, OverrunError> {
+        let diff: usize = self.write_index.diff(self.cap(), &self.read_index).try_into().unwrap();
+
+        if diff > self.cap() {
+            Err(OverrunError)
+        } else {
+            Ok(diff)
+        }
     }
 
     /// Read elements from the ring buffer
@@ -109,11 +115,13 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
     pub fn read(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
-        let readable = self.margin(dma)?.min(buf.len());
+        self.sync_write_index(dma);
+        let readable = self.len()?.min(buf.len());
         for i in 0..readable {
             buf[i] = self.read_buf(i);
         }
-        let available = self.margin(dma)?;
+        self.sync_write_index(dma);
+        let available = self.len()?;
         self.read_index.advance(self.cap(), readable);
         Ok((readable, available - readable))
     }
@@ -151,10 +159,6 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         .await
     }
 
-    fn update_dma_index(&mut self, dma: &mut impl DmaCtrl) {
-        self.write_index.dma_sync(self.cap(), dma)
-    }
-
     fn read_buf(&self, offset: usize) -> W {
         unsafe {
             core::ptr::read_volatile(
@@ -165,21 +169,9 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         }
     }
 
-    /// Returns available dma samples
-    fn margin(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, OverrunError> {
-        self.update_dma_index(dma);
-
-        let diff: usize = self
-            .write_index
-            .diff(self.cap(), &mut self.read_index)
-            .try_into()
-            .unwrap();
-
-        if diff > self.cap() {
-            Err(OverrunError)
-        } else {
-            Ok(diff)
-        }
+    fn sync_write_index(&mut self, dma: &mut impl DmaCtrl) {
+        self.write_index.dma_sync(self.cap(), dma);
+        DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
     }
 }
 
@@ -207,12 +199,23 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     pub fn clear(&mut self, dma: &mut impl DmaCtrl) {
         dma.reset_complete_count();
         self.read_index.reset();
-        self.update_dma_index(dma);
+        self.read_index.dma_sync(self.cap(), dma);
         self.write_index = self.read_index;
         self.write_index.advance(self.cap(), self.cap());
     }
 
-    /// Get the capacity of the ringbuffer.
+    /// Get the remaining writable dma samples.
+    pub fn len(&self) -> Result<usize, OverrunError> {
+        let diff = self.write_index.diff(self.cap(), &self.read_index);
+
+        if diff < 0 {
+            Err(OverrunError)
+        } else {
+            Ok(self.cap().saturating_sub(diff as usize))
+        }
+    }
+
+    /// Get the full ringbuffer capacity.
     pub const fn cap(&self) -> usize {
         self.dma_buf.len()
     }
@@ -220,11 +223,13 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     /// Append data to the ring buffer.
     /// Returns a tuple of the data written and the remaining write capacity in the buffer.
     pub fn write(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), OverrunError> {
-        let writable = self.margin(dma)?.min(buf.len());
+        self.sync_read_index(dma);
+        let writable = self.len()?.min(buf.len());
         for i in 0..writable {
             self.write_buf(i, buf[i]);
         }
-        let available = self.margin(dma)?;
+        self.sync_read_index(dma);
+        let available = self.len()?;
         self.write_index.advance(self.cap(), writable);
         Ok((writable, available - writable))
     }
@@ -261,10 +266,6 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         .await
     }
 
-    fn update_dma_index(&mut self, dma: &mut impl DmaCtrl) {
-        self.read_index.dma_sync(self.cap(), dma);
-    }
-
     fn write_buf(&mut self, offset: usize, value: W) {
         unsafe {
             core::ptr::write_volatile(
@@ -276,16 +277,9 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         }
     }
 
-    fn margin(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, OverrunError> {
-        self.update_dma_index(dma);
-
-        let diff = self.write_index.diff(self.cap(), &mut self.read_index);
-
-        if diff < 0 {
-            Err(OverrunError)
-        } else {
-            Ok(self.cap().saturating_sub(diff as usize))
-        }
+    fn sync_read_index(&mut self, dma: &mut impl DmaCtrl) {
+        self.read_index.dma_sync(self.cap(), dma);
+        DmaIndex::normalize(&mut self.read_index, &mut self.write_index);
     }
 }
 
