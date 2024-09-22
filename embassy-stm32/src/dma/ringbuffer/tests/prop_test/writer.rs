@@ -38,8 +38,9 @@ impl ReferenceStateMachine for WriterSM {
                     Status::Available(x - y)
                 }
             }
+            (Status::Failed, WriterTransition::Read(_)) => Status::Failed,
             (Status::Available(x), WriterTransition::WriteUpTo(y)) => Status::Available((x + *y).min(CAP)),
-            (Status::Failed, _) => Status::Failed,
+            (Status::Failed, WriterTransition::WriteUpTo(_)) => Status::Available(CAP),
         }
     }
 }

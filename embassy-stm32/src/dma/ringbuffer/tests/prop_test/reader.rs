@@ -38,8 +38,9 @@ impl ReferenceStateMachine for ReaderSM {
                     Status::Available(x + y)
                 }
             }
+            (Status::Failed, ReaderTransition::Write(_)) => Status::Failed,
             (Status::Available(x), ReaderTransition::ReadUpTo(y)) => Status::Available(x.saturating_sub(*y)),
-            (Status::Failed, _) => Status::Failed,
+            (Status::Failed, ReaderTransition::ReadUpTo(_)) => Status::Available(0),
         }
     }
 }

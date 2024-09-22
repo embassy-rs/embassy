@@ -85,7 +85,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         }
     }
 
-    /// Reset the ring buffer to its initial state
+    /// Reset the ring buffer to its initial state.
     pub fn clear(&mut self, dma: &mut impl DmaCtrl) {
         dma.reset_complete_count();
         self.write_index.reset();
@@ -113,17 +113,12 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     /// Return a tuple of the length read and the length remaining in the buffer
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
     /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
-    /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
+    /// OverrunError is returned if the portion to be read was overwritten by the DMA controller,
+    /// in which case the rinbuffer will automatically clear itself.
     pub fn read(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
-        self.sync_write_index(dma);
-        let readable = self.len()?.min(buf.len());
-        for i in 0..readable {
-            buf[i] = self.read_buf(i);
-        }
-        self.sync_write_index(dma);
-        let available = self.len()?;
-        self.read_index.advance(self.cap(), readable);
-        Ok((readable, available - readable))
+        self.read_raw(dma, buf).inspect_err(|_e| {
+            self.clear(dma);
+        })
     }
 
     /// Read an exact number of elements from the ringbuffer.
@@ -157,6 +152,18 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             }
         })
         .await
+    }
+
+    fn read_raw(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
+        self.sync_write_index(dma);
+        let readable = self.len()?.min(buf.len());
+        for i in 0..readable {
+            buf[i] = self.read_buf(i);
+        }
+        self.sync_write_index(dma);
+        let available = self.len()?;
+        self.read_index.advance(self.cap(), readable);
+        Ok((readable, available - readable))
     }
 
     fn read_buf(&self, offset: usize) -> W {
@@ -222,16 +229,13 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
 
     /// Append data to the ring buffer.
     /// Returns a tuple of the data written and the remaining write capacity in the buffer.
+    /// OverrunError is returned if the portion to be written was previously read by the DMA controller.
+    /// In this case, the ringbuffer will automatically reset itself, giving a full buffer worth of
+    /// leeway between the write index and the DMA.
     pub fn write(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), OverrunError> {
-        self.sync_read_index(dma);
-        let writable = self.len()?.min(buf.len());
-        for i in 0..writable {
-            self.write_buf(i, buf[i]);
-        }
-        self.sync_read_index(dma);
-        let available = self.len()?;
-        self.write_index.advance(self.cap(), writable);
-        Ok((writable, available - writable))
+        self.write_raw(dma, buf).inspect_err(|_e| {
+            self.clear(dma);
+        })
     }
 
     /// Write elements directly to the buffer.
@@ -264,6 +268,18 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
             }
         })
         .await
+    }
+
+    pub fn write_raw(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+        self.sync_read_index(dma);
+        let writable = self.len()?.min(buf.len());
+        for i in 0..writable {
+            self.write_buf(i, buf[i]);
+        }
+        self.sync_read_index(dma);
+        let available = self.len()?;
+        self.write_index.advance(self.cap(), writable);
+        Ok((writable, available - writable))
     }
 
     fn write_buf(&mut self, offset: usize, value: W) {
