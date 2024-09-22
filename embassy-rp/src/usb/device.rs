@@ -1,84 +1,30 @@
-//! USB driver.
+
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::slice;
-use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
+use crate::{interrupt, pac, Peripheral, RegExt};
 
-trait SealedInstance {
-    fn regs() -> crate::pac::usb::Usb;
-    fn dpram() -> crate::pac::usb_dpram::UsbDpram;
-}
+use super::{
+    Instance, 
+    EndpointBuffer, 
+    EP_MEMORY, 
+    EP_MEMORY_SIZE,
+    BUS_WAKER, 
+    EP_COUNT, 
+    EP_IN_WAKERS, 
+    EP_OUT_WAKERS,
+    In,
+    Out,
+    Dir,
+};
 
-/// USB peripheral instance.
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {
-    /// Interrupt for this peripheral.
-    type Interrupt: interrupt::typelevel::Interrupt;
-}
-
-impl crate::usb::SealedInstance for peripherals::USB {
-    fn regs() -> pac::usb::Usb {
-        pac::USB
-    }
-    fn dpram() -> crate::pac::usb_dpram::UsbDpram {
-        pac::USB_DPRAM
-    }
-}
-
-impl crate::usb::Instance for peripherals::USB {
-    type Interrupt = crate::interrupt::typelevel::USBCTRL_IRQ;
-}
-
-const EP_COUNT: usize = 16;
-const EP_MEMORY_SIZE: usize = 4096;
-const EP_MEMORY: *mut u8 = pac::USB_DPRAM.as_ptr() as *mut u8;
-
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static BUS_WAKER: AtomicWaker = NEW_AW;
-static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
-static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
-
-struct EndpointBuffer<T: Instance> {
-    addr: u16,
-    len: u16,
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance> EndpointBuffer<T> {
-    const fn new(addr: u16, len: u16) -> Self {
-        Self {
-            addr,
-            len,
-            _phantom: PhantomData,
-        }
-    }
-
-    fn read(&mut self, buf: &mut [u8]) {
-        assert!(buf.len() <= self.len as usize);
-        compiler_fence(Ordering::SeqCst);
-        let mem = unsafe { slice::from_raw_parts(EP_MEMORY.add(self.addr as _), buf.len()) };
-        buf.copy_from_slice(mem);
-        compiler_fence(Ordering::SeqCst);
-    }
-
-    fn write(&mut self, buf: &[u8]) {
-        assert!(buf.len() <= self.len as usize);
-        compiler_fence(Ordering::SeqCst);
-        let mem = unsafe { slice::from_raw_parts_mut(EP_MEMORY.add(self.addr as _), buf.len()) };
-        mem.copy_from_slice(buf);
-        compiler_fence(Ordering::SeqCst);
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -488,26 +434,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
-    }
-}
-
-trait Dir {
-    fn dir() -> Direction;
-}
-
-/// Type for In direction.
-pub enum In {}
-impl Dir for In {
-    fn dir() -> Direction {
-        Direction::In
-    }
-}
-
-/// Type for Out direction.
-pub enum Out {}
-impl Dir for Out {
-    fn dir() -> Direction {
-        Direction::Out
     }
 }
 
