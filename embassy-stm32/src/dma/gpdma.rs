@@ -245,6 +245,7 @@ impl<'a> Transfer<'a> {
             });
             w.set_reqsel(request);
         });
+        ch.tr3().write(|_| {}); // no address offsets.
         ch.br1().write(|w| w.set_bndt(bndt));
 
         match dir {
