@@ -1,3 +1,10 @@
+// Driver implementation for the FDCAN peripheral in STM32 MCUs.
+
+// The FDCAN peripheral appears to be licensed IP from Bosch,
+// named the M_CAN protocol controller.
+// https://www.bosch-semiconductors.com/ip-modules/can-ip-modules/m-can/
+
+use core::any::{Any, TypeId};
 #[allow(unused_variables)]
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -21,6 +28,7 @@ use self::fd::config::*;
 use self::fd::filter::*;
 pub use self::fd::{config, filter};
 pub use super::common::{BufferedCanReceiver, BufferedCanSender};
+use super::common::{CanMode, Classic, Fd};
 use super::enums::*;
 use super::frame::*;
 use super::util;
@@ -257,7 +265,7 @@ impl<'d> CanConfigurator<'d> {
     }
 
     /// Start in mode.
-    pub fn start(self, mode: OperatingMode) -> Can<'d> {
+    pub fn start<M: CanMode>(self, mode: OperatingMode) -> Can<'d, M> {
         let ns_per_timer_tick = calc_ns_per_timer_tick(self.info, self.periph_clock, self.config.frame_transmit);
         critical_section::with(|_| {
             let state = self.state as *const State;
@@ -278,24 +286,75 @@ impl<'d> CanConfigurator<'d> {
     }
 
     /// Start, entering mode. Does same as start(mode)
-    pub fn into_normal_mode(self) -> Can<'d> {
+    pub fn into_normal_mode_classic(self) -> Can<'d, Classic> {
         self.start(OperatingMode::NormalOperationMode)
     }
 
     /// Start, entering mode. Does same as start(mode)
-    pub fn into_internal_loopback_mode(self) -> Can<'d> {
+    pub fn into_normal_mode_fd(self) -> Can<'d, Fd> {
+        self.start(OperatingMode::NormalOperationMode)
+    }
+
+    /// Start, entering mode. Does same as start(mode)
+    pub fn into_internal_loopback_mode_classic(self) -> Can<'d, Classic> {
         self.start(OperatingMode::InternalLoopbackMode)
     }
 
     /// Start, entering mode. Does same as start(mode)
-    pub fn into_external_loopback_mode(self) -> Can<'d> {
+    pub fn into_internal_loopback_mode_fd(self) -> Can<'d, Fd> {
+        self.start(OperatingMode::InternalLoopbackMode)
+    }
+
+    /// Start, entering mode. Does same as start(mode)
+    pub fn into_external_loopback_mode_classic(self) -> Can<'d, Classic> {
+        self.start(OperatingMode::ExternalLoopbackMode)
+    }
+
+    /// Start, entering mode. Does same as start(mode)
+    pub fn into_external_loopback_mode_fd(self) -> Can<'d, Fd> {
         self.start(OperatingMode::ExternalLoopbackMode)
     }
 }
 
+macro_rules! impl_rx_funs {
+    ($m:ty) => {
+        /// Returns the next received message frame
+        pub async fn read(&mut self) -> Result<BaseEnvelope<$m>, BusError> {
+            self.state.rx_mode.read(self.info, self.state).await
+        }
+
+        /// Returns the next received message frame, if available.
+        /// If there is no frame currently available to be read, this will return immediately.
+        pub fn try_read(&mut self) -> Option<Result<BaseEnvelope<$m>, BusError>> {
+            self.state.rx_mode.try_read(self.info, self.state)
+        }
+    };
+}
+
+macro_rules! impl_tx_funs {
+    ($m:ty) => {
+        /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+        /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+        /// can be replaced, this call asynchronously waits for a frame to be successfully
+        /// transmitted, then tries again.
+        pub async fn write(&mut self, frame: &BaseFrame<$m>) -> Option<BaseFrame<$m>> {
+            self.state.tx_mode.write(self.info, frame).await
+        }
+
+        /// Queues the message to be sent. Handles rescheduling lower priority message
+        /// if one was removed from the mailbox.
+        pub async fn write_blocking(&mut self, frame: &BaseFrame<$m>) {
+            let mut frame_opt = self.state.tx_mode.write(self.info, frame).await;
+            while let Some(frame) = frame_opt {
+                frame_opt = self.state.tx_mode.write(self.info, &frame).await;
+            }
+        }
+    };
+}
+
 /// FDCAN Instance
-pub struct Can<'d> {
-    _phantom: PhantomData<&'d ()>,
+pub struct Can<'d, M> {
+    _phantom: PhantomData<&'d M>,
     config: crate::can::fd::config::FdCanConfig,
     info: &'static Info,
     state: &'static State,
@@ -303,7 +362,7 @@ pub struct Can<'d> {
     properties: Properties,
 }
 
-impl<'d> Can<'d> {
+impl<'d, M: CanMode> Can<'d, M> {
     /// Get driver properties
     pub fn properties(&self) -> &Properties {
         &self.properties
@@ -327,64 +386,11 @@ impl<'d> Can<'d> {
         .await;
     }
 
-    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-    /// can be replaced, this call asynchronously waits for a frame to be successfully
-    /// transmitted, then tries again.
-    pub async fn write(&mut self, frame: &Frame) -> Option<Frame> {
-        self.state.tx_mode.write(self.info, frame).await
-    }
-
-    /// Queues the message to be sent. Handles rescheduling lower priority message
-    /// if one was removed from the mailbox.
-    pub async fn write_blocking(&mut self, frame: &Frame) {
-        let mut frame_opt = self.state.tx_mode.write(self.info, frame).await;
-        while let Some(frame) = frame_opt {
-            frame_opt = self.state.tx_mode.write(self.info, &frame).await;
-        }
-    }
-
-    /// Returns the next received message frame
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        self.state.rx_mode.read_classic(self.info, self.state).await
-    }
-
-    /// Returns the next received message frame, if available.
-    /// If there is no frame currently available to be read, this will return immediately.
-    pub fn try_read(&mut self) -> Option<Result<Envelope, BusError>> {
-        self.state.rx_mode.try_read_classic(self.info, self.state)
-    }
-
-    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-    /// can be replaced, this call asynchronously waits for a frame to be successfully
-    /// transmitted, then tries again.
-    pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
-        self.state.tx_mode.write_fd(self.info, frame).await
-    }
-
-    /// Queues the message to be sent. Handles rescheduling lower priority message
-    /// if one was removed from the mailbox.
-    pub async fn write_fd_blocking(&mut self, frame: &FdFrame) {
-        let mut frame_opt = self.state.tx_mode.write_fd(self.info, frame).await;
-        while let Some(frame) = frame_opt {
-            frame_opt = self.state.tx_mode.write_fd(self.info, &frame).await;
-        }
-    }
-
-    /// Returns the next received message frame
-    pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
-        self.state.rx_mode.read_fd(self.info, self.state).await
-    }
-
-    /// Returns the next received message frame, if available.
-    /// If there is no frame currently available to be read, this will return immediately.
-    pub fn try_read_fd(&mut self) -> Option<Result<FdEnvelope, BusError>> {
-        self.state.rx_mode.try_read_fd(self.info, self.state)
-    }
+    impl_tx_funs!(M);
+    impl_rx_funs!(M);
 
     /// Split instance into separate portions: Tx(write), Rx(read), common properties
-    pub fn split(self) -> (CanTx<'d>, CanRx<'d>, Properties) {
+    pub fn split(self) -> (CanTx<'d, M>, CanRx<'d, M>, Properties) {
         (
             CanTx {
                 _phantom: PhantomData,
@@ -403,7 +409,11 @@ impl<'d> Can<'d> {
         )
     }
     /// Join split rx and tx portions back together
-    pub fn join(tx: CanTx<'d>, rx: CanRx<'d>) -> Self {
+    pub fn join(tx: CanTx<'d, M>, rx: CanRx<'d, M>) -> Self {
+        assert!(
+            tx.info.regs.regs == rx.info.regs.regs,
+            "Attempted to halves from different FDCAN instances"
+        );
         Can {
             _phantom: PhantomData,
             config: tx.config,
@@ -417,46 +427,49 @@ impl<'d> Can<'d> {
     /// Return a buffered instance of driver without CAN FD support. User must supply Buffers
     pub fn buffered<const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
         self,
-        tx_buf: &'static mut TxBuf<TX_BUF_SIZE>,
-        rxb: &'static mut RxBuf<RX_BUF_SIZE>,
-    ) -> BufferedCan<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
+        tx_buf: &'static mut TxBuf<TX_BUF_SIZE, M>,
+        rxb: &'static mut RxBuf<RX_BUF_SIZE, M>,
+    ) -> BufferedCan<'d, M, TX_BUF_SIZE, RX_BUF_SIZE> {
         BufferedCan::new(self.info, self.state, self._mode, tx_buf, rxb)
     }
 
-    /// Return a buffered instance of driver with CAN FD support. User must supply Buffers
-    pub fn buffered_fd<const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
-        self,
-        tx_buf: &'static mut TxFdBuf<TX_BUF_SIZE>,
-        rxb: &'static mut RxFdBuf<RX_BUF_SIZE>,
-    ) -> BufferedCanFd<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
-        BufferedCanFd::new(self.info, self.state, self._mode, tx_buf, rxb)
-    }
+    // /// Return a buffered instance of driver with CAN FD support. User must supply Buffers
+    // pub fn buffered_fd<const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
+    //     self,
+    //     tx_buf: &'static mut TxFdBuf<TX_BUF_SIZE>,
+    //     rxb: &'static mut RxFdBuf<RX_BUF_SIZE>,
+    // ) -> BufferedCanFd<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
+    //     BufferedCanFd::new(self.info, self.state, self._mode, tx_buf, rxb)
+    // }
 }
 
 /// User supplied buffer for RX Buffering
-pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Result<Envelope, BusError>, BUF_SIZE>;
+pub type RxBuf<const BUF_SIZE: usize, M> =
+    Channel<CriticalSectionRawMutex, Result<BaseEnvelope<M>, BusError>, BUF_SIZE>;
 
 /// User supplied buffer for TX buffering
-pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, BUF_SIZE>;
+pub type TxBuf<const BUF_SIZE: usize, M> = Channel<CriticalSectionRawMutex, BaseFrame<M>, BUF_SIZE>;
 
 /// Buffered FDCAN Instance
-pub struct BufferedCan<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
-    _phantom: PhantomData<&'d ()>,
+pub struct BufferedCan<'d, M: CanMode, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+    _phantom: PhantomData<&'d M>,
     info: &'static Info,
     state: &'static State,
     _mode: OperatingMode,
-    tx_buf: &'static TxBuf<TX_BUF_SIZE>,
-    rx_buf: &'static RxBuf<RX_BUF_SIZE>,
+    tx_buf: &'static TxBuf<TX_BUF_SIZE, M>,
+    rx_buf: &'static RxBuf<RX_BUF_SIZE, M>,
     properties: Properties,
 }
 
-impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
+impl<'c, 'd, M: CanMode, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
+    BufferedCan<'d, M, TX_BUF_SIZE, RX_BUF_SIZE>
+{
     fn new(
         info: &'static Info,
         state: &'static State,
         _mode: OperatingMode,
-        tx_buf: &'static TxBuf<TX_BUF_SIZE>,
-        rx_buf: &'static RxBuf<RX_BUF_SIZE>,
+        tx_buf: &'static TxBuf<TX_BUF_SIZE, M>,
+        rx_buf: &'static RxBuf<RX_BUF_SIZE, M>,
     ) -> Self {
         BufferedCan {
             _phantom: PhantomData,
@@ -478,36 +491,59 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
         critical_section::with(|_| {
-            let rx_inner = super::common::ClassicBufferedRxInner {
+            let rx_inner = super::common::BufferedRxInner {
                 rx_sender: self.rx_buf.sender().into(),
             };
-            let tx_inner = super::common::ClassicBufferedTxInner {
+            let tx_inner = super::common::BufferedTxInner {
                 tx_receiver: self.tx_buf.receiver().into(),
             };
+
+            let rx_inner_typeid = rx_inner.type_id();
+            let rx_mode = if rx_inner_typeid == TypeId::of::<super::common::BufferedRxInner<Classic>>() {
+                let rx_inner: super::common::BufferedRxInner<Classic> = unsafe { core::mem::transmute(rx_inner) };
+                RxMode::ClassicBuffered(unsafe { core::mem::transmute(rx_inner) })
+            } else if rx_inner_typeid == TypeId::of::<super::common::BufferedRxInner<Fd>>() {
+                let rx_inner: super::common::BufferedRxInner<Fd> = unsafe { core::mem::transmute(rx_inner) };
+                RxMode::FdBuffered(rx_inner)
+            } else {
+                panic!()
+            };
+
+            let tx_inner_typeid = tx_inner.type_id();
+            let tx_mode = if tx_inner_typeid == TypeId::of::<super::common::BufferedTxInner<Classic>>() {
+                let tx_inner: super::common::BufferedTxInner<Classic> = unsafe { core::mem::transmute(tx_inner) };
+                TxMode::ClassicBuffered(tx_inner)
+            } else if tx_inner_typeid == TypeId::of::<super::common::BufferedTxInner<Fd>>() {
+                let tx_inner: super::common::BufferedTxInner<Fd> = unsafe { core::mem::transmute(tx_inner) };
+                TxMode::FdBuffered(tx_inner)
+            } else {
+                panic!()
+            };
+
             let state = self.state as *const State;
             unsafe {
                 let mut_state = state as *mut State;
-                (*mut_state).rx_mode = RxMode::ClassicBuffered(rx_inner);
-                (*mut_state).tx_mode = TxMode::ClassicBuffered(tx_inner);
+                (*mut_state).rx_mode = rx_mode;
+                (*mut_state).tx_mode = tx_mode;
             }
         });
         self
     }
 
     /// Async write frame to TX buffer.
-    pub async fn write(&mut self, frame: Frame) {
+    pub async fn write(&mut self, frame: BaseFrame<M>) {
         self.tx_buf.send(frame).await;
         self.info.interrupt0.pend(); // Wake for Tx
                                      //T::IT0Interrupt::pend(); // Wake for Tx
     }
 
     /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
+    pub async fn read(&mut self) -> Result<BaseEnvelope<M>, BusError> {
         self.rx_buf.receive().await
     }
 
     /// Returns a sender that can be used for sending CAN frames.
-    pub fn writer(&self) -> BufferedCanSender {
+    pub fn writer(&self) -> BufferedCanSender<M> {
         BufferedCanSender {
             tx_buf: self.tx_buf.sender().into(),
             waker: self.info.tx_waker,
@@ -515,142 +551,14 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
     }
 
     /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
-    pub fn reader(&self) -> BufferedCanReceiver {
+    pub fn reader(&self) -> BufferedCanReceiver<M> {
         self.rx_buf.receiver().into()
     }
 }
 
-impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop for BufferedCan<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
-    fn drop(&mut self) {
-        critical_section::with(|_| {
-            let state = self.state as *const State;
-            unsafe {
-                let mut_state = state as *mut State;
-                (*mut_state).rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
-                (*mut_state).tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
-            }
-        });
-    }
-}
-
-/// User supplied buffer for RX Buffering
-pub type RxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Result<FdEnvelope, BusError>, BUF_SIZE>;
-
-/// User supplied buffer for TX buffering
-pub type TxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, FdFrame, BUF_SIZE>;
-
-/// Sender that can be used for sending CAN frames.
-#[derive(Copy, Clone)]
-pub struct BufferedFdCanSender {
-    tx_buf: DynamicSender<'static, FdFrame>,
-    waker: fn(),
-}
-
-impl BufferedFdCanSender {
-    /// Async write frame to TX buffer.
-    pub fn try_write(&mut self, frame: FdFrame) -> Result<(), embassy_sync::channel::TrySendError<FdFrame>> {
-        self.tx_buf.try_send(frame)?;
-        (self.waker)();
-        Ok(())
-    }
-
-    /// Async write frame to TX buffer.
-    pub async fn write(&mut self, frame: FdFrame) {
-        self.tx_buf.send(frame).await;
-        (self.waker)();
-    }
-
-    /// Allows a poll_fn to poll until the channel is ready to write
-    pub fn poll_ready_to_send(&self, cx: &mut core::task::Context<'_>) -> core::task::Poll<()> {
-        self.tx_buf.poll_ready_to_send(cx)
-    }
-}
-
-/// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
-pub type BufferedFdCanReceiver = DynamicReceiver<'static, Result<FdEnvelope, BusError>>;
-
-/// Buffered FDCAN Instance
-pub struct BufferedCanFd<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
-    _phantom: PhantomData<&'d ()>,
-    info: &'static Info,
-    state: &'static State,
-    _mode: OperatingMode,
-    tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
-    rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
-    properties: Properties,
-}
-
-impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
-    fn new(
-        info: &'static Info,
-        state: &'static State,
-        _mode: OperatingMode,
-        tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
-        rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
-    ) -> Self {
-        BufferedCanFd {
-            _phantom: PhantomData,
-            info,
-            state,
-            _mode,
-            tx_buf,
-            rx_buf,
-            properties: Properties::new(info),
-        }
-        .setup()
-    }
-
-    /// Get driver properties
-    pub fn properties(&self) -> &Properties {
-        &self.properties
-    }
-
-    fn setup(self) -> Self {
-        // We don't want interrupts being processed while we change modes.
-        critical_section::with(|_| {
-            let rx_inner = super::common::FdBufferedRxInner {
-                rx_sender: self.rx_buf.sender().into(),
-            };
-            let tx_inner = super::common::FdBufferedTxInner {
-                tx_receiver: self.tx_buf.receiver().into(),
-            };
-            let state = self.state as *const State;
-            unsafe {
-                let mut_state = state as *mut State;
-                (*mut_state).rx_mode = RxMode::FdBuffered(rx_inner);
-                (*mut_state).tx_mode = TxMode::FdBuffered(tx_inner);
-            }
-        });
-        self
-    }
-
-    /// Async write frame to TX buffer.
-    pub async fn write(&mut self, frame: FdFrame) {
-        self.tx_buf.send(frame).await;
-        self.info.interrupt0.pend(); // Wake for Tx
-                                     //T::IT0Interrupt::pend(); // Wake for Tx
-    }
-
-    /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Result<FdEnvelope, BusError> {
-        self.rx_buf.receive().await
-    }
-
-    /// Returns a sender that can be used for sending CAN frames.
-    pub fn writer(&self) -> BufferedFdCanSender {
-        BufferedFdCanSender {
-            tx_buf: self.tx_buf.sender().into(),
-            waker: self.info.tx_waker,
-        }
-    }
-
-    /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
-    pub fn reader(&self) -> BufferedFdCanReceiver {
-        self.rx_buf.receiver().into()
-    }
-}
-
-impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop for BufferedCanFd<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
+impl<'c, 'd, M: CanMode, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
+    for BufferedCan<'d, M, TX_BUF_SIZE, RX_BUF_SIZE>
+{
     fn drop(&mut self) {
         critical_section::with(|_| {
             let state = self.state as *const State;
@@ -664,86 +572,34 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop for Buffer
 }
 
 /// FDCAN Rx only Instance
-pub struct CanRx<'d> {
-    _phantom: PhantomData<&'d ()>,
+pub struct CanRx<'d, M: CanMode> {
+    _phantom: PhantomData<&'d M>,
     info: &'static Info,
     state: &'static State,
     _mode: OperatingMode,
 }
 
-impl<'d> CanRx<'d> {
-    /// Returns the next received message frame
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        self.state.rx_mode.read_classic(&self.info, &self.state).await
-    }
-
-    /// Returns the next received message frame, if available.
-    /// If there is no frame currently available to be read, this will return immediately.
-    pub fn try_read(&mut self) -> Option<Result<Envelope, BusError>> {
-        self.state.rx_mode.try_read_classic(self.info, self.state)
-    }
-
-    /// Returns the next received message frame
-    pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
-        self.state.rx_mode.read_fd(&self.info, &self.state).await
-    }
-
-    /// Returns the next received message frame, if available.
-    /// If there is no frame currently available to be read, this will return immediately.
-    pub fn try_read_fd(&mut self) -> Option<Result<FdEnvelope, BusError>> {
-        self.state.rx_mode.try_read_fd(self.info, self.state)
-    }
+impl<'d, M: CanMode> CanRx<'d, M> {
+    impl_rx_funs!(M);
 }
 
 /// FDCAN Tx only Instance
-pub struct CanTx<'d> {
-    _phantom: PhantomData<&'d ()>,
+pub struct CanTx<'d, M: CanMode> {
+    _phantom: PhantomData<&'d M>,
     info: &'static Info,
     state: &'static State,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
 }
 
-impl<'c, 'd> CanTx<'d> {
-    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-    /// can be replaced, this call asynchronously waits for a frame to be successfully
-    /// transmitted, then tries again.
-    pub async fn write(&mut self, frame: &Frame) -> Option<Frame> {
-        self.state.tx_mode.write(self.info, frame).await
-    }
-
-    /// Queues the message to be sent. Handles rescheduling lower priority message
-    /// if one was removed from the mailbox.
-    pub async fn write_blocking(&mut self, frame: &Frame) {
-        let mut frame_opt = self.state.tx_mode.write(self.info, frame).await;
-        while let Some(frame) = frame_opt {
-            frame_opt = self.state.tx_mode.write(self.info, &frame).await;
-        }
-    }
-
-    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-    /// can be replaced, this call asynchronously waits for a frame to be successfully
-    /// transmitted, then tries again.
-    pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
-        self.state.tx_mode.write_fd(self.info, frame).await
-    }
-
-    /// Queues the message to be sent. Handles rescheduling lower priority message
-    /// if one was removed from the mailbox.
-    pub async fn write_fd_blocking(&mut self, frame: &FdFrame) {
-        let mut frame_opt = self.state.tx_mode.write_fd(self.info, frame).await;
-        while let Some(frame) = frame_opt {
-            frame_opt = self.state.tx_mode.write_fd(self.info, &frame).await;
-        }
-    }
+impl<'d, M: CanMode> CanTx<'d, M> {
+    impl_tx_funs!(M);
 }
 
 enum RxMode {
     NonBuffered(AtomicWaker),
-    ClassicBuffered(super::common::ClassicBufferedRxInner),
-    FdBuffered(super::common::FdBufferedRxInner),
+    ClassicBuffered(super::common::BufferedRxInner<Classic>),
+    FdBuffered(super::common::BufferedRxInner<Fd>),
 }
 
 impl RxMode {
@@ -763,31 +619,29 @@ impl RxMode {
                 waker.wake();
             }
             RxMode::ClassicBuffered(buf) => {
-                if let Some(result) = self.try_read::<Frame>(T::info(), T::state()) {
-                    let result = result.map(|(frame, ts)| Envelope { ts, frame });
+                if let Some(result) = self.try_read::<Classic>(T::info(), T::state()) {
                     let _ = buf.rx_sender.try_send(result);
                 }
             }
             RxMode::FdBuffered(buf) => {
-                if let Some(result) = self.try_read::<FdFrame>(T::info(), T::state()) {
-                    let result = result.map(|(frame, ts)| FdEnvelope { ts, frame });
+                if let Some(result) = self.try_read::<Fd>(T::info(), T::state()) {
                     let _ = buf.rx_sender.try_send(result);
                 }
             }
         }
     }
 
-    fn try_read<F: CanHeader>(
+    fn try_read<M: CanMode>(
         &self,
         info: &'static Info,
         state: &'static State,
-    ) -> Option<Result<(F, Timestamp), BusError>> {
+    ) -> Option<Result<BaseEnvelope<M>, BusError>> {
         if let Some((frame, ts)) = info.regs.read(0) {
             let ts = info.calc_timestamp(state.ns_per_timer_tick, ts);
-            Some(Ok((frame, ts)))
+            Some(Ok(BaseEnvelope { ts, frame }))
         } else if let Some((frame, ts)) = info.regs.read(1) {
             let ts = info.calc_timestamp(state.ns_per_timer_tick, ts);
-            Some(Ok((frame, ts)))
+            Some(Ok(BaseEnvelope { ts, frame }))
         } else if let Some(err) = info.regs.curr_error() {
             // TODO: this is probably wrong
             Some(Err(err))
@@ -796,11 +650,7 @@ impl RxMode {
         }
     }
 
-    async fn read_async<F: CanHeader>(
-        &self,
-        info: &'static Info,
-        state: &'static State,
-    ) -> Result<(F, Timestamp), BusError> {
+    async fn read<M: CanMode>(&self, info: &'static Info, state: &'static State) -> Result<BaseEnvelope<M>, BusError> {
         poll_fn(move |cx| {
             state.err_waker.register(cx.waker());
             self.register(cx.waker());
@@ -811,34 +661,12 @@ impl RxMode {
         })
         .await
     }
-
-    fn try_read_classic(&self, info: &'static Info, state: &'static State) -> Option<Result<Envelope, BusError>> {
-        self.try_read::<_>(info, state)
-            .map(|r| r.map(|(frame, ts)| Envelope { frame, ts }))
-    }
-
-    fn try_read_fd(&self, info: &'static Info, state: &'static State) -> Option<Result<FdEnvelope, BusError>> {
-        self.try_read::<_>(info, state)
-            .map(|r| r.map(|(frame, ts)| FdEnvelope { frame, ts }))
-    }
-
-    async fn read_classic(&self, info: &'static Info, state: &'static State) -> Result<Envelope, BusError> {
-        self.read_async::<_>(info, state)
-            .await
-            .map(|(frame, ts)| Envelope { frame, ts })
-    }
-
-    async fn read_fd(&self, info: &'static Info, state: &'static State) -> Result<FdEnvelope, BusError> {
-        self.read_async::<_>(info, state)
-            .await
-            .map(|(frame, ts)| FdEnvelope { frame, ts })
-    }
 }
 
 enum TxMode {
     NonBuffered(AtomicWaker),
-    ClassicBuffered(super::common::ClassicBufferedTxInner),
-    FdBuffered(super::common::FdBufferedTxInner),
+    ClassicBuffered(super::common::BufferedTxInner<Classic>),
+    FdBuffered(super::common::BufferedTxInner<Fd>),
 }
 
 impl TxMode {
@@ -857,7 +685,7 @@ impl TxMode {
     /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
-    async fn write_generic<F: embedded_can::Frame + CanHeader>(&self, info: &'static Info, frame: &F) -> Option<F> {
+    async fn write<M: CanMode>(&self, info: &'static Info, frame: &BaseFrame<M>) -> Option<BaseFrame<M>> {
         poll_fn(|cx| {
             self.register(cx.waker());
 
@@ -870,22 +698,6 @@ impl TxMode {
             Poll::Pending
         })
         .await
-    }
-
-    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-    /// can be replaced, this call asynchronously waits for a frame to be successfully
-    /// transmitted, then tries again.
-    async fn write(&self, info: &'static Info, frame: &Frame) -> Option<Frame> {
-        self.write_generic::<_>(info, frame).await
-    }
-
-    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-    /// can be replaced, this call asynchronously waits for a frame to be successfully
-    /// transmitted, then tries again.
-    async fn write_fd(&self, info: &'static Info, frame: &FdFrame) -> Option<FdFrame> {
-        self.write_generic::<_>(info, frame).await
     }
 }
 
