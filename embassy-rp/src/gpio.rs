@@ -603,7 +603,7 @@ impl<'d> Flex<'d> {
 
     #[inline]
     fn bit(&self) -> u32 {
-        1 << self.pin.pin()
+        1 << (self.pin.pin() % 32)
     }
 
     /// Set the pin's pull.
