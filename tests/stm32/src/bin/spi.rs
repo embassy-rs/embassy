@@ -7,7 +7,8 @@ use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::spi::{self, Spi};
+use embassy_stm32::mode::Blocking;
+use embassy_stm32::spi::{self, Spi, Word};
 use embassy_stm32::time::Hertz;
 
 #[embassy_executor::main]
@@ -31,11 +32,58 @@ async fn main(_spawner: Spawner) {
         spi_config,
     );
 
-    let data: [u8; 9] = [0x00, 0xFF, 0xAA, 0x55, 0xC0, 0xFF, 0xEE, 0xC0, 0xDE];
+    test_txrx::<u8>(&mut spi);
+    test_txrx::<u16>(&mut spi);
+
+    // Assert the RCC bit gets disabled on drop.
+    #[cfg(feature = "stm32f429zi")]
+    defmt::assert!(embassy_stm32::pac::RCC.apb2enr().read().spi1en());
+    drop(spi);
+    #[cfg(feature = "stm32f429zi")]
+    defmt::assert!(!embassy_stm32::pac::RCC.apb2enr().read().spi1en());
+
+    // test rx-only configuration
+    let mut spi = Spi::new_blocking_rxonly(&mut spi_peri, &mut sck, &mut miso, spi_config);
+    let mut mosi_out = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
+
+    test_rx::<u8>(&mut spi, &mut mosi_out);
+    test_rx::<u16>(&mut spi, &mut mosi_out);
+    drop(spi);
+    drop(mosi_out);
+
+    let mut spi = Spi::new_blocking_txonly(&mut spi_peri, &mut sck, &mut mosi, spi_config);
+    test_tx::<u8>(&mut spi);
+    test_tx::<u16>(&mut spi);
+    drop(spi);
+
+    let mut spi = Spi::new_blocking_txonly_nosck(&mut spi_peri, &mut mosi, spi_config);
+    test_tx::<u8>(&mut spi);
+    test_tx::<u16>(&mut spi);
+    drop(spi);
+
+    info!("Test OK");
+    cortex_m::asm::bkpt();
+}
+
+fn test_txrx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking>)
+where
+    W: core::ops::Not<Output = W>,
+{
+    let data: [W; 9] = [
+        0x00u8.into(),
+        0xFFu8.into(),
+        0xAAu8.into(),
+        0x55u8.into(),
+        0xC0u8.into(),
+        0xFFu8.into(),
+        0xEEu8.into(),
+        0xC0u8.into(),
+        0xDEu8.into(),
+    ];
 
     // Arduino pins D11 and D12 (MOSI-MISO) are connected together with a 1K resistor.
     // so we should get the data we sent back.
-    let mut buf = [0; 9];
+    let mut buf = [W::default(); 9];
     spi.blocking_transfer(&mut buf, &data).unwrap();
     assert_eq!(buf, data);
 
@@ -59,47 +107,33 @@ async fn main(_spawner: Spawner) {
     spi.blocking_transfer_in_place::<u8>(&mut []).unwrap();
     spi.blocking_read::<u8>(&mut []).unwrap();
     spi.blocking_write::<u8>(&[]).unwrap();
+}
 
-    // Assert the RCC bit gets disabled on drop.
-    #[cfg(feature = "stm32f429zi")]
-    defmt::assert!(embassy_stm32::pac::RCC.apb2enr().read().spi1en());
-    drop(spi);
-    #[cfg(feature = "stm32f429zi")]
-    defmt::assert!(!embassy_stm32::pac::RCC.apb2enr().read().spi1en());
+fn test_rx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking>, mosi_out: &mut Output<'_>)
+where
+    W: core::ops::Not<Output = W>,
+{
+    let mut buf = [W::default(); 9];
 
-    // test rx-only configuration
-    let mut spi = Spi::new_blocking_rxonly(&mut spi_peri, &mut sck, &mut miso, spi_config);
-    let mut mosi_out = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
     mosi_out.set_high();
     spi.blocking_read(&mut buf).unwrap();
-    assert_eq!(buf, [0xff; 9]);
+    assert_eq!(buf, [!W::default(); 9]);
     mosi_out.set_low();
     spi.blocking_read(&mut buf).unwrap();
-    assert_eq!(buf, [0x00; 9]);
+    assert_eq!(buf, [W::default(); 9]);
     spi.blocking_read::<u8>(&mut []).unwrap();
     spi.blocking_read::<u8>(&mut []).unwrap();
-    drop(mosi_out);
-    drop(spi);
+}
+
+fn test_tx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking>)
+where
+    W: core::ops::Not<Output = W>,
+{
+    let buf = [W::default(); 9];
 
     // Test tx-only. Just check it doesn't hang, not much else we can do without using SPI slave.
-    let mut spi = Spi::new_blocking_txonly(&mut spi_peri, &mut sck, &mut mosi, spi_config);
-    spi.blocking_transfer(&mut buf, &data).unwrap();
-    spi.blocking_transfer_in_place(&mut buf).unwrap();
-    spi.blocking_write(&buf).unwrap();
-    spi.blocking_read(&mut buf).unwrap();
-    spi.blocking_transfer::<u8>(&mut [], &[]).unwrap();
-    spi.blocking_transfer_in_place::<u8>(&mut []).unwrap();
-    spi.blocking_read::<u8>(&mut []).unwrap();
-    spi.blocking_write::<u8>(&[]).unwrap();
-    drop(spi);
-
-    // Test tx-only nosck.
-    let mut spi = Spi::new_blocking_txonly_nosck(&mut spi_peri, &mut mosi, spi_config);
     spi.blocking_write(&buf).unwrap();
     spi.blocking_write::<u8>(&[]).unwrap();
     spi.blocking_write(&buf).unwrap();
-    drop(spi);
-
-    info!("Test OK");
-    cortex_m::asm::bkpt();
+    spi.blocking_write::<u8>(&[]).unwrap();
 }
