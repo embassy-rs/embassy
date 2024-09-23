@@ -80,7 +80,7 @@ async fn run_med() {
         info!("    [med] Starting long computation");
 
         // Spin-wait to simulate a long CPU computation
-        cortex_m::asm::delay(32_000_000); // ~1 second
+        embassy_time::block_for(embassy_time::Duration::from_secs(1)); // ~1 second
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
@@ -97,7 +97,7 @@ async fn run_low() {
         info!("[low] Starting long computation");
 
         // Spin-wait to simulate a long CPU computation
-        cortex_m::asm::delay(64_000_000); // ~2 seconds
+        embassy_time::block_for(embassy_time::Duration::from_secs(2)); // ~2 seconds
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;

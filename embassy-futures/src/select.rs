@@ -237,7 +237,7 @@ impl<Fut: Future, const N: usize> Future for SelectArray<Fut, N> {
 #[derive(Debug)]
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct SelectSlice<'a, Fut> {
-    inner: &'a mut [Fut],
+    inner: Pin<&'a mut [Fut]>,
 }
 
 /// Creates a new future which will select over a slice of futures.
@@ -247,31 +247,26 @@ pub struct SelectSlice<'a, Fut> {
 /// future that was ready.
 ///
 /// If the slice is empty, the resulting future will be Pending forever.
-pub fn select_slice<'a, Fut: Future>(slice: &'a mut [Fut]) -> SelectSlice<'a, Fut> {
+pub fn select_slice<'a, Fut: Future>(slice: Pin<&'a mut [Fut]>) -> SelectSlice<'a, Fut> {
     SelectSlice { inner: slice }
 }
 
 impl<'a, Fut: Future> Future for SelectSlice<'a, Fut> {
     type Output = (Fut::Output, usize);
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Safety: Since `self` is pinned, `inner` cannot move. Since `inner` cannot move,
-        // its elements also cannot move. Therefore it is safe to access `inner` and pin
-        // references to the contained futures.
-        let item = unsafe {
-            self.get_unchecked_mut()
-                .inner
-                .iter_mut()
-                .enumerate()
-                .find_map(|(i, f)| match Pin::new_unchecked(f).poll(cx) {
-                    Poll::Pending => None,
-                    Poll::Ready(e) => Some((i, e)),
-                })
-        };
-
-        match item {
-            Some((idx, res)) => Poll::Ready((res, idx)),
-            None => Poll::Pending,
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // Safety: refer to
+        //   https://users.rust-lang.org/t/working-with-pinned-slices-are-there-any-structurally-pinning-vec-like-collection-types/50634/2
+        #[inline(always)]
+        fn pin_iter<T>(slice: Pin<&mut [T]>) -> impl Iterator<Item = Pin<&mut T>> {
+            unsafe { slice.get_unchecked_mut().iter_mut().map(|v| Pin::new_unchecked(v)) }
         }
+        for (i, fut) in pin_iter(self.inner.as_mut()).enumerate() {
+            if let Poll::Ready(res) = fut.poll(cx) {
+                return Poll::Ready((res, i));
+            }
+        }
+
+        Poll::Pending
     }
 }

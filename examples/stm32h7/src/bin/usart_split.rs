@@ -3,8 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dma::NoDma;
-use embassy_stm32::peripherals::{DMA1_CH1, UART7};
+use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, Uart, UartRx};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -14,18 +13,6 @@ use {defmt_rtt as _, panic_probe as _};
 bind_interrupts!(struct Irqs {
     UART7 => usart::InterruptHandler<peripherals::UART7>;
 });
-
-#[embassy_executor::task]
-async fn writer(mut usart: Uart<'static, UART7, NoDma, NoDma>) {
-    unwrap!(usart.blocking_write(b"Hello Embassy World!\r\n"));
-    info!("wrote Hello, starting echo");
-
-    let mut buf = [0u8; 1];
-    loop {
-        unwrap!(usart.blocking_read(&mut buf));
-        unwrap!(usart.blocking_write(&buf));
-    }
-}
 
 static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
 
@@ -50,7 +37,7 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: UartRx<'static, UART7, DMA1_CH1>) {
+async fn reader(mut rx: UartRx<'static, Async>) {
     let mut buf = [0; 8];
     loop {
         info!("reading...");

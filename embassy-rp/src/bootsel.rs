@@ -57,9 +57,9 @@ mod ram_helpers {
             "str {val}, [{cs_gpio}, $GPIO_CTRL]",
 
             // ...then wait for the state to settle...
-            "1:", // ~4000 cycle delay loop
+            "2:", // ~4000 cycle delay loop
             "subs {val}, #8",
-            "bne 1b",
+            "bne 2b",
 
             // ...we can read the current state of bootsel
             "ldr {val}, [{cs_gpio}, $GPIO_STATUS]",

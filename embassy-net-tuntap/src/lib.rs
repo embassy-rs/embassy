@@ -6,7 +6,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::task::Context;
 
 use async_io::Async;
-use embassy_net_driver::{self, Capabilities, Driver, HardwareAddress, LinkState};
+use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState};
 use log::*;
 
 /// Get the MTU of the given interface.

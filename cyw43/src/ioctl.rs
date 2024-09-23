@@ -4,9 +4,10 @@ use core::task::{Poll, Waker};
 
 use embassy_sync::waitqueue::WakerRegistration;
 
+use crate::consts::Ioctl;
 use crate::fmt::Bytes;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum IoctlType {
     Get = 0,
     Set = 2,
@@ -16,7 +17,7 @@ pub enum IoctlType {
 pub struct PendingIoctl {
     pub buf: *mut [u8],
     pub kind: IoctlType,
-    pub cmd: u32,
+    pub cmd: Ioctl,
     pub iface: u32,
 }
 
@@ -101,7 +102,7 @@ impl IoctlState {
         self.state.set(IoctlStateInner::Done { resp_len: 0 });
     }
 
-    pub async fn do_ioctl(&self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
+    pub async fn do_ioctl(&self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
         self.state
             .set(IoctlStateInner::Pending(PendingIoctl { buf, kind, cmd, iface }));
         self.wake_runner();

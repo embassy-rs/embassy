@@ -16,7 +16,6 @@ pub(crate) use saadc::ch::pselp::PSELP_A as InputChannel;
 use saadc::oversample::OVERSAMPLE_A;
 use saadc::resolution::VAL_A;
 
-use self::sealed::Input as _;
 use crate::interrupt::InterruptExt;
 use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
@@ -79,7 +78,8 @@ impl Default for Config {
 
 /// Used to configure an individual SAADC peripheral channel.
 ///
-/// See the `Default` impl for suitable default values.
+/// Construct using the `single_ended` or `differential` methods.  These provide sensible defaults
+/// for the public fields, which can be overridden if required.
 #[non_exhaustive]
 pub struct ChannelConfig<'d> {
     /// Reference voltage of the SAADC input.
@@ -662,16 +662,13 @@ pub enum Resolution {
     _14BIT = 3,
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Input {
-        fn channel(&self) -> InputChannel;
-    }
+pub(crate) trait SealedInput {
+    fn channel(&self) -> InputChannel;
 }
 
 /// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
-pub trait Input: sealed::Input + Into<AnyInput> + Peripheral<P = Self> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Input: SealedInput + Into<AnyInput> + Peripheral<P = Self> + Sized + 'static {
     /// Convert this SAADC input to a type-erased `AnyInput`.
     ///
     /// This allows using several inputs  in situations that might require
@@ -693,7 +690,7 @@ pub struct AnyInput {
 
 impl_peripheral!(AnyInput);
 
-impl sealed::Input for AnyInput {
+impl SealedInput for AnyInput {
     fn channel(&self) -> InputChannel {
         self.channel
     }
@@ -706,7 +703,7 @@ macro_rules! impl_saadc_input {
         impl_saadc_input!(@local, crate::peripherals::$pin, $ch);
     };
     (@local, $pin:ty, $ch:ident) => {
-        impl crate::saadc::sealed::Input for $pin {
+        impl crate::saadc::SealedInput for $pin {
             fn channel(&self) -> crate::saadc::InputChannel {
                 crate::saadc::InputChannel::$ch
             }
@@ -726,9 +723,9 @@ macro_rules! impl_saadc_input {
 pub struct VddInput;
 
 impl_peripheral!(VddInput);
-#[cfg(not(feature = "_nrf9160"))]
+#[cfg(not(feature = "_nrf91"))]
 impl_saadc_input!(@local, VddInput, VDD);
-#[cfg(feature = "_nrf9160")]
+#[cfg(feature = "_nrf91")]
 impl_saadc_input!(@local, VddInput, VDDGPIO);
 
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the

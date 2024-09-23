@@ -15,7 +15,7 @@ The bootloader divides the storage into 4 main partitions, configurable when cre
 * BOOTLOADER - Where the bootloader is placed. The bootloader itself consumes about 8kB of flash, but if you need to debug it and have space available, increasing this to 24kB will allow you to run the bootloader with probe-rs.
 * ACTIVE - Where the main application is placed. The bootloader will attempt to load the application at the start of this partition. The minimum size required for this partition is the size of your application.
 * DFU - Where the application-to-be-swapped is placed. This partition is written to by the application. This partition must be at least 1 page bigger than the ACTIVE partition.
-* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped. 
+* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped.
 
 For any partition, the following preconditions are required:
 
@@ -24,7 +24,7 @@ For any partition, the following preconditions are required:
 
 The linker scripts for the application and bootloader look similar, but the FLASH region must point to the BOOTLOADER partition for the bootloader, and the ACTIVE partition for the application.
 
-For more details on the bootloader, see [the documentation](https://embassy.dev/book/dev/bootloader.html).
+For more details on the bootloader, see [the documentation](https://embassy.dev/book/#_bootloader).
 
 ## Hardware support
 

@@ -37,16 +37,12 @@ struct Opts {
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<embassy_net_ppp::Device<'static>>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, embassy_net_ppp::Device<'static>>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::task]
-async fn ppp_task(
-    stack: &'static Stack<embassy_net_ppp::Device<'static>>,
-    mut runner: Runner<'static>,
-    port: SerialPort,
-) -> ! {
+async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: SerialPort) -> ! {
     let port = Async::new(port).unwrap();
     let port = BufReader::new(port);
     let port = adapter::FromFutures::new(port);
@@ -97,17 +93,16 @@ async fn main_task(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static STACK: StaticCell<Stack<embassy_net_ppp::Device<'static>>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
+    let (stack, net_runner) = embassy_net::new(
         device,
         Config::default(), // don't configure IP yet
-        RESOURCES.init(StackResources::<3>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
-    ));
+    );
 
     // Launch network task
-    spawner.spawn(net_task(stack)).unwrap();
+    spawner.spawn(net_task(net_runner)).unwrap();
     spawner.spawn(ppp_task(stack, runner, port)).unwrap();
 
     // Then we can use it!

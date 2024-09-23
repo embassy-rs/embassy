@@ -30,4 +30,3 @@ cargo batch  \
 
 cargo build --release --manifest-path embassy-executor/Cargo.toml --target avr-unknown-gnu-atmega328 -Z build-std=core,alloc --features nightly,arch-avr,avr-device/atmega328p
 cargo build --release --manifest-path embassy-executor/Cargo.toml --target avr-unknown-gnu-atmega328 -Z build-std=core,alloc --features nightly,arch-avr,integrated-timers,avr-device/atmega328p
-

@@ -9,7 +9,7 @@ pub use smoltcp::socket::dns::{DnsQuery, Socket};
 pub(crate) use smoltcp::socket::dns::{GetQueryResultError, StartQueryError};
 pub use smoltcp::wire::{DnsQueryType, IpAddress};
 
-use crate::{Driver, Stack};
+use crate::Stack;
 
 /// Errors returned by DnsSocket.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -44,21 +44,15 @@ impl From<StartQueryError> for Error {
 /// This exists only for compatibility with crates that use `embedded-nal-async`.
 /// Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
 /// not using `embedded-nal-async`.
-pub struct DnsSocket<'a, D>
-where
-    D: Driver + 'static,
-{
-    stack: &'a Stack<D>,
+pub struct DnsSocket<'a> {
+    stack: Stack<'a>,
 }
 
-impl<'a, D> DnsSocket<'a, D>
-where
-    D: Driver + 'static,
-{
+impl<'a> DnsSocket<'a> {
     /// Create a new DNS socket using the provided stack.
     ///
     /// NOTE: If using DHCP, make sure it has reconfigured the stack to ensure the DNS servers are updated.
-    pub fn new(stack: &'a Stack<D>) -> Self {
+    pub fn new(stack: Stack<'a>) -> Self {
         Self { stack }
     }
 
@@ -72,10 +66,7 @@ where
     }
 }
 
-impl<'a, D> embedded_nal_async::Dns for DnsSocket<'a, D>
-where
-    D: Driver + 'static,
-{
+impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
     type Error = Error;
 
     async fn get_host_by_name(
@@ -84,11 +75,26 @@ where
         addr_type: embedded_nal_async::AddrType,
     ) -> Result<embedded_nal_async::IpAddr, Self::Error> {
         use embedded_nal_async::{AddrType, IpAddr};
-        let qtype = match addr_type {
-            AddrType::IPv6 => DnsQueryType::Aaaa,
-            _ => DnsQueryType::A,
+        let (qtype, secondary_qtype) = match addr_type {
+            AddrType::IPv4 => (DnsQueryType::A, None),
+            AddrType::IPv6 => (DnsQueryType::Aaaa, None),
+            AddrType::Either => {
+                #[cfg(not(feature = "proto-ipv6"))]
+                let v6_first = false;
+                #[cfg(feature = "proto-ipv6")]
+                let v6_first = self.stack.config_v6().is_some();
+                match v6_first {
+                    true => (DnsQueryType::Aaaa, Some(DnsQueryType::A)),
+                    false => (DnsQueryType::A, Some(DnsQueryType::Aaaa)),
+                }
+            }
         };
-        let addrs = self.query(host, qtype).await?;
+        let mut addrs = self.query(host, qtype).await?;
+        if addrs.is_empty() {
+            if let Some(qtype) = secondary_qtype {
+                addrs = self.query(host, qtype).await?
+            }
+        }
         if let Some(first) = addrs.get(0) {
             Ok(match first {
                 #[cfg(feature = "proto-ipv4")]
@@ -108,4 +114,8 @@ where
     ) -> Result<usize, Self::Error> {
         todo!()
     }
+}
+
+fn _assert_covariant<'a, 'b: 'a>(x: DnsSocket<'b>) -> DnsSocket<'a> {
+    x
 }

@@ -12,7 +12,7 @@ async fn main(_spawner: Spawner) -> ! {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World, dude!");
 
-    let mut dac = DacCh1::new(p.DAC, NoDma, p.PA4);
+    let mut dac = DacCh1::new(p.DAC1, NoDma, p.PA4);
 
     loop {
         for v in 0..=255 {

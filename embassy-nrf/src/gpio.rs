@@ -7,7 +7,6 @@ use core::hint::unreachable_unchecked;
 use cfg_if::cfg_if;
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
-use self::sealed::Pin as _;
 #[cfg(feature = "nrf51")]
 use crate::pac::gpio;
 #[cfg(feature = "nrf51")]
@@ -189,7 +188,7 @@ impl<'d> Output<'d> {
     }
 }
 
-fn convert_drive(drive: OutputDrive) -> DRIVE_A {
+pub(crate) fn convert_drive(drive: OutputDrive) -> DRIVE_A {
     match drive {
         OutputDrive::Standard => DRIVE_A::S0S1,
         OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
@@ -361,59 +360,56 @@ impl<'d> Drop for Flex<'d> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+pub(crate) trait SealedPin {
+    fn pin_port(&self) -> u8;
 
-    pub trait Pin {
-        fn pin_port(&self) -> u8;
-
-        #[inline]
-        fn _pin(&self) -> u8 {
-            cfg_if! {
-                if #[cfg(feature = "_gpio-p1")] {
-                    self.pin_port() % 32
-                } else {
-                    self.pin_port()
-                }
+    #[inline]
+    fn _pin(&self) -> u8 {
+        cfg_if! {
+            if #[cfg(feature = "_gpio-p1")] {
+                self.pin_port() % 32
+            } else {
+                self.pin_port()
             }
         }
+    }
 
-        #[inline]
-        fn block(&self) -> &gpio::RegisterBlock {
-            unsafe {
-                match self.pin_port() / 32 {
-                    #[cfg(feature = "nrf51")]
-                    0 => &*pac::GPIO::ptr(),
-                    #[cfg(not(feature = "nrf51"))]
-                    0 => &*pac::P0::ptr(),
-                    #[cfg(feature = "_gpio-p1")]
-                    1 => &*pac::P1::ptr(),
-                    _ => unreachable_unchecked(),
-                }
+    #[inline]
+    fn block(&self) -> &gpio::RegisterBlock {
+        unsafe {
+            match self.pin_port() / 32 {
+                #[cfg(feature = "nrf51")]
+                0 => &*pac::GPIO::ptr(),
+                #[cfg(not(feature = "nrf51"))]
+                0 => &*pac::P0::ptr(),
+                #[cfg(feature = "_gpio-p1")]
+                1 => &*pac::P1::ptr(),
+                _ => unreachable_unchecked(),
             }
         }
+    }
 
-        #[inline]
-        fn conf(&self) -> &gpio::PIN_CNF {
-            &self.block().pin_cnf[self._pin() as usize]
-        }
+    #[inline]
+    fn conf(&self) -> &gpio::PIN_CNF {
+        &self.block().pin_cnf[self._pin() as usize]
+    }
 
-        /// Set the output as high.
-        #[inline]
-        fn set_high(&self) {
-            unsafe { self.block().outset.write(|w| w.bits(1u32 << self._pin())) }
-        }
+    /// Set the output as high.
+    #[inline]
+    fn set_high(&self) {
+        unsafe { self.block().outset.write(|w| w.bits(1u32 << self._pin())) }
+    }
 
-        /// Set the output as low.
-        #[inline]
-        fn set_low(&self) {
-            unsafe { self.block().outclr.write(|w| w.bits(1u32 << self._pin())) }
-        }
+    /// Set the output as low.
+    #[inline]
+    fn set_low(&self) {
+        unsafe { self.block().outclr.write(|w| w.bits(1u32 << self._pin())) }
     }
 }
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
@@ -464,7 +460,7 @@ impl AnyPin {
 
 impl_peripheral!(AnyPin);
 impl Pin for AnyPin {}
-impl sealed::Pin for AnyPin {
+impl SealedPin for AnyPin {
     #[inline]
     fn pin_port(&self) -> u8 {
         self.pin_port
@@ -473,10 +469,12 @@ impl sealed::Pin for AnyPin {
 
 // ====================
 
+#[cfg(not(feature = "_nrf51"))]
 pub(crate) trait PselBits {
     fn psel_bits(&self) -> u32;
 }
 
+#[cfg(not(feature = "_nrf51"))]
 impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
     #[inline]
     fn psel_bits(&self) -> u32 {
@@ -500,7 +498,7 @@ pub(crate) fn deconfigure_pin(psel_bits: u32) {
 macro_rules! impl_pin {
     ($type:ident, $port_num:expr, $pin_num:expr) => {
         impl crate::gpio::Pin for peripherals::$type {}
-        impl crate::gpio::sealed::Pin for peripherals::$type {
+        impl crate::gpio::SealedPin for peripherals::$type {
             #[inline]
             fn pin_port(&self) -> u8 {
                 $port_num * 32 + $pin_num
@@ -536,11 +534,13 @@ mod eh02 {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -582,11 +582,13 @@ mod eh02 {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -630,11 +632,13 @@ impl<'d> embedded_hal_1::digital::ErrorType for Output<'d> {
 
 impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 
@@ -667,11 +671,13 @@ impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
 
 impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_high())
+        self.set_high();
+        Ok(())
     }
 
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        Ok(self.set_low())
+        self.set_low();
+        Ok(())
     }
 }
 

@@ -18,7 +18,7 @@ async fn main(_spawner: Spawner) {
     let mut c: Config = Default::default();
     c.top = 0x8000;
     c.compare_b = 8;
-    let mut pwm = Pwm::new_output_b(p.PWM_CH4, p.PIN_25, c.clone());
+    let mut pwm = Pwm::new_output_b(p.PWM_SLICE4, p.PIN_25, c.clone());
 
     loop {
         info!("current LED duty cycle: {}/32768", c.compare_b);

@@ -15,14 +15,13 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut i2s = I2S::new(
+    let mut i2s = I2S::new_txonly(
         p.SPI2,
         p.PC3,  // sd
         p.PB12, // ws
         p.PB10, // ck
         p.PC6,  // mck
         p.DMA1_CH4,
-        p.DMA1_CH3,
         Hertz(1_000_000),
         Config::default(),
     );

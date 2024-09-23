@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-use core::convert::TryFrom;
-
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;

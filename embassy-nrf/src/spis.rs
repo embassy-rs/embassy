@@ -8,14 +8,14 @@ use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spis0::config::ORDER_A as BitOrder;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, AnyPin, Pin as GpioPin};
+use crate::gpio::{self, AnyPin, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
-use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
+use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
 
 /// SPIS error
@@ -226,20 +226,18 @@ impl<'d, T: Instance> Spis<'d, T> {
         let r = T::regs();
 
         // Set up the DMA write.
-        let (ptr, len) = slice_ptr_parts(tx);
-        if len > EASY_DMA_SIZE {
+        if tx.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
-        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
-        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+        r.txd.ptr.write(|w| unsafe { w.ptr().bits(tx as *const u8 as _) });
+        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx.len() as _) });
 
         // Set up the DMA read.
-        let (ptr, len) = slice_ptr_parts_mut(rx);
-        if len > EASY_DMA_SIZE {
+        if rx.len() > EASY_DMA_SIZE {
             return Err(Error::RxBufferTooLong);
         }
-        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
-        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(rx as *mut u8 as _) });
+        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx.len() as _) });
 
         // Reset end event.
         r.events_end.reset();
@@ -456,43 +454,38 @@ impl<'d, T: Instance> Drop for Spis<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+pub(crate) struct State {
+    waker: AtomicWaker,
+}
 
-    use super::*;
-
-    pub struct State {
-        pub waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static pac::spis0::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::spis0::RegisterBlock;
+    fn state() -> &'static State;
+}
+
 /// SPIS peripheral instance
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_spis {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::spis::sealed::Instance for peripherals::$type {
+        impl crate::spis::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::spis0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::spis::sealed::State {
-                static STATE: crate::spis::sealed::State = crate::spis::sealed::State::new();
+            fn state() -> &'static crate::spis::State {
+                static STATE: crate::spis::State = crate::spis::State::new();
                 &STATE
             }
         }

@@ -1,8 +1,6 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr1;
-pub use crate::pac::rcc::vals::{
-    Adcsel as AdcClockSource, Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as ClockSrc,
-};
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
@@ -17,13 +15,14 @@ pub struct Hse {
 }
 
 /// Clocks configuration
+#[derive(Clone, Copy)]
 pub struct Config {
     // base clock sources
     pub hsi: bool,
     pub hse: Option<Hse>,
 
     // sysclk, buses.
-    pub mux: ClockSrc,
+    pub sys: Sysclk,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
@@ -32,9 +31,10 @@ pub struct Config {
     // low speed LSI/LSE/RTC
     pub ls: super::LsConfig,
 
-    pub adc_clock_source: AdcClockSource,
-
     pub voltage_scale: VoltageScale,
+
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 }
 
 impl Default for Config {
@@ -43,14 +43,14 @@ impl Default for Config {
         Config {
             hse: None,
             hsi: true,
-            mux: ClockSrc::HSI,
+            sys: Sysclk::HSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
             ls: Default::default(),
-            adc_clock_source: AdcClockSource::HCLK1,
             voltage_scale: VoltageScale::RANGE2,
+            mux: Default::default(),
         }
     }
 }
@@ -65,11 +65,11 @@ pub(crate) unsafe fn init(config: Config) {
     if !RCC.cr().read().hsion() {
         hsi_enable()
     }
-    if RCC.cfgr1().read().sws() != ClockSrc::HSI {
+    if RCC.cfgr1().read().sws() != Sysclk::HSI {
         // Set HSI as a clock source, reset prescalers.
         RCC.cfgr1().write_value(Cfgr1::default());
         // Wait for clock switch status bits to change.
-        while RCC.cfgr1().read().sws() != ClockSrc::HSI {}
+        while RCC.cfgr1().read().sws() != Sysclk::HSI {}
     }
 
     // Set voltage scale
@@ -94,11 +94,11 @@ pub(crate) unsafe fn init(config: Config) {
         HSE_FREQ
     });
 
-    let sys_clk = match config.mux {
-        ClockSrc::HSE => hse.unwrap(),
-        ClockSrc::HSI => hsi.unwrap(),
-        ClockSrc::_RESERVED_1 => unreachable!(),
-        ClockSrc::PLL1_R => todo!(),
+    let sys_clk = match config.sys {
+        Sysclk::HSE => hse.unwrap(),
+        Sysclk::HSI => hsi.unwrap(),
+        Sysclk::_RESERVED_1 => unreachable!(),
+        Sysclk::PLL1_R => todo!(),
     };
 
     assert!(sys_clk.0 <= 100_000_000);
@@ -142,9 +142,9 @@ pub(crate) unsafe fn init(config: Config) {
     // TODO: Set the SRAM wait states
 
     RCC.cfgr1().modify(|w| {
-        w.set_sw(config.mux);
+        w.set_sw(config.sys);
     });
-    while RCC.cfgr1().read().sws() != config.mux {}
+    while RCC.cfgr1().read().sws() != config.sys {}
 
     RCC.cfgr2().modify(|w| {
         w.set_hpre(config.ahb_pre);
@@ -152,7 +152,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
     });
 
-    RCC.ccipr3().modify(|w| w.set_adcsel(config.adc_clock_source));
+    config.mux.init();
 
     set_clocks!(
         sys: Some(sys_clk),

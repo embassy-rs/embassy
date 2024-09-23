@@ -7,7 +7,6 @@ use std::thread;
 
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn;
 
 /// A type to collect errors together and format them.
 ///

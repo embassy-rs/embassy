@@ -7,7 +7,7 @@ use core::str::from_utf8;
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::Executor;
-use embassy_stm32::peripherals::{DMA1_CH3, DMA1_CH4, SPI3};
+use embassy_stm32::mode::Async;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{spi, Config};
 use heapless::String;
@@ -15,7 +15,7 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
-async fn main_task(mut spi: spi::Spi<'static, SPI3, DMA1_CH3, DMA1_CH4>) {
+async fn main_task(mut spi: spi::Spi<'static, Async>) {
     for n in 0u32.. {
         let mut write: String<128> = String::new();
         let mut read = [0; 128];

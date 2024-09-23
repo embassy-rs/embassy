@@ -129,6 +129,13 @@ embassy_hal_internal::peripherals! {
 
     // QDEC
     QDEC,
+
+    // Radio
+    RADIO,
+
+    // EGU
+    EGU0,
+    EGU1,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
@@ -208,6 +215,11 @@ impl_ppi_channel!(PPI_CH31, 31 => static);
 
 impl_saadc_input!(P0_04, ANALOG_INPUT2);
 impl_saadc_input!(P0_05, ANALOG_INPUT3);
+
+impl_radio!(RADIO, RADIO, RADIO);
+
+impl_egu!(EGU0, EGU0, SWI0_EGU0);
+impl_egu!(EGU1, EGU1, SWI1_EGU1);
 
 embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,

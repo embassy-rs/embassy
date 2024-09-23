@@ -86,13 +86,6 @@ impl<'a, T> Deref for PeripheralRef<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for PeripheralRef<'a, T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
 /// Trait for any type that can be used as a peripheral of type `P`.
 ///
 /// This is used in driver constructors, to allow passing either owned peripherals (e.g. `TWISPI0`),
@@ -170,6 +163,15 @@ where
 
     #[inline]
     unsafe fn clone_unchecked(&self) -> Self::P {
-        self.deref().clone_unchecked()
+        T::Target::clone_unchecked(self)
+    }
+}
+
+impl<'b, T: Peripheral> Peripheral for PeripheralRef<'_, T> {
+    type P = T::P;
+
+    #[inline]
+    unsafe fn clone_unchecked(&self) -> Self::P {
+        T::clone_unchecked(self)
     }
 }

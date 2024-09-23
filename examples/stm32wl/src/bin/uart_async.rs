@@ -1,16 +1,21 @@
 #![no_std]
 #![no_main]
 
+use core::mem::MaybeUninit;
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{Config, InterruptHandler, Uart};
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{bind_interrupts, peripherals, SharedData};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
     USART1 => InterruptHandler<peripherals::USART1>;
     LPUART1 => InterruptHandler<peripherals::LPUART1>;
 });
+
+#[link_section = ".shared_data"]
+static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 /*
 Pass Incoming data from LPUART1 to USART1
@@ -20,8 +25,8 @@ but can be surely changed for your needs.
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE;
-    let p = embassy_stm32::init(config);
+    config.rcc.sys = embassy_stm32::rcc::Sysclk::HSE;
+    let p = embassy_stm32::init_primary(config, &SHARED_DATA);
 
     defmt::info!("Starting system");
 

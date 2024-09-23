@@ -20,7 +20,7 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
-    let p = embassy_stm32::init(config());
+    let p = init();
 
     let (mut sdmmc, mut dma, mut clk, mut cmd, mut d0, mut d1, mut d2, mut d3) =
         (p.SDIO, p.DMA2_CH3, p.PC12, p.PD2, p.PC8, p.PC9, p.PC10, p.PC11);

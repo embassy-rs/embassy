@@ -4,7 +4,6 @@
 use defmt::*;
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
-use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
@@ -19,7 +18,7 @@ async fn main(_spawner: Spawner) {
     let mut spi_config = Config::default();
     spi_config.frequency = Hertz(1_000_000);
 
-    let spi = Spi::new(p.SPI3, p.PC10, p.PC12, p.PC11, NoDma, NoDma, spi_config);
+    let spi = Spi::new_blocking(p.SPI3, p.PC10, p.PC12, p.PC11, spi_config);
 
     let mut spi = BlockingAsync::new(spi);
 

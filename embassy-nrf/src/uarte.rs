@@ -15,18 +15,18 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicU8, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use pac::uarte0::RegisterBlock;
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
+use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
@@ -115,7 +115,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let endrx = r.events_endrx.read().bits();
         let error = r.events_error.read().bits();
         if endrx != 0 || error != 0 {
-            s.endrx_waker.wake();
+            s.rx_waker.wake();
             if endrx != 0 {
                 r.intenclr.write(|w| w.endrx().clear());
             }
@@ -124,7 +124,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             }
         }
         if r.events_endtx.read().bits() != 0 {
-            s.endtx_waker.wake();
+            s.tx_waker.wake();
             r.intenclr.write(|w| w.endtx().clear());
         }
     }
@@ -159,7 +159,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rxd, txd);
+        into_ref!(uarte, rxd, txd);
         Self::new_inner(uarte, rxd.map_into(), txd.map_into(), None, None, config)
     }
 
@@ -173,7 +173,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rxd, txd, cts, rts);
+        into_ref!(uarte, rxd, txd, cts, rts);
         Self::new_inner(
             uarte,
             rxd.map_into(),
@@ -185,16 +185,21 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 
     fn new_inner(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: PeripheralRef<'d, T>,
         rxd: PeripheralRef<'d, AnyPin>,
         txd: PeripheralRef<'d, AnyPin>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
         rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte);
-
         let r = T::regs();
+
+        let hardware_flow_control = match (rts.is_some(), cts.is_some()) {
+            (false, false) => false,
+            (true, true) => true,
+            _ => panic!("RTS and CTS pins must be either both set or none set."),
+        };
+        configure(r, config, hardware_flow_control);
 
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
@@ -216,13 +221,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-
-        let hardware_flow_control = match (rts.is_some(), cts.is_some()) {
-            (false, false) => false,
-            (true, true) => true,
-            _ => panic!("RTS and CTS pins must be either both set or none set."),
-        };
-        configure(r, config, hardware_flow_control);
+        r.enable.write(|w| w.enable().enabled());
 
         let s = T::state();
         s.tx_rx_refcount.store(2, Ordering::Relaxed);
@@ -240,6 +239,14 @@ impl<'d, T: Instance> Uarte<'d, T> {
     /// This is useful to concurrently transmit and receive from independent tasks.
     pub fn split(self) -> (UarteTx<'d, T>, UarteRx<'d, T>) {
         (self.tx, self.rx)
+    }
+
+    /// Split the UART in reader and writer parts, by reference.
+    ///
+    /// The returned halves borrow from `self`, so you can drop them and go back to using
+    /// the "un-split" `self`. This allows temporarily splitting the UART.
+    pub fn split_by_ref(&mut self) -> (&mut UarteTx<'d, T>, &mut UarteRx<'d, T>) {
+        (&mut self.tx, &mut self.rx)
     }
 
     /// Split the Uarte into the transmitter and receiver with idle support parts.
@@ -291,7 +298,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 }
 
-fn configure(r: &RegisterBlock, config: Config, hardware_flow_control: bool) {
+pub(crate) fn configure(r: &RegisterBlock, config: Config, hardware_flow_control: bool) {
     r.config.write(|w| {
         w.hwfc().bit(hardware_flow_control);
         w.parity().variant(config.parity);
@@ -307,9 +314,13 @@ fn configure(r: &RegisterBlock, config: Config, hardware_flow_control: bool) {
     r.events_rxstarted.reset();
     r.events_txstarted.reset();
 
-    // Enable
-    apply_workaround_for_enable_anomaly(&r);
-    r.enable.write(|w| w.enable().enabled());
+    // reset all pins
+    r.psel.txd.write(|w| w.connect().disconnected());
+    r.psel.rxd.write(|w| w.connect().disconnected());
+    r.psel.cts.write(|w| w.connect().disconnected());
+    r.psel.rts.write(|w| w.connect().disconnected());
+
+    apply_workaround_for_enable_anomaly(r);
 }
 
 impl<'d, T: Instance> UarteTx<'d, T> {
@@ -320,7 +331,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(txd);
+        into_ref!(uarte, txd);
         Self::new_inner(uarte, txd.map_into(), None, config)
     }
 
@@ -332,19 +343,19 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         cts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(txd, cts);
+        into_ref!(uarte, txd, cts);
         Self::new_inner(uarte, txd.map_into(), Some(cts.map_into()), config)
     }
 
     fn new_inner(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: PeripheralRef<'d, T>,
         txd: PeripheralRef<'d, AnyPin>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte);
-
         let r = T::regs();
+
+        configure(r, config, cts.is_some());
 
         txd.set_high();
         txd.conf().write(|w| w.dir().output().drive().s0s1());
@@ -355,14 +366,9 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         }
         r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
 
-        r.psel.rxd.write(|w| w.connect().disconnected());
-        r.psel.rts.write(|w| w.connect().disconnected());
-
-        let hardware_flow_control = cts.is_some();
-        configure(r, config, hardware_flow_control);
-
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
+        r.enable.write(|w| w.enable().enabled());
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -378,7 +384,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
                 trace!("Copying UARTE tx buffer into RAM for DMA");
                 let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
                 ram_buf.copy_from_slice(buffer);
-                self.write_from_ram(&ram_buf).await
+                self.write_from_ram(ram_buf).await
             }
             Err(error) => Err(error),
         }
@@ -386,7 +392,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
 
     /// Same as [`write`](Self::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
 
@@ -425,7 +431,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         r.tasks_starttx.write(|w| unsafe { w.bits(1) });
 
         poll_fn(|cx| {
-            s.endtx_waker.register(cx.waker());
+            s.tx_waker.register(cx.waker());
             if r.events_endtx.read().bits() != 0 {
                 return Poll::Ready(());
             }
@@ -448,7 +454,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
                 trace!("Copying UARTE tx buffer into RAM for DMA");
                 let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
                 ram_buf.copy_from_slice(buffer);
-                self.blocking_write_from_ram(&ram_buf)
+                self.blocking_write_from_ram(ram_buf)
             }
             Err(error) => Err(error),
         }
@@ -456,7 +462,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
 
     /// Same as [`write_from_ram`](Self::write_from_ram) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
 
@@ -504,7 +510,7 @@ impl<'a, T: Instance> Drop for UarteTx<'a, T> {
 
         let s = T::state();
 
-        drop_tx_rx(&r, &s);
+        drop_tx_rx(r, s);
     }
 }
 
@@ -516,7 +522,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rxd);
+        into_ref!(uarte, rxd);
         Self::new_inner(uarte, rxd.map_into(), None, config)
     }
 
@@ -528,7 +534,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rxd, rts);
+        into_ref!(uarte, rxd, rts);
         Self::new_inner(uarte, rxd.map_into(), Some(rts.map_into()), config)
     }
 
@@ -541,14 +547,14 @@ impl<'d, T: Instance> UarteRx<'d, T> {
     }
 
     fn new_inner(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: PeripheralRef<'d, T>,
         rxd: PeripheralRef<'d, AnyPin>,
         rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte);
-
         let r = T::regs();
+
+        configure(r, config, rts.is_some());
 
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
@@ -559,14 +565,9 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         }
         r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
-        r.psel.txd.write(|w| w.connect().disconnected());
-        r.psel.cts.write(|w| w.connect().disconnected());
-
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-
-        let hardware_flow_control = rts.is_some();
-        configure(r, config, hardware_flow_control);
+        r.enable.write(|w| w.enable().enabled());
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -619,7 +620,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         UarteRxWithIdle {
             rx: self,
             timer,
-            ppi_ch1: ppi_ch1,
+            ppi_ch1,
             _ppi_ch2: ppi_ch2,
         }
     }
@@ -672,7 +673,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
         let result = poll_fn(|cx| {
-            s.endrx_waker.register(cx.waker());
+            s.rx_waker.register(cx.waker());
 
             if let Err(e) = self.check_and_clear_errors() {
                 r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
@@ -694,7 +695,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
 
     /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
         if buffer.len() > EASY_DMA_SIZE {
@@ -744,7 +745,7 @@ impl<'a, T: Instance> Drop for UarteRx<'a, T> {
 
         let s = T::state();
 
-        drop_tx_rx(&r, &s);
+        drop_tx_rx(r, s);
     }
 }
 
@@ -775,7 +776,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
     ///
     /// Returns the amount of bytes read.
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(0);
         }
         if buffer.len() > EASY_DMA_SIZE {
@@ -819,7 +820,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
         let result = poll_fn(|cx| {
-            s.endrx_waker.register(cx.waker());
+            s.rx_waker.register(cx.waker());
 
             if let Err(e) = self.rx.check_and_clear_errors() {
                 r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
@@ -848,7 +849,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
     ///
     /// Returns the amount of bytes read.
     pub fn blocking_read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(0);
         }
         if buffer.len() > EASY_DMA_SIZE {
@@ -939,7 +940,7 @@ pub(crate) fn apply_workaround_for_enable_anomaly(r: &crate::pac::uarte0::Regist
     }
 }
 
-pub(crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
+pub(crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &State) {
     if s.tx_rx_refcount.fetch_sub(1, Ordering::Relaxed) == 1 {
         // Finally we can disable, and we do so for the peripheral
         // i.e. not just rx concerns.
@@ -954,49 +955,42 @@ pub(crate) fn drop_tx_rx(r: &pac::uarte0::RegisterBlock, s: &sealed::State) {
     }
 }
 
-pub(crate) mod sealed {
-    use core::sync::atomic::AtomicU8;
-
-    use embassy_sync::waitqueue::AtomicWaker;
-
-    use super::*;
-
-    pub struct State {
-        pub endrx_waker: AtomicWaker,
-        pub endtx_waker: AtomicWaker,
-        pub tx_rx_refcount: AtomicU8,
-    }
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                endrx_waker: AtomicWaker::new(),
-                endtx_waker: AtomicWaker::new(),
-                tx_rx_refcount: AtomicU8::new(0),
-            }
+pub(crate) struct State {
+    pub(crate) rx_waker: AtomicWaker,
+    pub(crate) tx_waker: AtomicWaker,
+    pub(crate) tx_rx_refcount: AtomicU8,
+}
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            rx_waker: AtomicWaker::new(),
+            tx_waker: AtomicWaker::new(),
+            tx_rx_refcount: AtomicU8::new(0),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static pac::uarte0::RegisterBlock;
-        fn state() -> &'static State;
-        fn buffered_state() -> &'static crate::buffered_uarte::State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::uarte0::RegisterBlock;
+    fn state() -> &'static State;
+    fn buffered_state() -> &'static crate::buffered_uarte::State;
+}
+
 /// UARTE peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_uarte {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::uarte::sealed::Instance for peripherals::$type {
+        impl crate::uarte::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::uarte0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::uarte::sealed::State {
-                static STATE: crate::uarte::sealed::State = crate::uarte::sealed::State::new();
+            fn state() -> &'static crate::uarte::State {
+                static STATE: crate::uarte::State = crate::uarte::State::new();
                 &STATE
             }
             fn buffered_state() -> &'static crate::buffered_uarte::State {

@@ -1,5 +1,3 @@
-use core::convert::TryFrom;
-
 use crate::evt::CsEvt;
 use crate::PacketHeader;
 

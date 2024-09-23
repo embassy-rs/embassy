@@ -7,11 +7,9 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use traits::Instance;
 
-#[allow(unused_imports)]
-use crate::gpio::sealed::{AFType, Pin};
-use crate::gpio::AnyPin;
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::{rcc, Peripheral};
 
 /// HRTIM burst controller instance.
 pub struct BurstController<T: Instance> {
@@ -54,16 +52,13 @@ pub struct ChF<T: Instance> {
     phantom: PhantomData<T>,
 }
 
-mod sealed {
-    use super::Instance;
-
-    pub trait AdvancedChannel<T: Instance> {
-        fn raw() -> usize;
-    }
+trait SealedAdvancedChannel<T: Instance> {
+    fn raw() -> usize;
 }
 
 /// Advanced channel instance trait.
-pub trait AdvancedChannel<T: Instance>: sealed::AdvancedChannel<T> {}
+#[allow(private_bounds)]
+pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {}
 
 /// HRTIM PWM pin.
 pub struct PwmPin<'d, T, C> {
@@ -85,9 +80,10 @@ macro_rules! advanced_channel_impl {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                    pin.set_as_af(
+                        pin.af_num(),
+                        AfType::output(OutputType::PushPull, Speed::VeryHigh),
+                    );
                 });
                 PwmPin {
                     _pin: pin.map_into(),
@@ -102,9 +98,10 @@ macro_rules! advanced_channel_impl {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                    pin.set_as_af(
+                        pin.af_num(),
+                        AfType::output(OutputType::PushPull, Speed::VeryHigh),
+                    );
                 });
                 ComplementaryPwmPin {
                     _pin: pin.map_into(),
@@ -113,7 +110,7 @@ macro_rules! advanced_channel_impl {
             }
         }
 
-        impl<T: Instance> sealed::AdvancedChannel<T> for $channel<T> {
+        impl<T: Instance> SealedAdvancedChannel<T> for $channel<T> {
             fn raw() -> usize {
                 $ch_num
             }
@@ -177,7 +174,7 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
     fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(tim);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         #[cfg(stm32f334)]
         if crate::pac::RCC.cfgr3().read().hrtim1sw() == crate::pac::rcc::vals::Timsw::PLL1_P {

@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.hse = Some(Hse {
             freq: Hertz::mhz(8),
             mode: HseMode::Oscillator,
@@ -40,7 +40,7 @@ async fn main(_spawner: Spawner) {
         .unwrap();
 
     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
-    info!("Got RTC! {:?}", now.timestamp());
+    info!("Got RTC! {:?}", now.and_utc().timestamp());
 
     rtc.set_datetime(now.into()).expect("datetime not set");
 
@@ -48,5 +48,5 @@ async fn main(_spawner: Spawner) {
     Timer::after_millis(20000).await;
 
     let then: NaiveDateTime = rtc.now().unwrap().into();
-    info!("Got RTC! {:?}", then.timestamp());
+    info!("Got RTC! {:?}", then.and_utc().timestamp());
 }
