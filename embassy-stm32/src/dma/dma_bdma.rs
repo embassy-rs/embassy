@@ -833,7 +833,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
-        self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
+        self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
     /// Read elements from the ring buffer
@@ -980,7 +980,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
-        self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
+        self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
     /// Write elements directly to the raw buffer.

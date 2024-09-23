@@ -5,7 +5,7 @@ use super::*;
 #[derive(Debug, Clone)]
 enum ReaderTransition {
     Write(usize),
-    Clear,
+    Reset,
     ReadUpTo(usize),
 }
 
@@ -23,14 +23,14 @@ impl ReferenceStateMachine for ReaderSM {
         prop_oneof![
             (1..50_usize).prop_map(ReaderTransition::Write),
             (1..50_usize).prop_map(ReaderTransition::ReadUpTo),
-            strategy::Just(ReaderTransition::Clear),
+            strategy::Just(ReaderTransition::Reset),
         ]
         .boxed()
     }
 
     fn apply(status: Self::State, transition: &Self::Transition) -> Self::State {
         match (status, transition) {
-            (_, ReaderTransition::Clear) => Status::Available(0),
+            (_, ReaderTransition::Reset) => Status::Available(0),
             (Status::Available(x), ReaderTransition::Write(y)) => {
                 if x + y > CAP {
                     Status::Failed
@@ -87,8 +87,8 @@ impl StateMachineTest for ReaderTest {
     ) -> Self::SystemUnderTest {
         match transition {
             ReaderTransition::Write(x) => sut.producer.advance(x),
-            ReaderTransition::Clear => {
-                sut.consumer.clear(&mut sut.producer);
+            ReaderTransition::Reset => {
+                sut.consumer.reset(&mut sut.producer);
             }
             ReaderTransition::ReadUpTo(x) => {
                 let status = sut.status;

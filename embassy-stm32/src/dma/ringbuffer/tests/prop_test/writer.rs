@@ -6,7 +6,7 @@ use super::*;
 enum WriterTransition {
     Read(usize),
     WriteUpTo(usize),
-    Clear,
+    Reset,
 }
 
 struct WriterSM;
@@ -23,14 +23,14 @@ impl ReferenceStateMachine for WriterSM {
         prop_oneof![
             (1..50_usize).prop_map(WriterTransition::Read),
             (1..50_usize).prop_map(WriterTransition::WriteUpTo),
-            strategy::Just(WriterTransition::Clear),
+            strategy::Just(WriterTransition::Reset),
         ]
         .boxed()
     }
 
     fn apply(status: Self::State, transition: &Self::Transition) -> Self::State {
         match (status, transition) {
-            (_, WriterTransition::Clear) => Status::Available(CAP),
+            (_, WriterTransition::Reset) => Status::Available(CAP),
             (Status::Available(x), WriterTransition::Read(y)) => {
                 if x < *y {
                     Status::Failed
@@ -87,8 +87,8 @@ impl StateMachineTest for WriterTest {
     ) -> Self::SystemUnderTest {
         match transition {
             WriterTransition::Read(x) => sut.consumer.advance(x),
-            WriterTransition::Clear => {
-                sut.producer.clear(&mut sut.consumer);
+            WriterTransition::Reset => {
+                sut.producer.reset(&mut sut.consumer);
             }
             WriterTransition::WriteUpTo(x) => {
                 let status = sut.status;

@@ -226,9 +226,8 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
     /// Turns on ADC if it is not already turned on and starts continuous DMA transfer.
     pub fn start(&mut self) -> Result<(), OverrunError> {
-        self.ring_buf.clear();
-
         self.setup_adc();
+        self.ring_buf.clear();
 
         Ok(())
     }

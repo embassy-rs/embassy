@@ -64,12 +64,12 @@ fn dma_index_dma_sync_syncs_position_to_last_read_if_sync_takes_place_on_same_dm
     ]);
     let mut index = DmaIndex::default();
     index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.completion_count, 0);
+    assert_eq!(index.complete_count, 0);
     assert_eq!(index.pos, 7);
 }
 
 #[test]
-fn dma_index_dma_sync_updates_completion_count_properly_if_sync_takes_place_on_same_dma_cycle() {
+fn dma_index_dma_sync_updates_complete_count_properly_if_sync_takes_place_on_same_dma_cycle() {
     let mut dma = TestCircularTransfer::new(CAP);
     dma.setup(vec![
         TestCircularTransferRequest::PositionRequest(4),
@@ -77,9 +77,9 @@ fn dma_index_dma_sync_updates_completion_count_properly_if_sync_takes_place_on_s
         TestCircularTransferRequest::PositionRequest(7),
     ]);
     let mut index = DmaIndex::default();
-    index.completion_count = 1;
+    index.complete_count = 1;
     index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.completion_count, 3);
+    assert_eq!(index.complete_count, 3);
     assert_eq!(index.pos, 7);
 }
 
@@ -94,12 +94,12 @@ fn dma_index_dma_sync_syncs_to_last_position_if_reads_occur_on_different_dma_cyc
     ]);
     let mut index = DmaIndex::default();
     index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.completion_count, 1);
+    assert_eq!(index.complete_count, 1);
     assert_eq!(index.pos, 5);
 }
 
 #[test]
-fn dma_index_dma_sync_detects_new_cycle_if_later_position_is_less_than_first_and_first_completion_count_occurs_on_first_cycle(
+fn dma_index_dma_sync_detects_new_cycle_if_later_position_is_less_than_first_and_first_complete_count_occurs_on_first_cycle(
 ) {
     let mut dma = TestCircularTransfer::new(CAP);
     dma.setup(vec![
@@ -109,14 +109,14 @@ fn dma_index_dma_sync_detects_new_cycle_if_later_position_is_less_than_first_and
         TestCircularTransferRequest::ResetCompleteCount(1),
     ]);
     let mut index = DmaIndex::default();
-    index.completion_count = 1;
+    index.complete_count = 1;
     index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.completion_count, 3);
+    assert_eq!(index.complete_count, 3);
     assert_eq!(index.pos, 5);
 }
 
 #[test]
-fn dma_index_dma_sync_detects_new_cycle_if_later_position_is_less_than_first_and_first_completion_count_occurs_on_later_cycle(
+fn dma_index_dma_sync_detects_new_cycle_if_later_position_is_less_than_first_and_first_complete_count_occurs_on_later_cycle(
 ) {
     let mut dma = TestCircularTransfer::new(CAP);
     dma.setup(vec![
@@ -126,9 +126,9 @@ fn dma_index_dma_sync_detects_new_cycle_if_later_position_is_less_than_first_and
         TestCircularTransferRequest::ResetCompleteCount(0),
     ]);
     let mut index = DmaIndex::default();
-    index.completion_count = 1;
+    index.complete_count = 1;
     index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.completion_count, 3);
+    assert_eq!(index.complete_count, 3);
     assert_eq!(index.pos, 5);
 }
 
