@@ -99,7 +99,10 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     }
 
     /// Get the available readable dma samples.
-    pub fn len(&self) -> Result<usize, OverrunError> {
+    pub fn len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, OverrunError> {
+        self.write_index.dma_sync(self.cap(), dma);
+        DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
+
         let diff: usize = self.write_index.diff(self.cap(), &self.read_index).try_into().unwrap();
 
         if diff > self.cap() {
@@ -155,13 +158,11 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     }
 
     fn read_raw(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
-        self.sync_write_index(dma);
-        let readable = self.len()?.min(buf.len());
+        let readable = self.len(dma)?.min(buf.len());
         for i in 0..readable {
             buf[i] = self.read_buf(i);
         }
-        self.sync_write_index(dma);
-        let available = self.len()?;
+        let available = self.len(dma)?;
         self.read_index.advance(self.cap(), readable);
         Ok((readable, available - readable))
     }
@@ -174,11 +175,6 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
                     .offset(self.read_index.as_index(self.cap(), offset) as isize),
             )
         }
-    }
-
-    fn sync_write_index(&mut self, dma: &mut impl DmaCtrl) {
-        self.write_index.dma_sync(self.cap(), dma);
-        DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
     }
 }
 
@@ -212,7 +208,10 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     /// Get the remaining writable dma samples.
-    pub fn len(&self) -> Result<usize, OverrunError> {
+    pub fn len(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, OverrunError> {
+        self.read_index.dma_sync(self.cap(), dma);
+        DmaIndex::normalize(&mut self.read_index, &mut self.write_index);
+
         let diff = self.write_index.diff(self.cap(), &self.read_index);
 
         if diff < 0 {
@@ -271,13 +270,11 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     pub fn write_raw(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), OverrunError> {
-        self.sync_read_index(dma);
-        let writable = self.len()?.min(buf.len());
+        let writable = self.len(dma)?.min(buf.len());
         for i in 0..writable {
             self.write_buf(i, buf[i]);
         }
-        self.sync_read_index(dma);
-        let available = self.len()?;
+        let available = self.len(dma)?;
         self.write_index.advance(self.cap(), writable);
         Ok((writable, available - writable))
     }
@@ -291,11 +288,6 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
                 value,
             )
         }
-    }
-
-    fn sync_read_index(&mut self, dma: &mut impl DmaCtrl) {
-        self.read_index.dma_sync(self.cap(), dma);
-        DmaIndex::normalize(&mut self.read_index, &mut self.write_index);
     }
 }
 
