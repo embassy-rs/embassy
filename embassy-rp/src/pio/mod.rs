@@ -1090,6 +1090,12 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     /// of [`Pio`] do not keep pin registrations alive.**
     pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
         into_ref!(pin);
+
+        // enable the outputs
+        pin.pad_ctrl().write(|w| w.set_od(false));
+        // especially important on the 235x, where IE defaults to 0
+        pin.pad_ctrl().write(|w| w.set_ie(true));
+
         pin.gpio().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL as _));
         #[cfg(feature = "_rp235x")]
         pin.pad_ctrl().modify(|w| {
