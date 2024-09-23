@@ -76,27 +76,13 @@ struct WatchState<const N: usize, T: Clone> {
     receiver_count: usize,
 }
 
-/// A trait representing the 'inner' behavior of the `Watch`.
-pub trait WatchBehavior<T: Clone> {
-    /// Sends a new value to the `Watch`.
-    fn send(&self, val: T);
-
-    /// Clears the value of the `Watch`.
-    fn clear(&self);
-
+trait SealedWatchBehavior<T> {
     /// Poll the `Watch` for the current value, making it as seen.
     fn poll_get(&self, id: &mut u64, cx: &mut Context<'_>) -> Poll<T>;
-
-    /// Tries to get the value of the `Watch`, marking it as seen, if an id is given.
-    fn try_get(&self, id: Option<&mut u64>) -> Option<T>;
 
     /// Poll the `Watch` for the value if it matches the predicate function
     /// `f`, making it as seen.
     fn poll_get_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool, cx: &mut Context<'_>) -> Poll<T>;
-
-    /// Tries to get the value of the `Watch` if it matches the predicate function
-    /// `f`, marking it as seen.
-    fn try_get_and(&self, id: Option<&mut u64>, f: &mut dyn Fn(&T) -> bool) -> Option<T>;
 
     /// Poll the `Watch` for a changed value, marking it as seen, if an id is given.
     fn poll_changed(&self, id: &mut u64, cx: &mut Context<'_>) -> Poll<T>;
@@ -112,8 +98,16 @@ pub trait WatchBehavior<T: Clone> {
     /// predicate function `f`, marking it as seen.
     fn try_changed_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool) -> Option<T>;
 
-    /// Checks if the `Watch` is been initialized with a value.
-    fn contains_value(&self) -> bool;
+    /// Used when a receiver is dropped to decrement the receiver count.
+    ///
+    /// ## This method should not be called by the user.
+    fn drop_receiver(&self);
+
+    /// Clears the value of the `Watch`.
+    fn clear(&self);
+
+    /// Sends a new value to the `Watch`.
+    fn send(&self, val: T);
 
     /// Modify the value of the `Watch` using a closure. Returns `false` if the
     /// `Watch` does not already contain a value.
@@ -122,30 +116,23 @@ pub trait WatchBehavior<T: Clone> {
     /// Modify the value of the `Watch` using a closure. Returns `false` if the
     /// `Watch` does not already contain a value.
     fn send_if_modified(&self, f: &mut dyn Fn(&mut Option<T>) -> bool);
-
-    /// Used when a receiver is dropped to decrement the receiver count.
-    ///
-    /// ## This method should not be called by the user.
-    fn drop_receiver(&self);
 }
 
-impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> {
-    fn send(&self, val: T) {
-        self.mutex.lock(|state| {
-            let mut s = state.borrow_mut();
-            s.data = Some(val);
-            s.current_id += 1;
-            s.wakers.wake();
-        })
-    }
+/// A trait representing the 'inner' behavior of the `Watch`.
+#[allow(private_bounds)]
+pub trait WatchBehavior<T: Clone>: SealedWatchBehavior<T> {
+    /// Tries to get the value of the `Watch`, marking it as seen, if an id is given.
+    fn try_get(&self, id: Option<&mut u64>) -> Option<T>;
 
-    fn clear(&self) {
-        self.mutex.lock(|state| {
-            let mut s = state.borrow_mut();
-            s.data = None;
-        })
-    }
+    /// Tries to get the value of the `Watch` if it matches the predicate function
+    /// `f`, marking it as seen.
+    fn try_get_and(&self, id: Option<&mut u64>, f: &mut dyn Fn(&T) -> bool) -> Option<T>;
 
+    /// Checks if the `Watch` is been initialized with a value.
+    fn contains_value(&self) -> bool;
+}
+
+impl<M: RawMutex, T: Clone, const N: usize> SealedWatchBehavior<T> for Watch<M, T, N> {
     fn poll_get(&self, id: &mut u64, cx: &mut Context<'_>) -> Poll<T> {
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
@@ -162,16 +149,6 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
         })
     }
 
-    fn try_get(&self, id: Option<&mut u64>) -> Option<T> {
-        self.mutex.lock(|state| {
-            let s = state.borrow();
-            if let Some(id) = id {
-                *id = s.current_id;
-            }
-            s.data.clone()
-        })
-    }
-
     fn poll_get_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool, cx: &mut Context<'_>) -> Poll<T> {
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
@@ -184,21 +161,6 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
                     s.wakers.register(cx.waker());
                     Poll::Pending
                 }
-            }
-        })
-    }
-
-    fn try_get_and(&self, id: Option<&mut u64>, f: &mut dyn Fn(&T) -> bool) -> Option<T> {
-        self.mutex.lock(|state| {
-            let s = state.borrow();
-            match s.data {
-                Some(ref data) if f(data) => {
-                    if let Some(id) = id {
-                        *id = s.current_id;
-                    }
-                    Some(data.clone())
-                }
-                _ => None,
             }
         })
     }
@@ -261,14 +223,26 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
         })
     }
 
-    fn contains_value(&self) -> bool {
-        self.mutex.lock(|state| state.borrow().data.is_some())
-    }
-
     fn drop_receiver(&self) {
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
             s.receiver_count -= 1;
+        })
+    }
+
+    fn clear(&self) {
+        self.mutex.lock(|state| {
+            let mut s = state.borrow_mut();
+            s.data = None;
+        })
+    }
+
+    fn send(&self, val: T) {
+        self.mutex.lock(|state| {
+            let mut s = state.borrow_mut();
+            s.data = Some(val);
+            s.current_id += 1;
+            s.wakers.wake();
         })
     }
 
@@ -289,6 +263,37 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
                 s.wakers.wake();
             }
         })
+    }
+}
+
+impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> {
+    fn try_get(&self, id: Option<&mut u64>) -> Option<T> {
+        self.mutex.lock(|state| {
+            let s = state.borrow();
+            if let Some(id) = id {
+                *id = s.current_id;
+            }
+            s.data.clone()
+        })
+    }
+
+    fn try_get_and(&self, id: Option<&mut u64>, f: &mut dyn Fn(&T) -> bool) -> Option<T> {
+        self.mutex.lock(|state| {
+            let s = state.borrow();
+            match s.data {
+                Some(ref data) if f(data) => {
+                    if let Some(id) = id {
+                        *id = s.current_id;
+                    }
+                    Some(data.clone())
+                }
+                _ => None,
+            }
+        })
+    }
+
+    fn contains_value(&self) -> bool {
+        self.mutex.lock(|state| state.borrow().data.is_some())
     }
 }
 
