@@ -433,6 +433,24 @@ impl USBDescriptor for EndpointDescriptor {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(missing_docs)]
+pub enum EnumerationError {
+    /// Error while trying to read the device descriptor
+    ReadDeviceDescriptorFailed,
+    /// Error while trying to assign the device address
+    SetAddressFailed,
+    /// Error while trying to read the configuration descriptor
+    ReadConfigurationDescriptorFailed,
+    /// Error while trying to set the configuration
+    SetConfigurationFailed,
+    /// Error from low level driver
+    DriverError,
+    /// Error parsing a USB descriptor
+    ParseError,
+}
+
 /// USB Host instance
 pub struct UsbHost<D: USBHostDriverTrait> {
     driver: D,
@@ -561,11 +579,13 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
     }
 
     /// Enumerate the device, returns a tuple of (device descriptor, configuration descriptor).
-    pub async fn enumerate(&mut self) -> Result<(DeviceDescriptor, ConfigurationDescriptor), ()> {
+    pub async fn enumerate(&mut self) -> Result<(DeviceDescriptor, ConfigurationDescriptor), EnumerationError> {
         self.driver.bus_reset().await;
 
         // After a reset channels need to be reconfigured. Use device address 0.
-        let _ = self.driver.reconfigure_channel0(8, 0);
+        self.driver
+            .reconfigure_channel0(8, 0)
+            .map_err(|_| EnumerationError::DriverError)?;
 
         Timer::after_millis(1).await;
         debug!("Request Device Descriptor");
@@ -585,48 +605,58 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
                             debug!("Retry Device Descriptor");
                             continue;
                         } else {
-                            return Err(());
+                            return Err(EnumerationError::ReadDeviceDescriptorFailed);
                         }
                     }
                 }
             }
         };
 
+        debug!("Max packet size: {}", max_packet_size0);
+
         debug!("Set address");
 
-        self.device_set_address(self.device_address).await?;
+        self.device_set_address(self.device_address)
+            .await
+            .map_err(|_| EnumerationError::SetAddressFailed)?;
 
         // Reconfigure control channel with the new address and max packet size
-        let _ = self
-            .driver
-            .reconfigure_channel0(max_packet_size0 as u16, self.device_address);
+        self.driver
+            .reconfigure_channel0(max_packet_size0 as u16, self.device_address)
+            .map_err(|_| EnumerationError::DriverError)?;
 
         debug!("Request Device Descriptor");
 
         let device_desc = self
             .device_request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>()
-            .await?;
+            .await
+            .map_err(|_| EnumerationError::ReadDeviceDescriptorFailed)?;
 
         debug!("Device Descriptor: {:?}", device_desc);
 
         let cfg_desc = self
             .device_request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>()
-            .await?;
+            .await
+            .map_err(|_| EnumerationError::ReadConfigurationDescriptorFailed)?;
+
         let total_len = cfg_desc.total_len as usize;
 
         let mut desc_buffer = [0u8; 256];
         let dest_buffer = &mut desc_buffer[0..total_len];
 
         self.device_request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
-            .await?;
+            .await
+            .map_err(|_| EnumerationError::ReadConfigurationDescriptorFailed)?;
 
         debug!("Full Configuration Descriptor: {:?}", dest_buffer);
 
-        self.set_configuration(cfg_desc.configuration_value).await?;
+        self.set_configuration(cfg_desc.configuration_value)
+            .await
+            .map_err(|_| EnumerationError::SetConfigurationFailed)?;
 
         ConfigurationDescriptor::try_from_bytes(&dest_buffer)
             .map(|c| (device_desc, c))
-            .map_err(|_| ())
+            .map_err(|_| EnumerationError::ParseError)
     }
 
     /// Wait for a device to be connected

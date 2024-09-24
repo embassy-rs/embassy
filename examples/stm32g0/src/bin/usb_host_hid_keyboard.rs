@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{AfType, Level, Output, OutputType, Speed};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::time::{mhz, Hertz};
 use embassy_stm32::usb::USBHostDriver;
@@ -27,7 +27,8 @@ async fn main(_spawner: Spawner) {
         use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: mhz(8),
-            mode: HseMode::Bypass,
+            mode: HseMode::Bypass, // Clock from stlink, make sure to connect solder bridge
+            // mode: HseMode::Oscillator, // In case you placed the external crystal
         });
 
         config.rcc.pll = Some(
@@ -62,14 +63,6 @@ async fn main(_spawner: Spawner) {
     }
 
     let p = embassy_stm32::init(config);
-
-    // configure clock out
-    pac::RCC
-        .cfgr()
-        .modify(|w: &mut pac::rcc::regs::Cfgr| w.set_mco1sel(Mcosel::PLL1_Q));
-    // configure pin for clock out
-    let mut mco = embassy_stm32::gpio::Flex::new(p.PA9);
-    mco.set_as_af_unchecked(0, AfType::output(OutputType::PushPull, Speed::High));
 
     let mut led = Output::new(p.PA5, Level::High, Speed::Low);
 
