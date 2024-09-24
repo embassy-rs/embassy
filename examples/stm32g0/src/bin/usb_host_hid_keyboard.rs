@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
         config.rcc.hse = Some(Hse {
             freq: mhz(8),
             mode: HseMode::Bypass, // Clock from stlink, make sure to connect solder bridge
-            // mode: HseMode::Oscillator, // In case you placed the external crystal
+                                   // use HseMode::Oscillator In case you placed the external crystal
         });
 
         config.rcc.pll = Some(
