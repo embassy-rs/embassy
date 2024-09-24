@@ -376,9 +376,23 @@ impl<'a> TcpSocket<'a> {
         self.io.with_mut(|s, _| s.abort())
     }
 
-    /// Get whether the socket is ready to send data, i.e. whether there is space in the send buffer.
+    /// Return whether the transmit half of the full-duplex connection is open.
+    ///
+    /// This function returns true if it's possible to send data and have it arrive
+    /// to the remote endpoint. However, it does not make any guarantees about the state
+    /// of the transmit buffer, and even if it returns true, [write](#method.write) may
+    /// not be able to enqueue any octets.
+    ///
+    /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED` or
+    /// `CLOSE-WAIT` state.
     pub fn may_send(&self) -> bool {
         self.io.with(|s, _| s.may_send())
+    }
+
+    /// Check whether the transmit half of the full-duplex connection is open
+    /// (see [may_send](#method.may_send)), and the transmit buffer is not full.
+    pub fn can_send(&self) -> bool {
+        self.io.with(|s, _| s.can_send())
     }
 
     /// return whether the receive half of the full-duplex connection is open.
