@@ -244,7 +244,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// [`start`]: #method.start
     pub fn teardown_adc(&mut self) {
         // Stop the DMA transfer
-        self.ring_buf.request_stop();
+        self.ring_buf.request_pause();
 
         let r = T::regs();
 
