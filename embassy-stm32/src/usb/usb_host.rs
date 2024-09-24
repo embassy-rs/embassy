@@ -47,21 +47,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for USBHostInterru
 
             let epr = regs.epr(index).read();
 
-            match epr.stat_rx() {
-                Stat::DISABLED => {} // debug!("Stat::DISABLED"),
-                Stat::STALL => debug!("Stat::STALL"),
-                Stat::NAK => {} //debug!("Stat::NAK"),
-                Stat::VALID => debug!("Stat::VALID"),
-            }
-            if epr.ctr_rx() {
-                EP_IN_WAKERS[index].wake();
-            }
-            if epr.ctr_tx() {
-                EP_OUT_WAKERS[index].wake();
-            }
-
-            // Clear ctr flags
             let mut epr_value = invariant(epr);
+            // Check and clear error flags
             if epr.err_tx() {
                 epr_value.set_err_tx(false);
                 warn!("err_tx");
@@ -70,9 +57,20 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for USBHostInterru
                 epr_value.set_err_rx(false);
                 warn!("err_rx");
             }
-            epr_value.set_ctr_rx(!epr.ctr_rx());
-            epr_value.set_ctr_tx(!epr.ctr_tx());
+            // Clear ctr (transaction complete) flags
+            let rx_ready = epr.ctr_rx();
+            let tx_ready = epr.ctr_tx();
+
+            epr_value.set_ctr_rx(!rx_ready);
+            epr_value.set_ctr_tx(!tx_ready);
             regs.epr(index).write_value(epr_value);
+
+            if rx_ready {
+                EP_IN_WAKERS[index].wake();
+            }
+            if tx_ready {
+                EP_OUT_WAKERS[index].wake();
+            }
         }
 
         if istr.err() {
@@ -85,7 +83,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for USBHostInterru
             regs.istr().write_value(clear);
 
             let index = istr.ep_id() as usize;
-            let mut epr = regs.epr(index).read();
+            let mut epr = invariant(regs.epr(index).read());
             // Toggle endponit to disabled
             epr.set_stat_rx(epr.stat_rx());
             epr.set_stat_tx(epr.stat_tx());
@@ -469,7 +467,7 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
             let stat = regs.epr(index).read().stat_rx();
             match stat {
                 Stat::DISABLED => {
-                    // data available
+                    // Data available for read
                     let idest = &mut buf[count..];
                     let n = self.read_data(idest)?;
                     count += n;
@@ -478,7 +476,7 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
                     if count == buf.len() || n < self.max_packet_size as usize {
                         Poll::Ready(Ok(count))
                     } else {
-                        // issue another read
+                        // More data expected: issue another read.
                         let mut epr_val = invariant(epr.read());
                         epr_val.set_stat_rx(Stat::VALID);
                         epr.write_value(epr_val);
@@ -489,12 +487,9 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
                     // error
                     Poll::Ready(Err(ChannelError::Stall))
                 }
-                Stat::NAK => {
-                    // pending
-                    Poll::Pending
-                }
+                Stat::NAK => Poll::Pending,
                 Stat::VALID => {
-                    // not started yet?
+                    // not started yet? Try again
                     Poll::Pending
                 }
             }
@@ -534,7 +529,7 @@ impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
         let stat = poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            let stat = regs.epr(index).read().stat_rx();
+            let stat = regs.epr(index).read().stat_tx();
             if matches!(stat, Stat::STALL | Stat::DISABLED) {
                 Poll::Ready(stat)
             } else {
