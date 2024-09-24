@@ -1,47 +1,98 @@
 use core::marker::PhantomData;
 
+use element::tx_event::TxEventElement;
+use stm32_metapac::can::vals::Tfqm;
 use volatile_register::RW;
 
-use crate::can::fd::message_ram::{RxFifoElementHeader, TxBufferElementHeader};
+mod element;
+pub(crate) use element::enums::{DataLength, Event, FilterElementConfig, FilterType, FrameFormat, IdType};
+pub(crate) use element::{
+    filter_extended::ExtendedFilter, filter_standard::StandardFilter, rx_buffer::RxFifoElementHeader,
+    tx_buffer::TxBufferElementHeader,
+};
 
 /// Configuration for MessageRam layout.
 pub struct MessageRam {
     // 32 bit words
     pub(crate) base_ptr: *mut RW<u32>,
-    // 0-128 elements / 0-128 words
-    pub(crate) standard_filter: Elements<()>,
-    // 0-64 elements / 0-128 words
-    pub(crate) extended_filter: Elements<()>,
-    // 0-64 elements / 0-1152 words
+
+    // Full: 0-128 elements / 0-128 words
+    // Simplified: 28 elements / 28 words
+    pub(crate) standard_filter: Elements<SimpleElement<StandardFilter>>,
+
+    // Full: 0-64 elements / 0-128 words
+    // Simplified: 8 elements / 16 words
+    pub(crate) extended_filter: Elements<SimpleElement<ExtendedFilter>>,
+
+    // Full: 0-64 elements / 0-1152 words
+    // Simplified: 3 elements / 54 words
     // x 2
     pub(crate) rx_fifos: [Elements<HeaderElement<RxFifoElementHeader>>; 2],
-    // 0-64 elements / 0-1152 words
+
+    // Full: 0-64 elements / 0-1152 words
+    // Simplified: Does not exist in the simplified peripheral variant.
+    #[cfg(can_fdcan_h7)]
     pub(crate) rx_buffer: Elements<HeaderElement<RxFifoElementHeader>>,
-    // 0-32 elements / 0-64 words
-    pub(crate) tx_event_fifo: Elements<()>,
-    // 0-32 elements / 0-576 words
+
+    // Full: 0-32 elements / 0-64 words
+    // Simplified: 3 elements / 6 words
+    pub(crate) tx_event_fifo: Elements<SimpleElement<TxEventElement>>,
+
+    // Full: 0-32 elements / 0-576 words
+    // Simplified: 3 elements / 54 words
+    // Simplified variant does not support TX buffer, only FIFO/Queue.
     pub(crate) tx_elements: Elements<HeaderElement<TxBufferElementHeader>>,
+    #[cfg(can_fdcan_h7)]
     pub(crate) tx_buffer_len: usize,
     pub(crate) tx_queue_len: usize,
-    // 0-64 elements / 0-128 words
+
+    // Full: 0-64 elements / 0-128 words
+    // Simplified: Does not exist in the simplified peripheral variant.
+    #[cfg(can_fdcan_h7)]
     pub(crate) trigger_memory: Elements<()>,
 }
 
-impl Default for MessageRam {
-    fn default() -> Self {
-        MessageRam {
-            base_ptr: core::ptr::null_mut(),
-            standard_filter: Elements::EMPTY,
-            extended_filter: Elements::EMPTY,
-            rx_fifos: [Elements::EMPTY, Elements::EMPTY],
-            rx_buffer: Elements::EMPTY,
-            tx_event_fifo: Elements::EMPTY,
-            tx_elements: Elements::EMPTY,
-            tx_buffer_len: 0,
-            tx_queue_len: 0,
-            trigger_memory: Elements::EMPTY,
-        }
+unsafe impl Sync for MessageRam {}
+
+impl MessageRam {
+    pub(crate) const DEFAULT: MessageRam = MessageRam {
+        base_ptr: core::ptr::null_mut(),
+        standard_filter: Elements::EMPTY,
+        extended_filter: Elements::EMPTY,
+        rx_fifos: [Elements::EMPTY, Elements::EMPTY],
+        #[cfg(can_fdcan_h7)]
+        rx_buffer: Elements::EMPTY,
+        tx_event_fifo: Elements::EMPTY,
+        tx_elements: Elements::EMPTY,
+        #[cfg(can_fdcan_h7)]
+        tx_buffer_len: 0,
+        tx_queue_len: 0,
+        #[cfg(can_fdcan_h7)]
+        trigger_memory: Elements::EMPTY,
+    };
+
+    pub fn debug_print(&self, regs: &crate::pac::can::Fdcan) {
+        defmt::info!("msgram seg base: {}", self.base_ptr);
+        defmt::info!("msgram tx base: {}", self.tx_elements.base);
+        //defmt::info!(
+        //    "msgram tx calc offet: {}",
+        //    ((self.tx_elements.base as usize) - (self.base_ptr as usize)) >> 2
+        //);
+        defmt::info!("msgram tx periph offset: {}", regs.txbc().read().tbsa());
+        let ram_ptr = crate::pac::FDCANRAM.as_ptr();
+        defmt::info!("msgram tx periph ptr: {}", unsafe {
+            ram_ptr.byte_add(regs.txbc().read().tbsa() as usize * 4)
+        });
+        //defmt::info!("elem 0 start {}", self.tx_elements.get_mut(0) as *mut _);
+        //defmt::info!("elem 1 start {}", self.tx_elements.get_mut(1) as *mut _);
+        //defmt::info!("elem 0 data start {}", (&self.tx_elements.get_mut(0).data).as_ptr());
+        //defmt::info!("elem 1 data start {}", (&self.tx_elements.get_mut(1).data).as_ptr());
     }
+}
+
+#[repr(C)]
+pub(crate) struct SimpleElement<H: Sized> {
+    pub(crate) data: H,
 }
 
 #[repr(C)]
@@ -76,6 +127,21 @@ impl<E: ?Sized> Elements<E> {
 
     pub(crate) fn len(&self) -> usize {
         self.element_len
+    }
+}
+
+impl<H: Sized> Elements<SimpleElement<H>> {
+    pub(crate) fn get_mut(&self, index: usize) -> &mut SimpleElement<H> {
+        assert!(index < self.element_len);
+
+        // Offset of the first item that belons to the element.
+        assert!(self.element_size == size_of::<H>());
+        let item_index = index * self.element_size;
+
+        unsafe {
+            let start = self.base.add(item_index);
+            &mut *(start as *mut SimpleElement<H>)
+        }
     }
 }
 
@@ -187,6 +253,7 @@ impl RxBufferConfig {
     };
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum TxQueueOperationMode {
     /// Operates as a strict FIFO.
     /// First element entered into the FIFO is always the first element sent.
@@ -196,6 +263,16 @@ pub enum TxQueueOperationMode {
     Priority = 1,
 }
 
+impl TxQueueOperationMode {
+    fn reg_value(self) -> Tfqm {
+        match self {
+            TxQueueOperationMode::FIFO => Tfqm::FIFO,
+            TxQueueOperationMode::Priority => Tfqm::QUEUE,
+        }
+    }
+}
+
+#[cfg(can_fdcan_h7)]
 pub struct TxConfig {
     pub(crate) queue_operation_mode: TxQueueOperationMode,
     /// Number of elements reserved for TX Queue.
@@ -215,6 +292,7 @@ pub struct TxConfig {
     pub(crate) data_field_size: DataFieldSize,
 }
 
+#[cfg(can_fdcan_h7)]
 pub struct MessageRamConfig {
     /// Base offset of the Message RAM region allocated to this
     /// peripheral instance.
@@ -241,18 +319,155 @@ pub struct MessageRamConfig {
     pub(crate) tx: TxConfig,
 }
 
+#[cfg(can_fdcan_h7)]
 const MSG_RAM_SIZE: usize = 0x2800;
 
+struct ElementAllocator(usize);
+impl ElementAllocator {
+    fn new(offset: usize) -> Self {
+        ElementAllocator(offset)
+    }
+    fn next(&mut self, element_size: usize, num_elements: usize) -> ElementSizing {
+        let sizing = ElementSizing {
+            offset: self.0,
+            element_size,
+            num_elements,
+        };
+        self.0 += sizing.total_size_words();
+        sizing
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ElementSizing {
+    /// Base offset in words.
+    offset: usize,
+    /// Size of each element in words.
+    element_size: usize,
+    /// Number of elements.
+    num_elements: usize,
+}
+
+impl ElementSizing {
+    const NONE: Self = Self::new(0, 0, 0);
+    const fn new(offset: usize, element_size: usize, num_elements: usize) -> Self {
+        Self {
+            offset,
+            element_size,
+            num_elements,
+        }
+    }
+    fn total_size_words(&self) -> usize {
+        self.element_size * self.num_elements
+    }
+    fn end_offset_words(&self) -> usize {
+        self.offset + self.total_size_words()
+    }
+}
+
+struct ElementsSizing {
+    start_offset: usize,
+    end_offset: usize,
+
+    standard_id: ElementSizing,
+    extended_id: ElementSizing,
+    rx_fifo_0: ElementSizing,
+    rx_fifo_1: ElementSizing,
+    rx_buffer: ElementSizing,
+    tx_event: ElementSizing,
+    tx_elements: ElementSizing,
+    /// Number of leading elements in `tx_elements` which are dedicated tx buffers.
+    dedicated_len: usize,
+    trigger: ElementSizing,
+}
+
+impl ElementsSizing {
+    fn calculate_element_sizing_simplified() -> ElementsSizing {
+        let mut a = ElementAllocator::new(0);
+
+        ElementsSizing {
+            start_offset: 0,
+            standard_id: a.next(1, 28),
+            extended_id: a.next(2, 8),
+            rx_fifo_0: a.next(18, 3),
+            rx_fifo_1: a.next(18, 3),
+            rx_buffer: ElementSizing::NONE,
+            tx_event: a.next(2, 3),
+            tx_elements: a.next(18, 3),
+            // Simplified variant supports no dedicated buffers
+            dedicated_len: 0,
+            trigger: ElementSizing::NONE,
+            end_offset: a.0,
+        }
+    }
+
+    fn calculate_element_sizing(config: &MessageRamConfig) -> ElementsSizing {
+        assert!(
+            config.standard_id_filter_size <= 128,
+            "more than 128 standard id filters not supported"
+        );
+        assert!(
+            config.extended_id_filter_size <= 64,
+            "more than 64 extended id filters not supported"
+        );
+        assert!(
+            config.rx_fifo_0.fifo_size <= 64,
+            "more than 64 rx fifo 0 elements not supported"
+        );
+        assert!(
+            config.rx_fifo_1.fifo_size <= 64,
+            "more than 64 rx fifo 1 elements not supported"
+        );
+        assert!(
+            config.rx_buffer.size <= 64,
+            "more than 64 rx buffer elements not supported"
+        );
+        assert!(
+            config.tx.dedicated_size + config.tx.queue_size <= 32,
+            "total TX elements can not be larger than 32"
+        );
+
+        let base_offset = config.base_offset;
+        let base_offset_words = base_offset >> 2;
+        let mut a = ElementAllocator::new(base_offset_words);
+
+        ElementsSizing {
+            start_offset: a.0,
+            standard_id: a.next(1, config.standard_id_filter_size as usize),
+            extended_id: a.next(2, config.extended_id_filter_size as usize),
+            rx_fifo_0: a.next(
+                2 + config.rx_fifo_0.data_field_size.word_size(),
+                config.rx_fifo_0.fifo_size as usize,
+            ),
+            rx_fifo_1: a.next(
+                2 + config.rx_fifo_1.data_field_size.word_size(),
+                config.rx_fifo_1.fifo_size as usize,
+            ),
+            rx_buffer: a.next(
+                2 + config.rx_buffer.data_field_size.word_size(),
+                config.rx_buffer.size as usize,
+            ),
+            // TODO implement TX events
+            tx_event: a.next(2, 0),
+            tx_elements: a.next(
+                2 + config.tx.data_field_size.word_size(),
+                (config.tx.dedicated_size + config.tx.queue_size) as usize,
+            ),
+            dedicated_len: config.tx.dedicated_size as usize,
+            // TODO implement triggers
+            trigger: a.next(2, 0),
+            end_offset: a.0,
+        }
+    }
+}
+
+#[cfg(can_fdcan_h7)]
 impl MessageRamConfig {
     /// Configures message ram for the peripheral according to the supplied
     /// config and returns a struct which can be used to interact with the
     /// message RAM.
+    #[cfg(can_fdcan_h7)]
     pub fn apply_config(&self, regs: &crate::pac::can::Fdcan, ram: &crate::pac::fdcanram::Fdcanram) -> MessageRam {
-        assert!(
-            self.tx.dedicated_size + self.tx.queue_size <= 32,
-            "total TX elements can not be larger than 32"
-        );
-
         let base_offset = self.base_offset;
         let base_offset_words = base_offset >> 2;
 
@@ -262,29 +477,49 @@ impl MessageRamConfig {
         // en: element num
         // ts: total size
 
+        assert!(
+            self.standard_id_filter_size <= 128,
+            "more than 128 standard id filters not supported"
+        );
         let sid_sa = base_offset_words;
         let sid_es = 1;
-        let sid_en = self.standard_id_filter_size.clamp(0, 128) as usize;
+        let sid_en = self.standard_id_filter_size as usize;
         let sid_ts = sid_es * sid_en;
 
+        assert!(
+            self.extended_id_filter_size <= 64,
+            "more than 64 extended id filters not supported"
+        );
         let xid_sa = sid_sa + sid_ts;
         let xid_es = 2;
-        let xid_en = self.extended_id_filter_size.clamp(0, 64) as usize;
+        let xid_en = self.extended_id_filter_size as usize;
         let xid_ts = xid_es * xid_en;
 
+        assert!(
+            self.rx_fifo_0.fifo_size <= 64,
+            "more than 64 rx fifo 0 elements not supported"
+        );
         let rx0_sa = xid_sa + xid_ts;
         let rx0_es = 2 + self.rx_fifo_0.data_field_size.word_size();
-        let rx0_en = self.rx_fifo_0.fifo_size.clamp(0, 64) as usize;
+        let rx0_en = self.rx_fifo_0.fifo_size as usize;
         let rx0_ts = rx0_es * rx0_en;
 
+        assert!(
+            self.rx_fifo_1.fifo_size <= 64,
+            "more than 64 rx fifo 1 elements not supported"
+        );
         let rx1_sa = rx0_sa + rx0_ts;
         let rx1_es = 2 + self.rx_fifo_1.data_field_size.word_size();
-        let rx1_en = self.rx_fifo_1.fifo_size.clamp(0, 64) as usize;
+        let rx1_en = self.rx_fifo_1.fifo_size as usize;
         let rx1_ts = rx1_es * rx1_en;
 
+        assert!(
+            self.rx_buffer.size <= 64,
+            "more than 64 rx buffer elements not supported"
+        );
         let rxb_sa = rx1_sa + rx1_ts;
         let rxb_es = 2 + self.rx_buffer.data_field_size.word_size();
-        let rxb_en = self.rx_buffer.size.clamp(0, 64) as usize;
+        let rxb_en = self.rx_buffer.size as usize;
         let rxb_ts = rxb_es * rxb_en;
 
         let txe_sa = rxb_sa + rxb_ts;
@@ -292,6 +527,10 @@ impl MessageRamConfig {
         let txe_en = 0; // TODO implement TX events
         let txe_ts = txe_es * txe_en;
 
+        assert!(
+            self.tx.dedicated_size + self.tx.queue_size <= 32,
+            "total TX elements can not be larger than 32"
+        );
         let txx_es = 2 + self.tx.data_field_size.word_size();
 
         let txq_sa = txe_sa + txe_ts;
@@ -309,12 +548,11 @@ impl MessageRamConfig {
 
         let end_offset_words = tmc_sa + tmc_ts;
         let total_size_words = end_offset_words - base_offset_words;
+        let total_size_bytes = total_size_words << 2;
+        //defmt::info!("total calculated word size: {:#x}", total_size_words);
 
         if let Some(avail) = self.available_space {
-            assert!(
-                (total_size_words << 2) <= avail,
-                "CAN RAM config exceeded available space!"
-            );
+            assert!(total_size_bytes <= avail, "CAN RAM config exceeded available space!");
         }
 
         // Standard ID filter config
@@ -375,8 +613,9 @@ impl MessageRamConfig {
         });
 
         // TX queue configuration
+        // Fully managed
         regs.txbc().modify(|v| {
-            // TFQM - Tx FIFO/Queue Mode
+            v.set_tfqm(self.tx.queue_operation_mode.reg_value());
             v.set_tbsa(txq_sa as u16);
             v.set_ndtb(txd_en as u8);
             v.set_tfqs(txq_en as u8);
@@ -392,6 +631,25 @@ impl MessageRamConfig {
         let ram_ptr = ram.as_ptr() as *mut RW<u32>;
         let base_ptr = unsafe { ram_ptr.add(base_offset_words) };
 
+        // let mut test_ptr = base_ptr as *const u32;
+        // while test_ptr < unsafe { base_ptr.byte_add(self.available_space.unwrap()) as *const u32 } {
+        //     let val = unsafe { test_ptr.read() };
+        //     if val == 0xaa95fd71 || val == 0x71fd95aa {
+        //         defmt::info!("FOUND BYTE MATCH: {}", test_ptr);
+        //     }
+        //     test_ptr = unsafe { test_ptr.byte_add(4) };
+        // }
+
+        // if let Some(avail) = self.available_space {
+        //     unsafe { core::ptr::write_bytes(ram_ptr as *mut u8, 0, avail) };
+        // }
+
+        // assert!(unsafe { base_ptr as usize == (ram_ptr as *mut u8).add(self.base_offset) as usize });
+
+        assert!(unsafe {
+            (ram_ptr.add(end_offset_words) as usize) < ((ram_ptr as *mut u8).add(MSG_RAM_SIZE) as usize)
+        });
+
         unsafe {
             MessageRam {
                 base_ptr,
@@ -403,7 +661,7 @@ impl MessageRamConfig {
                 ],
                 rx_buffer: Elements::new(ram_ptr.add(rxb_sa), rxb_en, rxb_es),
                 tx_event_fifo: Elements::new(ram_ptr.add(txe_sa), txe_en, txe_es),
-                tx_elements: Elements::new(ram_ptr.add(txd_sa), txd_en + txq_en, txx_es),
+                tx_elements: Elements::new(ram_ptr.add(txq_sa), txd_en + txq_en, txx_es),
                 tx_buffer_len: txd_en,
                 tx_queue_len: txq_en,
                 trigger_memory: Elements::new(ram_ptr.add(tmc_sa), tmc_en, tmc_es),

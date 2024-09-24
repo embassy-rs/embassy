@@ -3,8 +3,11 @@
 
 use embedded_can::{ExtendedId, StandardId};
 
-use crate::can::fd::message_ram;
-pub use crate::can::fd::message_ram::{EXTENDED_FILTER_MAX, STANDARD_FILTER_MAX};
+use super::low_level::message_ram;
+
+// TODO dynamicisize this
+pub const STANDARD_FILTER_MAX: usize = 38;
+pub const EXTENDED_FILTER_MAX: usize = 8;
 
 /// A Standard Filter
 pub type StandardFilter = Filter<StandardId, u16>;
@@ -118,7 +121,7 @@ where
     /// Filter is disabled
     Disabled,
 }
-impl<ID, UNIT> From<FilterType<ID, UNIT>> for message_ram::enums::FilterType
+impl<ID, UNIT> From<FilterType<ID, UNIT>> for message_ram::FilterType
 where
     ID: Copy + Clone + core::fmt::Debug,
     UNIT: Copy + Clone + core::fmt::Debug,
@@ -152,7 +155,7 @@ pub enum Action {
     /// Flag a matching message as a High Priority message and store it in FIFO 1
     FlagHighPrioAndStoreInFifo1 = 0b110,
 }
-impl From<Action> for message_ram::enums::FilterElementConfig {
+impl From<Action> for message_ram::FilterElementConfig {
     fn from(a: Action) -> Self {
         match a {
             Action::Disable => Self::DisableFilterElement,
@@ -179,145 +182,13 @@ where
     pub action: Action,
 }
 
-/// Standard Filter Slot
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum StandardFilterSlot {
-    /// 0
-    _0 = 0,
-    /// 1
-    _1 = 1,
-    /// 2
-    _2 = 2,
-    /// 3
-    _3 = 3,
-    /// 4
-    _4 = 4,
-    /// 5
-    _5 = 5,
-    /// 6
-    _6 = 6,
-    /// 7
-    _7 = 7,
-    /// 8
-    _8 = 8,
-    /// 9
-    _9 = 9,
-    /// 10
-    _10 = 10,
-    /// 11
-    _11 = 11,
-    /// 12
-    _12 = 12,
-    /// 13
-    _13 = 13,
-    /// 14
-    _14 = 14,
-    /// 15
-    _15 = 15,
-    /// 16
-    _16 = 16,
-    /// 17
-    _17 = 17,
-    /// 18
-    _18 = 18,
-    /// 19
-    _19 = 19,
-    /// 20
-    _20 = 20,
-    /// 21
-    _21 = 21,
-    /// 22
-    _22 = 22,
-    /// 23
-    _23 = 23,
-    /// 24
-    _24 = 24,
-    /// 25
-    _25 = 25,
-    /// 26
-    _26 = 26,
-    /// 27
-    _27 = 27,
-}
-impl From<u8> for StandardFilterSlot {
-    fn from(u: u8) -> Self {
-        match u {
-            0 => StandardFilterSlot::_0,
-            1 => StandardFilterSlot::_1,
-            2 => StandardFilterSlot::_2,
-            3 => StandardFilterSlot::_3,
-            4 => StandardFilterSlot::_4,
-            5 => StandardFilterSlot::_5,
-            6 => StandardFilterSlot::_6,
-            7 => StandardFilterSlot::_7,
-            8 => StandardFilterSlot::_8,
-            9 => StandardFilterSlot::_9,
-            10 => StandardFilterSlot::_10,
-            11 => StandardFilterSlot::_11,
-            12 => StandardFilterSlot::_12,
-            13 => StandardFilterSlot::_13,
-            14 => StandardFilterSlot::_14,
-            15 => StandardFilterSlot::_15,
-            16 => StandardFilterSlot::_16,
-            17 => StandardFilterSlot::_17,
-            18 => StandardFilterSlot::_18,
-            19 => StandardFilterSlot::_19,
-            20 => StandardFilterSlot::_20,
-            21 => StandardFilterSlot::_21,
-            22 => StandardFilterSlot::_22,
-            23 => StandardFilterSlot::_23,
-            24 => StandardFilterSlot::_24,
-            25 => StandardFilterSlot::_25,
-            26 => StandardFilterSlot::_26,
-            27 => StandardFilterSlot::_27,
-            _ => panic!("Standard Filter Slot Too High!"),
-        }
-    }
-}
-
-/// Extended Filter Slot
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum ExtendedFilterSlot {
-    /// 0
-    _0 = 0,
-    /// 1
-    _1 = 1,
-    /// 2
-    _2 = 2,
-    /// 3
-    _3 = 3,
-    /// 4
-    _4 = 4,
-    /// 5
-    _5 = 5,
-    /// 6
-    _6 = 6,
-    /// 7
-    _7 = 7,
-}
-impl From<u8> for ExtendedFilterSlot {
-    fn from(u: u8) -> Self {
-        match u {
-            0 => ExtendedFilterSlot::_0,
-            1 => ExtendedFilterSlot::_1,
-            2 => ExtendedFilterSlot::_2,
-            3 => ExtendedFilterSlot::_3,
-            4 => ExtendedFilterSlot::_4,
-            5 => ExtendedFilterSlot::_5,
-            6 => ExtendedFilterSlot::_6,
-            7 => ExtendedFilterSlot::_7,
-            _ => panic!("Extended Filter Slot Too High!"), // Should be unreachable
-        }
-    }
-}
-
 /// Enum over both Standard and Extended Filter ID's
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FilterId {
     /// Standard Filter Slots
-    Standard(StandardFilterSlot),
+    Standard(u8),
     /// Extended Filter Slots
-    Extended(ExtendedFilterSlot),
+    Extended(u8),
 }
 
 pub(crate) trait ActivateFilter<ID, UNIT>

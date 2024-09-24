@@ -7,13 +7,19 @@
 use super::common::{BRS_R, DLC_R, ESI_R, RTR_R, XTD_R};
 use super::generic;
 
+pub(crate) type TxEventElementType = [u32; 2];
+pub(crate) type TxEventElement = generic::Reg<TxEventElementType, _TxEventElement>;
+pub(crate) struct _TxEventElement;
+impl generic::Readable for TxEventElement {}
+impl generic::Writable for TxEventElement {}
+
 #[doc = "Reader of register TxEventElement"]
-pub(crate) type R = generic::R<super::TxEventElementType, super::TxEventElement>;
+pub(crate) type R = generic::R<TxEventElementType, TxEventElement>;
 // #[doc = "Writer for register TxEventElement"]
 // pub(crate) type W = generic::W<super::TxEventElementType, super::TxEventElement>;
 #[doc = "Register TxEventElement `reset()`'s"]
-impl generic::ResetValue for super::TxEventElement {
-    type Type = super::TxEventElementType;
+impl generic::ResetValue for TxEventElement {
+    type Type = TxEventElementType;
     #[inline(always)]
     fn reset_value() -> Self::Type {
         [0, 0]

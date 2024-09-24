@@ -4,17 +4,38 @@
 #![allow(non_snake_case)]
 #![allow(unused)]
 
+use volatile_register::RW;
+
 use super::common::{BRS_R, DLC_R, ESI_R, FDF_R, ID_R, RTR_R, XTD_R};
 use super::enums::{DataLength, FilterFrameMatch, FrameFormat};
 use super::generic;
 
+#[repr(C)]
+pub(crate) struct RxFifoElement {
+    pub(crate) header: RxFifoElementHeader,
+    pub(crate) data: [RW<u32>; 16],
+}
+impl RxFifoElement {
+    pub(crate) fn reset(&mut self) {
+        self.header.reset();
+        for byte in self.data.iter_mut() {
+            unsafe { byte.write(0) };
+        }
+    }
+}
+pub(crate) type RxFifoElementHeaderType = [u32; 2];
+pub(crate) type RxFifoElementHeader = generic::Reg<RxFifoElementHeaderType, _RxFifoElement>;
+pub(crate) struct _RxFifoElement;
+impl generic::Readable for RxFifoElementHeader {}
+impl generic::Writable for RxFifoElementHeader {}
+
 #[doc = "Reader of register RxFifoElement"]
-pub(crate) type R = generic::R<super::RxFifoElementHeaderType, super::RxFifoElementHeader>;
+pub(crate) type R = generic::R<RxFifoElementHeaderType, RxFifoElementHeader>;
 // #[doc = "Writer for register ExtendedFilter"]
 // pub(crate) type W = generic::W<super::RxFifoElementHeaderType, super::RxFifoElementHeader>;
 #[doc = "Register ExtendedFilter `reset()`'s"]
-impl generic::ResetValue for super::RxFifoElementHeader {
-    type Type = super::RxFifoElementHeaderType;
+impl generic::ResetValue for RxFifoElementHeader {
+    type Type = RxFifoElementHeaderType;
     #[inline(always)]
     fn reset_value() -> Self::Type {
         [0x0, 0x0]

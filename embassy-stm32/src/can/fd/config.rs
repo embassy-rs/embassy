@@ -340,10 +340,6 @@ pub struct FdCanConfig {
     /// "babbling idiot" scenarios where the application program erroneously requests too many
     /// transmissions.
     pub frame_transmit: FrameTransmissionConfig,
-    /// Non Isoe Mode
-    /// If this is set, the FDCAN uses the CAN FD frame format as specified by the Bosch CAN
-    /// FD Specification V1.0.
-    pub non_iso_mode: bool,
     /// Edge Filtering: Two consecutive dominant tq required to detect an edge for hard synchronization
     pub edge_filtering: bool,
     /// Enables protocol exception handling
@@ -356,6 +352,10 @@ pub struct FdCanConfig {
     pub global_filter: GlobalFilter,
     /// TX buffer mode (FIFO or priority queue)
     pub tx_buffer_mode: TxBufferMode,
+
+    /// If this is set, the FDCAN uses the CAN FD frame format as specified by the Bosch CAN
+    /// FD Specification V1.0.
+    pub can_fd_enabled: bool,
 }
 
 impl FdCanConfig {
@@ -399,8 +399,8 @@ impl FdCanConfig {
     /// If this is set, the FDCAN uses the CAN FD frame format as specified by the Bosch CAN
     /// FD Specification V1.0.
     #[inline]
-    pub const fn set_non_iso_mode(mut self, enabled: bool) -> Self {
-        self.non_iso_mode = enabled;
+    pub const fn set_can_fd_enabled(mut self, enabled: bool) -> Self {
+        self.can_fd_enabled = enabled;
         self
     }
 
