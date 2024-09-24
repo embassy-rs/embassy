@@ -66,10 +66,10 @@ use crate::waitqueue::MultiWakerRegistration;
 /// block_on(f);
 /// ```
 pub struct Watch<M: RawMutex, T: Clone, const N: usize> {
-    mutex: Mutex<M, RefCell<WatchState<N, T>>>,
+    mutex: Mutex<M, RefCell<WatchState<T, N>>>,
 }
 
-struct WatchState<const N: usize, T: Clone> {
+struct WatchState<T: Clone, const N: usize> {
     data: Option<T>,
     current_id: u64,
     wakers: MultiWakerRegistration<N>,
@@ -363,30 +363,6 @@ impl<M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
     /// This counter is monotonic, and is incremented every time a new message is sent.
     pub fn get_msg_id(&self) -> u64 {
         self.mutex.lock(|state| state.borrow().current_id)
-    }
-
-    /// Waits for the `Watch` to be initialized with a value using a busy-wait mechanism.
-    ///
-    /// This is useful for initialization code where receivers may only be interested in
-    /// awaiting the value once in the lifetime of the program. It is therefore a temporaryily
-    /// CPU-inefficient operation, while being more memory efficient than using a `Receiver`.
-    ///
-    /// **Note** Be careful about using this within an InterruptExecutor, as it will starve
-    /// tasks in lower-priority executors.
-    pub async fn spin_get(&self) -> T {
-        poll_fn(|cx| {
-            self.mutex.lock(|state| {
-                let s = state.borrow();
-                match &s.data {
-                    Some(data) => Poll::Ready(data.clone()),
-                    None => {
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
-                }
-            })
-        })
-        .await
     }
 
     /// Tries to get the value of the `Watch`.
