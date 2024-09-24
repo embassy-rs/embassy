@@ -1,5 +1,9 @@
 #[allow(unused)]
-use pac::adc::vals::{Adcaldif, Adstp, Boost, Difsel, Dmngt, Exten, Pcsel};
+use pac::adc::vals::{Adstp, Difsel, Exten, Pcsel, Dmngt};
+
+#[cfg(not(stm32u5))]
+use pac::adc::vals::{Adcaldif,  Boost};
+
 use pac::adccommon::vals::Presc;
 
 use super::{
@@ -19,6 +23,9 @@ pub const VREF_CALIB_MV: u32 = 3300;
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(60);
 #[cfg(stm32h7)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
+#[cfg(stm32u5)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
+
 
 #[cfg(stm32g4)]
 const VREF_CHANNEL: u8 = 18;
@@ -31,7 +38,16 @@ const VREF_CHANNEL: u8 = 19;
 const TEMP_CHANNEL: u8 = 18;
 
 // TODO this should be 14 for H7a/b/35
+#[cfg(not(stm32u5))]
 const VBAT_CHANNEL: u8 = 17;
+
+
+#[cfg(stm32u5)]
+const VREF_CHANNEL: u8 = 0;
+#[cfg(stm32u5)]
+const TEMP_CHANNEL: u8 = 19;
+#[cfg(stm32u5)]
+const VBAT_CHANNEL: u8 = 18;
 
 // NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
 /// Internal voltage reference channel.
@@ -209,6 +225,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     fn calibrate(&mut self) {
         T::regs().cr().modify(|w| {
+            #[cfg(not(adc_u5))]
             w.set_adcaldif(Adcaldif::SINGLEENDED);
             w.set_adcallin(true);
         });

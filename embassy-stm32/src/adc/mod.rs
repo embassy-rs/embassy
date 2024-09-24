@@ -12,9 +12,8 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_u0), path = "v3.rs")]
-#[cfg_attr(adc_v4, path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
-#[cfg_attr(adc_u5, path = "u5.rs")]
 mod _version;
 
 use core::marker::PhantomData;
