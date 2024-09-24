@@ -54,8 +54,8 @@ embedded-storage = { version = "0.3" }
 static_cell = "2.1"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
-pio-proc = "0.2"
-pio = "0.2.1"
+pio-proc = { version = "0.2", feature = ["rp2350"] }
+pio = { version = "0.2.1", feature = ["rp2350"] }
 rand = { version = "0.8.5", default-features = false }
 embedded-sdmmc = "0.7.0"
 
@@ -77,3 +77,7 @@ embassy-futures = { path = "../../embassy-futures" }
 embassy-time = { path = "../../embassy-time" }
 embassy-time-driver = { path = "../../embassy-time-driver" }
 embassy-embedded-hal = { path = "../../embassy-embedded-hal" }
+
+pio = { git="https://github.com/CBJamo/pio-rs.git", rev="72a5a7daa859b9d8a416564a2fbf849f58e51639" }
+pio-parser = { git="https://github.com/CBJamo/pio-rs.git", rev="72a5a7daa859b9d8a416564a2fbf849f58e51639" }
+pio-proc = { git="https://github.com/CBJamo/pio-rs.git", rev="72a5a7daa859b9d8a416564a2fbf849f58e51639" }
