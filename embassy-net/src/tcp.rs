@@ -10,7 +10,7 @@
 
 use core::future::poll_fn;
 use core::mem;
-use core::task::Poll;
+use core::task::{Context, Poll};
 
 use embassy_time::Duration;
 use smoltcp::iface::{Interface, SocketHandle};
@@ -274,6 +274,16 @@ impl<'a> TcpSocket<'a> {
         .await
     }
 
+    /// Wait until the socket becomes readable.
+    ///
+    /// A socket becomes readable when the receive half of the full-duplex connection is open
+    /// (see [may_recv](#method.may_recv)), and there is some pending data in the receive buffer.
+    ///
+    /// This is the equivalent of [read](#method.read), without buffering any data.
+    pub async fn wait_read_ready(&self) {
+        poll_fn(move |cx| self.io.poll_read_ready(cx)).await
+    }
+
     /// Read data from the socket.
     ///
     /// Returns how many bytes were read, or an error. If no data is available, it waits
@@ -283,6 +293,16 @@ impl<'a> TcpSocket<'a> {
     /// able to receive any data.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
+    }
+
+    /// Wait until the socket becomes writable.
+    ///
+    /// A socket becomes writable when the transmit half of the full-duplex connection is open
+    /// (see [may_send](#method.may_send)), and the transmit buffer is not full.
+    ///
+    /// This is the equivalent of [write](#method.write), without sending any data.
+    pub async fn wait_write_ready(&self) {
+        poll_fn(move |cx| self.io.poll_write_ready(cx)).await
     }
 
     /// Write data to the socket.
@@ -441,12 +461,23 @@ impl<'d> TcpIo<'d> {
         })
     }
 
-    fn with_mut<R>(&mut self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
+    fn with_mut<R>(&self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
         self.stack.with_mut(|i| {
             let socket = i.sockets.get_mut::<tcp::Socket>(self.handle);
             let res = f(socket, &mut i.iface);
             i.waker.wake();
             res
+        })
+    }
+
+    fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
+        self.with_mut(|s, _| {
+            if s.can_recv() {
+                Poll::Ready(())
+            } else {
+                s.register_recv_waker(cx.waker());
+                Poll::Pending
+            }
         })
     }
 
@@ -476,6 +507,17 @@ impl<'d> TcpIo<'d> {
             })
         })
         .await
+    }
+
+    fn poll_write_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
+        self.with_mut(|s, _| {
+            if s.can_send() {
+                Poll::Ready(())
+            } else {
+                s.register_send_waker(cx.waker());
+                Poll::Pending
+            }
+        })
     }
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
