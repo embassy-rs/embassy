@@ -25,6 +25,10 @@ pub use _version::*;
 #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
 use embassy_sync::waitqueue::AtomicWaker;
 
+#[cfg(adc_u5)]
+#[path = "u5_adc4.rs"]
+pub mod adc4;
+
 pub use crate::pac::adc::vals;
 #[cfg(not(any(adc_f1, adc_f3_v2)))]
 pub use crate::pac::adc::vals::Res as Resolution;
@@ -32,6 +36,8 @@ pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
 
 dma_trait!(RxDma, Instance);
+#[cfg(adc_u5)]
+dma_trait!(RxDma4, adc4::Instance);
 
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {
@@ -159,6 +165,38 @@ impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<T> {
     }
 }
 
+#[cfg(adc_u5)]
+foreach_adc!(
+    (ADC4, $common_inst:ident, $clock:ident) => {
+        impl crate::adc::adc4::SealedInstance for peripherals::ADC4 {
+            fn regs() -> crate::pac::adc::Adc4 {
+                crate::pac::ADC4
+            }
+        }
+
+        impl crate::adc::adc4::Instance for peripherals::ADC4 {
+            type Interrupt = crate::_generated::peripheral_interrupts::ADC4::GLOBAL;
+        }
+    };
+
+    ($inst:ident, $common_inst:ident, $clock:ident) => {
+        impl crate::adc::SealedInstance for peripherals::$inst {
+            fn regs() -> crate::pac::adc::Adc {
+                crate::pac::$inst
+            }
+
+            fn common_regs() -> crate::pac::adccommon::AdcCommon {
+                return crate::pac::$common_inst
+            }
+        }
+
+        impl crate::adc::Instance for peripherals::$inst {
+            type Interrupt = crate::_generated::peripheral_interrupts::$inst::GLOBAL;
+        }
+    };
+);
+
+#[cfg(not(adc_u5))]
 foreach_adc!(
     ($inst:ident, $common_inst:ident, $clock:ident) => {
         impl crate::adc::SealedInstance for peripherals::$inst {

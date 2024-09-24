@@ -1,25 +1,29 @@
+pub use crate::pac::adc::vals::Adc4Res as Resolution;
+pub use crate::pac::adc::vals::Adc4SampleTime as SampleTime;
+pub use crate::pac::adc::vals::Adc4Presc as Presc;
+pub use crate::pac::adc::regs::Adc4Chselrmod0;
+
 #[allow(unused)]
-use pac::adc::vals::{Difsel, Exten, Pcsel};
-use pac::adccommon::vals::Presc;
-use pac::PWR;
+use pac::adc::vals::{Adc4Exten, Adc4OversamplingRatio};
 
 use super::{
-    blocking_delay_us, Adc, AdcChannel, Instance, Resolution, SampleTime, SealedAdcChannel
+    blocking_delay_us, AdcChannel, SealedAdcChannel
 };
 use crate::time::Hertz;
 use crate::{pac, rcc, Peripheral};
 
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
-const VREF_CHANNEL: u8 = 0;
-const VBAT_CHANNEL: u8 = 18;
-const TEMP_CHANNEL: u8 = 19;
-
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
+const VREF_CHANNEL: u8 = 0;
+const VCORE_CHANNEL: u8 = 12;
+const TEMP_CHANNEL: u8 = 13;
+const VBAT_CHANNEL: u8 = 14;
+const DAC_CHANNEL: u8 = 21;
 
 // NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
 /// Internal voltage reference channel.
@@ -46,6 +50,53 @@ impl<T: Instance> AdcChannel<T> for Vbat {}
 impl<T: Instance> SealedAdcChannel<T> for Vbat {
     fn channel(&self) -> u8 {
         VBAT_CHANNEL
+    }
+}
+
+/// Internal DAC channel.
+pub struct Dac;
+impl<T: Instance> AdcChannel<T> for Dac {}
+impl<T: Instance> SealedAdcChannel<T> for Dac {
+    fn channel(&self) -> u8 {
+        DAC_CHANNEL
+    }
+}
+
+/// Internal Vcore channel.
+pub struct Vcore;
+impl<T: Instance> AdcChannel<T> for Vcore {}
+impl<T: Instance> SealedAdcChannel<T> for Vcore {
+    fn channel(&self) -> u8 {
+        VCORE_CHANNEL
+    }
+}
+
+pub enum DacChannel {
+    OUT1,
+    OUT2
+}
+
+/// Number of samples used for averaging.
+pub enum Averaging {
+    Disabled,
+    Samples2,
+    Samples4,
+    Samples8,
+    Samples16,
+    Samples32,
+    Samples64,
+    Samples128,
+    Samples256,
+}
+
+pub const fn resolution_to_max_count(res: Resolution) -> u32 {
+    match res {
+        Resolution::BITS12 => (1 << 12) - 1,
+        Resolution::BITS10 => (1 << 10) - 1,
+        Resolution::BITS8 => (1 << 8) - 1,
+        Resolution::BITS6 => (1 << 6) - 1,
+        #[allow(unreachable_patterns)]
+        _ => core::unreachable!(),
     }
 }
 
@@ -117,44 +168,40 @@ impl Prescaler {
     }
 }
 
-/// Number of samples used for averaging.
-pub enum Averaging {
-    Disabled,
-    Samples2,
-    Samples4,
-    Samples8,
-    Samples16,
-    Samples32,
-    Samples64,
-    Samples128,
-    Samples256,
-    Samples512,
-    Samples1024,
+pub trait SealedInstance {
+    #[allow(unused)]
+    fn regs() -> crate::pac::adc::Adc4;
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
+pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
+}
+
+pub struct Adc4<'d, T: Instance> {
+    adc: crate::PeripheralRef<'d, T>,
+}
+
+impl<'d, T: Instance> Adc4<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         embassy_hal_internal::into_ref!(adc);
         rcc::enable_and_reset::<T>();
         let prescaler = Prescaler::from_ker_ck(T::frequency());
 
-        T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
+        T::regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
 
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
-        info!("ADC frequency set to {} Hz", frequency.0);
+        info!("ADC4 frequency set to {} Hz", frequency.0);
 
         if frequency > MAX_ADC_CLK_FREQ {
-            panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
+            panic!("Maximal allowed frequency for ADC4 is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
         }
 
         let mut s = Self {
             adc,
-            sample_time: SampleTime::from_bits(0),
         };
 
         s.power_up();
-        s.configure_differential_inputs();
 
         s.calibrate();
         blocking_delay_us(1);
@@ -170,7 +217,6 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_ldordy(true);
         });
         T::regs().cr().modify(|reg| {
-            reg.set_deeppwd(false);
             reg.set_advregen(true);
         });
         while !T::regs().isr().read().ldordy() { };
@@ -180,26 +226,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
     }
 
-    fn configure_differential_inputs(&mut self) {
-        T::regs().difsel().modify(|w| {
-            for n in 0..20 {
-                w.set_difsel(n, Difsel::SINGLEENDED);
-            }
-        });
-    }
-
     fn calibrate(&mut self) {
-        T::regs().cr().modify(|w| {
-            w.set_adcallin(true);
-            w.set_aden(false)
-        });
-        T::regs().calfact().modify(|w| {
-            w.set_capture_coef(false);
-            w.set_latch_coef(false)
-        });
-
         T::regs().cr().modify(|w| w.set_adcal(true));
         while T::regs().cr().read().adcal() {}
+        T::regs().isr().modify(|w| w.set_eocal(true));
     }
 
     fn enable(&mut self) {
@@ -211,15 +241,22 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     fn configure(&mut self) {
         // single conversion mode, software trigger
-        T::regs().cfgr().modify(|w| {
+        T::regs().cfgr1().modify(|w| {
             w.set_cont(false);
-            w.set_exten(Exten::DISABLED);
+            w.set_exten(Adc4Exten::DISABLED);
+        });
+
+        // only use one channel at the moment
+        T::regs().smpr().modify(|w| {
+            for i in 0..24 {
+                w.set_smpsel(i, false);
+            }
         });
     }
 
     /// Enable reading the voltage reference internal channel.
     pub fn enable_vrefint(&self) -> VrefInt {
-        T::common_regs().ccr().modify(|reg| {
+        T::regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
 
@@ -228,8 +265,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Enable reading the temperature internal channel.
     pub fn enable_temperature(&self) -> Temperature {
-        T::common_regs().ccr().modify(|reg| {
-            reg.set_vsenseen(true);
+        T::regs().ccr().modify(|reg| {
+            reg.set_vsensesel(true);
         });
 
         Temperature {}
@@ -237,48 +274,64 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Enable reading the vbat internal channel.
     pub fn enable_vbat(&self) -> Vbat {
-        T::common_regs().ccr().modify(|reg| {
+        T::regs().ccr().modify(|reg| {
             reg.set_vbaten(true);
         });
 
         Vbat {}
     }
 
+    /// Enable reading the vbat internal channel.
+    pub fn enable_vcore(&self) -> Vcore {
+        Vcore {}
+    }
+
+    /// Enable reading the vbat internal channel.
+    pub fn enable_dac_channel(&self, dac: DacChannel) -> Dac {
+        let mux;
+        match dac {
+            DacChannel::OUT1 => {mux = false},
+            DacChannel::OUT2 => {mux = true}
+        }
+        T::regs().or().modify(|w| w.set_chn21sel(mux));
+        Dac {}
+    }
+
     /// Set the ADC sample time.
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
+        T::regs().smpr().modify(|w| {
+            w.set_smp(0, sample_time);
+        });
     }
 
     /// Get the ADC sample time.
     pub fn sample_time(&self) -> SampleTime {
-        self.sample_time
+        T::regs().smpr().read().smp(0)
     }
 
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
+        T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
     /// Set hardware averaging.
     pub fn set_averaging(&mut self, averaging: Averaging) {
         let (enable, samples, right_shift) = match averaging {
-            Averaging::Disabled => (false, 0, 0),
-            Averaging::Samples2 => (true, 1, 1),
-            Averaging::Samples4 => (true, 3, 2),
-            Averaging::Samples8 => (true, 7, 3),
-            Averaging::Samples16 => (true, 15, 4),
-            Averaging::Samples32 => (true, 31, 5),
-            Averaging::Samples64 => (true, 63, 6),
-            Averaging::Samples128 => (true, 127, 7),
-            Averaging::Samples256 => (true, 255, 8),
-            Averaging::Samples512 => (true, 511, 9),
-            Averaging::Samples1024 => (true, 1023, 10),
+            Averaging::Disabled => (false, Adc4OversamplingRatio::OVERSAMPLE2X, 0),
+            Averaging::Samples2 => (true, Adc4OversamplingRatio::OVERSAMPLE2X, 1),
+            Averaging::Samples4 => (true, Adc4OversamplingRatio::OVERSAMPLE4X, 2),
+            Averaging::Samples8 => (true, Adc4OversamplingRatio::OVERSAMPLE8X, 3),
+            Averaging::Samples16 => (true, Adc4OversamplingRatio::OVERSAMPLE16X, 4),
+            Averaging::Samples32 => (true, Adc4OversamplingRatio::OVERSAMPLE32X, 5),
+            Averaging::Samples64 => (true, Adc4OversamplingRatio::OVERSAMPLE64X, 6),
+            Averaging::Samples128 => (true, Adc4OversamplingRatio::OVERSAMPLE128X, 7),
+            Averaging::Samples256 => (true, Adc4OversamplingRatio::OVERSAMPLE256X, 8),
         };
 
         T::regs().cfgr2().modify(|reg| {
-            reg.set_rovse(enable);
-            reg.set_osvr(samples);
+            reg.set_ovsr(samples);
             reg.set_ovss(right_shift);
+            reg.set_ovse(enable)
         })
     }
 
@@ -306,37 +359,18 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.read_channel(channel)
     }
 
-    fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
+    fn configure_channel(channel: &mut impl AdcChannel<T>) {
         channel.setup();
-
-        let channel = channel.channel();
-
-        Self::set_channel_sample_time(channel, sample_time);
-
-        T::regs().cfgr2().modify(|w| w.set_lshift(0));
-        T::regs()
-            .pcsel()
-            .modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+        T::regs().chselrmod0().write_value(Adc4Chselrmod0(0_u32));
+        T::regs().chselrmod0().modify(|w| {
+            w.set_chsel(channel.channel() as usize, true);
+        });
     }
 
     fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        Self::configure_channel(channel, self.sample_time);
-
-        T::regs().sqr1().modify(|reg| {
-            reg.set_sq(0, channel.channel());
-            reg.set_l(0);
-        });
-
-        self.convert()
-    }
-
-    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        let sample_time = sample_time.into();
-        if ch <= 9 {
-            T::regs().smpr(0).modify(|reg| reg.set_smp(ch as _, sample_time));
-        } else {
-            T::regs().smpr(1).modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
-        }
+        Self::configure_channel(channel);
+        let ret = self.convert();
+        ret
     }
 
     fn cancel_conversions() {

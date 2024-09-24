@@ -218,6 +218,10 @@ pub struct Config {
     #[cfg(any(stm32l4, stm32l5, stm32u5))]
     pub enable_independent_io_supply: bool,
 
+    /// On the U5 series all analog peripherals are powere by a separate supply.
+    #[cfg(stm32u5)]
+    pub enable_independent_analog_supply: bool,
+
     /// BDMA interrupt priority.
     ///
     /// Defaults to P0 (highest).
@@ -257,6 +261,8 @@ impl Default for Config {
             enable_debug_during_sleep: true,
             #[cfg(any(stm32l4, stm32l5, stm32u5))]
             enable_independent_io_supply: true,
+            #[cfg(stm32u5)]
+            enable_independent_analog_supply: true,
             #[cfg(bdma)]
             bdma_interrupt_priority: Priority::P0,
             #[cfg(dma)]
@@ -464,6 +470,20 @@ fn init_hw(config: Config) -> Peripherals {
             crate::pac::PWR.svmcr().modify(|w| {
                 w.set_io2sv(config.enable_independent_io_supply);
             });
+            if config.enable_independent_analog_supply {
+                crate::pac::PWR.svmcr().modify(|w| {
+                    w.set_avm1en(true);
+                });
+                while !crate::pac::PWR.svmsr().read().vdda1rdy() {}
+                crate::pac::PWR.svmcr().modify(|w| {
+                    w.set_asv(true);
+                });
+            } else {
+                crate::pac::PWR.svmcr().modify(|w| {
+                    w.set_avm1en(false);
+                    w.set_avm2en(false);
+                });
+            }
         }
 
         // dead battery functionality is still present on these
