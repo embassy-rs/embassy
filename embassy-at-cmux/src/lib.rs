@@ -9,6 +9,7 @@ mod frame;
 use core::cell::Cell;
 use core::future::{poll_fn, Future};
 use core::mem::MaybeUninit;
+use core::pin::pin;
 use core::task::Poll;
 
 use embassy_futures::join::join;
@@ -188,7 +189,7 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                     assert!(res.is_ok());
                 }
 
-                match select(select_slice(&mut futs), self.line_status_updated.wait()).await {
+                match select(select_slice(pin!(&mut futs)), self.line_status_updated.wait()).await {
                     Either::First((buf, i)) => {
                         let (control, _) = self.lines[i].tx.get();
                         if control.fc() {
