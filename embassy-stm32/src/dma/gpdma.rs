@@ -216,7 +216,10 @@ impl<'a> Transfer<'a> {
         data_size: WordSize,
         _options: TransferOptions,
     ) -> Self {
-        assert!(mem_len > 0 && mem_len <= 0xFFFF);
+        // BNDT is specified as bytes, not as number of transfers.
+        let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
+            panic!("DMA transfers may not be larger than 65535 bytes.");
+        };
 
         let info = channel.info();
         let ch = info.dma.ch(info.num);
@@ -225,9 +228,6 @@ impl<'a> Transfer<'a> {
         fence(Ordering::SeqCst);
 
         let this = Self { channel };
-
-        #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&*this.channel, request);
 
         ch.cr().write(|w| w.set_reset(true));
         ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
@@ -245,10 +245,8 @@ impl<'a> Transfer<'a> {
             });
             w.set_reqsel(request);
         });
-        ch.br1().write(|w| {
-            // BNDT is specified as bytes, not as number of transfers.
-            w.set_bndt((mem_len * data_size.bytes()) as u16)
-        });
+        ch.tr3().write(|_| {}); // no address offsets.
+        ch.br1().write(|w| w.set_bndt(bndt));
 
         match dir {
             Dir::MemoryToPeripheral => {

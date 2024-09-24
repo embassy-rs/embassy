@@ -260,7 +260,10 @@ pub struct Stack<'d> {
 pub(crate) struct Inner {
     pub(crate) sockets: SocketSet<'static>, // Lifetime type-erased.
     pub(crate) iface: Interface,
+    /// Waker used for triggering polls.
     pub(crate) waker: WakerRegistration,
+    /// Waker used for waiting for link up or config up.
+    state_waker: WakerRegistration,
     hardware_address: HardwareAddress,
     next_local_port: u16,
     link_up: bool,
@@ -270,7 +273,6 @@ pub(crate) struct Inner {
     static_v6: Option<StaticConfigV6>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
-    config_waker: WakerRegistration,
     #[cfg(feature = "dns")]
     dns_socket: SocketHandle,
     #[cfg(feature = "dns")]
@@ -326,6 +328,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         sockets,
         iface,
         waker: WakerRegistration::new(),
+        state_waker: WakerRegistration::new(),
         next_local_port,
         hardware_address,
         link_up: false,
@@ -335,7 +338,6 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         static_v6: None,
         #[cfg(feature = "dhcpv4")]
         dhcp_socket: None,
-        config_waker: WakerRegistration::new(),
         #[cfg(feature = "dns")]
         dns_socket,
         #[cfg(feature = "dns")]
@@ -421,10 +423,20 @@ impl<'d> Stack<'d> {
         v4_up || v6_up
     }
 
+    /// Wait for the network device to obtain a link signal.
+    pub async fn wait_link_up(&self) {
+        self.wait(|| self.is_link_up()).await
+    }
+
+    /// Wait for the network device to lose link signal.
+    pub async fn wait_link_down(&self) {
+        self.wait(|| !self.is_link_up()).await
+    }
+
     /// Wait for the network stack to obtain a valid IP configuration.
     ///
     /// ## Notes:
-    /// - Ensure [`Stack::run`] has been called before using this function.
+    /// - Ensure [`Runner::run`] has been started before using this function.
     ///
     /// - This function may never return (e.g. if no configuration is obtained through DHCP).
     /// The caller is supposed to handle a timeout for this case.
@@ -451,13 +463,17 @@ impl<'d> Stack<'d> {
     /// // ...
     /// ```
     pub async fn wait_config_up(&self) {
-        // If the config is up already, we can return immediately.
-        if self.is_config_up() {
-            return;
-        }
+        self.wait(|| self.is_config_up()).await
+    }
 
-        poll_fn(|cx| {
-            if self.is_config_up() {
+    /// Wait for the network stack to lose a valid IP configuration.
+    pub async fn wait_config_down(&self) {
+        self.wait(|| !self.is_config_up()).await
+    }
+
+    fn wait<'a>(&'a self, mut predicate: impl FnMut() -> bool + 'a) -> impl Future<Output = ()> + 'a {
+        poll_fn(move |cx| {
+            if predicate() {
                 Poll::Ready(())
             } else {
                 // If the config is not up, we register a waker that is woken up
@@ -465,13 +481,12 @@ impl<'d> Stack<'d> {
                 trace!("Waiting for config up");
 
                 self.with_mut(|i| {
-                    i.config_waker.register(cx.waker());
+                    i.state_waker.register(cx.waker());
                 });
 
                 Poll::Pending
             }
         })
-        .await;
     }
 
     /// Get the current IPv4 configuration.
@@ -775,7 +790,7 @@ impl Inner {
                 .update_servers(&dns_servers[..count]);
         }
 
-        self.config_waker.wake();
+        self.state_waker.wake();
     }
 
     fn poll<D: Driver>(&mut self, cx: &mut Context<'_>, driver: &mut D) {
@@ -813,6 +828,7 @@ impl Inner {
         // Print when changed
         if old_link_up != self.link_up {
             info!("link_up = {:?}", self.link_up);
+            self.state_waker.wake();
         }
 
         #[allow(unused_mut)]

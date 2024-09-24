@@ -289,7 +289,8 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
 
     // Make sure we are running a booted firmware to avoid reverting to a bad state.
     async fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
-        if self.get_state().await? == State::Boot {
+        let state = self.get_state().await?;
+        if state == State::Boot || state == State::DfuDetach || state == State::Revert {
             Ok(())
         } else {
             Err(FirmwareUpdaterError::BadState)
@@ -303,12 +304,7 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
     /// `mark_booted`.
     pub async fn get_state(&mut self) -> Result<State, FirmwareUpdaterError> {
         self.state.read(0, &mut self.aligned).await?;
-
-        if !self.aligned.iter().any(|&b| b != SWAP_MAGIC) {
-            Ok(State::Swap)
-        } else {
-            Ok(State::Boot)
-        }
+        Ok(State::from(&self.aligned))
     }
 
     /// Mark to trigger firmware swap on next boot.

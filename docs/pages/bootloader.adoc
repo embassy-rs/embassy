@@ -88,8 +88,7 @@ Then, to sign your firmware given a declaration of `FIRMWARE_DIR` and a firmware
 
 [source, bash]
 ----
-shasum -a 512 -b $FIRMWARE_DIR/myfirmware > $SECRETS_DIR/message.txt
-cat $SECRETS_DIR/message.txt | dd ibs=128 count=1 | xxd -p -r > $SECRETS_DIR/message.txt
+shasum -a 512 -b $FIRMWARE_DIR/myfirmware | head -c128 | xxd -p -r > $SECRETS_DIR/message.txt
 signify -S -s $SECRETS_DIR/key.sec -m $SECRETS_DIR/message.txt -x $SECRETS_DIR/message.txt.sig
 cp $FIRMWARE_DIR/myfirmware $FIRMWARE_DIR/myfirmware+signed
 tail -n1 $SECRETS_DIR/message.txt.sig | base64 -d -i - | dd ibs=10 skip=1 >> $FIRMWARE_DIR/myfirmware+signed

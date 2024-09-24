@@ -311,51 +311,29 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         }
     }
 
+    /// Set SPI word size. Disables SPI if needed, you have to enable it back yourself.
     fn set_word_size(&mut self, word_size: word_impl::Config) {
         if self.current_word_size == word_size {
             return;
         }
 
+        self.info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+
         #[cfg(any(spi_v1, spi_f1))]
-        {
-            self.info.regs.cr1().modify(|reg| {
-                reg.set_spe(false);
-                reg.set_dff(word_size)
-            });
-            self.info.regs.cr1().modify(|reg| {
-                reg.set_spe(true);
-            });
-        }
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_dff(word_size);
+        });
         #[cfg(spi_v2)]
-        {
-            self.info.regs.cr1().modify(|w| {
-                w.set_spe(false);
-            });
-            self.info.regs.cr2().modify(|w| {
-                w.set_frxth(word_size.1);
-                w.set_ds(word_size.0);
-            });
-            self.info.regs.cr1().modify(|w| {
-                w.set_spe(true);
-            });
-        }
+        self.info.regs.cr2().modify(|w| {
+            w.set_frxth(word_size.1);
+            w.set_ds(word_size.0);
+        });
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        {
-            self.info.regs.cr1().modify(|w| {
-                w.set_csusp(true);
-            });
-            while self.info.regs.sr().read().eot() {}
-            self.info.regs.cr1().modify(|w| {
-                w.set_spe(false);
-            });
-            self.info.regs.cfg1().modify(|w| {
-                w.set_dsize(word_size);
-            });
-            self.info.regs.cr1().modify(|w| {
-                w.set_csusp(false);
-                w.set_spe(true);
-            });
-        }
+        self.info.regs.cfg1().modify(|w| {
+            w.set_dsize(word_size);
+        });
 
         self.current_word_size = word_size;
     }
@@ -365,9 +343,9 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
+        self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
-        self.set_word_size(W::CONFIG);
         for word in words.iter() {
             // this cannot use `transfer_word` because on SPIv2 and higher,
             // the SPI RX state machine hangs if no physical pin is connected to the SCK AF.
@@ -402,9 +380,9 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
+        self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
-        self.set_word_size(W::CONFIG);
         for word in words.iter_mut() {
             *word = transfer_word(self.info.regs, W::default())?;
         }
@@ -418,9 +396,9 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
+        self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
-        self.set_word_size(W::CONFIG);
         for word in words.iter_mut() {
             *word = transfer_word(self.info.regs, *word)?;
         }
@@ -437,9 +415,9 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
+        self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
-        self.set_word_size(W::CONFIG);
         let len = read.len().max(write.len());
         for i in 0..len {
             let wb = write.get(i).copied().unwrap_or_default();
@@ -648,10 +626,10 @@ impl<'d> Spi<'d, Async> {
             return Ok(());
         }
 
-        self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
+        self.set_word_size(W::CONFIG);
 
         let tx_dst = self.info.regs.tx_ptr();
         let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
@@ -685,6 +663,8 @@ impl<'d> Spi<'d, Async> {
             w.set_spe(false);
         });
 
+        self.set_word_size(W::CONFIG);
+
         let comm = regs.cfg2().modify(|w| {
             let prev = w.comm();
             w.set_comm(vals::Comm::RECEIVER);
@@ -707,7 +687,6 @@ impl<'d> Spi<'d, Async> {
         let rx_src = regs.rx_ptr();
 
         for mut chunk in data.chunks_mut(u16::max_value().into()) {
-            self.set_word_size(W::CONFIG);
             set_rxdmaen(regs, true);
 
             let tsize = chunk.len();
@@ -765,11 +744,11 @@ impl<'d> Spi<'d, Async> {
             return Ok(());
         }
 
-        self.set_word_size(W::CONFIG);
-
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
+
+        self.set_word_size(W::CONFIG);
 
         // SPIv3 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
@@ -783,7 +762,7 @@ impl<'d> Spi<'d, Async> {
         let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read(rx_src, data, Default::default()) };
 
         let tx_dst = self.info.regs.tx_ptr();
-        let clock_byte = 0x00u8;
+        let clock_byte = W::default();
         let tx_f = unsafe {
             self.tx_dma
                 .as_mut()
@@ -813,10 +792,11 @@ impl<'d> Spi<'d, Async> {
             return Ok(());
         }
 
-        self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
+
+        self.set_word_size(W::CONFIG);
 
         // SPIv3 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
@@ -1195,7 +1175,7 @@ trait SealedWord {
 
 /// Word sizes usable for SPI.
 #[allow(private_bounds)]
-pub trait Word: word::Word + SealedWord {}
+pub trait Word: word::Word + SealedWord + Default {}
 
 macro_rules! impl_word {
     ($T:ty, $config:expr) => {
