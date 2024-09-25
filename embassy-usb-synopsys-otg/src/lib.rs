@@ -15,8 +15,9 @@ use core::task::Poll;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
     Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut,
-    EndpointType, Event, SynchronizationType, Unsupported, UsageType,
+    EndpointType, Event, Unsupported,
 };
+pub use embassy_usb_driver::{SynchronizationType, UsageType};
 
 pub mod otg_v1;
 

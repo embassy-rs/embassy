@@ -14,10 +14,8 @@ use cortex_m::peripheral::NVIC;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
-use embassy_usb_driver::{
-    Direction, EndpointAddress, EndpointError, EndpointInfo, EndpointType, Event, SynchronizationType, Unsupported,
-    UsageType,
-};
+use embassy_usb_driver::{Direction, EndpointAddress, EndpointError, EndpointInfo, EndpointType, Event, Unsupported};
+pub use embassy_usb_driver::{SynchronizationType, UsageType};
 use pac::usbd::RegisterBlock;
 
 use self::vbus_detect::VbusDetect;

@@ -11,6 +11,7 @@ use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
+pub use embassy_usb_driver::{SynchronizationType, UsageType};
 
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
