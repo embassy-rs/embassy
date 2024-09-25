@@ -2,7 +2,6 @@
 
 use defmt::{assert, *};
 use embassy_futures::join::join;
-use embassy_net::driver::Driver;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Stack};
 use embassy_time::{with_timeout, Duration, Timer};
@@ -13,7 +12,7 @@ pub struct Expected {
     pub updown_kbps: usize,
 }
 
-pub async fn run<D: Driver>(stack: &Stack<D>, expected: Expected) {
+pub async fn run(stack: Stack<'_>, expected: Expected) {
     info!("Waiting for DHCP up...");
     while stack.config_v4().is_none() {
         Timer::after_millis(100).await;
@@ -38,7 +37,7 @@ const DOWNLOAD_PORT: u16 = 4321;
 const UPLOAD_PORT: u16 = 4322;
 const UPLOAD_DOWNLOAD_PORT: u16 = 4323;
 
-async fn test_download<D: Driver>(stack: &Stack<D>) -> usize {
+async fn test_download(stack: Stack<'_>) -> usize {
     info!("Testing download...");
 
     let mut rx_buffer = [0; RX_BUFFER_SIZE];
@@ -78,7 +77,7 @@ async fn test_download<D: Driver>(stack: &Stack<D>) -> usize {
     kbps
 }
 
-async fn test_upload<D: Driver>(stack: &Stack<D>) -> usize {
+async fn test_upload(stack: Stack<'_>) -> usize {
     info!("Testing upload...");
 
     let mut rx_buffer = [0; RX_BUFFER_SIZE];
@@ -118,7 +117,7 @@ async fn test_upload<D: Driver>(stack: &Stack<D>) -> usize {
     kbps
 }
 
-async fn test_upload_download<D: Driver>(stack: &Stack<D>) -> usize {
+async fn test_upload_download(stack: Stack<'_>) -> usize {
     info!("Testing upload+download...");
 
     let mut rx_buffer = [0; RX_BUFFER_SIZE];

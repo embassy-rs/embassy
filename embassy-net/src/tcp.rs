@@ -8,12 +8,10 @@
 //! Incoming connections when no socket is listening are rejected. To accept many incoming
 //! connections, create many sockets and put them all into listening mode.
 
-use core::cell::RefCell;
 use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
 
-use embassy_net_driver::Driver;
 use embassy_time::Duration;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::tcp;
@@ -21,7 +19,7 @@ pub use smoltcp::socket::tcp::State;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
 use crate::time::duration_to_smoltcp;
-use crate::{SocketStack, Stack};
+use crate::Stack;
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -79,6 +77,15 @@ impl<'a> TcpReader<'a> {
     ///
     /// Returns how many bytes were read, or an error. If no data is available, it waits
     /// until there is at least one byte available.
+    ///
+    /// # Note
+    /// A return value of Ok(0) means that we have read all data and the remote
+    /// side has closed our receive half of the socket. The remote can no longer
+    /// send bytes.
+    ///
+    /// The send half of the socket is still open. If you want to reconnect using
+    /// the socket you split this reader off the send half needs to be closed using
+    /// [`abort()`](TcpSocket::abort).
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
     }
@@ -148,20 +155,18 @@ impl<'a> TcpWriter<'a> {
 
 impl<'a> TcpSocket<'a> {
     /// Create a new TCP socket on the given stack, with the given buffers.
-    pub fn new<D: Driver>(stack: &'a Stack<D>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
-        let s = &mut *stack.socket.borrow_mut();
-        let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
-        let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
-        let handle = s.sockets.add(tcp::Socket::new(
-            tcp::SocketBuffer::new(rx_buffer),
-            tcp::SocketBuffer::new(tx_buffer),
-        ));
+    pub fn new(stack: Stack<'a>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
+        let handle = stack.with_mut(|i| {
+            let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
+            let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
+            i.sockets.add(tcp::Socket::new(
+                tcp::SocketBuffer::new(rx_buffer),
+                tcp::SocketBuffer::new(tx_buffer),
+            ))
+        });
 
         Self {
-            io: TcpIo {
-                stack: &stack.socket,
-                handle,
-            },
+            io: TcpIo { stack: stack, handle },
         }
     }
 
@@ -219,7 +224,7 @@ impl<'a> TcpSocket<'a> {
     where
         T: Into<IpEndpoint>,
     {
-        let local_port = self.io.stack.borrow_mut().get_local_port();
+        let local_port = self.io.stack.with_mut(|i| i.get_local_port());
 
         match {
             self.io
@@ -273,6 +278,9 @@ impl<'a> TcpSocket<'a> {
     ///
     /// Returns how many bytes were read, or an error. If no data is available, it waits
     /// until there is at least one byte available.
+    ///
+    /// A return value of Ok(0) means that the socket was closed and is longer
+    /// able to receive any data.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
     }
@@ -297,6 +305,10 @@ impl<'a> TcpSocket<'a> {
     ///
     /// If the timeout is set, the socket will be closed if no data is received for the
     /// specified duration.
+    ///
+    /// # Note:
+    /// Set a keep alive interval ([`set_keep_alive`] to prevent timeouts when
+    /// the remote could still respond.
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
         self.io
             .with_mut(|s, _| s.set_timeout(duration.map(duration_to_smoltcp)))
@@ -308,6 +320,9 @@ impl<'a> TcpSocket<'a> {
     /// the specified duration of inactivity.
     ///
     /// If not set, the socket will not send keep-alive packets.
+    ///
+    /// By setting a [`timeout`](Self::timeout) larger then the keep alive you
+    /// can detect a remote endpoint that no longer answers.
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
         self.io
             .with_mut(|s, _| s.set_keep_alive(interval.map(duration_to_smoltcp)))
@@ -382,31 +397,43 @@ impl<'a> TcpSocket<'a> {
 
 impl<'a> Drop for TcpSocket<'a> {
     fn drop(&mut self) {
-        self.io.stack.borrow_mut().sockets.remove(self.io.handle);
+        self.io.stack.with_mut(|i| i.sockets.remove(self.io.handle));
     }
+}
+
+fn _assert_covariant<'a, 'b: 'a>(x: TcpSocket<'b>) -> TcpSocket<'a> {
+    x
+}
+fn _assert_covariant_reader<'a, 'b: 'a>(x: TcpReader<'b>) -> TcpReader<'a> {
+    x
+}
+fn _assert_covariant_writer<'a, 'b: 'a>(x: TcpWriter<'b>) -> TcpWriter<'a> {
+    x
 }
 
 // =======================
 
 #[derive(Copy, Clone)]
 struct TcpIo<'a> {
-    stack: &'a RefCell<SocketStack>,
+    stack: Stack<'a>,
     handle: SocketHandle,
 }
 
 impl<'d> TcpIo<'d> {
     fn with<R>(&self, f: impl FnOnce(&tcp::Socket, &Interface) -> R) -> R {
-        let s = &*self.stack.borrow();
-        let socket = s.sockets.get::<tcp::Socket>(self.handle);
-        f(socket, &s.iface)
+        self.stack.with(|i| {
+            let socket = i.sockets.get::<tcp::Socket>(self.handle);
+            f(socket, &i.iface)
+        })
     }
 
     fn with_mut<R>(&mut self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.borrow_mut();
-        let socket = s.sockets.get_mut::<tcp::Socket>(self.handle);
-        let res = f(socket, &mut s.iface);
-        s.waker.wake();
-        res
+        self.stack.with_mut(|i| {
+            let socket = i.sockets.get_mut::<tcp::Socket>(self.handle);
+            let res = f(socket, &mut i.iface);
+            i.waker.wake();
+            res
+        })
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
@@ -657,15 +684,15 @@ pub mod client {
     /// TCP client connection pool compatible with `embedded-nal-async` traits.
     ///
     /// The pool is capable of managing up to N concurrent connections with tx and rx buffers according to TX_SZ and RX_SZ.
-    pub struct TcpClient<'d, D: Driver, const N: usize, const TX_SZ: usize = 1024, const RX_SZ: usize = 1024> {
-        stack: &'d Stack<D>,
+    pub struct TcpClient<'d, const N: usize, const TX_SZ: usize = 1024, const RX_SZ: usize = 1024> {
+        stack: Stack<'d>,
         state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
         socket_timeout: Option<Duration>,
     }
 
-    impl<'d, D: Driver, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClient<'d, D, N, TX_SZ, RX_SZ> {
+    impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClient<'d, N, TX_SZ, RX_SZ> {
         /// Create a new `TcpClient`.
-        pub fn new(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Self {
+        pub fn new(stack: Stack<'d>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Self {
             Self {
                 stack,
                 state,
@@ -682,8 +709,8 @@ pub mod client {
         }
     }
 
-    impl<'d, D: Driver, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_nal_async::TcpConnect
-        for TcpClient<'d, D, N, TX_SZ, RX_SZ>
+    impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_nal_async::TcpConnect
+        for TcpClient<'d, N, TX_SZ, RX_SZ>
     {
         type Error = Error;
         type Connection<'m> = TcpConnection<'m, N, TX_SZ, RX_SZ> where Self: 'm;
@@ -703,7 +730,7 @@ pub mod client {
                 IpAddr::V6(_) => panic!("ipv6 support not enabled"),
             };
             let remote_endpoint = (addr, remote.port());
-            let mut socket = TcpConnection::new(&self.stack, self.state)?;
+            let mut socket = TcpConnection::new(self.stack, self.state)?;
             socket.socket.set_timeout(self.socket_timeout.clone());
             socket
                 .socket
@@ -722,7 +749,7 @@ pub mod client {
     }
 
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpConnection<'d, N, TX_SZ, RX_SZ> {
-        fn new<D: Driver>(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
+        fn new(stack: Stack<'d>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
             let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
             Ok(Self {
                 socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) },

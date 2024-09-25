@@ -15,6 +15,7 @@ pub use rp_binary_info as binary_info;
 #[cfg(feature = "critical-section-impl")]
 mod critical_section_impl;
 
+#[cfg(feature = "rp2040")]
 mod intrinsics;
 
 pub mod adc;
@@ -31,6 +32,8 @@ pub mod gpio;
 pub mod i2c;
 pub mod i2c_slave;
 pub mod multicore;
+#[cfg(feature = "_rp235x")]
+pub mod otp;
 pub mod pwm;
 mod reset;
 pub mod rom_data;
@@ -39,6 +42,8 @@ pub mod rtc;
 pub mod spi;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
+#[cfg(feature = "_rp235x")]
+pub mod trng;
 pub mod uart;
 pub mod usb;
 pub mod watchdog;
@@ -399,9 +404,11 @@ embassy_hal_internal::peripherals! {
 
     WATCHDOG,
     BOOTSEL,
+
+    TRNG
 }
 
-#[cfg(not(feature = "boot2-none"))]
+#[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
 macro_rules! select_bootloader {
     ( $( $feature:literal => $loader:ident, )+ default => $default:ident ) => {
         $(
@@ -418,7 +425,7 @@ macro_rules! select_bootloader {
     }
 }
 
-#[cfg(not(feature = "boot2-none"))]
+#[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
 select_bootloader! {
     "boot2-at25sf128a" => BOOT_LOADER_AT25SF128A,
     "boot2-gd25q64cs" => BOOT_LOADER_GD25Q64CS,

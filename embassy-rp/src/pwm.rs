@@ -106,6 +106,10 @@ impl<'d> Pwm<'d> {
 
         if let Some(pin) = &a {
             pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+            #[cfg(feature = "_rp235x")]
+            pin.pad_ctrl().modify(|w| {
+                w.set_iso(false);
+            });
         }
         if let Some(pin) = &b {
             pin.gpio().ctrl().write(|w| w.set_funcsel(4));

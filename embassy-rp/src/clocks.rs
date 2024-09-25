@@ -512,12 +512,18 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         w.set_int(config.ref_clk.div);
     });
 
-    // Configure tick generation on the 2040. On the 2350 the timers are driven from the sysclk.
+    // Configure tick generation on the 2040.
     #[cfg(feature = "rp2040")]
     pac::WATCHDOG.tick().write(|w| {
         w.set_cycles((clk_ref_freq / 1_000_000) as u16);
         w.set_enable(true);
     });
+    // Configure tick generator on the 2350
+    #[cfg(feature = "_rp235x")]
+    {
+        pac::TICKS.timer0_cycles().write(|w| w.0 = clk_ref_freq / 1_000_000);
+        pac::TICKS.timer0_ctrl().write(|w| w.set_enable(true));
+    }
 
     let (sys_src, sys_aux, clk_sys_freq) = {
         use {ClkSysCtrlAuxsrc as Aux, ClkSysCtrlSrc as Src};
@@ -841,6 +847,10 @@ impl<'d, T: GpinPin> Gpin<'d, T> {
         into_ref!(gpin);
 
         gpin.gpio().ctrl().write(|w| w.set_funcsel(0x08));
+        #[cfg(feature = "_rp235x")]
+        gpin.pad_ctrl().write(|w| {
+            w.set_iso(false);
+        });
 
         Gpin {
             gpin: gpin.map_into(),
@@ -855,6 +865,7 @@ impl<'d, T: GpinPin> Gpin<'d, T> {
 
 impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
     fn drop(&mut self) {
+        self.gpin.pad_ctrl().write(|_| {});
         self.gpin
             .gpio()
             .ctrl()
@@ -915,11 +926,15 @@ pub struct Gpout<'d, T: GpoutPin> {
 }
 
 impl<'d, T: GpoutPin> Gpout<'d, T> {
-    /// Create new general purpose cloud output.
+    /// Create new general purpose clock output.
     pub fn new(gpout: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(gpout);
 
         gpout.gpio().ctrl().write(|w| w.set_funcsel(0x08));
+        #[cfg(feature = "_rp235x")]
+        gpout.pad_ctrl().write(|w| {
+            w.set_iso(false);
+        });
 
         Self { gpout }
     }
@@ -999,6 +1014,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
 impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
     fn drop(&mut self) {
         self.disable();
+        self.gpout.pad_ctrl().write(|_| {});
         self.gpout
             .gpio()
             .ctrl()

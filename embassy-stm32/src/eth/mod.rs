@@ -177,6 +177,20 @@ pub unsafe trait PHY {
     fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool;
 }
 
+impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
+    /// Directly expose the SMI interface used by the Ethernet driver.
+    ///
+    /// This can be used to for example configure special PHY registers for compliance testing.
+    ///
+    /// # Safety
+    ///
+    /// Revert any temporary PHY register changes such as to enable test modes before handing
+    /// the Ethernet device over to the networking stack otherwise things likely won't work.
+    pub unsafe fn station_management(&mut self) -> &mut impl StationManagement {
+        &mut self.station_management
+    }
+}
+
 trait SealedInstance {
     fn regs() -> crate::pac::eth::Eth;
 }

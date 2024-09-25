@@ -41,12 +41,24 @@ pub const MAX_PACKET_SIZE: u8 = 64;
 /// The logger handle, which contains a pipe with configurable size for buffering log messages.
 pub struct UsbLogger<const N: usize> {
     buffer: Pipe<CS, N>,
+    custom_style: Option<fn(&Record, &mut Writer<'_, N>) -> ()>,
 }
 
 impl<const N: usize> UsbLogger<N> {
     /// Create a new logger instance.
     pub const fn new() -> Self {
-        Self { buffer: Pipe::new() }
+        Self {
+            buffer: Pipe::new(),
+            custom_style: None,
+        }
+    }
+
+    /// Create a new logger instance with a custom formatter.
+    pub const fn with_custom_style(custom_style: fn(&Record, &mut Writer<'_, N>) -> ()) -> Self {
+        Self {
+            buffer: Pipe::new(),
+            custom_style: Some(custom_style),
+        }
     }
 
     /// Run the USB logger using the state and USB driver. Never returns.
@@ -137,14 +149,19 @@ impl<const N: usize> log::Log for UsbLogger<N> {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            let _ = write!(Writer(&self.buffer), "{}\r\n", record.args());
+            if let Some(custom_style) = self.custom_style {
+                custom_style(record, &mut Writer(&self.buffer));
+            } else {
+                let _ = write!(Writer(&self.buffer), "{}\r\n", record.args());
+            }
         }
     }
 
     fn flush(&self) {}
 }
 
-struct Writer<'d, const N: usize>(&'d Pipe<CS, N>);
+/// A writer that writes to the USB logger buffer.
+pub struct Writer<'d, const N: usize>(&'d Pipe<CS, N>);
 
 impl<'d, const N: usize> core::fmt::Write for Writer<'d, N> {
     fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
@@ -204,6 +221,36 @@ macro_rules! run {
 macro_rules! with_class {
     ( $x:expr, $l:expr, $p:ident ) => {{
         static LOGGER: ::embassy_usb_logger::UsbLogger<$x> = ::embassy_usb_logger::UsbLogger::new();
+        unsafe {
+            let _ = ::log::set_logger_racy(&LOGGER).map(|()| log::set_max_level_racy($l));
+        }
+        LOGGER.create_future_from_class($p)
+    }};
+}
+
+/// Initialize the USB serial logger from a serial class and return the future to run it.
+/// This version of the macro allows for a custom style function to be passed in.
+/// The custom style function will be called for each log record and is responsible for writing the log message to the buffer.
+///
+/// Arguments specify the buffer size, log level, the serial class and the custom style function, respectively.
+///
+/// # Usage
+///
+/// ```
+/// let log_fut = embassy_usb_logger::with_custom_style!(1024, log::LevelFilter::Info, logger_class, |record, writer| {
+///     use core::fmt::Write;
+///     let level = record.level().as_str();
+///     write!(writer, "[{level}] {}\r\n", record.args()).unwrap();
+/// });
+/// ```
+///
+/// # Safety
+///
+/// This macro should only be invoked only once since it is setting the global logging state of the application.
+#[macro_export]
+macro_rules! with_custom_style {
+    ( $x:expr, $l:expr, $p:ident, $s:expr ) => {{
+        static LOGGER: ::embassy_usb_logger::UsbLogger<$x> = ::embassy_usb_logger::UsbLogger::with_custom_style($s);
         unsafe {
             let _ = ::log::set_logger_racy(&LOGGER).map(|()| log::set_max_level_racy($l));
         }
