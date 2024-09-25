@@ -178,6 +178,7 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::R
 }
 
 pub struct Adc4<'d, T: Instance> {
+    #[allow(unused)]
     adc: crate::PeripheralRef<'d, T>,
 }
 
@@ -371,14 +372,5 @@ impl<'d, T: Instance> Adc4<'d, T> {
         Self::configure_channel(channel);
         let ret = self.convert();
         ret
-    }
-
-    fn cancel_conversions() {
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
-                reg.set_adstp(true);
-            });
-            while T::regs().cr().read().adstart() {}
-        }
     }
 }
