@@ -519,6 +519,15 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             },
         )
     }
+
+    fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_max_packet_size: u16) {
+        warn!("Not implemented yet!!!");
+    }
+    
+
+    fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_max_packet_size: u16) {
+        warn!("Not implemented yet!!!");
+    }
 }
 
 /// USB bus.
@@ -643,11 +652,19 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: u16) {
-        todo!();
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_sync_type(&mut self, ep_addr: EndpointAddress, synchronization_type: SynchronizationType) {
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_usage_type(&mut self, ep_addr: EndpointAddress, usage_type: UsageType) {
+        warn!("Not implemented yet!!!");
     }
 
     fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType) {
-        todo!();
+        warn!("Not implemented yet!!!");
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {

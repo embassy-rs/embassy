@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};
-use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
+use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, SynchronizationType, Unsupported, UsageType};
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 pub use embassy_usb_synopsys_otg::Config;
@@ -234,6 +234,14 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
             cp,
         )
     }
+
+    fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_max_packet_size: u16) {
+        warn!("Not implemented yet!!!");
+    }
+
+    fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_max_packet_size: u16) {
+        warn!("Not implemented yet!!!");
+    }
 }
 
 /// USB bus.
@@ -318,6 +326,22 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
         self.inner.endpoint_is_stalled(ep_addr)
+    }
+
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: u16) {
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_sync_type(&mut self, ep_addr: EndpointAddress, synchronization_type: SynchronizationType) {
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_usage_type(&mut self, ep_addr: EndpointAddress, usage_type: UsageType) {
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType) {
+        warn!("Not implemented yet!!!");
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {

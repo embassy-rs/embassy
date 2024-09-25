@@ -14,8 +14,7 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
-    Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut,
-    EndpointType, Event, Unsupported,
+    Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut, EndpointType, Event, SynchronizationType, Unsupported, UsageType
 };
 
 pub mod otg_v1;
@@ -496,6 +495,14 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d
             },
         )
     }
+
+    fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_max_packet_size: u16) {
+        warn!("Not implemented yet!!!");
+    }
+
+    fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_max_packet_size: u16) {
+        warn!("Not implemented yet!!!");
+    }
 }
 
 /// USB bus.
@@ -879,6 +886,22 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
             Direction::Out => regs.doepctl(ep_addr.index()).read().stall(),
             Direction::In => regs.diepctl(ep_addr.index()).read().stall(),
         }
+    }
+
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: u16) {
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_sync_type(&mut self, ep_addr: EndpointAddress, synchronization_type: SynchronizationType) {
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_usage_type(&mut self, ep_addr: EndpointAddress, usage_type: UsageType) {
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType) {
+        warn!("Not implemented yet!!!");
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
