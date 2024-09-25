@@ -356,22 +356,40 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         )
     }
 
-    fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_size: u16) {
+    fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_max_packet_size: u16) {
         if self.ep_mem_curr_addr != ep.buf.addr {
             panic!("Can only grow buffer if it's the last allocated buffer!");
         }
-        self.ep_mem_free = self.ep_mem_curr_addr - ep.buf.len / 4 + new_size / 4;
-        ep.buf.grow(new_size);
-        ep.info.max_packet_size = ep.buf.len;
+
+        let new_max_buffer_size = (new_max_packet_size + 63) / 64 * 64;
+
+        // as per datasheet, the maximum buffer size is 64, except for isochronous
+        // endpoints, which are allowed to be up to 1023 bytes.
+        if (ep.info.ep_type != EndpointType::Isochronous && new_max_buffer_size > 64) || new_max_buffer_size > 1023 {
+            panic!("max_packet_size too high: {}", new_max_packet_size);
+        }
+
+        self.ep_mem_free = self.ep_mem_curr_addr - ep.buf.len + new_max_buffer_size;
+        ep.buf.grow(new_max_buffer_size);
+        ep.info.max_packet_size = ep.info.max_packet_size.max(new_max_packet_size);
     }
 
-    fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_size: u16) {
+    fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_max_packet_size: u16) {
         if self.ep_mem_curr_addr != ep.buf.addr {
             panic!("Can only grow buffer if it's the last allocated buffer!");
         }
-        self.ep_mem_free = self.ep_mem_curr_addr - ep.buf.len / 4 + new_size / 4;
-        ep.buf.grow(new_size);
-        ep.info.max_packet_size = ep.buf.len;
+
+        let new_max_buffer_size = (new_max_packet_size + 63) / 64 * 64;
+
+        // as per datasheet, the maximum buffer size is 64, except for isochronous
+        // endpoints, which are allowed to be up to 1023 bytes.
+        if (ep.info.ep_type != EndpointType::Isochronous && new_max_buffer_size > 64) || new_max_buffer_size > 1023 {
+            panic!("max_packet_size too high: {}", new_max_packet_size);
+        }
+
+        self.ep_mem_free = self.ep_mem_curr_addr - ep.buf.len + new_max_buffer_size;
+        ep.buf.grow(new_max_buffer_size);
+        ep.info.max_packet_size = ep.info.max_packet_size.max(new_max_packet_size);
     }
 }
 
