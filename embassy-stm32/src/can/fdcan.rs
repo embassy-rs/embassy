@@ -14,7 +14,7 @@ pub use super::common::{BufferedCanReceiver, BufferedCanSender};
 pub use fd::configurator::CanConfigurator;
 pub use fd::interrupt::{IT0InterruptHandler, IT1InterruptHandler};
 pub use fd::peripheral::*;
-pub use fd::Can;
+pub use fd::{Can, RxFifo};
 
 /// Timestamp for incoming packets. Use Embassy time when enabled.
 #[cfg(feature = "time")]

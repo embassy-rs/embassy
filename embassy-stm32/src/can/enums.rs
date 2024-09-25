@@ -1,5 +1,10 @@
 //! Enums shared between CAN controller types.
 
+/// Indicator type which indicates a BusOff error.
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct BusOff;
+
 /// Bus error
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

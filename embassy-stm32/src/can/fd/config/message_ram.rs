@@ -125,7 +125,14 @@ pub struct TxConfig {
     pub data_field_size: DataFieldSize,
 }
 
-/// Configuration for Message RAM layout
+/// Configuration for Message RAM layout.
+///
+/// The default layout is as follows:
+/// * 32 standard and extended filters
+/// * 32 x 64 byte dedicated Rx buffers
+/// * 16 x 64 byte elements in Rx queue 0 and 1
+/// * 8 x 64 byte dedicated Tx buffers
+/// * 24 x 64 byte Tx queue
 #[derive(Clone, Copy, Debug)]
 pub struct MessageRamConfig {
     /// 0-128: Number of standard Message ID filter elements
@@ -146,24 +153,60 @@ pub struct MessageRamConfig {
     pub tx: TxConfig,
 }
 
+impl MessageRamConfig {
+    /// Contains a sane default Message RAM config for CAN Classic only frames.
+    pub const CAN_CLASSIC_DEFAULT: MessageRamConfig = MessageRamConfig {
+        standard_id_filter_size: 32,
+        extended_id_filter_size: 32,
+        rx_fifo_0: RxFifoConfig {
+            watermark_interrupt_level: 0,
+            fifo_size: 16,
+            data_field_size: DataFieldSize::B8,
+        },
+        rx_fifo_1: RxFifoConfig {
+            watermark_interrupt_level: 0,
+            fifo_size: 16,
+            data_field_size: DataFieldSize::B8,
+        },
+        rx_buffer: RxBufferConfig {
+            size: 16,
+            data_field_size: DataFieldSize::B8,
+        },
+        tx: TxConfig {
+            queue_size: 24,
+            dedicated_size: 8,
+            data_field_size: DataFieldSize::B8,
+        },
+    };
+
+    /// Contains a sane default message RAM config supporting CAN FD frames.
+    pub const CAN_FD_DEFAULT: MessageRamConfig = MessageRamConfig {
+        standard_id_filter_size: 32,
+        extended_id_filter_size: 32,
+        rx_fifo_0: RxFifoConfig {
+            watermark_interrupt_level: 0,
+            fifo_size: 6,
+            data_field_size: DataFieldSize::B64,
+        },
+        rx_fifo_1: RxFifoConfig {
+            watermark_interrupt_level: 0,
+            fifo_size: 6,
+            data_field_size: DataFieldSize::B64,
+        },
+        rx_buffer: RxBufferConfig {
+            size: 4,
+            data_field_size: DataFieldSize::B64,
+        },
+        tx: TxConfig {
+            queue_size: 12,
+            dedicated_size: 4,
+            data_field_size: DataFieldSize::B64,
+        },
+    };
+}
+
 impl Default for MessageRamConfig {
     fn default() -> Self {
-        // TODO make better default config.
-        MessageRamConfig {
-            standard_id_filter_size: 28,
-            extended_id_filter_size: 8,
-            rx_fifo_0: RxFifoConfig {
-                watermark_interrupt_level: 3,
-                fifo_size: 3,
-                data_field_size: DataFieldSize::B64,
-            },
-            rx_fifo_1: RxFifoConfig::DISABLED,
-            rx_buffer: RxBufferConfig::DISABLED,
-            tx: TxConfig {
-                queue_size: 3,
-                dedicated_size: 0,
-                data_field_size: DataFieldSize::B64,
-            },
-        }
+        Self::CAN_FD_DEFAULT
     }
 }

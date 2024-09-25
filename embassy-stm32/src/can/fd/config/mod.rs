@@ -324,6 +324,51 @@ pub enum CanFdMode {
     AllowFdCanAndBRS,
 }
 
+/// Error handling mode for the driver.
+/// Indicates how BusOff errors should be handled.
+#[derive(Clone, Copy, Debug)]
+pub enum ErrorHandlingMode {
+    /// Bus Off conditions will be automatically recovered from.
+    /// This is usually not what you want.
+    ///
+    /// In this mode, if you attempt transmission of a frame it will be
+    /// retried forever. This has implications for both the bus and your code:
+    /// * The bus will be spammed with retries for the frame until it is ACKed
+    /// * If you are waiting on frame transmission, of the Tx buffers are full,
+    ///   your code will block forever.
+    ///
+    /// If there are no other devices on the bus, no ACK will ever occur.
+    Auto,
+    /// Error handling happens at every call site.
+    ///
+    /// If bus off condition occurs while a task is waiting on transmission or
+    /// reception, the error will be returned in that task.
+    ///
+    /// If multiple tasks are waiting for tx/rx, they will all receive the
+    /// error. This should be kept in mind if attempting to recover on the bus,
+    /// but most recovery related functions are indepotent and could be called
+    /// multiple times from several tasks without harm.
+    Local,
+    /// Same as `Local`, but only reception will return errors.
+    ///
+    /// The rationale here is that Tx may be retried at will transparrently when
+    /// the bus has recovered, whereas Rx has the added implication of potential
+    /// missed messages.
+    LocalRx,
+    /// Error handling happens centrally.
+    ///
+    /// If an error condition occurs while a task is waiting on tx or rx, they
+    /// will blocking until transmission succeeds.
+    ///
+    /// You are expected to handle error conditions in a central location by
+    /// calling the dedicated error management functions.
+    ///
+    /// If the error condition is not handled centrally by a task, transmitters and
+    /// receivers will block forever. Make sure you implement an error handling
+    /// task.
+    Central,
+}
+
 /// FdCan Config Struct
 #[derive(Clone, Copy, Debug)]
 pub struct FdCanConfig {
@@ -356,6 +401,9 @@ pub struct FdCanConfig {
     pub global_filter: GlobalFilter,
     /// TX buffer mode (FIFO or priority queue)
     pub tx_buffer_mode: TxBufferMode,
+
+    /// Error handling mode for the CAN driver
+    pub error_handling_mode: ErrorHandlingMode,
 
     /// Configures whether the peripheral uses CAN FD as specified by the
     /// Bosch CAN FD Specification V1.0 or if it is limited to regular classic
@@ -459,6 +507,10 @@ impl FdCanConfig {
         self
     }
 
+    /// The FDCAN/M_CAN peripheral uses a RAM region called `message_ram` to
+    /// store data for Rx/Tx and more.
+    /// The layout of this memory region is customizable depending on your needs.
+    #[cfg(can_fdcan_h7)]
     #[inline]
     pub const fn set_message_ram_config(mut self, config: MessageRamConfig) -> Self {
         self.message_ram_config = config;
@@ -480,6 +532,7 @@ impl Default for FdCanConfig {
             timestamp_source: TimestampSource::None,
             global_filter: GlobalFilter::default(),
             tx_buffer_mode: TxBufferMode::Priority,
+            error_handling_mode: ErrorHandlingMode::Local,
             can_fd_mode: CanFdMode::ClassicCanOnly,
             message_ram_config: MessageRamConfig::default(),
         }

@@ -1,20 +1,14 @@
-use core::convert::Infallible;
-
-use cfg_if::cfg_if;
-use message_ram::{HeaderElement, RxFifoElementHeader};
 use stm32_metapac::can::regs::{Ndat1, Ndat2, Txbcr};
 use util::{RxElementData, TxElementData};
 
-use crate::can::{
-    enums::BusError,
-    frame::{CanHeader, Header},
-};
+use crate::can::frame::Header;
 
 mod configuration;
 mod filter;
 
 pub(crate) mod message_ram;
-mod util;
+
+pub(crate) mod util;
 
 /// Loopback Mode
 #[derive(Clone, Copy, Debug)]
@@ -25,11 +19,20 @@ pub(crate) enum LoopbackMode {
 }
 
 #[repr(u8)]
-enum TimestampSource {
+#[allow(dead_code)]
+pub(crate) enum TimestampSource {
+    /// Timestamp always set to 0
     Zero = 0b00,
     Internal = 0b01,
     /// tim3.cnt[0:15] used as source
     External = 0b11,
+}
+
+#[derive(defmt::Format)]
+pub(crate) struct RxLevels {
+    pub rx_0_level: u8,
+    pub rx_1_level: u8,
+    pub buf_mask: u64,
 }
 
 pub(crate) struct CanLowLevel {
@@ -89,15 +92,17 @@ impl CanLowLevel {
         .put(element);
     }
 
-    fn tx_element_get(&self, idx: u8) -> (Header, [u8; 64]) {
-        todo!()
-    }
+    #[allow(dead_code)]
+    pub fn tx_buffer_add(&self, idx: u8, header: &Header, data: &[u8], before_add: impl FnOnce(u8)) -> Option<u8> {
+        // TODO validate that only dedicated buffers are passed.
+        // TODO change to bit mask
 
-    pub fn tx_buffer_add(&self, idx: u8, header: &Header, data: &[u8]) -> Option<u8> {
         if self.regs.txbrp().read().trp(idx as usize) {
             // Transmit already pending for this buffer
             return None;
         }
+
+        before_add(idx);
 
         // Write message to message RAM
         self.tx_element_set(idx, header, data);
@@ -108,7 +113,8 @@ impl CanLowLevel {
         Some(idx)
     }
 
-    pub fn tx_queue_add(&self, header: &Header, data: &[u8]) -> Option<u8> {
+    #[allow(dead_code)]
+    pub fn tx_queue_add(&self, header: &Header, data: &[u8], before_add: impl FnOnce(u8)) -> Option<u8> {
         // We could use TXFQS.TFQPI here (same as for FIFO mode), but this
         // causes us to lose slots on TX cancellations.
         // Instead we find the first slot in the queue and insert the message
@@ -126,6 +132,8 @@ impl CanLowLevel {
             return None;
         }
 
+        before_add(free_idx);
+
         // Write message to message RAM
         self.tx_element_set(free_idx, header, data);
 
@@ -135,7 +143,7 @@ impl CanLowLevel {
         Some(free_idx)
     }
 
-    pub fn tx_fifo_add(&self, header: &Header, data: &[u8]) -> Option<u8> {
+    pub fn tx_fifo_add(&self, header: &Header, data: &[u8], before_add: impl FnOnce(u8)) -> Option<u8> {
         let status = self.regs.txfqs().read();
 
         if status.tfqf() {
@@ -144,6 +152,8 @@ impl CanLowLevel {
         }
 
         let free_idx = status.tfqpi();
+
+        before_add(free_idx);
 
         // Write message to message RAM
         self.tx_element_set(free_idx, header, data);
@@ -166,31 +176,26 @@ impl CanLowLevel {
 }
 
 impl CanLowLevel {
-    pub fn rx_buffer_read(&self, buffer_idx: u8) -> Option<RxElementData> {
-        let bit_idx = buffer_idx & 0b11111;
-        let bit = 1 << bit_idx;
+    pub fn rx_buffer_read(&self, buffer_mask: u64) -> Option<(u8, RxElementData)> {
+        let ndat = self.get_ndat_mask();
+        let available = ndat & buffer_mask;
 
-        // TODO fix NDAT1 and NDAT2 should be indexed
-        let has_data = match buffer_idx {
-            idx if idx < 32 => self.regs.ndat1().read().nd() & bit != 0,
-            idx if idx < 64 => self.regs.ndat2().read().nd() & bit != 0,
-            _ => panic!(),
-        };
-
-        if !has_data {
+        if available == 0 {
             return None;
         }
+
+        let buffer_idx = available.leading_zeros();
 
         let element = self.message_ram.rx_buffer.get_mut(buffer_idx as usize);
         let ret = RxElementData::extract(element);
 
         match buffer_idx {
-            idx if idx < 32 => self.regs.ndat1().write_value(Ndat1(bit)),
-            idx if idx < 64 => self.regs.ndat2().write_value(Ndat2(bit)),
+            idx if idx < 32 => self.regs.ndat1().write_value(Ndat1(buffer_idx << idx)),
+            idx if idx < 64 => self.regs.ndat2().write_value(Ndat2(buffer_idx << (idx - 32))),
             _ => panic!(),
         };
 
-        Some(ret)
+        Some((buffer_idx as u8, ret))
     }
 
     pub fn rx_fifo_read(&self, fifo_num: u8) -> Option<RxElementData> {
@@ -209,44 +214,58 @@ impl CanLowLevel {
 
         Some(ret)
     }
+
+    #[inline]
+    pub fn get_ndat_mask(&self) -> u64 {
+        (self.regs.ndat1().read().nd() as u64) | ((self.regs.ndat2().read().nd() as u64) << 32)
+    }
+
+    #[inline]
+    pub fn get_rx_levels(&self) -> RxLevels {
+        RxLevels {
+            rx_0_level: self.regs.rxfs(0).read().ffl(),
+            rx_1_level: self.regs.rxfs(1).read().ffl(),
+            buf_mask: self.get_ndat_mask(),
+        }
+    }
 }
 
 /// Error stuff
 impl CanLowLevel {
-    fn reg_to_error(value: u8) -> Option<BusError> {
-        match value {
-            //0b000 => None,
-            0b001 => Some(BusError::Stuff),
-            0b010 => Some(BusError::Form),
-            0b011 => Some(BusError::Acknowledge),
-            0b100 => Some(BusError::BitRecessive),
-            0b101 => Some(BusError::BitDominant),
-            0b110 => Some(BusError::Crc),
-            //0b111 => Some(BusError::NoError),
-            _ => None,
-        }
-    }
+    //fn reg_to_error(value: u8) -> Option<BusError> {
+    //    match value {
+    //        //0b000 => None,
+    //        0b001 => Some(BusError::Stuff),
+    //        0b010 => Some(BusError::Form),
+    //        0b011 => Some(BusError::Acknowledge),
+    //        0b100 => Some(BusError::BitRecessive),
+    //        0b101 => Some(BusError::BitDominant),
+    //        0b110 => Some(BusError::Crc),
+    //        //0b111 => Some(BusError::NoError),
+    //        _ => None,
+    //    }
+    //}
 
-    pub fn curr_error(&self) -> Option<BusError> {
-        let err = { self.regs.psr().read() };
-        if err.bo() {
-            return Some(BusError::BusOff);
-        } else if err.ep() {
-            return Some(BusError::BusPassive);
-        } else if err.ew() {
-            return Some(BusError::BusWarning);
-        } else {
-            cfg_if! {
-                if #[cfg(can_fdcan_h7)] {
-                    let lec = err.lec();
-                } else {
-                    let lec = err.lec().to_bits();
-                }
-            }
-            if let Some(err) = Self::reg_to_error(lec) {
-                return Some(err);
-            }
-        }
-        None
-    }
+    //pub fn curr_error(&self) -> Option<BusError> {
+    //    let err = { self.regs.psr().read() };
+    //    if err.bo() {
+    //        return Some(BusError::BusOff);
+    //    } else if err.ep() {
+    //        return Some(BusError::BusPassive);
+    //    } else if err.ew() {
+    //        return Some(BusError::BusWarning);
+    //    } else {
+    //        cfg_if! {
+    //            if #[cfg(can_fdcan_h7)] {
+    //                let lec = err.lec();
+    //            } else {
+    //                let lec = err.lec().to_bits();
+    //            }
+    //        }
+    //        if let Some(err) = Self::reg_to_error(lec) {
+    //            return Some(err);
+    //        }
+    //    }
+    //    None
+    //}
 }

@@ -1,10 +1,15 @@
+// This module contains a more or less full abstraction for message ram,
+// we don't want to remove dead code as it might be used in future
+// feature implementations.
+#![allow(dead_code)]
+
 use core::marker::PhantomData;
 
 use element::tx_event::TxEventElement;
 use volatile_register::RW;
 
 mod element;
-pub(crate) use element::enums::{DataLength, Event, FilterElementConfig, FilterType, FrameFormat, IdType};
+pub(crate) use element::enums::{DataLength, FilterElementConfig, FilterType, FrameFormat, IdType};
 pub(crate) use element::{
     filter_extended::ExtendedFilter, filter_standard::StandardFilter, rx_buffer::RxFifoElementHeader,
     tx_buffer::TxBufferElementHeader,
@@ -347,7 +352,12 @@ impl MessageRamConfig {
         let total_size_bytes = total_size_words << 2;
 
         if let Some(avail) = segment.available_space {
-            assert!(total_size_bytes <= avail, "CAN RAM config exceeded available space!");
+            assert!(
+                total_size_bytes <= avail,
+                "CAN RAM config exceeded available space! ({} allocated, {} available)",
+                total_size_bytes,
+                avail
+            );
         }
 
         // Standard ID filter config

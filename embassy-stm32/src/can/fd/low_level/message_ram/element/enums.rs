@@ -229,5 +229,6 @@ pub enum FilterElementConfig {
     SetPriorityAndStoreInFifo0 = 0b101,
     /// Flag and store message in FIFO 1
     SetPriorityAndStoreInFifo1 = 0b110,
-    //_Unused = 0b111,
+    /// Store a matching message in Rx Buffer or as debug message
+    StoreInRxBuffer = 0b111,
 }

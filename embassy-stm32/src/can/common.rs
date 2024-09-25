@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use embassy_sync::channel::{DynamicReceiver, DynamicSender};
 
 use super::enums::*;

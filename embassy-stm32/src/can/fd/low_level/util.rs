@@ -1,12 +1,6 @@
-use core::slice;
-
-use volatile_register::RW;
-
 use crate::can::frame::Header;
 
-use super::message_ram::{
-    DataLength, Event, FrameFormat, HeaderElement, IdType, RxFifoElementHeader, TxBufferElementHeader,
-};
+use super::message_ram::{DataLength, FrameFormat, HeaderElement, IdType, RxFifoElementHeader, TxBufferElementHeader};
 
 fn make_id(id: u32, extended: bool) -> embedded_can::Id {
     if extended {
@@ -17,6 +11,7 @@ fn make_id(id: u32, extended: bool) -> embedded_can::Id {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct TxElementData {
     pub header: Header,
     pub data: [u8; 64],
@@ -65,6 +60,7 @@ impl TxElementData {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) struct RxElementData {
     pub header: Header,
     pub data: [u8; 64],

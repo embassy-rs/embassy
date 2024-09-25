@@ -1,7 +1,11 @@
 use core::marker::PhantomData;
+use core::sync::atomic::Ordering;
 
+use bit_field::BitField;
 use embassy_hal_internal::into_ref;
+use embedded_can::{ExtendedId, StandardId};
 
+use crate::can::config::ErrorHandlingMode;
 use crate::can::{Classic, Fd};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{
@@ -16,6 +20,7 @@ use crate::{
 };
 
 use super::config::CanFdMode;
+use super::filter::Filter;
 use super::{calc_ns_per_timer_tick, IT0InterruptHandler, IT1InterruptHandler, Info, State};
 
 /// FDCAN Configuration instance instance
@@ -74,7 +79,7 @@ impl<'d> CanConfigurator<'d> {
             config,
             info: T::info(),
             state: T::state(),
-            properties: Properties::new(T::info()),
+            properties: Properties::new(T::state()),
             periph_clock: T::frequency(),
         }
     }
@@ -156,16 +161,31 @@ impl<'d> CanConfigurator<'d> {
             }
         });
 
+        let mut settings_flags = 0;
+        match self.config.error_handling_mode {
+            ErrorHandlingMode::Auto => {
+                settings_flags.set_bit(State::FLAG_AUTO_RECOVER_BUS_OFF, true);
+            }
+            ErrorHandlingMode::Local => {
+                settings_flags.set_bit(State::FLAG_PROPAGATE_ERRORS_TO_RX, true);
+                settings_flags.set_bit(State::FLAG_PROPAGATE_ERRORS_TO_TX, true);
+            }
+            ErrorHandlingMode::LocalRx => {
+                settings_flags.set_bit(State::FLAG_PROPAGATE_ERRORS_TO_RX, true);
+            }
+            ErrorHandlingMode::Central => (),
+        };
+        self.state.settings_flags.store(settings_flags, Ordering::Relaxed);
+
         self.info.low.apply_config(&self.config);
         self.info.low.into_mode(mode);
 
         Can {
             _phantom: PhantomData,
-            config: self.config,
             info: self.info,
             state: self.state,
             _mode: mode,
-            properties: Properties::new(self.info),
+            properties: Properties::new(self.state),
         }
     }
 
@@ -200,48 +220,92 @@ impl<'d> CanConfigurator<'d> {
     }
 }
 
+trait SealedIdType: core::fmt::Debug + Clone + Copy {
+    type Storage: core::fmt::Debug + Clone + Copy;
+    fn alloc_slot(state: &'static State) -> Option<u8>;
+    fn dealloc_slot(state: &'static State, slot_idx: u8);
+    fn set_slot(state: &'static State, slot: u8, filter: Filter<Self, Self::Storage>);
+}
+#[allow(private_bounds)]
+pub trait IdType: SealedIdType {}
+
+impl SealedIdType for StandardId {
+    type Storage = u16;
+    fn alloc_slot(state: &'static State) -> Option<u8> {
+        state.standard_filter_alloc.allocate().map(|v| v as u8)
+    }
+    fn dealloc_slot(state: &'static State, slot_idx: u8) {
+        state.standard_filter_alloc.deallocate(slot_idx as usize);
+    }
+    fn set_slot(state: &'static State, slot: u8, filter: StandardFilter) {
+        state.info.low.set_standard_filter(slot, filter);
+    }
+}
+impl IdType for StandardId {}
+
+impl SealedIdType for ExtendedId {
+    type Storage = u32;
+    fn alloc_slot(state: &'static State) -> Option<u8> {
+        state.extended_filter_alloc.allocate().map(|v| v as u8)
+    }
+    fn dealloc_slot(state: &'static State, slot_idx: u8) {
+        state.extended_filter_alloc.deallocate(slot_idx as usize);
+    }
+    fn set_slot(state: &'static State, slot: u8, filter: ExtendedFilter) {
+        state.info.low.set_extended_filter(slot, filter);
+    }
+}
+impl IdType for ExtendedId {}
+
+pub struct FilterSlot<I: IdType> {
+    _phantom: PhantomData<I>,
+    state: &'static State,
+    slot_idx: u8,
+}
+
+impl<I: IdType> FilterSlot<I> {
+    /// Sets the filter slot to a given filter.
+    #[allow(private_interfaces)]
+    pub fn set(&self, filter: Filter<I, I::Storage>) {
+        I::set_slot(self.state, self.slot_idx, filter);
+    }
+}
+
+impl<I: IdType> Drop for FilterSlot<I> {
+    fn drop(&mut self) {
+        I::dealloc_slot(self.state, self.slot_idx);
+    }
+}
+
 /// Common driver properties, including filters and error counters
 pub struct Properties {
     info: &'static Info,
-    // phantom pointer to ensure !Sync
-    //instance: PhantomData<*const T>,
+    state: &'static State,
 }
 
 impl Properties {
-    fn new(info: &'static Info) -> Self {
+    fn new(state: &'static State) -> Self {
         Self {
-            info,
-            //instance: Default::default(),
+            info: state.info,
+            state,
         }
     }
 
-    /// Set a standard address CAN filter in the specified slot in FDCAN memory.
-    #[inline]
-    pub fn set_standard_filter(&self, slot: u8, filter: StandardFilter) {
-        self.info.low.set_standard_filter(slot, filter);
+    pub fn alloc_filter<I: IdType>(&self) -> Option<FilterSlot<I>> {
+        I::alloc_slot(self.state).map(|slot_idx| FilterSlot {
+            _phantom: PhantomData,
+            state: self.state,
+            slot_idx,
+        })
     }
 
-    // /// Set the full array of standard address CAN filters in FDCAN memory.
-    // /// Overwrites all standard address filters in memory.
-    // pub fn set_standard_filters(&self, filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
-    //     for (i, f) in filters.iter().enumerate() {
-    //         self.info.low.msg_ram_mut().filters.flssa[i].activate(*f);
-    //     }
-    // }
-
-    /// Set an extended address CAN filter in the specified slot in FDCAN memory.
-    #[inline]
-    pub fn set_extended_filter(&self, slot: u8, filter: ExtendedFilter) {
-        self.info.low.set_extended_filter(slot, filter);
+    pub fn alloc_standard_filter(&self) -> Option<FilterSlot<StandardId>> {
+        self.alloc_filter()
     }
 
-    // /// Set the full array of extended address CAN filters in FDCAN memory.
-    // /// Overwrites all extended address filters in memory.
-    // pub fn set_extended_filters(&self, filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
-    //     for (i, f) in filters.iter().enumerate() {
-    //         self.info.low.msg_ram_mut().filters.flesa[i].activate(*f);
-    //     }
-    // }
+    pub fn alloc_extended_filter(&self) -> Option<FilterSlot<ExtendedId>> {
+        self.alloc_filter()
+    }
 
     /// Get the CAN RX error counter
     pub fn rx_error_count(&self) -> u8 {

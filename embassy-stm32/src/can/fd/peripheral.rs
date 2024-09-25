@@ -1,12 +1,10 @@
-use core::sync::atomic::AtomicU32;
-
 use embassy_hal_internal::PeripheralRef;
-use embassy_sync::waitqueue::AtomicWaker;
 
 use super::{low_level::CanLowLevel, State};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{can::Timestamp, peripherals, rcc::RccPeripheral};
 
+#[allow(dead_code)]
 pub(super) struct Info {
     pub low: CanLowLevel,
     pub interrupt0: crate::interrupt::Interrupt,
@@ -45,7 +43,6 @@ pub(super) trait SealedInstance {
     unsafe fn mut_info() -> &'static mut Info;
     fn state() -> &'static State;
     unsafe fn mut_state() -> &'static mut State;
-    fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp;
 }
 
 /// Instance trait
@@ -93,23 +90,6 @@ macro_rules! impl_fdcan {
                 }
                 fn state() -> &'static State {
                     unsafe { peripherals::$inst::mut_state() }
-                }
-
-                #[cfg(feature = "time")]
-                fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-                    let now_embassy = embassy_time::Instant::now();
-                    if ns_per_timer_tick == 0 {
-                        return now_embassy;
-                    }
-                    let cantime = { Self::info().low.regs.tscv().read().tsc() };
-                    let delta = cantime.overflowing_sub(ts_val).0 as u64;
-                    let ns = ns_per_timer_tick * delta as u64;
-                    now_embassy - embassy_time::Duration::from_nanos(ns)
-                }
-
-                #[cfg(not(feature = "time"))]
-                fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-                    ts_val
                 }
 
             }

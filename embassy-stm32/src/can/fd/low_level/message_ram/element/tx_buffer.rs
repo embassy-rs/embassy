@@ -285,7 +285,7 @@ impl<'a> EFC_W<'a> {
     }
 }
 
-struct Marker(u8);
+pub(crate) struct Marker(u8);
 impl From<Event> for Marker {
     fn from(e: Event) -> Marker {
         match e {

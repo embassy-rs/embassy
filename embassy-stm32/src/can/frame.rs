@@ -57,12 +57,14 @@ impl Header {
         Header { id, len, flags }
     }
 
+    /// Sets the CAN FD flags for the header
     pub fn set_can_fd(mut self, flag: bool, brs: bool) -> Header {
         self.flags.set_bit(Self::FLAG_FDCAN, flag);
         self.flags.set_bit(Self::FLAG_BRS, brs);
         self
     }
 
+    /// Sets the error passive indicator bit
     pub fn set_esi(mut self, flag: bool) -> Header {
         self.flags.set_bit(Self::FLAG_ESI, flag);
         self
@@ -83,16 +85,17 @@ impl Header {
         self.flags.get_bit(Self::FLAG_RTR)
     }
 
+    /// Has error passive indicator bit set
     pub fn esi(&self) -> bool {
         self.flags.get_bit(Self::FLAG_ESI)
     }
 
-    /// Request/is FDCAN frame
+    /// Request is FDCAN frame
     pub fn fdcan(&self) -> bool {
         self.flags.get_bit(Self::FLAG_FDCAN)
     }
 
-    /// Request/is Flexible Data Rate
+    /// Request is Flexible Data Rate
     pub fn bit_rate_switching(&self) -> bool {
         self.flags.get_bit(Self::FLAG_BRS)
     }

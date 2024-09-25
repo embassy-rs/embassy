@@ -1,8 +1,12 @@
+use stm32_metapac::can::vals::Tfqm;
+
 use super::{
     message_ram::{MessageRam, MessageRamSegment},
     CanLowLevel, LoopbackMode, TimestampSource,
 };
-use crate::can::config::{CanFdMode, DataBitTiming, FdCanConfig, GlobalFilter, MessageRamConfig, NominalBitTiming};
+use crate::can::config::{
+    CanFdMode, DataBitTiming, FdCanConfig, GlobalFilter, MessageRamConfig, NominalBitTiming, TxBufferMode,
+};
 
 /// Configuration.
 /// Can only be called when in config mode (CCCR.INIT=1, CCCR.CCE=1).
@@ -33,18 +37,21 @@ impl CanLowLevel {
 
     /// Applies the settings of a new FdCanConfig See [`FdCanConfig`]
     pub fn apply_config(&self, config: &FdCanConfig) {
-        // self.set_tx_buffer_mode(config.tx_buffer_mode);
+        self.set_tx_buffer_mode(config.tx_buffer_mode);
 
         // Does not work for FDCAN, internal timer has inconsistent timebase.
         self.set_timestamp_source(TimestampSource::Internal, 0);
 
-        // TXBTIE bits need to be set for each tx element in order for
+        // TXBTIE and TXBCIE bits need to be set for each tx element in order for
         // interrupts to fire.
         self.regs.txbtie().write(|w| w.0 = 0xffff_ffff);
+        self.regs.txbcie().write(|w| w.0 = 0xffff_ffff);
         self.regs.ie().modify(|w| {
             w.set_rfne(0, true); // Rx Fifo 0 New Msg
             w.set_rfne(1, true); // Rx Fifo 1 New Msg
+            w.set_drxe(true); // Rx Dedicated Buffer New Msg
             w.set_tce(true); //  Tx Complete
+            w.set_tcfe(true); // Tx Cancel Finished
             w.set_boe(true); // Bus-Off Status Changed
         });
         self.regs.ile().modify(|w| {
@@ -60,6 +67,15 @@ impl CanLowLevel {
         self.set_edge_filtering(config.edge_filtering);
         self.set_protocol_exception_handling(config.protocol_exception_handling);
         self.set_global_filter(config.global_filter);
+    }
+
+    #[inline]
+    pub fn set_tx_buffer_mode(&self, mode: TxBufferMode) {
+        let mode = match mode {
+            TxBufferMode::Fifo => Tfqm::FIFO,
+            TxBufferMode::Priority => Tfqm::QUEUE,
+        };
+        self.regs.txbc().modify(|v| v.set_tfqm(mode));
     }
 
     /// Configures the global filter settings
@@ -202,11 +218,11 @@ impl CanLowLevel {
         self.regs.cccr().modify(|w| w.set_test(enabled));
     }
 
-    #[inline]
-    pub fn set_clock_stop(&self, enabled: bool) {
-        self.regs.cccr().modify(|w| w.set_csr(enabled));
-        while self.regs.cccr().read().csa() != enabled {}
-    }
+    //#[inline]
+    //pub fn set_clock_stop(&self, enabled: bool) {
+    //    self.regs.cccr().modify(|w| w.set_csr(enabled));
+    //    while self.regs.cccr().read().csa() != enabled {}
+    //}
 
     #[inline]
     pub fn set_restricted_operations(&self, enabled: bool) {
