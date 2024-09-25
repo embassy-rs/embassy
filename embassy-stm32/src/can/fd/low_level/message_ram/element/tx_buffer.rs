@@ -153,7 +153,7 @@ impl<'a> ID_W<'a> {
     #[doc = r"Writes raw bits to the field"]
     #[inline(always)]
     #[allow(dead_code)]
-    pub unsafe fn bits(self, value: u32) -> &'a mut W {
+    pub fn bits(self, value: u32) -> &'a mut W {
         self.w.bits[0] = (self.w.bits[0] & !(0x1FFFFFFF)) | ((value as u32) & 0x1FFFFFFF);
         self.w
     }
@@ -304,13 +304,14 @@ pub(crate) struct MM_W<'a> {
 impl<'a> MM_W<'a> {
     #[doc = r"Writes raw bits to the field"]
     #[inline(always)]
-    pub unsafe fn bits(self, value: u8) -> &'a mut W {
-        self.w.bits[1] = (self.w.bits[1] & !(0x7F << 24)) | (((value as u32) & 0x7F) << 24);
+    pub fn bits(self, value: u8) -> &'a mut W {
+        self.w.bits[1] = (self.w.bits[1] & !(0xff << 24)) | (((value as u32) & 0xff) << 24);
         self.w
     }
 
-    fn set_message_marker(self, mm: Marker) -> &'a mut W {
-        unsafe { self.bits(mm.0) }
+    #[inline(always)]
+    pub fn set_message_marker(self, mm: Marker) -> &'a mut W {
+        self.bits(mm.0)
     }
 }
 

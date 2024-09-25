@@ -57,32 +57,35 @@ pub struct IT0InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::info().low.regs;
-
         let ir = regs.ir().read();
 
+        // TX transfer complete
         if ir.tc() {
             regs.ir().write(|w| w.set_tc(true));
         }
+        // TX cancel request finished
+        if ir.tcf() {
+            regs.ir().write(|w| w.set_tc(true));
+        }
+
+        // TX event FIFO new element
         if ir.tefn() {
             regs.ir().write(|w| w.set_tefn(true));
         }
 
         T::state().tx_waker.wake();
-        //match &T::state().tx_mode {
-        //    TxMode::NonBuffered(waker) => waker.wake(),
-        //}
 
+        // RX FIFO new element
         if ir.rfn(0) {
             T::info().low.regs.ir().write(|w| w.set_rfn(0, true));
             T::state().rx_waker.wake();
-            //T::state().rx_mode.on_interrupt::<T>(0);
         }
         if ir.rfn(1) {
             T::info().low.regs.ir().write(|w| w.set_rfn(1, true));
             T::state().rx_waker.wake();
-            //T::state().rx_mode.on_interrupt::<T>(1);
         }
 
+        // Bus_Off
         if ir.bo() {
             regs.ir().write(|w| w.set_bo(true));
             if regs.psr().read().bo() {

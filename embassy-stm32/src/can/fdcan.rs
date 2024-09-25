@@ -12,6 +12,7 @@ use super::frame::*;
 pub use self::fd::{config, filter};
 pub use super::common::{BufferedCanReceiver, BufferedCanSender};
 pub use fd::configurator::CanConfigurator;
+pub use fd::interrupt::{IT0InterruptHandler, IT1InterruptHandler};
 pub use fd::peripheral::*;
 pub use fd::Can;
 

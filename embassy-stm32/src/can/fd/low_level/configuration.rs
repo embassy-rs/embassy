@@ -1,8 +1,8 @@
 use super::{
-    message_ram::{self, MessageRam},
+    message_ram::{MessageRam, MessageRamSegment},
     CanLowLevel, LoopbackMode, TimestampSource,
 };
-use crate::can::config::{DataBitTiming, FdCanConfig, FrameTransmissionConfig, GlobalFilter, NominalBitTiming};
+use crate::can::config::{CanFdMode, DataBitTiming, FdCanConfig, GlobalFilter, MessageRamConfig, NominalBitTiming};
 
 /// Configuration.
 /// Can only be called when in config mode (CCCR.INIT=1, CCCR.CCE=1).
@@ -22,32 +22,13 @@ impl CanLowLevel {
         }
     }
 
-    pub fn apply_message_ram_config(&mut self, config: message_ram::MessageRamConfig) {
-        let message_ram = config.apply_config(&self.regs, &self.msgram);
-        self.message_ram = message_ram;
-    }
-
-    pub fn apply_dummy_msg_ram_config(&mut self) {
-        self.apply_message_ram_config(message_ram::MessageRamConfig {
+    pub fn apply_message_ram_config(&mut self, config: MessageRamConfig) {
+        let segment = MessageRamSegment {
             base_offset: self.msg_ram_offset,
             available_space: Some(self.msg_ram_size),
-            standard_id_filter_size: 28,
-            extended_id_filter_size: 8,
-            rx_fifo_0: message_ram::RxFifoConfig {
-                operation_mode: message_ram::RxFifoOperationMode::Blocking,
-                watermark_interrupt_level: 3,
-                fifo_size: 3,
-                data_field_size: message_ram::DataFieldSize::B64,
-            },
-            rx_fifo_1: message_ram::RxFifoConfig::DISABLED,
-            rx_buffer: message_ram::RxBufferConfig::DISABLED,
-            tx: message_ram::TxConfig {
-                queue_operation_mode: message_ram::TxQueueOperationMode::FIFO,
-                queue_size: 3,
-                dedicated_size: 0,
-                data_field_size: message_ram::DataFieldSize::B64,
-            },
-        })
+        };
+        let message_ram = unsafe { config.apply_config(&segment, &self.regs, &self.msgram) };
+        self.message_ram = message_ram;
     }
 
     /// Applies the settings of a new FdCanConfig See [`FdCanConfig`]
@@ -75,8 +56,7 @@ impl CanLowLevel {
         self.set_nominal_bit_timing(config.nbtr);
         self.set_automatic_retransmit(config.automatic_retransmit);
         self.set_transmit_pause(config.transmit_pause);
-        self.set_frame_transmit(config.frame_transmit);
-        self.set_non_iso_mode(config.can_fd_enabled);
+        self.set_can_fd_mode(config.can_fd_mode);
         self.set_edge_filtering(config.edge_filtering);
         self.set_protocol_exception_handling(config.protocol_exception_handling);
         self.set_global_filter(config.global_filter);
@@ -163,23 +143,18 @@ impl CanLowLevel {
         self.regs.cccr().modify(|w| w.set_efbi(enabled));
     }
 
-    /// Configures non-iso mode. See [`FdCanConfig::set_non_iso_mode`]
-    #[inline]
-    pub fn set_non_iso_mode(&self, enabled: bool) {
-        self.regs.cccr().modify(|w| w.set_niso(enabled));
-    }
-
     /// Configures frame transmission mode. See
     /// [`FdCanConfig::set_frame_transmit`]
     #[inline]
-    pub fn set_frame_transmit(&self, fts: FrameTransmissionConfig) {
-        let (fdoe, brse) = match fts {
-            FrameTransmissionConfig::ClassicCanOnly => (false, false),
-            FrameTransmissionConfig::AllowFdCan => (true, false),
-            FrameTransmissionConfig::AllowFdCanAndBRS => (true, true),
+    pub fn set_can_fd_mode(&self, fts: CanFdMode) {
+        let (niso, fdoe, brse) = match fts {
+            CanFdMode::ClassicCanOnly => (false, false, false),
+            CanFdMode::AllowFdCan => (true, true, false),
+            CanFdMode::AllowFdCanAndBRS => (true, true, true),
         };
 
         self.regs.cccr().modify(|w| {
+            w.set_niso(niso);
             w.set_fdoe(fdoe);
             #[cfg(can_fdcan_h7)]
             w.set_bse(brse);

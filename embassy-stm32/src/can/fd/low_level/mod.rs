@@ -3,6 +3,7 @@ use core::convert::Infallible;
 use cfg_if::cfg_if;
 use message_ram::{HeaderElement, RxFifoElementHeader};
 use stm32_metapac::can::regs::{Ndat1, Ndat2, Txbcr};
+use util::{RxElementData, TxElementData};
 
 use crate::can::{
     enums::BusError,
@@ -14,8 +15,6 @@ mod filter;
 
 pub(crate) mod message_ram;
 mod util;
-
-use util::{extract_frame, put_tx_data, put_tx_header};
 
 /// Loopback Mode
 #[derive(Clone, Copy, Debug)]
@@ -73,35 +72,21 @@ impl CanLowLevel {
     }
 }
 
-/// Legacy and bad
-impl CanLowLevel {
-    pub fn bad_write<F: embedded_can::Frame + CanHeader>(&self, frame: &F) -> nb::Result<bool, Infallible> {
-        let is_full = self.regs.txfqs().read().tfqf();
-
-        // TODO this does not dequeue lower priority frame!
-        // Temporary!
-
-        if is_full {
-            // TODO only for FIFO!
-            return Err(nb::Error::WouldBlock);
-        }
-
-        let result = self.tx_fifo_add(frame.header(), frame.data());
-
-        if let Some(_idx) = result {
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-}
-
 /// Tx
 impl CanLowLevel {
     fn tx_element_set(&self, idx: u8, header: &Header, data: &[u8]) {
         let element = self.message_ram.tx_elements.get_mut(idx as usize);
-        put_tx_header(&mut element.header, &header);
-        put_tx_data(&mut element.data, data);
+
+        let mut n_data = [0u8; 64];
+        n_data.iter_mut().zip(data.iter()).for_each(|(to, from)| *to = *from);
+
+        TxElementData {
+            header: *header,
+            data: n_data,
+            marker: 0,
+            tx_event: false,
+        }
+        .put(element);
     }
 
     fn tx_element_get(&self, idx: u8) -> (Header, [u8; 64]) {
@@ -181,16 +166,7 @@ impl CanLowLevel {
 }
 
 impl CanLowLevel {
-    pub fn rx_element_get(&self, element: &HeaderElement<RxFifoElementHeader>) -> Option<(Header, u16, [u8; 64])> {
-        let mut buffer = [0u8; 64];
-        // TODO allow read len to be lower than drl?
-        let maybe_header = extract_frame(&element.header, &element.data, &mut buffer);
-
-        let (header, ts) = maybe_header.unwrap();
-        Some((header, ts, buffer))
-    }
-
-    pub fn rx_buffer_read(&self, buffer_idx: u8) -> Option<(Header, u16, [u8; 64])> {
+    pub fn rx_buffer_read(&self, buffer_idx: u8) -> Option<RxElementData> {
         let bit_idx = buffer_idx & 0b11111;
         let bit = 1 << bit_idx;
 
@@ -206,7 +182,7 @@ impl CanLowLevel {
         }
 
         let element = self.message_ram.rx_buffer.get_mut(buffer_idx as usize);
-        let ret = self.rx_element_get(element);
+        let ret = RxElementData::extract(element);
 
         match buffer_idx {
             idx if idx < 32 => self.regs.ndat1().write_value(Ndat1(bit)),
@@ -214,10 +190,10 @@ impl CanLowLevel {
             _ => panic!(),
         };
 
-        ret
+        Some(ret)
     }
 
-    pub fn rx_fifo_read(&self, fifo_num: u8) -> Option<(Header, u16, [u8; 64])> {
+    pub fn rx_fifo_read(&self, fifo_num: u8) -> Option<RxElementData> {
         let status = self.regs.rxfs(fifo_num as usize).read();
 
         let fill_level = status.ffl();
@@ -227,11 +203,11 @@ impl CanLowLevel {
 
         let get_index = self.regs.rxfs(fifo_num as usize).read().fgi();
         let element = self.message_ram.rx_fifos[fifo_num as usize].get_mut(get_index as usize);
-        let ret = self.rx_element_get(element);
+        let ret = RxElementData::extract(element);
 
         self.regs.rxfa(fifo_num as usize).write(|v| v.set_fai(get_index));
 
-        ret
+        Some(ret)
     }
 }
 

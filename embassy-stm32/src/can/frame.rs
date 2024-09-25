@@ -38,9 +38,17 @@ impl defmt::Format for Header {
 }
 
 impl Header {
-    const FLAG_RTR: usize = 0; // Remote
-    const FLAG_FDCAN: usize = 1; // FDCan vs Classic CAN
-    const FLAG_BRS: usize = 2; // Bit-rate switching, ignored for Classic CAN
+    /// RTR (remote transmit request) flag in CAN frame
+    const FLAG_RTR: usize = 0;
+    /// FDCan vs Classic CAN
+    const FLAG_FDCAN: usize = 1;
+    /// Bit-rate switching, ignored for Classic CAN
+    const FLAG_BRS: usize = 2;
+    /// ESI recessive in CAN FD message.
+    /// ORed with error passive flag before transmission.
+    /// By spec, an error active mode may transmit ESI resessive,
+    /// but an error passive node will always transmit ESI resessive.
+    const FLAG_ESI: usize = 3;
 
     /// Create new CAN Header
     pub fn new(id: embedded_can::Id, len: u8, rtr: bool) -> Header {
@@ -49,13 +57,15 @@ impl Header {
         Header { id, len, flags }
     }
 
-    /// Create new CAN FD Header
-    pub fn new_fd(id: embedded_can::Id, len: u8, rtr: bool, brs: bool) -> Header {
-        let mut flags = 0u8;
-        flags.set_bit(Self::FLAG_RTR, rtr);
-        flags.set_bit(Self::FLAG_FDCAN, true);
-        flags.set_bit(Self::FLAG_BRS, brs);
-        Header { id, len, flags }
+    pub fn set_can_fd(mut self, flag: bool, brs: bool) -> Header {
+        self.flags.set_bit(Self::FLAG_FDCAN, flag);
+        self.flags.set_bit(Self::FLAG_BRS, brs);
+        self
+    }
+
+    pub fn set_esi(mut self, flag: bool) -> Header {
+        self.flags.set_bit(Self::FLAG_ESI, flag);
+        self
     }
 
     /// Return ID
@@ -71,6 +81,10 @@ impl Header {
     /// Is remote frame
     pub fn rtr(&self) -> bool {
         self.flags.get_bit(Self::FLAG_RTR)
+    }
+
+    pub fn esi(&self) -> bool {
+        self.flags.get_bit(Self::FLAG_ESI)
     }
 
     /// Request/is FDCAN frame

@@ -7,7 +7,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::{
     can::{
         common::CanMode,
-        config::{FrameTransmissionConfig, TimestampPrescaler, TimestampSource},
+        config::{TimestampPrescaler, TimestampSource},
         filter::{ExtendedFilter, StandardFilter},
         util, Can, Instance, OperatingMode, RxPin, TxPin,
     },
@@ -15,6 +15,7 @@ use crate::{
     interrupt, rcc, Peripheral,
 };
 
+use super::config::CanFdMode;
 use super::{calc_ns_per_timer_tick, IT0InterruptHandler, IT1InterruptHandler, Info, State};
 
 /// FDCAN Configuration instance instance
@@ -56,9 +57,7 @@ impl<'d> CanConfigurator<'d> {
             info.low.apply_config(&config);
         }
 
-        {
-            unsafe { T::mut_info() }.low.apply_dummy_msg_ram_config();
-        }
+        //unsafe { T::mut_info() }.low.apply_message_ram_config();
 
         rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
         tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
@@ -119,22 +118,47 @@ impl<'d> CanConfigurator<'d> {
             seg1: bit_timing.seg1,
             seg2: bit_timing.seg2,
         };
-        self.config.frame_transmit = FrameTransmissionConfig::AllowFdCanAndBRS;
+        self.config.can_fd_mode = CanFdMode::AllowFdCanAndBRS;
         self.config = self.config.set_data_bit_timing(nbtr);
     }
 
     /// Start in mode.
     pub fn start<M: CanMode>(self, mode: OperatingMode) -> Can<'d, M> {
-        let ns_per_timer_tick = calc_ns_per_timer_tick(self.info, self.periph_clock, self.config.frame_transmit);
+        use crate::can::common::DynCanMode;
+
+        match M::dyn_can_mode() {
+            // Creating a FD parametrized CAN instance for Classic hardware config
+            // is supported. Can be used to be able to switch back and fourth without
+            // refactoring all your code or parametrizing it.
+            DynCanMode::Fd => (),
+            // Creating a Classic parametrized CAN instance for FD hardware config
+            // could lead to unexpected behaviour, and is not supported.
+            DynCanMode::Classic => assert!(
+                self.config.can_fd_mode == CanFdMode::ClassicCanOnly,
+                "Short frame types are not supported for FD hardware configuration"
+            ),
+        }
+
+        let ns_per_timer_tick = calc_ns_per_timer_tick(self.info, self.periph_clock, self.config.can_fd_mode);
+
+        // TODO: I really don't like this..
         critical_section::with(|_| {
             let state = self.state as *const State;
             unsafe {
                 let mut_state = state as *mut State;
                 (*mut_state).ns_per_timer_tick = ns_per_timer_tick;
             }
+
+            let info = self.info as *const Info;
+            unsafe {
+                let mut_info = info as *mut Info;
+                (*mut_info).low.apply_message_ram_config(self.config.message_ram_config);
+            }
         });
+
         self.info.low.apply_config(&self.config);
         self.info.low.into_mode(mode);
+
         Can {
             _phantom: PhantomData,
             config: self.config,

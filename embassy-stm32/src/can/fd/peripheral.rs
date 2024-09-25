@@ -64,52 +64,55 @@ macro_rules! impl_fdcan {
     ($inst:ident,
         //$irq0:ident, $irq1:ident,
         $msg_ram_inst:ident, $msg_ram_offset:literal, $msg_ram_size:literal) => {
-        impl SealedInstance for peripherals::$inst {
-            const MSG_RAM_OFFSET: usize = $msg_ram_offset;
-
-            unsafe fn mut_info() -> &'static mut Info {
-                static mut INFO: Info = Info {
-                    low: unsafe { CanLowLevel::new(crate::pac::$inst, crate::pac::$msg_ram_inst, $msg_ram_offset, $msg_ram_size) },
-                    interrupt0: crate::_generated::peripheral_interrupts::$inst::IT0::IRQ,
-                    _interrupt1: crate::_generated::peripheral_interrupts::$inst::IT1::IRQ,
-                    tx_waker: crate::_generated::peripheral_interrupts::$inst::IT0::pend,
-                };
-                &mut *core::ptr::addr_of_mut!(INFO)
-            }
-
-            fn info() -> &'static Info {
-                unsafe { peripherals::$inst::mut_info() }
-            }
-
-            unsafe fn mut_state() -> &'static mut State {
-                static mut STATE: State = State::new();
-                &mut *core::ptr::addr_of_mut!(STATE)
-            }
-            fn state() -> &'static State {
-                unsafe { peripherals::$inst::mut_state() }
-            }
-
-            #[cfg(feature = "time")]
-            fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-                let now_embassy = embassy_time::Instant::now();
-                if ns_per_timer_tick == 0 {
-                    return now_embassy;
-                }
-                let cantime = { Self::info().low.regs.tscv().read().tsc() };
-                let delta = cantime.overflowing_sub(ts_val).0 as u64;
-                let ns = ns_per_timer_tick * delta as u64;
-                now_embassy - embassy_time::Duration::from_nanos(ns)
-            }
-
-            #[cfg(not(feature = "time"))]
-            fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-                ts_val
-            }
-
-        }
 
         #[allow(non_snake_case)]
         pub(crate) mod $inst {
+            use super::*;
+
+            static mut INFO: Info = Info {
+                low: unsafe { CanLowLevel::new(crate::pac::$inst, crate::pac::$msg_ram_inst, $msg_ram_offset, $msg_ram_size) },
+                interrupt0: crate::_generated::peripheral_interrupts::$inst::IT0::IRQ,
+                _interrupt1: crate::_generated::peripheral_interrupts::$inst::IT1::IRQ,
+                tx_waker: crate::_generated::peripheral_interrupts::$inst::IT0::pend,
+            };
+
+            impl SealedInstance for peripherals::$inst {
+                const MSG_RAM_OFFSET: usize = $msg_ram_offset;
+
+                unsafe fn mut_info() -> &'static mut Info {
+                    &mut *core::ptr::addr_of_mut!(INFO)
+                }
+
+                fn info() -> &'static Info {
+                    unsafe { peripherals::$inst::mut_info() }
+                }
+
+                unsafe fn mut_state() -> &'static mut State {
+                    static mut STATE: State = State::new(unsafe { &*core::ptr::addr_of!(INFO) });
+                    &mut *core::ptr::addr_of_mut!(STATE)
+                }
+                fn state() -> &'static State {
+                    unsafe { peripherals::$inst::mut_state() }
+                }
+
+                #[cfg(feature = "time")]
+                fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+                    let now_embassy = embassy_time::Instant::now();
+                    if ns_per_timer_tick == 0 {
+                        return now_embassy;
+                    }
+                    let cantime = { Self::info().low.regs.tscv().read().tsc() };
+                    let delta = cantime.overflowing_sub(ts_val).0 as u64;
+                    let ns = ns_per_timer_tick * delta as u64;
+                    now_embassy - embassy_time::Duration::from_nanos(ns)
+                }
+
+                #[cfg(not(feature = "time"))]
+                fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+                    ts_val
+                }
+
+            }
 
             foreach_interrupt!(
                 ($inst,can,FDCAN,IT0,$irq:ident) => {
@@ -119,10 +122,11 @@ macro_rules! impl_fdcan {
                     pub type Interrupt1 = crate::interrupt::typelevel::$irq;
                 };
             );
-        }
-        impl Instance for peripherals::$inst {
-            type IT0Interrupt = $inst::Interrupt0;
-            type IT1Interrupt = $inst::Interrupt1;
+
+            impl Instance for peripherals::$inst {
+                type IT0Interrupt = $inst::Interrupt0;
+                type IT1Interrupt = $inst::Interrupt1;
+            }
         }
     };
 }

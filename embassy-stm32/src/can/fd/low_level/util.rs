@@ -4,7 +4,9 @@ use volatile_register::RW;
 
 use crate::can::frame::Header;
 
-use super::message_ram::{DataLength, Event, FrameFormat, IdType, RxFifoElementHeader, TxBufferElementHeader};
+use super::message_ram::{
+    DataLength, Event, FrameFormat, HeaderElement, IdType, RxFifoElementHeader, TxBufferElementHeader,
+};
 
 fn make_id(id: u32, extended: bool) -> embedded_can::Id {
     if extended {
@@ -15,93 +17,101 @@ fn make_id(id: u32, extended: bool) -> embedded_can::Id {
     }
 }
 
-pub(crate) fn put_tx_header(reg: &mut TxBufferElementHeader, header: &Header) {
-    let (id, id_type) = match header.id() {
-        // A standard identifier has to be written to ID[28:18].
-        embedded_can::Id::Standard(id) => ((id.as_raw() as u32) << 18, IdType::StandardId),
-        embedded_can::Id::Extended(id) => (id.as_raw() as u32, IdType::ExtendedId),
-    };
-
-    // Use FDCAN only for DLC > 8. FDCAN users can revise this if required.
-    let frame_format = if header.len() > 8 || header.fdcan() {
-        FrameFormat::Fdcan
-    } else {
-        FrameFormat::Classic
-    };
-    let brs = (frame_format == FrameFormat::Fdcan) && header.bit_rate_switching();
-
-    reg.write(|w| {
-        unsafe { w.id().bits(id) }
-            .rtr()
-            .bit(header.len() == 0 && header.rtr())
-            .xtd()
-            .set_id_type(id_type)
-            .set_len(DataLength::new(header.len(), frame_format))
-            .set_event(Event::NoEvent)
-            .fdf()
-            .set_format(frame_format)
-            .brs()
-            .bit(brs)
-        //esi.set_error_indicator(//TODO//)
-    });
+pub(crate) struct TxElementData {
+    pub header: Header,
+    pub data: [u8; 64],
+    pub marker: u8,
+    pub tx_event: bool,
 }
 
-pub(crate) fn put_tx_data(mailbox_data: &mut [RW<u32>], buffer: &[u8]) {
-    let mut lbuffer = [0_u32; 16];
-    let len = buffer.len();
-    let data = unsafe { slice::from_raw_parts_mut(lbuffer.as_mut_ptr() as *mut u8, len) };
-    data[..len].copy_from_slice(&buffer[..len]);
-    let data_len = ((len) + 3) / 4;
-    for (register, byte) in mailbox_data.iter_mut().zip(lbuffer[..data_len].iter()) {
-        unsafe { register.write(*byte) };
+impl TxElementData {
+    //#[inline]
+    //pub(crate) fn extract(element: &HeaderElement<TxBufferElementHeader>) -> Self {
+    //    todo!()
+    //}
+
+    #[inline]
+    pub fn put(&self, element: &mut HeaderElement<TxBufferElementHeader>) {
+        let (id, id_type) = match self.header.id() {
+            // A standard identifier has to be written to ID[28:18].
+            embedded_can::Id::Standard(id) => ((id.as_raw() as u32) << 18, IdType::StandardId),
+            embedded_can::Id::Extended(id) => (id.as_raw() as u32, IdType::ExtendedId),
+        };
+
+        let frame_format = if self.header.fdcan() {
+            FrameFormat::Fdcan
+        } else {
+            FrameFormat::Classic
+        };
+
+        element.header.write(|w| {
+            w.esi().bit(self.header.esi());
+            w.xtd().set_id_type(id_type);
+            w.rtr().bit(self.header.rtr());
+            w.id().bits(id);
+            w.mm().bits(self.marker);
+            w.efc().bit(self.tx_event);
+            w.fdf().bit(self.header.fdcan());
+            w.brs().bit(self.header.bit_rate_switching());
+            w.set_len(DataLength::new(self.header.len(), frame_format));
+            w
+        });
+
+        // TODO validate endianness
+        let u32_data: &[u32; 16] = unsafe { core::mem::transmute(&self.data) };
+        element.data.iter_mut().zip(u32_data.iter()).for_each(|(reg, data)| {
+            unsafe { reg.write(*data) };
+        });
     }
 }
 
-pub(crate) fn data_from_fifo(buffer: &mut [u8], mailbox_data: &[RW<u32>], len: usize) {
-    for (i, register) in mailbox_data.iter().enumerate() {
-        let register_value = register.read();
-        let register_bytes = unsafe { slice::from_raw_parts(&register_value as *const u32 as *const u8, 4) };
-        let num_bytes = (len) - i * 4;
-        if num_bytes <= 4 {
-            buffer[i * 4..i * 4 + num_bytes].copy_from_slice(&register_bytes[..num_bytes]);
-            break;
+pub(crate) struct RxElementData {
+    pub header: Header,
+    pub data: [u8; 64],
+    /// If `dlc` is above what can be represented in the configured element,
+    /// data can be clipped.
+    /// This indicates what the real data word size (4 byte words) was.
+    pub data_words: u8,
+    pub timestamp: u16,
+    /// If None, the frame was accepted without a filter as enabled by
+    /// `GFC.ANFS` or `GFC.ANFE`.
+    /// If Some, contains the index of the filter that was matched.
+    pub filter_index: Option<u8>,
+}
+
+impl RxElementData {
+    #[inline]
+    pub fn extract(element: &HeaderElement<RxFifoElementHeader>) -> Self {
+        let reg = element.header.read();
+
+        let dlc = reg.to_data_length().len();
+
+        let id = make_id(reg.id().bits(), reg.xtd().bits());
+        let timestamp = reg.txts().bits;
+
+        let rtr = reg.rtr().bits;
+        let can_fd = reg.fdf().bits;
+        let brs = reg.brs().bits;
+        let esi = reg.esi().bits;
+
+        let filter_index = if reg.anmf().bits { Some(reg.fidx().bits) } else { None };
+
+        let mut data_u32 = [0u32; 16];
+        data_u32
+            .iter_mut()
+            .zip(element.data.iter())
+            .for_each(|(val, reg)| *val = reg.read());
+        // TODO validate endianness
+        let data: [u8; 64] = unsafe { core::mem::transmute(data_u32) };
+
+        let data_words = element.data.len() as u8;
+
+        Self {
+            header: Header::new(id, dlc, rtr).set_can_fd(can_fd, brs).set_esi(esi),
+            data_words,
+            data,
+            timestamp,
+            filter_index,
         }
-        buffer[i * 4..(i + 1) * 4].copy_from_slice(register_bytes);
     }
-}
-
-pub(crate) fn data_from_tx_buffer(buffer: &mut [u8], mailbox_data: &[RW<u32>], len: usize) {
-    for (i, register) in mailbox_data.iter().enumerate() {
-        let register_value = register.read();
-        let register_bytes = unsafe { slice::from_raw_parts(&register_value as *const u32 as *const u8, 4) };
-        let num_bytes = (len) - i * 4;
-        if num_bytes <= 4 {
-            buffer[i * 4..i * 4 + num_bytes].copy_from_slice(&register_bytes[..num_bytes]);
-            break;
-        }
-        buffer[i * 4..(i + 1) * 4].copy_from_slice(register_bytes);
-    }
-}
-
-pub(crate) fn extract_frame(
-    mailbox_header: &RxFifoElementHeader,
-    mailbox_data: &[RW<u32>],
-    buffer: &mut [u8],
-) -> Option<(Header, u16)> {
-    let header_reg = mailbox_header.read();
-
-    let id = make_id(header_reg.id().bits(), header_reg.xtd().bits());
-    let dlc = header_reg.to_data_length().len();
-    let len = dlc as usize;
-    let timestamp = header_reg.txts().bits;
-    if len > buffer.len() {
-        return None;
-    }
-    data_from_fifo(buffer, mailbox_data, len);
-    let header = if header_reg.fdf().bits {
-        Header::new_fd(id, dlc, header_reg.rtr().bits(), header_reg.brs().bits())
-    } else {
-        Header::new(id, dlc, header_reg.rtr().bits())
-    };
-    Some((header, timestamp))
 }
