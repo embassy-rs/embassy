@@ -539,8 +539,6 @@ impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
         let options: TransferOptions = options.into().unwrap_or_default();
 
         let regs = T::regs();
-
-        let regs = T::regs();
         let epr = regs.epr(index);
 
         let epr_val = epr.read();
@@ -572,7 +570,6 @@ impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
                 }
             }
 
-            let regs = T::regs();
             let stat = epr.read().stat_tx();
             match stat {
                 Stat::DISABLED => Poll::Ready(Ok(())),
