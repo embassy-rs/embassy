@@ -12,6 +12,9 @@ pub enum ChannelError {
 
     /// The device endpoint is stalled.
     Stall,
+
+    /// The request timed out (no proper response from device)
+    Timeout,
 }
 
 /// USB endpoint descriptor as defined in the USB 2.0 specification.
@@ -64,7 +67,7 @@ pub trait USBHostDriverTrait {
     async fn wait_for_device_disconnect(&mut self);
 
     /// Issue a control request out (sending data to device).
-    async fn control_request_out(&mut self, bytes: &[u8]) -> Result<(), ()>;
+    async fn control_request_out(&mut self, bytes: &[u8], data: &[u8]) -> Result<(), ()>;
 
     /// Issue a control request in (receiving data from device).
     async fn control_request_in(&mut self, bytes: &[u8], dest: &mut [u8]) -> Result<usize, ()>;
@@ -79,17 +82,38 @@ pub trait USBHostDriverTrait {
     fn alloc_channel_out(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelOut, ()>;
 }
 
+/// USB Transfer Options
+#[derive(Default, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TransferOptions {
+    /// Optional Timeout in milliseconds.
+    /// If the device has not Acked the transfer within this time the transfer will return a timeout error.
+    pub timeout_ms: Option<u32>,
+}
+
+impl TransferOptions {
+    /// Set timeout in milliseconds
+    pub fn set_timeout_ms(mut self, timeout_ms: u32) -> Self {
+        self.timeout_ms = Some(timeout_ms);
+        self
+    }
+}
+
 /// USB Host Channel for an IN Endpoint
 pub trait ChannelIn {
     /// Attempt to read `buf.len()` bytes from an IN Endpoint.
     /// This reads multiple USB packets if `buf.len()` is larger than the maximum packet size.
     /// Returns the number of bytes read, which may be be less than `buf.len()` if the device responds with non full packet.
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>;
+    async fn read(
+        &mut self,
+        buf: &mut [u8],
+        options: impl Into<Option<TransferOptions>>,
+    ) -> Result<usize, ChannelError>;
 }
 
 /// USB Host Channel for an OUT Endpoint
 pub trait ChannelOut {
     /// Write `buf.len()` bytes to an OUT Endpoint.
     /// This writes multiple USB packets if `buf.len()` is larger than the maximum packet size.
-    async fn write(&mut self, buf: &[u8]) -> Result<(), ChannelError>;
+    async fn write(&mut self, buf: &[u8], options: impl Into<Option<TransferOptions>>) -> Result<(), ChannelError>;
 }

@@ -477,7 +477,7 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
             length: 0,
         };
 
-        self.driver.control_request_out(packet.as_bytes()).await?;
+        self.driver.control_request_out(packet.as_bytes(), &[]).await?;
         self.device_address = addr;
         Ok(())
     }
@@ -555,7 +555,7 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
             length: buf.len() as u16,
         };
 
-        self.driver.control_request_out(packet.as_bytes()).await
+        self.driver.control_request_out(packet.as_bytes(), &[]).await
     }
 
     /// SET_CONFIGURATION control request.
@@ -569,7 +569,7 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
             length: 0,
         };
 
-        self.driver.control_request_out(packet.as_bytes()).await
+        self.driver.control_request_out(packet.as_bytes(), &[]).await
     }
 
     /// Claim/allocate an endpoint. Returns the channel if successful.

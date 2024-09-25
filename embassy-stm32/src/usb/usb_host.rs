@@ -6,8 +6,10 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::Timer;
-use embassy_usb_driver::host::{ChannelError, ChannelIn, ChannelOut, EndpointDescriptor, USBHostDriverTrait};
+use embassy_time::{Duration, Instant, Timer};
+use embassy_usb_driver::host::{
+    ChannelError, ChannelIn, ChannelOut, EndpointDescriptor, TransferOptions, USBHostDriverTrait,
+};
 use embassy_usb_driver::EndpointType;
 
 use super::{DmPin, DpPin, Instance};
@@ -444,8 +446,14 @@ impl<'d, T: Instance> Channel<'d, T, In> {
 }
 
 impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
+    async fn read(
+        &mut self,
+        buf: &mut [u8],
+        options: impl Into<Option<TransferOptions>>,
+    ) -> Result<usize, ChannelError> {
         let index = self.index;
+
+        let options: TransferOptions = options.into().unwrap_or_default();
 
         let regs = T::regs();
         let epr = regs.epr(index);
@@ -461,8 +469,24 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
 
         let mut count: usize = 0;
 
-        let res = poll_fn(|cx| {
+        let t0 = Instant::now();
+
+        poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
+
+            if let Some(timeout_ms) = options.timeout_ms {
+                if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
+                    // Timeout, we need to stop the current transaction.
+                    // stat_rx can only be toggled by writing a 1 to its bits.
+                    // We want to set it to InActive (0b00). So we should write back the current value.
+                    let epr_val = epr.read();
+                    let current_stat_rx = epr_val.stat_rx();
+                    let mut epr_val = invariant(epr_val);
+                    epr_val.set_stat_rx(current_stat_rx);
+                    regs.epr(index).write_value(epr_val);
+                    return Poll::Ready(Err(ChannelError::Timeout));
+                }
+            }
 
             let stat = regs.epr(index).read().stat_rx();
             match stat {
@@ -494,9 +518,7 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
                 }
             }
         })
-        .await;
-
-        res
+        .await
     }
 }
 
@@ -509,40 +531,56 @@ impl<'d, T: Instance> Channel<'d, T, Out> {
 }
 
 impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), ChannelError> {
+    async fn write(&mut self, buf: &[u8], options: impl Into<Option<TransferOptions>>) -> Result<(), ChannelError> {
         self.write_data(buf);
 
         let index = self.index;
 
+        let options: TransferOptions = options.into().unwrap_or_default();
+
         let regs = T::regs();
 
-        let epr = regs.epr(index).read();
-        let current_stat_tx = epr.stat_tx().to_bits();
+        let regs = T::regs();
+        let epr = regs.epr(index);
+
+        let epr_val = epr.read();
+        let current_stat_tx = epr_val.stat_tx().to_bits();
         // stat_rx can only be toggled by writing a 1.
         // We want to set it to Active (0b11)
         let stat_valid = Stat::from_bits(!current_stat_tx & 0x3);
 
-        let mut epr = invariant(epr);
-        epr.set_stat_tx(stat_valid);
-        regs.epr(index).write_value(epr);
+        let mut epr_val = invariant(epr_val);
+        epr_val.set_stat_tx(stat_valid);
+        epr.write_value(epr_val);
 
-        let stat = poll_fn(|cx| {
+        let t0 = Instant::now();
+
+        poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
+
+            if let Some(timeout_ms) = options.timeout_ms {
+                if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
+                    // Timeout, we need to stop the current transaction.
+                    // stat_tx can only be toggled by writing a 1 to its bits.
+                    // We want to set it to InActive (0b00). So we should write back the current value.
+                    let epr_val = epr.read();
+                    let current_stat_tx = epr_val.stat_tx();
+                    let mut epr_val = invariant(epr_val);
+                    epr_val.set_stat_tx(current_stat_tx);
+                    epr.write_value(epr_val);
+                    return Poll::Ready(Err(ChannelError::Timeout));
+                }
+            }
+
             let regs = T::regs();
-            let stat = regs.epr(index).read().stat_tx();
-            if matches!(stat, Stat::STALL | Stat::DISABLED) {
-                Poll::Ready(stat)
-            } else {
-                Poll::Pending
+            let stat = epr.read().stat_tx();
+            match stat {
+                Stat::DISABLED => Poll::Ready(Ok(())),
+                Stat::STALL => Poll::Ready(Err(ChannelError::Stall)),
+                Stat::NAK | Stat::VALID => Poll::Pending,
             }
         })
-        .await;
-
-        if stat == Stat::STALL {
-            return Err(ChannelError::Stall);
-        }
-
-        Ok(())
+        .await
     }
 }
 
@@ -651,21 +689,33 @@ impl<'d, T: Instance> USBHostDriverTrait for USBHostDriver<'d, T> {
         .await;
     }
 
-    async fn control_request_out(&mut self, bytes: &[u8]) -> Result<(), ()> {
+    async fn control_request_out(&mut self, bytes: &[u8], data: &[u8]) -> Result<(), ()> {
         let epr0 = T::regs().epr(0);
 
         // setup stage
         let mut epr_val = invariant(epr0.read());
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
-        self.control_channel_out.write(bytes).await.map_err(|_| ())?;
+        let options = TransferOptions::default().set_timeout_ms(1000);
+        self.control_channel_out
+            .write(bytes, options.clone())
+            .await
+            .map_err(|_| ())?;
 
-        // TODO data stage
-        // self.control_channel_out.write(bytes).await.map_err(|_| ())?;
+        // data stage
+        if data.len() > 0 {
+            self.control_channel_out
+                .write(data, options.clone())
+                .await
+                .map_err(|_| ())?;
+        }
 
         // Status stage
         let mut status = [0u8; 0];
-        self.control_channel_in.read(&mut status).await.map_err(|_| ())?;
+        self.control_channel_in
+            .read(&mut status, options)
+            .await
+            .map_err(|_| ())?;
 
         Ok(())
     }
@@ -677,18 +727,25 @@ impl<'d, T: Instance> USBHostDriverTrait for USBHostDriver<'d, T> {
         let mut epr_val = invariant(epr0.read());
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
+        let options = TransferOptions::default().set_timeout_ms(1000);
 
-        self.control_channel_out.write(bytes).await.map_err(|_| ())?;
+        self.control_channel_out
+            .write(bytes, options.clone())
+            .await
+            .map_err(|_| ())?;
 
         // data stage
-
-        let count = self.control_channel_in.read(dest).await.map_err(|_| ())?;
+        let count = self
+            .control_channel_in
+            .read(dest, options.clone())
+            .await
+            .map_err(|_| ())?;
 
         // status stage
 
         // Send 0 bytes
         let zero = [0u8; 0];
-        self.control_channel_out.write(&zero).await.map_err(|_| ())?;
+        self.control_channel_out.write(&zero, options).await.map_err(|_| ())?;
 
         Ok(count)
     }

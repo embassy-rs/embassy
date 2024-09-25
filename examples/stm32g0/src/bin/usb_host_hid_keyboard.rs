@@ -242,7 +242,7 @@ mod hid_keyboard {
         pub async fn listen(&mut self) {
             let mut buffer = [0u8; 8];
 
-            if let Ok(_l) = self.channel.read(&mut buffer[..]).await {
+            if let Ok(_l) = self.channel.read(&mut buffer[..], None).await {
                 let keycodes = parse_payload(&buffer);
 
                 for keycode in keycodes {
