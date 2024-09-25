@@ -6,16 +6,15 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver::{self as driver};
 use embassy_usb_driver::{
-    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
+    self as driver, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event,
+    Unsupported,
 };
 pub use embassy_usb_driver::{SynchronizationType, UsageType};
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
-
 use crate::pac::usb_dpram::vals::EpControlEndpointType;
+use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 trait SealedInstance {
     fn regs() -> crate::pac::usb::Usb;
