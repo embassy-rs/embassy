@@ -11,6 +11,8 @@ use embassy_usb_driver::host::{
     ChannelError, ChannelIn, ChannelOut, EndpointDescriptor, TransferOptions, USBHostDriverTrait,
 };
 use embassy_usb_driver::EndpointType;
+use stm32_metapac::common::{Reg, RW};
+use stm32_metapac::usb::regs::Epr;
 
 use super::{DmPin, DpPin, Instance};
 use crate::pac::usb::regs;
@@ -430,6 +432,10 @@ impl<'d, T: Instance, D> Channel<'d, T, D> {
             },
         }
     }
+
+    fn reg(&self) -> Reg<Epr, RW> {
+        T::regs().epr(self.index)
+    }
 }
 
 impl<'d, T: Instance> Channel<'d, T, In> {
@@ -442,6 +448,29 @@ impl<'d, T: Instance> Channel<'d, T, In> {
         }
         self.buf.read(&mut buf[..rx_len]);
         Ok(rx_len)
+    }
+
+    pub fn activate(&mut self) {
+        let epr = self.reg();
+        let epr_val = epr.read();
+        let current_stat_rx = epr_val.stat_rx().to_bits();
+        let mut epr_val = invariant(epr_val);
+        // stat_rx can only be toggled by writing a 1.
+        // We want to set it to Valid (0b11)
+        let stat_mask = Stat::from_bits(!current_stat_rx & 0x3);
+        epr_val.set_stat_rx(stat_mask);
+        epr.write_value(epr_val);
+    }
+
+    pub fn disable(&mut self) {
+        let epr = self.reg();
+        let epr_val = epr.read();
+        let current_stat_rx = epr_val.stat_rx();
+        let mut epr_val = invariant(epr_val);
+        // stat_rx can only be toggled by writing a 1.
+        // We want to set it to Disabled (0b00).
+        epr_val.set_stat_rx(current_stat_rx);
+        epr.write_value(epr_val);
     }
 }
 
@@ -456,16 +485,7 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
         let options: TransferOptions = options.into().unwrap_or_default();
 
         let regs = T::regs();
-        let epr = regs.epr(index);
-        let epr_val = epr.read();
-        let current_stat_rx = epr_val.stat_rx().to_bits();
-        // stat_rx can only be toggled by writing a 1.
-        // We want to set it to Active (0b11)
-        let stat_valid = Stat::from_bits(!current_stat_rx & 0x3);
-
-        let mut epr_val = invariant(epr_val);
-        epr_val.set_stat_rx(stat_valid);
-        regs.epr(index).write_value(epr_val);
+        self.activate();
 
         let mut count: usize = 0;
 
@@ -474,21 +494,21 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
 
+            // Detect disconnect
+            let istr = regs.istr().read();
+            if !istr.dcon_stat() {
+                self.disable();
+                return Poll::Ready(Err(ChannelError::Disconnected));
+            }
+
             if let Some(timeout_ms) = options.timeout_ms {
                 if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
-                    // Timeout, we need to stop the current transaction.
-                    // stat_rx can only be toggled by writing a 1 to its bits.
-                    // We want to set it to InActive (0b00). So we should write back the current value.
-                    let epr_val = epr.read();
-                    let current_stat_rx = epr_val.stat_rx();
-                    let mut epr_val = invariant(epr_val);
-                    epr_val.set_stat_rx(current_stat_rx);
-                    regs.epr(index).write_value(epr_val);
+                    self.disable();
                     return Poll::Ready(Err(ChannelError::Timeout));
                 }
             }
 
-            let stat = regs.epr(index).read().stat_rx();
+            let stat = self.reg().read().stat_rx();
             match stat {
                 Stat::DISABLED => {
                     // Data available for read
@@ -501,9 +521,7 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
                         Poll::Ready(Ok(count))
                     } else {
                         // More data expected: issue another read.
-                        let mut epr_val = invariant(epr.read());
-                        epr_val.set_stat_rx(Stat::VALID);
-                        epr.write_value(epr_val);
+                        self.activate();
                         Poll::Pending
                     }
                 }
@@ -528,6 +546,29 @@ impl<'d, T: Instance> Channel<'d, T, Out> {
         self.buf.write(buf);
         btable::write_transmit_buffer_descriptor::<T>(index, self.buf.addr, buf.len() as _);
     }
+
+    pub fn activate(&mut self) {
+        let epr = self.reg();
+        let epr_val = epr.read();
+        let current_stat_tx = epr_val.stat_tx().to_bits();
+        let mut epr_val = invariant(epr_val);
+        // stat_tx can only be toggled by writing a 1.
+        // We want to set it to Valid (0b11)
+        let stat_mask = Stat::from_bits(!current_stat_tx & 0x3);
+        epr_val.set_stat_tx(stat_mask);
+        epr.write_value(epr_val);
+    }
+
+    fn disable(&mut self) {
+        let epr = self.reg();
+        let epr_val = epr.read();
+        let current_stat_tx = epr_val.stat_tx();
+        let mut epr_val = invariant(epr_val);
+        // stat_tx can only be toggled by writing a 1.
+        // We want to set it to InActive (0b00).
+        epr_val.set_stat_tx(current_stat_tx);
+        epr.write_value(epr_val);
+    }
 }
 
 impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
@@ -539,38 +580,30 @@ impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
         let options: TransferOptions = options.into().unwrap_or_default();
 
         let regs = T::regs();
-        let epr = regs.epr(index);
 
-        let epr_val = epr.read();
-        let current_stat_tx = epr_val.stat_tx().to_bits();
-        // stat_rx can only be toggled by writing a 1.
-        // We want to set it to Active (0b11)
-        let stat_valid = Stat::from_bits(!current_stat_tx & 0x3);
-
-        let mut epr_val = invariant(epr_val);
-        epr_val.set_stat_tx(stat_valid);
-        epr.write_value(epr_val);
+        self.activate();
 
         let t0 = Instant::now();
 
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
 
+            // Detect disconnect
+            let istr = regs.istr().read();
+            if !istr.dcon_stat() {
+                self.disable();
+                return Poll::Ready(Err(ChannelError::Disconnected));
+            }
+
             if let Some(timeout_ms) = options.timeout_ms {
                 if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
                     // Timeout, we need to stop the current transaction.
-                    // stat_tx can only be toggled by writing a 1 to its bits.
-                    // We want to set it to InActive (0b00). So we should write back the current value.
-                    let epr_val = epr.read();
-                    let current_stat_tx = epr_val.stat_tx();
-                    let mut epr_val = invariant(epr_val);
-                    epr_val.set_stat_tx(current_stat_tx);
-                    epr.write_value(epr_val);
+                    self.disable();
                     return Poll::Ready(Err(ChannelError::Timeout));
                 }
             }
 
-            let stat = epr.read().stat_tx();
+            let stat = self.reg().read().stat_tx();
             match stat {
                 Stat::DISABLED => Poll::Ready(Ok(())),
                 Stat::STALL => Poll::Ready(Err(ChannelError::Stall)),

@@ -15,6 +15,9 @@ pub enum ChannelError {
 
     /// The request timed out (no proper response from device)
     Timeout,
+
+    /// Device has been disconnected.
+    Disconnected,
 }
 
 /// USB endpoint descriptor as defined in the USB 2.0 specification.
