@@ -163,6 +163,7 @@ async fn main(spawner: Spawner) {
             apn: b"iot.nat.es",
             auth_prot: context::AuthProt::Pap,
             auth: Some((b"orange", b"orange")),
+            pin: None,
         },
         stack
     )));
