@@ -588,7 +588,7 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
             .map_err(|_| EnumerationError::DriverError)?;
 
         Timer::after_millis(1).await;
-        debug!("Request Device Descriptor");
+        trace!("Request Partial Device Descriptor");
 
         let max_packet_size0 = {
             let mut max_retries = 10;
@@ -602,7 +602,7 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
                         if max_retries > 0 {
                             max_retries -= 1;
                             Timer::after_millis(1).await;
-                            debug!("Retry Device Descriptor");
+                            trace!("Retry Device Descriptor");
                             continue;
                         } else {
                             return Err(EnumerationError::ReadDeviceDescriptorFailed);
@@ -612,9 +612,9 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
             }
         };
 
-        debug!("Max packet size: {}", max_packet_size0);
+        trace!("Max packet size: {}", max_packet_size0);
 
-        debug!("Set address");
+        trace!("Setting address");
 
         self.device_set_address(self.device_address)
             .await
@@ -625,14 +625,14 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
             .reconfigure_channel0(max_packet_size0 as u16, self.device_address)
             .map_err(|_| EnumerationError::DriverError)?;
 
-        debug!("Request Device Descriptor");
+        trace!("Request Device Descriptor");
 
         let device_desc = self
             .device_request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>()
             .await
             .map_err(|_| EnumerationError::ReadDeviceDescriptorFailed)?;
 
-        debug!("Device Descriptor: {:?}", device_desc);
+        trace!("Full Device Descriptor: {:?}", device_desc);
 
         let cfg_desc = self
             .device_request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>()
@@ -648,7 +648,7 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
             .await
             .map_err(|_| EnumerationError::ReadConfigurationDescriptorFailed)?;
 
-        debug!("Full Configuration Descriptor: {:?}", dest_buffer);
+        trace!("Full Configuration Descriptor: {:?}", dest_buffer);
 
         self.set_configuration(cfg_desc.configuration_value)
             .await
@@ -661,13 +661,13 @@ impl<D: USBHostDriverTrait> UsbHost<D> {
 
     /// Wait for a device to be connected
     pub async fn wait_for_device(&mut self) {
-        debug!("Wait for device detection");
+        trace!("Wait for device detection");
         self.driver.wait_for_device_connect().await;
     }
 
     /// Wait for current device to be disconnected
     pub async fn wait_for_device_disconnect(&mut self) {
-        debug!("Wait for device disconnect");
+        trace!("Wait for device disconnect");
         self.driver.wait_for_device_disconnect().await;
     }
 }
