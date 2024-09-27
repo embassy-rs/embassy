@@ -1,26 +1,19 @@
 
-use core::{future::{poll_fn, Future}, marker::PhantomData, sync::atomic::{AtomicU16, AtomicUsize, Ordering}, task::Poll};
+use core::{future::poll_fn, marker::PhantomData, task::Poll};
 
+use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
 use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver::host::{ChannelError, ChannelIn, ChannelOut, EndpointDescriptor, USBHostDriverTrait};
-use embassy_usb_driver::{Direction, EndpointType};
+use embassy_usb_driver::host::{channel, ChannelError, ChannelIn, ChannelOut, DeviceEvent, EndpointDescriptor, HostError, SetupPacket, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::EndpointType;
 
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
-use usbh::{bus::{AsyncHostBus, Error, Event, HostBus, InterruptPipe}, types::{ConnectionSpeed, TransferType}};
 use crate::{interrupt::{self, typelevel::{Binding, Interrupt}}, usb::EP_MEMORY_SIZE};
 use crate::RegExt;
-use usb_device::UsbDirection;
 
-use super::{Dir, EndpointBuffer, In, Instance, Out, SealedInstance, BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY, EP_OUT_WAKERS};
-
-const CONTROL_BUFFER_SIZE: usize = 64;
+use super::{EndpointBuffer, Instance, SealedInstance, BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY};
 
 const MAIN_BUFFER_SIZE: usize = 1024;
-
-/// Accesses should be atomic
-static mut PENDING_EVENT: Option<Event> = None;
-/// FIXME: Critical sections?
 
 /// Current channel with ongoing transfer
 /// 
@@ -32,8 +25,8 @@ pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     /// Bitset of allocated interrupt pipes
     allocated_pipes: AtomicU16,
-    control_in: Channel<'d, T, In>,
-    control_out: Channel<'d, T, Out>,
+    /// Index for next 'allocated' channel
+    channel_index: AtomicUsize,
 }
 
 impl<'d, T: Instance> Driver<'d, T> {    
@@ -105,367 +98,171 @@ impl<'d, T: Instance> Driver<'d, T> {
         Self {
             phantom: PhantomData,
             allocated_pipes: AtomicU16::new(0),
-            control_in: Channel::new(16, DPRAM_DATA_OFFSET, desc, 64, 0),
-            control_out: Channel::new(17, DPRAM_DATA_OFFSET, desc, 64, 0), 
-        }
-    }
-
-    fn claim_interrupt_channel(&self, desc: &EndpointDescriptor, dev_addr: u8) -> Option<Channel<'d, T, In>> {
-        let alloc = self.allocated_pipes.load(Ordering::Acquire);
-        let free_index = (1..16).find(|i| alloc & (1 << i) == 0)? as u8;
-        
-        self.allocated_pipes.store(alloc | 1 << free_index, Ordering::Release);
-        // Use fixed layout
-        let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
-
-        Some(Channel::new(free_index as _, addr, *desc, 64, dev_addr))
-    }
-
-    fn alloc_pipe(&self, size: u16) -> Option<InterruptPipe> {
-        if size > 64 {
-            return None
-        }
-        
-        let alloc = self.allocated_pipes.load(Ordering::Acquire);
-        let free_index = (0..15).find(|i| alloc & (1 << i) == 0)? as u8;
-
-        // for simplicity, all pipes are considered to be 64 bytes long for now.
-        // This is the maximum supported size for pipes other than Isochronous, 
-        // which are not implemented yet.
-       
-        // Safety: this is the only place where offsets larger than 0x180+CONTROL_BUFFER_SIZE are used.
-        // Since the highest index is 15, all offsets are below `0x180 + 16 * 64 = 1408`, which is below the 4096 bytes available in DPRAM.
-        let ptr = unsafe {
-            EP_MEMORY.offset(
-                DPRAM_DATA_OFFSET as isize + CONTROL_BUFFER_SIZE as isize + free_index as isize * 64
-            )
-        };
-
-        self.allocated_pipes.store(alloc | 1 << free_index, Ordering::Release);
-        
-        Some(InterruptPipe {
-            bus_ref: free_index,
-            ptr
-        })
-    }
-
-    fn release_pipe(&self, pipe_ref: u8) {
-        let alloc = self.allocated_pipes.load(Ordering::Acquire);
-        self.allocated_pipes.store(alloc & !(1 << pipe_ref), Ordering::Release);
-    }
-
-    fn ints_to_event() -> Option<Event> {
-        let regs = T::regs();
-        let ints = regs.ints().read();
-        
-        if ints.host_conn_dis() {
-            let event = match regs.sie_status().read().speed() {
-                0b01 => Event::Attached(ConnectionSpeed::Low),
-                0b10 => Event::Attached(ConnectionSpeed::Full),
-                _ => Event::Detached,
-            };
-            regs.sie_status().modify(|w| {
-                // FIXME(magic):
-                w.set_speed(0b11); 
-            });
-            return Some(event);
-        }
-        if ints.host_resume() {
-            regs.sie_status().write_clear(|w| w.set_resume(true));
-            return Some(Event::Resume);
-        }
-        if ints.stall() {
-            regs.sie_status().write_clear(|w| w.set_stall_rec(true));
-            return Some(Event::Stall);
-        }
-        if ints.error_crc() {
-            regs.sie_status().write_clear(|w| w.set_crc_error(true));
-            return Some(Event::Error(Error::Crc));
-        }
-        if ints.error_bit_stuff() {
-            regs.sie_status().write_clear(|w| w.set_bit_stuff_error(true));
-            return Some(Event::Error(Error::BitStuffing));
-        }
-        if ints.error_rx_overflow() {
-            regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
-            return Some(Event::Error(Error::RxOverflow));
-        }
-        if ints.error_rx_timeout() {
-            regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
-            return Some(Event::Error(Error::RxTimeout));
-        }
-        if ints.error_data_seq() {
-            regs.sie_status().write_clear(|w| w.set_data_seq_error(true));
-            return Some(Event::Error(Error::DataSequence));
-        }
-        if ints.buff_status() {
-            let status = regs.buff_status().read().0;
-            // TODO: handle buffer updates more gracefully. Currently we always wait for TransComplete,
-            //   which only works for transfers that fit into a single buffer.
-
-            for i in 0..32 {
-                // ith bit set
-                if (status >> i) & 1 == 1 {
-                    // clear bit 
-                    regs.buff_status().write_clear(|w| w.0 = 1 << i );
-                    // control transfers (buffer 0)
-                    if i != 0 {
-                        let idx = (i / 2) - 1;
-                        return Some(Event::InterruptPipe(idx));
-                    }
-                }
-            }
-        }
-        if ints.trans_complete() {
-            regs.sie_status().write_clear(|w| w.set_trans_complete(true));
-            return Some(Event::TransComplete);
-        }
-        if ints.host_sof() {
-            return Some(Event::Sof);
-        }
-        None
-    }
-
-    fn control_buffer() -> &'static mut [u8] {
-        unsafe {
-            core::slice::from_raw_parts_mut(EP_MEMORY.offset(DPRAM_DATA_OFFSET as _), CONTROL_BUFFER_SIZE)
+            // 1-15 are reserved for interrupt EPs
+            channel_index: AtomicUsize::new(16),
         }
     }
 }
 
-impl<'d, T: Instance> HostBus for Driver<'d, T> {
-    fn enable_sof(&mut self) {
-        T::regs().sie_ctrl().modify(|w| {
-            w.set_sof_en(true);
-            w.set_keep_alive_en(true);
-            w.set_pulldown_en(true); 
-        });
-    }
+// impl<'d, T: Instance> HostBus for Driver<'d, T> {
+//     fn set_recipient(
+//         &mut self,
+//         dev_addr: Option<usbh::types::DeviceAddress>,
+//         endpoint: u8,
+//         transfer_type: TransferType,
+//     ) {
+//         let regs = T::regs();
+//         regs.addr_endp().write(|w| {
+//             w.set_address(dev_addr.map(u8::from).unwrap_or(0));
+//             w.set_endpoint(endpoint);
+//         });
 
-    fn sof_enabled(&self) -> bool {
-        let sie = T::regs().sie_ctrl().read();
-        sie.sof_en() && sie.keep_alive_en()
-    }
+//         T::dpram_epx_control().modify(|w| {
+//             w.set_enable(true);
+//             w.set_interrupt_per_buff(true);
+//             // Use control buffer
+//             w.set_buffer_address(DPRAM_DATA_OFFSET);
 
-    fn set_recipient(
-        &mut self,
-        dev_addr: Option<usbh::types::DeviceAddress>,
-        endpoint: u8,
-        transfer_type: TransferType,
-    ) {
-        let regs = T::regs();
-        regs.addr_endp().write(|w| {
-            w.set_address(dev_addr.map(u8::from).unwrap_or(0));
-            w.set_endpoint(endpoint);
-        });
+//             let epty = match transfer_type {
+//                 TransferType::Control => EpControlEndpointType::CONTROL,
+//                 TransferType::Isochronous => EpControlEndpointType::ISOCHRONOUS,
+//                 TransferType::Bulk => EpControlEndpointType::BULK,
+//                 TransferType::Interrupt => EpControlEndpointType::INTERRUPT,
+//             };
 
-        T::dpram_epx_control().modify(|w| {
-            w.set_enable(true);
-            w.set_interrupt_per_buff(true);
-            // Use control buffer
-            w.set_buffer_address(DPRAM_DATA_OFFSET);
+//             w.set_endpoint_type(epty);
+//         });
+//     }
 
-            let epty = match transfer_type {
-                TransferType::Control => EpControlEndpointType::CONTROL,
-                TransferType::Isochronous => EpControlEndpointType::ISOCHRONOUS,
-                TransferType::Bulk => EpControlEndpointType::BULK,
-                TransferType::Interrupt => EpControlEndpointType::INTERRUPT,
-            };
+//     fn ls_preamble(&mut self, enabled: bool) {
+//         T::regs().sie_ctrl().modify(|w| w.set_preamble_en(enabled));
+//     }
 
-            w.set_endpoint_type(epty);
-        });
-    }
+//     fn stop_transaction(&mut self) {
+//         T::regs().sie_ctrl().modify(|w| w.set_stop_trans(true));
+//     }
 
-    fn ls_preamble(&mut self, enabled: bool) {
-        T::regs().sie_ctrl().modify(|w| w.set_preamble_en(enabled));
-    }
+//     fn write_setup(&mut self, setup: usbh::types::SetupPacket) {
+//         let dpram = T::dpram();
+//         dpram.setup_packet_low().write(|w| {
+//             w.set_bmrequesttype(setup.request_type.into()); 
+//             w.set_brequest(setup.request.into());
+//             w.set_wvalue(setup.value);
+//         });
+//         dpram.setup_packet_high().write(|w| {
+//             w.set_windex(setup.index);
+//             w.set_wlength(setup.length); 
+//         });
+//         T::regs().sie_ctrl().modify(|w| {
+//             w.set_send_data(false);
+//             w.set_receive_data(false);
+//             w.set_send_setup(true);
+//             w.set_start_trans(true);
+//         });
+//     }
 
-    fn stop_transaction(&mut self) {
-        T::regs().sie_ctrl().modify(|w| w.set_stop_trans(true));
-    }
-
-    fn write_setup(&mut self, setup: usbh::types::SetupPacket) {
-        let dpram = T::dpram();
-        dpram.setup_packet_low().write(|w| {
-            w.set_bmrequesttype(setup.request_type.into()); 
-            w.set_brequest(setup.request.into());
-            w.set_wvalue(setup.value);
-        });
-        dpram.setup_packet_high().write(|w| {
-            w.set_windex(setup.index);
-            w.set_wlength(setup.length); 
-        });
-        T::regs().sie_ctrl().modify(|w| {
-            w.set_send_data(false);
-            w.set_receive_data(false);
-            w.set_send_setup(true);
-            w.set_start_trans(true);
-        });
-    }
-
-    fn write_data_in(&mut self, length: u16, pid: bool) {
-        // FIXME(magic):
-        T::dpram().ep_in_buffer_control(0).write(|w| {
-            w.set_available(0, true); 
-            w.set_pid(0, pid);
-            w.set_full(0, false);
-            w.set_length(0, length);
-            w.set_last(0, true);
-            w.set_reset(true);
-        });
+//     fn create_interrupt_pipe(
+//         &mut self,
+//         device_address: usbh::types::DeviceAddress,
+//         endpoint_number: u8,
+//         direction: UsbDirection,
+//         size: u16,
+//         interval: u8,
+//     ) -> Option<InterruptPipe> {
+//         let pipe = self.alloc_pipe(size)?;
+//         let idx = pipe.bus_ref as usize;
         
-        T::regs().sie_ctrl().modify(|w| {
-            w.set_send_data(false);
-            w.set_send_setup(false);
-            w.set_receive_data(true);
-            w.set_start_trans(true);
-        });
-    }
+//         let regs = T::regs();
+//         let dpram = T::dpram();
 
-    fn prepare_data_out(&mut self, data: &[u8]) {
-        Self::control_buffer()[..data.len()].copy_from_slice(data);
+//         dpram.ep_in_control(idx).write(|w| {
+//             w.set_endpoint_type(EpControlEndpointType::INTERRUPT);
+//             w.set_interrupt_per_buff(true);
+//             // FIXME: host_poll_interval (bits 16:25)
+//             let interval = interval as u32 - 1;
+//             w.0 |= interval << 16;
+//             // FIXME: Index offset?
+//             w.set_buffer_address(
+//                 DPRAM_DATA_OFFSET + CONTROL_BUFFER_SIZE as u16 + (idx * CONTROL_BUFFER_SIZE) as u16
+//             );
+//             w.set_enable(true);
+//         });
 
-        T::dpram().ep_in_buffer_control(0).write(|w| {
-            w.set_available(0, true);
-            w.set_pid(0, true);
-            w.set_full(0, true);
-            w.set_length(0, data.len() as _);
-            w.set_last(0, true);
-            w.set_reset(true);
-        });
-    }
-
-    fn write_data_out_prepared(&mut self) {
-        T::regs().sie_ctrl().modify(|w| {
-            w.set_send_setup(false);
-            w.set_receive_data(false);
-            w.set_send_data(true);
-            w.set_start_trans(true);
-        });
-    }
-
-    fn poll(&mut self) -> Option<usbh::bus::Event> {
-        unsafe { PENDING_EVENT.take() }
-    }
-
-    fn received_data(&self, length: usize) -> &[u8] {
-        &Self::control_buffer()[..length]
-    }
-
-    fn create_interrupt_pipe(
-        &mut self,
-        device_address: usbh::types::DeviceAddress,
-        endpoint_number: u8,
-        direction: UsbDirection,
-        size: u16,
-        interval: u8,
-    ) -> Option<InterruptPipe> {
-        let pipe = self.alloc_pipe(size)?;
-        let idx = pipe.bus_ref as usize;
+//         regs.sie_ctrl().modify(|w| { w.set_sof_sync(true) });
         
-        let regs = T::regs();
-        let dpram = T::dpram();
+//         // FIXME(magic):
+//         dpram.ep_in_buffer_control(idx + 1).write(|w| {
+//             w.set_last(0, true);
+//             w.set_pid(0, false);
+//             w.set_full(0, false);
+//             w.set_reset(true);
+//             w.set_length(0, size);
+//         });
 
-        dpram.ep_in_control(idx).write(|w| {
-            w.set_endpoint_type(EpControlEndpointType::INTERRUPT);
-            w.set_interrupt_per_buff(true);
-            // FIXME: host_poll_interval (bits 16:25)
-            let interval = interval as u32 - 1;
-            w.0 |= interval << 16;
-            // FIXME: Index offset?
-            w.set_buffer_address(
-                DPRAM_DATA_OFFSET + CONTROL_BUFFER_SIZE as u16 + (idx * CONTROL_BUFFER_SIZE) as u16
-            );
-            w.set_enable(true);
-        });
-
-        regs.sie_ctrl().modify(|w| { w.set_sof_sync(true) });
+//         // FIXME(delay):
+//         cortex_m::asm::delay(12);
         
-        // FIXME(magic):
-        dpram.ep_in_buffer_control(idx + 1).write(|w| {
-            w.set_last(0, true);
-            w.set_pid(0, false);
-            w.set_full(0, false);
-            w.set_reset(true);
-            w.set_length(0, size);
-        });
+//         dpram.ep_in_buffer_control(idx + 1).modify(|w| w.set_available(0, true));        
+//         regs.addr_endp_x(idx).write(|w| { 
+//             w.set_address(device_address.into());
+//             w.set_endpoint(endpoint_number);
+//             w.set_intep_dir(direction == UsbDirection::Out);
+//         });
 
-        // FIXME(delay):
-        cortex_m::asm::delay(12);
+//         // FIXME(delay):
+//         cortex_m::asm::delay(12);
         
-        dpram.ep_in_buffer_control(idx + 1).modify(|w| w.set_available(0, true));        
-        regs.addr_endp_x(idx).write(|w| { 
-            w.set_address(device_address.into());
-            w.set_endpoint(endpoint_number);
-            w.set_intep_dir(direction == UsbDirection::Out);
-        });
+//         regs.int_ep_ctrl().modify(|w| {
+//             w.set_int_ep_active(w.int_ep_active() | 1 << idx);
+//         });
 
-        // FIXME(delay):
-        cortex_m::asm::delay(12);
-        
-        regs.int_ep_ctrl().modify(|w| {
-            w.set_int_ep_active(w.int_ep_active() | 1 << idx);
-        });
+//         Some(pipe)
+//     }
 
-        Some(pipe)
-    }
+//     fn release_interrupt_pipe(&mut self, pipe_ref: u8) {
+//         assert!(pipe_ref <= 15);
+//         let dpram = T::dpram();
+//         let idx = pipe_ref as usize;
 
-    fn release_interrupt_pipe(&mut self, pipe_ref: u8) {
-        assert!(pipe_ref <= 15);
-        let dpram = T::dpram();
-        let idx = pipe_ref as usize;
+//         // Disable interrupt polling
+//         T::regs().int_ep_ctrl().modify(|w| {
+//             w.set_int_ep_active(w.int_ep_active() & !(1 << idx))
+//         });
 
-        // Disable interrupt polling
-        T::regs().int_ep_ctrl().modify(|w| {
-            w.set_int_ep_active(w.int_ep_active() & !(1 << idx))
-        });
+//         // FIXME: bits(0)?
+//         dpram.ep_in_control(idx).write(|_| {});
+//         dpram.ep_in_buffer_control(idx + 1).write(|_| {});
 
-        // FIXME: bits(0)?
-        dpram.ep_in_control(idx).write(|_| {});
-        dpram.ep_in_buffer_control(idx + 1).write(|_| {});
+//         T::regs().addr_endp_x(idx).write(|_| {});
 
-        T::regs().addr_endp_x(idx).write(|_| {});
+//         // Mark as released
+//         self.release_pipe(idx as u8);
+//     }
 
-        // Mark as released
-        self.release_pipe(idx as u8);
-    }
+//     fn pipe_continue(&mut self, pipe_ref: u8) {
+//         assert!(pipe_ref <= 15);
+//         let idx = pipe_ref as usize;
 
-    fn pipe_continue(&mut self, pipe_ref: u8) {
-        assert!(pipe_ref <= 15);
-        let idx = pipe_ref as usize;
+//         // EP1..=EP15 IN
+//         // FIXME(index):
+//         let control = T::dpram().ep_in_buffer_control(idx + 1);
+//         control.modify(|w| {
+//             w.set_last(0, true);
+//             w.set_pid(0, !w.pid(0));
+//             w.set_full(0, false);
+//             w.set_reset(true);
+//         });
 
-        // EP1..=EP15 IN
-        // FIXME(index):
-        let control = T::dpram().ep_in_buffer_control(idx + 1);
-        control.modify(|w| {
-            w.set_last(0, true);
-            w.set_pid(0, !w.pid(0));
-            w.set_full(0, false);
-            w.set_reset(true);
-        });
+//         // FIXME(delay):
+//         cortex_m::asm::delay(12);
 
-        // FIXME(delay):
-        cortex_m::asm::delay(12);
-
-        control.modify(|w| w.set_available(0, true))
-    }
-
-    fn interrupt_on_sof(&mut self, enable: bool) {
-        T::regs().inte().modify(|w| w.set_host_sof(enable));
-    }
-
-    fn reset_controller(&mut self) {
-        todo!()
-    }
-
-    fn reset_bus(&mut self) {
-        todo!()
-    }
-}
+//         control.modify(|w| w.set_available(0, true))
+//     }
+// }
 
 /// USB endpoint.
-pub struct Channel<'d, T: Instance, D> {
-    _phantom: PhantomData<(&'d mut T, D)>,
+pub struct Channel<'d, T: Instance, E, D> {
+    _phantom: PhantomData<(&'d mut T, E, D)>,
     index: usize,
     buf: EndpointBuffer<T>,
     desc: EndpointDescriptor,
@@ -473,9 +270,11 @@ pub struct Channel<'d, T: Instance, D> {
 
     /// DATA0-DATA1 state
     pid: bool,
+    /// Send PRE packet
+    pre: bool,
 }
 
-impl<'d, T: Instance, D: Dir> Channel<'d, T, D> {
+impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E, D> {
     /// [EP_MEMORY]-relative address
     fn new(
         index: usize, 
@@ -483,6 +282,7 @@ impl<'d, T: Instance, D: Dir> Channel<'d, T, D> {
         desc: EndpointDescriptor,
         len: u16,
         dev_addr: u8,
+        pre: bool,
     ) -> Self {
         // TODO: assert only in debug?
         assert!(addr + len <= EP_MEMORY_SIZE as u16);
@@ -491,7 +291,7 @@ impl<'d, T: Instance, D: Dir> Channel<'d, T, D> {
         // TODO: Support isochronous, bulk, and interrupt OUT
         assert!(desc.ep_type() != EndpointType::Isochronous);
         assert!(desc.ep_type() != EndpointType::Bulk);
-        assert!(!(desc.ep_type() == EndpointType::Interrupt && D::dir() == Direction::Out));
+        assert!(!(desc.ep_type() == EndpointType::Interrupt && D::is_out()));
         
         if desc.ep_type() == EndpointType::Interrupt {
             assert!(index > 0 && index < 16);
@@ -510,6 +310,7 @@ impl<'d, T: Instance, D: Dir> Channel<'d, T, D> {
                 _phantom: PhantomData,
             },
             pid: false,
+            pre,
         }
     }
 }
@@ -517,7 +318,7 @@ impl<'d, T: Instance, D: Dir> Channel<'d, T, D> {
 type BufferControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpBufferControl, rp_pac::common::RW>;
 type EpControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpControl, rp_pac::common::RW>;
 type AddrControlReg = rp_pac::common::Reg<rp_pac::usb::regs::AddrEndpX, rp_pac::common::RW>;
-impl<'d, T: Instance, IO: Dir> Channel<'d, T, IO> {
+impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E, D> {
     /// Get channel waker
     fn waker(&self) -> &AtomicWaker {
         if self.is_interrupt_in() { 
@@ -554,7 +355,7 @@ impl<'d, T: Instance, IO: Dir> Channel<'d, T, IO> {
     }
 
     fn is_interrupt_in(&self) -> bool {
-        self.desc.ep_type() == EndpointType::Interrupt && IO::dir() == Direction::In
+        self.desc.ep_type() == EndpointType::Interrupt && D::is_in()
     }
     
     /// Wait for buffer to be available
@@ -654,7 +455,7 @@ impl<'d, T: Instance, IO: Dir> Channel<'d, T, IO> {
                 w.set_address(self.dev_addr);
                 w.set_endpoint(self.desc.endpoint_address);
                 // FIXME: INTERRUPT OUT?
-                w.set_intep_dir(IO::dir() == Direction::Out);
+                w.set_intep_dir(D::is_out());
             });
         } else {
             CURRENT_CHANNEL.store(self.index, Ordering::Relaxed);
@@ -691,14 +492,17 @@ impl<'d, T: Instance, IO: Dir> Channel<'d, T, IO> {
     /// Copy setup packet to buffer and set SETUP transaction
     /// 
     /// Set PID = 1 for next transaction
-    fn set_setup_packet(&mut self, setup: &[u8]) {
+    fn set_setup_packet(&mut self, setup: &SetupPacket) {
         assert!(self.desc.ep_type() == EndpointType::Control);
-        // FIXME: Byteorder
-        T::dpram().setup_packet_low().write(|w| {
-            w.0 = u32::from_ne_bytes(setup[..4].try_into().unwrap())
+        let dpram = T::dpram();
+        dpram.setup_packet_low().write(|w| {
+            w.set_bmrequesttype(setup.request_type.bits()); 
+            w.set_brequest(setup.request);
+            w.set_wvalue(setup.value);
         });
-        T::dpram().setup_packet_high().write(|w| {
-            w.0 = u32::from_ne_bytes(setup[4..8].try_into().unwrap())
+        dpram.setup_packet_high().write(|w| {
+            w.set_windex(setup.index);
+            w.set_wlength(setup.length); 
         });
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(false);
@@ -817,7 +621,7 @@ impl<'d, T: Instance, IO: Dir> Channel<'d, T, IO> {
     /// Send SETUP packet
     /// 
     /// WARNING: This flips PID
-    async fn send_setup(&mut self, setup: &[u8]) {
+    async fn send_setup(&mut self, setup: &SetupPacket) {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
         
@@ -836,7 +640,7 @@ impl<'d, T: Instance, IO: Dir> Channel<'d, T, IO> {
     }
 
     /// Send status packet
-    async fn control_status(&mut self) {
+    async fn control_status(&mut self, active_direction_out: bool) {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
         
@@ -845,7 +649,7 @@ impl<'d, T: Instance, IO: Dir> Channel<'d, T, IO> {
         
         // Status packet always have DATA1
         self.pid = true;
-        if IO::dir() == Direction::Out {
+        if active_direction_out {
             self.set_data_in(0);
         } else {
             self.set_data_out(&[]);
@@ -858,9 +662,44 @@ impl<'d, T: Instance, IO: Dir> Channel<'d, T, IO> {
     }
 }
 
-impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
-    /// CONTROL: Data stage
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
+impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> for Channel<'d, T, E, D> {
+    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, HostError>
+    where 
+        E: channel::IsControl,
+        D: channel::IsIn {
+        // TODO: Pass directly
+        // Setup stage
+        self.send_setup(setup).await;
+
+        // Data stage
+        let read = self.request_in(buf).await?;
+
+        // Status stage
+        self.control_status(false).await;
+
+        Ok(read)
+    }
+
+    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, HostError>
+    where 
+        E: channel::IsControl,
+        D: channel::IsOut {
+        // TODO: Pass directly
+        // Setup stage
+        self.send_setup(setup).await;
+
+        // Data stage
+        let written = self.request_out(buf).await?;
+
+        // Status stage
+        self.control_status(true).await;
+
+        Ok(written)
+    }
+
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, HostError>
+    where 
+        D: channel::IsIn {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
         
@@ -887,7 +726,7 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
             trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
 
             if rx_len > free.len() {
-                return Err(ChannelError::BufferOverflow);
+                return Err(HostError::BufferOverflow);
             }
             
             self.buf.read(&mut free[..rx_len]);
@@ -904,11 +743,10 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
         
         Ok(count)
     }
-}
 
-impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
-    /// CONTROL: Data stage
-    async fn write(&mut self, buf: &[u8]) -> Result<(), ChannelError> {
+    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, HostError>
+    where 
+        D: channel::IsOut {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
         
@@ -936,16 +774,39 @@ impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
 
         self.clear_current();
                
-        Ok(())
+        Ok(count)
     }
 }
 
-impl<'d, T: Instance> USBHostDriverTrait for Driver<'d, T> {
-    type ChannelIn = Channel<'d, T, In>;
-    type ChannelOut = Channel<'d, T, Out>;
+impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
+    type Channel<E: channel::Type, D: channel::Direction> = Channel<'d, T, E, D>;
 
-    /// FIXME(async): Await
-    async fn bus_reset(&mut self) {
+    async fn wait_for_device_event(&self) -> DeviceEvent {
+        let is_connected = |status: u8| match status {
+            0b01 | 0b10 => true,
+            _ => false
+        };
+        
+        // Read current state
+        let was = is_connected(T::regs().sie_status().read().speed());
+        // Enable conn/dis irq
+        T::regs().inte().modify(|w| { w.set_host_conn_dis(true); });
+        let ev = poll_fn(|cx| {
+            BUS_WAKER.register(cx.waker());
+            
+            let now = is_connected(T::regs().sie_status().read().speed());
+            match (was, now) {
+                (true, false) => Poll::Ready(DeviceEvent::Disconnected),
+                (false, true) => Poll::Ready(DeviceEvent::Connected),
+                _ => Poll::Pending
+            }        
+        }).await;
+        // FIXME: ?
+        // T::regs().sie_status().write_clear(|w| { w.set_speed(0b11); });
+        ev
+    }
+
+    async fn bus_reset(&self) {
         T::regs().sie_ctrl().modify(|w| {
             w.set_reset_bus(true);
         });
@@ -953,68 +814,54 @@ impl<'d, T: Instance> USBHostDriverTrait for Driver<'d, T> {
         embassy_time::Timer::after_millis(50).await;
     }
 
-    async fn wait_for_device_connect(&mut self) {
-        // Enable conn/dis irq
-        T::regs().inte().modify(|w| { w.set_host_conn_dis(true); });
-        poll_fn(|cx| {
-            BUS_WAKER.register(cx.waker());
-            
-            match T::regs().sie_status().read().speed() {
-                0b01 | 0b10 => Poll::Ready(()),
-                _ => Poll::Pending
-            }        
-        }).await;
-        T::regs().sie_status().write_clear(|w| { w.set_speed(0b11); });
-    }
-
-    async fn wait_for_device_disconnect(&mut self) {
-        // Enable conn/dis irq
-        T::regs().inte().modify(|w| { w.set_host_conn_dis(true); });
-        poll_fn(|cx| {
-            BUS_WAKER.register(cx.waker());
-            
-            match T::regs().sie_status().read().speed() {
-                0b01 | 0b10 => Poll::Pending,
-                _ => Poll::Ready(())
-            }        
-        }).await;
-        T::regs().sie_status().write_clear(|w| { w.set_speed(0b11); });
-    }
-
-    async fn control_request_out(&mut self, bytes: &[u8]) -> Result<(), ()> {
-        self.control_out.send_setup(bytes).await;
-        // TODO: Data stage
-
-        self.control_out.control_status().await;
-
+    // FIXME: Max packet size
+    fn retarget_channel<D: channel::Direction>(
+        &self, 
+        channel: &mut Self::Channel<channel::Control, D>,
+        max_packet_size: u8,
+        addr: u8,
+        pre: bool,
+    ) -> Result<(), HostError> {
+        channel.pre = pre;
+        channel.dev_addr = addr;
+        channel.desc.max_packet_size = max_packet_size as u16;
         Ok(())
     }
 
-    async fn control_request_in(&mut self, bytes: &[u8], dest: &mut [u8]) -> Result<usize, ()> {
-        self.control_in.send_setup(bytes).await;
+    fn alloc_channel<E: channel::Type, D: channel::Direction>(
+        &self,
+        addr: u8,
+        endpoint: &EndpointDescriptor,
+        pre: bool,
+    ) -> Result<Self::Channel<E, D>, HostError> {
+        if endpoint.ep_type() != E::ep_type() {
+            return Err(HostError::InvalidDescriptor)
+        }
+        if E::ep_type() == EndpointType::Interrupt {
+            let alloc = self.allocated_pipes.load(Ordering::Acquire);
+            let free_index = (1..16)
+                .find(|i| alloc & (1 << i) == 0)
+                .ok_or(HostError::OutOfChannels)? as u8;
+        
+            self.allocated_pipes.store(alloc | 1 << free_index, Ordering::Release);
+            // Use fixed layout
+            let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
 
-        let read = self.control_in.read(dest).await.map_err(|_| ())?;
-
-        self.control_in.control_status().await;
-
-        Ok(read)
+            Ok(Channel::new(free_index as _, addr, *endpoint, 64, addr as u8, pre))
+        } else {
+            let index = self.channel_index.fetch_add(1, Ordering::Relaxed);
+            Ok(Channel::new(index, DPRAM_DATA_OFFSET, *endpoint, MAIN_BUFFER_SIZE as u16, addr, pre))
+        }        
     }
 
-    fn reconfigure_channel0(&mut self, max_packet_size: u16, dev_addr: u8) -> Result<(), ()> {
-        self.control_in.dev_addr = dev_addr;
-        self.control_in.desc.max_packet_size = max_packet_size;
-        self.control_out.dev_addr = dev_addr;
-        self.control_out.desc.max_packet_size = max_packet_size;
-        Ok(())
-    }
-
-    fn alloc_channel_in(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelIn, ()> {
-        // FIXME: dev addr
-        self.claim_interrupt_channel(desc, 1).ok_or(())
-    }
-
-    fn alloc_channel_out(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelOut, ()> {
-        todo!()
+    fn drop_channel<E: channel::Type, D: channel::Direction>(
+        &self, 
+        channel: &mut Self::Channel<E, D>
+    ) {
+        if E::ep_type() == EndpointType::Interrupt {
+            // TODO: Disable interrupt?
+            self.allocated_pipes.fetch_and(!(1 << channel.index), Ordering::Relaxed);
+        }
     }
 }
 
