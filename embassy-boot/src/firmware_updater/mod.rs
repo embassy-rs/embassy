@@ -8,7 +8,7 @@ use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 /// Firmware updater flash configuration holding the two flashes used by the updater
 ///
 /// If only a single flash is actually used, then that flash should be partitioned into two partitions before use.
-/// The easiest way to do this is to use [`FirmwareUpdaterConfig::from_linkerfile_blocking`] or [`FirmwareUpdaterConfig::from_linkerfile_blocking`] which will partition
+/// The easiest way to do this is to use [`FirmwareUpdaterConfig::from_linkerfile`] or [`FirmwareUpdaterConfig::from_linkerfile_blocking`] which will partition
 /// the provided flash according to symbols defined in the linkerfile.
 pub struct FirmwareUpdaterConfig<DFU, STATE> {
     /// The dfu flash partition
