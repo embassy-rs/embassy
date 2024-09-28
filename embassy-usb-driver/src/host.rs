@@ -12,6 +12,12 @@ pub enum ChannelError {
 
     /// The device endpoint is stalled.
     Stall,
+
+    /// Device did not respond in time
+    Timeout,
+
+    /// Device disconnected
+    Disconnected,
 }
 
 #[cfg(feature = "defmt")]
@@ -149,13 +155,18 @@ pub enum DeviceEvent {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HostError {
-    BufferOverflow,
-    DeviceDisconnected,
+    ChannelError(ChannelError),
     RequestFailed,
     InvalidDescriptor,
     OutOfSlots,
     OutOfChannels,
     Other(&'static str),
+}
+
+impl From<ChannelError> for HostError {
+    fn from(value: ChannelError) -> Self {
+        HostError::ChannelError(value)
+    }
 }
 
 /// Async USB Host Driver trait.
@@ -270,7 +281,7 @@ pub mod channel {
 
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request
-    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, HostError>
+    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
     where 
         T: channel::IsControl,
         D: channel::IsIn {
@@ -278,7 +289,7 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     }
         
     /// Send OUT control request
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, HostError>
+    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
     where 
         T: channel::IsControl,
         D: channel::IsOut {
@@ -286,14 +297,14 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     }
 
     /// Send IN request of type other from control
-    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, HostError>
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where 
         D: channel::IsIn {
         unimplemented!()
     }
 
     /// Send OUT request of type other from control
-    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, HostError>
+    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
     where 
         D: channel::IsOut {
         unimplemented!()
