@@ -449,6 +449,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
                 w.set_intep_dir(D::is_out());
             });
         } else {
+            trace!("CURRENT: {} CHANNEL {} :: {}", E::ep_type(), self.index, self.desc);
             CURRENT_CHANNEL.store(self.index, Ordering::Relaxed);
             
             T::regs().addr_endp().write(|w| {
@@ -809,8 +810,8 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
     fn retarget_channel<D: channel::Direction>(
         &self, 
         channel: &mut Self::Channel<channel::Control, D>,
-        max_packet_size: u8,
         addr: u8,
+        max_packet_size: u8,
         pre: bool,
     ) -> Result<(), HostError> {
         channel.pre = pre;
