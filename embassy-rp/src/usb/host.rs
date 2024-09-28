@@ -96,12 +96,19 @@ impl<'d, T: Instance> Driver<'d, T> {
 }
 
 /// USB endpoint.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Channel<'d, T: Instance, E, D> {
     _phantom: PhantomData<(&'d mut T, E, D)>,
     index: usize,
     buf: EndpointBuffer<T>,
-    desc: EndpointDescriptor,
     dev_addr: u8,
+    
+    max_packet_size: u16,
+    ep_addr: u8,
+
+    /// Interrupt endpoint poll interval
+    interval: u8,
 
     /// DATA0-DATA1 state
     pid: bool,
@@ -113,20 +120,23 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     /// [EP_MEMORY]-relative address
     fn new(
         index: usize, 
-        addr: u16, 
-        desc: EndpointDescriptor,
-        len: u16,
+        buf_addr: u16, 
+        buf_len: u16,
+        
+        desc: &EndpointDescriptor,
+        
         dev_addr: u8,
         pre: bool,
     ) -> Self {
         // TODO: assert only in debug?
-        assert!(addr + len <= EP_MEMORY_SIZE as u16);
-        assert!(desc.max_packet_size <= len);
+        assert!(desc.ep_type() == E::ep_type());
+        assert!(buf_addr + buf_len <= EP_MEMORY_SIZE as u16);
+        assert!(desc.max_packet_size <= buf_len);
 
         // TODO: Support isochronous, bulk, and interrupt OUT
-        assert!(desc.ep_type() != EndpointType::Isochronous);
-        assert!(desc.ep_type() != EndpointType::Bulk);
-        assert!(!(desc.ep_type() == EndpointType::Interrupt && D::is_out()));
+        assert!(E::ep_type() != EndpointType::Isochronous);
+        assert!(E::ep_type() != EndpointType::Bulk);
+        assert!(!(E::ep_type() == EndpointType::Interrupt && D::is_out()));
         
         if desc.ep_type() == EndpointType::Interrupt {
             assert!(index > 0 && index < 16);
@@ -137,13 +147,15 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         Self {
             _phantom: PhantomData,
             index,
-            desc,
             dev_addr,
             buf: EndpointBuffer {
-                addr,
-                len,
+                addr: buf_addr,
+                len: buf_len,
                 _phantom: PhantomData,
             },
+            max_packet_size: desc.max_packet_size,
+            ep_addr: desc.endpoint_address,
+            interval: desc.interval,
             pid: false,
             pre,
         }
@@ -156,7 +168,7 @@ type AddrControlReg = rp_pac::common::Reg<rp_pac::usb::regs::AddrEndpX, rp_pac::
 impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E, D> {
     /// Get channel waker
     fn waker(&self) -> &AtomicWaker {
-        if self.is_interrupt_in() { 
+        if Self::is_interrupt_in() { 
             &EP_IN_WAKERS[self.index]
         } else { 
             &EP_IN_WAKERS[0] 
@@ -165,7 +177,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 
     /// Get buffer control register
     fn buffer_control(&self) -> BufferControlReg {
-        let index = if self.is_interrupt_in() {
+        let index = if Self::is_interrupt_in() {
             // Validated 1-15
             self.index
         } else {
@@ -176,7 +188,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 
     /// Get endpoint control register
     fn ep_control(&self) -> EpControlReg {
-        if self.is_interrupt_in() {
+        if Self::is_interrupt_in() {
             T::dpram().ep_in_control(self.index - 1)        
         } else {
             T::dpram_epx_control()
@@ -185,12 +197,12 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     
     /// Get interrupt endpoint address control
     fn addr_endp_host(&self) -> AddrControlReg {
-        assert!(self.is_interrupt_in());
+        assert!(Self::is_interrupt_in());
         T::regs().addr_endp_x(self.index - 1)
     }
 
-    fn is_interrupt_in(&self) -> bool {
-        self.desc.ep_type() == EndpointType::Interrupt && D::is_in()
+    fn is_interrupt_in() -> bool {
+        E::ep_type() == EndpointType::Interrupt && D::is_in()
     }
     
     /// Wait for buffer to be available
@@ -219,7 +231,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     /// Is hardware configured to perform transaction with this buffer
     /// Always true for INTERRUPT channel
     fn is_ready_for_transaction(&self) -> bool {
-        if self.is_interrupt_in() {
+        if Self::is_interrupt_in() {
             true
         } else {
             let sel = CURRENT_CHANNEL.load(Ordering::Relaxed);
@@ -269,14 +281,14 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     fn set_current(&self) {
         let regs = T::regs();
         let dpram = T::dpram();
-        if self.is_interrupt_in() {
-            trace!("INTERRUPT CHANNEL {} :: {}", self.index, self.desc);
+        if Self::is_interrupt_in() {
+            trace!("INTERRUPT CHANNEL {} :: {}", self.index, self);
             self.ep_control().write(|w| {
                 w.set_endpoint_type(EpControlEndpointType::INTERRUPT);
                 w.set_interrupt_per_buff(true);
                  
                 // FIXME: host_poll_interval (bits 16:25)
-                let interval = self.desc.interval as u32 - 1;
+                let interval = self.interval as u32 - 1;
                 w.0 |= interval << 16;
                 
                 w.set_buffer_address(self.buf.addr);
@@ -288,17 +300,17 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             
             self.addr_endp_host().write(|w| { 
                 w.set_address(self.dev_addr);
-                w.set_endpoint(self.desc.endpoint_address);
+                w.set_endpoint(self.ep_addr);
                 // FIXME: INTERRUPT OUT?
                 w.set_intep_dir(D::is_out());
             });
         } else {
-            trace!("CURRENT: {} CHANNEL {} :: {}", E::ep_type(), self.index, self.desc);
+            trace!("CURRENT: {} CHANNEL {} :: {}", E::ep_type(), self.index, self);
             CURRENT_CHANNEL.store(self.index, Ordering::Relaxed);
             
             T::regs().addr_endp().write(|w| {
                 w.set_address(self.dev_addr);
-                w.set_endpoint(self.desc.endpoint_address);
+                w.set_endpoint(self.ep_addr);
             });
             
             self.ep_control().modify(|w| {
@@ -306,7 +318,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
                 w.set_interrupt_per_buff(true);
                 w.set_buffer_address(self.buf.addr);
 
-                let epty = match self.desc.ep_type() {
+                let epty = match E::ep_type() {
                     EndpointType::Control => EpControlEndpointType::CONTROL,
                     EndpointType::Isochronous => EpControlEndpointType::ISOCHRONOUS,
                     EndpointType::Bulk => EpControlEndpointType::BULK,
@@ -320,7 +332,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     
     /// Clear current active channel
     fn clear_current(&self) {
-        if !self.is_interrupt_in() {
+        if !Self::is_interrupt_in() {
             CURRENT_CHANNEL.store(0, Ordering::Relaxed);
         }
     }
@@ -329,7 +341,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     /// 
     /// Set PID = 1 for next transaction
     fn set_setup_packet(&mut self, setup: &SetupPacket) {
-        assert!(self.desc.ep_type() == EndpointType::Control);
+        assert!(E::ep_type() == EndpointType::Control);
         let dpram = T::dpram();
         dpram.setup_packet_low().write(|w| {
             w.set_bmrequesttype(setup.request_type.bits()); 
@@ -351,14 +363,14 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 
     /// Reload interrupt channel buffer register
     fn interrupt_reload(&mut self) {
-        assert!(self.desc.ep_type() == EndpointType::Interrupt);
+        assert!(E::ep_type() == EndpointType::Interrupt);
         let ctrl = self.buffer_control();
         ctrl.write(|w| {
             w.set_last(0, true);
             w.set_pid(0, self.pid);
             w.set_full(0, false);
             w.set_reset(true);
-            w.set_length(0, self.desc.max_packet_size);
+            w.set_length(0, self.max_packet_size);
             w.set_available(0, true);
         });
 
@@ -381,7 +393,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     /// 
     /// WARNING: This flips PID
     fn set_data_in(&mut self, len: u16) {
-        assert!(self.desc.ep_type() != EndpointType::Interrupt);
+        assert!(E::ep_type() != EndpointType::Interrupt);
         
         self.buffer_control().write(|w| {
             w.set_pid(0, self.pid);
@@ -404,10 +416,10 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     /// Set DATA OUT transaction and copy data to buffer
     /// Returns count of copied bytes
     fn set_data_out(&mut self, data: &[u8]) -> usize {        
-        assert!(self.desc.ep_type() != EndpointType::Interrupt);
+        assert!(E::ep_type() != EndpointType::Interrupt);
 
         let chunk = if data.len() > 0 {
-           data.chunks(self.desc.max_packet_size as _).next().unwrap() 
+           data.chunks(self.max_packet_size as _).next().unwrap() 
         } else {
             &[]
         };
@@ -436,7 +448,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 
     /// Start transaction with pre-configured values
     fn start_transaction(&self) {
-        if !self.is_interrupt_in() {            
+        if !Self::is_interrupt_in() {            
             // This field should be modified separately after delay
             cortex_m::asm::delay(12);
             T::regs().sie_ctrl().modify(|w| {
@@ -447,7 +459,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 
     /// Clear buffer interrupt bit
     fn clear_sie_status(&self) {
-        if self.is_interrupt_in() {
+        if Self::is_interrupt_in() {
             T::regs().buff_status().write_clear(|w| w.0 = 0b11 << self.index * 2);
         } else {
             T::regs().buff_status().write_clear(|w| w.0 = 0b11);
@@ -484,6 +496,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         self.set_current();
         
         // Status packet always have DATA1
+        trace!("SEND STATUS");
         self.pid = true;
         if active_direction_out {
             self.set_data_in(0);
@@ -508,7 +521,11 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         self.send_setup(setup).await;
 
         // Data stage
-        let read = self.request_in(buf).await?;
+        let read = if setup.length > 0 {
+            self.request_in(&mut buf[..setup.length as usize]).await?
+        } else {
+            0
+        };
 
         // Status stage
         self.control_status(false).await;
@@ -525,12 +542,16 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         self.send_setup(setup).await;
 
         // Data stage
-        let written = self.request_out(buf).await?;
+        let written = if setup.length > 0 {
+            self.request_out(&buf[..setup.length as usize]).await?
+        } else {
+            0
+        };
 
         // Status stage
         self.control_status(true).await;
 
-        Ok(written)
+        Ok(0)
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, HostError>
@@ -546,7 +567,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
 
         // FIXME: Errors
         loop {
-            if self.is_interrupt_in() {
+            if Self::is_interrupt_in() {
                 trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
                 self.interrupt_reload();
                 self.wait_available().await;
@@ -570,7 +591,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
 
             // If transfer is smaller than max_packet_size, we are done
             // If we have read buf.len() bytes, we are done
-            if count == buf.len() || rx_len < self.desc.max_packet_size as usize {
+            if count == buf.len() || rx_len < self.max_packet_size as usize {
                 break;
             }
         }
@@ -650,7 +671,6 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
         embassy_time::Timer::after_millis(50).await;
     }
 
-    // FIXME: Max packet size
     fn retarget_channel<D: channel::Direction>(
         &self, 
         channel: &mut Self::Channel<channel::Control, D>,
@@ -660,7 +680,7 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
     ) -> Result<(), HostError> {
         channel.pre = pre;
         channel.dev_addr = addr;
-        channel.desc.max_packet_size = max_packet_size as u16;
+        channel.max_packet_size = max_packet_size as u16;
         Ok(())
     }
 
@@ -680,10 +700,10 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
             // Use fixed layout
             let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
 
-            Ok(Channel::new(free_index as _, addr, *endpoint, 64, dev_addr as u8, pre))
+            Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
         } else {
             let index = self.channel_index.fetch_add(1, Ordering::Relaxed);
-            Ok(Channel::new(index, DPRAM_DATA_OFFSET, *endpoint, MAIN_BUFFER_SIZE as u16, dev_addr, pre))
+            Ok(Channel::new(index, DPRAM_DATA_OFFSET, MAIN_BUFFER_SIZE as u16, endpoint, dev_addr, pre))
         }        
     }
 
