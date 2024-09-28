@@ -599,89 +599,96 @@ impl<D: UsbHostDriver> UsbHost<D> {
     /// Process events and enumerate devices, returns new [Device] or enumeration error
     pub async fn poll(&self) -> Result<Device, HostError> {
         // TODO: Handle devices in hubs
-        match self.driver.wait_for_device_event().await {
-            DeviceEvent::Connected => {
-                self.driver.bus_reset().await;
+        loop {
+            trace!("Wait for device event");
+            match self.driver.wait_for_device_event().await {
+                DeviceEvent::Connected => {
+                    trace!("Device connected");
+                    self.driver.bus_reset().await;
 
-                // TODO: PRE
-                let chan = &mut self.control.lock().await; 
-                // After reset device has address 0                
-                self.driver.retarget_channel(chan, 0, 8, false)?;
+                    // TODO: PRE
+                    let chan = &mut self.control.lock().await; 
+                    // After reset device has address 0                
+                    self.driver.retarget_channel(chan, 0, 8, false)?;
                 
-                Timer::after_millis(1).await;
-                trace!("Request Partial Device Descriptor");
-                let max_packet_size0 = {
-                    let mut max_retries = 10;
-                    loop {
-                        match chan
-                            .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>()
-                            .await
-                        {
-                            Ok(desc) => break desc.max_packet_size0,
-                            Err(_) => {
-                                if max_retries > 0 {
-                                    max_retries -= 1;
-                                    Timer::after_millis(1).await;
-                                    trace!("Retry Device Descriptor");
-                                    continue;
-                                } else {
-                                    return Err(HostError::RequestFailed);
+                    Timer::after_millis(1).await;
+                    trace!("Request Partial Device Descriptor");
+                    let max_packet_size0 = {
+                        let mut max_retries = 10;
+                        loop {
+                            match chan
+                                .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>()
+                                .await
+                            {
+                                Ok(desc) => break desc.max_packet_size0,
+                                Err(_) => {
+                                    if max_retries > 0 {
+                                        max_retries -= 1;
+                                        Timer::after_millis(1).await;
+                                        trace!("Retry Device Descriptor");
+                                        continue;
+                                    } else {
+                                        return Err(HostError::RequestFailed);
+                                    }
                                 }
                             }
                         }
-                    }
-                };
-                
-                let addr = {
-                    let devices = &mut self.devices.lock().await;
-                    // Find unused addr
-                    let addr = match devices.iter().copied().max().unwrap_or(0).checked_add(1) {
-                        Some(a) => a,
-                        // Wrapped around
-                        None => 1,
                     };
                 
-                    devices.push(addr).map_err(|_| HostError::OutOfSlots)?;
-                    addr
-                };
+                    let addr = {
+                        let devices = &mut self.devices.lock().await;
+                        // Find unused addr
+                        let addr = match devices.iter().copied().max().unwrap_or(0).checked_add(1) {
+                            Some(a) => a,
+                            // Wrapped around
+                            None => 1,
+                        };
                 
-                trace!("Set address {}", addr);               
-                chan.device_set_address(addr).await?;
-                self.driver.retarget_channel(chan, addr, max_packet_size0, false)?;
+                        devices.push(addr).map_err(|_| HostError::OutOfSlots)?;
+                        addr
+                    };
                 
-                trace!("Request Device Descriptor");
-                let dev_desc = chan
-                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>()
-                    .await?;
+                    trace!("Set address {}", addr);               
+                    chan.device_set_address(addr).await?;
+                    self.driver.retarget_channel(chan, addr, max_packet_size0, false)?;
                 
-                trace!("Device Descriptor: {:?}", dev_desc);
-
-                let cfg_desc = chan
-                    .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>()
-                    .await?;
-
-                let total_len = cfg_desc.total_len as usize;
-                let mut desc_buffer = [0u8; 256];
-                let dest_buffer = &mut desc_buffer[0..total_len];
-
-                chan.request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
-                    .await?;
-                trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
+                    trace!("Request Device Descriptor");
+                    let dev_desc = chan
+                        .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>()
+                        .await?;
                 
-                chan.set_configuration(cfg_desc.configuration_value).await?;
+                    trace!("Device Descriptor: {:?}", dev_desc);
 
-                match ConfigurationDescriptor::try_from_bytes(&dest_buffer) {
-                    Ok(cfg) => {
-                        Ok(Device { addr, dev_desc, cfg_desc: cfg })
-                    },
-                    Err(_) => {
-                        Err(HostError::InvalidDescriptor)
-                    },
-                }
-            },
-            DeviceEvent::Disconnected => {
-                todo!("remove from registry")
-            },
+                    let cfg_desc = chan
+                        .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>()
+                        .await?;
+
+                    let total_len = cfg_desc.total_len as usize;
+                    let mut desc_buffer = [0u8; 256];
+                    let dest_buffer = &mut desc_buffer[0..total_len];
+
+                    chan.request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
+                        .await?;
+                    trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
+                
+                    chan.set_configuration(cfg_desc.configuration_value).await?;
+
+                    return match ConfigurationDescriptor::try_from_bytes(&dest_buffer) {
+                        Ok(cfg) => {
+                            Ok(Device { addr, dev_desc, cfg_desc: cfg })
+                        },
+                        Err(_) => {
+                            Err(HostError::InvalidDescriptor)
+                        },
+                    }
+                },
+                DeviceEvent::Disconnected => {
+                    trace!("Device disconnected");
+                    // TODO: Hub support
+                    self.devices.lock().await.clear();
+                    continue;
+                },
+            }
         }
     }
 
