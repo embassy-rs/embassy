@@ -257,22 +257,52 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         }).await;
     }
     
-    /// Wait transaction to be complete
-    async fn wait_trans_complete(&self) {
-        trace!("CHANNEL {} WAIT TRANS COMPLETE", self.index);
+    /// Start transaction and wait it to be complete
+    async fn wait_transaction(&self) -> Result<(), ChannelError> {
+        assert!(!Self::is_interrupt_in());
         let regs = T::regs();
-        regs.inte().modify(|w| w.set_trans_complete(true));
-        poll_fn(|cx| {
+        
+        // Enable error and cplt interrupts
+        regs.inte().modify(|w| {
+            w.set_trans_complete(true);
+            w.set_stall(true);
+            w.set_error_rx_timeout(true);
+            w.set_error_rx_overflow(true);
+        });
+        
+        // Start transaction
+        // This field should be modified separately after delay
+        cortex_m::asm::delay(12);
+        T::regs().sie_ctrl().modify(|w| {
+            w.set_start_trans(true);
+        });
+        
+        trace!("CHANNEL {} WAIT TRANSACTION", self.index);
+        let res = poll_fn(|cx| {
             self.waker().register(cx.waker());
 
-            // Other transaction in progress
-            if !regs.sie_status().read().trans_complete() {
+            let stat = regs.sie_status().read();
+            if stat.stall_rec() {
+                regs.sie_status().write_clear(|w| w.set_stall_rec(true));
+                return Poll::Ready(Err(ChannelError::Stall))
+            }
+            if stat.rx_timeout() {
+                regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
+                return Poll::Ready(Err(ChannelError::Timeout))
+            }
+            if stat.rx_overflow() {
+                regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
+                return Poll::Ready(Err(ChannelError::BufferOverflow))
+            }
+            if !stat.trans_complete() {
                 return Poll::Pending
             }
             
-            Poll::Ready(())
+            regs.sie_status().write_clear(|w| w.set_trans_complete(true));
+            Poll::Ready(Ok(()))
         }).await;
-        regs.sie_status().write_clear(|w| w.set_trans_complete(true));
+        
+        res
     }
 
     /// Mark this channel as currently used and configure endpoint type
@@ -281,8 +311,11 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     fn set_current(&self) {
         let regs = T::regs();
         let dpram = T::dpram();
+        trace!(
+            "SET CURRENT: {} CHANNEL {}: dev: {}, ep: {}, max_packet: {}, preamble: {}", 
+            E::ep_type(), self.index, self.dev_addr, self.ep_addr, self.max_packet_size, self.pre
+        );
         if Self::is_interrupt_in() {
-            trace!("INTERRUPT CHANNEL {} :: {}", self.index, self);
             self.ep_control().write(|w| {
                 w.set_endpoint_type(EpControlEndpointType::INTERRUPT);
                 w.set_interrupt_per_buff(true);
@@ -305,7 +338,6 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
                 w.set_intep_dir(D::is_out());
             });
         } else {
-            trace!("CURRENT: {} CHANNEL {} :: {}", E::ep_type(), self.index, self);
             CURRENT_CHANNEL.store(self.index, Ordering::Relaxed);
             
             T::regs().addr_endp().write(|w| {
@@ -446,17 +478,6 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         chunk.len()
     }
 
-    /// Start transaction with pre-configured values
-    fn start_transaction(&self) {
-        if !Self::is_interrupt_in() {            
-            // This field should be modified separately after delay
-            cortex_m::asm::delay(12);
-            T::regs().sie_ctrl().modify(|w| {
-                w.set_start_trans(true);
-            });
-        }
-    }
-
     /// Clear buffer interrupt bit
     fn clear_sie_status(&self) {
         if Self::is_interrupt_in() {
@@ -469,7 +490,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     /// Send SETUP packet
     /// 
     /// WARNING: This flips PID
-    async fn send_setup(&mut self, setup: &SetupPacket) {
+    async fn send_setup(&mut self, setup: &SetupPacket) -> Result<(), ChannelError> {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
         
@@ -479,16 +500,17 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         trace!("SEND SETUP");
         // Prepare HW
         self.set_setup_packet(setup);
-        self.start_transaction();
         
         // Wait for SETUP end
-        self.wait_trans_complete().await;
+        let res = self.wait_transaction().await;
 
         self.clear_current();
+
+        res
     }
 
     /// Send status packet
-    async fn control_status(&mut self, active_direction_out: bool) {
+    async fn control_status(&mut self, active_direction_out: bool) -> Result<(), ChannelError> {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
         
@@ -504,21 +526,22 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             self.set_data_out(&[]);
         }
         
-        self.start_transaction();
-        self.wait_trans_complete().await;
+        let res = self.wait_transaction().await;
 
         self.clear_current();
+
+        res
     }
 }
 
 impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> for Channel<'d, T, E, D> {
-    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, HostError>
+    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
     where 
         E: channel::IsControl,
         D: channel::IsIn {
-        // TODO: Pass directly
         // Setup stage
-        self.send_setup(setup).await;
+        // TODO: Whole transaction error handling?
+        self.send_setup(setup).await?;
 
         // Data stage
         let read = if setup.length > 0 {
@@ -528,18 +551,18 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         };
 
         // Status stage
-        self.control_status(false).await;
+        self.control_status(false).await?;
 
         Ok(read)
     }
 
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, HostError>
+    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
     where 
         E: channel::IsControl,
         D: channel::IsOut {
-        // TODO: Pass directly
         // Setup stage
-        self.send_setup(setup).await;
+        // TODO: Whole transaction error handling?
+        self.send_setup(setup).await?;
 
         // Data stage
         let written = if setup.length > 0 {
@@ -549,12 +572,12 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         };
 
         // Status stage
-        self.control_status(true).await;
+        self.control_status(true).await?;
 
         Ok(0)
     }
 
-    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, HostError>
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where 
         D: channel::IsIn {
         // Wait transfer buffer to be free
@@ -565,8 +588,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         
         let mut count: usize = 0;
 
-        // FIXME: Errors
-        loop {
+        let res = loop {
             if Self::is_interrupt_in() {
                 trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
                 self.interrupt_reload();
@@ -574,8 +596,9 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
             } else {
                 trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
                 self.set_data_in(buf[count..].len() as _,);
-                self.start_transaction();
-                self.wait_trans_complete().await;
+                if let Err(e) = self.wait_transaction().await {
+                    break Err(e);
+                }
             }
             
             let free = &mut buf[count..];
@@ -583,7 +606,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
             trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
 
             if rx_len > free.len() {
-                return Err(HostError::BufferOverflow);
+                return Err(ChannelError::BufferOverflow);
             }
             
             self.buf.read(&mut free[..rx_len]);
@@ -592,16 +615,16 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
             // If transfer is smaller than max_packet_size, we are done
             // If we have read buf.len() bytes, we are done
             if count == buf.len() || rx_len < self.max_packet_size as usize {
-                break;
+                break Ok(count);
             }
-        }
+        };
         
         self.clear_current();
         
-        Ok(count)
+        res
     }
 
-    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, HostError>
+    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
     where 
         D: channel::IsOut {
         // Wait transfer buffer to be free
@@ -614,24 +637,26 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
 
         let mut count = 0;
 
-        // FIXME: Errors
-        loop {
+        let res = loop {
             trace!("CHANNEL {} START WRITE", self.index);
             let packet = self.set_data_out(buf);
-            self.start_transaction();
-            self.wait_available().await;
+            
+            if let Err(e) = self.wait_transaction().await {
+                break Err(e)
+            }
+            
             trace!("WRITE DONE, tx_len = {}", packet);
 
             count += packet;
             
             if count == buf.len() {
-                break;
+                break Ok(count)
             }
-        }
+        };
 
         self.clear_current();
                
-        Ok(count)
+        res
     }
 }
 
@@ -741,10 +766,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 regs.sie_status().write_clear(|w| w.set_resume(true));
                 "resume"
             }
-            else if ints.stall() {
-                regs.sie_status().write_clear(|w| w.set_stall_rec(true));
-                "stall"
-            }
             else if ints.error_crc() {
                 regs.sie_status().write_clear(|w| w.set_crc_error(true));
                 "crc error"
@@ -753,17 +774,24 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 regs.sie_status().write_clear(|w| w.set_bit_stuff_error(true));
                 "bit stuff error"
             }
-            else if ints.error_rx_overflow() {
-                regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
-                "rx overflow"
-            }
-            else if ints.error_rx_timeout() {
-                regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
-                "rx timeout"
-            }
             else if ints.error_data_seq() {
                 regs.sie_status().write_clear(|w| w.set_data_seq_error(true));
                 "data sequence error"
+            }
+            else if ints.stall() {
+                regs.inte().write_clear(|w| w.set_stall(true));
+                EP_IN_WAKERS[0].wake();
+                "stall"
+            }
+            else if ints.error_rx_overflow() {
+                regs.inte().write_clear(|w| w.set_error_rx_overflow(true));
+                EP_IN_WAKERS[0].wake();
+                "rx overflow"
+            }
+            else if ints.error_rx_timeout() {
+                regs.inte().write_clear(|w| w.set_error_rx_timeout(true));
+                EP_IN_WAKERS[0].wake();
+                "rx timeout"
             }
             else if ints.buff_status() {
                 let status = regs.buff_status().read().0;

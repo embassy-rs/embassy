@@ -6,7 +6,7 @@
 #![allow(async_fn_in_trait)]
 
 use embassy_time::Timer;
-use embassy_usb_driver::host::{EndpointDescriptor, UsbChannel, UsbHostDriver, channel, HostError, DeviceEvent, RequestType, SetupPacket};
+use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, EndpointDescriptor, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::{Mutex, MutexGuard};
 
@@ -400,27 +400,27 @@ where
     DIR: channel::Direction,
     D: UsbHostDriver,
 {
-    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, HostError>
+    async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
     where 
         T: channel::IsControl,
         DIR: channel::IsIn {
         self.channel.control_in(setup, buf).await
     }
 
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, HostError>
+    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
     where 
         T: channel::IsControl,
         DIR: channel::IsOut {
         self.channel.control_out(setup, buf).await
     }
 
-    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, HostError>
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where 
         DIR: channel::IsIn {
         self.channel.request_in(buf).await
     }
 
-    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, HostError>
+    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
     where 
         DIR: channel::IsOut {
         self.channel.request_out(buf).await
@@ -480,7 +480,8 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
             length: buf.len() as u16, // descriptor length
         };
 
-        self.control_in(&packet, buf).await
+        let len = self.control_in(&packet, buf).await?;
+        Ok(len)
     }
     
     /// Request the underlying bytes for an additional descriptor of a specific interface.
@@ -489,7 +490,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     async fn interface_request_descriptor_bytes<T: USBDescriptor>(
         &mut self,
         interface_num: u8,
-        bytes: &mut [u8],
+        buf: &mut [u8],
     ) -> Result<usize, HostError> 
     where D: channel::IsIn
     {
@@ -502,10 +503,11 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
             request: Request::GET_DESCRIPTOR,
             value,                       // descriptor type & index
             index: interface_num as u16, // zero or language ID
-            length: bytes.len() as u16,  // descriptor length
+            length: buf.len() as u16,    // descriptor length
         };
 
-        self.control_in(&packet, bytes).await
+        let len = self.control_in(&packet, buf).await?;
+        Ok(len)
     }
 
     // CONTROL OUT methods
@@ -523,7 +525,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
             length: 0,
         };
 
-        self.control_out(&packet, &[]).await;
+        self.control_out(&packet, &[]).await?;
 
         Ok(())
     }
