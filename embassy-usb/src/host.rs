@@ -623,14 +623,13 @@ impl<D: UsbHostDriver> UsbHost<D> {
             DeviceEvent::Connected => {
                 self.driver.bus_reset().await;
 
-                // Timer::after_millis(1).await;
-                trace!("Request Partial Device Descriptor");
-                
                 // TODO: PRE
                 let chan = &mut self.control.lock().await; 
                 // After reset device has address 0                
                 self.driver.retarget_channel(&mut chan.channel, 0, 8, false);
                 
+                Timer::after_millis(1).await;
+                trace!("Request Partial Device Descriptor");
                 let max_packet_size0 = {
                     let mut max_retries = 10;
                     loop {
@@ -658,7 +657,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
                     .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>()
                     .await?;
                 
-                self.driver.retarget_channel(&mut chan.channel, 0, dev_desc.max_packet_size0, false);
+                self.driver.retarget_channel(&mut chan.channel, 0, max_packet_size0, false);
                 
                 trace!("Device Descriptor: {:?}", dev_desc);
 
