@@ -629,30 +629,6 @@ impl<D: UsbHostDriver> UsbHost<D> {
                     }
                 };
                 
-                trace!("Request Device Descriptor");
-                let dev_desc = chan
-                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>()
-                    .await?;
-                
-                self.driver.retarget_channel(chan, 0, max_packet_size0, false)?;
-                
-                trace!("Device Descriptor: {:?}", dev_desc);
-
-                let cfg_desc = chan
-                    .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>()
-                    .await?;
-
-                let total_len = cfg_desc.total_len as usize;
-                let mut desc_buffer = [0u8; 256];
-                let dest_buffer = &mut desc_buffer[0..total_len];
-
-                chan.request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
-                    .await?;
-                trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
-                
-                // FIXME: Stall
-                // chan.set_configuration(cfg_desc.configuration_value).await?;
-
                 let addr = {
                     let devices = &mut self.devices.lock().await;
                     // Find unused addr
@@ -668,7 +644,29 @@ impl<D: UsbHostDriver> UsbHost<D> {
                 
                 trace!("Set address {}", addr);               
                 chan.device_set_address(addr).await?;
-            
+                self.driver.retarget_channel(chan, addr, max_packet_size0, false)?;
+                
+                trace!("Request Device Descriptor");
+                let dev_desc = chan
+                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>()
+                    .await?;
+                
+                trace!("Device Descriptor: {:?}", dev_desc);
+
+                let cfg_desc = chan
+                    .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>()
+                    .await?;
+
+                let total_len = cfg_desc.total_len as usize;
+                let mut desc_buffer = [0u8; 256];
+                let dest_buffer = &mut desc_buffer[0..total_len];
+
+                chan.request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
+                    .await?;
+                trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
+                
+                chan.set_configuration(cfg_desc.configuration_value).await?;
+
                 match ConfigurationDescriptor::try_from_bytes(&dest_buffer) {
                     Ok(cfg) => {
                         Ok(Device { addr, dev_desc, cfg_desc: cfg })
