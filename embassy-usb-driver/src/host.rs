@@ -307,18 +307,3 @@ where
     I: UsbChannel<T, channel::In>,
     O: UsbChannel<T, channel::Out> 
 {}
-
-/// USB Host Channel for an IN Endpoint
-pub trait ChannelIn {
-    /// Attempt to read `buf.len()` bytes from an IN Endpoint.
-    /// This reads multiple USB packets if `buf.len()` is larger than the maximum packet size.
-    /// Returns the number of bytes read, which may be be less than `buf.len()` if the device responds with non full packet.
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>;
-}
-
-/// USB Host Channel for an OUT Endpoint
-pub trait ChannelOut {
-    /// Write `buf.len()` bytes to an OUT Endpoint.
-    /// This writes multiple USB packets if `buf.len()` is larger than the maximum packet size.
-    async fn write(&mut self, buf: &[u8]) -> Result<(), ChannelError>;
-}
