@@ -5,10 +5,13 @@
 
 #![allow(async_fn_in_trait)]
 
+use core::marker::PhantomData;
+
+use embassy_futures::select::{select, Either};
 use embassy_time::Timer;
 use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, EndpointDescriptor, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::{Mutex, MutexGuard};
+use embassy_sync::mutex::{MappedMutexGuard, Mutex, MutexGuard};
 
 use heapless::Vec;
 
@@ -19,6 +22,7 @@ type StringIndex = u8;
 // FIXME: Why is there no alias already?..
 type NoopMutex<T> = Mutex<NoopRawMutex, T>;
 type NoopMutexGuard<'a, T> = MutexGuard<'a, NoopRawMutex, T>;
+type NoopMappedMutexGuard<'a, T> = MappedMutexGuard<'a, NoopRawMutex, T>;
 
 /// First 8 bytes of the DeviceDescriptor. This is used to figure out the `max_packet_size0` value to reconfigure channel 0.
 /// All USB devices support max_packet_size0=8 which is why the first 8 bytes of the descriptor can always be read.
@@ -358,17 +362,10 @@ impl USBDescriptor for EndpointDescriptor {
     }
 }
 
-
 pub struct Device {
     pub addr: u8,
     pub dev_desc: DeviceDescriptor,
     pub cfg_desc: ConfigurationDescriptor,
-}
-
-
-/// Channel wrapper with convenient methods and drop behaviour selection
-pub trait ChannelDrop<D: UsbHostDriver, T: channel::Type, DIR: channel::Direction> {
-    fn drop(&self, _ch: &mut D::Channel<T, DIR>) {}
 }
 
 /// Channel is dropped by referenced driver
@@ -378,9 +375,10 @@ where
     DIR: channel::Direction,
     D: UsbHostDriver,
 {
+    dev_addr: u8,
     channel: D::Channel<T, DIR>,
     driver: &'d D,
-    // TODO: Pass device registry
+    registry: &'d UsbDeviceRegistryRef<'d>
 }
 
 impl<D, T, DIR> Drop for Channel<'_, D, T, DIR>
@@ -405,26 +403,50 @@ where
     where 
         T: channel::IsControl,
         DIR: channel::IsIn {
-        self.channel.control_in(setup, buf).await
+        match select(
+            self.registry.wait_disconnect(self.dev_addr), 
+            self.channel.control_in(setup, buf)
+        ).await {
+            Either::First(_) => Err(ChannelError::Disconnected),
+            Either::Second(res) => res,
+        }
     }
 
     async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
     where 
         T: channel::IsControl,
         DIR: channel::IsOut {
-        self.channel.control_out(setup, buf).await
+        match select(
+            self.registry.wait_disconnect(self.dev_addr), 
+            self.channel.control_out(setup, buf)
+        ).await {
+            Either::First(_) => Err(ChannelError::Disconnected),
+            Either::Second(res) => res,
+        }
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where 
         DIR: channel::IsIn {
-        self.channel.request_in(buf).await
+        match select(
+            self.registry.wait_disconnect(self.dev_addr), 
+            self.channel.request_in(buf)
+        ).await {
+            Either::First(_) => Err(ChannelError::Disconnected),
+            Either::Second(res) => res,
+        }
     }
 
     async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
     where 
         DIR: channel::IsOut {
-        self.channel.request_out(buf).await
+        match select(
+            self.registry.wait_disconnect(self.dev_addr), 
+            self.channel.request_out(buf)
+        ).await {
+            Either::First(_) => Err(ChannelError::Disconnected),
+            Either::Second(res) => res,
+        }
     }
 } 
 
@@ -578,21 +600,128 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
 impl<D: channel::Direction, C> ControlChannelExt<D> for C where C: UsbChannel<channel::Control, D> {}
 
-pub struct UsbHost<D: UsbHostDriver, const DEV: usize = 1> {
+#[derive(Clone)]
+struct DeviceInfo {
+    addr: u8,
+    hub: bool,
+    parent_hub: Option<u8>,
+}
+
+impl DeviceInfo {
+    pub const fn empty() -> Self {
+        Self {
+            addr: 0,
+            hub: false,
+            parent_hub: None
+        }
+    }
+}
+
+pub struct UsbDeviceRegistry<const N: usize>([DeviceInfo; N]);
+
+struct UsbDeviceRegistryRef<'a>{ 
+    // Change variance
+    phantom: PhantomData<&'a ()>,
+    mtx: NoopMutex<*mut [DeviceInfo]>,
+}
+
+impl<const N: usize> UsbDeviceRegistry<N> {
+    pub const fn new() -> Self {
+        const { core::assert!(N > 0) }
+        Self([const { DeviceInfo::empty() }; N])
+    }
+
+    fn by_ref(&mut self) -> UsbDeviceRegistryRef {
+        UsbDeviceRegistryRef {
+            phantom: PhantomData,
+            mtx: Mutex::new(&mut self.0 as *mut _),
+        }
+    }
+} 
+
+impl<'r> UsbDeviceRegistryRef<'r> {
+    async fn with_lock<R>(&self, f: impl FnOnce(&mut [DeviceInfo]) -> R) -> R {
+        let ptr = self.mtx.lock().await;
+        // SAFETY: Protected by mutex
+        let slice = unsafe { ptr.as_mut().unwrap() };
+
+        f(slice)
+    }
+    
+    /// Returns `true` if info was added
+    pub async fn add_device(&self, info: &DeviceInfo) -> bool {
+        // 0 means free slot
+        self.find(0, |slot| {
+            *slot = info.clone()
+        }).await
+    }
+
+    pub async fn remove_device(&self, addr: u8) -> Option<DeviceInfo> {
+        let mut ret = None;
+        self.find(addr, |dev| {
+            ret = Some(DeviceInfo::empty());
+            core::mem::swap(ret.as_mut().unwrap(), dev);
+        }).await;
+        ret
+    }
+
+    /// Find device by address
+    pub async fn find(&self, addr: u8, modify: impl FnOnce(&mut DeviceInfo)) -> bool {
+        let mut found = false;
+        self.with_lock(|slice| {
+            if let Some(info) = slice.iter_mut().find(|d| d.addr == addr) {
+                modify(info);
+                found = true;
+            }
+        }).await;
+        found
+    }
+
+    /// Device exists
+    pub async fn alive(&self, addr: u8) -> bool {
+        self.find(addr, |_| {}).await
+    }
+
+    /// Returns next free address
+    pub async fn next_addr(&self) -> u8 {
+        let mut ret = 1;
+        self.with_lock(|slice| {
+            let addr = slice.iter().map(|d| d.addr).max().unwrap().wrapping_add(1);
+            
+            // Wrapped around
+            if addr != 0 {
+                ret = addr
+            }
+        }).await;
+        ret
+    }
+
+    pub async fn wait_disconnect(&self, addr: u8) {
+        loop {
+            if !self.alive(addr).await {
+                return
+            }
+            embassy_time::Timer::after_millis(50).await;
+        }
+    }
+}
+
+pub struct UsbHost<'r, D: UsbHostDriver> {
     driver: D,
     control: NoopMutex<D::Channel<channel::Control, channel::InOut>>,
     /// Device registry
-    devices: NoopMutex<Vec<u8, DEV>>,
+    registry: UsbDeviceRegistryRef<'r>,
 }
 
-impl<D: UsbHostDriver> UsbHost<D> {
-    pub fn new(driver: D) -> Self {
+impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
+    pub fn new<const N: usize>(driver: D, registry: &'r mut UsbDeviceRegistry<N>) -> Self {
         let channel = driver.alloc_channel(0, &EndpointDescriptor::control(0, 64), false).ok().unwrap();
         
         Self {
             driver,
             control: Mutex::new(channel),
-            devices: Mutex::default(),
+            // Decouple const generic
+            registry: registry.by_ref(),
         }
     }
 
@@ -635,22 +764,21 @@ impl<D: UsbHostDriver> UsbHost<D> {
                         }
                     };
                 
-                    let addr = {
-                        let devices = &mut self.devices.lock().await;
-                        // Find unused addr
-                        let addr = match devices.iter().copied().max().unwrap_or(0).checked_add(1) {
-                            Some(a) => a,
-                            // Wrapped around
-                            None => 1,
-                        };
-                
-                        devices.push(addr).map_err(|_| HostError::OutOfSlots)?;
-                        addr
-                    };
-                
+                    let addr = self.registry.next_addr().await;
+
+                    // TODO: Handle errors properly
                     trace!("Set address {}", addr);               
                     chan.device_set_address(addr).await?;
                     self.driver.retarget_channel(chan, addr, max_packet_size0, false)?;
+                    
+                    if !self.registry.add_device(&DeviceInfo { 
+                        addr, 
+                        hub: false, 
+                        parent_hub: None
+                    }).await {
+                        // TODO: Log and ignore?
+                        return Err(HostError::OutOfSlots)
+                    }
                 
                     trace!("Request Device Descriptor");
                     let dev_desc = chan
@@ -685,7 +813,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
                 DeviceEvent::Disconnected => {
                     trace!("Device disconnected");
                     // TODO: Hub support
-                    self.devices.lock().await.clear();
+                    self.registry.remove_device(1).await;
                     continue;
                 },
             }
@@ -705,7 +833,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
         Ok(ch)
     }
 
-    pub fn alloc_channel<'h, T: channel::Type, DIR: channel::Direction>(
+    pub fn alloc_channel<'h: 'r, T: channel::Type, DIR: channel::Direction>(
         &'h self,
         addr: u8,
         endpoint: &EndpointDescriptor
@@ -716,8 +844,10 @@ impl<D: UsbHostDriver> UsbHost<D> {
         }
         // TODO: PRE
         Ok(Channel {
+            dev_addr: addr,
             channel: self.driver.alloc_channel(addr, endpoint, false)?,
-            driver: &self.driver
+            driver: &self.driver,
+            registry: &self.registry
         })
     }
 }
