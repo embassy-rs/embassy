@@ -390,6 +390,7 @@ where
     D: UsbHostDriver,
 {
     fn drop(&mut self) {
+        trace!("Drop channel");
         self.driver.drop_channel(&mut self.channel)
     }
 }
