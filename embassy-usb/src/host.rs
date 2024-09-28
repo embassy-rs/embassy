@@ -3,6 +3,7 @@
 //! Requires an [USBHostDriver] implementation.
 //!
 
+#![allow(async_fn_in_trait)]
 
 use embassy_time::Timer;
 use embassy_usb_driver::host::{EndpointDescriptor, UsbChannel, UsbHostDriver, channel, HostError, DeviceEvent, RequestType, SetupPacket};
@@ -371,61 +372,33 @@ pub trait ChannelDrop<D: UsbHostDriver, T: channel::Type, DIR: channel::Directio
 }
 
 /// Channel is dropped by referenced driver
-pub struct ChannelDriverDrop<'d, D: UsbHostDriver> {
-    driver: &'d D,
-}
-impl<D, T, DIR> ChannelDrop<D, T, DIR> for ChannelDriverDrop<'_, D> 
+pub struct Channel<'d, D, T, DIR>
 where 
     T: channel::Type,
     DIR: channel::Direction,
     D: UsbHostDriver,
-{
-    fn drop(&self, ch: &mut D::Channel<T, DIR>) {
-        self.driver.drop_channel(ch)
-    }
-}
-
-/// Channel must be dropped manually
-pub struct ChannelManualDrop;
-impl<D, T, DIR> ChannelDrop<D, T, DIR> for ChannelManualDrop 
-where 
-    T: channel::Type,
-    DIR: channel::Direction,
-    D: UsbHostDriver,
-{}
-
-/// Export as DriverDrop
-pub type Channel<'d, D, T, DIR> = GenericChannel<D, ChannelDriverDrop<'d, D>, T, DIR>;
-pub struct GenericChannel<D, DROP, T, DIR>
-where 
-    T: channel::Type,
-    DIR: channel::Direction,
-    D: UsbHostDriver,
-    DROP: ChannelDrop<D, T, DIR>,
 {
     channel: D::Channel<T, DIR>,
-    drop: DROP
+    driver: &'d D,
     // TODO: Pass device registry
 }
 
-impl<D, DROP, T, DIR> Drop for GenericChannel<D, DROP, T, DIR>
+impl<D, T, DIR> Drop for Channel<'_, D, T, DIR>
 where 
     T: channel::Type,
     DIR: channel::Direction,
     D: UsbHostDriver,
-    DROP: ChannelDrop<D, T, DIR>,
 {
     fn drop(&mut self) {
-        self.drop.drop(&mut self.channel)
+        self.driver.drop_channel(&mut self.channel)
     }
 }
 
-impl<D, DROP, T, DIR> UsbChannel<T, DIR> for GenericChannel<D, DROP, T, DIR>
+impl<D, T, DIR> UsbChannel<T, DIR> for Channel<'_, D, T, DIR>
 where 
     T: channel::Type,
     DIR: channel::Direction,
     D: UsbHostDriver,
-    DROP: ChannelDrop<D, T, DIR>,
 {
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, HostError>
     where 
@@ -454,17 +427,15 @@ where
     }
 } 
 
-/// CONTROL IN methods
-impl<D, DROP, DIR> GenericChannel<D, DROP, channel::Control, DIR>
-where 
-    DIR: channel::Direction + channel::IsIn,
-    DROP: ChannelDrop<D, channel::Control, DIR>,
-    D: UsbHostDriver,
-{
+/// Extension trait with convenience methods for control channels
+pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control, D>  {
+    // CONTROL IN methods
     /// Request and try to parse the device descriptor.
-    pub async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(
+    async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(
         &mut self, 
-    ) -> Result<T, HostError> {
+    ) -> Result<T, HostError>
+    where D: channel::IsIn
+    {
         let mut buf = [0u8; SIZE];
 
         // The wValue field specifies the descriptor type in the high byte
@@ -491,10 +462,12 @@ where
     /// Request the underlying bytes for a descriptor of a specific type.
     /// bytes.len() determines how many bytes are read at maximum.
     /// This can be used for descriptors of varying length, which are parsed by the caller.
-    pub async fn request_descriptor_bytes<T: USBDescriptor>(
+    async fn request_descriptor_bytes<T: USBDescriptor>(
         &mut self, 
         buf: &mut [u8],
-    ) -> Result<usize, HostError> {
+    ) -> Result<usize, HostError> 
+    where D: channel::IsIn
+    {
         // The wValue field specifies the descriptor type in the high byte
         // and the descriptor index in the low byte.
         let value = (T::DESC_TYPE as u16) << 8;
@@ -513,11 +486,13 @@ where
     /// Request the underlying bytes for an additional descriptor of a specific interface.
     /// Useful for class specific descriptors of varying length.
     /// bytes.len() determines how many bytes are read at maximum.
-    pub async fn interface_request_descriptor_bytes<T: USBDescriptor>(
+    async fn interface_request_descriptor_bytes<T: USBDescriptor>(
         &mut self,
         interface_num: u8,
         bytes: &mut [u8],
-    ) -> Result<usize, HostError> {
+    ) -> Result<usize, HostError> 
+    where D: channel::IsIn
+    {
         // The wValue field specifies the descriptor type in the high byte
         // and the descriptor index in the low byte.
         let value = (T::DESC_TYPE as u16) << 8;
@@ -532,18 +507,14 @@ where
 
         self.control_in(&packet, bytes).await
     }
-}
 
-/// CONTROL OUT methods
-impl<D, DROP, DIR> GenericChannel<D, DROP, channel::Control, DIR>
-where 
-    DIR: channel::Direction + channel::IsOut,
-    DROP: ChannelDrop<D, channel::Control, DIR>,
-    D: UsbHostDriver,
-{
+    // CONTROL OUT methods
+       
     /// SET_CONFIGURATION control request.
     /// Selects the configuration with the given index `config_no`.
-    pub async fn set_configuration(&mut self, config_no: u8) -> Result<(), HostError> {
+    async fn set_configuration(&mut self, config_no: u8) -> Result<(), HostError>
+    where D: channel::IsOut
+    {
         let packet = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
             request: Request::SET_CONFIGURATION,
@@ -557,11 +528,14 @@ where
         Ok(())
     }
 
-    /// This function is not public, because it can break host assumptions
-    /// 
     /// Execute the SET_ADDRESS control request. Assign the given address to the device.
     /// Usually done during enumeration.
-    async fn device_set_address(&mut self, new_addr: u8) -> Result<(), HostError> {
+    /// 
+    /// # WARNING
+    /// This method can break host assumptions. Please do not use it manually
+    async fn device_set_address(&mut self, new_addr: u8) -> Result<(), HostError>
+    where D: channel::IsOut
+    {
         let packet = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
             request: Request::SET_ADDRESS,
@@ -576,13 +550,15 @@ where
     }
     
     /// Execute a control request with request type Class and recipient Interface
-    pub async fn class_request_out(
+    async fn class_request_out(
         &mut self, 
         request: u8, 
         value: u16, 
         index: u16, 
         buf: &mut [u8]
-    ) -> Result<(), HostError> {
+    ) -> Result<(), HostError>
+    where D: channel::IsOut
+    {
         let packet = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
             request,
@@ -597,19 +573,18 @@ where
     }
 }
 
+impl<D: channel::Direction, C> ControlChannelExt<D> for C where C: UsbChannel<channel::Control, D> {}
+
 pub struct UsbHost<D: UsbHostDriver, const DEV: usize = 1> {
     driver: D,
-    control: NoopMutex<GenericChannel<D, ChannelManualDrop, channel::Control, channel::InOut>>,
+    control: NoopMutex<D::Channel<channel::Control, channel::InOut>>,
     /// Device registry
     devices: NoopMutex<Vec<u8, DEV>>,
 }
 
 impl<D: UsbHostDriver> UsbHost<D> {
     pub fn new(driver: D) -> Self {
-        let channel = GenericChannel {
-            channel: driver.alloc_channel(0, &EndpointDescriptor::control(0, 64), false).ok().unwrap(),
-            drop: ChannelManualDrop,
-        };
+        let channel = driver.alloc_channel(0, &EndpointDescriptor::control(0, 64), false).ok().unwrap();
         
         Self {
             driver,
@@ -628,7 +603,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
                 // TODO: PRE
                 let chan = &mut self.control.lock().await; 
                 // After reset device has address 0                
-                self.driver.retarget_channel(&mut chan.channel, 0, 8, false);
+                self.driver.retarget_channel(chan, 0, 8, false)?;
                 
                 Timer::after_millis(1).await;
                 trace!("Request Partial Device Descriptor");
@@ -659,7 +634,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
                     .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>()
                     .await?;
                 
-                self.driver.retarget_channel(&mut chan.channel, 0, max_packet_size0, false);
+                self.driver.retarget_channel(chan, 0, max_packet_size0, false)?;
                 
                 trace!("Device Descriptor: {:?}", dev_desc);
 
@@ -675,8 +650,9 @@ impl<D: UsbHostDriver> UsbHost<D> {
                     .await?;
                 trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
                 
-                chan.set_configuration(cfg_desc.configuration_value);
-                
+                // FIXME: Rx timeout
+                // chan.set_configuration(cfg_desc.configuration_value).await?;
+
                 let addr = {
                     let devices = &mut self.devices.lock().await;
                     // Find unused addr
@@ -691,7 +667,6 @@ impl<D: UsbHostDriver> UsbHost<D> {
                 };
                 
                 trace!("Set address");               
-                
                 chan.device_set_address(addr).await?;
             
                 match ConfigurationDescriptor::try_from_bytes(&dest_buffer) {
@@ -716,25 +691,25 @@ impl<D: UsbHostDriver> UsbHost<D> {
     pub async fn control_channel(
         &self,
         addr: u8,
-    ) -> NoopMutexGuard<GenericChannel<D, ChannelManualDrop, channel::Control, channel::InOut>> { 
+    ) -> Result<NoopMutexGuard<D::Channel<channel::Control, channel::InOut>>, HostError> { 
         let mut ch = self.control.lock().await;
-        self.driver.retarget_channel(&mut ch.channel, addr, 64, false);
-        ch
+        self.driver.retarget_channel(&mut ch, addr, 64, false)?;
+        Ok(ch)
     }
 
-    pub fn alloc_channel<'d, T: channel::Type, DIR: channel::Direction>(
-        &self,
+    pub fn alloc_channel<'h, T: channel::Type, DIR: channel::Direction>(
+        &'h self,
         addr: u8,
         endpoint: &EndpointDescriptor
-    ) -> Result<GenericChannel<D, ChannelDriverDrop<D>, T, DIR>, HostError> {
+    ) -> Result<Channel<'h, D, T, DIR>, HostError> {
         trace!("Alloc channel for endpoint: {}", endpoint);
         if endpoint.ep_type() != T::ep_type() {
             return Err(HostError::InvalidDescriptor)
         }
         // TODO: PRE
-        Ok(GenericChannel {
+        Ok(Channel {
             channel: self.driver.alloc_channel(addr, endpoint, false)?,
-            drop: ChannelDriverDrop { driver: &self.driver }
+            driver: &self.driver
         })
     }
 }
