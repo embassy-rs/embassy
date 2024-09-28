@@ -4,7 +4,7 @@ use core::{future::poll_fn, marker::PhantomData, task::Poll};
 use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
 use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver::host::{channel, ChannelError, ChannelIn, ChannelOut, DeviceEvent, EndpointDescriptor, HostError, SetupPacket, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, EndpointDescriptor, HostError, SetupPacket, UsbChannel, UsbHostDriver};
 use embassy_usb_driver::EndpointType;
 
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
@@ -86,15 +86,6 @@ impl<'d, T: Instance> Driver<'d, T> {
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
 
-        let desc = EndpointDescriptor {
-            len: 64,
-            descriptor_type: 0x05,
-            endpoint_address: 0,
-            attributes: EndpointType::Control as u8,
-            max_packet_size: 8,
-            interval: 10,
-        };
-        
         Self {
             phantom: PhantomData,
             allocated_pipes: AtomicU16::new(0),
@@ -286,7 +277,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     ) -> Self {
         // TODO: assert only in debug?
         assert!(addr + len <= EP_MEMORY_SIZE as u16);
-        assert!(desc.max_packet_size <= EP_MEMORY_SIZE as u16);
+        assert!(desc.max_packet_size <= len);
 
         // TODO: Support isochronous, bulk, and interrupt OUT
         assert!(desc.ep_type() != EndpointType::Isochronous);
