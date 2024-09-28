@@ -372,6 +372,10 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             self.ep_control().modify(|w| {
                 w.set_interrupt_per_buff(false);
                 w.set_enable(false);
+            });
+
+            self.buffer_control().modify(|w| {
+                w.set_available(0, false);
             })
         }
     }
