@@ -72,12 +72,9 @@ impl<'d, T: Instance> Driver<'d, T> {
         regs.inte().write(|w| {
             w.set_buff_status(true);
             w.set_host_resume(true);
-            w.set_stall(true);
-            w.set_error_rx_timeout(true);
             w.set_error_data_seq(true);
             w.set_error_crc(true);
             w.set_error_bit_stuff(true);
-            w.set_error_rx_overflow(true);
         });
         
         T::Interrupt::unpend();
@@ -362,10 +359,20 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         }
     }
     
-    /// Clear current active channel
+    /// Clear current active channel and disable interrupt
+    /// 
+    /// Safe to call outside of transfer context
     fn clear_current(&self) {
-        if !Self::is_interrupt_in() {
-            CURRENT_CHANNEL.store(0, Ordering::Relaxed);
+        // If this channel is selected
+        if self.is_ready_for_transaction() {
+            if !Self::is_interrupt_in() {
+                CURRENT_CHANNEL.store(0, Ordering::Relaxed);
+            }
+            
+            self.ep_control().modify(|w| {
+                w.set_interrupt_per_buff(false);
+                w.set_enable(false);
+            })
         }
     }
 
@@ -737,7 +744,8 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
         channel: &mut Self::Channel<E, D>
     ) {
         if E::ep_type() == EndpointType::Interrupt {
-            // TODO: Disable interrupt?
+            // Clear interrupts
+            channel.clear_current();
             self.allocated_pipes.fetch_and(!(1 << channel.index), Ordering::Relaxed);
         }
     }
