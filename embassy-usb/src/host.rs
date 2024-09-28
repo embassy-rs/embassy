@@ -641,7 +641,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
                 let cfg_desc = chan
                     .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>()
                     .await?;
-                
+
                 let total_len = cfg_desc.total_len as usize;
                 let mut desc_buffer = [0u8; 256];
                 let dest_buffer = &mut desc_buffer[0..total_len];
@@ -650,13 +650,13 @@ impl<D: UsbHostDriver> UsbHost<D> {
                     .await?;
                 trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
                 
-                // FIXME: Rx timeout
+                // FIXME: Stall
                 // chan.set_configuration(cfg_desc.configuration_value).await?;
 
                 let addr = {
                     let devices = &mut self.devices.lock().await;
                     // Find unused addr
-                    let addr = match devices.iter().copied().max().unwrap_or(0).checked_add(0) {
+                    let addr = match devices.iter().copied().max().unwrap_or(0).checked_add(1) {
                         Some(a) => a,
                         // Wrapped around
                         None => 1,
@@ -666,7 +666,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
                     addr
                 };
                 
-                trace!("Set address");               
+                trace!("Set address {}", addr);               
                 chan.device_set_address(addr).await?;
             
                 match ConfigurationDescriptor::try_from_bytes(&dest_buffer) {

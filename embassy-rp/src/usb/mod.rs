@@ -51,6 +51,8 @@ static BUS_WAKER: AtomicWaker = NEW_AW;
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct EndpointBuffer<T: Instance> {
     addr: u16,
     len: u16,
