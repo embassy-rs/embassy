@@ -3,12 +3,11 @@
 //! Requires an [USBHostDriver] implementation.
 //!
 
+
 use embassy_time::Timer;
 use embassy_usb_driver::host::{EndpointDescriptor, UsbChannel, UsbHostDriver, channel, HostError, DeviceEvent, RequestType, SetupPacket};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
-// FIXME: Why is there no alias already?..
-type NoopMutex<T> = Mutex<NoopRawMutex, T>;
+use embassy_sync::mutex::{Mutex, MutexGuard};
 
 use heapless::Vec;
 
@@ -16,6 +15,9 @@ use crate::control::Request;
 use crate::descriptor::descriptor_type;
 
 type StringIndex = u8;
+// FIXME: Why is there no alias already?..
+type NoopMutex<T> = Mutex<NoopRawMutex, T>;
+type NoopMutexGuard<'a, T> = MutexGuard<'a, NoopRawMutex, T>;
 
 /// First 8 bytes of the DeviceDescriptor. This is used to figure out the `max_packet_size0` value to reconfigure channel 0.
 /// All USB devices support max_packet_size0=8 which is why the first 8 bytes of the descriptor can always be read.
@@ -671,7 +673,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
 
                 chan.request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
                     .await?;
-                debug!("Full Configuration Descriptor: {:?}", dest_buffer);
+                trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
                 
                 chan.set_configuration(cfg_desc.configuration_value);
                 
@@ -694,7 +696,7 @@ impl<D: UsbHostDriver> UsbHost<D> {
             
                 match ConfigurationDescriptor::try_from_bytes(&dest_buffer) {
                     Ok(cfg) => {
-                        Ok(Device { addr, dev_desc, cfg_desc })
+                        Ok(Device { addr, dev_desc, cfg_desc: cfg })
                     },
                     Err(_) => {
                         Err(HostError::InvalidDescriptor)
@@ -707,11 +709,28 @@ impl<D: UsbHostDriver> UsbHost<D> {
         }
     }
 
+    // TODO: Max packet size
+    /// Acquire host control channel, configured for device at `addr`
+    /// 
+    /// This channel must be dropped before using `host.poll()` again
+    pub async fn control_channel(
+        &self,
+        addr: u8,
+    ) -> NoopMutexGuard<GenericChannel<D, ChannelManualDrop, channel::Control, channel::InOut>> { 
+        let mut ch = self.control.lock().await;
+        self.driver.retarget_channel(&mut ch.channel, addr, 64, false);
+        ch
+    }
+
     pub fn alloc_channel<'d, T: channel::Type, DIR: channel::Direction>(
         &self,
         addr: u8,
         endpoint: &EndpointDescriptor
     ) -> Result<GenericChannel<D, ChannelDriverDrop<D>, T, DIR>, HostError> {
+        trace!("Alloc channel for endpoint: {}", endpoint);
+        if endpoint.ep_type() != T::ep_type() {
+            return Err(HostError::InvalidDescriptor)
+        }
         // TODO: PRE
         Ok(GenericChannel {
             channel: self.driver.alloc_channel(addr, endpoint, false)?,
