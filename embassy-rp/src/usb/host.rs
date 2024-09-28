@@ -678,6 +678,10 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
         
         // Read current state
         let was = is_connected(T::regs().sie_status().read().speed());
+        
+        // Clear interrupt status
+        T::regs().sie_status().write_clear(|w| { w.set_speed(0b11); });
+        
         // Enable conn/dis irq
         T::regs().inte().modify(|w| { w.set_host_conn_dis(true); });
         let ev = poll_fn(|cx| {
@@ -690,8 +694,6 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
                 _ => Poll::Pending
             }        
         }).await;
-        // FIXME: ?
-        // T::regs().sie_status().write_clear(|w| { w.set_speed(0b11); });
         ev
     }
 
