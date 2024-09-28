@@ -95,162 +95,6 @@ impl<'d, T: Instance> Driver<'d, T> {
     }
 }
 
-// impl<'d, T: Instance> HostBus for Driver<'d, T> {
-//     fn set_recipient(
-//         &mut self,
-//         dev_addr: Option<usbh::types::DeviceAddress>,
-//         endpoint: u8,
-//         transfer_type: TransferType,
-//     ) {
-//         let regs = T::regs();
-//         regs.addr_endp().write(|w| {
-//             w.set_address(dev_addr.map(u8::from).unwrap_or(0));
-//             w.set_endpoint(endpoint);
-//         });
-
-//         T::dpram_epx_control().modify(|w| {
-//             w.set_enable(true);
-//             w.set_interrupt_per_buff(true);
-//             // Use control buffer
-//             w.set_buffer_address(DPRAM_DATA_OFFSET);
-
-//             let epty = match transfer_type {
-//                 TransferType::Control => EpControlEndpointType::CONTROL,
-//                 TransferType::Isochronous => EpControlEndpointType::ISOCHRONOUS,
-//                 TransferType::Bulk => EpControlEndpointType::BULK,
-//                 TransferType::Interrupt => EpControlEndpointType::INTERRUPT,
-//             };
-
-//             w.set_endpoint_type(epty);
-//         });
-//     }
-
-//     fn ls_preamble(&mut self, enabled: bool) {
-//         T::regs().sie_ctrl().modify(|w| w.set_preamble_en(enabled));
-//     }
-
-//     fn stop_transaction(&mut self) {
-//         T::regs().sie_ctrl().modify(|w| w.set_stop_trans(true));
-//     }
-
-//     fn write_setup(&mut self, setup: usbh::types::SetupPacket) {
-//         let dpram = T::dpram();
-//         dpram.setup_packet_low().write(|w| {
-//             w.set_bmrequesttype(setup.request_type.into()); 
-//             w.set_brequest(setup.request.into());
-//             w.set_wvalue(setup.value);
-//         });
-//         dpram.setup_packet_high().write(|w| {
-//             w.set_windex(setup.index);
-//             w.set_wlength(setup.length); 
-//         });
-//         T::regs().sie_ctrl().modify(|w| {
-//             w.set_send_data(false);
-//             w.set_receive_data(false);
-//             w.set_send_setup(true);
-//             w.set_start_trans(true);
-//         });
-//     }
-
-//     fn create_interrupt_pipe(
-//         &mut self,
-//         device_address: usbh::types::DeviceAddress,
-//         endpoint_number: u8,
-//         direction: UsbDirection,
-//         size: u16,
-//         interval: u8,
-//     ) -> Option<InterruptPipe> {
-//         let pipe = self.alloc_pipe(size)?;
-//         let idx = pipe.bus_ref as usize;
-        
-//         let regs = T::regs();
-//         let dpram = T::dpram();
-
-//         dpram.ep_in_control(idx).write(|w| {
-//             w.set_endpoint_type(EpControlEndpointType::INTERRUPT);
-//             w.set_interrupt_per_buff(true);
-//             // FIXME: host_poll_interval (bits 16:25)
-//             let interval = interval as u32 - 1;
-//             w.0 |= interval << 16;
-//             // FIXME: Index offset?
-//             w.set_buffer_address(
-//                 DPRAM_DATA_OFFSET + CONTROL_BUFFER_SIZE as u16 + (idx * CONTROL_BUFFER_SIZE) as u16
-//             );
-//             w.set_enable(true);
-//         });
-
-//         regs.sie_ctrl().modify(|w| { w.set_sof_sync(true) });
-        
-//         // FIXME(magic):
-//         dpram.ep_in_buffer_control(idx + 1).write(|w| {
-//             w.set_last(0, true);
-//             w.set_pid(0, false);
-//             w.set_full(0, false);
-//             w.set_reset(true);
-//             w.set_length(0, size);
-//         });
-
-//         // FIXME(delay):
-//         cortex_m::asm::delay(12);
-        
-//         dpram.ep_in_buffer_control(idx + 1).modify(|w| w.set_available(0, true));        
-//         regs.addr_endp_x(idx).write(|w| { 
-//             w.set_address(device_address.into());
-//             w.set_endpoint(endpoint_number);
-//             w.set_intep_dir(direction == UsbDirection::Out);
-//         });
-
-//         // FIXME(delay):
-//         cortex_m::asm::delay(12);
-        
-//         regs.int_ep_ctrl().modify(|w| {
-//             w.set_int_ep_active(w.int_ep_active() | 1 << idx);
-//         });
-
-//         Some(pipe)
-//     }
-
-//     fn release_interrupt_pipe(&mut self, pipe_ref: u8) {
-//         assert!(pipe_ref <= 15);
-//         let dpram = T::dpram();
-//         let idx = pipe_ref as usize;
-
-//         // Disable interrupt polling
-//         T::regs().int_ep_ctrl().modify(|w| {
-//             w.set_int_ep_active(w.int_ep_active() & !(1 << idx))
-//         });
-
-//         // FIXME: bits(0)?
-//         dpram.ep_in_control(idx).write(|_| {});
-//         dpram.ep_in_buffer_control(idx + 1).write(|_| {});
-
-//         T::regs().addr_endp_x(idx).write(|_| {});
-
-//         // Mark as released
-//         self.release_pipe(idx as u8);
-//     }
-
-//     fn pipe_continue(&mut self, pipe_ref: u8) {
-//         assert!(pipe_ref <= 15);
-//         let idx = pipe_ref as usize;
-
-//         // EP1..=EP15 IN
-//         // FIXME(index):
-//         let control = T::dpram().ep_in_buffer_control(idx + 1);
-//         control.modify(|w| {
-//             w.set_last(0, true);
-//             w.set_pid(0, !w.pid(0));
-//             w.set_full(0, false);
-//             w.set_reset(true);
-//         });
-
-//         // FIXME(delay):
-//         cortex_m::asm::delay(12);
-
-//         control.modify(|w| w.set_available(0, true))
-//     }
-// }
-
 /// USB endpoint.
 pub struct Channel<'d, T: Instance, E, D> {
     _phantom: PhantomData<(&'d mut T, E, D)>,
@@ -822,13 +666,10 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
 
     fn alloc_channel<E: channel::Type, D: channel::Direction>(
         &self,
-        addr: u8,
+        dev_addr: u8,
         endpoint: &EndpointDescriptor,
         pre: bool,
     ) -> Result<Self::Channel<E, D>, HostError> {
-        if endpoint.ep_type() != E::ep_type() {
-            return Err(HostError::InvalidDescriptor)
-        }
         if E::ep_type() == EndpointType::Interrupt {
             let alloc = self.allocated_pipes.load(Ordering::Acquire);
             let free_index = (1..16)
@@ -839,10 +680,10 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
             // Use fixed layout
             let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
 
-            Ok(Channel::new(free_index as _, addr, *endpoint, 64, addr as u8, pre))
+            Ok(Channel::new(free_index as _, addr, *endpoint, 64, dev_addr as u8, pre))
         } else {
             let index = self.channel_index.fetch_add(1, Ordering::Relaxed);
-            Ok(Channel::new(index, DPRAM_DATA_OFFSET, *endpoint, MAIN_BUFFER_SIZE as u16, addr, pre))
+            Ok(Channel::new(index, DPRAM_DATA_OFFSET, *endpoint, MAIN_BUFFER_SIZE as u16, dev_addr, pre))
         }        
     }
 
