@@ -53,7 +53,6 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     //     pac::FLASH.bank(1)
     // };
 
-
     cortex_m::asm::isb();
     cortex_m::asm::dsb();
     fence(Ordering::SeqCst);
@@ -144,11 +143,9 @@ pub(crate) unsafe fn clear_all_err() {
 
 unsafe fn blocking_wait_ready() -> Result<(), Error> {
     loop {
-
         let sr = pac::FLASH.nssr().read();
 
         if !sr.bsy() {
-
             if sr.optchangeerr() {
                 error!("optchangeerr");
                 return Err(Error::Prog);
