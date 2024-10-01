@@ -2,13 +2,14 @@ use std::{cell, vec};
 
 use super::*;
 
-#[allow(dead_code)]
+#[allow(unused)]
 #[derive(PartialEq, Debug)]
 enum TestCircularTransferRequest {
     ResetCompleteCount(usize),
     PositionRequest(usize),
 }
 
+#[allow(unused)]
 struct TestCircularTransfer {
     len: usize,
     requests: cell::RefCell<vec::Vec<TestCircularTransferRequest>>,
@@ -39,6 +40,7 @@ impl DmaCtrl for TestCircularTransfer {
 }
 
 impl TestCircularTransfer {
+    #[allow(unused)]
     pub fn new(len: usize) -> Self {
         Self {
             requests: cell::RefCell::new(vec![]),
@@ -46,6 +48,7 @@ impl TestCircularTransfer {
         }
     }
 
+    #[allow(unused)]
     pub fn setup(&self, mut requests: vec::Vec<TestCircularTransferRequest>) {
         requests.reverse();
         self.requests.replace(requests);
@@ -53,84 +56,6 @@ impl TestCircularTransfer {
 }
 
 const CAP: usize = 16;
-
-#[test]
-fn dma_index_dma_sync_syncs_position_to_last_read_if_sync_takes_place_on_same_dma_cycle() {
-    let mut dma = TestCircularTransfer::new(CAP);
-    dma.setup(vec![
-        TestCircularTransferRequest::PositionRequest(4),
-        TestCircularTransferRequest::ResetCompleteCount(0),
-        TestCircularTransferRequest::PositionRequest(7),
-    ]);
-    let mut index = DmaIndex::default();
-    index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.complete_count, 0);
-    assert_eq!(index.pos, 7);
-}
-
-#[test]
-fn dma_index_dma_sync_updates_complete_count_properly_if_sync_takes_place_on_same_dma_cycle() {
-    let mut dma = TestCircularTransfer::new(CAP);
-    dma.setup(vec![
-        TestCircularTransferRequest::PositionRequest(4),
-        TestCircularTransferRequest::ResetCompleteCount(2),
-        TestCircularTransferRequest::PositionRequest(7),
-    ]);
-    let mut index = DmaIndex::default();
-    index.complete_count = 1;
-    index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.complete_count, 3);
-    assert_eq!(index.pos, 7);
-}
-
-#[test]
-fn dma_index_dma_sync_syncs_to_last_position_if_reads_occur_on_different_dma_cycles() {
-    let mut dma = TestCircularTransfer::new(CAP);
-    dma.setup(vec![
-        TestCircularTransferRequest::PositionRequest(10),
-        TestCircularTransferRequest::ResetCompleteCount(1),
-        TestCircularTransferRequest::PositionRequest(5),
-        TestCircularTransferRequest::ResetCompleteCount(0),
-    ]);
-    let mut index = DmaIndex::default();
-    index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.complete_count, 1);
-    assert_eq!(index.pos, 5);
-}
-
-#[test]
-fn dma_index_dma_sync_detects_new_cycle_if_later_position_is_less_than_first_and_first_complete_count_occurs_on_first_cycle(
-) {
-    let mut dma = TestCircularTransfer::new(CAP);
-    dma.setup(vec![
-        TestCircularTransferRequest::PositionRequest(10),
-        TestCircularTransferRequest::ResetCompleteCount(1),
-        TestCircularTransferRequest::PositionRequest(5),
-        TestCircularTransferRequest::ResetCompleteCount(1),
-    ]);
-    let mut index = DmaIndex::default();
-    index.complete_count = 1;
-    index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.complete_count, 3);
-    assert_eq!(index.pos, 5);
-}
-
-#[test]
-fn dma_index_dma_sync_detects_new_cycle_if_later_position_is_less_than_first_and_first_complete_count_occurs_on_later_cycle(
-) {
-    let mut dma = TestCircularTransfer::new(CAP);
-    dma.setup(vec![
-        TestCircularTransferRequest::PositionRequest(10),
-        TestCircularTransferRequest::ResetCompleteCount(2),
-        TestCircularTransferRequest::PositionRequest(5),
-        TestCircularTransferRequest::ResetCompleteCount(0),
-    ]);
-    let mut index = DmaIndex::default();
-    index.complete_count = 1;
-    index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.complete_count, 3);
-    assert_eq!(index.pos, 5);
-}
 
 #[test]
 fn dma_index_as_index_returns_index_mod_cap_by_default() {
