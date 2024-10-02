@@ -111,10 +111,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         let diff = self.write_index.diff(self.cap(), &self.read_index);
 
         if diff < 0 {
-            return Err(Error::DmaUnsynced);
-        }
-
-        if diff > self.cap() as isize {
+            Err(Error::DmaUnsynced)
+        } else if diff > self.cap() as isize {
             Err(Error::Overrun)
         } else {
             Ok(diff as usize)
@@ -223,11 +221,10 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
 
         let diff = self.write_index.diff(self.cap(), &self.read_index);
 
-        if diff > self.cap() as isize {
-            return Err(Error::DmaUnsynced);
-        }
         if diff < 0 {
             Err(Error::Overrun)
+        } else if diff > self.cap() as isize {
+            Err(Error::DmaUnsynced)
         } else {
             Ok(self.cap().saturating_sub(diff as usize))
         }
