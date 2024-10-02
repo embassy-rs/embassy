@@ -850,6 +850,14 @@ impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
             registry: &self.registry
         })
     }
+    
+    pub fn alloc_control_channel<'h: 'r, DIR: channel::Direction>(
+        &'h self,
+        addr: u8,
+    ) -> Result<Channel<'h, D, channel::Control, DIR>, HostError> {
+        // TODO: PRE
+        self.alloc_channel(addr, &EndpointDescriptor::control(0, 64))
+    }
 }
 
 
