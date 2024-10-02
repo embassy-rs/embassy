@@ -132,7 +132,7 @@ please refer to the `.vscode/settings.json` file's `rust-analyzer.linkedProjects
 
 ## Minimum supported Rust version (MSRV)
 
-Embassy is guaranteed to compile on stable Rust 1.75 and up. It *might*
+Embassy is guaranteed to compile on stable Rust 1.77 and up. It *might*
 compile with older versions but that may change in any new patch release.
 
 ## Why the name?

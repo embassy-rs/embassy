@@ -4,6 +4,8 @@
 //! Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
 //! not using `embedded-nal-async`.
 
+use core::net::IpAddr;
+
 use heapless::Vec;
 pub use smoltcp::socket::dns::{DnsQuery, Socket};
 pub(crate) use smoltcp::socket::dns::{GetQueryResultError, StartQueryError};
@@ -73,8 +75,8 @@ impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
         &self,
         host: &str,
         addr_type: embedded_nal_async::AddrType,
-    ) -> Result<embedded_nal_async::IpAddr, Self::Error> {
-        use embedded_nal_async::{AddrType, IpAddr};
+    ) -> Result<IpAddr, Self::Error> {
+        use embedded_nal_async::AddrType;
         let (qtype, secondary_qtype) = match addr_type {
             AddrType::IPv4 => (DnsQueryType::A, None),
             AddrType::IPv6 => (DnsQueryType::Aaaa, None),
@@ -107,11 +109,7 @@ impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
         }
     }
 
-    async fn get_host_by_address(
-        &self,
-        _addr: embedded_nal_async::IpAddr,
-        _result: &mut [u8],
-    ) -> Result<usize, Self::Error> {
+    async fn get_host_by_address(&self, _addr: IpAddr, _result: &mut [u8]) -> Result<usize, Self::Error> {
         todo!()
     }
 }

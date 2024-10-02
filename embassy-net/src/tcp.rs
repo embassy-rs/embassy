@@ -675,9 +675,8 @@ mod embedded_io_impls {
 pub mod client {
     use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;
+    use core::net::{IpAddr, SocketAddr};
     use core::ptr::NonNull;
-
-    use embedded_nal_async::IpAddr;
 
     use super::*;
 
@@ -715,10 +714,7 @@ pub mod client {
         type Error = Error;
         type Connection<'m> = TcpConnection<'m, N, TX_SZ, RX_SZ> where Self: 'm;
 
-        async fn connect<'a>(
-            &'a self,
-            remote: embedded_nal_async::SocketAddr,
-        ) -> Result<Self::Connection<'a>, Self::Error> {
+        async fn connect<'a>(&'a self, remote: SocketAddr) -> Result<Self::Connection<'a>, Self::Error> {
             let addr: crate::IpAddress = match remote.ip() {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),

@@ -80,5 +80,5 @@ embedded-io-async = { version = "0.6.1" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
 heapless = { version = "0.8", default-features = false }
-embedded-nal-async = { version = "0.7.1" }
+embedded-nal-async = { version = "0.8.0" }
 document-features = "0.2.7"
