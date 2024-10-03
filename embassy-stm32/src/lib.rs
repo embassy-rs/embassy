@@ -296,6 +296,9 @@ mod dual_core {
     /// It cannot be initialized by the user. The intended use is:
     ///
     /// ```
+    /// use core::mem::MaybeUninit;
+    /// use embassy_stm32::{init_secondary, SharedData};
+    ///
     /// #[link_section = ".ram_d3"]
     /// static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
     ///

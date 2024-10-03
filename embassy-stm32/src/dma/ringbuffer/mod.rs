@@ -119,7 +119,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         }
     }
 
-    /// Read elements from the ring buffer
+    /// Read elements from the ring buffer.
+    ///
     /// Return a tuple of the length read and the length remaining in the buffer
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
     /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read

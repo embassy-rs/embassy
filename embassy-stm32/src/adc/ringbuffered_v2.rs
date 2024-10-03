@@ -6,10 +6,12 @@ use embassy_hal_internal::{into_ref, Peripheral};
 use stm32_metapac::adc::vals::SampleTime;
 
 use crate::adc::{Adc, AdcChannel, Instance, RxDma};
-use crate::dma::ringbuffer::OverrunError;
 use crate::dma::{Priority, ReadableRingBuffer, TransferOptions};
 use crate::pac::adc::vals;
 use crate::rcc;
+
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct OverrunError;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
