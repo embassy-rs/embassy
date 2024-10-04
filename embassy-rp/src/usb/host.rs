@@ -617,7 +617,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
             trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
 
             if rx_len > free.len() {
-                return Err(ChannelError::BufferOverflow);
+                break Err(ChannelError::BufferOverflow);
             }
             
             self.buf.read(&mut free[..rx_len]);
