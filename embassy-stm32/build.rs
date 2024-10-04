@@ -1183,6 +1183,17 @@ fn main() {
                     impl_dac_pin!( #peri, #pin_name, #ch);
                     })
                 }
+
+                if regs.kind == "spdifrx" {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let af = pin.af.unwrap_or(0);
+                    let sel: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
+
+                    g.extend(quote! {
+                    impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
+                    })
+                }
             }
         }
     }
@@ -1207,6 +1218,7 @@ fn main() {
         (("sai", "B"), quote!(crate::sai::Dma<B>)),
         (("spi", "RX"), quote!(crate::spi::RxDma)),
         (("spi", "TX"), quote!(crate::spi::TxDma)),
+        (("spdifrx", "RX"), quote!(crate::spdifrx::Dma)),
         (("i2c", "RX"), quote!(crate::i2c::RxDma)),
         (("i2c", "TX"), quote!(crate::i2c::TxDma)),
         (("dcmi", "DCMI"), quote!(crate::dcmi::FrameDma)),
