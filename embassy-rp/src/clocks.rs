@@ -109,7 +109,10 @@ impl ClockConfig {
                 sys_pll: Some(PllConfig {
                     refdiv: 1,
                     fbdiv: 125,
+                    #[cfg(feature = "rp2040")]
                     post_div1: 6,
+                    #[cfg(feature = "_rp235x")]
+                    post_div1: 5,
                     post_div2: 2,
                 }),
                 usb_pll: Some(PllConfig {
