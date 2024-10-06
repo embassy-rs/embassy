@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::client::{TcpClient, TcpClientState};
@@ -12,7 +14,7 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
 use embassy_time::Timer;
 use embedded_io_async::Write;
-use embedded_nal_async::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpConnect};
+use embedded_nal_async::TcpConnect;
 use rand_core::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};

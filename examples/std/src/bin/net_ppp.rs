@@ -16,7 +16,7 @@ use async_io::Async;
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Config, ConfigV4, Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_net::{Config, ConfigV4, Ipv4Cidr, Stack, StackResources};
 use embassy_net_ppp::Runner;
 use embedded_io_async::Write;
 use futures::io::BufReader;
@@ -60,10 +60,10 @@ async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: Seri
             };
             let mut dns_servers = Vec::new();
             for s in ipv4.dns_servers.iter().flatten() {
-                let _ = dns_servers.push(Ipv4Address::from_bytes(&s.0));
+                let _ = dns_servers.push(*s);
             }
             let config = ConfigV4::Static(embassy_net::StaticConfigV4 {
-                address: Ipv4Cidr::new(Ipv4Address::from_bytes(&addr.0), 0),
+                address: Ipv4Cidr::new(addr, 0),
                 gateway: None,
                 dns_servers,
             });

@@ -51,7 +51,7 @@ bind_interrupts!(struct Irqs {
 // MAC-address used by the adin1110
 const MAC: [u8; 6] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 // Static IP settings
-const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address([192, 168, 1, 5]), 24);
+const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 5), 24);
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
 
