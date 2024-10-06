@@ -254,6 +254,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         }).await;
     }
     
+    // FIXME: RX Timeout with LS device on hub
     /// Start transaction and wait it to be complete
     async fn wait_transaction(&self) -> Result<(), ChannelError> {
         assert!(!Self::is_interrupt_in());
@@ -263,7 +264,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         regs.inte().modify(|w| {
             w.set_trans_complete(true);
             w.set_stall(true);
-            w.set_error_rx_timeout(true);
+            w.set_error_rx_timeout(false);
             w.set_error_rx_overflow(true);
         });
         
@@ -273,30 +274,30 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         T::regs().sie_ctrl().modify(|w| {
             w.set_start_trans(true);
         });
-        
+
         trace!("CHANNEL {} WAIT TRANSACTION", self.index);
         let res = poll_fn(|cx| {
             self.waker().register(cx.waker());
 
             let stat = regs.sie_status().read();
+            if stat.trans_complete() {
+                regs.sie_status().write_clear(|w| w.set_trans_complete(true));
+                return Poll::Ready(Ok(()))
+            }
             if stat.stall_rec() {
                 regs.sie_status().write_clear(|w| w.set_stall_rec(true));
                 return Poll::Ready(Err(ChannelError::Stall))
             }
-            if stat.rx_timeout() {
-                regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
-                return Poll::Ready(Err(ChannelError::Timeout))
-            }
+            // if stat.rx_timeout() {
+            //     regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
+            //     return Poll::Ready(Err(ChannelError::Timeout))
+            // }
             if stat.rx_overflow() {
                 regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
                 return Poll::Ready(Err(ChannelError::BufferOverflow))
             }
-            if !stat.trans_complete() {
-                return Poll::Pending
-            }
             
-            regs.sie_status().write_clear(|w| w.set_trans_complete(true));
-            Poll::Ready(Ok(()))
+            Poll::Pending
         }).await;
         
         res
@@ -356,6 +357,8 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 
                 w.set_endpoint_type(epty);
             });
+            
+            regs.sie_ctrl().modify(|w| { w.set_preamble_en(self.pre) });
         }
     }
     
@@ -550,6 +553,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
     where 
         E: channel::IsControl,
         D: channel::IsIn {
+        trace!("CONTROL IN: {}", setup);
         // Setup stage
         // TODO: Whole transaction error handling?
         self.send_setup(setup).await?;
@@ -571,6 +575,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
     where 
         E: channel::IsControl,
         D: channel::IsOut {
+        trace!("CONTROL OUT: {}", setup);
         // Setup stage
         // TODO: Whole transaction error handling?
         self.send_setup(setup).await?;
@@ -802,6 +807,11 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 EP_IN_WAKERS[0].wake();
                 "rx overflow"
             }
+            else if ints.trans_complete() {
+                regs.inte().write_clear(|w| w.set_trans_complete(true));
+                EP_IN_WAKERS[0].wake();
+                "transaction complete"
+            }
             else if ints.error_rx_timeout() {
                 regs.inte().write_clear(|w| w.set_error_rx_timeout(true));
                 EP_IN_WAKERS[0].wake();
@@ -829,11 +839,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     }
                 }
                 "^^^"
-            }
-            else if ints.trans_complete() {
-                regs.inte().write_clear(|w| w.set_trans_complete(true));
-                EP_IN_WAKERS[0].wake();
-                "transaction complete"
             }
             else if ints.host_sof() {
                 // Prevent nonstop SOF interrupt

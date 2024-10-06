@@ -7,6 +7,19 @@ use core::fmt::{Debug, Display, LowerHex};
 compile_error!("You may not enable both `defmt` and `log` features.");
 
 #[collapse_debuginfo(yes)]
+macro_rules! bitflags {
+    ($($x:tt)*) => {
+        #[cfg(not(feature = "defmt"))]
+        ::bitflags::bitflags!(
+            #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+            $($x)*
+        );
+        #[cfg(feature = "defmt")]
+        ::defmt::bitflags!($($x)*);
+    };
+}
+
+#[collapse_debuginfo(yes)]
 macro_rules! assert {
     ($($x:tt)*) => {
         {
