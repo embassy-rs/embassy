@@ -35,7 +35,7 @@ static_cell = "2"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 pio = "0.2"
 pio-proc = "0.2"
-rand = { version = "0.8.5", default-features = false }
+rand = { version = "0.9.0-alpha.2", default-features = false }
 
 [profile.dev]
 debug = 2

@@ -1,5 +1,6 @@
 //! True Random Number Generator (TRNG) driver.
 
+use core::convert::Infallible;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::Not;
@@ -7,7 +8,6 @@ use core::task::Poll;
 
 use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
-use rand_core::Error;
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::peripherals::TRNG;
@@ -366,12 +366,24 @@ impl<'d, T: Instance> rand_core::RngCore for Trng<'d, T> {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         self.blocking_fill_bytes(dest)
     }
+}
+impl<'d, T: Instance> rand_core::TryRngCore for Trng<'d, T> {
+    type Error = Infallible;
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.blocking_next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.blocking_next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_fill_bytes(dest);
         Ok(())
     }
 }
+
 /// TRNG interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _trng: PhantomData<T>,

@@ -56,7 +56,7 @@ portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
 pio-proc = "0.2"
 pio = "0.2.1"
-rand = { version = "0.8.5", default-features = false }
+rand = { version = "0.9.0-alpha.2", default-features = false }
 embedded-sdmmc = "0.7.0"
 
 bt-hci = { version = "0.1.0", default-features = false, features = ["defmt"] }
