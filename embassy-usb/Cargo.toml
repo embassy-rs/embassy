@@ -60,3 +60,5 @@ bitflags = "2.6.0"
 # for HID
 usbd-hid = { version = "0.8.1", optional = true }
 ssmarshal = { version = "1.0", default-features = false, optional = true }
+zerocopy = { version = "0.8.2", features = ["derive"] }
+bit_field = "0.10.2"

@@ -84,7 +84,8 @@ bitflags::bitflags! {
 }
 
 /// USB Control Setup Packet
-#[repr(C, packed)]
+#[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct SetupPacket {
     pub request_type: RequestType,
@@ -160,6 +161,7 @@ pub enum HostError {
     InvalidDescriptor,
     OutOfSlots,
     OutOfChannels,
+    NoSuchDevice,
     Other(&'static str),
 }
 
