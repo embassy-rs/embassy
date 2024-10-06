@@ -16,6 +16,7 @@ use embassy_sync::mutex::{MappedMutexGuard, Mutex, MutexGuard};
 use crate::control::Request;
 
 pub mod descriptor;
+pub mod hub;
 
 use descriptor::*;
 
@@ -118,6 +119,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Request and try to parse the device descriptor.
     async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(
         &mut self, 
+        class: bool,
     ) -> Result<T, HostError>
     where D: channel::IsIn
     {
@@ -127,8 +129,14 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         // and the descriptor index in the low byte.
         let value = (T::DESC_TYPE as u16) << 8;
 
+        let ty = if class {
+            RequestType::TYPE_CLASS
+        } else {
+            RequestType::TYPE_STANDARD
+        };
+        
         let packet = SetupPacket {
-            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request_type: RequestType::IN | ty | RequestType::RECIPIENT_DEVICE,
             request: Request::GET_DESCRIPTOR,
             value,               // descriptor type & index
             index: 0,            // zero or language ID
@@ -136,6 +144,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         };
 
         self.control_in(&packet, &mut buf).await?;
+        trace!("Descriptor {}: {=[u8]}", core::any::type_name::<T>(), buf);
 
         T::try_from_bytes(&buf).map_err(|e| { 
             // TODO: Log error or make descriptor error not generic
@@ -262,20 +271,28 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
 impl<D: channel::Direction, C> ControlChannelExt<D> for C where C: UsbChannel<channel::Control, D> {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct DeviceInfo {
     addr: u8,
-    hub: bool,
-    parent_hub: Option<u8>,
+    needs_pre: bool,
+    /// `(hub, port)`
+    parent_hub: Option<(u8, u8)>,
 }
 
 impl DeviceInfo {
     pub const fn empty() -> Self {
         Self {
             addr: 0,
-            hub: false,
+            needs_pre: false,
             parent_hub: None
         }
+    }
+
+    pub fn take(&mut self) -> Self {
+        let mut slot = Self::empty();
+        core::mem::swap(&mut slot, self);
+        slot
     }
 }
 
@@ -313,22 +330,14 @@ impl<'r> UsbDeviceRegistryRef<'r> {
     /// Returns `true` if info was added
     pub async fn add_device(&self, info: &DeviceInfo) -> bool {
         // 0 means free slot
-        self.find(0, |slot| {
+        let res = self.find_by_addr(0, |slot| {
             *slot = info.clone()
-        }).await
-    }
-
-    pub async fn remove_device(&self, addr: u8) -> Option<DeviceInfo> {
-        let mut ret = None;
-        self.find(addr, |dev| {
-            ret = Some(DeviceInfo::empty());
-            core::mem::swap(ret.as_mut().unwrap(), dev);
         }).await;
-        ret
+        res
     }
 
     /// Find device by address
-    pub async fn find(&self, addr: u8, modify: impl FnOnce(&mut DeviceInfo)) -> bool {
+    pub async fn find_by_addr(&self, addr: u8, modify: impl FnOnce(&mut DeviceInfo)) -> bool {
         let mut found = false;
         self.with_lock(|slice| {
             if let Some(info) = slice.iter_mut().find(|d| d.addr == addr) {
@@ -338,10 +347,54 @@ impl<'r> UsbDeviceRegistryRef<'r> {
         }).await;
         found
     }
+    
+    /// Find address by hub and port
+    pub async fn find_by_port(&self, hub_addr: u8, hub_port: u8) -> Option<u8> {
+        let mut addr = None;
+        self.with_lock(|slice| {
+            if let Some(info) = slice.iter_mut()
+                .find(|d| d.parent_hub.is_some_and(|h| h.0 == hub_addr && h.1 == hub_port)) {
+                addr = Some(info.addr);
+            }
+        }).await;
+        addr
+    }
+
+    /// Remove device by address
+    /// 
+    /// If device is a hub, also remove downstream devices
+    /// 
+    /// Return count of removed devices
+    pub async fn remove_device(&self, addr: u8) -> u8 {
+        let mut removed = 0;
+        self.with_lock(|slice| {
+            if let Some(dev) = slice.iter_mut().find(|d| d.addr == addr) {
+                dev.take();
+                removed += 1;
+            }
+
+            // FIXME/TODO: Chained hubs
+            for dev in slice {
+                if dev.parent_hub.is_some_and(|h| h.0 == addr) {
+                    dev.take();
+                    removed += 1;
+                }
+            }
+        }).await;
+
+        removed
+    }
 
     /// Device exists
     pub async fn alive(&self, addr: u8) -> bool {
-        self.find(addr, |_| {}).await
+        self.find_by_addr(addr, |_| {}).await
+    }
+    
+    /// Device needs PRE packet
+    pub async fn needs_pre(&self, addr: u8) -> Option<bool> {
+        let mut slot = None;
+        self.find_by_addr(addr, |dev| { slot.replace(dev.needs_pre); }).await;
+        slot
     }
 
     /// Returns next free address
@@ -394,88 +447,24 @@ impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
             trace!("Wait for device event");
             match self.driver.wait_for_device_event().await {
                 DeviceEvent::Connected => {
-                    trace!("Device connected");
+                    debug!("Device connected to root");
                     self.driver.bus_reset().await;
 
-                    // TODO: PRE
                     let chan = &mut self.control.lock().await; 
-                    // After reset device has address 0                
-                    self.driver.retarget_channel(chan, 0, 8, false)?;
-                
-                    Timer::after_millis(1).await;
-                    trace!("Request Partial Device Descriptor");
-                    let max_packet_size0 = {
-                        let mut max_retries = 10;
-                        loop {
-                            match chan
-                                .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>()
-                                .await
-                            {
-                                Ok(desc) => break desc.max_packet_size0,
-                                Err(_) => {
-                                    if max_retries > 0 {
-                                        max_retries -= 1;
-                                        Timer::after_millis(1).await;
-                                        trace!("Retry Device Descriptor");
-                                        continue;
-                                    } else {
-                                        return Err(HostError::RequestFailed);
-                                    }
-                                }
-                            }
-                        }
-                    };
-                
-                    let addr = self.registry.next_addr().await;
-
-                    // TODO: Handle errors properly
-                    trace!("Set address {}", addr);               
-                    chan.device_set_address(addr).await?;
-                    self.driver.retarget_channel(chan, addr, max_packet_size0, false)?;
-                    
-                    if !self.registry.add_device(&DeviceInfo { 
-                        addr, 
-                        hub: false, 
-                        parent_hub: None
-                    }).await {
-                        // TODO: Log and ignore?
-                        return Err(HostError::OutOfSlots)
-                    }
-                
-                    trace!("Request Device Descriptor");
-                    let dev_desc = chan
-                        .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>()
-                        .await?;
-                
-                    trace!("Device Descriptor: {:?}", dev_desc);
-
-                    let cfg_desc = chan
-                        .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>()
-                        .await?;
-
-                    let total_len = cfg_desc.total_len as usize;
-                    let mut desc_buffer = [0u8; 256];
-                    let dest_buffer = &mut desc_buffer[0..total_len];
-
-                    chan.request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
-                        .await?;
-                    trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
-                
-                    chan.set_configuration(cfg_desc.configuration_value).await?;
-
-                    return match ConfigurationDescriptor::try_from_bytes(&dest_buffer) {
-                        Ok(cfg) => {
-                            Ok(Device { addr, dev_desc, cfg_desc: cfg })
-                        },
-                        Err(_) => {
-                            Err(HostError::InvalidDescriptor)
-                        },
-                    }
+                    return configure_device(
+                        &self.driver, 
+                        chan, 
+                        &self.registry, 
+                        false,
+                        None,
+                    ).await;
                 },
                 DeviceEvent::Disconnected => {
-                    trace!("Device disconnected");
-                    // TODO: Hub support
-                    self.registry.remove_device(1).await;
+                    debug!("Device disconnected from root");
+
+                    // Root device should always have addr 1
+                    let count = self.registry.remove_device(1).await;
+                    debug!("Disconnected {} devices", count);
                     continue;
                 },
             }
@@ -491,11 +480,14 @@ impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
         addr: u8,
     ) -> Result<NoopMutexGuard<D::Channel<channel::Control, channel::InOut>>, HostError> { 
         let mut ch = self.control.lock().await;
-        self.driver.retarget_channel(&mut ch, addr, 64, false)?;
+        let pre = self.registry.needs_pre(addr).await
+            .ok_or(HostError::NoSuchDevice)?;
+        let packet_size = if pre { 8 } else { 64 };
+        self.driver.retarget_channel(&mut ch, addr, packet_size, pre)?;
         Ok(ch)
     }
 
-    pub fn alloc_channel<'h: 'r, T: channel::Type, DIR: channel::Direction>(
+    pub async fn alloc_channel<'h: 'r, T: channel::Type, DIR: channel::Direction>(
         &'h self,
         addr: u8,
         endpoint: &EndpointDescriptor
@@ -504,20 +496,107 @@ impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
         if endpoint.ep_type() != T::ep_type() {
             return Err(HostError::InvalidDescriptor)
         }
-        // TODO: PRE
+
+        let Some(needs_pre) = self.registry.needs_pre(addr).await else {
+            return Err(HostError::NoSuchDevice)
+        };
+        
         Ok(Channel {
             dev_addr: addr,
-            channel: self.driver.alloc_channel(addr, endpoint, false)?,
+            channel: self.driver.alloc_channel(addr, endpoint, needs_pre)?,
             driver: &self.driver,
             registry: &self.registry
         })
     }
     
-    pub fn alloc_control_channel<'h: 'r, DIR: channel::Direction>(
+    pub async fn alloc_control_channel<'h: 'r, DIR: channel::Direction>(
         &'h self,
         addr: u8,
     ) -> Result<Channel<'h, D, channel::Control, DIR>, HostError> {
         // TODO: PRE
-        self.alloc_channel(addr, &EndpointDescriptor::control(0, 64))
+        self.alloc_channel(addr, &EndpointDescriptor::control(0, 64)).await
     }
 }
+
+/// Shared functionality between host and hubs
+async fn configure_device<D: UsbHostDriver>(
+    driver: &D, 
+    chan: &mut D::Channel<channel::Control, channel::InOut>,
+    registry: &UsbDeviceRegistryRef<'_>,
+    needs_pre: bool,
+    parent_hub: Option<(u8, u8)>
+) -> Result<Device, HostError> {
+    driver.retarget_channel(chan, 0, 8, needs_pre)?;
+
+    Timer::after_millis(1).await;
+    trace!("Request Partial Device Descriptor");
+    let max_packet_size0 = {
+        let mut max_retries = 10;
+        loop {
+            match chan
+                .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(false)
+                .await
+            {
+                Ok(desc) => break desc.max_packet_size0,
+                Err(e) => {
+                    warn!("Request descriptor error: {}, retries: {}", e, max_retries);
+                    if max_retries > 0 {
+                        max_retries -= 1;
+                        Timer::after_millis(1).await;
+                        trace!("Retry Device Descriptor");
+                        continue;
+                    } else {
+                        return Err(HostError::RequestFailed);
+                    }
+                }
+            }
+        }
+    };
+
+    let addr = registry.next_addr().await;
+
+    // TODO: Handle errors properly
+    trace!("Set address {}", addr);               
+    chan.device_set_address(addr).await?;
+    driver.retarget_channel(chan, addr, max_packet_size0, needs_pre)?;
+    
+    if !registry.add_device(&DeviceInfo { 
+        addr, 
+        needs_pre,
+        parent_hub
+    }).await {
+        // TODO: Log and ignore?
+        return Err(HostError::OutOfSlots)
+    }
+
+    trace!("Request Device Descriptor");
+    let dev_desc = chan
+        .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(false)
+        .await?;
+
+    trace!("Device Descriptor: {:?}", dev_desc);
+
+    let cfg_desc = chan
+        .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>(false)
+        .await?;
+
+    let total_len = cfg_desc.total_len as usize;
+    let mut desc_buffer = [0u8; 256];
+    let dest_buffer = &mut desc_buffer[0..total_len];
+
+    chan.request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
+        .await?;
+    trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
+
+    chan.set_configuration(cfg_desc.configuration_value).await?;
+
+    match ConfigurationDescriptor::try_from_bytes(&dest_buffer) {
+        Ok(cfg) => {
+            Ok(Device { addr, dev_desc, cfg_desc: cfg })
+        },
+        Err(_) => {
+            Err(HostError::InvalidDescriptor)
+        },
+    }
+}
+
