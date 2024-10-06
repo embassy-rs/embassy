@@ -290,7 +290,15 @@ impl State {
     }
 
     fn len(&self) -> usize {
-        self.len
+        if !self.full {
+            if self.back >= self.front {
+                self.back - self.front
+            } else {
+                self.len + self.back - self.front
+            }
+        } else {
+            self.len
+        }
     }
 
     fn is_full(&self) -> bool {
