@@ -310,12 +310,12 @@ impl<M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
         }
     }
 
-    /// Create a new [`Receiver`] for the `Watch`.
+    /// Create a new [`Sender`] for the `Watch`.
     pub fn sender(&self) -> Sender<'_, M, T, N> {
         Sender(Snd::new(self))
     }
 
-    /// Create a new [`DynReceiver`] for the `Watch`.
+    /// Create a new [`DynSender`] for the `Watch`.
     pub fn dyn_sender(&self) -> DynSender<'_, T> {
         DynSender(Snd::new(self))
     }
