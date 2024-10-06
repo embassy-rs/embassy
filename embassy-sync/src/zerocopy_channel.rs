@@ -53,7 +53,7 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
             buf: buf.as_mut_ptr(),
             phantom: PhantomData,
             state: Mutex::new(RefCell::new(State {
-                len,
+                capacity: len,
                 front: 0,
                 back: 0,
                 full: false,
@@ -259,7 +259,8 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
 }
 
 struct State {
-    len: usize,
+    /// Maximum number of elements the channel can hold.
+    capacity: usize,
 
     /// Front index. Always 0..=(N-1)
     front: usize,
@@ -276,7 +277,7 @@ struct State {
 
 impl State {
     fn increment(&self, i: usize) -> usize {
-        if i + 1 == self.len {
+        if i + 1 == self.capacity {
             0
         } else {
             i + 1
@@ -294,10 +295,10 @@ impl State {
             if self.back >= self.front {
                 self.back - self.front
             } else {
-                self.len + self.back - self.front
+                self.capacity + self.back - self.front
             }
         } else {
-            self.len
+            self.capacity
         }
     }
 
