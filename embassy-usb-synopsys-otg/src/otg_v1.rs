@@ -649,7 +649,6 @@ impl Dcfg {
     pub const fn dad(&self) -> u8 {
         let val = (self.0 >> 4usize) & 0x7f;
         val as u8
-
     }
     #[doc = "Device address"]
     #[inline(always)]
