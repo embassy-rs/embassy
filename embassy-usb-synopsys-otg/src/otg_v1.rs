@@ -1,5 +1,8 @@
-#![no_std]
 #![doc = "Peripheral access API (generated using chiptool v0.1.0 (6362222 2024-09-23))"]
+
+#![allow(missing_docs)]
+#![allow(non_camel_case_types)]
+
 #[doc = "USB OTG core by Synopsys (more docs at https://www.intel.com/content/www/us/en/programmable/hps/agilex5/index_frames.html)"]
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Otg {
