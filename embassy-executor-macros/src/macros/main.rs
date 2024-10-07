@@ -1,5 +1,5 @@
 use darling::export::NestedMeta;
-use darling::FromMeta;
+use darling::{Error, FromMeta};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Expr, ReturnType, Type};
@@ -33,6 +33,33 @@ pub fn riscv(args: &[NestedMeta]) -> TokenStream {
     };
 
     let entry = maybe_entry.unwrap_or("riscv_rt::entry".into());
+    let entry = match Expr::from_string(&entry) {
+        Ok(expr) => expr,
+        Err(e) => return e.write_errors(),
+    };
+
+    quote! {
+        #[#entry]
+        fn main() -> ! {
+            let mut executor = ::embassy_executor::Executor::new();
+            let executor = unsafe { __make_static(&mut executor) };
+            executor.run(|spawner| {
+                spawner.must_spawn(__embassy_main(spawner));
+            })
+        }
+    }
+}
+
+pub fn spin(args: &[NestedMeta]) -> TokenStream {
+    let maybe_entry = match Args::from_list(args) {
+        Ok(args) => args.entry,
+        Err(e) => return e.write_errors(),
+    };
+
+    let entry = match maybe_entry {
+        Some(str) => str,
+        None => return Error::missing_field("entry").write_errors(),
+    };
     let entry = match Expr::from_string(&entry) {
         Ok(expr) => expr,
         Err(e) => return e.write_errors(),
