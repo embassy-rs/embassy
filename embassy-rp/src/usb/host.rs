@@ -334,6 +334,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
                 w.set_endpoint(self.ep_addr);
                 // FIXME: INTERRUPT OUT?
                 w.set_intep_dir(D::is_out());
+                w.set_intep_preamble(self.pre)
             });
         } else {
             CURRENT_CHANNEL.store(self.index, Ordering::Relaxed);
