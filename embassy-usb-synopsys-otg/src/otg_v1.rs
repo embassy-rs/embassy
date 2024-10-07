@@ -101,6 +101,11 @@ impl Otg {
     pub const fn gccfg_v3(self) -> crate::common::Reg<GccfgV3, crate::common::RW> {
         unsafe { crate::common::Reg::from_ptr(self.ptr.add(0x38usize) as _) }
     }
+    #[doc = "General core configuration register, for core_id 0x0000_5xxx"]
+    #[inline(always)]
+    pub const fn gccfg_v3(self) -> Reg<regs::GccfgV3, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
+    }
     #[doc = "Core ID register"]
     #[inline(always)]
     pub const fn cid(self) -> crate::common::Reg<Cid, crate::common::RW> {
@@ -469,6 +474,7 @@ impl Adpctl {
     pub fn set_adp_sns_int(&mut self, val: bool) {
         self.0 = (self.0 & !(0x01 << 22usize)) | (((val as u32) & 0x01) << 22usize);
     }
+
     #[doc = "ADP Timeout Interrupt Enable"]
     #[inline(always)]
     pub const fn adp_tmout_int(&self) -> bool {
@@ -643,6 +649,7 @@ impl Dcfg {
     pub const fn dad(&self) -> u8 {
         let val = (self.0 >> 4usize) & 0x7f;
         val as u8
+
     }
     #[doc = "Device address"]
     #[inline(always)]

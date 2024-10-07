@@ -76,6 +76,7 @@ pub enum HrtimClockSource {
 
 /// Clocks configutation
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Config {
     pub hsi: bool,
     pub hse: Option<Hse>,

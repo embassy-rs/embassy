@@ -15,16 +15,6 @@ use {defmt_rtt as _, panic_probe as _};
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
-// Program metadata for `picotool info`
-#[link_section = ".bi_entries"]
-#[used]
-pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
-    embassy_rp::binary_info_rp_cargo_bin_name!(),
-    embassy_rp::binary_info_rp_cargo_version!(),
-    embassy_rp::binary_info_rp_program_description!(c"Blinky"),
-    embassy_rp::binary_info_rp_program_build_attribute!(),
-];
-
 const ADDR_OFFSET: u32 = 0x100000;
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
 
@@ -41,22 +31,13 @@ async fn main(_spawner: Spawner) {
 
     let mut flash = embassy_rp::flash::Flash::<_, Async, FLASH_SIZE>::new(p.FLASH, p.DMA_CH0);
 
-    // Get JEDEC id
-    let jedec = flash.blocking_jedec_id().unwrap();
-    info!("jedec id: 0x{:x}", jedec);
-
-    // Get unique id
-    let mut uid = [0; 8];
-    flash.blocking_unique_id(&mut uid).unwrap();
-    info!("unique id: {:?}", uid);
-
     erase_write_sector(&mut flash, 0x00);
 
     multiwrite_bytes(&mut flash, ERASE_SIZE as u32);
 
     background_read(&mut flash, (ERASE_SIZE * 2) as u32).await;
 
-    loop {}
+    info!("Flash Works!");
 }
 
 fn multiwrite_bytes(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLASH_SIZE>, offset: u32) {
@@ -82,7 +63,7 @@ fn multiwrite_bytes(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLASH
 
     defmt::unwrap!(flash.blocking_read(ADDR_OFFSET + offset, &mut read_buf));
     info!("Contents after write starts with {=[u8]}", read_buf[0..4]);
-    if &read_buf[0..4] != &[0x01, 0x02, 0x03, 0x04] {
+    if read_buf[0..4] != [0x01, 0x02, 0x03, 0x04] {
         defmt::panic!("unexpected");
     }
 }

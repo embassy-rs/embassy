@@ -358,6 +358,11 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         self.tx.write(buf).await
     }
 
+    /// Try writing a buffer without waiting, returning how many bytes were written.
+    pub fn try_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.tx.try_write(buf)
+    }
+
     /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.
     pub async fn flush(&mut self) -> Result<(), Error> {
         self.tx.flush().await
@@ -480,6 +485,29 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
             Poll::Ready(Ok(n))
         })
         .await
+    }
+
+    /// Try writing a buffer without waiting, returning how many bytes were written.
+    pub fn try_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        //trace!("poll_write: {:?}", buf.len());
+        let s = U::buffered_state();
+        let mut tx = unsafe { s.tx_buf.writer() };
+
+        let tx_buf = tx.push_slice();
+        if tx_buf.is_empty() {
+            return Ok(0);
+        }
+
+        let n = min(tx_buf.len(), buf.len());
+        tx_buf[..n].copy_from_slice(&buf[..n]);
+        tx.push_done(n);
+
+        //trace!("poll_write: queued {:?}", n);
+
+        compiler_fence(Ordering::SeqCst);
+        U::Interrupt::pend();
+
+        Ok(n)
     }
 
     /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.

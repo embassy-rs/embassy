@@ -79,7 +79,7 @@ arch-cortex-m = ["_arch", "dep:cortex-m"]
 ## RISC-V 32
 arch-riscv32 = ["_arch"]
 ## WASM
-arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
+arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys", "critical-section/std"]
 ## AVR
 arch-avr = ["_arch", "dep:portable-atomic", "dep:avr-device"]
 
