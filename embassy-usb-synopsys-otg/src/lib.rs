@@ -20,7 +20,7 @@ use embassy_usb_driver::{
 
 pub mod otg_v1;
 
-use otg_v1::{regs, vals, Otg};
+use otg_v1::Otg;
 
 /// Handle interrupts.
 pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
@@ -46,7 +46,7 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
         assert!(ep_num < ep_count);
 
         match status.pktstsd() {
-            vals::Pktstsd::SETUP_DATA_RX => {
+            otg_v1::Pktstsd::SETUP_DATA_RX => {
                 trace!("SETUP_DATA_RX");
                 assert!(len == 8, "invalid SETUP packet length={}", len);
                 assert!(ep_num == 0, "invalid SETUP packet endpoint={}", ep_num);
@@ -74,7 +74,7 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
                     r.fifo(0).read();
                 }
             }
-            vals::Pktstsd::OUT_DATA_RX => {
+            otg_v1::Pktstsd::OUT_DATA_RX => {
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
 
                 if state.ep_states[ep_num].out_size.load(Ordering::Acquire) == EP_OUT_BUFFER_EMPTY {
@@ -101,10 +101,10 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
                     }
                 }
             }
-            vals::Pktstsd::OUT_DATA_DONE => {
+            otg_v1::Pktstsd::OUT_DATA_DONE => {
                 trace!("OUT_DATA_DONE ep={}", ep_num);
             }
-            vals::Pktstsd::SETUP_DATA_DONE => {
+            otg_v1::Pktstsd::SETUP_DATA_DONE => {
                 trace!("SETUP_DATA_DONE ep={}", ep_num);
 
                 if quirk_setup_late_cnak {
@@ -202,12 +202,12 @@ impl PhyType {
         }
     }
 
-    fn to_dspd(&self) -> vals::Dspd {
+    fn to_dspd(&self) -> otg_v1::Dspd {
         match self {
-            PhyType::InternalFullSpeed => vals::Dspd::FULL_SPEED_INTERNAL,
-            PhyType::InternalHighSpeed => vals::Dspd::HIGH_SPEED,
-            PhyType::ExternalFullSpeed => vals::Dspd::FULL_SPEED_EXTERNAL,
-            PhyType::ExternalHighSpeed => vals::Dspd::HIGH_SPEED,
+            PhyType::InternalFullSpeed => otg_v1::Dspd::FULL_SPEED_INTERNAL,
+            PhyType::InternalHighSpeed => otg_v1::Dspd::HIGH_SPEED,
+            PhyType::ExternalFullSpeed => otg_v1::Dspd::FULL_SPEED_EXTERNAL,
+            PhyType::ExternalHighSpeed => otg_v1::Dspd::HIGH_SPEED,
         }
     }
 }
@@ -616,7 +616,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
 
         // Set speed.
         r.dcfg().write(|w| {
-            w.set_pfivl(vals::Pfivl::FRAME_INTERVAL_80);
+            w.set_pfivl(otg_v1::Pfivl::FRAME_INTERVAL_80);
             w.set_dspd(phy_type.to_dspd());
             if self.config.xcvrdly {
                 w.set_xcvrdly(true);
@@ -630,7 +630,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
 
         // Unmask and clear core interrupts
         self.restore_irqs();
-        r.gintsts().write_value(regs::Gintsts(0xFFFF_FFFF));
+        r.gintsts().write_value(otg_v1::Gintsts(0xFFFF_FFFF));
 
         // Unmask global interrupt
         r.gahbcfg().write(|w| {
@@ -1221,7 +1221,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
             for chunk in buf.chunks(4) {
                 let mut tmp = [0u8; 4];
                 tmp[0..chunk.len()].copy_from_slice(chunk);
-                self.regs.fifo(index).write_value(regs::Fifo(u32::from_ne_bytes(tmp)));
+                self.regs.fifo(index).write_value(otg_v1::Fifo(u32::from_ne_bytes(tmp)));
             }
         });
 
@@ -1331,13 +1331,13 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
     }
 }
 
-/// Translates HAL [EndpointType] into PAC [vals::Eptyp]
-fn to_eptyp(ep_type: EndpointType) -> vals::Eptyp {
+/// Translates HAL [EndpointType] into PAC [otg_v1::Eptyp]
+fn to_eptyp(ep_type: EndpointType) -> otg_v1::Eptyp {
     match ep_type {
-        EndpointType::Control => vals::Eptyp::CONTROL,
-        EndpointType::Isochronous => vals::Eptyp::ISOCHRONOUS,
-        EndpointType::Bulk => vals::Eptyp::BULK,
-        EndpointType::Interrupt => vals::Eptyp::INTERRUPT,
+        EndpointType::Control => otg_v1::Eptyp::CONTROL,
+        EndpointType::Isochronous => otg_v1::Eptyp::ISOCHRONOUS,
+        EndpointType::Bulk => otg_v1::Eptyp::BULK,
+        EndpointType::Interrupt => otg_v1::Eptyp::INTERRUPT,
     }
 }
 
@@ -1388,5 +1388,5 @@ pub struct OtgInstance<'d, const MAX_EP_COUNT: usize> {
     /// Whether to set up late cnak
     pub quirk_setup_late_cnak: bool,
     /// Function to calculate TRDT value based on some internal clock speed.
-    pub calculate_trdt_fn: fn(speed: vals::Dspd) -> u8,
+    pub calculate_trdt_fn: fn(speed: otg_v1::Dspd) -> u8,
 }
