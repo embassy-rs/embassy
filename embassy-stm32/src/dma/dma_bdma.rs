@@ -980,7 +980,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
-        self.channel.start()
+        self.channel.start();
+        self.clear();
     }
 
     /// Clear all data in the ring buffer.
