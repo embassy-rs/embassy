@@ -101,11 +101,6 @@ impl Otg {
     pub const fn gccfg_v3(self) -> crate::common::Reg<GccfgV3, crate::common::RW> {
         unsafe { crate::common::Reg::from_ptr(self.ptr.add(0x38usize) as _) }
     }
-    #[doc = "General core configuration register, for core_id 0x0000_5xxx"]
-    #[inline(always)]
-    pub const fn gccfg_v3(self) -> Reg<regs::GccfgV3, RW> {
-        unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
-    }
     #[doc = "Core ID register"]
     #[inline(always)]
     pub const fn cid(self) -> crate::common::Reg<Cid, crate::common::RW> {
@@ -474,7 +469,6 @@ impl Adpctl {
     pub fn set_adp_sns_int(&mut self, val: bool) {
         self.0 = (self.0 & !(0x01 << 22usize)) | (((val as u32) & 0x01) << 22usize);
     }
-
     #[doc = "ADP Timeout Interrupt Enable"]
     #[inline(always)]
     pub const fn adp_tmout_int(&self) -> bool {
@@ -3993,13 +3987,13 @@ impl Hcfg {
     #[doc = "Frame list length"]
     #[inline(always)]
     pub const fn frlistlen(&self) -> Frlistlen {
-        let val = (self.0 >> 24usize) & 0x01;
+        let val = (self.0 >> 24usize) & 0x03;
         Frlistlen::from_bits(val as u8)
     }
     #[doc = "Frame list length"]
     #[inline(always)]
     pub fn set_frlistlen(&mut self, val: Frlistlen) {
-        self.0 = (self.0 & !(0x01 << 24usize)) | (((val.to_bits() as u32) & 0x01) << 24usize);
+        self.0 = (self.0 & !(0x03 << 24usize)) | (((val.to_bits() as u32) & 0x03) << 24usize);
     }
     #[doc = "Period scheduling enable"]
     #[inline(always)]
