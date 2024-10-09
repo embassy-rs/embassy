@@ -13,10 +13,10 @@
 use core::mem;
 
 use embassy_executor::Spawner;
+use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{Config, FifoJoin, InterruptHandler, Pio, ShiftConfig, ShiftDirection};
-use embassy_rp::{bind_interrupts, Peripheral};
-use fixed::traits::ToFixed;
+use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_rp::pio_programs::i2s::{PioI2sOut, PioI2sOutProgram};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -25,61 +25,32 @@ bind_interrupts!(struct Irqs {
 });
 
 const SAMPLE_RATE: u32 = 48_000;
+const BIT_DEPTH: u32 = 16;
+const CHANNELS: u32 = 2;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut p = embassy_rp::init(Default::default());
 
     // Setup pio state machine for i2s output
-    let mut pio = Pio::new(p.PIO0, Irqs);
-
-    #[rustfmt::skip]
-    let pio_program = pio_proc::pio_asm!(
-        ".side_set 2",
-        "    set x, 14          side 0b01", // side 0bWB - W = Word Clock, B = Bit Clock
-        "left_data:",
-        "    out pins, 1        side 0b00",
-        "    jmp x-- left_data  side 0b01",
-        "    out pins 1         side 0b10",
-        "    set x, 14          side 0b11",
-        "right_data:",
-        "    out pins 1         side 0b10",
-        "    jmp x-- right_data side 0b11",
-        "    out pins 1         side 0b00",
-    );
+    let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
 
     let bit_clock_pin = p.PIN_18;
     let left_right_clock_pin = p.PIN_19;
     let data_pin = p.PIN_20;
 
-    let data_pin = pio.common.make_pio_pin(data_pin);
-    let bit_clock_pin = pio.common.make_pio_pin(bit_clock_pin);
-    let left_right_clock_pin = pio.common.make_pio_pin(left_right_clock_pin);
-
-    let cfg = {
-        let mut cfg = Config::default();
-        cfg.use_program(
-            &pio.common.load_program(&pio_program.program),
-            &[&bit_clock_pin, &left_right_clock_pin],
-        );
-        cfg.set_out_pins(&[&data_pin]);
-        const BIT_DEPTH: u32 = 16;
-        const CHANNELS: u32 = 2;
-        let clock_frequency = SAMPLE_RATE * BIT_DEPTH * CHANNELS;
-        cfg.clock_divider = (125_000_000. / clock_frequency as f64 / 2.).to_fixed();
-        cfg.shift_out = ShiftConfig {
-            threshold: 32,
-            direction: ShiftDirection::Left,
-            auto_fill: true,
-        };
-        // join fifos to have twice the time to start the next dma transfer
-        cfg.fifo_join = FifoJoin::TxOnly;
-        cfg
-    };
-    pio.sm0.set_config(&cfg);
-    pio.sm0.set_pin_dirs(
-        embassy_rp::pio::Direction::Out,
-        &[&data_pin, &left_right_clock_pin, &bit_clock_pin],
+    let program = PioI2sOutProgram::new(&mut common);
+    let mut i2s = PioI2sOut::new(
+        &mut common,
+        sm0,
+        p.DMA_CH0,
+        data_pin,
+        bit_clock_pin,
+        left_right_clock_pin,
+        SAMPLE_RATE,
+        BIT_DEPTH,
+        CHANNELS,
+        &program,
     );
 
     // create two audio buffers (back and front) which will take turns being
@@ -90,17 +61,13 @@ async fn main(_spawner: Spawner) {
     let (mut back_buffer, mut front_buffer) = dma_buffer.split_at_mut(BUFFER_SIZE);
 
     // start pio state machine
-    pio.sm0.set_enable(true);
-    let tx = pio.sm0.tx();
-    let mut dma_ref = p.DMA_CH0.into_ref();
-
     let mut fade_value: i32 = 0;
     let mut phase: i32 = 0;
 
     loop {
         // trigger transfer of front buffer data to the pio fifo
         // but don't await the returned future, yet
-        let dma_future = tx.dma_push(dma_ref.reborrow(), front_buffer);
+        let dma_future = i2s.write(front_buffer);
 
         // fade in audio when bootsel is pressed
         let fade_target = if p.BOOTSEL.is_pressed() { i32::MAX } else { 0 };
