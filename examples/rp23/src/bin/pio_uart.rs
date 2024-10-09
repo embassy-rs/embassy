@@ -13,12 +13,11 @@
 use defmt::{info, panic, trace};
 use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};
-use embassy_rp::bind_interrupts;
 use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::{PIO0, USB};
-use embassy_rp::pio;
 use embassy_rp::pio_programs::uart::{PioUartRx, PioUartRxProgram, PioUartTx, PioUartTxProgram};
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
+use embassy_rp::{bind_interrupts, pio};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
