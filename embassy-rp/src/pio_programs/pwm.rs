@@ -114,7 +114,7 @@ impl<'d, T: Instance, const SM: usize> PioPwm<'d, T, SM> {
         self.set_level(to_pio_cycles(duration));
     }
 
-    // Return the state machine and pin.
+    /// Return the state machine and pin.
     pub fn release(self) -> (StateMachine<'d, T, SM>, Pin<'d, T>) {
         (self.sm, self.pin)
     }
