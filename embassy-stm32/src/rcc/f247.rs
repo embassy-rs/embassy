@@ -200,8 +200,6 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.dckcfgr().modify(|w| w.set_pllsaidivq(config.pllsai_divdivq));
     pllsai.q = Some(unwrap!(pllsai.q) / (1 + config.pllsai_divdivq.to_bits()));
 
-
-    info!("KAPOUE {}",pllsai.q);
     // Configure sysclk
     let sys = match config.sys {
         Sysclk::HSI => unwrap!(hsi),
