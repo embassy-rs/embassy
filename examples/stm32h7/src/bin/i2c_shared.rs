@@ -23,7 +23,7 @@ const SHTC3_WAKEUP: [u8; 2] = [0x35, 0x17];
 const SHTC3_MEASURE_RH_FIRST: [u8; 2] = [0x5c, 0x24];
 const SHTC3_SLEEP: [u8; 2] = [0xb0, 0x98];
 
-static I2C_BUS: StaticCell<NoopMutex<RefCell<I2c<'static, Async>>>> = StaticCell::new();
+static I2C_BUS: StaticCell<NoopMutex<RefCell<I2c<'static, Async, i2c::Master>>>> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
