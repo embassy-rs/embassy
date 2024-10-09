@@ -15,6 +15,7 @@ use core::mem;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::block::ImageDef;
+use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::i2s::{PioI2sOut, PioI2sOutProgram};
@@ -35,7 +36,7 @@ const CHANNELS: u32 = 2;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut p = embassy_rp::init(Default::default());
+    let p = embassy_rp::init(Default::default());
 
     // Setup pio state machine for i2s output
     let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
@@ -58,6 +59,8 @@ async fn main(_spawner: Spawner) {
         &program,
     );
 
+    let fade_input = Input::new(p.PIN_0, Pull::Up);
+
     // create two audio buffers (back and front) which will take turns being
     // filled with new audio data and being sent to the pio fifo using dma
     const BUFFER_SIZE: usize = 960;
@@ -75,7 +78,7 @@ async fn main(_spawner: Spawner) {
         let dma_future = i2s.write(front_buffer);
 
         // fade in audio when bootsel is pressed
-        let fade_target = if p.BOOTSEL.is_pressed() { i32::MAX } else { 0 };
+        let fade_target = if fade_input.is_low() { i32::MAX } else { 0 };
 
         // fill back buffer with fresh audio samples before awaiting the dma future
         for s in back_buffer.iter_mut() {
