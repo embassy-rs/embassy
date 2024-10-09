@@ -19,4 +19,5 @@ target = "thumbv7em-none-eabi"
 features = ["defmt"]
 
 [dependencies]
+bitflags = "2.6.0"
 defmt = { version = "0.3", optional = true }

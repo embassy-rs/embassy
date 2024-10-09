@@ -12,6 +12,7 @@ pub mod class;
 pub mod control;
 pub mod descriptor;
 mod descriptor_reader;
+pub mod handlers;
 pub mod msos;
 pub mod types;
 

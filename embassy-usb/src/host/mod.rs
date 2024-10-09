@@ -8,10 +8,13 @@
 use core::marker::PhantomData;
 
 use embassy_futures::select::{select, Either};
-use embassy_time::Timer;
-use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, EndpointDescriptor, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::{MappedMutexGuard, Mutex, MutexGuard};
+use embassy_time::Timer;
+use embassy_usb_driver::host::{
+    channel, ChannelError, DeviceEvent, EndpointDescriptor, HostError, RequestType, SetupPacket, UsbChannel,
+    UsbHostDriver,
+};
 
 use crate::control::Request;
 
@@ -33,7 +36,7 @@ pub struct Device {
 
 /// Channel is dropped by referenced driver
 pub struct Channel<'d, D, T, DIR>
-where 
+where
     T: channel::Type,
     DIR: channel::Direction,
     D: UsbHostDriver,
@@ -41,11 +44,11 @@ where
     dev_addr: u8,
     channel: D::Channel<T, DIR>,
     driver: &'d D,
-    registry: &'d UsbDeviceRegistryRef<'d>
+    registry: &'d UsbDeviceRegistryRef<'d>,
 }
 
 impl<D, T, DIR> Drop for Channel<'_, D, T, DIR>
-where 
+where
     T: channel::Type,
     DIR: channel::Direction,
     D: UsbHostDriver,
@@ -57,71 +60,81 @@ where
 }
 
 impl<D, T, DIR> UsbChannel<T, DIR> for Channel<'_, D, T, DIR>
-where 
+where
     T: channel::Type,
     DIR: channel::Direction,
     D: UsbHostDriver,
 {
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
-    where 
+    where
         T: channel::IsControl,
-        DIR: channel::IsIn {
+        DIR: channel::IsIn,
+    {
         match select(
-            self.registry.wait_disconnect(self.dev_addr), 
-            self.channel.control_in(setup, buf)
-        ).await {
+            self.registry.wait_disconnect(self.dev_addr),
+            self.channel.control_in(setup, buf),
+        )
+        .await
+        {
             Either::First(_) => Err(ChannelError::Disconnected),
             Either::Second(res) => res,
         }
     }
 
     async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
-    where 
+    where
         T: channel::IsControl,
-        DIR: channel::IsOut {
+        DIR: channel::IsOut,
+    {
         match select(
-            self.registry.wait_disconnect(self.dev_addr), 
-            self.channel.control_out(setup, buf)
-        ).await {
+            self.registry.wait_disconnect(self.dev_addr),
+            self.channel.control_out(setup, buf),
+        )
+        .await
+        {
             Either::First(_) => Err(ChannelError::Disconnected),
             Either::Second(res) => res,
         }
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
-    where 
-        DIR: channel::IsIn {
+    where
+        DIR: channel::IsIn,
+    {
         match select(
-            self.registry.wait_disconnect(self.dev_addr), 
-            self.channel.request_in(buf)
-        ).await {
+            self.registry.wait_disconnect(self.dev_addr),
+            self.channel.request_in(buf),
+        )
+        .await
+        {
             Either::First(_) => Err(ChannelError::Disconnected),
             Either::Second(res) => res,
         }
     }
 
     async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
-    where 
-        DIR: channel::IsOut {
+    where
+        DIR: channel::IsOut,
+    {
         match select(
-            self.registry.wait_disconnect(self.dev_addr), 
-            self.channel.request_out(buf)
-        ).await {
+            self.registry.wait_disconnect(self.dev_addr),
+            self.channel.request_out(buf),
+        )
+        .await
+        {
             Either::First(_) => Err(ChannelError::Disconnected),
             Either::Second(res) => res,
         }
     }
-} 
+}
 
 /// Extension trait with convenience methods for control channels
-pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control, D>  {
+pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control, D> {
     // CONTROL IN methods
     /// Request and try to parse the device descriptor.
-    async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(
-        &mut self, 
-        class: bool,
-    ) -> Result<T, HostError>
-    where D: channel::IsIn
+    async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(&mut self, class: bool) -> Result<T, HostError>
+    where
+        D: channel::IsIn,
     {
         let mut buf = [0u8; SIZE];
 
@@ -134,7 +147,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         } else {
             RequestType::TYPE_STANDARD
         };
-        
+
         let packet = SetupPacket {
             request_type: RequestType::IN | ty | RequestType::RECIPIENT_DEVICE,
             request: Request::GET_DESCRIPTOR,
@@ -146,21 +159,19 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         self.control_in(&packet, &mut buf).await?;
         trace!("Descriptor {}: {=[u8]}", core::any::type_name::<T>(), buf);
 
-        T::try_from_bytes(&buf).map_err(|e| { 
+        T::try_from_bytes(&buf).map_err(|e| {
             // TODO: Log error or make descriptor error not generic
             // error!("Device [{}]: Descriptor parse failed: {}", addr, e);
-            HostError::InvalidDescriptor 
+            HostError::InvalidDescriptor
         })
     }
-    
+
     /// Request the underlying bytes for a descriptor of a specific type.
     /// bytes.len() determines how many bytes are read at maximum.
     /// This can be used for descriptors of varying length, which are parsed by the caller.
-    async fn request_descriptor_bytes<T: USBDescriptor>(
-        &mut self, 
-        buf: &mut [u8],
-    ) -> Result<usize, HostError> 
-    where D: channel::IsIn
+    async fn request_descriptor_bytes<T: USBDescriptor>(&mut self, buf: &mut [u8]) -> Result<usize, HostError>
+    where
+        D: channel::IsIn,
     {
         // The wValue field specifies the descriptor type in the high byte
         // and the descriptor index in the low byte.
@@ -177,7 +188,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         let len = self.control_in(&packet, buf).await?;
         Ok(len)
     }
-    
+
     /// Request the underlying bytes for an additional descriptor of a specific interface.
     /// Useful for class specific descriptors of varying length.
     /// bytes.len() determines how many bytes are read at maximum.
@@ -185,8 +196,9 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         &mut self,
         interface_num: u8,
         buf: &mut [u8],
-    ) -> Result<usize, HostError> 
-    where D: channel::IsIn
+    ) -> Result<usize, HostError>
+    where
+        D: channel::IsIn,
     {
         // The wValue field specifies the descriptor type in the high byte
         // and the descriptor index in the low byte.
@@ -205,11 +217,12 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     }
 
     // CONTROL OUT methods
-       
+
     /// SET_CONFIGURATION control request.
     /// Selects the configuration with the given index `config_no`.
     async fn set_configuration(&mut self, config_no: u8) -> Result<(), HostError>
-    where D: channel::IsOut
+    where
+        D: channel::IsOut,
     {
         let packet = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
@@ -226,11 +239,12 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
     /// Execute the SET_ADDRESS control request. Assign the given address to the device.
     /// Usually done during enumeration.
-    /// 
+    ///
     /// # WARNING
     /// This method can break host assumptions. Please do not use it manually
     async fn device_set_address(&mut self, new_addr: u8) -> Result<(), HostError>
-    where D: channel::IsOut
+    where
+        D: channel::IsOut,
     {
         let packet = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
@@ -241,19 +255,14 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         };
 
         self.control_out(&packet, &[]).await?;
-        
+
         Ok(())
     }
-    
+
     /// Execute a control request with request type Class and recipient Interface
-    async fn class_request_out(
-        &mut self, 
-        request: u8, 
-        value: u16, 
-        index: u16, 
-        buf: &mut [u8]
-    ) -> Result<(), HostError>
-    where D: channel::IsOut
+    async fn class_request_out(&mut self, request: u8, value: u16, index: u16, buf: &mut [u8]) -> Result<(), HostError>
+    where
+        D: channel::IsOut,
     {
         let packet = SetupPacket {
             request_type: RequestType::OUT | RequestType::TYPE_CLASS | RequestType::RECIPIENT_INTERFACE,
@@ -285,7 +294,7 @@ impl DeviceInfo {
         Self {
             addr: 0,
             needs_pre: false,
-            parent_hub: None
+            parent_hub: None,
         }
     }
 
@@ -298,7 +307,7 @@ impl DeviceInfo {
 
 pub struct UsbDeviceRegistry<const N: usize>([DeviceInfo; N]);
 
-struct UsbDeviceRegistryRef<'a>{ 
+struct UsbDeviceRegistryRef<'a> {
     // Change variance
     phantom: PhantomData<&'a ()>,
     mtx: NoopMutex<*mut [DeviceInfo]>,
@@ -316,7 +325,7 @@ impl<const N: usize> UsbDeviceRegistry<N> {
             mtx: Mutex::new(&mut self.0 as *mut _),
         }
     }
-} 
+}
 
 impl<'r> UsbDeviceRegistryRef<'r> {
     async fn with_lock<R>(&self, f: impl FnOnce(&mut [DeviceInfo]) -> R) -> R {
@@ -326,13 +335,11 @@ impl<'r> UsbDeviceRegistryRef<'r> {
 
         f(slice)
     }
-    
+
     /// Returns `true` if info was added
     pub async fn add_device(&self, info: &DeviceInfo) -> bool {
         // 0 means free slot
-        let res = self.find_by_addr(0, |slot| {
-            *slot = info.clone()
-        }).await;
+        let res = self.find_by_addr(0, |slot| *slot = info.clone()).await;
         res
     }
 
@@ -344,26 +351,30 @@ impl<'r> UsbDeviceRegistryRef<'r> {
                 modify(info);
                 found = true;
             }
-        }).await;
+        })
+        .await;
         found
     }
-    
+
     /// Find address by hub and port
     pub async fn find_by_port(&self, hub_addr: u8, hub_port: u8) -> Option<u8> {
         let mut addr = None;
         self.with_lock(|slice| {
-            if let Some(info) = slice.iter_mut()
-                .find(|d| d.parent_hub.is_some_and(|h| h.0 == hub_addr && h.1 == hub_port)) {
+            if let Some(info) = slice
+                .iter_mut()
+                .find(|d| d.parent_hub.is_some_and(|h| h.0 == hub_addr && h.1 == hub_port))
+            {
                 addr = Some(info.addr);
             }
-        }).await;
+        })
+        .await;
         addr
     }
 
     /// Remove device by address
-    /// 
+    ///
     /// If device is a hub, also remove downstream devices
-    /// 
+    ///
     /// Return count of removed devices
     pub async fn remove_device(&self, addr: u8) -> u8 {
         let mut removed = 0;
@@ -380,7 +391,8 @@ impl<'r> UsbDeviceRegistryRef<'r> {
                     removed += 1;
                 }
             }
-        }).await;
+        })
+        .await;
 
         removed
     }
@@ -389,11 +401,14 @@ impl<'r> UsbDeviceRegistryRef<'r> {
     pub async fn alive(&self, addr: u8) -> bool {
         self.find_by_addr(addr, |_| {}).await
     }
-    
+
     /// Device needs PRE packet
     pub async fn needs_pre(&self, addr: u8) -> Option<bool> {
         let mut slot = None;
-        self.find_by_addr(addr, |dev| { slot.replace(dev.needs_pre); }).await;
+        self.find_by_addr(addr, |dev| {
+            slot.replace(dev.needs_pre);
+        })
+        .await;
         slot
     }
 
@@ -402,19 +417,20 @@ impl<'r> UsbDeviceRegistryRef<'r> {
         let mut ret = 1;
         self.with_lock(|slice| {
             let addr = slice.iter().map(|d| d.addr).max().unwrap().wrapping_add(1);
-            
+
             // Wrapped around
             if addr != 0 {
                 ret = addr
             }
-        }).await;
+        })
+        .await;
         ret
     }
 
     pub async fn wait_disconnect(&self, addr: u8) {
         loop {
             if !self.alive(addr).await {
-                return
+                return;
             }
             embassy_time::Timer::after_millis(50).await;
         }
@@ -430,8 +446,11 @@ pub struct UsbHost<'r, D: UsbHostDriver> {
 
 impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
     pub fn new<const N: usize>(driver: D, registry: &'r mut UsbDeviceRegistry<N>) -> Self {
-        let channel = driver.alloc_channel(0, &EndpointDescriptor::control(0, 64), false).ok().unwrap();
-        
+        let channel = driver
+            .alloc_channel(0, &EndpointDescriptor::control(0, 64), false)
+            .ok()
+            .unwrap();
+
         Self {
             driver,
             control: Mutex::new(channel),
@@ -450,15 +469,9 @@ impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
                     debug!("Device connected to root");
                     self.driver.bus_reset().await;
 
-                    let chan = &mut self.control.lock().await; 
-                    return configure_device(
-                        &self.driver, 
-                        chan, 
-                        &self.registry, 
-                        false,
-                        None,
-                    ).await;
-                },
+                    let chan = &mut self.control.lock().await;
+                    return configure_device(&self.driver, chan, &self.registry, false, None).await;
+                }
                 DeviceEvent::Disconnected => {
                     debug!("Device disconnected from root");
 
@@ -466,22 +479,21 @@ impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
                     let count = self.registry.remove_device(1).await;
                     debug!("Disconnected {} devices", count);
                     continue;
-                },
+                }
             }
         }
     }
 
     // TODO: Max packet size
     /// Acquire host control channel, configured for device at `addr`
-    /// 
+    ///
     /// This channel must be dropped before using `host.poll()` again
     pub async fn control_channel(
         &self,
         addr: u8,
-    ) -> Result<NoopMutexGuard<D::Channel<channel::Control, channel::InOut>>, HostError> { 
+    ) -> Result<NoopMutexGuard<D::Channel<channel::Control, channel::InOut>>, HostError> {
         let mut ch = self.control.lock().await;
-        let pre = self.registry.needs_pre(addr).await
-            .ok_or(HostError::NoSuchDevice)?;
+        let pre = self.registry.needs_pre(addr).await.ok_or(HostError::NoSuchDevice)?;
         let packet_size = if pre { 8 } else { 64 };
         self.driver.retarget_channel(&mut ch, addr, packet_size, pre)?;
         Ok(ch)
@@ -490,25 +502,25 @@ impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
     pub async fn alloc_channel<'h: 'r, T: channel::Type, DIR: channel::Direction>(
         &'h self,
         addr: u8,
-        endpoint: &EndpointDescriptor
+        endpoint: &EndpointDescriptor,
     ) -> Result<Channel<'h, D, T, DIR>, HostError> {
         trace!("Alloc channel for endpoint: {}", endpoint);
         if endpoint.ep_type() != T::ep_type() {
-            return Err(HostError::InvalidDescriptor)
+            return Err(HostError::InvalidDescriptor);
         }
 
         let Some(needs_pre) = self.registry.needs_pre(addr).await else {
-            return Err(HostError::NoSuchDevice)
+            return Err(HostError::NoSuchDevice);
         };
-        
+
         Ok(Channel {
             dev_addr: addr,
             channel: self.driver.alloc_channel(addr, endpoint, needs_pre)?,
             driver: &self.driver,
-            registry: &self.registry
+            registry: &self.registry,
         })
     }
-    
+
     pub async fn alloc_control_channel<'h: 'r, DIR: channel::Direction>(
         &'h self,
         addr: u8,
@@ -520,11 +532,11 @@ impl<'r, D: UsbHostDriver> UsbHost<'r, D> {
 
 /// Shared functionality between host and hubs
 async fn configure_device<D: UsbHostDriver>(
-    driver: &D, 
+    driver: &D,
     chan: &mut D::Channel<channel::Control, channel::InOut>,
     registry: &UsbDeviceRegistryRef<'_>,
     needs_pre: bool,
-    parent_hub: Option<(u8, u8)>
+    parent_hub: Option<(u8, u8)>,
 ) -> Result<Device, HostError> {
     driver.retarget_channel(chan, 0, 8, needs_pre)?;
 
@@ -556,17 +568,20 @@ async fn configure_device<D: UsbHostDriver>(
     let addr = registry.next_addr().await;
 
     // TODO: Handle errors properly
-    trace!("Set address {}", addr);               
+    trace!("Set address {}", addr);
     chan.device_set_address(addr).await?;
     driver.retarget_channel(chan, addr, max_packet_size0, needs_pre)?;
-    
-    if !registry.add_device(&DeviceInfo { 
-        addr, 
-        needs_pre,
-        parent_hub
-    }).await {
+
+    if !registry
+        .add_device(&DeviceInfo {
+            addr,
+            needs_pre,
+            parent_hub,
+        })
+        .await
+    {
         // TODO: Log and ignore?
-        return Err(HostError::OutOfSlots)
+        return Err(HostError::OutOfSlots);
     }
 
     trace!("Request Device Descriptor");
@@ -586,17 +601,20 @@ async fn configure_device<D: UsbHostDriver>(
 
     chan.request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
         .await?;
-    trace!("Full Configuration Descriptor [{}]: {:?}", cfg_desc.total_len, dest_buffer);
+    trace!(
+        "Full Configuration Descriptor [{}]: {:?}",
+        cfg_desc.total_len,
+        dest_buffer
+    );
 
     chan.set_configuration(cfg_desc.configuration_value).await?;
 
     match ConfigurationDescriptor::try_from_bytes(&dest_buffer) {
-        Ok(cfg) => {
-            Ok(Device { addr, dev_desc, cfg_desc: cfg })
-        },
-        Err(_) => {
-            Err(HostError::InvalidDescriptor)
-        },
+        Ok(cfg) => Ok(Device {
+            addr,
+            dev_desc,
+            cfg_desc: cfg,
+        }),
+        Err(_) => Err(HostError::InvalidDescriptor),
     }
 }
-

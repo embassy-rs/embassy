@@ -173,26 +173,26 @@ impl From<ChannelError> for HostError {
 
 /// Async USB Host Driver trait.
 /// To be implemented by the HAL.
-pub trait UsbHostDriver {    
+pub trait UsbHostDriver {
     type Channel<T: channel::Type, D: channel::Direction>: UsbChannel<T, D>;
-    
+
     /// Wait for device connect or disconnect
     async fn wait_for_device_event(&self) -> DeviceEvent;
 
     /// Issue a bus reset.
     async fn bus_reset(&self);
 
-    /// Retarget control channel
-    fn retarget_channel<D: channel::Direction>(
-        &self, 
-        channel: &mut Self::Channel<channel::Control, D>,
+    /// Retarget channel
+    fn retarget_channel<TO: channel::Type, DO: channel::Direction, TN: channel::Type, DN: channel::Direction>(
+        &mut self,
+        channel: Self::Channel<TO, DO>,
         addr: u8,
-        max_packet_size: u8,
+        endpoint: &EndpointDescriptor,
         pre: bool,
-    ) -> Result<(), HostError>;
+    ) -> Result<Self::Channel<TN, DN>, HostError>;
 
     /// Allocate channel for communication with device
-    /// 
+    ///
     /// `pre` - device is low-speed and communication is going through hub, so send PRE packet
     fn alloc_channel<T: channel::Type, D: channel::Direction>(
         &self,
@@ -202,18 +202,16 @@ pub trait UsbHostDriver {
     ) -> Result<Self::Channel<T, D>, HostError>;
 
     /// Drop allocated channel
-    fn drop_channel<T: channel::Type, D: channel::Direction>(
-        &self, 
-        channel: &mut Self::Channel<T, D>
-    );
+    fn drop_channel<T: channel::Type, D: channel::Direction>(&self, channel: &mut Self::Channel<T, D>);
 }
 
 /// [UsbChannel] Typelevel structs and traits
 // TODO: Seal traits
 pub mod channel {
     use super::EndpointType;
-    
-    pub trait Type { fn ep_type() -> EndpointType;
+
+    pub trait Type {
+        fn ep_type() -> EndpointType;
     }
     pub struct Control {}
     pub struct Interrupt {}
@@ -239,13 +237,15 @@ pub mod channel {
             EndpointType::Isochronous
         }
     }
-    
-    #[diagnostic::on_unimplemented(
-        message = "This is not a CONTROL channel",
-    )]
+
+    #[diagnostic::on_unimplemented(message = "This is not a CONTROL channel")]
     pub trait IsControl {}
     impl IsControl for Control {}
-    
+
+    #[diagnostic::on_unimplemented(message = "This is not a CONTROL channel")]
+    pub trait IsInterrupt {}
+    impl IsInterrupt for Interrupt {}
+
     pub trait Direction {
         fn is_in() -> bool;
         fn is_out() -> bool;
@@ -254,28 +254,36 @@ pub mod channel {
     pub struct Out {}
     pub struct InOut {}
     impl Direction for In {
-        fn is_in() -> bool { true }
-        fn is_out() -> bool { false }
+        fn is_in() -> bool {
+            true
+        }
+        fn is_out() -> bool {
+            false
+        }
     }
     impl Direction for Out {
-        fn is_in() -> bool { false }
-        fn is_out() -> bool { true }
+        fn is_in() -> bool {
+            false
+        }
+        fn is_out() -> bool {
+            true
+        }
     }
     impl Direction for InOut {
-        fn is_in() -> bool { true }
-        fn is_out() -> bool { true }
+        fn is_in() -> bool {
+            true
+        }
+        fn is_out() -> bool {
+            true
+        }
     }
-    
-    #[diagnostic::on_unimplemented(
-        message = "This is not an IN channel",
-    )]
+
+    #[diagnostic::on_unimplemented(message = "This is not an IN channel")]
     pub trait IsIn {}
     impl IsIn for In {}
     impl IsIn for InOut {}
-    
-    #[diagnostic::on_unimplemented(
-        message = "This is not an OUT channel",
-    )]
+
+    #[diagnostic::on_unimplemented(message = "This is not an OUT channel")]
     pub trait IsOut {}
     impl IsOut for Out {}
     impl IsOut for InOut {}
@@ -284,39 +292,48 @@ pub mod channel {
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
-    where 
+    where
         T: channel::IsControl,
-        D: channel::IsIn {
-        unimplemented!()
-    }
-        
+        D: channel::IsIn;
+
     /// Send OUT control request
     async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
-    where 
+    where
         T: channel::IsControl,
-        D: channel::IsOut {
-        unimplemented!()
-    }
+        D: channel::IsOut;
+
+    /// Retargets channel to a new endpoint, may error if the underlying driver runs out of resources
+    fn retarget_channel<TN: channel::Type, DN: channel::Direction>(
+        channel: impl UsbChannel<T, D>,
+        addr: u8,
+        endpoint: &EndpointDescriptor,
+        pre: bool,
+    ) -> Result<impl UsbChannel<TN, DN>, HostError>;
+
+    /// Take or requests the latest interrupt packet from device, then stops polling the interrupt
+    ///
+    /// The polling is stopped to ensure no mutations to the returned reference
+    // async fn take_interrupt(&mut self) -> Result<&[u8], ChannelError>
+    // where
+    //     T: channel::IsInterrupt,
+    //     D: channel::IsIn;
 
     /// Send IN request of type other from control
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
-    where 
-        D: channel::IsIn {
-        unimplemented!()
-    }
+    where
+        D: channel::IsIn;
 
     /// Send OUT request of type other from control
     async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
-    where 
-        D: channel::IsOut {
-        unimplemented!()
-    }
+    where
+        D: channel::IsOut;
 }
 
-/// Convenience impl for combined inout channel
-impl<T, I, O> UsbChannel<T, channel::InOut> for (O, I)
-where
-    T: channel::Type,
-    I: UsbChannel<T, channel::In>,
-    O: UsbChannel<T, channel::Out> 
-{}
+// Convenience impl for combined inout channel
+// impl<T, I, O> UsbChannel<T, channel::InOut> for (O, I)
+// where
+//     T: channel::Type,
+//     I: UsbChannel<T, channel::In>,
+//     O: UsbChannel<T, channel::Out>,
+// {
+// }
