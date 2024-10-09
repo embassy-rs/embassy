@@ -1,13 +1,12 @@
 //! PIO backed PWM driver
 
 use core::time::Duration;
-use crate::pio::Pin;
 
 use pio::InstructionOperands;
 
 use crate::clocks;
 use crate::gpio::Level;
-use crate::pio::{Common, Config, Direction, Instance, LoadedProgram, PioPin, StateMachine};
+use crate::pio::{Common, Config, Direction, Instance, LoadedProgram, Pin, PioPin, StateMachine};
 
 /// This converts the duration provided into the number of cycles the PIO needs to run to make it take the same time
 fn to_pio_cycles(duration: Duration) -> u32 {
@@ -45,7 +44,7 @@ impl<'a, PIO: Instance> PioPwmProgram<'a, PIO> {
 /// Pio backed PWM output
 pub struct PioPwm<'d, T: Instance, const SM: usize> {
     sm: StateMachine<'d, T, SM>,
-    pin: Pin<'d, T>
+    pin: Pin<'d, T>,
 }
 
 impl<'d, T: Instance, const SM: usize> PioPwm<'d, T, SM> {
