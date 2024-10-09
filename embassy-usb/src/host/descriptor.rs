@@ -1,8 +1,6 @@
-
-
+use crate::descriptor::descriptor_type;
 use embassy_usb_driver::host::EndpointDescriptor;
 use heapless::Vec;
-use crate::{descriptor::descriptor_type};
 
 type StringIndex = u8;
 
@@ -174,7 +172,35 @@ impl USBDescriptor for ConfigurationDescriptor {
     }
 }
 
+pub struct InterfaceIterator<'a> {
+    num_interface: usize,
+    index: usize,
+    cfg_desc: &'a ConfigurationDescriptor,
+}
+
+impl<'a> Iterator for InterfaceIterator<'a> {
+    type Item = InterfaceDescriptor<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.num_interface {
+            None
+        } else {
+            let res = self.cfg_desc.parse_interface(self.index);
+            self.index += 1;
+            res
+        }
+    }
+}
+
 impl ConfigurationDescriptor {
+    pub fn iter_interface<'a>(&'a self) -> InterfaceIterator<'a> {
+        InterfaceIterator {
+            num_interface: self.num_interfaces as usize,
+            index: 0,
+            cfg_desc: &self,
+        }
+    }
+
     /// Try to find and parse the interface with interface number `index`
     pub fn parse_interface<'a>(&'a self, index: usize) -> Option<InterfaceDescriptor<'a>> {
         if index >= self.num_interfaces as usize {
@@ -240,6 +266,36 @@ impl ConfigurationDescriptor {
     }
 }
 
+pub struct EndpointIterator<'a> {
+    buffer_idx: usize,
+    index: usize,
+    iface_desc: &'a InterfaceDescriptor<'a>,
+}
+
+impl<'a> Iterator for EndpointIterator<'a> {
+    type Item = EndpointDescriptor;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.iface_desc.num_endpoints as usize {
+            None
+        } else {
+            let mut working_buffer = &self.iface_desc.buffer[self.buffer_idx..];
+            if let Some(endpoint) = InterfaceDescriptor::identify_descriptor::<EndpointDescriptor>(working_buffer)
+                .map(|i| {
+                    working_buffer = &working_buffer[i..];
+                    EndpointDescriptor::try_from_bytes(working_buffer).ok()
+                })
+                .flatten()
+            {
+                return Some(endpoint);
+            }
+            self.buffer_idx += EndpointDescriptor::SIZE;
+            self.index += 1;
+            None
+        }
+    }
+}
+
 /// InterfaceDescriptor does not implement [USBDescriptor] because it has a borrowed buffer.
 /// Since we cannot request an interface decriptor from the device by itself it does not strictly need to implement [USBDescriptor].
 impl<'a> InterfaceDescriptor<'a> {
@@ -273,6 +329,14 @@ impl<'a> InterfaceDescriptor<'a> {
         Self::identify_descriptor::<T>(self.buffer)
             .map(|i| T::try_from_bytes(&self.buffer[i..]).ok())
             .flatten()
+    }
+
+    pub fn iter_endpoints(&'a self) -> EndpointIterator<'a> {
+        EndpointIterator {
+            index: 0,
+            buffer_idx: 0,
+            iface_desc: &self,
+        }
     }
 
     /// Parse up to `L` endpoints corresponding to this interface.
