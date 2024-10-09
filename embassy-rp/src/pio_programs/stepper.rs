@@ -2,10 +2,11 @@
 
 use core::mem::{self, MaybeUninit};
 
-use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin, StateMachine};
 use fixed::traits::ToFixed;
 use fixed::types::extra::U8;
 use fixed::FixedU32;
+
+use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin, StateMachine};
 
 /// This struct represents a Stepper driver program loaded into pio instruction memory.
 pub struct PioStepperProgram<'a, PIO: Instance> {

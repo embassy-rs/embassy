@@ -1,15 +1,15 @@
 //! [ws2812](https://www.sparkfun.com/datasheets/LCD/HD44780.pdf)
 
-use crate::{
-    clocks::clk_sys_freq,
-    dma::{AnyChannel, Channel},
-    into_ref,
-    pio::{Common, Config, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine},
-    Peripheral, PeripheralRef,
-};
 use embassy_time::Timer;
 use fixed::types::U24F8;
 use smart_leds::RGB8;
+
+use crate::clocks::clk_sys_freq;
+use crate::dma::{AnyChannel, Channel};
+use crate::pio::{
+    Common, Config, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
+};
+use crate::{into_ref, Peripheral, PeripheralRef};
 
 const T1: u8 = 2; // start bit
 const T2: u8 = 5; // data bit

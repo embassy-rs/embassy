@@ -2,12 +2,11 @@
 
 use core::time::Duration;
 
-use crate::{
-    clocks,
-    gpio::Level,
-    pio::{Common, Config, Direction, Instance, LoadedProgram, PioPin, StateMachine},
-};
 use pio::InstructionOperands;
+
+use crate::clocks;
+use crate::gpio::Level;
+use crate::pio::{Common, Config, Direction, Instance, LoadedProgram, PioPin, StateMachine};
 
 fn to_pio_cycles(duration: Duration) -> u32 {
     (clocks::clk_sys_freq() / 1_000_000) / 3 * duration.as_micros() as u32 // parentheses are required to prevent overflow

@@ -1,8 +1,9 @@
 //! PIO backed quadrature encoder
 
+use fixed::traits::ToFixed;
+
 use crate::gpio::Pull;
 use crate::pio::{self, Common, Config, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine};
-use fixed::traits::ToFixed;
 
 /// This struct represents an Encoder program loaded into pio instruction memory.
 pub struct PioEncoderProgram<'a, PIO: Instance> {

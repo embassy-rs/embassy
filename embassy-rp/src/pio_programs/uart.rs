@@ -1,16 +1,15 @@
 //! Pio backed uart drivers
 
-use crate::{
-    clocks::clk_sys_freq,
-    gpio::Level,
-    pio::{
-        Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection,
-        StateMachine,
-    },
-};
 use core::convert::Infallible;
+
 use embedded_io_async::{ErrorType, Read, Write};
 use fixed::traits::ToFixed;
+
+use crate::clocks::clk_sys_freq;
+use crate::gpio::Level;
+use crate::pio::{
+    Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
+};
 
 /// This struct represents a uart tx program loaded into pio instruction memory.
 pub struct PioUartTxProgram<'a, PIO: Instance> {

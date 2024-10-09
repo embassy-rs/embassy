@@ -1,14 +1,12 @@
 //! Pio backed I2s output
 
-use crate::{
-    dma::{AnyChannel, Channel, Transfer},
-    into_ref,
-    pio::{
-        Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
-    },
-    Peripheral, PeripheralRef,
-};
 use fixed::traits::ToFixed;
+
+use crate::dma::{AnyChannel, Channel, Transfer};
+use crate::pio::{
+    Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
+};
+use crate::{into_ref, Peripheral, PeripheralRef};
 
 /// This struct represents an i2s output driver program
 pub struct PioI2sOutProgram<'a, PIO: Instance> {
