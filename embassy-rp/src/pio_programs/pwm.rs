@@ -1,6 +1,7 @@
 //! PIO backed PWM driver
 
 use core::time::Duration;
+use crate::pio::Pin;
 
 use pio::InstructionOperands;
 
@@ -8,6 +9,7 @@ use crate::clocks;
 use crate::gpio::Level;
 use crate::pio::{Common, Config, Direction, Instance, LoadedProgram, PioPin, StateMachine};
 
+/// This converts the duration provided into the number of cycles the PIO needs to run to make it take the same time
 fn to_pio_cycles(duration: Duration) -> u32 {
     (clocks::clk_sys_freq() / 1_000_000) / 3 * duration.as_micros() as u32 // parentheses are required to prevent overflow
 }
@@ -43,6 +45,7 @@ impl<'a, PIO: Instance> PioPwmProgram<'a, PIO> {
 /// Pio backed PWM output
 pub struct PioPwm<'d, T: Instance, const SM: usize> {
     sm: StateMachine<'d, T, SM>,
+    pin: Pin<'d, T>
 }
 
 impl<'d, T: Instance, const SM: usize> PioPwm<'d, T, SM> {
@@ -62,20 +65,20 @@ impl<'d, T: Instance, const SM: usize> PioPwm<'d, T, SM> {
 
         sm.set_config(&cfg);
 
-        Self { sm }
+        Self { sm, pin }
     }
 
-    /// Enable PWM output
+    /// Enable's the PIO program, continuing the wave generation from the PIO program.
     pub fn start(&mut self) {
         self.sm.set_enable(true);
     }
 
-    /// Disable PWM output
+    /// Stops the PIO program, ceasing all signals from the PIN that were generated via PIO.
     pub fn stop(&mut self) {
         self.sm.set_enable(false);
     }
 
-    /// Set pwm period
+    /// Sets the pwm period, which is the length of time for each pio wave until reset.
     pub fn set_period(&mut self, duration: Duration) {
         let is_enabled = self.sm.is_enabled();
         while !self.sm.tx().empty() {} // Make sure that the queue is empty
@@ -102,12 +105,18 @@ impl<'d, T: Instance, const SM: usize> PioPwm<'d, T, SM> {
         }
     }
 
-    fn set_level(&mut self, level: u32) {
+    /// Set the number of pio cycles to set the wave on high to.
+    pub fn set_level(&mut self, level: u32) {
         self.sm.tx().push(level);
     }
 
     /// Set the pulse width high time
     pub fn write(&mut self, duration: Duration) {
         self.set_level(to_pio_cycles(duration));
+    }
+
+    // Return the state machine and pin.
+    pub fn release(self) -> (StateMachine<'d, T, SM>, Pin<'d, T>) {
+        (self.sm, self.pin)
     }
 }
