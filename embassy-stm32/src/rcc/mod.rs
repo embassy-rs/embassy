@@ -2,6 +2,7 @@
 
 #![macro_use]
 #![allow(missing_docs)] // TODO
+#![allow(static_mut_refs)] // TODO
 
 use core::mem::MaybeUninit;
 
