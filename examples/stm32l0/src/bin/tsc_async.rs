@@ -58,8 +58,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let context = embassy_stm32::init(device_config);
 
     let mut pin_group: PinGroupWithRoles<peripherals::TSC, G1> = PinGroupWithRoles::default();
-    pin_group.set_io1::<tsc_pin_roles::Sample>(context.PA0);
-    let sensor = pin_group.set_io2::<tsc_pin_roles::Channel>(context.PA1);
+    pin_group.set_io1::<tsc::pin_roles::Sample>(context.PA0);
+    let sensor = pin_group.set_io2::<tsc::pin_roles::Channel>(context.PA1);
 
     let tsc_conf = Config {
         ct_pulse_high_length: ChargeTransferPulseCycle::_4,

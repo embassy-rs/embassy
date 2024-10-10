@@ -78,7 +78,7 @@ const SENSOR_THRESHOLD: u16 = 35;
 
 async fn acquire_sensors(
     touch_controller: &mut Tsc<'static, peripherals::TSC, mode::Async>,
-    tsc_acquisition_bank: &TscAcquisitionBank,
+    tsc_acquisition_bank: &AcquisitionBank,
 ) {
     touch_controller.set_active_channels_mask(tsc_acquisition_bank.mask());
     touch_controller.start();
@@ -95,11 +95,11 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // ---------- initial configuration of TSC ----------
     let mut pin_group1: PinGroupWithRoles<peripherals::TSC, G1> = PinGroupWithRoles::default();
-    pin_group1.set_io1::<tsc_pin_roles::Sample>(context.PA0);
+    pin_group1.set_io1::<tsc::pin_roles::Sample>(context.PA0);
     let tsc_sensor0 = pin_group1.set_io2(context.PA1);
 
     let mut pin_group5: PinGroupWithRoles<peripherals::TSC, G5> = PinGroupWithRoles::default();
-    pin_group5.set_io1::<tsc_pin_roles::Sample>(context.PB3);
+    pin_group5.set_io1::<tsc::pin_roles::Sample>(context.PB3);
     let tsc_sensor1 = pin_group5.set_io2(context.PB4);
     let tsc_sensor2 = pin_group5.set_io3(context.PB6);
 
@@ -128,14 +128,14 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // ---------- setting up acquisition banks ----------
     // sensor0 and sensor1 in this example belong to different TSC-groups,
     // therefore we can acquire and read them both in one go.
-    let bank1 = touch_controller.create_acquisition_bank(TscAcquisitionBankPins {
+    let bank1 = touch_controller.create_acquisition_bank(AcquisitionBankPins {
         g1_pin: Some(tsc_sensor0),
         g5_pin: Some(tsc_sensor1),
         ..Default::default()
     });
     // `sensor1` and `sensor2` belongs to the same TSC-group, therefore we must make sure to
     // acquire them one at the time. Therefore, we organize them into different acquisition banks.
-    let bank2 = touch_controller.create_acquisition_bank(TscAcquisitionBankPins {
+    let bank2 = touch_controller.create_acquisition_bank(AcquisitionBankPins {
         g5_pin: Some(tsc_sensor2),
         ..Default::default()
     });

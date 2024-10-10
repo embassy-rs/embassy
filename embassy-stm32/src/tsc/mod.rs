@@ -80,7 +80,7 @@ pub mod config;
 pub mod pin_groups;
 
 /// Definitions and implementations for individual TSC I/O pins.
-pub mod tsc_io_pin;
+pub mod io_pin;
 
 /// Structures and implementations for TSC acquisition banks.
 pub mod acquisition_banks;
@@ -100,9 +100,9 @@ pub use acquisition_banks::*;
 pub use config::*;
 use embassy_sync::waitqueue::AtomicWaker;
 pub use errors::*;
+pub use io_pin::*;
 pub use pin_groups::*;
 pub use tsc::*;
-pub use tsc_io_pin::*;
 pub use types::*;
 
 use crate::rcc::RccPeripheral;

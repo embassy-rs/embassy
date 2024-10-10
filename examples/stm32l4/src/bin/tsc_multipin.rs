@@ -74,7 +74,7 @@ const SENSOR_THRESHOLD: u16 = 20;
 
 async fn acquire_sensors(
     touch_controller: &mut Tsc<'static, peripherals::TSC, mode::Async>,
-    tsc_acquisition_bank: &TscAcquisitionBank,
+    tsc_acquisition_bank: &AcquisitionBank,
 ) {
     touch_controller.set_active_channels_mask(tsc_acquisition_bank.mask());
     touch_controller.start();
@@ -91,11 +91,11 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // ---------- initial configuration of TSC ----------
     let mut g1: PinGroupWithRoles<peripherals::TSC, G1> = PinGroupWithRoles::default();
-    g1.set_io1::<tsc_pin_roles::Sample>(context.PB12);
-    let sensor0 = g1.set_io2::<tsc_pin_roles::Channel>(context.PB13);
+    g1.set_io1::<tsc::pin_roles::Sample>(context.PB12);
+    let sensor0 = g1.set_io2::<tsc::pin_roles::Channel>(context.PB13);
 
     let mut g2: PinGroupWithRoles<peripherals::TSC, G2> = PinGroupWithRoles::default();
-    g2.set_io1::<tsc_pin_roles::Sample>(context.PB4);
+    g2.set_io1::<tsc::pin_roles::Sample>(context.PB4);
     let sensor1 = g2.set_io2(context.PB5);
     let sensor2 = g2.set_io3(context.PB6);
 
@@ -124,14 +124,14 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // ---------- setting up acquisition banks ----------
     // sensor0 and sensor1 belong to different TSC-groups, therefore we can acquire and
     // read them both in one go.
-    let bank1 = touch_controller.create_acquisition_bank(TscAcquisitionBankPins {
+    let bank1 = touch_controller.create_acquisition_bank(AcquisitionBankPins {
         g1_pin: Some(sensor0),
         g2_pin: Some(sensor1),
         ..Default::default()
     });
     // `sensor1` and `sensor2` belongs to the same TSC-group, therefore we must make sure to
     // acquire them one at the time. We do this by organizing them into different acquisition banks.
-    let bank2 = touch_controller.create_acquisition_bank(TscAcquisitionBankPins {
+    let bank2 = touch_controller.create_acquisition_bank(AcquisitionBankPins {
         g2_pin: Some(sensor2),
         ..Default::default()
     });

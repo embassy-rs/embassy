@@ -4,7 +4,7 @@ use core::ops::BitOr;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::errors::GroupError;
-use super::tsc_io_pin::*;
+use super::io_pin::*;
 use super::Instance;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::Peripheral;
@@ -22,14 +22,14 @@ pub enum PinType {
 
 /// Pin struct that maintains usage
 #[allow(missing_docs)]
-pub struct TscPin<'d, T, Group> {
+pub struct Pin<'d, T, Group> {
     _pin: PeripheralRef<'d, AnyPin>,
     role: PinType,
-    tsc_io_pin: TscIOPin,
+    tsc_io_pin: IOPin,
     phantom: PhantomData<(T, Group)>,
 }
 
-impl<'d, T, Group> TscPin<'d, T, Group> {
+impl<'d, T, Group> Pin<'d, T, Group> {
     /// Returns the role of this TSC pin.
     ///
     /// The role indicates whether this pin is configured as a channel,
@@ -47,8 +47,8 @@ impl<'d, T, Group> TscPin<'d, T, Group> {
     /// which includes information about the pin's group and position within that group.
     ///
     /// # Returns
-    /// The `TscIOPin` representing this pin's TSC-specific configuration.
-    pub fn tsc_io_pin(&self) -> TscIOPin {
+    /// The `IOPin` representing this pin's TSC-specific configuration.
+    pub fn tsc_io_pin(&self) -> IOPin {
         self.tsc_io_pin
     }
 }
@@ -71,10 +71,10 @@ impl<'d, T, Group> TscPin<'d, T, Group> {
 /// - No more than one shield pin is allowed across all groups.
 #[allow(missing_docs)]
 pub struct PinGroup<'d, T, Group> {
-    pin1: Option<TscPin<'d, T, Group>>,
-    pin2: Option<TscPin<'d, T, Group>>,
-    pin3: Option<TscPin<'d, T, Group>>,
-    pin4: Option<TscPin<'d, T, Group>>,
+    pin1: Option<Pin<'d, T, Group>>,
+    pin2: Option<Pin<'d, T, Group>>,
+    pin3: Option<Pin<'d, T, Group>>,
+    pin4: Option<Pin<'d, T, Group>>,
 }
 
 impl<'d, T, G> Default for PinGroup<'d, T, G> {
@@ -92,7 +92,7 @@ impl<'d, T, G> Default for PinGroup<'d, T, G> {
 ///
 /// This module contains marker types and traits that represent different roles
 /// a TSC pin can have, such as channel, sample, or shield.
-pub mod tsc_pin_roles {
+pub mod pin_roles {
     use super::{OutputType, PinType};
 
     /// Marker type for a TSC channel pin.
@@ -162,10 +162,10 @@ pub struct PinGroupWithRoles<
     'd,
     T: Instance,
     G,
-    R1 = tsc_pin_roles::Channel,
-    R2 = tsc_pin_roles::Channel,
-    R3 = tsc_pin_roles::Channel,
-    R4 = tsc_pin_roles::Channel,
+    R1 = pin_roles::Channel,
+    R2 = pin_roles::Channel,
+    R3 = pin_roles::Channel,
+    R4 = pin_roles::Channel,
 > {
     /// The underlying pin group without role information.
     pub pin_group: PinGroup<'d, T, G>,
@@ -230,38 +230,38 @@ impl<'d, T: Instance, G> PinGroup<'d, T, G> {
     }
 
     /// Returns a reference to the first pin in the group, if configured.
-    pub fn pin1(&self) -> Option<&TscPin<'d, T, G>> {
+    pub fn pin1(&self) -> Option<&Pin<'d, T, G>> {
         self.pin1.as_ref()
     }
 
     /// Returns a reference to the second pin in the group, if configured.
-    pub fn pin2(&self) -> Option<&TscPin<'d, T, G>> {
+    pub fn pin2(&self) -> Option<&Pin<'d, T, G>> {
         self.pin2.as_ref()
     }
 
     /// Returns a reference to the third pin in the group, if configured.
-    pub fn pin3(&self) -> Option<&TscPin<'d, T, G>> {
+    pub fn pin3(&self) -> Option<&Pin<'d, T, G>> {
         self.pin3.as_ref()
     }
 
     /// Returns a reference to the fourth pin in the group, if configured.
-    pub fn pin4(&self) -> Option<&TscPin<'d, T, G>> {
+    pub fn pin4(&self) -> Option<&Pin<'d, T, G>> {
         self.pin4.as_ref()
     }
 
-    fn sample_pins(&self) -> impl Iterator<Item = TscIOPin> + '_ {
+    fn sample_pins(&self) -> impl Iterator<Item = IOPin> + '_ {
         self.pins_filtered(PinType::Sample)
     }
 
-    fn shield_pins(&self) -> impl Iterator<Item = TscIOPin> + '_ {
+    fn shield_pins(&self) -> impl Iterator<Item = IOPin> + '_ {
         self.pins_filtered(PinType::Shield)
     }
 
-    fn channel_pins(&self) -> impl Iterator<Item = TscIOPin> + '_ {
+    fn channel_pins(&self) -> impl Iterator<Item = IOPin> + '_ {
         self.pins_filtered(PinType::Channel)
     }
 
-    fn pins_filtered(&self, pin_type: PinType) -> impl Iterator<Item = TscIOPin> + '_ {
+    fn pins_filtered(&self, pin_type: PinType) -> impl Iterator<Item = IOPin> + '_ {
         self.pins().into_iter().filter_map(move |pin| {
             pin.as_ref()
                 .and_then(|p| if p.role == pin_type { Some(p.tsc_io_pin) } else { None })
@@ -280,11 +280,11 @@ impl<'d, T: Instance, G> PinGroup<'d, T, G> {
         self.sample_pins().fold(0, u32::bitor)
     }
 
-    fn pins(&self) -> [&Option<TscPin<'d, T, G>>; 4] {
+    fn pins(&self) -> [&Option<Pin<'d, T, G>>; 4] {
         [&self.pin1, &self.pin2, &self.pin3, &self.pin4]
     }
 
-    fn pins_mut(&mut self) -> [&mut Option<TscPin<'d, T, G>>; 4] {
+    fn pins_mut(&mut self) -> [&mut Option<Pin<'d, T, G>>; 4] {
         [&mut self.pin1, &mut self.pin2, &mut self.pin3, &mut self.pin4]
     }
 }
@@ -317,132 +317,132 @@ macro_rules! TSC_V3_GUARD {
     }};
 }
 
-macro_rules! trait_to_tsc_io_pin {
+macro_rules! trait_to_io_pin {
     (G1IO1Pin) => {
-        TscIOPin::Group1Io1
+        IOPin::Group1Io1
     };
     (G1IO2Pin) => {
-        TscIOPin::Group1Io2
+        IOPin::Group1Io2
     };
     (G1IO3Pin) => {
-        TscIOPin::Group1Io3
+        IOPin::Group1Io3
     };
     (G1IO4Pin) => {
-        TscIOPin::Group1Io4
+        IOPin::Group1Io4
     };
 
     (G2IO1Pin) => {
-        TscIOPin::Group2Io1
+        IOPin::Group2Io1
     };
     (G2IO2Pin) => {
-        TscIOPin::Group2Io2
+        IOPin::Group2Io2
     };
     (G2IO3Pin) => {
-        TscIOPin::Group2Io3
+        IOPin::Group2Io3
     };
     (G2IO4Pin) => {
-        TscIOPin::Group2Io4
+        IOPin::Group2Io4
     };
 
     (G3IO1Pin) => {
-        TscIOPin::Group3Io1
+        IOPin::Group3Io1
     };
     (G3IO2Pin) => {
-        TscIOPin::Group3Io2
+        IOPin::Group3Io2
     };
     (G3IO3Pin) => {
-        TscIOPin::Group3Io3
+        IOPin::Group3Io3
     };
     (G3IO4Pin) => {
-        TscIOPin::Group3Io4
+        IOPin::Group3Io4
     };
 
     (G4IO1Pin) => {
-        TscIOPin::Group4Io1
+        IOPin::Group4Io1
     };
     (G4IO2Pin) => {
-        TscIOPin::Group4Io2
+        IOPin::Group4Io2
     };
     (G4IO3Pin) => {
-        TscIOPin::Group4Io3
+        IOPin::Group4Io3
     };
     (G4IO4Pin) => {
-        TscIOPin::Group4Io4
+        IOPin::Group4Io4
     };
 
     (G5IO1Pin) => {
-        TscIOPin::Group5Io1
+        IOPin::Group5Io1
     };
     (G5IO2Pin) => {
-        TscIOPin::Group5Io2
+        IOPin::Group5Io2
     };
     (G5IO3Pin) => {
-        TscIOPin::Group5Io3
+        IOPin::Group5Io3
     };
     (G5IO4Pin) => {
-        TscIOPin::Group5Io4
+        IOPin::Group5Io4
     };
 
     (G6IO1Pin) => {
-        TscIOPin::Group6Io1
+        IOPin::Group6Io1
     };
     (G6IO2Pin) => {
-        TscIOPin::Group6Io2
+        IOPin::Group6Io2
     };
     (G6IO3Pin) => {
-        TscIOPin::Group6Io3
+        IOPin::Group6Io3
     };
     (G6IO4Pin) => {
-        TscIOPin::Group6Io4
+        IOPin::Group6Io4
     };
 
     (G7IO1Pin) => {
-        TSC_V2_V3_GUARD!(TscIOPin::Group7Io1)
+        TSC_V2_V3_GUARD!(IOPin::Group7Io1)
     };
     (G7IO2Pin) => {
-        TSC_V2_V3_GUARD!(TscIOPin::Group7Io2)
+        TSC_V2_V3_GUARD!(IOPin::Group7Io2)
     };
     (G7IO3Pin) => {
-        TSC_V2_V3_GUARD!(TscIOPin::Group7Io3)
+        TSC_V2_V3_GUARD!(IOPin::Group7Io3)
     };
     (G7IO4Pin) => {
-        TSC_V2_V3_GUARD!(TscIOPin::Group7Io4)
+        TSC_V2_V3_GUARD!(IOPin::Group7Io4)
     };
 
     (G8IO1Pin) => {
-        TSC_V3_GUARD!(TscIOPin::Group8Io1)
+        TSC_V3_GUARD!(IOPin::Group8Io1)
     };
     (G8IO2Pin) => {
-        TSC_V3_GUARD!(TscIOPin::Group8Io2)
+        TSC_V3_GUARD!(IOPin::Group8Io2)
     };
     (G8IO3Pin) => {
-        TSC_V3_GUARD!(TscIOPin::Group8Io3)
+        TSC_V3_GUARD!(IOPin::Group8Io3)
     };
     (G8IO4Pin) => {
-        TSC_V3_GUARD!(TscIOPin::Group8Io4)
+        TSC_V3_GUARD!(IOPin::Group8Io4)
     };
 }
 
 macro_rules! impl_set_io {
     ($method:ident, $group:ident, $trait:ident, $index:expr) => {
         #[doc = concat!("Create a new pin1 for ", stringify!($group), " TSC group instance.")]
-        pub fn $method<Role: tsc_pin_roles::Role>(
+        pub fn $method<Role: pin_roles::Role>(
             &mut self,
             pin: impl Peripheral<P = impl $trait<T>> + 'd,
-        ) -> TscIOPinWithRole<$group, Role> {
+        ) -> IOPinWithRole<$group, Role> {
             into_ref!(pin);
             critical_section::with(|_| {
                 pin.set_low();
                 pin.set_as_af(pin.af_num(), AfType::output(Role::output_type(), Speed::VeryHigh));
-                let tsc_io_pin = trait_to_tsc_io_pin!($trait);
-                let new_pin = TscPin {
+                let tsc_io_pin = trait_to_io_pin!($trait);
+                let new_pin = Pin {
                     _pin: pin.map_into(),
                     role: Role::pin_type(),
                     tsc_io_pin,
                     phantom: PhantomData,
                 };
                 *self.pin_group.pins_mut()[$index] = Some(new_pin);
-                TscIOPinWithRole {
+                IOPinWithRole {
                     pin: tsc_io_pin,
                     phantom: PhantomData,
                 }
@@ -453,14 +453,8 @@ macro_rules! impl_set_io {
 
 macro_rules! group_impl {
     ($group:ident, $trait1:ident, $trait2:ident, $trait3:ident, $trait4:ident) => {
-        impl<
-                'd,
-                T: Instance,
-                R1: tsc_pin_roles::Role,
-                R2: tsc_pin_roles::Role,
-                R3: tsc_pin_roles::Role,
-                R4: tsc_pin_roles::Role,
-            > PinGroupWithRoles<'d, T, $group, R1, R2, R3, R4>
+        impl<'d, T: Instance, R1: pin_roles::Role, R2: pin_roles::Role, R3: pin_roles::Role, R4: pin_roles::Role>
+            PinGroupWithRoles<'d, T, $group, R1, R2, R3, R4>
         {
             impl_set_io!(set_io1, $group, $trait1, 0);
             impl_set_io!(set_io2, $group, $trait2, 1);

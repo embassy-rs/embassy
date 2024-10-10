@@ -8,8 +8,8 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use super::acquisition_banks::*;
 use super::config::*;
 use super::errors::*;
+use super::io_pin::*;
 use super::pin_groups::*;
-use super::tsc_io_pin::*;
 use super::types::*;
 use super::{Instance, InterruptHandler, TSC_NUM_GROUPS};
 use crate::interrupt::typelevel::Interrupt;
@@ -20,7 +20,7 @@ use crate::{interrupt, rcc, Peripheral};
 ///
 /// These masks are used during the initial configuration of the TSC peripheral
 /// and for validating pin types during operations like creating acquisition banks.
-struct TscIOMasks {
+struct IOMasks {
     /// Mask representing all configured channel IOs
     channel_ios: u32,
     /// Mask representing all configured shield IOs
@@ -35,19 +35,19 @@ pub struct Tsc<'d, T: Instance, K: PeriMode> {
     _pin_groups: PinGroups<'d, T>,
     state: State,
     config: Config,
-    masks: TscIOMasks,
+    masks: IOMasks,
     _kind: PhantomData<K>,
 }
 
 impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
     // Helper method to check if a pin is a channel pin
-    fn is_channel_pin(&self, pin: TscIOPin) -> bool {
+    fn is_channel_pin(&self, pin: IOPin) -> bool {
         (self.masks.channel_ios & pin) != 0
     }
 
-    /// Get the status of all groups involved in a TscAcquisitionBank
-    pub fn get_acquisition_bank_status(&self, bank: &TscAcquisitionBank) -> TscAcquisitionBankStatus {
-        let mut bank_status = TscAcquisitionBankStatus::default();
+    /// Get the status of all groups involved in a AcquisitionBank
+    pub fn get_acquisition_bank_status(&self, bank: &AcquisitionBank) -> AcquisitionBankStatus {
+        let mut bank_status = AcquisitionBankStatus::default();
         for pin in bank.pins_iterator() {
             let group = pin.group();
             let group_status = self.group_get_status(group);
@@ -57,13 +57,13 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
         bank_status
     }
 
-    /// Get the values for all channels involved in a TscAcquisitionBank
-    pub fn get_acquisition_bank_values(&self, bank: &TscAcquisitionBank) -> TscAcquisitionBankReadings {
-        let mut bank_readings = TscAcquisitionBankReadings::default();
+    /// Get the values for all channels involved in a AcquisitionBank
+    pub fn get_acquisition_bank_values(&self, bank: &AcquisitionBank) -> AcquisitionBankReadings {
+        let mut bank_readings = AcquisitionBankReadings::default();
         for pin in bank.pins_iterator() {
             let group = pin.group();
             let value = self.group_get_value(group);
-            let reading = TscChannelReading {
+            let reading = ChannelReading {
                 sensor_value: value,
                 tsc_pin: pin,
             };
@@ -75,7 +75,7 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
 
     /// Creates a new TSC acquisition bank from the provided pin configuration.
     ///
-    /// This method creates a `TscAcquisitionBank` that can be used for efficient,
+    /// This method creates a `AcquisitionBank` that can be used for efficient,
     /// repeated TSC acquisitions. It automatically generates the appropriate mask
     /// for the provided pins.
     ///
@@ -87,16 +87,16 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
     /// * `acquisition_bank_pins` - The pin configuration for the acquisition bank.
     ///
     /// # Returns
-    /// A new `TscAcquisitionBank` instance.
+    /// A new `AcquisitionBank` instance.
     ///
     /// # Example
     ///
     /// ```
     /// let tsc = // ... initialize TSC
-    /// let tsc_sensor1: TscIOPinWithRole<G1, tsc_pin_roles::Channel> = ...;
-    /// let tsc_sensor2: TscIOPinWithRole<G2, tsc_pin_roles::Channel> = ...;
+    /// let tsc_sensor1: tsc::IOPinWithRole<G1, tsc_pin_roles::Channel> = ...;
+    /// let tsc_sensor2: tsc::IOPinWithRole<G2, tsc_pin_roles::Channel> = ...;
     ///
-    /// let bank = tsc.create_acquisition_bank(TscAcquisitionBankPins {
+    /// let bank = tsc.create_acquisition_bank(AcquisitionBankPins {
     ///     g1_pin: Some(tsc_sensor1),
     ///     g2_pin: Some(tsc_sensor2),
     ///     ..Default::default()
@@ -107,10 +107,10 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
     /// tsc.start();
     /// // ... perform acquisition ...
     /// ```
-    pub fn create_acquisition_bank(&self, acquisition_bank_pins: TscAcquisitionBankPins) -> TscAcquisitionBank {
+    pub fn create_acquisition_bank(&self, acquisition_bank_pins: AcquisitionBankPins) -> AcquisitionBank {
         let bank_mask = acquisition_bank_pins.iter().fold(0u32, BitOr::bitor);
 
-        TscAcquisitionBank {
+        AcquisitionBank {
             pins: acquisition_bank_pins,
             mask: bank_mask,
         }
@@ -118,7 +118,7 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
 
     fn make_channels_mask<Itt>(&self, channels: Itt) -> Result<u32, AcquisitionBankError>
     where
-        Itt: IntoIterator<Item = TscIOPin>,
+        Itt: IntoIterator<Item = IOPin>,
     {
         let mut group_mask = 0u32;
         let mut channel_mask = 0u32;
@@ -144,7 +144,7 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
     /// Sets the active channels for the next TSC acquisition.
     ///
     /// This is a low-level method that directly sets the channel mask. For most use cases,
-    /// consider using `set_active_channels_bank` with a `TscAcquisitionBank` instead, which
+    /// consider using `set_active_channels_bank` with a `AcquisitionBank` instead, which
     /// provides a higher-level interface and additional safety checks.
     ///
     /// This method configures which sensor channels will be read during the next
@@ -167,9 +167,9 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
         T::regs().ioccr().write(|w| w.0 = mask | self.masks.shield_ios);
     }
 
-    /// Convenience method for setting active channels directly from a slice of TscIOPin.
+    /// Convenience method for setting active channels directly from a slice of tsc::IOPin.
     /// This method performs safety checks but is less efficient for repeated use.
-    pub fn set_active_channels(&mut self, channels: &[TscIOPin]) -> Result<(), AcquisitionBankError> {
+    pub fn set_active_channels(&mut self, channels: &[IOPin]) -> Result<(), AcquisitionBankError> {
         let mask = self.make_channels_mask(channels.iter().cloned())?;
         self.set_active_channels_mask(mask);
         Ok(())
@@ -178,21 +178,21 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
     /// Sets the active channels for the next TSC acquisition using a pre-configured acquisition bank.
     ///
     /// This method efficiently configures the TSC peripheral to read the channels specified
-    /// in the provided `TscAcquisitionBank`. It's the recommended way to set up
+    /// in the provided `AcquisitionBank`. It's the recommended way to set up
     /// channel configurations for acquisition, especially when using the same set of channels repeatedly.
     ///
     /// # Arguments
     ///
-    /// * `bank` - A reference to a `TscAcquisitionBank` containing the pre-configured
+    /// * `bank` - A reference to a `AcquisitionBank` containing the pre-configured
     ///            TSC channel mask.
     ///
     /// # Example
     ///
     /// ```
-    /// let tsc_sensor1: TscIOPinWithRole<G1, Channel> = ...;
-    /// let tsc_sensor2: TscIOPinWithRole<G5, Channel> = ...;
+    /// let tsc_sensor1: tsc::IOPinWithRole<G1, Channel> = ...;
+    /// let tsc_sensor2: tsc::IOPinWithRole<G5, Channel> = ...;
     /// let mut touch_controller: Tsc<'_, TSC, Async> = ...;
-    /// let bank = touch_controller.create_acquisition_bank(TscAcquisitionBankPins {
+    /// let bank = touch_controller.create_acquisition_bank(AcquisitionBankPins {
     ///     g1_pin: Some(tsc_sensor1),
     ///     g2_pin: Some(tsc_sensor2),
     ///     ..Default::default()
@@ -204,7 +204,7 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
     /// ```
     ///
     /// This method should be called before starting a new acquisition with the `start()` method.
-    pub fn set_active_channels_bank(&mut self, bank: &TscAcquisitionBank) {
+    pub fn set_active_channels_bank(&mut self, bank: &AcquisitionBank) {
         self.set_active_channels_mask(bank.mask)
     }
 
@@ -227,7 +227,7 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
 
         pin_groups.check()?;
 
-        let masks = TscIOMasks {
+        let masks = IOMasks {
             channel_ios: pin_groups.make_channel_ios_mask(),
             shield_ios: pin_groups.make_shield_ios_mask(),
             sampling_ios: pin_groups.make_sample_ios_mask(),
