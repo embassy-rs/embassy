@@ -36,15 +36,15 @@ async fn main(_spawner: embassy_executor::Spawner) {
     };
 
     let mut g1: PinGroupWithRoles<peripherals::TSC, G1> = PinGroupWithRoles::default();
-    g1.set_io2::<tsc_pin_roles::Sample>(context.PB13);
-    g1.set_io3::<tsc_pin_roles::Shield>(context.PB14);
+    g1.set_io2::<tsc::pin_roles::Sample>(context.PB13);
+    g1.set_io3::<tsc::pin_roles::Shield>(context.PB14);
 
     let mut g2: PinGroupWithRoles<peripherals::TSC, G2> = PinGroupWithRoles::default();
-    g2.set_io1::<tsc_pin_roles::Sample>(context.PB4);
+    g2.set_io1::<tsc::pin_roles::Sample>(context.PB4);
     let sensor0 = g2.set_io2(context.PB5);
 
     let mut g7: PinGroupWithRoles<peripherals::TSC, G7> = PinGroupWithRoles::default();
-    g7.set_io2::<tsc_pin_roles::Sample>(context.PE3);
+    g7.set_io2::<tsc::pin_roles::Sample>(context.PE3);
     let sensor1 = g7.set_io3(context.PE4);
 
     let pin_groups: PinGroups<peripherals::TSC> = PinGroups {
@@ -56,7 +56,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     let mut touch_controller = tsc::Tsc::new_async(context.TSC, pin_groups, config, Irqs).unwrap();
 
-    let acquisition_bank = touch_controller.create_acquisition_bank(TscAcquisitionBankPins {
+    let acquisition_bank = touch_controller.create_acquisition_bank(AcquisitionBankPins {
         g2_pin: Some(sensor0),
         g7_pin: Some(sensor1),
         ..Default::default()

@@ -50,9 +50,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     let mut pin_group: PinGroupWithRoles<peripherals::TSC, G2> = PinGroupWithRoles::default();
     // D25
-    pin_group.set_io1::<tsc_pin_roles::Sample>(context.PB4);
+    pin_group.set_io1::<tsc::pin_roles::Sample>(context.PB4);
     // D21
-    let tsc_sensor = pin_group.set_io2::<tsc_pin_roles::Channel>(context.PB5);
+    let tsc_sensor = pin_group.set_io2::<tsc::pin_roles::Channel>(context.PB5);
 
     let pin_groups: PinGroups<peripherals::TSC> = PinGroups {
         g2: Some(pin_group.pin_group),

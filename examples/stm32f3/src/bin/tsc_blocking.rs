@@ -64,9 +64,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     let mut g: PinGroupWithRoles<peripherals::TSC, G4> = PinGroupWithRoles::default();
     // D68 on the STM32F303ZE nucleo-board
-    g.set_io2::<tsc_pin_roles::Sample>(context.PA10);
+    g.set_io2::<tsc::pin_roles::Sample>(context.PA10);
     // D69 on the STM32F303ZE nucleo-board
-    let tsc_sensor = g.set_io1::<tsc_pin_roles::Channel>(context.PA9);
+    let tsc_sensor = g.set_io1::<tsc::pin_roles::Channel>(context.PA9);
 
     let pin_groups: PinGroups<peripherals::TSC> = PinGroups {
         g4: Some(g.pin_group),
@@ -119,7 +119,7 @@ const MAX_GROUP_STATUS_READ_ATTEMPTS: usize = 10;
 // attempt to read group status and delay when still ongoing
 async fn read_touch_value(
     touch_controller: &mut tsc::Tsc<'_, peripherals::TSC, mode::Blocking>,
-    sensor_pin: TscIOPin,
+    sensor_pin: tsc::IOPin,
 ) -> Option<u16> {
     for _ in 0..MAX_GROUP_STATUS_READ_ATTEMPTS {
         match touch_controller.group_get_status(sensor_pin.group()) {
