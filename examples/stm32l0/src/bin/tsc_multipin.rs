@@ -74,26 +74,6 @@ bind_interrupts!(struct Irqs {
     TSC => InterruptHandler<embassy_stm32::peripherals::TSC>;
 });
 
-const MAX_GROUP_STATUS_READ_ATTEMPTS: usize = 10;
-
-async fn read_touch_values(
-    touch_controller: &mut tsc::Tsc<'_, peripherals::TSC, mode::Async>,
-    tsc_acquisition_bank: &TscAcquisitionBank,
-) -> Option<TscAcquisitionBankReadings> {
-    for _ in 0..MAX_GROUP_STATUS_READ_ATTEMPTS {
-        let status = touch_controller.get_acquisition_bank_status(tsc_acquisition_bank);
-        if status.all_complete() {
-            let r = touch_controller.get_acquisition_bank_values(tsc_acquisition_bank);
-            return Some(r);
-        } else {
-            info!("Acquisition still ongoing");
-            Timer::after_millis(1).await;
-        }
-    }
-    info!("Acquisition failed after {} attempts", MAX_GROUP_STATUS_READ_ATTEMPTS);
-    None
-}
-
 const SENSOR_THRESHOLD: u16 = 35;
 
 async fn acquire_sensors(
@@ -174,13 +154,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     loop {
         acquire_sensors(&mut touch_controller, &bank1).await;
-        let readings1: TscAcquisitionBankReadings = read_touch_values(&mut touch_controller, &bank1)
-            .await
-            .expect("should be able to read values for bank 1");
+        let readings1 = touch_controller.get_acquisition_bank_values(&bank1);
         acquire_sensors(&mut touch_controller, &bank2).await;
-        let readings2: TscAcquisitionBankReadings = read_touch_values(&mut touch_controller, &bank2)
-            .await
-            .expect("should be able to read values for bank 2");
+        let readings2 = touch_controller.get_acquisition_bank_values(&bank1);
 
         let mut touched_sensors_count = 0;
         for reading in readings1.iter() {
