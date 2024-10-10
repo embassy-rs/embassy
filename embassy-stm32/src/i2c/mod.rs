@@ -88,7 +88,7 @@ impl Config {
             Speed::Medium,
             match self.scl_pullup {
                 true => Pull::Up,
-                false => Pull::Down,
+                false => Pull::None,
             },
         );
     }
@@ -102,7 +102,7 @@ impl Config {
             Speed::Medium,
             match self.sda_pullup {
                 true => Pull::Up,
-                false => Pull::Down,
+                false => Pull::None,
             },
         );
     }
