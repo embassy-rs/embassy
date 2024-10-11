@@ -227,6 +227,15 @@ impl Default for Config {
     }
 }
 
+pub struct IOConfig {
+    /// Channel IO mask
+    pub channel_ios: u32,
+    /// Shield IO mask
+    pub shield_ios: u32,
+    /// Sampling IO mask
+    pub sampling_ios: u32,
+}
+
 /// Pin struct that maintains usage
 #[allow(missing_docs)]
 pub struct TscPin<'d, T, C> {
@@ -761,6 +770,27 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
         groups
     }
 
+    pub fn io_config(&mut self, config: &IOConfig) {
+        // Disable Schmitt trigger hysteresis on all used TSC IOs
+        T::regs()
+            .iohcr()
+            .write(|w| w.0 = !(config.channel_ios | config.shield_ios | config.sampling_ios));
+
+        // Set channel and shield IOs
+        T::regs()
+            .ioccr()
+            .write(|w| w.0 = config.channel_ios | config.shield_ios);
+
+        // Set sampling IOs
+        T::regs().ioscr().write(|w| w.0 = config.sampling_ios);
+
+        // Set the groups to be acquired
+        T::regs()
+            .iogcsr()
+            .write(|w| w.0 = Self::extract_groups(config.channel_ios));
+
+    }
+
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
         g1: Option<PinGroup<'d, T, G1>>,
@@ -804,6 +834,15 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
         });
 
         // Set IO configuration
+        let io_config = IOConfig {
+            channel_ios: config.channel_ios,
+            sampling_ios: config.sampling_ios,
+            shield_ios: config.shield_ios,
+        };
+
+        Self.io_config(&io_config);
+
+        /*
         // Disable Schmitt trigger hysteresis on all used TSC IOs
         T::regs()
             .iohcr()
@@ -821,6 +860,8 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
         T::regs()
             .iogcsr()
             .write(|w| w.0 = Self::extract_groups(config.channel_ios));
+
+         */
 
         // Disable interrupts
         T::regs().ier().modify(|w| {
