@@ -198,8 +198,14 @@ pub(crate) unsafe fn init(config: Config) {
     let mut pllsai = init_pll(PllInstance::Pllsai, config.pllsai, &pll_input);
     #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
     RCC.dckcfgr().modify(|w| w.set_pllsaidivq(config.pllsai_divdivq));
-    pllsai.q = Some(unwrap!(pllsai.q) / (1 + config.pllsai_divdivq.to_bits()));
+    pllsai.q = match pllsai.q {
+        Some(q) => {
+            Some(q/ (1 + config.pllsai_divdivq.to_bits()))
+        },
+        None => {None}
+    };
 
+    info!("KAPOUE {}",pllsai.q);
     // Configure sysclk
     let sys = match config.sys {
         Sysclk::HSI => unwrap!(hsi),
