@@ -12,9 +12,9 @@ compile_error!("You must enable at least one of the following features: proto-ip
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-mod device;
 #[cfg(feature = "dns")]
 pub mod dns;
+mod driver_util;
 #[cfg(feature = "raw")]
 pub mod raw;
 #[cfg(feature = "tcp")]
@@ -25,6 +25,7 @@ pub mod udp;
 
 use core::cell::RefCell;
 use core::future::{poll_fn, Future};
+use core::mem::MaybeUninit;
 use core::pin::pin;
 use core::task::{Context, Poll};
 
@@ -36,7 +37,7 @@ use embassy_time::{Instant, Timer};
 use heapless::Vec;
 #[cfg(feature = "dns")]
 pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
-#[cfg(feature = "igmp")]
+#[cfg(feature = "multicast")]
 pub use smoltcp::iface::MulticastError;
 #[allow(unused_imports)]
 use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
@@ -57,7 +58,7 @@ pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
 
-use crate::device::DriverAdapter;
+use crate::driver_util::DriverAdapter;
 use crate::time::{instant_from_smoltcp, instant_to_smoltcp};
 
 const LOCAL_PORT_MIN: u16 = 1025;
@@ -69,33 +70,33 @@ const MAX_HOSTNAME_LEN: usize = 32;
 
 /// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
-    sockets: [SocketStorage<'static>; SOCK],
+    sockets: MaybeUninit<[SocketStorage<'static>; SOCK]>,
+    inner: MaybeUninit<RefCell<Inner>>,
     #[cfg(feature = "dns")]
-    queries: [Option<dns::DnsQuery>; MAX_QUERIES],
+    queries: MaybeUninit<[Option<dns::DnsQuery>; MAX_QUERIES]>,
     #[cfg(feature = "dhcpv4-hostname")]
-    hostname: core::cell::UnsafeCell<HostnameResources>,
+    hostname: HostnameResources,
 }
 
 #[cfg(feature = "dhcpv4-hostname")]
 struct HostnameResources {
-    option: smoltcp::wire::DhcpOption<'static>,
-    data: [u8; MAX_HOSTNAME_LEN],
+    option: MaybeUninit<smoltcp::wire::DhcpOption<'static>>,
+    data: MaybeUninit<[u8; MAX_HOSTNAME_LEN]>,
 }
 
 impl<const SOCK: usize> StackResources<SOCK> {
     /// Create a new set of stack resources.
     pub const fn new() -> Self {
-        #[cfg(feature = "dns")]
-        const INIT: Option<dns::DnsQuery> = None;
         Self {
-            sockets: [SocketStorage::EMPTY; SOCK],
+            sockets: MaybeUninit::uninit(),
+            inner: MaybeUninit::uninit(),
             #[cfg(feature = "dns")]
-            queries: [INIT; MAX_QUERIES],
+            queries: MaybeUninit::uninit(),
             #[cfg(feature = "dhcpv4-hostname")]
-            hostname: core::cell::UnsafeCell::new(HostnameResources {
-                option: smoltcp::wire::DhcpOption { kind: 0, data: &[] },
-                data: [0; MAX_HOSTNAME_LEN],
-            }),
+            hostname: HostnameResources {
+                option: MaybeUninit::uninit(),
+                data: MaybeUninit::uninit(),
+            },
         }
     }
 }
@@ -239,16 +240,32 @@ pub enum ConfigV6 {
     Static(StaticConfigV6),
 }
 
-/// A network stack.
+/// Network stack runner.
 ///
-/// This is the main entry point for the network stack.
-pub struct Stack<D: Driver> {
-    pub(crate) socket: RefCell<SocketStack>,
-    inner: RefCell<Inner<D>>,
+/// You must call [`Runner::run()`] in a background task for the network stack to work.
+pub struct Runner<'d, D: Driver> {
+    driver: D,
+    stack: Stack<'d>,
 }
 
-struct Inner<D: Driver> {
-    device: D,
+/// Network stack handle
+///
+/// Use this to create sockets. It's `Copy`, so you can pass
+/// it by value instead of by reference.
+#[derive(Copy, Clone)]
+pub struct Stack<'d> {
+    inner: &'d RefCell<Inner>,
+}
+
+pub(crate) struct Inner {
+    pub(crate) sockets: SocketSet<'static>, // Lifetime type-erased.
+    pub(crate) iface: Interface,
+    /// Waker used for triggering polls.
+    pub(crate) waker: WakerRegistration,
+    /// Waker used for waiting for link up or config up.
+    state_waker: WakerRegistration,
+    hardware_address: HardwareAddress,
+    next_local_port: u16,
     link_up: bool,
     #[cfg(feature = "proto-ipv4")]
     static_v4: Option<StaticConfigV4>,
@@ -256,20 +273,88 @@ struct Inner<D: Driver> {
     static_v6: Option<StaticConfigV6>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
-    config_waker: WakerRegistration,
     #[cfg(feature = "dns")]
     dns_socket: SocketHandle,
     #[cfg(feature = "dns")]
     dns_waker: WakerRegistration,
     #[cfg(feature = "dhcpv4-hostname")]
-    hostname: &'static mut core::cell::UnsafeCell<HostnameResources>,
+    hostname: *mut HostnameResources,
 }
 
-pub(crate) struct SocketStack {
-    pub(crate) sockets: SocketSet<'static>,
-    pub(crate) iface: Interface,
-    pub(crate) waker: WakerRegistration,
-    next_local_port: u16,
+fn _assert_covariant<'a, 'b: 'a>(x: Stack<'b>) -> Stack<'a> {
+    x
+}
+
+/// Create a new network stack.
+pub fn new<'d, D: Driver, const SOCK: usize>(
+    mut driver: D,
+    config: Config,
+    resources: &'d mut StackResources<SOCK>,
+    random_seed: u64,
+) -> (Stack<'d>, Runner<'d, D>) {
+    let (hardware_address, medium) = to_smoltcp_hardware_address(driver.hardware_address());
+    let mut iface_cfg = smoltcp::iface::Config::new(hardware_address);
+    iface_cfg.random_seed = random_seed;
+
+    let iface = Interface::new(
+        iface_cfg,
+        &mut DriverAdapter {
+            inner: &mut driver,
+            cx: None,
+            medium,
+        },
+        instant_to_smoltcp(Instant::now()),
+    );
+
+    unsafe fn transmute_slice<T>(x: &mut [T]) -> &'static mut [T] {
+        core::mem::transmute(x)
+    }
+
+    let sockets = resources.sockets.write([SocketStorage::EMPTY; SOCK]);
+    #[allow(unused_mut)]
+    let mut sockets: SocketSet<'static> = SocketSet::new(unsafe { transmute_slice(sockets) });
+
+    let next_local_port = (random_seed % (LOCAL_PORT_MAX - LOCAL_PORT_MIN) as u64) as u16 + LOCAL_PORT_MIN;
+
+    #[cfg(feature = "dns")]
+    let dns_socket = sockets.add(dns::Socket::new(
+        &[],
+        managed::ManagedSlice::Borrowed(unsafe {
+            transmute_slice(resources.queries.write([const { None }; MAX_QUERIES]))
+        }),
+    ));
+
+    let mut inner = Inner {
+        sockets,
+        iface,
+        waker: WakerRegistration::new(),
+        state_waker: WakerRegistration::new(),
+        next_local_port,
+        hardware_address,
+        link_up: false,
+        #[cfg(feature = "proto-ipv4")]
+        static_v4: None,
+        #[cfg(feature = "proto-ipv6")]
+        static_v6: None,
+        #[cfg(feature = "dhcpv4")]
+        dhcp_socket: None,
+        #[cfg(feature = "dns")]
+        dns_socket,
+        #[cfg(feature = "dns")]
+        dns_waker: WakerRegistration::new(),
+        #[cfg(feature = "dhcpv4-hostname")]
+        hostname: &mut resources.hostname,
+    };
+
+    #[cfg(feature = "proto-ipv4")]
+    inner.set_config_v4(config.ipv4);
+    #[cfg(feature = "proto-ipv6")]
+    inner.set_config_v6(config.ipv6);
+    inner.apply_static_config();
+
+    let inner = &*resources.inner.write(RefCell::new(inner));
+    let stack = Stack { inner };
+    (stack, Runner { driver, stack })
 }
 
 fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
@@ -292,89 +377,23 @@ fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddres
     }
 }
 
-impl<D: Driver> Stack<D> {
-    /// Create a new network stack.
-    pub fn new<const SOCK: usize>(
-        mut device: D,
-        config: Config,
-        resources: &'static mut StackResources<SOCK>,
-        random_seed: u64,
-    ) -> Self {
-        let (hardware_addr, medium) = to_smoltcp_hardware_address(device.hardware_address());
-        let mut iface_cfg = smoltcp::iface::Config::new(hardware_addr);
-        iface_cfg.random_seed = random_seed;
-
-        let iface = Interface::new(
-            iface_cfg,
-            &mut DriverAdapter {
-                inner: &mut device,
-                cx: None,
-                medium,
-            },
-            instant_to_smoltcp(Instant::now()),
-        );
-
-        let sockets = SocketSet::new(&mut resources.sockets[..]);
-
-        let next_local_port = (random_seed % (LOCAL_PORT_MAX - LOCAL_PORT_MIN) as u64) as u16 + LOCAL_PORT_MIN;
-
-        #[cfg_attr(feature = "medium-ieee802154", allow(unused_mut))]
-        let mut socket = SocketStack {
-            sockets,
-            iface,
-            waker: WakerRegistration::new(),
-            next_local_port,
-        };
-
-        let mut inner = Inner {
-            device,
-            link_up: false,
-            #[cfg(feature = "proto-ipv4")]
-            static_v4: None,
-            #[cfg(feature = "proto-ipv6")]
-            static_v6: None,
-            #[cfg(feature = "dhcpv4")]
-            dhcp_socket: None,
-            config_waker: WakerRegistration::new(),
-            #[cfg(feature = "dns")]
-            dns_socket: socket.sockets.add(dns::Socket::new(
-                &[],
-                managed::ManagedSlice::Borrowed(&mut resources.queries),
-            )),
-            #[cfg(feature = "dns")]
-            dns_waker: WakerRegistration::new(),
-            #[cfg(feature = "dhcpv4-hostname")]
-            hostname: &mut resources.hostname,
-        };
-
-        #[cfg(feature = "proto-ipv4")]
-        inner.set_config_v4(&mut socket, config.ipv4);
-        #[cfg(feature = "proto-ipv6")]
-        inner.set_config_v6(&mut socket, config.ipv6);
-        inner.apply_static_config(&mut socket);
-
-        Self {
-            socket: RefCell::new(socket),
-            inner: RefCell::new(inner),
-        }
+impl<'d> Stack<'d> {
+    fn with<R>(&self, f: impl FnOnce(&Inner) -> R) -> R {
+        f(&*self.inner.borrow())
     }
 
-    fn with<R>(&self, f: impl FnOnce(&SocketStack, &Inner<D>) -> R) -> R {
-        f(&*self.socket.borrow(), &*self.inner.borrow())
-    }
-
-    fn with_mut<R>(&self, f: impl FnOnce(&mut SocketStack, &mut Inner<D>) -> R) -> R {
-        f(&mut *self.socket.borrow_mut(), &mut *self.inner.borrow_mut())
+    fn with_mut<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> R {
+        f(&mut *self.inner.borrow_mut())
     }
 
     /// Get the hardware address of the network interface.
     pub fn hardware_address(&self) -> HardwareAddress {
-        self.with(|_s, i| to_smoltcp_hardware_address(i.device.hardware_address()).0)
+        self.with(|i| i.hardware_address)
     }
 
     /// Get whether the link is up.
     pub fn is_link_up(&self) -> bool {
-        self.with(|_s, i| i.link_up)
+        self.with(|i| i.link_up)
     }
 
     /// Get whether the network stack has a valid IP configuration.
@@ -404,10 +423,20 @@ impl<D: Driver> Stack<D> {
         v4_up || v6_up
     }
 
+    /// Wait for the network device to obtain a link signal.
+    pub async fn wait_link_up(&self) {
+        self.wait(|| self.is_link_up()).await
+    }
+
+    /// Wait for the network device to lose link signal.
+    pub async fn wait_link_down(&self) {
+        self.wait(|| !self.is_link_up()).await
+    }
+
     /// Wait for the network stack to obtain a valid IP configuration.
     ///
     /// ## Notes:
-    /// - Ensure [`Stack::run`] has been called before using this function.
+    /// - Ensure [`Runner::run`] has been started before using this function.
     ///
     /// - This function may never return (e.g. if no configuration is obtained through DHCP).
     /// The caller is supposed to handle a timeout for this case.
@@ -420,42 +449,44 @@ impl<D: Driver> Stack<D> {
     /// // provisioning space for 3 sockets here: one for DHCP, one for DNS, and one for your code (e.g. TCP).
     /// // If you use more sockets you must increase this. If you don't enable DHCP or DNS you can decrease it.
     /// static RESOURCES: StaticCell<embassy_net::StackResources<3>> = StaticCell::new();
-    /// static STACK: StaticCell<embassy_net::Stack> = StaticCell::new();
-    /// let stack = &*STACK.init(embassy_net::Stack::new(
-    ///    device,
+    /// let (stack, runner) = embassy_net::new(
+    ///    driver,
     ///    config,
     ///    RESOURCES.init(embassy_net::StackResources::new()),
     ///    seed
-    /// ));
-    /// // Launch network task that runs `stack.run().await`
-    /// spawner.spawn(net_task(stack)).unwrap();
+    /// );
+    /// // Launch network task that runs `runner.run().await`
+    /// spawner.spawn(net_task(runner)).unwrap();
     /// // Wait for DHCP config
     /// stack.wait_config_up().await;
     /// // use the network stack
     /// // ...
     /// ```
     pub async fn wait_config_up(&self) {
-        // If the config is up already, we can return immediately.
-        if self.is_config_up() {
-            return;
-        }
+        self.wait(|| self.is_config_up()).await
+    }
 
-        poll_fn(|cx| {
-            if self.is_config_up() {
+    /// Wait for the network stack to lose a valid IP configuration.
+    pub async fn wait_config_down(&self) {
+        self.wait(|| !self.is_config_up()).await
+    }
+
+    fn wait<'a>(&'a self, mut predicate: impl FnMut() -> bool + 'a) -> impl Future<Output = ()> + 'a {
+        poll_fn(move |cx| {
+            if predicate() {
                 Poll::Ready(())
             } else {
                 // If the config is not up, we register a waker that is woken up
                 // when a config is applied (static or DHCP).
                 trace!("Waiting for config up");
 
-                self.with_mut(|_, i| {
-                    i.config_waker.register(cx.waker());
+                self.with_mut(|i| {
+                    i.state_waker.register(cx.waker());
                 });
 
                 Poll::Pending
             }
         })
-        .await;
     }
 
     /// Get the current IPv4 configuration.
@@ -464,43 +495,31 @@ impl<D: Driver> Stack<D> {
     /// acquire an IP address, or Some if it has.
     #[cfg(feature = "proto-ipv4")]
     pub fn config_v4(&self) -> Option<StaticConfigV4> {
-        self.with(|_, i| i.static_v4.clone())
+        self.with(|i| i.static_v4.clone())
     }
 
     /// Get the current IPv6 configuration.
     #[cfg(feature = "proto-ipv6")]
     pub fn config_v6(&self) -> Option<StaticConfigV6> {
-        self.with(|_, i| i.static_v6.clone())
+        self.with(|i| i.static_v6.clone())
     }
 
     /// Set the IPv4 configuration.
     #[cfg(feature = "proto-ipv4")]
     pub fn set_config_v4(&self, config: ConfigV4) {
-        self.with_mut(|s, i| {
-            i.set_config_v4(s, config);
-            i.apply_static_config(s);
+        self.with_mut(|i| {
+            i.set_config_v4(config);
+            i.apply_static_config();
         })
     }
 
     /// Set the IPv6 configuration.
     #[cfg(feature = "proto-ipv6")]
     pub fn set_config_v6(&self, config: ConfigV6) {
-        self.with_mut(|s, i| {
-            i.set_config_v6(s, config);
-            i.apply_static_config(s);
+        self.with_mut(|i| {
+            i.set_config_v6(config);
+            i.apply_static_config();
         })
-    }
-
-    /// Run the network stack.
-    ///
-    /// You must call this in a background task, to process network events.
-    pub async fn run(&self) -> ! {
-        poll_fn(|cx| {
-            self.with_mut(|s, i| i.poll(cx, s));
-            Poll::<()>::Pending
-        })
-        .await;
-        unreachable!()
     }
 
     /// Make a query for a given name and return the corresponding IP addresses.
@@ -528,11 +547,11 @@ impl<D: Driver> Stack<D> {
         }
 
         let query = poll_fn(|cx| {
-            self.with_mut(|s, i| {
-                let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
-                match socket.start_query(s.iface.context(), name, qtype) {
+            self.with_mut(|i| {
+                let socket = i.sockets.get_mut::<dns::Socket>(i.dns_socket);
+                match socket.start_query(i.iface.context(), name, qtype) {
                     Ok(handle) => {
-                        s.waker.wake();
+                        i.waker.wake();
                         Poll::Ready(Ok(handle))
                     }
                     Err(dns::StartQueryError::NoFreeSlot) => {
@@ -569,17 +588,17 @@ impl<D: Driver> Stack<D> {
         }
 
         let drop = OnDrop::new(|| {
-            self.with_mut(|s, i| {
-                let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
+            self.with_mut(|i| {
+                let socket = i.sockets.get_mut::<dns::Socket>(i.dns_socket);
                 socket.cancel_query(query);
-                s.waker.wake();
+                i.waker.wake();
                 i.dns_waker.wake();
             })
         });
 
         let res = poll_fn(|cx| {
-            self.with_mut(|s, i| {
-                let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
+            self.with_mut(|i| {
+                let socket = i.sockets.get_mut::<dns::Socket>(i.dns_socket);
                 match socket.get_query_result(query) {
                     Ok(addrs) => {
                         i.dns_waker.wake();
@@ -604,104 +623,34 @@ impl<D: Driver> Stack<D> {
     }
 }
 
-#[cfg(feature = "igmp")]
-impl<D: Driver> Stack<D> {
+#[cfg(feature = "multicast")]
+impl<'d> Stack<'d> {
     /// Join a multicast group.
-    pub async fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
-    where
-        T: Into<IpAddress>,
-    {
-        let addr = addr.into();
-
-        poll_fn(move |cx| self.poll_join_multicast_group(addr, cx)).await
-    }
-
-    /// Join a multicast group.
-    ///
-    /// When the send queue is full, this method will return `Poll::Pending`
-    /// and register the current task to be notified when the queue has space available.
-    pub fn poll_join_multicast_group<T>(&self, addr: T, cx: &mut Context<'_>) -> Poll<Result<bool, MulticastError>>
-    where
-        T: Into<IpAddress>,
-    {
-        let addr = addr.into();
-
-        self.with_mut(|s, i| {
-            let (_hardware_addr, medium) = to_smoltcp_hardware_address(i.device.hardware_address());
-            let mut smoldev = DriverAdapter {
-                cx: Some(cx),
-                inner: &mut i.device,
-                medium,
-            };
-
-            match s
-                .iface
-                .join_multicast_group(&mut smoldev, addr, instant_to_smoltcp(Instant::now()))
-            {
-                Ok(announce_sent) => Poll::Ready(Ok(announce_sent)),
-                Err(MulticastError::Exhausted) => Poll::Pending,
-                Err(other) => Poll::Ready(Err(other)),
-            }
-        })
+    pub fn join_multicast_group(&self, addr: impl Into<IpAddress>) -> Result<(), MulticastError> {
+        self.with_mut(|i| i.iface.join_multicast_group(addr))
     }
 
     /// Leave a multicast group.
-    pub async fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
-    where
-        T: Into<IpAddress>,
-    {
-        let addr = addr.into();
-
-        poll_fn(move |cx| self.poll_leave_multicast_group(addr, cx)).await
-    }
-
-    /// Leave a multicast group.
-    ///
-    /// When the send queue is full, this method will return `Poll::Pending`
-    /// and register the current task to be notified when the queue has space available.
-    pub fn poll_leave_multicast_group<T>(&self, addr: T, cx: &mut Context<'_>) -> Poll<Result<bool, MulticastError>>
-    where
-        T: Into<IpAddress>,
-    {
-        let addr = addr.into();
-
-        self.with_mut(|s, i| {
-            let (_hardware_addr, medium) = to_smoltcp_hardware_address(i.device.hardware_address());
-            let mut smoldev = DriverAdapter {
-                cx: Some(cx),
-                inner: &mut i.device,
-                medium,
-            };
-
-            match s
-                .iface
-                .leave_multicast_group(&mut smoldev, addr, instant_to_smoltcp(Instant::now()))
-            {
-                Ok(leave_sent) => Poll::Ready(Ok(leave_sent)),
-                Err(MulticastError::Exhausted) => Poll::Pending,
-                Err(other) => Poll::Ready(Err(other)),
-            }
-        })
+    pub fn leave_multicast_group(&self, addr: impl Into<IpAddress>) -> Result<(), MulticastError> {
+        self.with_mut(|i| i.iface.leave_multicast_group(addr))
     }
 
     /// Get whether the network stack has joined the given multicast group.
-    pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
-        self.socket.borrow().iface.has_multicast_group(addr)
+    pub fn has_multicast_group(&self, addr: impl Into<IpAddress>) -> bool {
+        self.with(|i| i.iface.has_multicast_group(addr))
     }
 }
 
-impl SocketStack {
+impl Inner {
     #[allow(clippy::absurd_extreme_comparisons, dead_code)]
     pub fn get_local_port(&mut self) -> u16 {
         let res = self.next_local_port;
         self.next_local_port = if res >= LOCAL_PORT_MAX { LOCAL_PORT_MIN } else { res + 1 };
         res
     }
-}
 
-impl<D: Driver> Inner<D> {
     #[cfg(feature = "proto-ipv4")]
-    pub fn set_config_v4(&mut self, _s: &mut SocketStack, config: ConfigV4) {
+    pub fn set_config_v4(&mut self, config: ConfigV4) {
         // Handle static config.
         self.static_v4 = match config.clone() {
             ConfigV4::None => None,
@@ -717,12 +666,12 @@ impl<D: Driver> Inner<D> {
                 // Create the socket if it doesn't exist.
                 if self.dhcp_socket.is_none() {
                     let socket = smoltcp::socket::dhcpv4::Socket::new();
-                    let handle = _s.sockets.add(socket);
+                    let handle = self.sockets.add(socket);
                     self.dhcp_socket = Some(handle);
                 }
 
                 // Configure it
-                let socket = _s.sockets.get_mut::<dhcpv4::Socket>(unwrap!(self.dhcp_socket));
+                let socket = self.sockets.get_mut::<dhcpv4::Socket>(unwrap!(self.dhcp_socket));
                 socket.set_ignore_naks(c.ignore_naks);
                 socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_smoltcp));
                 socket.set_ports(c.server_port, c.client_port);
@@ -731,19 +680,20 @@ impl<D: Driver> Inner<D> {
                 socket.set_outgoing_options(&[]);
                 #[cfg(feature = "dhcpv4-hostname")]
                 if let Some(h) = c.hostname {
-                    // safety: we just did set_outgoing_options([]) so we know the socket is no longer holding a reference.
-                    let hostname = unsafe { &mut *self.hostname.get() };
+                    // safety:
+                    // - we just did set_outgoing_options([]) so we know the socket is no longer holding a reference.
+                    // - we know this pointer lives for as long as the stack exists, because `new()` borrows
+                    //   the resources for `'d`. Therefore it's OK to pass a reference to this to smoltcp.
+                    let hostname = unsafe { &mut *self.hostname };
 
                     // create data
-                    // safety: we know the buffer lives forever, new borrows the StackResources for 'static.
-                    // also we won't modify it until next call to this function.
-                    hostname.data[..h.len()].copy_from_slice(h.as_bytes());
-                    let data: &[u8] = &hostname.data[..h.len()];
-                    let data: &'static [u8] = unsafe { core::mem::transmute(data) };
+                    let data = hostname.data.write([0; MAX_HOSTNAME_LEN]);
+                    data[..h.len()].copy_from_slice(h.as_bytes());
+                    let data: &[u8] = &data[..h.len()];
 
                     // set the option.
-                    hostname.option = smoltcp::wire::DhcpOption { data, kind: 12 };
-                    socket.set_outgoing_options(core::slice::from_ref(&hostname.option));
+                    let option = hostname.option.write(smoltcp::wire::DhcpOption { data, kind: 12 });
+                    socket.set_outgoing_options(core::slice::from_ref(option));
                 }
 
                 socket.reset();
@@ -751,7 +701,7 @@ impl<D: Driver> Inner<D> {
             _ => {
                 // Remove DHCP socket if any.
                 if let Some(socket) = self.dhcp_socket {
-                    _s.sockets.remove(socket);
+                    self.sockets.remove(socket);
                     self.dhcp_socket = None;
                 }
             }
@@ -759,14 +709,14 @@ impl<D: Driver> Inner<D> {
     }
 
     #[cfg(feature = "proto-ipv6")]
-    pub fn set_config_v6(&mut self, _s: &mut SocketStack, config: ConfigV6) {
+    pub fn set_config_v6(&mut self, config: ConfigV6) {
         self.static_v6 = match config {
             ConfigV6::None => None,
             ConfigV6::Static(c) => Some(c),
         };
     }
 
-    fn apply_static_config(&mut self, s: &mut SocketStack) {
+    fn apply_static_config(&mut self) {
         let mut addrs = Vec::new();
         #[cfg(feature = "dns")]
         let mut dns_servers: Vec<_, 6> = Vec::new();
@@ -810,20 +760,20 @@ impl<D: Driver> Inner<D> {
         }
 
         // Apply addresses
-        s.iface.update_ip_addrs(|a| *a = addrs);
+        self.iface.update_ip_addrs(|a| *a = addrs);
 
         // Apply gateways
         #[cfg(feature = "proto-ipv4")]
         if let Some(gateway) = gateway_v4 {
-            unwrap!(s.iface.routes_mut().add_default_ipv4_route(gateway));
+            unwrap!(self.iface.routes_mut().add_default_ipv4_route(gateway));
         } else {
-            s.iface.routes_mut().remove_default_ipv4_route();
+            self.iface.routes_mut().remove_default_ipv4_route();
         }
         #[cfg(feature = "proto-ipv6")]
         if let Some(gateway) = gateway_v6 {
-            unwrap!(s.iface.routes_mut().add_default_ipv6_route(gateway));
+            unwrap!(self.iface.routes_mut().add_default_ipv6_route(gateway));
         } else {
-            s.iface.routes_mut().remove_default_ipv6_route();
+            self.iface.routes_mut().remove_default_ipv6_route();
         }
 
         // Apply DNS servers
@@ -835,18 +785,18 @@ impl<D: Driver> Inner<D> {
             } else {
                 dns_servers.len()
             };
-            s.sockets
+            self.sockets
                 .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
                 .update_servers(&dns_servers[..count]);
         }
 
-        self.config_waker.wake();
+        self.state_waker.wake();
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
-        s.waker.register(cx.waker());
+    fn poll<D: Driver>(&mut self, cx: &mut Context<'_>, driver: &mut D) {
+        self.waker.register(cx.waker());
 
-        let (_hardware_addr, medium) = to_smoltcp_hardware_address(self.device.hardware_address());
+        let (_hardware_addr, medium) = to_smoltcp_hardware_address(driver.hardware_address());
 
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         {
@@ -859,25 +809,26 @@ impl<D: Driver> Inner<D> {
                 _ => false,
             };
             if do_set {
-                s.iface.set_hardware_addr(_hardware_addr);
+                self.iface.set_hardware_addr(_hardware_addr);
             }
         }
 
         let timestamp = instant_to_smoltcp(Instant::now());
         let mut smoldev = DriverAdapter {
             cx: Some(cx),
-            inner: &mut self.device,
+            inner: driver,
             medium,
         };
-        s.iface.poll(timestamp, &mut smoldev, &mut s.sockets);
+        self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
 
         // Update link up
         let old_link_up = self.link_up;
-        self.link_up = self.device.link_state(cx) == LinkState::Up;
+        self.link_up = driver.link_state(cx) == LinkState::Up;
 
         // Print when changed
         if old_link_up != self.link_up {
             info!("link_up = {:?}", self.link_up);
+            self.state_waker.wake();
         }
 
         #[allow(unused_mut)]
@@ -885,7 +836,7 @@ impl<D: Driver> Inner<D> {
 
         #[cfg(feature = "dhcpv4")]
         if let Some(dhcp_handle) = self.dhcp_socket {
-            let socket = s.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
+            let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
 
             if self.link_up {
                 if old_link_up != self.link_up {
@@ -914,14 +865,28 @@ impl<D: Driver> Inner<D> {
         }
 
         if apply_config {
-            self.apply_static_config(s);
+            self.apply_static_config();
         }
 
-        if let Some(poll_at) = s.iface.poll_at(timestamp, &mut s.sockets) {
+        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets) {
             let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();
             }
         }
+    }
+}
+
+impl<'d, D: Driver> Runner<'d, D> {
+    /// Run the network stack.
+    ///
+    /// You must call this in a background task, to process network events.
+    pub async fn run(&mut self) -> ! {
+        poll_fn(|cx| {
+            self.stack.with_mut(|i| i.poll(cx, &mut self.driver));
+            Poll::<()>::Pending
+        })
+        .await;
+        unreachable!()
     }
 }

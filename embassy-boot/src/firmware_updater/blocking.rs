@@ -142,7 +142,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
             let mut chunk_buf = [0; 2];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message)?;
 
-            public_key.verify(&message, &signature).map_err(into_signature_error)?
+            public_key.verify(&message, &signature).map_err(into_signature_error)?;
+            return self.state.mark_updated();
         }
         #[cfg(feature = "ed25519-salty")]
         {
@@ -169,10 +170,13 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
                 message,
                 r.is_ok()
             );
-            r.map_err(into_signature_error)?
+            r.map_err(into_signature_error)?;
+            return self.state.mark_updated();
         }
-
-        self.state.mark_updated()
+        #[cfg(not(any(feature = "ed25519-dalek", feature = "ed25519-salty")))]
+        {
+            Err(FirmwareUpdaterError::Signature(signature::Error::new()))
+        }
     }
 
     /// Verify the update in DFU with any digest.
@@ -320,7 +324,8 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
 
     // Make sure we are running a booted firmware to avoid reverting to a bad state.
     fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
-        if self.get_state()? == State::Boot || self.get_state()? == State::DfuDetach {
+        let state = self.get_state()?;
+        if state == State::Boot || state == State::DfuDetach || state == State::Revert {
             Ok(())
         } else {
             Err(FirmwareUpdaterError::BadState)
@@ -334,14 +339,7 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
     /// `mark_booted`.
     pub fn get_state(&mut self) -> Result<State, FirmwareUpdaterError> {
         self.state.read(0, &mut self.aligned)?;
-
-        if !self.aligned.iter().any(|&b| b != SWAP_MAGIC) {
-            Ok(State::Swap)
-        } else if !self.aligned.iter().any(|&b| b != DFU_DETACH_MAGIC) {
-            Ok(State::DfuDetach)
-        } else {
-            Ok(State::Boot)
-        }
+        Ok(State::from(&self.aligned))
     }
 
     /// Mark to trigger firmware swap on next boot.

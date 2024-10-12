@@ -397,6 +397,15 @@ impl_bytes!(PassphraseInfo);
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
+pub struct SaePassphraseInfo {
+    pub len: u16,
+    pub passphrase: [u8; 128],
+}
+impl_bytes!(SaePassphraseInfo);
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
 pub struct SsidInfoWithIndex {
     pub index: u32,
     pub ssid_info: SsidInfo,

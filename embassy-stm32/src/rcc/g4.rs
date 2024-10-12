@@ -32,6 +32,7 @@ pub struct Hse {
 /// Use this struct to configure the PLL source, input frequency, multiplication factor, and output
 /// dividers. Be sure to keep check the datasheet for your specific part for the appropriate
 /// frequency ranges for each of these settings.
+#[derive(Clone, Copy)]
 pub struct Pll {
     /// PLL Source clock selection.
     pub source: PllSource,
@@ -54,6 +55,7 @@ pub struct Pll {
 
 /// Clocks configutation
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Config {
     /// HSI Enable
     pub hsi: bool,

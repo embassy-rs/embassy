@@ -1,4 +1,5 @@
 //! Utilities for writing USB descriptors.
+use embassy_usb_driver::EndpointType;
 
 use crate::builder::Config;
 use crate::driver::EndpointInfo;
@@ -13,6 +14,8 @@ pub mod descriptor_type {
     pub const STRING: u8 = 3;
     pub const INTERFACE: u8 = 4;
     pub const ENDPOINT: u8 = 5;
+    pub const DEVICE_QUALIFIER: u8 = 6;
+    pub const OTHER_SPEED_CONFIGURATION: u8 = 7;
     pub const IAD: u8 = 11;
     pub const BOS: u8 = 15;
     pub const CAPABILITY: u8 = 16;
@@ -34,6 +37,40 @@ pub mod capability_type {
     pub const SS_USB_DEVICE: u8 = 3;
     pub const CONTAINER_ID: u8 = 4;
     pub const PLATFORM: u8 = 5;
+}
+
+/// USB endpoint synchronization type. The values of this enum can be directly
+/// cast into `u8` to get the bmAttributes synchronization type bits.
+/// Values other than `NoSynchronization` are only allowed on isochronous endpoints.
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SynchronizationType {
+    /// No synchronization is used.
+    NoSynchronization = 0b00,
+    /// Unsynchronized, although sinks provide data rate feedback.
+    Asynchronous = 0b01,
+    /// Synchronized using feedback or feedforward data rate information.
+    Adaptive = 0b10,
+    /// Synchronized to the USB’s SOF.
+    Synchronous = 0b11,
+}
+
+/// USB endpoint usage type. The values of this enum can be directly cast into
+/// `u8` to get the bmAttributes usage type bits.
+/// Values other than `DataEndpoint` are only allowed on isochronous endpoints.
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum UsageType {
+    /// Use the endpoint for regular data transfer.
+    DataEndpoint = 0b00,
+    /// Endpoint conveys explicit feedback information for one or more data endpoints.
+    FeedbackEndpoint = 0b01,
+    /// A data endpoint that also serves as an implicit feedback endpoint for one or more data endpoints.
+    ImplicitFeedbackDataEndpoint = 0b10,
+    /// Reserved usage type.
+    Reserved = 0b11,
 }
 
 /// A writer for USB descriptors.
@@ -63,23 +100,26 @@ impl<'a> DescriptorWriter<'a> {
         self.position
     }
 
-    /// Writes an arbitrary (usually class-specific) descriptor.
-    pub fn write(&mut self, descriptor_type: u8, descriptor: &[u8]) {
-        let length = descriptor.len();
+    /// Writes an arbitrary (usually class-specific) descriptor with optional extra fields.
+    pub fn write(&mut self, descriptor_type: u8, descriptor: &[u8], extra_fields: &[u8]) {
+        let descriptor_length = descriptor.len();
+        let extra_fields_length = extra_fields.len();
+        let total_length = descriptor_length + extra_fields_length;
 
         assert!(
-            (self.position + 2 + length) <= self.buf.len() && (length + 2) <= 255,
+            (self.position + 2 + total_length) <= self.buf.len() && (total_length + 2) <= 255,
             "Descriptor buffer full"
         );
 
-        self.buf[self.position] = (length + 2) as u8;
+        self.buf[self.position] = (total_length + 2) as u8;
         self.buf[self.position + 1] = descriptor_type;
 
         let start = self.position + 2;
 
-        self.buf[start..start + length].copy_from_slice(descriptor);
+        self.buf[start..start + descriptor_length].copy_from_slice(descriptor);
+        self.buf[start + descriptor_length..start + total_length].copy_from_slice(extra_fields);
 
-        self.position = start + length;
+        self.position = start + total_length;
     }
 
     pub(crate) fn configuration(&mut self, config: &Config) {
@@ -97,6 +137,7 @@ impl<'a> DescriptorWriter<'a> {
                     | if config.supports_remote_wakeup { 0x20 } else { 0x00 }, // bmAttributes
                 (config.max_power / 2) as u8, // bMaxPower
             ],
+            &[],
         );
     }
 
@@ -143,6 +184,7 @@ impl<'a> DescriptorWriter<'a> {
                 function_protocol,
                 0,
             ],
+            &[],
         );
     }
 
@@ -193,6 +235,7 @@ impl<'a> DescriptorWriter<'a> {
                 interface_protocol,  // bInterfaceProtocol
                 str_index,           // iInterface
             ],
+            &[],
         );
     }
 
@@ -202,21 +245,50 @@ impl<'a> DescriptorWriter<'a> {
     ///
     /// * `endpoint` - Endpoint previously allocated with
     ///   [`UsbDeviceBuilder`](crate::bus::UsbDeviceBuilder).
-    pub fn endpoint(&mut self, endpoint: &EndpointInfo) {
+    /// * `synchronization_type` - The synchronization type of the endpoint.
+    /// * `usage_type` - The usage type of the endpoint.
+    /// * `extra_fields` - Additional, class-specific entries at the end of the endpoint descriptor.
+    pub fn endpoint(
+        &mut self,
+        endpoint: &EndpointInfo,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+    ) {
         match self.num_endpoints_mark {
             Some(mark) => self.buf[mark] += 1,
             None => panic!("you can only call `endpoint` after `interface/interface_alt`."),
         };
 
+        let mut bm_attributes = endpoint.ep_type as u8;
+
+        // Synchronization types other than `NoSynchronization`,
+        // and usage types other than `DataEndpoint`
+        // are only allowed for isochronous endpoints.
+        if endpoint.ep_type != EndpointType::Isochronous {
+            assert_eq!(synchronization_type, SynchronizationType::NoSynchronization);
+            assert_eq!(usage_type, UsageType::DataEndpoint);
+        } else {
+            if usage_type == UsageType::FeedbackEndpoint {
+                assert_eq!(synchronization_type, SynchronizationType::NoSynchronization)
+            }
+
+            let synchronization_bm_attibutes: u8 = (synchronization_type as u8) << 2;
+            let usage_bm_attibutes: u8 = (usage_type as u8) << 4;
+
+            bm_attributes |= usage_bm_attibutes | synchronization_bm_attibutes;
+        }
+
         self.write(
             descriptor_type::ENDPOINT,
             &[
-                endpoint.addr.into(),   // bEndpointAddress
-                endpoint.ep_type as u8, // bmAttributes
+                endpoint.addr.into(), // bEndpointAddress
+                bm_attributes,        // bmAttributes
                 endpoint.max_packet_size as u8,
                 (endpoint.max_packet_size >> 8) as u8, // wMaxPacketSize
                 endpoint.interval_ms,                  // bInterval
             ],
+            extra_fields,
         );
     }
 
@@ -272,6 +344,25 @@ pub(crate) fn device_descriptor(config: &Config) -> [u8; 18] {
     ]
 }
 
+/// Create a new Device Qualifier Descriptor array.
+///
+/// All device qualifier descriptors are always 10 bytes, so there's no need for
+/// a variable-length buffer or DescriptorWriter.
+pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
+    [
+        10,   // bLength
+        0x06, // bDescriptorType
+        0x10,
+        0x02,                     // bcdUSB 2.1
+        config.device_class,      // bDeviceClass
+        config.device_sub_class,  // bDeviceSubClass
+        config.device_protocol,   // bDeviceProtocol
+        config.max_packet_size_0, // bMaxPacketSize0
+        1,                        // bNumConfigurations
+        0,                        // Reserved
+    ]
+}
+
 /// A writer for Binary Object Store descriptor.
 pub struct BosWriter<'a> {
     pub(crate) writer: DescriptorWriter<'a>,
@@ -287,6 +378,9 @@ impl<'a> BosWriter<'a> {
     }
 
     pub(crate) fn bos(&mut self) {
+        if (self.writer.buf.len() - self.writer.position) < 5 {
+            return;
+        }
         self.num_caps_mark = Some(self.writer.position + 4);
         self.writer.write(
             descriptor_type::BOS,
@@ -294,6 +388,7 @@ impl<'a> BosWriter<'a> {
                 0x00, 0x00, // wTotalLength
                 0x00, // bNumDeviceCaps
             ],
+            &[],
         );
 
         self.capability(capability_type::USB_2_0_EXTENSION, &[0; 4]);
@@ -329,6 +424,9 @@ impl<'a> BosWriter<'a> {
     }
 
     pub(crate) fn end_bos(&mut self) {
+        if self.writer.position == 0 {
+            return;
+        }
         self.num_caps_mark = None;
         let position = self.writer.position as u16;
         self.writer.buf[2..4].copy_from_slice(&position.to_le_bytes());

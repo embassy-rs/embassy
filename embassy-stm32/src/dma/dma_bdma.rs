@@ -15,6 +15,8 @@ use crate::{interrupt, pac};
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
     pub(crate) num: usize,
+    #[cfg(feature = "_dual-core")]
+    pub(crate) irq: pac::Interrupt,
     #[cfg(dmamux)]
     pub(crate) dmamux: super::DmamuxInfo,
 }
@@ -259,10 +261,12 @@ pub(crate) unsafe fn init(
     foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, dma_priority);
+            #[cfg(not(feature = "_dual-core"))]
             crate::interrupt::typelevel::$irq::enable();
         };
         ($peri:ident, bdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, bdma_priority);
+            #[cfg(not(feature = "_dual-core"))]
             crate::interrupt::typelevel::$irq::enable();
         };
     }
@@ -341,6 +345,11 @@ impl AnyChannel {
         options: TransferOptions,
     ) {
         let info = self.info();
+        #[cfg(feature = "_dual-core")]
+        {
+            use embassy_hal_internal::interrupt::InterruptExt as _;
+            info.irq.enable();
+        }
 
         #[cfg(dmamux)]
         super::dmamux::configure_dmamux(&info.dmamux, _request);
@@ -479,6 +488,26 @@ impl AnyChannel {
                 r.ch(info.num).cr().write(|w| {
                     w.set_teie(true);
                     w.set_tcie(true);
+                });
+            }
+        }
+    }
+
+    fn request_pause(&self) {
+        let info = self.info();
+        match self.info().dma {
+            #[cfg(dma)]
+            DmaInfo::Dma(r) => {
+                // Disable the channel without overwriting the existing configuration
+                r.st(info.num).cr().modify(|w| {
+                    w.set_en(false);
+                });
+            }
+            #[cfg(bdma)]
+            DmaInfo::Bdma(r) => {
+                // Disable the channel without overwriting the existing configuration
+                r.ch(info.num).cr().modify(|w| {
+                    w.set_en(false);
                 });
             }
         }
@@ -658,10 +687,20 @@ impl<'a> Transfer<'a> {
     }
 
     /// Request the transfer to stop.
+    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         self.channel.request_stop()
+    }
+
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_pause(&mut self) {
+        self.channel.request_pause()
     }
 
     /// Return whether this transfer is still running.
@@ -768,6 +807,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let dir = Dir::PeripheralToMemory;
         let data_size = W::size();
 
+        options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
         options.circular = true;
 
@@ -836,11 +876,21 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request DMA to stop.
+    /// Request the DMA to stop.
+    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         self.channel.request_stop()
+    }
+
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_pause(&mut self) {
+        self.channel.request_pause()
     }
 
     /// Return whether DMA is still running.
@@ -967,11 +1017,21 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request DMA to stop.
+    /// Request the DMA to stop.
+    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         self.channel.request_stop()
+    }
+
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_pause(&mut self) {
+        self.channel.request_pause()
     }
 
     /// Return whether DMA is still running.

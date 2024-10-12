@@ -28,7 +28,9 @@ use ioctl::IoctlState;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
-pub use crate::control::{AddMulticastAddressError, Control, Error as ControlError, ScanOptions, Scanner};
+pub use crate::control::{
+    AddMulticastAddressError, Control, Error as ControlError, JoinAuth, JoinOptions, ScanOptions, Scanner,
+};
 pub use crate::runner::Runner;
 pub use crate::structs::BssInfo;
 

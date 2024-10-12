@@ -1,8 +1,8 @@
 use heapless::Vec;
 
 use crate::config::MAX_HANDLER_COUNT;
-use crate::descriptor::{BosWriter, DescriptorWriter};
-use crate::driver::{Driver, Endpoint, EndpointType};
+use crate::descriptor::{BosWriter, DescriptorWriter, SynchronizationType, UsageType};
+use crate::driver::{Driver, Endpoint, EndpointInfo, EndpointType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
 use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Handler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START};
@@ -414,7 +414,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn descriptor(&mut self, descriptor_type: u8, descriptor: &[u8]) {
-        self.builder.config_descriptor.write(descriptor_type, descriptor);
+        self.builder.config_descriptor.write(descriptor_type, descriptor, &[]);
     }
 
     /// Add a custom Binary Object Store (BOS) descriptor to this alternate setting.
@@ -422,26 +422,80 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         self.builder.bos_descriptor.capability(capability_type, capability);
     }
 
-    fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
+    /// Write a custom endpoint descriptor for a certain endpoint.
+    ///
+    /// This can be necessary, if the endpoint descriptors can only be written
+    /// after the endpoint was created. As an example, an endpoint descriptor
+    /// may contain the address of an endpoint that was allocated earlier.
+    pub fn endpoint_descriptor(
+        &mut self,
+        endpoint: &EndpointInfo,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+    ) {
+        self.builder
+            .config_descriptor
+            .endpoint(endpoint, synchronization_type, usage_type, extra_fields);
+    }
+
+    /// Allocate an IN endpoint, without writing its descriptor.
+    ///
+    /// Used for granular control over the order of endpoint and descriptor creation.
+    pub fn alloc_endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
         let ep = self
             .builder
             .driver
             .alloc_endpoint_in(ep_type, max_packet_size, interval_ms)
             .expect("alloc_endpoint_in failed");
 
-        self.builder.config_descriptor.endpoint(ep.info());
+        ep
+    }
+
+    fn endpoint_in(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+    ) -> D::EndpointIn {
+        let ep = self.alloc_endpoint_in(ep_type, max_packet_size, interval_ms);
+        self.endpoint_descriptor(ep.info(), synchronization_type, usage_type, extra_fields);
 
         ep
     }
 
-    fn endpoint_out(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointOut {
+    /// Allocate an OUT endpoint, without writing its descriptor.
+    ///
+    /// Use for granular control over the order of endpoint and descriptor creation.
+    pub fn alloc_endpoint_out(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> D::EndpointOut {
         let ep = self
             .builder
             .driver
             .alloc_endpoint_out(ep_type, max_packet_size, interval_ms)
             .expect("alloc_endpoint_out failed");
 
-        self.builder.config_descriptor.endpoint(ep.info());
+        ep
+    }
+
+    fn endpoint_out(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+    ) -> D::EndpointOut {
+        let ep = self.alloc_endpoint_out(ep_type, max_packet_size, interval_ms);
+        self.endpoint_descriptor(ep.info(), synchronization_type, usage_type, extra_fields);
 
         ep
     }
@@ -451,7 +505,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn endpoint_bulk_in(&mut self, max_packet_size: u16) -> D::EndpointIn {
-        self.endpoint_in(EndpointType::Bulk, max_packet_size, 0)
+        self.endpoint_in(
+            EndpointType::Bulk,
+            max_packet_size,
+            0,
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+        )
     }
 
     /// Allocate a BULK OUT endpoint and write its descriptor.
@@ -459,7 +520,14 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn endpoint_bulk_out(&mut self, max_packet_size: u16) -> D::EndpointOut {
-        self.endpoint_out(EndpointType::Bulk, max_packet_size, 0)
+        self.endpoint_out(
+            EndpointType::Bulk,
+            max_packet_size,
+            0,
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+        )
     }
 
     /// Allocate a INTERRUPT IN endpoint and write its descriptor.
@@ -467,24 +535,66 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn endpoint_interrupt_in(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
-        self.endpoint_in(EndpointType::Interrupt, max_packet_size, interval_ms)
+        self.endpoint_in(
+            EndpointType::Interrupt,
+            max_packet_size,
+            interval_ms,
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+        )
     }
 
     /// Allocate a INTERRUPT OUT endpoint and write its descriptor.
     pub fn endpoint_interrupt_out(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointOut {
-        self.endpoint_out(EndpointType::Interrupt, max_packet_size, interval_ms)
+        self.endpoint_out(
+            EndpointType::Interrupt,
+            max_packet_size,
+            interval_ms,
+            SynchronizationType::NoSynchronization,
+            UsageType::DataEndpoint,
+            &[],
+        )
     }
 
     /// Allocate a ISOCHRONOUS IN endpoint and write its descriptor.
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
-    pub fn endpoint_isochronous_in(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
-        self.endpoint_in(EndpointType::Isochronous, max_packet_size, interval_ms)
+    pub fn endpoint_isochronous_in(
+        &mut self,
+        max_packet_size: u16,
+        interval_ms: u8,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+    ) -> D::EndpointIn {
+        self.endpoint_in(
+            EndpointType::Isochronous,
+            max_packet_size,
+            interval_ms,
+            synchronization_type,
+            usage_type,
+            extra_fields,
+        )
     }
 
     /// Allocate a ISOCHRONOUS OUT endpoint and write its descriptor.
-    pub fn endpoint_isochronous_out(&mut self, max_packet_size: u16, interval_ms: u8) -> D::EndpointOut {
-        self.endpoint_out(EndpointType::Isochronous, max_packet_size, interval_ms)
+    pub fn endpoint_isochronous_out(
+        &mut self,
+        max_packet_size: u16,
+        interval_ms: u8,
+        synchronization_type: SynchronizationType,
+        usage_type: UsageType,
+        extra_fields: &[u8],
+    ) -> D::EndpointOut {
+        self.endpoint_out(
+            EndpointType::Isochronous,
+            max_packet_size,
+            interval_ms,
+            synchronization_type,
+            usage_type,
+            extra_fields,
+        )
     }
 }

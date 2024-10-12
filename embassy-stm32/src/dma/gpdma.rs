@@ -18,6 +18,8 @@ use crate::pac::gpdma::vals;
 pub(crate) struct ChannelInfo {
     pub(crate) dma: pac::gpdma::Gpdma,
     pub(crate) num: usize,
+    #[cfg(feature = "_dual-core")]
+    pub(crate) irq: pac::Interrupt,
 }
 
 /// GPDMA transfer options.
@@ -57,6 +59,7 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: P
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
+            #[cfg(not(feature = "_dual-core"))]
             crate::interrupt::typelevel::$irq::enable();
         };
     }
@@ -67,6 +70,12 @@ impl AnyChannel {
     /// Safety: Must be called with a matching set of parameters for a valid dma channel
     pub(crate) unsafe fn on_irq(&self) {
         let info = self.info();
+        #[cfg(feature = "_dual-core")]
+        {
+            use embassy_hal_internal::interrupt::InterruptExt as _;
+            info.irq.enable();
+        }
+
         let state = &STATE[self.id as usize];
 
         let ch = info.dma.ch(info.num);
@@ -207,7 +216,10 @@ impl<'a> Transfer<'a> {
         data_size: WordSize,
         _options: TransferOptions,
     ) -> Self {
-        assert!(mem_len > 0 && mem_len <= 0xFFFF);
+        // BNDT is specified as bytes, not as number of transfers.
+        let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
+            panic!("DMA transfers may not be larger than 65535 bytes.");
+        };
 
         let info = channel.info();
         let ch = info.dma.ch(info.num);
@@ -216,9 +228,6 @@ impl<'a> Transfer<'a> {
         fence(Ordering::SeqCst);
 
         let this = Self { channel };
-
-        #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&*this.channel, request);
 
         ch.cr().write(|w| w.set_reset(true));
         ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
@@ -236,10 +245,8 @@ impl<'a> Transfer<'a> {
             });
             w.set_reqsel(request);
         });
-        ch.br1().write(|w| {
-            // BNDT is specified as bytes, not as number of transfers.
-            w.set_bndt((mem_len * data_size.bytes()) as u16)
-        });
+        ch.tr3().write(|_| {}); // no address offsets.
+        ch.br1().write(|w| w.set_bndt(bndt));
 
         match dir {
             Dir::MemoryToPeripheral => {

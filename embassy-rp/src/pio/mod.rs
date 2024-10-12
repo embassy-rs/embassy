@@ -5,7 +5,7 @@ use core::pin::Pin as FuturePin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
-use atomic_polyfill::{AtomicU32, AtomicU8};
+use atomic_polyfill::{AtomicU64, AtomicU8};
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::extra::U8;
@@ -731,6 +731,8 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_autopull(config.shift_out.auto_fill);
             w.set_autopush(config.shift_in.auto_fill);
         });
+
+        #[cfg(feature = "rp2040")]
         sm.pinctrl().write(|w| {
             w.set_sideset_count(config.pins.sideset_count);
             w.set_set_count(config.pins.set_count);
@@ -740,6 +742,52 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_set_base(config.pins.set_base);
             w.set_out_base(config.pins.out_base);
         });
+
+        #[cfg(feature = "_rp235x")]
+        {
+            let mut low_ok = true;
+            let mut high_ok = true;
+
+            let in_pins = config.pins.in_base..config.pins.in_base + config.in_count;
+            let side_pins = config.pins.sideset_base..config.pins.sideset_base + config.pins.sideset_count;
+            let set_pins = config.pins.set_base..config.pins.set_base + config.pins.set_count;
+            let out_pins = config.pins.out_base..config.pins.out_base + config.pins.out_count;
+
+            for pin_range in [in_pins, side_pins, set_pins, out_pins] {
+                for pin in pin_range {
+                    low_ok &= pin < 32;
+                    high_ok &= pin >= 16;
+                }
+            }
+
+            if !low_ok && !high_ok {
+                panic!(
+                    "All pins must either be <32 or >=16, in:{:?}-{:?}, side:{:?}-{:?}, set:{:?}-{:?}, out:{:?}-{:?}",
+                    config.pins.in_base,
+                    config.pins.in_base + config.in_count - 1,
+                    config.pins.sideset_base,
+                    config.pins.sideset_base + config.pins.sideset_count - 1,
+                    config.pins.set_base,
+                    config.pins.set_base + config.pins.set_count - 1,
+                    config.pins.out_base,
+                    config.pins.out_base + config.pins.out_count - 1,
+                )
+            }
+            let shift = if low_ok { 0 } else { 16 };
+
+            sm.pinctrl().write(|w| {
+                w.set_sideset_count(config.pins.sideset_count);
+                w.set_set_count(config.pins.set_count);
+                w.set_out_count(config.pins.out_count);
+                w.set_in_base(config.pins.in_base.checked_sub(shift).unwrap_or_default());
+                w.set_sideset_base(config.pins.sideset_base.checked_sub(shift).unwrap_or_default());
+                w.set_set_base(config.pins.set_base.checked_sub(shift).unwrap_or_default());
+                w.set_out_base(config.pins.out_base.checked_sub(shift).unwrap_or_default());
+            });
+
+            PIO::PIO.gpiobase().write(|w| w.set_gpiobase(shift == 16));
+        }
+
         if let Some(origin) = config.origin {
             unsafe { instr::exec_jmp(self, origin) }
         }
@@ -1006,6 +1054,10 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
         into_ref!(pin);
         pin.gpio().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL as _));
+        #[cfg(feature = "_rp235x")]
+        pin.pad_ctrl().modify(|w| {
+            w.set_iso(false);
+        });
         // we can be relaxed about this because we're &mut here and nothing is cached
         PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
         Pin {
@@ -1187,7 +1239,7 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
 // other way.
 pub struct State {
     users: AtomicU8,
-    used_pins: AtomicU32,
+    used_pins: AtomicU64,
 }
 
 fn on_pio_drop<PIO: Instance>() {
@@ -1195,8 +1247,7 @@ fn on_pio_drop<PIO: Instance>() {
     if state.users.fetch_sub(1, Ordering::AcqRel) == 1 {
         let used_pins = state.used_pins.load(Ordering::Relaxed);
         let null = pac::io::vals::Gpio0ctrlFuncsel::NULL as _;
-        // we only have 30 pins. don't test the other two since gpio() asserts.
-        for i in 0..30 {
+        for i in 0..crate::gpio::BANK0_PIN_COUNT {
             if used_pins & (1 << i) != 0 {
                 pac::IO_BANK0.gpio(i).ctrl().write(|w| w.set_funcsel(null));
             }
@@ -1221,7 +1272,7 @@ trait SealedInstance {
     fn state() -> &'static State {
         static STATE: State = State {
             users: AtomicU8::new(0),
-            used_pins: AtomicU32::new(0),
+            used_pins: AtomicU64::new(0),
         };
 
         &STATE

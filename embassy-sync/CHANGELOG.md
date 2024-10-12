@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- Add LazyLock sync primitive.
+- Add `LazyLock` sync primitive.
+- Add `Watch` sync primitive.
+- Add `clear`, `len`, `is_empty` and `is_full` functions to `zerocopy_channel`.
+- Add `capacity`, `free_capacity`, `clear`, `len`, `is_empty` and `is_full` functions to `channel::{Sender, Receiver}`.
+- Add `capacity`, `free_capacity`, `clear`, `len`, `is_empty` and `is_full` functions to `priority_channel::{Sender, Receiver}`.
 
 ## 0.6.0 - 2024-05-29
 
@@ -16,20 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `capacity`, `free_capacity`, `clear`, `len`, `is_empty` and `is_full` functions to `PubSubChannel`.
 - Made `PubSubBehavior` sealed
   - If you called `.publish_immediate(...)` on the queue directly before, then now call `.immediate_publisher().publish_immediate(...)`
-- Add OnceLock sync primitive.
-- Add constructor for DynamicChannel
-- Add ready_to_receive functions to Channel and Receiver.
+- Add `OnceLock` sync primitive.
+- Add constructor for `DynamicChannel`
+- Add ready_to_receive functions to `Channel` and `Receiver`.
 
 ## 0.5.0 - 2023-12-04
 
-- Add a PriorityChannel.
-- Remove nightly and unstable-traits features in preparation for 1.75.
-- Upgrade heapless to 0.8.
-- Upgrade static-cell to 2.0.
+- Add a `PriorityChannel`.
+- Remove `nightly` and `unstable-traits` features in preparation for 1.75.
+- Upgrade `heapless` to 0.8.
+- Upgrade `static-cell` to 2.0.
 
 ## 0.4.0 - 2023-10-31
 
-- Re-add impl_trait_projections
+- Re-add `impl_trait_projections`
 - switch to `embedded-io 0.6`
 
 ## 0.3.0 - 2023-09-14

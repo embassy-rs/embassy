@@ -71,6 +71,48 @@ where
     pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_send(cx)
     }
+
+    /// Returns the maximum number of elements the channel can hold.
+    ///
+    /// See [`PriorityChannel::capacity()`]
+    pub const fn capacity(&self) -> usize {
+        self.channel.capacity()
+    }
+
+    /// Returns the free capacity of the channel.
+    ///
+    /// See [`PriorityChannel::free_capacity()`]
+    pub fn free_capacity(&self) -> usize {
+        self.channel.free_capacity()
+    }
+
+    /// Clears all elements in the channel.
+    ///
+    /// See [`PriorityChannel::clear()`]
+    pub fn clear(&self) {
+        self.channel.clear();
+    }
+
+    /// Returns the number of elements currently in the channel.
+    ///
+    /// See [`PriorityChannel::len()`]
+    pub fn len(&self) -> usize {
+        self.channel.len()
+    }
+
+    /// Returns whether the channel is empty.
+    ///
+    /// See [`PriorityChannel::is_empty()`]
+    pub fn is_empty(&self) -> bool {
+        self.channel.is_empty()
+    }
+
+    /// Returns whether the channel is full.
+    ///
+    /// See [`PriorityChannel::is_full()`]
+    pub fn is_full(&self) -> bool {
+        self.channel.is_full()
+    }
 }
 
 impl<'ch, M, T, K, const N: usize> From<Sender<'ch, M, T, K, N>> for DynamicSender<'ch, T>
@@ -145,6 +187,48 @@ where
     /// See [`PriorityChannel::poll_receive()`]
     pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
         self.channel.poll_receive(cx)
+    }
+
+    /// Returns the maximum number of elements the channel can hold.
+    ///
+    /// See [`PriorityChannel::capacity()`]
+    pub const fn capacity(&self) -> usize {
+        self.channel.capacity()
+    }
+
+    /// Returns the free capacity of the channel.
+    ///
+    /// See [`PriorityChannel::free_capacity()`]
+    pub fn free_capacity(&self) -> usize {
+        self.channel.free_capacity()
+    }
+
+    /// Clears all elements in the channel.
+    ///
+    /// See [`PriorityChannel::clear()`]
+    pub fn clear(&self) {
+        self.channel.clear();
+    }
+
+    /// Returns the number of elements currently in the channel.
+    ///
+    /// See [`PriorityChannel::len()`]
+    pub fn len(&self) -> usize {
+        self.channel.len()
+    }
+
+    /// Returns whether the channel is empty.
+    ///
+    /// See [`PriorityChannel::is_empty()`]
+    pub fn is_empty(&self) -> bool {
+        self.channel.is_empty()
+    }
+
+    /// Returns whether the channel is full.
+    ///
+    /// See [`PriorityChannel::is_full()`]
+    pub fn is_full(&self) -> bool {
+        self.channel.is_full()
     }
 }
 

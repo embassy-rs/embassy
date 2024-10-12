@@ -1,17 +1,15 @@
 //! UDP sockets.
 
-use core::cell::RefCell;
 use core::future::poll_fn;
 use core::mem;
 use core::task::{Context, Poll};
 
-use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::udp;
 pub use smoltcp::socket::udp::{PacketMetadata, UdpMetadata};
 use smoltcp::wire::IpListenEndpoint;
 
-use crate::{SocketStack, Stack};
+use crate::Stack;
 
 /// Error returned by [`UdpSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -43,34 +41,31 @@ pub enum RecvError {
 
 /// An UDP socket.
 pub struct UdpSocket<'a> {
-    stack: &'a RefCell<SocketStack>,
+    stack: Stack<'a>,
     handle: SocketHandle,
 }
 
 impl<'a> UdpSocket<'a> {
     /// Create a new UDP socket using the provided stack and buffers.
-    pub fn new<D: Driver>(
-        stack: &'a Stack<D>,
+    pub fn new(
+        stack: Stack<'a>,
         rx_meta: &'a mut [PacketMetadata],
         rx_buffer: &'a mut [u8],
         tx_meta: &'a mut [PacketMetadata],
         tx_buffer: &'a mut [u8],
     ) -> Self {
-        let s = &mut *stack.socket.borrow_mut();
+        let handle = stack.with_mut(|i| {
+            let rx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(rx_meta) };
+            let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
+            let tx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(tx_meta) };
+            let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
+            i.sockets.add(udp::Socket::new(
+                udp::PacketBuffer::new(rx_meta, rx_buffer),
+                udp::PacketBuffer::new(tx_meta, tx_buffer),
+            ))
+        });
 
-        let rx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(rx_meta) };
-        let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
-        let tx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(tx_meta) };
-        let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
-        let handle = s.sockets.add(udp::Socket::new(
-            udp::PacketBuffer::new(rx_meta, rx_buffer),
-            udp::PacketBuffer::new(tx_meta, tx_buffer),
-        ));
-
-        Self {
-            stack: &stack.socket,
-            handle,
-        }
+        Self { stack, handle }
     }
 
     /// Bind the socket to a local endpoint.
@@ -82,7 +77,7 @@ impl<'a> UdpSocket<'a> {
 
         if endpoint.port == 0 {
             // If user didn't specify port allocate a dynamic port.
-            endpoint.port = self.stack.borrow_mut().get_local_port();
+            endpoint.port = self.stack.with_mut(|i| i.get_local_port());
         }
 
         match self.with_mut(|s, _| s.bind(endpoint)) {
@@ -93,17 +88,19 @@ impl<'a> UdpSocket<'a> {
     }
 
     fn with<R>(&self, f: impl FnOnce(&udp::Socket, &Interface) -> R) -> R {
-        let s = &*self.stack.borrow();
-        let socket = s.sockets.get::<udp::Socket>(self.handle);
-        f(socket, &s.iface)
+        self.stack.with(|i| {
+            let socket = i.sockets.get::<udp::Socket>(self.handle);
+            f(socket, &i.iface)
+        })
     }
 
     fn with_mut<R>(&self, f: impl FnOnce(&mut udp::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.borrow_mut();
-        let socket = s.sockets.get_mut::<udp::Socket>(self.handle);
-        let res = f(socket, &mut s.iface);
-        s.waker.wake();
-        res
+        self.stack.with_mut(|i| {
+            let socket = i.sockets.get_mut::<udp::Socket>(self.handle);
+            let res = f(socket, &mut i.iface);
+            i.waker.wake();
+            res
+        })
     }
 
     /// Receive a datagram.
@@ -136,6 +133,35 @@ impl<'a> UdpSocket<'a> {
                 Poll::Pending
             }
         })
+    }
+
+    /// Receive a datagram with a zero-copy function.
+    ///
+    /// When no datagram is available, this method will return `Poll::Pending` and
+    /// register the current task to be notified when a datagram is received.
+    ///
+    /// When a datagram is received, this method will call the provided function
+    /// with the number of bytes received and the remote endpoint and return
+    /// `Poll::Ready` with the function's returned value.
+    pub async fn recv_from_with<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&[u8], UdpMetadata) -> R,
+    {
+        let mut f = Some(f);
+        poll_fn(move |cx| {
+            self.with_mut(|s, _| {
+                match s.recv() {
+                    Ok((buffer, endpoint)) => Poll::Ready(unwrap!(f.take())(buffer, endpoint)),
+                    Err(udp::RecvError::Truncated) => unreachable!(),
+                    Err(udp::RecvError::Exhausted) => {
+                        // socket buffer is empty wait until at least one byte has arrived
+                        s.register_recv_waker(cx.waker());
+                        Poll::Pending
+                    }
+                }
+            })
+        })
+        .await
     }
 
     /// Send a datagram to the specified remote endpoint.
@@ -179,6 +205,40 @@ impl<'a> UdpSocket<'a> {
                 }
             }
         })
+    }
+
+    /// Send a datagram to the specified remote endpoint with a zero-copy function.
+    ///
+    /// This method will wait until the buffer can fit the requested size before
+    /// calling the function to fill its contents.
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
+    pub async fn send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
+    where
+        T: Into<UdpMetadata> + Copy,
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let mut f = Some(f);
+        poll_fn(move |cx| {
+            self.with_mut(|s, _| {
+                match s.send(size, remote_endpoint) {
+                    Ok(buffer) => Poll::Ready(Ok(unwrap!(f.take())(buffer))),
+                    Err(udp::SendError::BufferFull) => {
+                        s.register_send_waker(cx.waker());
+                        Poll::Pending
+                    }
+                    Err(udp::SendError::Unaddressable) => {
+                        // If no sender/outgoing port is specified, there is not really "no route"
+                        if s.endpoint().port == 0 {
+                            Poll::Ready(Err(SendError::SocketNotBound))
+                        } else {
+                            Poll::Ready(Err(SendError::NoRoute))
+                        }
+                    }
+                }
+            })
+        })
+        .await
     }
 
     /// Returns the local endpoint of the socket.
@@ -235,6 +295,10 @@ impl<'a> UdpSocket<'a> {
 
 impl Drop for UdpSocket<'_> {
     fn drop(&mut self) {
-        self.stack.borrow_mut().sockets.remove(self.handle);
+        self.stack.with_mut(|i| i.sockets.remove(self.handle));
     }
+}
+
+fn _assert_covariant<'a, 'b: 'a>(x: UdpSocket<'b>) -> UdpSocket<'a> {
+    x
 }

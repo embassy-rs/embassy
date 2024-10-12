@@ -97,6 +97,94 @@ impl<'d, T: Instance> Driver<'d, T> {
         }
     }
 
+    /// Initializes USB OTG peripheral with internal High-Speed PHY.
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
+    /// Must be large enough to fit all OUT endpoint max packet sizes.
+    /// Endpoint allocation will fail if it is too small.
+    pub fn new_hs(
+        _peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        ep_out_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        into_ref!(dp, dm);
+
+        dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+
+        let regs = T::regs();
+
+        let instance = OtgInstance {
+            regs,
+            state: T::state(),
+            fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
+            endpoint_count: T::ENDPOINT_COUNT,
+            phy_type: PhyType::InternalHighSpeed,
+            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
+            calculate_trdt_fn: calculate_trdt::<T>,
+        };
+
+        Self {
+            inner: OtgDriver::new(ep_out_buffer, instance, config),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Initializes USB OTG peripheral with external Full-speed PHY (usually, a High-speed PHY in Full-speed mode).
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
+    /// Must be large enough to fit all OUT endpoint max packet sizes.
+    /// Endpoint allocation will fail if it is too small.
+    pub fn new_fs_ulpi(
+        _peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
+        ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
+        ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,
+        ulpi_stp: impl Peripheral<P = impl UlpiStpPin<T>> + 'd,
+        ulpi_d0: impl Peripheral<P = impl UlpiD0Pin<T>> + 'd,
+        ulpi_d1: impl Peripheral<P = impl UlpiD1Pin<T>> + 'd,
+        ulpi_d2: impl Peripheral<P = impl UlpiD2Pin<T>> + 'd,
+        ulpi_d3: impl Peripheral<P = impl UlpiD3Pin<T>> + 'd,
+        ulpi_d4: impl Peripheral<P = impl UlpiD4Pin<T>> + 'd,
+        ulpi_d5: impl Peripheral<P = impl UlpiD5Pin<T>> + 'd,
+        ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
+        ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
+        ep_out_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        config_ulpi_pins!(
+            ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4, ulpi_d5, ulpi_d6,
+            ulpi_d7
+        );
+
+        let regs = T::regs();
+
+        let instance = OtgInstance {
+            regs: T::regs(),
+            state: T::state(),
+            fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
+            endpoint_count: T::ENDPOINT_COUNT,
+            phy_type: PhyType::ExternalFullSpeed,
+            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
+            calculate_trdt_fn: calculate_trdt::<T>,
+        };
+
+        Self {
+            inner: OtgDriver::new(ep_out_buffer, instance, config),
+            phantom: PhantomData,
+        }
+    }
+
     /// Initializes USB OTG peripheral with external High-Speed PHY.
     ///
     /// # Arguments
@@ -223,6 +311,19 @@ impl<'d, T: Instance> Bus<'d, T> {
             }
         });
 
+        #[cfg(stm32h7rs)]
+        critical_section::with(|_| {
+            let rcc = crate::pac::RCC;
+            rcc.ahb1enr().modify(|w| {
+                w.set_usbphycen(true);
+                w.set_usb_otg_hsen(true);
+            });
+            rcc.ahb1lpenr().modify(|w| {
+                w.set_usbphyclpen(true);
+                w.set_usb_otg_hslpen(true);
+            });
+        });
+
         let r = T::regs();
         let core_id = r.cid().read().0;
         trace!("Core id {:08x}", core_id);
@@ -237,6 +338,7 @@ impl<'d, T: Instance> Bus<'d, T> {
         match core_id {
             0x0000_1200 | 0x0000_1100 => self.inner.config_v1(),
             0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => self.inner.config_v2v3(),
+            0x0000_5000 => self.inner.config_v5(),
             _ => unimplemented!("Unknown USB core id {:X}", core_id),
         }
     }
@@ -452,7 +554,7 @@ fn calculate_trdt<T: Instance>(speed: Dspd) -> u8 {
     match speed {
         Dspd::HIGH_SPEED => {
             // From RM0431 (F72xx), RM0090 (F429), RM0390 (F446)
-            if ahb_freq >= 30_000_000 {
+            if ahb_freq >= 30_000_000 || cfg!(stm32h7rs) {
                 0x9
             } else {
                 panic!("AHB frequency is too low")

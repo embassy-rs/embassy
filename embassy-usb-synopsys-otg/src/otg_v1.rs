@@ -186,6 +186,11 @@ impl Otg {
     pub const fn gccfg_v2(self) -> Reg<regs::GccfgV2, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
     }
+    #[doc = "General core configuration register, for core_id 0x0000_5xxx"]
+    #[inline(always)]
+    pub const fn gccfg_v3(self) -> Reg<regs::GccfgV3, RW> {
+        unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
+    }
     #[doc = "Core ID register"]
     #[inline(always)]
     pub const fn cid(self) -> Reg<regs::Cid, RW> {
@@ -795,15 +800,15 @@ pub mod regs {
         pub fn set_sd0pid_sevnfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 28usize)) | (((val as u32) & 0x01) << 28usize);
         }
-        #[doc = "SODDFRM/SD1PID"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub const fn soddfrm_sd1pid(&self) -> bool {
+        pub const fn sd1pid_soddfrm(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
         }
-        #[doc = "SODDFRM/SD1PID"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub fn set_soddfrm_sd1pid(&mut self, val: bool) {
+        pub fn set_sd1pid_soddfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 29usize)) | (((val as u32) & 0x01) << 29usize);
         }
         #[doc = "EPDIS"]
@@ -1174,15 +1179,15 @@ pub mod regs {
         pub fn set_sd0pid_sevnfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 28usize)) | (((val as u32) & 0x01) << 28usize);
         }
-        #[doc = "SODDFRM"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub const fn soddfrm(&self) -> bool {
+        pub const fn sd1pid_soddfrm(&self) -> bool {
             let val = (self.0 >> 29usize) & 0x01;
             val != 0
         }
-        #[doc = "SODDFRM"]
+        #[doc = "SD1PID/SODDFRM"]
         #[inline(always)]
-        pub fn set_soddfrm(&mut self, val: bool) {
+        pub fn set_sd1pid_soddfrm(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 29usize)) | (((val as u32) & 0x01) << 29usize);
         }
         #[doc = "EPDIS"]
@@ -1829,6 +1834,172 @@ pub mod regs {
         #[inline(always)]
         fn default() -> GccfgV2 {
             GccfgV2(0)
+        }
+    }
+    #[doc = "OTG general core configuration register."]
+    #[repr(transparent)]
+    #[derive(Copy, Clone, Eq, PartialEq)]
+    pub struct GccfgV3(pub u32);
+    impl GccfgV3 {
+        #[doc = "Charger detection, result of the current mode (primary or secondary)."]
+        #[inline(always)]
+        pub const fn chgdet(&self) -> bool {
+            let val = (self.0 >> 0usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Charger detection, result of the current mode (primary or secondary)."]
+        #[inline(always)]
+        pub fn set_chgdet(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 0usize)) | (((val as u32) & 0x01) << 0usize);
+        }
+        #[doc = "Single-Ended DP indicator This bit gives the voltage level on DP (also result of the comparison with V<sub>LGC</sub> threshold as defined in BC v1.2 standard)."]
+        #[inline(always)]
+        pub const fn fsvplus(&self) -> bool {
+            let val = (self.0 >> 1usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Single-Ended DP indicator This bit gives the voltage level on DP (also result of the comparison with V<sub>LGC</sub> threshold as defined in BC v1.2 standard)."]
+        #[inline(always)]
+        pub fn set_fsvplus(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 1usize)) | (((val as u32) & 0x01) << 1usize);
+        }
+        #[doc = "Single-Ended DM indicator This bit gives the voltage level on DM (also result of the comparison with V<sub>LGC</sub> threshold as defined in BC v1.2 standard)."]
+        #[inline(always)]
+        pub const fn fsvminus(&self) -> bool {
+            let val = (self.0 >> 2usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Single-Ended DM indicator This bit gives the voltage level on DM (also result of the comparison with V<sub>LGC</sub> threshold as defined in BC v1.2 standard)."]
+        #[inline(always)]
+        pub fn set_fsvminus(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 2usize)) | (((val as u32) & 0x01) << 2usize);
+        }
+        #[doc = "VBUS session indicator Indicates if VBUS is above VBUS session threshold."]
+        #[inline(always)]
+        pub const fn sessvld(&self) -> bool {
+            let val = (self.0 >> 3usize) & 0x01;
+            val != 0
+        }
+        #[doc = "VBUS session indicator Indicates if VBUS is above VBUS session threshold."]
+        #[inline(always)]
+        pub fn set_sessvld(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 3usize)) | (((val as u32) & 0x01) << 3usize);
+        }
+        #[doc = "Host CDP behavior enable."]
+        #[inline(always)]
+        pub const fn hcdpen(&self) -> bool {
+            let val = (self.0 >> 16usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Host CDP behavior enable."]
+        #[inline(always)]
+        pub fn set_hcdpen(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 16usize)) | (((val as u32) & 0x01) << 16usize);
+        }
+        #[doc = "Host CDP port voltage detector enable on DP."]
+        #[inline(always)]
+        pub const fn hcdpdeten(&self) -> bool {
+            let val = (self.0 >> 17usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Host CDP port voltage detector enable on DP."]
+        #[inline(always)]
+        pub fn set_hcdpdeten(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 17usize)) | (((val as u32) & 0x01) << 17usize);
+        }
+        #[doc = "Host CDP port Voltage source enable on DM."]
+        #[inline(always)]
+        pub const fn hvdmsrcen(&self) -> bool {
+            let val = (self.0 >> 18usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Host CDP port Voltage source enable on DM."]
+        #[inline(always)]
+        pub fn set_hvdmsrcen(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 18usize)) | (((val as u32) & 0x01) << 18usize);
+        }
+        #[doc = "Data Contact Detection enable."]
+        #[inline(always)]
+        pub const fn dcden(&self) -> bool {
+            let val = (self.0 >> 19usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Data Contact Detection enable."]
+        #[inline(always)]
+        pub fn set_dcden(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 19usize)) | (((val as u32) & 0x01) << 19usize);
+        }
+        #[doc = "Primary detection enable."]
+        #[inline(always)]
+        pub const fn pden(&self) -> bool {
+            let val = (self.0 >> 20usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Primary detection enable."]
+        #[inline(always)]
+        pub fn set_pden(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 20usize)) | (((val as u32) & 0x01) << 20usize);
+        }
+        #[doc = "VBUS detection enable Enables VBUS Sensing Comparators in order to detect VBUS presence and/or perform OTG operation."]
+        #[inline(always)]
+        pub const fn vbden(&self) -> bool {
+            let val = (self.0 >> 21usize) & 0x01;
+            val != 0
+        }
+        #[doc = "VBUS detection enable Enables VBUS Sensing Comparators in order to detect VBUS presence and/or perform OTG operation."]
+        #[inline(always)]
+        pub fn set_vbden(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 21usize)) | (((val as u32) & 0x01) << 21usize);
+        }
+        #[doc = "Secondary detection enable."]
+        #[inline(always)]
+        pub const fn sden(&self) -> bool {
+            let val = (self.0 >> 22usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Secondary detection enable."]
+        #[inline(always)]
+        pub fn set_sden(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 22usize)) | (((val as u32) & 0x01) << 22usize);
+        }
+        #[doc = "Software override value of the VBUS B-session detection."]
+        #[inline(always)]
+        pub const fn vbvaloval(&self) -> bool {
+            let val = (self.0 >> 23usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Software override value of the VBUS B-session detection."]
+        #[inline(always)]
+        pub fn set_vbvaloval(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 23usize)) | (((val as u32) & 0x01) << 23usize);
+        }
+        #[doc = "Enables a software override of the VBUS B-session detection."]
+        #[inline(always)]
+        pub const fn vbvaloven(&self) -> bool {
+            let val = (self.0 >> 24usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Enables a software override of the VBUS B-session detection."]
+        #[inline(always)]
+        pub fn set_vbvaloven(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 24usize)) | (((val as u32) & 0x01) << 24usize);
+        }
+        #[doc = "Force host mode pull-downs If the ID pin functions are enabled, the host mode pull-downs on DP and DM activate automatically. However, whenever that is not the case, yet host mode is required, this bit must be used to force the pull-downs active."]
+        #[inline(always)]
+        pub const fn forcehostpd(&self) -> bool {
+            let val = (self.0 >> 25usize) & 0x01;
+            val != 0
+        }
+        #[doc = "Force host mode pull-downs If the ID pin functions are enabled, the host mode pull-downs on DP and DM activate automatically. However, whenever that is not the case, yet host mode is required, this bit must be used to force the pull-downs active."]
+        #[inline(always)]
+        pub fn set_forcehostpd(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 25usize)) | (((val as u32) & 0x01) << 25usize);
+        }
+    }
+    impl Default for GccfgV3 {
+        #[inline(always)]
+        fn default() -> GccfgV3 {
+            GccfgV3(0)
         }
     }
     #[doc = "I2C access register"]

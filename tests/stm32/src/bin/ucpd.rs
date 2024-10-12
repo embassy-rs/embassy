@@ -106,8 +106,8 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     // Wire between PD0 and PA8
-    let ucpd1 = Ucpd::new(p.UCPD1, Irqs {}, p.PA8, p.PB15);
-    let ucpd2 = Ucpd::new(p.UCPD2, Irqs {}, p.PD0, p.PD2);
+    let ucpd1 = Ucpd::new(p.UCPD1, Irqs {}, p.PA8, p.PB15, Default::default());
+    let ucpd2 = Ucpd::new(p.UCPD2, Irqs {}, p.PD0, p.PD2, Default::default());
 
     join(
         source(ucpd1, p.DMA1_CH1, p.DMA1_CH2),

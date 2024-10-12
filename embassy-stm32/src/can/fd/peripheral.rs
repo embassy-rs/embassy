@@ -200,7 +200,7 @@ impl Registers {
             if header_reg.rtr().bit() {
                 F::new_remote(id, len as usize)
             } else {
-                F::new(id, &data)
+                F::new(id, &data[0..(len as usize)])
             }
         } else {
             // Abort request failed because the frame was already sent (or being sent) on

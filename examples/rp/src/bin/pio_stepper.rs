@@ -154,7 +154,7 @@ async fn main(_spawner: Spawner) {
         stepper.step(1000).await;
 
         info!("CCW full steps, drop after 1 sec");
-        if let Err(_) = with_timeout(Duration::from_secs(1), stepper.step(i32::MIN)).await {
+        if let Err(_) = with_timeout(Duration::from_secs(1), stepper.step(-i32::MAX)).await {
             info!("Time's up!");
             Timer::after(Duration::from_secs(1)).await;
         }
