@@ -66,7 +66,7 @@ pub trait UsbHostHandler: Sized {
     ///
     /// NOTE: Channels are expected to self-clean on `Drop`. FIXME: this is not the case for stm32
     async fn try_register(
-        bus: &mut Self::Driver,
+        bus: &Self::Driver,
         device_address: u8,
         enum_info: EnumerationInfo,
     ) -> Result<Self, RegisterError>;
@@ -88,7 +88,7 @@ pub trait UsbResumableHandler: UsbHostHandler {
     type UsbResumeInfo;
 
     /// In theory this doesn't need to be async, but a implementor might desire to run some checks upon resuming
-    async fn try_resume(bus: &mut Self::Driver, resume_info: Self::UsbResumeInfo) -> Result<Self, ()>;
+    async fn try_resume(bus: &Self::Driver, resume_info: Self::UsbResumeInfo) -> Result<Self, ()>;
 
     // Consumes `Self` to gain resume info, this prevents any duplication
     async fn try_suspend(self, bus: &mut Self::Driver) -> Self::UsbResumeInfo;
