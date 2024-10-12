@@ -45,7 +45,7 @@ pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
     pub(crate) executor: SyncUnsafeCell<Option<&'static SyncExecutor>>,
-    poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
+    pub(crate) poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     #[cfg(feature = "integrated-timers")]
     pub(crate) expires_at: SyncUnsafeCell<u64>,
@@ -63,7 +63,7 @@ unsafe impl Send for TaskRef where &'static TaskHeader: Send {}
 unsafe impl Sync for TaskRef where &'static TaskHeader: Sync {}
 
 impl TaskRef {
-    fn new<F: Future + 'static>(task: &'static TaskStorage<F>) -> Self {
+    pub(crate) fn new<F: Future + 'static>(task: &'static TaskStorage<F>) -> Self {
         Self {
             ptr: NonNull::from(task).cast(),
         }
@@ -103,8 +103,8 @@ impl TaskRef {
 // This makes it safe to cast between TaskHeader and TaskStorage pointers.
 #[repr(C)]
 pub struct TaskStorage<F: Future + 'static> {
-    raw: TaskHeader,
-    future: UninitCell<F>, // Valid if STATE_SPAWNED
+    pub(crate) raw: TaskHeader,
+    pub(crate) future: UninitCell<F>, // Valid if STATE_SPAWNED
 }
 
 impl<F: Future + 'static> TaskStorage<F> {
@@ -150,7 +150,7 @@ impl<F: Future + 'static> TaskStorage<F> {
         }
     }
 
-    unsafe fn poll(p: TaskRef) {
+    pub(crate) unsafe fn poll(p: TaskRef) {
         let this = &*(p.as_ptr() as *const TaskStorage<F>);
 
         let future = Pin::new_unchecked(this.future.as_mut());

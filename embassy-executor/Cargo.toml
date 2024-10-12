@@ -62,6 +62,8 @@ critical-section = { version = "1.1", features = ["std"] }
 ## Enable nightly-only features
 nightly = ["embassy-executor-macros/nightly"]
 
+alloc = []
+
 # Enables turbo wakers, which requires patching core. Not surfaced in the docs by default due to
 # being an complicated advanced and undocumented feature.
 # See: https://github.com/embassy-rs/embassy/pull/1263

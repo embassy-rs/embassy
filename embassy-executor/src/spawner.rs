@@ -5,6 +5,9 @@ use core::task::Poll;
 
 use super::raw;
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 /// Token to spawn a newly-created task in an executor.
 ///
 /// When calling a task function (like `#[embassy_executor::task] async fn my_task() { ... }`), the returned
@@ -113,6 +116,25 @@ impl Spawner {
             }
             None => Err(SpawnError::Busy),
         }
+    }
+
+    #[cfg(feature = "alloc")]
+    /// Spawn a dynamically allocated task into an executor.
+    /// Note that the task will never deallocate, so this is only useful for tasks that run forever.
+    pub fn spawn_fut<F: core::future::Future + 'static>(&self, fut: F) {
+        use alloc::boxed::Box;
+        use crate::raw::{TaskRef, TaskStorage};
+
+        let task_storage = TaskStorage::<F>::new();
+        unsafe {
+            task_storage.raw.state.spawn();
+            task_storage.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
+            task_storage.future.write_in_place(move || fut);
+        }
+        let boxed_task_storage = Box::leak(Box::new(task_storage));
+        let task_ref = TaskRef::new(boxed_task_storage);
+        let token = unsafe { SpawnToken::<F>::new(task_ref) };
+        self.spawn(token).unwrap();
     }
 
     // Used by the `embassy_executor_macros::main!` macro to throw an error when spawn
