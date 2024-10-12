@@ -233,28 +233,45 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             });
 
             T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                let octospi_src = if T::OCTOSPI_IDX == 1 { false } else { true };
                 w.set_ncsen(true);
-                w.set_ncssrc(false);
+                w.set_ncssrc(octospi_src);
                 w.set_clken(true);
-                w.set_clksrc(false);
+                w.set_clksrc(octospi_src);
                 if dqs.is_some() {
                     w.set_dqsen(true);
-                    w.set_dqssrc(false);
+                    w.set_dqssrc(octospi_src);
                 }
 
-                // IOL and IOH are enabled only for OCTOSPI1 currently
-                w.set_iolen(true);
-                w.set_iolsrc(0);
-                // Enable IOH in octo and dual quad mode
-                if let OspiWidth::OCTO = width {
-                    w.set_iohen(true);
-                    w.set_iohsrc(0);
-                } else if dual_quad {
-                    w.set_iohen(true);
-                    w.set_iohsrc(0);
+                // Set OCTOSPIM IOL and IOH according to the index of OCTOSPI instance
+                if T::OCTOSPI_IDX == 1 {
+                    w.set_iolen(true);
+                    w.set_iolsrc(0);
+                    // Enable IOH in octo and dual quad mode
+                    if let OspiWidth::OCTO = width {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b01);
+                    } else if dual_quad {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b00);
+                    } else {
+                        w.set_iohen(false);
+                        w.set_iohsrc(0b00);
+                    }
                 } else {
-                    w.set_iohen(false);
-                    w.set_iohsrc(0);
+                    w.set_iolen(true);
+                    w.set_iolsrc(0b10);
+                    // Enable IOH in octo and dual quad mode
+                    if let OspiWidth::OCTO = width {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b11);
+                    } else if dual_quad {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b10);
+                    } else {
+                        w.set_iohen(false);
+                        w.set_iohsrc(0b00);
+                    }
                 }
             });
         }
@@ -1122,6 +1139,7 @@ fn finish_dma(regs: Regs) {
 /// OctoSPI I/O manager instance trait.
 pub(crate) trait SealedOctospimInstance {
     const OCTOSPIM_REGS: Octospim;
+    const OCTOSPI_IDX: u8;
 }
 
 /// OctoSPI instance trait.
@@ -1153,16 +1171,24 @@ pin_trait!(DQSPin, Instance);
 pin_trait!(NSSPin, Instance);
 dma_trait!(OctoDma, Instance);
 
+// Hard-coded the octospi index, for OCTOSPIM
+#[cfg(octospim_v1)]
+impl SealedOctospimInstance for peripherals::OCTOSPI1 {
+    const OCTOSPIM_REGS: Octospim = crate::pac::OCTOSPIM;
+    const OCTOSPI_IDX: u8 = 1;
+}
+
+#[cfg(octospim_v1)]
+impl SealedOctospimInstance for peripherals::OCTOSPI2 {
+    const OCTOSPIM_REGS: Octospim = crate::pac::OCTOSPIM;
+    const OCTOSPI_IDX: u8 = 2;
+}
+
 #[cfg(octospim_v1)]
 foreach_peripheral!(
     (octospi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
-        }
-
-        impl SealedOctospimInstance for peripherals::$inst {
-            // Hardcoded, is it good?
-            const OCTOSPIM_REGS: Octospim = crate::pac::OCTOSPIM;
         }
 
         impl Instance for peripherals::$inst {}
