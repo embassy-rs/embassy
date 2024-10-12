@@ -19,7 +19,6 @@ use embassy_usb_driver::host::{
 use crate::control::Request;
 
 pub mod descriptor;
-pub mod hub;
 
 use descriptor::*;
 
@@ -59,7 +58,7 @@ where
     }
 }
 
-impl<D, T, DIR> UsbChannel<T, DIR> for Channel<'_, D, T, DIR>
+impl<D, T, DIR> UsbChannel<T, DIR, D> for Channel<'_, D, T, DIR>
 where
     T: channel::Type,
     DIR: channel::Direction,
@@ -129,7 +128,7 @@ where
 }
 
 /// Extension trait with convenience methods for control channels
-pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control, D> {
+pub trait ControlChannelExt<D: channel::Direction, H: UsbHostDriver>: UsbChannel<channel::Control, D, H> {
     // CONTROL IN methods
     /// Request and try to parse the device descriptor.
     async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(&mut self, class: bool) -> Result<T, HostError>
@@ -278,7 +277,10 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     }
 }
 
-impl<D: channel::Direction, C> ControlChannelExt<D> for C where C: UsbChannel<channel::Control, D> {}
+impl<D: channel::Direction, C, H: UsbHostDriver> ControlChannelExt<D, H> for C where
+    C: UsbChannel<channel::Control, D, H>
+{
+}
 
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
