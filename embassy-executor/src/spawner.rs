@@ -211,7 +211,9 @@ impl SendSpawner {
     #[cfg(feature = "alloc")]
     /// Spawn a dynamically allocated task into an executor.
     /// Note that the task will never deallocate, so this is only useful for tasks that run forever.
-    pub fn spawn_fut<F: core::future::Future + Send + 'static>(&self, fut: F) {
+    /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
+    /// is an `async fn`, NOT a hand-written `Future`.
+    pub fn spawn_fut<F: core::future::Future + 'static, FutFn: (FnOnce() -> F) + Send>(&self, future: FutFn) {
         use alloc::boxed::Box;
         use crate::raw::{TaskRef, TaskStorage};
 
@@ -219,11 +221,11 @@ impl SendSpawner {
         unsafe {
             task_storage.raw.state.spawn();
             task_storage.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
-            task_storage.future.write_in_place(move || fut);
+            task_storage.future.write_in_place(future);
         }
         let boxed_task_storage = Box::leak(Box::new(task_storage));
         let task_ref = TaskRef::new(boxed_task_storage);
-        let token = unsafe { SpawnToken::<F>::new(task_ref) };
+        let token = unsafe { SpawnToken::<FutFn>::new(task_ref) };
         self.spawn(token).unwrap();
     }
 
