@@ -1,6 +1,6 @@
 //! USB host driver traits and data types.
 
-use crate::EndpointType;
+use crate::{Direction, EndpointType};
 
 /// Errors returned by [`ChannelOut::write`] and [`ChannelIn::read`]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -122,6 +122,15 @@ pub struct EndpointDescriptor {
 }
 
 impl EndpointDescriptor {
+    /// Returns the direction of the endpoint
+    pub fn ep_dir(&self) -> Direction {
+        match self.endpoint_address & 0x80 {
+            0x80 => Direction::In,
+            0x00 => Direction::Out,
+            _ => unreachable!(),
+        }
+    }
+
     /// Returns the endpoint type as inferred from the `attributes` field.
     pub fn ep_type(&self) -> EndpointType {
         match self.attributes & 0x03 {
@@ -173,8 +182,8 @@ impl From<ChannelError> for HostError {
 
 /// Async USB Host Driver trait.
 /// To be implemented by the HAL.
-pub trait UsbHostDriver {
-    type Channel<T: channel::Type, D: channel::Direction>: UsbChannel<T, D>;
+pub trait UsbHostDriver: Sized {
+    type Channel<T: channel::Type, D: channel::Direction>: UsbChannel<T, D, Self>;
 
     /// Wait for device connect or disconnect
     async fn wait_for_device_event(&self) -> DeviceEvent;
@@ -183,13 +192,13 @@ pub trait UsbHostDriver {
     async fn bus_reset(&self);
 
     /// Retarget channel
-    fn retarget_channel<TO: channel::Type, DO: channel::Direction, TN: channel::Type, DN: channel::Direction>(
-        &mut self,
-        channel: Self::Channel<TO, DO>,
-        addr: u8,
-        endpoint: &EndpointDescriptor,
-        pre: bool,
-    ) -> Result<Self::Channel<TN, DN>, HostError>;
+    // fn retarget_channel<TO: channel::Type, DO: channel::Direction, TN: channel::Type, DN: channel::Direction>(
+    //     &mut self,
+    //     channel: Self::Channel<TO, DO>,
+    //     addr: u8,
+    //     endpoint: &EndpointDescriptor,
+    //     pre: bool,
+    // ) -> Result<Self::Channel<TN, DN>, HostError>;
 
     /// Allocate channel for communication with device
     ///
@@ -289,7 +298,7 @@ pub mod channel {
     impl IsOut for InOut {}
 }
 
-pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
+pub trait UsbChannel<T: channel::Type, D: channel::Direction, H: UsbHostDriver> {
     /// Send IN control request
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
@@ -304,21 +313,14 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
 
     /// Retargets channel to a new endpoint, may error if the underlying driver runs out of resources
     fn retarget_channel<TN: channel::Type, DN: channel::Direction>(
-        channel: impl UsbChannel<T, D>,
+        channel: Self,
         addr: u8,
         endpoint: &EndpointDescriptor,
         pre: bool,
-    ) -> Result<impl UsbChannel<TN, DN>, HostError>;
-
-    /// Take or requests the latest interrupt packet from device, then stops polling the interrupt
-    ///
-    /// The polling is stopped to ensure no mutations to the returned reference
-    // async fn take_interrupt(&mut self) -> Result<&[u8], ChannelError>
-    // where
-    //     T: channel::IsInterrupt,
-    //     D: channel::IsIn;
+    ) -> Result<H::Channel<TN, DN>, HostError>;
 
     /// Send IN request of type other from control
+    /// For interrupt channels this will return the result of the next succesful interrupt poll
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsIn;
