@@ -210,7 +210,7 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
@@ -260,7 +260,7 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
