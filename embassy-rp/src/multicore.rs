@@ -169,6 +169,13 @@ where
             interrupt::SIO_IRQ_FIFO.enable()
         };
 
+        // Enable FPU
+        #[cfg(all(feature = "_rp235x", has_fpu))]
+        unsafe {
+            let p = cortex_m::Peripherals::steal();
+            p.SCB.cpacr.modify(|cpacr| cpacr | (3 << 20) | (3 << 22));
+        }
+
         entry()
     }
 
