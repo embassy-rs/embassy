@@ -43,8 +43,7 @@ async fn main(spawner: Spawner) {
     let usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config).unwrap();
     let (tx, rx) = usart.split();
     static mut DMA_BUF: [u8; DMA_BUF_SIZE] = [0; DMA_BUF_SIZE];
-    let dma_buf = unsafe { DMA_BUF.as_mut() };
-    let rx = rx.into_ring_buffered(dma_buf);
+    let rx = rx.into_ring_buffered(unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) });
 
     info!("Spawning tasks");
     spawner.spawn(transmit_task(tx)).unwrap();

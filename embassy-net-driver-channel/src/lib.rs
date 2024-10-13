@@ -326,8 +326,14 @@ pub struct Device<'d, const MTU: usize> {
 }
 
 impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
-    type RxToken<'a> = RxToken<'a, MTU> where Self: 'a ;
-    type TxToken<'a> = TxToken<'a, MTU> where Self: 'a ;
+    type RxToken<'a>
+        = RxToken<'a, MTU>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = TxToken<'a, MTU>
+    where
+        Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         if self.rx.poll_receive(cx).is_ready() && self.tx.poll_send(cx).is_ready() {
