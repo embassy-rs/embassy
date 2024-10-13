@@ -167,6 +167,9 @@ pub struct Config {
     #[cfg(any(usart_v3, usart_v4))]
     pub invert_rx: bool,
 
+    /// Set the pull configuration for the RX pin.
+    pub rx_pull: Pull,
+
     // private: set by new_half_duplex, not by the user.
     half_duplex: bool,
 }
@@ -175,7 +178,7 @@ impl Config {
     fn tx_af(&self) -> AfType {
         #[cfg(any(usart_v3, usart_v4))]
         if self.swap_rx_tx {
-            return AfType::input(Pull::None);
+            return AfType::input(self.rx_pull);
         };
         AfType::output(OutputType::PushPull, Speed::Medium)
     }
@@ -185,7 +188,7 @@ impl Config {
         if self.swap_rx_tx {
             return AfType::output(OutputType::PushPull, Speed::Medium);
         };
-        AfType::input(Pull::None)
+        AfType::input(self.rx_pull)
     }
 }
 
@@ -206,6 +209,7 @@ impl Default for Config {
             invert_tx: false,
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
+            rx_pull: Pull::None,
             half_duplex: false,
         }
     }
@@ -448,7 +452,7 @@ impl<'d> UartTx<'d, Blocking> {
         Self::new_inner(
             peri,
             new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(cts, AfType::input(config.rx_pull)),
             None,
             config,
         )
@@ -567,7 +571,7 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             None,
             new_dma!(rx_dma),
             config,
@@ -585,7 +589,7 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
             new_dma!(rx_dma),
             config,
@@ -815,7 +819,7 @@ impl<'d> UartRx<'d, Blocking> {
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, AfType::input(Pull::None)), None, None, config)
+        Self::new_inner(peri, new_pin!(rx, AfType::input(config.rx_pull)), None, None, config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
@@ -827,7 +831,7 @@ impl<'d> UartRx<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             config,
