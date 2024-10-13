@@ -51,6 +51,9 @@
 //! }
 //! ```
 
+// TODO: Usage of `static mut` here is unsound. Fix then remove this `allow`.`
+#![allow(static_mut_refs)]
+
 use core::arch::asm;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};

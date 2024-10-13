@@ -86,7 +86,7 @@ pub(crate) unsafe fn set_freqs(freqs: Clocks) {
 #[cfg(not(feature = "_dual-core"))]
 /// Safety: Reads a mutable global.
 pub(crate) unsafe fn get_freqs() -> &'static Clocks {
-    CLOCK_FREQS.assume_init_ref()
+    (*core::ptr::addr_of_mut!(CLOCK_FREQS)).assume_init_ref()
 }
 
 #[cfg(feature = "_dual-core")]
@@ -171,7 +171,9 @@ impl RccInfo {
             // Use .get_mut instead of []-operator so that we control how bounds checks happen.
             // Otherwise, core::fmt will be pulled in here in order to format the integer in the
             // out-of-bounds error.
-            if let Some(refcount) = unsafe { crate::_generated::REFCOUNTS.get_mut(refcount_idx) } {
+            if let Some(refcount) =
+                unsafe { (*core::ptr::addr_of_mut!(crate::_generated::REFCOUNTS)).get_mut(refcount_idx) }
+            {
                 *refcount += 1;
                 if *refcount > 1 {
                     return;
@@ -235,7 +237,9 @@ impl RccInfo {
             // Use .get_mut instead of []-operator so that we control how bounds checks happen.
             // Otherwise, core::fmt will be pulled in here in order to format the integer in the
             // out-of-bounds error.
-            if let Some(refcount) = unsafe { crate::_generated::REFCOUNTS.get_mut(refcount_idx) } {
+            if let Some(refcount) =
+                unsafe { (*core::ptr::addr_of_mut!(crate::_generated::REFCOUNTS)).get_mut(refcount_idx) }
+            {
                 *refcount -= 1;
                 if *refcount > 0 {
                     return;
