@@ -34,6 +34,7 @@ pub mod i2c_slave;
 pub mod multicore;
 #[cfg(feature = "_rp235x")]
 pub mod otp;
+pub mod pio_programs;
 pub mod pwm;
 mod reset;
 pub mod rom_data;
