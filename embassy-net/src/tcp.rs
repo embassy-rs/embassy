@@ -712,7 +712,10 @@ pub mod client {
         for TcpClient<'d, N, TX_SZ, RX_SZ>
     {
         type Error = Error;
-        type Connection<'m> = TcpConnection<'m, N, TX_SZ, RX_SZ> where Self: 'm;
+        type Connection<'m>
+            = TcpConnection<'m, N, TX_SZ, RX_SZ>
+        where
+            Self: 'm;
 
         async fn connect<'a>(&'a self, remote: core::net::SocketAddr) -> Result<Self::Connection<'a>, Self::Error> {
             let addr: crate::IpAddress = match remote.ip() {
