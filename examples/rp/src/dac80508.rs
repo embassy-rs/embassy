@@ -82,7 +82,9 @@ impl DAC80508Driver {
 
         // Step 1: Send the read command (first access cycle)
         cs.set_low().map_err(Dac80505Error::PinError)?;
-        spi.write(&[command]).await.map_err(Dac80505Error::SpiError)?;
+        spi.write(&[command, 0x00, 0x00])
+            .await
+            .map_err(Dac80505Error::SpiError)?;
         cs.set_high().map_err(Dac80505Error::PinError)?;
 
         // Step 2: Read 3 bytes (RW echo, reserved bits, address echo, and 16-bit data)
@@ -258,30 +260,13 @@ impl GainRegisterBuilder {
         self.value
     }
 
-    // REFDIV_EN (bit 8)
     bit_setter!(refdiv_en, 8);
-
-    // BUFF7-GAIN (bit 7)
     bit_setter!(buff7_gain, 7);
-
-    // BUFF6-GAIN (bit 6)
     bit_setter!(buff6_gain, 6);
-
-    // BUFF5-GAIN (bit 5)
     bit_setter!(buff5_gain, 5);
-
-    // BUFF4-GAIN (bit 4)
     bit_setter!(buff4_gain, 4);
-
-    // BUFF3-GAIN (bit 3)
     bit_setter!(buff3_gain, 3);
-
-    // BUFF2-GAIN (bit 2)
     bit_setter!(buff2_gain, 2);
-
-    // BUFF1-GAIN (bit 1)
     bit_setter!(buff1_gain, 1);
-
-    // BUFF0-GAIN (bit 0)
     bit_setter!(buff0_gain, 0);
 }

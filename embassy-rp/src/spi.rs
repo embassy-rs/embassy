@@ -244,6 +244,27 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         // enable
         p.cr1().write(|w| w.set_sse(true));
     }
+
+    /// Set SPI config.
+    pub fn set_config(&mut self, config: Config) {
+        let (presc, postdiv) = calc_prescs(config.frequency);
+        
+        let p = self.inner.regs();
+        // disable
+        p.cr1().write(|w| w.set_sse(false));
+
+        // change stuff
+        p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        p.cr0().write(|w| {
+            w.set_dss(0b0111); // 8bit
+            w.set_spo(config.polarity == Polarity::IdleHigh);
+            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
+            w.set_scr(postdiv);
+        });
+
+        // enable
+        p.cr1().write(|w| w.set_sse(true));
+    }
 }
 
 impl<'d, T: Instance> Spi<'d, T, Blocking> {

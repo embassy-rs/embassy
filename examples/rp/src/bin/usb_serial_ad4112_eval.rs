@@ -86,13 +86,13 @@ async fn main(spawner: Spawner) {
     let miso = p.PIN_16;
     let mosi = p.PIN_19;
     let clk = p.PIN_18;
-    let mut adc_cs = Output::new(p.PIN_17, Level::Low);
-    let mut dac_cs = Output::new(p.PIN_20, Level::Low);
+    let mut adc_cs = Output::new(p.PIN_17, Level::High);
+    let mut dac_cs = Output::new(p.PIN_20, Level::High);
 
     let mut config = Config::default();
     config.polarity = embassy_rp::spi::Polarity::IdleHigh;
     config.phase = embassy_rp::spi::Phase::CaptureOnSecondTransition;
-    config.frequency = 1_000_000;
+    config.frequency = 100_000;
 
     let mut spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, config);
 
@@ -119,8 +119,6 @@ async fn spi_task(
     let mut adc = ad4112::AD4112Driver::new();
 
     let mut dac = dac80508::DAC80508Driver::new();
-
-    let mut ticker = Ticker::every(Duration::from_millis(50));
 
     let id = adc.read_device_id(&mut spi, &mut adc_cs).await.unwrap();
     // Convert the averages for both channels to strings with 3 decimal places of precision
@@ -238,7 +236,19 @@ async fn spi_task(
     // Send the average over USB
     class.write_packet(buf.as_bytes()).await.unwrap();
 
+    let mut config = Config::default();
+    config.polarity = embassy_rp::spi::Polarity::IdleLow;
+    config.phase = embassy_rp::spi::Phase::CaptureOnSecondTransition;
+    config.frequency = 100_000;
+
+    spi.set_config(config);
+
     // set up DAC
+    let reset = dac80508::TriggerRegisterBuilder::new().soft_reset().build();
+
+    dac.write_register(&mut spi, &mut dac_cs, dac80508::Register::Trigger, reset)
+        .await;
+
     let sync = dac80508::SyncRegisterBuilder::new()
         .dac0_broadcast_en(false)
         .dac1_broadcast_en(false)
@@ -276,10 +286,35 @@ async fn spi_task(
     dac.write_register(&mut spi, &mut dac_cs, dac80508::Register::Gain, gain)
         .await;
 
+    let alarm = dac
+        .read_register(&mut spi, &mut dac_cs, dac80508::Register::Status)
+        .await
+        .unwrap_or((0x00, 0x00));
+
+    let id = dac
+        .read_register(&mut spi, &mut dac_cs, dac80508::Register::DeviceId)
+        .await
+        .unwrap_or((0x00, 0x00));
+
+    let mut buf = String::<64>::new(); // Buffer for channel 1
+    let _ = write!(buf, "dac id: {:#X}, a: {:#X}\r\n", id.1, alarm.1); // For uppercase hex, use "{:#X}"
+
+    // Send the average over USB
+    class.write_packet(buf.as_bytes()).await.unwrap();
+
     let mut dac0_value: u16 = 0x00_00;
+
+    let mut ticker = Ticker::every(Duration::from_millis(500));
 
     loop {
         let now = Instant::now().as_micros();
+
+        let mut config = Config::default();
+        config.polarity = embassy_rp::spi::Polarity::IdleHigh;
+        config.phase = embassy_rp::spi::Phase::CaptureOnSecondTransition;
+        config.frequency = 100_000;
+
+        spi.set_config(config);
 
         for (i, (channel_register, input_pair)) in [
             (ad4112::Register::CH0, ad4112::InputPair::Vin0VinCom),
@@ -321,10 +356,17 @@ async fn spi_task(
             let _ = write!(buf, "Channel {}: {:#X}, {}\r\n", i, data, voltage);
 
             // Send the data over USB
-            class.write_packet(buf.as_bytes()).await.unwrap();
+            class.write_packet(buf.as_bytes()).await;
         }
 
         let delta = Instant::now().as_micros() - now;
+
+        let mut config = Config::default();
+        config.polarity = embassy_rp::spi::Polarity::IdleLow;
+        config.phase = embassy_rp::spi::Phase::CaptureOnSecondTransition;
+        config.frequency = 100_000;
+
+        spi.set_config(config);
 
         for (i, channel_register) in [
             dac80508::Register::Dac0,
@@ -343,7 +385,7 @@ async fn spi_task(
                 &mut spi,
                 &mut dac_cs,
                 *channel_register,
-                dac0_value.wrapping_add(0xFF * 0xFF * i as u16),
+                dac0_value.wrapping_add(0xFF_u16.wrapping_mul(0xFF).wrapping_mul(i as u16)),
             )
             .await;
         }
@@ -363,7 +405,7 @@ async fn spi_task(
         let _ = write!(buf, "us: {}\r\n", delta);
 
         // Send the data over USB
-        class.write_packet(buf.as_bytes()).await.unwrap();
+        class.write_packet(buf.as_bytes()).await;
 
         ticker.next().await;
     }
