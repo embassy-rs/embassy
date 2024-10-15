@@ -46,6 +46,16 @@ macro_rules! peripherals_struct {
             )*
         }
 
+        /// Struct containing all the peripheral singletons wrapped in `Option`.
+        #[allow(non_snake_case)]
+        pub struct OptionalPeripherals {
+            $(
+                #[doc = concat!(stringify!($name), " peripheral")]
+                $(#[$cfg])?
+                pub $name: Option<peripherals::$name>,
+            )*
+        }
+
         impl Peripherals {
             ///Returns all the peripherals *once*
             #[inline]
@@ -82,6 +92,19 @@ macro_rules! peripherals_struct {
                     $(
                         $(#[$cfg])?
                         $name: peripherals::$name::steal(),
+                    )*
+                }
+            }
+        }
+
+        impl OptionalPeripherals {
+            /// Create an `OptionalPeripherals`, consuming a `Peripherals`
+            #[inline]
+            pub fn from(p: Peripherals) -> Self {
+                Self {
+                    $(
+                        $(#[$cfg])?
+                        $name: Some(p.$name),
                     )*
                 }
             }
