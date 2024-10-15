@@ -84,16 +84,9 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     ) -> Self {
         into_ref!(inner);
 
-        let p = inner.regs();
-        let (presc, postdiv) = calc_prescs(config.frequency);
+        Self::apply_config(&inner, &config);
 
-        p.cpsr().write(|w| w.set_cpsdvsr(presc));
-        p.cr0().write(|w| {
-            w.set_dss(0b0111); // 8bit
-            w.set_spo(config.polarity == Polarity::IdleHigh);
-            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
-            w.set_scr(postdiv);
-        });
+        let p = inner.regs();
 
         // Always enable DREQ signals -- harmless if DMA is not listening
         p.dmacr().write(|reg| {
@@ -162,6 +155,23 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             rx_dma,
             phantom: PhantomData,
         }
+    }
+
+    /// Private function to apply SPI configuration (phase, polarity, frequency) settings.
+    ///
+    /// Driver should be disabled before making changes and reenabled after the modifications
+    /// are applied.
+    fn apply_config(inner: &PeripheralRef<'d, T>, config: &Config) {
+        let p = inner.regs();
+        let (presc, postdiv) = calc_prescs(config.frequency);
+
+        p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        p.cr0().write(|w| {
+            w.set_dss(0b0111); // 8bit
+            w.set_spo(config.polarity == Polarity::IdleHigh);
+            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
+            w.set_scr(postdiv);
+        });
     }
 
     /// Write data to SPI blocking execution until done.
@@ -240,6 +250,20 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         p.cr0().modify(|w| {
             w.set_scr(postdiv);
         });
+
+        // enable
+        p.cr1().write(|w| w.set_sse(true));
+    }
+
+    /// Set SPI config.
+    pub fn set_config(&mut self, config: &Config) {
+        let p = self.inner.regs();
+
+        // disable
+        p.cr1().write(|w| w.set_sse(false));
+
+        // change stuff
+        Self::apply_config(&self.inner, config);
 
         // enable
         p.cr1().write(|w| w.set_sse(true));
@@ -697,15 +721,7 @@ impl<'d, T: Instance, M: Mode> SetConfig for Spi<'d, T, M> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        let p = self.inner.regs();
-        let (presc, postdiv) = calc_prescs(config.frequency);
-        p.cpsr().write(|w| w.set_cpsdvsr(presc));
-        p.cr0().write(|w| {
-            w.set_dss(0b0111); // 8bit
-            w.set_spo(config.polarity == Polarity::IdleHigh);
-            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
-            w.set_scr(postdiv);
-        });
+        self.set_config(config);
 
         Ok(())
     }
