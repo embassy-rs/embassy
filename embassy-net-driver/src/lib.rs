@@ -83,10 +83,12 @@ pub trait Driver {
 }
 
 impl<T: ?Sized + Driver> Driver for &mut T {
-    type RxToken<'a> = T::RxToken<'a>
+    type RxToken<'a>
+        = T::RxToken<'a>
     where
         Self: 'a;
-    type TxToken<'a> = T::TxToken<'a>
+    type TxToken<'a>
+        = T::TxToken<'a>
     where
         Self: 'a;
 

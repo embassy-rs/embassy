@@ -16,6 +16,8 @@ use crate::dma::{word, ChannelAndRequest};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::octospi::{vals, Octospi as Regs};
+#[cfg(octospim_v1)]
+use crate::pac::octospim::Octospim;
 use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
@@ -196,6 +198,83 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         dual_quad: bool,
     ) -> Self {
         into_ref!(peri);
+
+        #[cfg(octospim_v1)]
+        {
+            // RCC for octospim should be enabled before writing register
+            #[cfg(stm32l4)]
+            crate::pac::RCC.ahb2smenr().modify(|w| w.set_octospimsmen(true));
+            #[cfg(stm32u5)]
+            crate::pac::RCC.ahb2enr1().modify(|w| w.set_octospimen(true));
+            #[cfg(not(any(stm32l4, stm32u5)))]
+            crate::pac::RCC.ahb3enr().modify(|w| w.set_iomngren(true));
+
+            // Disable OctoSPI peripheral first
+            T::REGS.cr().modify(|w| {
+                w.set_en(false);
+            });
+
+            // OctoSPI IO Manager has been enabled before
+            T::OCTOSPIM_REGS.cr().modify(|w| {
+                w.set_muxen(false);
+                w.set_req2ack_time(0xff);
+            });
+
+            // Clear config
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                w.set_clksrc(false);
+                w.set_dqssrc(false);
+                w.set_ncssrc(false);
+                w.set_clken(false);
+                w.set_dqsen(false);
+                w.set_ncsen(false);
+                w.set_iolsrc(0);
+                w.set_iohsrc(0);
+            });
+
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                let octospi_src = if T::OCTOSPI_IDX == 1 { false } else { true };
+                w.set_ncsen(true);
+                w.set_ncssrc(octospi_src);
+                w.set_clken(true);
+                w.set_clksrc(octospi_src);
+                if dqs.is_some() {
+                    w.set_dqsen(true);
+                    w.set_dqssrc(octospi_src);
+                }
+
+                // Set OCTOSPIM IOL and IOH according to the index of OCTOSPI instance
+                if T::OCTOSPI_IDX == 1 {
+                    w.set_iolen(true);
+                    w.set_iolsrc(0);
+                    // Enable IOH in octo and dual quad mode
+                    if let OspiWidth::OCTO = width {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b01);
+                    } else if dual_quad {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b00);
+                    } else {
+                        w.set_iohen(false);
+                        w.set_iohsrc(0b00);
+                    }
+                } else {
+                    w.set_iolen(true);
+                    w.set_iolsrc(0b10);
+                    // Enable IOH in octo and dual quad mode
+                    if let OspiWidth::OCTO = width {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b11);
+                    } else if dual_quad {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b10);
+                    } else {
+                        w.set_iohen(false);
+                        w.set_iohsrc(0b00);
+                    }
+                }
+            });
+        }
 
         // System configuration
         rcc::enable_and_reset::<T>();
@@ -1056,11 +1135,25 @@ fn finish_dma(regs: Regs) {
     });
 }
 
+#[cfg(octospim_v1)]
+/// OctoSPI I/O manager instance trait.
+pub(crate) trait SealedOctospimInstance {
+    const OCTOSPIM_REGS: Octospim;
+    const OCTOSPI_IDX: u8;
+}
+
+/// OctoSPI instance trait.
 pub(crate) trait SealedInstance {
     const REGS: Regs;
 }
 
 /// OSPI instance trait.
+#[cfg(octospim_v1)]
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral + SealedOctospimInstance {}
+
+/// OSPI instance trait.
+#[cfg(not(octospim_v1))]
 #[allow(private_bounds)]
 pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
 
@@ -1078,6 +1171,31 @@ pin_trait!(DQSPin, Instance);
 pin_trait!(NSSPin, Instance);
 dma_trait!(OctoDma, Instance);
 
+// Hard-coded the octospi index, for OCTOSPIM
+#[cfg(octospim_v1)]
+impl SealedOctospimInstance for peripherals::OCTOSPI1 {
+    const OCTOSPIM_REGS: Octospim = crate::pac::OCTOSPIM;
+    const OCTOSPI_IDX: u8 = 1;
+}
+
+#[cfg(octospim_v1)]
+impl SealedOctospimInstance for peripherals::OCTOSPI2 {
+    const OCTOSPIM_REGS: Octospim = crate::pac::OCTOSPIM;
+    const OCTOSPI_IDX: u8 = 2;
+}
+
+#[cfg(octospim_v1)]
+foreach_peripheral!(
+    (octospi, $inst:ident) => {
+        impl SealedInstance for peripherals::$inst {
+            const REGS: Regs = crate::pac::$inst;
+        }
+
+        impl Instance for peripherals::$inst {}
+    };
+);
+
+#[cfg(not(octospim_v1))]
 foreach_peripheral!(
     (octospi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {

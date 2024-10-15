@@ -13,6 +13,7 @@
 use defmt::{info, panic, trace};
 use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};
+use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::{PIO0, USB};
 use embassy_rp::pio_programs::uart::{PioUartRx, PioUartRxProgram, PioUartTx, PioUartTxProgram};
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
@@ -25,7 +26,9 @@ use embassy_usb::{Builder, Config};
 use embedded_io_async::{Read, Write};
 use {defmt_rtt as _, panic_probe as _};
 
-//use crate::uart::PioUart;
+#[link_section = ".start_block"]
+#[used]
+pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;

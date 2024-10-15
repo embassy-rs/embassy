@@ -675,9 +675,8 @@ mod embedded_io_impls {
 pub mod client {
     use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;
+    use core::net::IpAddr;
     use core::ptr::NonNull;
-
-    use embedded_nal_async::IpAddr;
 
     use super::*;
 
@@ -713,19 +712,19 @@ pub mod client {
         for TcpClient<'d, N, TX_SZ, RX_SZ>
     {
         type Error = Error;
-        type Connection<'m> = TcpConnection<'m, N, TX_SZ, RX_SZ> where Self: 'm;
+        type Connection<'m>
+            = TcpConnection<'m, N, TX_SZ, RX_SZ>
+        where
+            Self: 'm;
 
-        async fn connect<'a>(
-            &'a self,
-            remote: embedded_nal_async::SocketAddr,
-        ) -> Result<Self::Connection<'a>, Self::Error> {
+        async fn connect<'a>(&'a self, remote: core::net::SocketAddr) -> Result<Self::Connection<'a>, Self::Error> {
             let addr: crate::IpAddress = match remote.ip() {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),
+                IpAddr::V4(addr) => crate::IpAddress::Ipv4(addr),
                 #[cfg(not(feature = "proto-ipv4"))]
                 IpAddr::V4(_) => panic!("ipv4 support not enabled"),
                 #[cfg(feature = "proto-ipv6")]
-                IpAddr::V6(addr) => crate::IpAddress::Ipv6(crate::Ipv6Address::from_bytes(&addr.octets())),
+                IpAddr::V6(addr) => crate::IpAddress::Ipv6(addr),
                 #[cfg(not(feature = "proto-ipv6"))]
                 IpAddr::V6(_) => panic!("ipv6 support not enabled"),
             };

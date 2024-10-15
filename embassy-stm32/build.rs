@@ -1054,6 +1054,30 @@ fn main() {
         (("octospi", "NCS"), quote!(crate::ospi::NSSPin)),
         (("octospi", "CLK"), quote!(crate::ospi::SckPin)),
         (("octospi", "NCLK"), quote!(crate::ospi::NckPin)),
+        (("octospim", "P1_IO0"), quote!(crate::ospi::D0Pin)),
+        (("octospim", "P1_IO1"), quote!(crate::ospi::D1Pin)),
+        (("octospim", "P1_IO2"), quote!(crate::ospi::D2Pin)),
+        (("octospim", "P1_IO3"), quote!(crate::ospi::D3Pin)),
+        (("octospim", "P1_IO4"), quote!(crate::ospi::D4Pin)),
+        (("octospim", "P1_IO5"), quote!(crate::ospi::D5Pin)),
+        (("octospim", "P1_IO6"), quote!(crate::ospi::D6Pin)),
+        (("octospim", "P1_IO7"), quote!(crate::ospi::D7Pin)),
+        (("octospim", "P1_DQS"), quote!(crate::ospi::DQSPin)),
+        (("octospim", "P1_NCS"), quote!(crate::ospi::NSSPin)),
+        (("octospim", "P1_CLK"), quote!(crate::ospi::SckPin)),
+        (("octospim", "P1_NCLK"), quote!(crate::ospi::NckPin)),
+        (("octospim", "P2_IO0"), quote!(crate::ospi::D0Pin)),
+        (("octospim", "P2_IO1"), quote!(crate::ospi::D1Pin)),
+        (("octospim", "P2_IO2"), quote!(crate::ospi::D2Pin)),
+        (("octospim", "P2_IO3"), quote!(crate::ospi::D3Pin)),
+        (("octospim", "P2_IO4"), quote!(crate::ospi::D4Pin)),
+        (("octospim", "P2_IO5"), quote!(crate::ospi::D5Pin)),
+        (("octospim", "P2_IO6"), quote!(crate::ospi::D6Pin)),
+        (("octospim", "P2_IO7"), quote!(crate::ospi::D7Pin)),
+        (("octospim", "P2_DQS"), quote!(crate::ospi::DQSPin)),
+        (("octospim", "P2_NCS"), quote!(crate::ospi::NSSPin)),
+        (("octospim", "P2_CLK"), quote!(crate::ospi::SckPin)),
+        (("octospim", "P2_NCLK"), quote!(crate::ospi::NckPin)),
         (("tsc", "G1_IO1"), quote!(crate::tsc::G1IO1Pin)),
         (("tsc", "G1_IO2"), quote!(crate::tsc::G1IO2Pin)),
         (("tsc", "G1_IO3"), quote!(crate::tsc::G1IO3Pin)),
@@ -1109,6 +1133,15 @@ fn main() {
                     // MCO is special
                     if pin.signal.starts_with("MCO") {
                         peri = format_ident!("{}", pin.signal.replace('_', ""));
+                    }
+
+                    // OCTOSPIM is special
+                    if p.name == "OCTOSPIM" {
+                        peri = format_ident!("{}", "OCTOSPI1");
+                        g.extend(quote! {
+                            pin_trait_impl!(#tr, #peri, #pin_name, #af);
+                        });
+                        peri = format_ident!("{}", "OCTOSPI2");
                     }
 
                     g.extend(quote! {

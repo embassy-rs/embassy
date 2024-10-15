@@ -18,8 +18,14 @@ impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
 where
     T: Driver,
 {
-    type RxToken<'a> = RxTokenAdapter<T::RxToken<'a>> where Self: 'a;
-    type TxToken<'a> = TxTokenAdapter<T::TxToken<'a>> where Self: 'a;
+    type RxToken<'a>
+        = RxTokenAdapter<T::RxToken<'a>>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = TxTokenAdapter<T::TxToken<'a>>
+    where
+        Self: 'a;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         self.inner

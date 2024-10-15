@@ -81,8 +81,9 @@ async fn main(_spawner: Spawner) {
     rx_config.sync_output = false;
 
     let tx_buffer: &mut [u32] = unsafe {
-        TX_BUFFER.initialize_all_copied(0);
-        let (ptr, len) = TX_BUFFER.get_ptr_len();
+        let buf = &mut *core::ptr::addr_of_mut!(TX_BUFFER);
+        buf.initialize_all_copied(0);
+        let (ptr, len) = buf.get_ptr_len();
         core::slice::from_raw_parts_mut(ptr, len)
     };
 
@@ -98,8 +99,9 @@ async fn main(_spawner: Spawner) {
     );
 
     let rx_buffer: &mut [u32] = unsafe {
-        RX_BUFFER.initialize_all_copied(0);
-        let (ptr, len) = RX_BUFFER.get_ptr_len();
+        let buf = &mut *core::ptr::addr_of_mut!(RX_BUFFER);
+        buf.initialize_all_copied(0);
+        let (ptr, len) = buf.get_ptr_len();
         core::slice::from_raw_parts_mut(ptr, len)
     };
 

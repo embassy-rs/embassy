@@ -34,6 +34,7 @@ pub mod i2c_slave;
 pub mod multicore;
 #[cfg(feature = "_rp235x")]
 pub mod otp;
+pub mod pio_programs;
 pub mod pwm;
 mod reset;
 pub mod rom_data;
@@ -479,7 +480,7 @@ pub fn install_core0_stack_guard() -> Result<(), ()> {
 
 #[cfg(all(feature = "rp2040", not(feature = "_test")))]
 #[inline(always)]
-fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
+unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     let core = unsafe { cortex_m::Peripherals::steal() };
 
     // Fail if MPU is already configured
@@ -507,7 +508,7 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
 
 #[cfg(all(feature = "_rp235x", not(feature = "_test")))]
 #[inline(always)]
-fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
+unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     let core = unsafe { cortex_m::Peripherals::steal() };
 
     // Fail if MPU is already configured
@@ -527,7 +528,7 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
 // so the compile fails when we try to use ARMv8 peripherals.
 #[cfg(feature = "_test")]
 #[inline(always)]
-fn install_stack_guard(_stack_bottom: *mut usize) -> Result<(), ()> {
+unsafe fn install_stack_guard(_stack_bottom: *mut usize) -> Result<(), ()> {
     Ok(())
 }
 
