@@ -2,7 +2,7 @@ use core::cmp::Ordering;
 use core::convert::Infallible;
 
 pub use embedded_can::{ExtendedId, Id, StandardId};
-use stm32_metapac::can::vals::Lec;
+use stm32_metapac::can::vals::{Lec, Rtr};
 
 use super::{Mailbox, TransmitStatus};
 use crate::can::enums::BusError;
@@ -306,6 +306,9 @@ impl Registers {
         mb.tir().write(|w| {
             w.0 = id.0;
             w.set_txrq(true);
+            if frame.header().rtr() {
+                w.set_rtr(Rtr::REMOTE);
+            }
         });
     }
 
