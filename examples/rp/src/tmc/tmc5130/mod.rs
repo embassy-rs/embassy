@@ -92,9 +92,13 @@ impl TMC5130 {
         }
     }
 
-    pub fn transact<'a, O: OutputPin, F: FnOnce() -> R + 'a, R>(&self, cs: &'a mut O, act: F) -> R {
+    pub async fn transact<'a, O, F, R>(&self, cs: &'a mut O, act: F) -> Result<R, Error>
+    where
+        O: OutputPin,
+        F: core::future::Future<Output = Result<R, Error>>,
+    {
         while cs.set_low().is_err() {}
-        let res = act();
+        let res = act.await;
         while cs.set_high().is_err() {}
         res
     }
@@ -132,111 +136,106 @@ impl TMC5130 {
     }
 
     #[inline(always)]
-    fn field_read<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn field_read<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         address: u8,
         mask: u32,
         shift: u8,
     ) -> Result<u32, Error> {
-        Ok(self.field_get(self.read_register(spi, cs, d, address)?, mask, shift))
+        Ok(self.field_get(self.read_register(spi, cs, address).await?, mask, shift))
     }
 
     #[allow(dead_code)]
     #[inline(always)]
-    fn field_write<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn field_write<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         address: u8,
         mask: u32,
         shift: u8,
         value: u32,
     ) -> Result<(), Error> {
-        self.write_register(spi, cs, d, address, (value << shift) & mask)
+        self.write_register(spi, cs, address, (value << shift) & mask).await
     }
 
     #[inline(always)]
-    fn field_update<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn field_update<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         address: u8,
         mask: u32,
         shift: u8,
         value: u32,
     ) -> Result<(), Error> {
-        let v = self.field_set(self.read_register(spi, cs, d, address)?, mask, shift, value);
-        self.write_register(spi, cs, d, address, v)
+        let v = self.field_set(self.read_register(spi, cs, address).await?, mask, shift, value);
+        self.write_register(spi, cs, address, v).await
     }
 
     #[inline(always)]
-    fn field_update_and_verify<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn field_update_and_verify<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         address: u8,
         mask: u32,
         shift: u8,
         value: u32,
     ) -> Result<(), Error> {
-        self.field_update(spi, cs, d, address, mask, shift, value)?;
+        self.field_update(spi, cs, address, mask, shift, value).await?;
 
-        while self.field_read(spi, cs, d, address, mask, shift)? != value {
-            self.field_update(spi, cs, d, address, mask, shift, value)?;
+        while self.field_read(spi, cs, address, mask, shift).await? != value {
+            self.field_update(spi, cs, address, mask, shift, value).await?;
         }
 
         Ok(())
     }
 
     #[inline(always)]
-    pub fn write_register<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn write_register<SPI: SpiBus, CS: OutputPin>(
         &self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         address: u8,
         data: u32,
     ) -> Result<(), Error> {
-        self.transact(cs, d, || {
-            spi.transfer(&mut self.to_write_data(address, data)).map(|_| {})
+        self.transact(cs, async {
+            spi.write(&self.to_write_data(address, data))
+                .await
+                .map_err(|_| Error::SpiTransfer)
         })
-        .map_err(|_| Error::SpiTransfer)?;
-        Ok(())
+        .await
     }
 
     #[inline(always)]
-    pub fn read_register<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn read_register<SPI: SpiBus, CS: OutputPin>(
         &self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         address: u8,
     ) -> Result<u32, Error> {
-        let mut data = 0x00;
-        self.transact(cs, d, || spi.transfer(&mut self.to_read_data(address)).map(|_| {}))
-            .map_err(|_| Error::SpiTransfer)?;
-        d.delay_us(10);
-        self.transact(cs, d, || {
-            spi.transfer(&mut self.to_read_data(address)).map(|r| {
-                data = ((r[1] as u32) << 24) | ((r[2] as u32) << 16) | ((r[3] as u32) << 8) | (r[4] as u32);
-            })
+        let mut data = self.to_read_data(address); // Prepare the buffer for transfer
+
+        // First SPI transfer: we send the read command and get the response in the same buffer
+        self.transact(cs, async {
+            spi.transfer_in_place(&mut data).await.map_err(|_| Error::SpiTransfer)
         })
-        .map_err(|_| Error::SpiTransfer)?;
-        Ok(data)
+        .await?;
+
+        // Combine the received bytes into a 32-bit value
+        let result = ((data[1] as u32) << 24) | ((data[2] as u32) << 16) | ((data[3] as u32) << 8) | (data[4] as u32);
+
+        Ok(result)
     }
 
-    pub fn init<SPI: Transfer<u8>, CS: OutputPin, EN: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn init<SPI: SpiBus, CS: OutputPin, EN: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
         en: &mut EN,
-        d: &mut D,
     ) -> Result<Option<Duration>, Error> {
         en.set_high().map_err(|_| Error::OutputPin)?;
 
@@ -245,23 +244,23 @@ impl TMC5130 {
             None => params::InitParams::default(),
         };
 
-        self.read_register(spi, cs, d, REG::TMC5130_RAMPSTAT)?;
+        self.read_register(spi, cs, REG::TMC5130_RAMPSTAT).await?;
 
-        self.write_register(spi, cs, d, REG::TMC5130_GCONF, p.gconf)?;
-        self.write_register(spi, cs, d, REG::TMC5130_SLAVECONF, p.slaveconf)?;
-        self.write_register(spi, cs, d, REG::TMC5130_IHOLD_IRUN, p.ihold_irun)?;
-        self.write_register(spi, cs, d, REG::TMC5130_TPWMTHRS, p.tpwmthrs)?;
-        self.write_register(spi, cs, d, REG::TMC5130_TCOOLTHRS, p.tcoolthrs)?;
-        self.write_register(spi, cs, d, REG::TMC5130_THIGH, p.thigh)?;
-        self.write_register(spi, cs, d, REG::TMC5130_A1, p.a1)?;
-        self.write_register(spi, cs, d, REG::TMC5130_V1, p.v1)?;
-        self.write_register(spi, cs, d, REG::TMC5130_AMAX, p.amax)?;
-        self.write_register(spi, cs, d, REG::TMC5130_DMAX, p.dmax)?;
-        self.write_register(spi, cs, d, REG::TMC5130_VMAX, p.vmax)?;
-        self.write_register(spi, cs, d, REG::TMC5130_D1, p.d1)?;
-        self.write_register(spi, cs, d, REG::TMC5130_VSTOP, p.vstop)?;
-        self.write_register(spi, cs, d, REG::TMC5130_CHOPCONF, p.chopconf)?;
-        self.write_register(spi, cs, d, REG::TMC5130_COOLCONF, p.coolconf)?;
+        self.write_register(spi, cs, REG::TMC5130_GCONF, p.gconf).await?;
+        self.write_register(spi, cs, REG::TMC5130_SLAVECONF, p.slaveconf).await?;
+        self.write_register(spi, cs, REG::TMC5130_IHOLD_IRUN, p.ihold_irun).await?;
+        self.write_register(spi, cs, REG::TMC5130_TPWMTHRS, p.tpwmthrs).await?;
+        self.write_register(spi, cs, REG::TMC5130_TCOOLTHRS, p.tcoolthrs).await?;
+        self.write_register(spi, cs, REG::TMC5130_THIGH, p.thigh).await?;
+        self.write_register(spi, cs, REG::TMC5130_A1, p.a1).await?;
+        self.write_register(spi, cs, REG::TMC5130_V1, p.v1).await?;
+        self.write_register(spi, cs, REG::TMC5130_AMAX, p.amax).await?;
+        self.write_register(spi, cs, REG::TMC5130_DMAX, p.dmax).await?;
+        self.write_register(spi, cs, REG::TMC5130_VMAX, p.vmax).await?;
+        self.write_register(spi, cs, REG::TMC5130_D1, p.d1).await?;
+        self.write_register(spi, cs, REG::TMC5130_VSTOP, p.vstop).await?;
+        self.write_register(spi, cs, REG::TMC5130_CHOPCONF, p.chopconf).await?;
+        self.write_register(spi, cs, REG::TMC5130_COOLCONF, p.coolconf).await?;
 
         en.set_low().map_err(|_| Error::OutputPin)?;
 
@@ -269,66 +268,59 @@ impl TMC5130 {
     }
 
     #[inline(always)]
-    pub fn get_xactual<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn get_xactual<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
     ) -> Result<i32, Error> {
         Ok(self.field_read(
             spi,
             cs,
-            d,
             REG::TMC5130_XACTUAL,
             MASK::TMC5130_XACTUAL_MASK,
             SHIFT::TMC5130_XACTUAL_SHIFT,
-        )? as i32)
+        ).await? as i32)
     }
 
-    pub fn set_xactual<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn set_xactual<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         value: u32,
     ) -> Result<(), Error> {
         let v = vactual_to_signed_pps(value);
         self.field_update(
             spi,
             cs,
-            d,
             REG::TMC5130_XACTUAL,
             MASK::TMC5130_XACTUAL_MASK,
             SHIFT::TMC5130_XACTUAL_SHIFT,
             v as u32,
-        )
+        ).await
     }
 
     #[inline(always)]
-    pub fn get_vactual<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn get_vactual<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
     ) -> Result<u32, Error> {
         self.field_read(
             spi,
             cs,
-            d,
             REG::TMC5130_VACTUAL,
             MASK::TMC5130_VACTUAL_MASK,
             SHIFT::TMC5130_VACTUAL_SHIFT,
-        )
+        ).await
     }
 
     #[inline(always)]
-    pub fn get_signed_vactual<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn get_signed_vactual<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
     ) -> Result<i32, Error> {
-        let v = self.get_vactual(spi, cs, d)?;
+        let v = self.get_vactual(spi, cs).await?;
         Ok(vactual_to_signed_pps(v))
     }
 
@@ -339,15 +331,14 @@ impl TMC5130 {
         }
     }
 
-    pub fn start<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn start<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         params: &params::StartParams,
     ) -> Result<Option<Duration>, Error> {
         // stop
-        self.stop(spi, cs, d)?;
+        self.stop(spi, cs).await?;
 
         // mode
         match params.mode {
@@ -362,7 +353,6 @@ impl TMC5130 {
                 self.field_update_and_verify(
                     spi,
                     cs,
-                    d,
                     REG::TMC5130_RAMPMODE,
                     MASK::TMC5130_RAMPMODE_MASK,
                     SHIFT::TMC5130_RAMPMODE_SHIFT,
@@ -383,7 +373,6 @@ impl TMC5130 {
                 self.field_update_and_verify(
                     spi,
                     cs,
-                    d,
                     REG::TMC5130_RAMPMODE,
                     MASK::TMC5130_RAMPMODE_MASK,
                     SHIFT::TMC5130_RAMPMODE_SHIFT,
@@ -397,7 +386,6 @@ impl TMC5130 {
                             self.field_update(
                                 spi,
                                 cs,
-                                d,
                                 REG::TMC5130_XACTUAL,
                                 MASK::TMC5130_XACTUAL_MASK,
                                 SHIFT::TMC5130_XACTUAL_SHIFT,
@@ -406,12 +394,11 @@ impl TMC5130 {
 
                             let mut count: usize = 0;
 
-                            while self.get_xactual(spi, cs, d)? != 0 && count < 5 {
-                                self.stop(spi, cs, d)?;
+                            while self.get_xactual(spi, cs)? != 0 && count < 5 {
+                                self.stop(spi, cs)?;
                                 self.field_update(
                                     spi,
                                     cs,
-                                    d,
                                     REG::TMC5130_XACTUAL,
                                     MASK::TMC5130_XACTUAL_MASK,
                                     SHIFT::TMC5130_XACTUAL_SHIFT,
@@ -432,7 +419,6 @@ impl TMC5130 {
                         self.field_update_and_verify(
                             spi,
                             cs,
-                            d,
                             REG::TMC5130_XTARGET,
                             MASK::TMC5130_XTARGET_MASK,
                             SHIFT::TMC5130_XTARGET_SHIFT,
@@ -444,7 +430,6 @@ impl TMC5130 {
                 self.field_update(
                     spi,
                     cs,
-                    d,
                     REG::TMC5130_VMAX,
                     MASK::TMC5130_VMAX_MASK,
                     SHIFT::TMC5130_VMAX_SHIFT,
@@ -461,29 +446,26 @@ impl TMC5130 {
         Ok(None)
     }
 
-    pub fn stop<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub async fn stop<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
     ) -> Result<Option<Duration>, Error> {
         self.field_update(
             spi,
             cs,
-            d,
             REG::TMC5130_VMAX,
             MASK::TMC5130_VMAX_MASK,
             SHIFT::TMC5130_VMAX_SHIFT,
             0x00,
-        )?;
+        ).await?;
         Ok(None)
     }
 
-    pub fn change_speed<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub fn change_speed<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         params: &params::ChangeSpeedParams,
     ) -> Result<Option<Duration>, Error> {
         self.field_update(
@@ -499,11 +481,10 @@ impl TMC5130 {
         Ok(None)
     }
 
-    pub fn move_to<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub fn move_to<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         params: &params::MoveToParams,
     ) -> Result<Option<Duration>, Error> {
         // stop
@@ -556,11 +537,10 @@ impl TMC5130 {
         Ok(None)
     }
 
-    pub fn config<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub fn config<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
         params: &params::ConfigParams,
     ) -> Result<Option<Duration>, Error> {
         if params.reset_position {
@@ -599,7 +579,7 @@ impl TMC5130 {
         us_step_per_s / 256. / 200. * 60.
     }
 
-    pub fn home<SPI: Transfer<u8>, CS: OutputPin, EN: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub fn home<SPI: SpiBus, CS: OutputPin, EN: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
@@ -771,7 +751,7 @@ impl TMC5130 {
         }
     }
 
-    pub fn find_frequency_scaling<SPI: Transfer<u8>, CS: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub fn find_frequency_scaling<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
@@ -846,7 +826,7 @@ impl TMC5130 {
         }
     }
 
-    pub fn events<SPI: Transfer<u8>, CS: OutputPin, EN: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub fn events<SPI: SpiBus, CS: OutputPin, EN: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
@@ -897,7 +877,7 @@ impl TMC5130 {
         }
     }
 
-    pub fn handle_message<SPI: Transfer<u8>, CS: OutputPin, EN: OutputPin, D: DelayUs<MonotonicTicks>>(
+    pub fn handle_message<SPI: SpiBus, CS: OutputPin, EN: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
