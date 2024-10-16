@@ -4,11 +4,11 @@
 use core::fmt::Write;
 use defmt::{info, panic, unwrap};
 use embassy_executor::Spawner;
+use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{SPI0, USB};
 use embassy_rp::spi::{Async, Config, Spi};
-use embassy_rp::usb::{Driver, Instance, InterruptHandler as UsbInterruptHandler};
-use embassy_rp::{bind_interrupts, config};
+use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -16,9 +16,6 @@ use embassy_usb::UsbDevice;
 use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-
-use embedded_hal_1::digital::OutputPin;
-use embedded_hal_async::spi::SpiBus;
 
 #[path = "../ad4112.rs"]
 mod ad4112;
@@ -74,7 +71,7 @@ async fn main(spawner: Spawner) {
     };
 
     // Create classes on the builder.
-    let mut class = {
+    let class = {
         static STATE: StaticCell<State> = StaticCell::new();
         let state = STATE.init(State::new());
         CdcAcmClass::new(&mut builder, state, 64)
@@ -86,15 +83,15 @@ async fn main(spawner: Spawner) {
     let miso = p.PIN_16;
     let mosi = p.PIN_19;
     let clk = p.PIN_18;
-    let mut adc_cs = Output::new(p.PIN_17, Level::High);
-    let mut dac_cs = Output::new(p.PIN_20, Level::High);
+    let adc_cs = Output::new(p.PIN_17, Level::High);
+    let dac_cs = Output::new(p.PIN_20, Level::High);
 
     let mut config = Config::default();
     config.polarity = embassy_rp::spi::Polarity::IdleHigh;
     config.phase = embassy_rp::spi::Phase::CaptureOnSecondTransition;
     config.frequency = 100_000;
 
-    let mut spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, config);
+    let spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, config);
 
     // Run the USB device.
     unwrap!(spawner.spawn(usb_task(usb)));
@@ -116,9 +113,9 @@ async fn spi_task(
     mut adc_cs: Output<'static>,
     mut dac_cs: Output<'static>,
 ) -> ! {
-    let mut adc = ad4112::AD4112Driver::new();
+    let adc = ad4112::AD4112Driver::new();
 
-    let mut dac = dac80508::DAC80508Driver::new();
+    let dac = dac80508::DAC80508Driver::new();
 
     let id = adc.read_device_id(&mut spi, &mut adc_cs).await.unwrap();
     // Convert the averages for both channels to strings with 3 decimal places of precision
@@ -247,7 +244,8 @@ async fn spi_task(
     let reset = dac80508::TriggerRegisterBuilder::new().soft_reset().build();
 
     dac.write_register(&mut spi, &mut dac_cs, dac80508::Register::Trigger, reset)
-        .await;
+        .await
+        .ok();
 
     let sync = dac80508::SyncRegisterBuilder::new()
         .dac0_broadcast_en(false)
@@ -269,7 +267,8 @@ async fn spi_task(
         .build();
 
     dac.write_register(&mut spi, &mut dac_cs, dac80508::Register::Sync, sync)
-        .await;
+        .await
+        .ok();
 
     let gain = dac80508::GainRegisterBuilder::new()
         .refdiv_en(false)
@@ -284,7 +283,8 @@ async fn spi_task(
         .build();
 
     dac.write_register(&mut spi, &mut dac_cs, dac80508::Register::Gain, gain)
-        .await;
+        .await
+        .ok();
 
     let alarm = dac
         .read_register(&mut spi, &mut dac_cs, dac80508::Register::Status)
@@ -356,7 +356,7 @@ async fn spi_task(
             let _ = write!(buf, "Channel {}: {:#X}, {}\r\n", i, data, voltage);
 
             // Send the data over USB
-            class.write_packet(buf.as_bytes()).await;
+            class.write_packet(buf.as_bytes()).await.ok();
         }
 
         let delta = Instant::now().as_micros() - now;
@@ -387,13 +387,15 @@ async fn spi_task(
                 *channel_register,
                 dac0_value.wrapping_add(0xFF_u16.wrapping_mul(0xFF).wrapping_mul(i as u16)),
             )
-            .await;
+            .await
+            .ok();
         }
 
         let sync_byte = dac80508::TriggerRegisterBuilder::new().ldac(true).build();
 
         dac.write_register(&mut spi, &mut dac_cs, dac80508::Register::Trigger, sync_byte)
-            .await;
+            .await
+            .ok();
 
         // Increment dac0_value and wrap around if it exceeds 0xFFFF
         dac0_value = dac0_value.wrapping_add(0xFF);
@@ -405,7 +407,7 @@ async fn spi_task(
         let _ = write!(buf, "us: {}\r\n", delta);
 
         // Send the data over USB
-        class.write_packet(buf.as_bytes()).await;
+        class.write_packet(buf.as_bytes()).await.ok();
 
         ticker.next().await;
     }
