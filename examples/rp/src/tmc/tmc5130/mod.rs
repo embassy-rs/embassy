@@ -7,7 +7,7 @@ use embedded_hal_async::spi::SpiBus;
 mod constants;
 pub use constants::*;
 
-use self::params::HomeParams;
+use self::params::{HomeParams, InitParams};
 
 pub use super::{params, vactual_to_signed_pps, Mode, Motor, MotorIndex, Speed, Status};
 
@@ -245,34 +245,33 @@ impl TMC5130 {
         spi: &mut SPI,
         cs: &mut CS,
         en: &mut EN,
+        params: InitParams,
     ) -> Result<Option<Duration>, Tmc5130Error<SPI::Error, CS::Error>> {
         en.set_high().map_err(|_| Tmc5130Error::EnablePinError)?;
 
-        let p = match &self.init_params {
-            Some(p) => *p,
-            None => params::InitParams::default(),
-        };
-
         self.read_register(spi, cs, REG::TMC5130_RAMPSTAT).await?;
 
-        self.write_register(spi, cs, REG::TMC5130_GCONF, p.gconf).await?;
-        self.write_register(spi, cs, REG::TMC5130_SLAVECONF, p.slaveconf)
+        self.write_register(spi, cs, REG::TMC5130_GCONF, params.gconf).await?;
+        self.write_register(spi, cs, REG::TMC5130_SLAVECONF, params.slaveconf)
             .await?;
-        self.write_register(spi, cs, REG::TMC5130_IHOLD_IRUN, p.ihold_irun)
+        self.write_register(spi, cs, REG::TMC5130_IHOLD_IRUN, params.ihold_irun)
             .await?;
-        self.write_register(spi, cs, REG::TMC5130_TPWMTHRS, p.tpwmthrs).await?;
-        self.write_register(spi, cs, REG::TMC5130_TCOOLTHRS, p.tcoolthrs)
+        self.write_register(spi, cs, REG::TMC5130_TPWMTHRS, params.tpwmthrs)
             .await?;
-        self.write_register(spi, cs, REG::TMC5130_THIGH, p.thigh).await?;
-        self.write_register(spi, cs, REG::TMC5130_A1, p.a1).await?;
-        self.write_register(spi, cs, REG::TMC5130_V1, p.v1).await?;
-        self.write_register(spi, cs, REG::TMC5130_AMAX, p.amax).await?;
-        self.write_register(spi, cs, REG::TMC5130_DMAX, p.dmax).await?;
-        self.write_register(spi, cs, REG::TMC5130_VMAX, p.vmax).await?;
-        self.write_register(spi, cs, REG::TMC5130_D1, p.d1).await?;
-        self.write_register(spi, cs, REG::TMC5130_VSTOP, p.vstop).await?;
-        self.write_register(spi, cs, REG::TMC5130_CHOPCONF, p.chopconf).await?;
-        self.write_register(spi, cs, REG::TMC5130_COOLCONF, p.coolconf).await?;
+        self.write_register(spi, cs, REG::TMC5130_TCOOLTHRS, params.tcoolthrs)
+            .await?;
+        self.write_register(spi, cs, REG::TMC5130_THIGH, params.thigh).await?;
+        self.write_register(spi, cs, REG::TMC5130_A1, params.a1).await?;
+        self.write_register(spi, cs, REG::TMC5130_V1, params.v1).await?;
+        self.write_register(spi, cs, REG::TMC5130_AMAX, params.amax).await?;
+        self.write_register(spi, cs, REG::TMC5130_DMAX, params.dmax).await?;
+        self.write_register(spi, cs, REG::TMC5130_VMAX, params.vmax).await?;
+        self.write_register(spi, cs, REG::TMC5130_D1, params.d1).await?;
+        self.write_register(spi, cs, REG::TMC5130_VSTOP, params.vstop).await?;
+        self.write_register(spi, cs, REG::TMC5130_CHOPCONF, params.chopconf)
+            .await?;
+        self.write_register(spi, cs, REG::TMC5130_COOLCONF, params.coolconf)
+            .await?;
 
         en.set_low().map_err(|_| Tmc5130Error::EnablePinError)?;
 
@@ -610,6 +609,7 @@ impl TMC5130 {
         cs: &mut CS,
         en: &mut EN,
         params: HomeParams,
+        init: InitParams,
     ) -> Result<(), Tmc5130Error<SPI::Error, CS::Error>> {
         // stop
         self.stop(spi, cs).await?;
@@ -725,7 +725,7 @@ impl TMC5130 {
         self.read_register(spi, cs, REG::TMC5130_RAMPSTAT).await?;
 
         // reapply initialization params
-        self.init(spi, cs, en).await?;
+        self.init(spi, cs, en, init).await?;
 
         // backoff
         let backoff_params = params::StartParams {

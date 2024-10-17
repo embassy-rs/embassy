@@ -80,19 +80,19 @@ async fn main(spawner: Spawner) {
     let miso = p.PIN_16;
     let mosi = p.PIN_19;
     let clk = p.PIN_18;
-    let adc_cs = Output::new(p.PIN_17, Level::High);
-    let dac_cs = Output::new(p.PIN_20, Level::High);
+    let cs = Output::new(p.PIN_17, Level::High);
+    let en = Output::new(p.PIN_20, Level::High);
 
     let mut config = Config::default();
     config.polarity = embassy_rp::spi::Polarity::IdleHigh;
     config.phase = embassy_rp::spi::Phase::CaptureOnSecondTransition;
-    config.frequency = 100_000;
+    config.frequency = 1_000_000;
 
     let spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, config);
 
     // Run the USB device.
     unwrap!(spawner.spawn(usb_task(usb)));
-    unwrap!(spawner.spawn(spi_task(class, spi, adc_cs, dac_cs)));
+    unwrap!(spawner.spawn(spi_task(class, spi, cs, en)));
 }
 
 type MyUsbDriver = Driver<'static, USB>;
@@ -107,24 +107,65 @@ async fn usb_task(mut usb: MyUsbDevice) -> ! {
 async fn spi_task(
     mut class: CdcAcmClass<'static, Driver<'static, USB>>,
     mut spi: Spi<'static, SPI0, Async>,
-    mut adc_cs: Output<'static>,
-    mut dac_cs: Output<'static>,
+    mut cs: Output<'static>,
+    mut en: Output<'static>,
 ) -> ! {
-    let mut ticker = Ticker::every(Duration::from_millis(500));
+    let mut driver = tmc::tmc5130::TMC5130::new();
+
+    let init_params = tmc::params::InitParams {
+        gconf: 0x00000000,
+        slaveconf: 0x00000000,
+        // IHOLD=3, IRUN=24, IHOLDDELAY=7 (RMS current = 0.75A with VSENSE = 1)
+        ihold_irun: 0x00071803,
+        tpwmthrs: 0x00000000,
+        tcoolthrs: 0x00000010,
+        thigh: 0x00000010,
+        a1: 0x00000000,
+        v1: 0x00000000,
+        amax: 0x00002710,
+        dmax: 0x00002710,
+        vmax: 0x00000000,
+        d1: 0x00000001,
+        vstop: 0x00000009,
+        // VSENSE=1, TOFF=5, CHM=1,
+        chopconf: 0x00034295,
+        coolconf: 0x1040000,
+    };
+
+    driver.init(&mut spi, &mut cs, &mut en, init_params).await.ok();
+
+    let mut ticker = Ticker::every(Duration::from_millis(2000));
 
     loop {
-        let now = Instant::now().as_micros();
+        let params = tmc::params::MoveToParams {
+            speed: tmc::Speed::Pps(50),
+            position: 20000,
+            reset: false,
+            stop: false,
+        };
 
-        let delta = Instant::now().as_micros() - now;
+        driver.move_to(&mut spi, &mut cs, &params).await.ok();
 
-        // Buffer to hold the formatted output
-        let mut buf = String::<64>::new();
+        Timer::after_millis(10).await;
 
-        // Format the data and voltage as a string
-        let _ = write!(buf, "us: {}\r\n", delta);
+        while driver.get_vactual(&mut spi, &mut cs).await.unwrap_or(0) != 0 {
+            Timer::after_millis(10).await;
+        }
 
-        // Send the data over USB
-        class.write_packet(buf.as_bytes()).await.ok();
+        let params = tmc::params::MoveToParams {
+            speed: tmc::Speed::Pps(50),
+            position: 0,
+            reset: false,
+            stop: false,
+        };
+
+        driver.move_to(&mut spi, &mut cs, &params).await.ok();
+
+        Timer::after_millis(10).await;
+
+        while driver.get_vactual(&mut spi, &mut cs).await.unwrap_or(0) != 0 {
+            Timer::after_millis(10).await;
+        }
 
         ticker.next().await;
     }
