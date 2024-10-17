@@ -8,14 +8,14 @@ use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time_driver::{AlarmHandle, Driver, TICK_HZ};
-use stm32_metapac::timer::{regs, TimGp16};
+use stm32_metapac::timer::{regs, Tim4ch};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::rcc::{self, SealedRccPeripheral};
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
-use crate::timer::{CoreInstance, GeneralInstance1Channel};
+use crate::timer::{CoreInstance, General1ChInstance};
 use crate::{interrupt, peripherals};
 
 // NOTE regarding ALARM_COUNT:
@@ -205,8 +205,8 @@ foreach_interrupt! {
     };
 }
 
-fn regs_gp16() -> TimGp16 {
-    unsafe { TimGp16::from_ptr(T::regs()) }
+fn regs_4ch() -> Tim4ch {
+    unsafe { Tim4ch::from_ptr(T::regs()) }
 }
 
 // Clock timekeeping works with something we call "periods", which are time intervals
@@ -274,7 +274,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 
 impl RtcDriver {
     fn init(&'static self, cs: critical_section::CriticalSection) {
-        let r = regs_gp16();
+        let r = regs_4ch();
 
         rcc::enable_and_reset_with_cs::<T>(cs);
 
@@ -306,14 +306,14 @@ impl RtcDriver {
             w.set_ccie(0, true);
         });
 
-        <T as GeneralInstance1Channel>::CaptureCompareInterrupt::unpend();
-        unsafe { <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable() };
+        <T as General1ChInstance>::CaptureCompareInterrupt::unpend();
+        unsafe { <T as General1ChInstance>::CaptureCompareInterrupt::enable() };
 
         r.cr1().modify(|w| w.set_cen(true));
     }
 
     fn on_interrupt(&self) {
-        let r = regs_gp16();
+        let r = regs_4ch();
 
         // XXX: reduce the size of this critical section ?
         critical_section::with(|cs| {
@@ -323,7 +323,7 @@ impl RtcDriver {
             // Clear all interrupt flags. Bits in SR are "write 0 to clear", so write the bitwise NOT.
             // Other approaches such as writing all zeros, or RMWing won't work, they can
             // miss interrupts.
-            r.sr().write_value(regs::SrGp16(!sr.0));
+            r.sr().write_value(regs::Sr4ch(!sr.0));
 
             // Overflow
             if sr.uif() {
@@ -344,7 +344,7 @@ impl RtcDriver {
     }
 
     fn next_period(&self) {
-        let r = regs_gp16();
+        let r = regs_4ch();
 
         // We only modify the period from the timer interrupt, so we know this can't race.
         let period = self.period.load(Ordering::Relaxed) + 1;
@@ -408,7 +408,7 @@ impl RtcDriver {
     /// Add the given offset to the current time
     fn add_time(&self, offset: embassy_time::Duration, cs: CriticalSection) {
         let offset = offset.as_ticks();
-        let cnt = regs_gp16().cnt().read().cnt() as u32;
+        let cnt = regs_4ch().cnt().read().cnt() as u32;
         let period = self.period.load(Ordering::SeqCst);
 
         // Correct the race, if it exists
@@ -434,7 +434,7 @@ impl RtcDriver {
         let period = if cnt > u16::MAX as u32 / 2 { period + 1 } else { period };
 
         self.period.store(period, Ordering::SeqCst);
-        regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
+        regs_4ch().cnt().write(|w| w.set_cnt(cnt as u16));
 
         // Now, recompute all alarms
         for i in 0..ALARM_COUNT {
@@ -491,7 +491,7 @@ impl RtcDriver {
                     .unwrap()
                     .start_wakeup_alarm(time_until_next_alarm, cs);
 
-                regs_gp16().cr1().modify(|w| w.set_cen(false));
+                regs_4ch().cr1().modify(|w| w.set_cen(false));
 
                 Ok(())
             }
@@ -501,7 +501,7 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Resume the timer with the given offset
     pub(crate) fn resume_time(&self) {
-        if regs_gp16().cr1().read().cen() {
+        if regs_4ch().cr1().read().cen() {
             // Time isn't currently stopped
 
             return;
@@ -510,14 +510,14 @@ impl RtcDriver {
         critical_section::with(|cs| {
             self.stop_wakeup_alarm(cs);
 
-            regs_gp16().cr1().modify(|w| w.set_cen(true));
+            regs_4ch().cr1().modify(|w| w.set_cen(true));
         })
     }
 }
 
 impl Driver for RtcDriver {
     fn now(&self) -> u64 {
-        let r = regs_gp16();
+        let r = regs_4ch();
 
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
@@ -548,7 +548,7 @@ impl Driver for RtcDriver {
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         critical_section::with(|cs| {
-            let r = regs_gp16();
+            let r = regs_4ch();
 
             let n = alarm.id() as usize;
             let alarm = self.get_alarm(cs, alarm);

@@ -1,13 +1,11 @@
 //! Quadrature decoder using a timer.
 
-use core::marker::PhantomData;
-
-use embassy_hal_internal::{into_ref, PeripheralRef};
 use stm32_metapac::timer::vals;
 
 use super::low_level::Timer;
-use super::{Channel1Pin, Channel2Pin, GeneralInstance4Channel};
-use crate::gpio::{AfType, AnyPin, Pull};
+use super::raw::{RawTimer, RawTimerPin};
+use super::{Ch1, Ch2, General4ChInstance, General4ChTim, TimerPin};
+use crate::gpio::{AfType, Pull};
 use crate::Peripheral;
 
 /// Counting direction
@@ -18,62 +16,36 @@ pub enum Direction {
     Downcounting,
 }
 
-/// Channel 1 marker type.
-pub enum Ch1 {}
-/// Channel 2 marker type.
-pub enum Ch2 {}
-
-/// Wrapper for using a pin with QEI.
-pub struct QeiPin<'d, T, Channel> {
-    _pin: PeripheralRef<'d, AnyPin>,
-    phantom: PhantomData<(T, Channel)>,
-}
-
-macro_rules! channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: GeneralInstance4Channel> QeiPin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " QEI pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd) -> Self {
-                into_ref!(pin);
-                critical_section::with(|_| {
-                    pin.set_low();
-                    pin.set_as_af(pin.af_num(), AfType::input(Pull::None));
-                });
-                QeiPin {
-                    _pin: pin.map_into(),
-                    phantom: PhantomData,
-                }
-            }
-        }
-    };
-}
-
-channel_impl!(new_ch1, Ch1, Channel1Pin);
-channel_impl!(new_ch2, Ch2, Channel2Pin);
-
 /// Quadrature decoder driver.
-pub struct Qei<'d, T: GeneralInstance4Channel> {
-    inner: Timer<'d, T>,
+pub struct Qei<'d> {
+    inner: Timer<'d, General4ChTim>,
+    _pins: [RawTimerPin<'d>; 2],
 }
 
-impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
+impl<'d> Qei<'d> {
     /// Create a new quadrature decoder driver.
-    pub fn new(tim: impl Peripheral<P = T> + 'd, _ch1: QeiPin<'d, T, Ch1>, _ch2: QeiPin<'d, T, Ch2>) -> Self {
-        Self::new_inner(tim)
+    pub fn new<T: General4ChInstance>(
+        tim: impl Peripheral<P = T> + 'd,
+        ch1_pin: impl Peripheral<P = impl TimerPin<T, Ch1>> + 'd,
+        ch2_pin: impl Peripheral<P = impl TimerPin<T, Ch2>> + 'd,
+    ) -> Self {
+        let raw = RawTimer::new_general_4ch(tim);
+        let ch1_pin = RawTimerPin::new(ch1_pin, AfType::input(Pull::None));
+        let ch2_pin = RawTimerPin::new(ch2_pin, AfType::input(Pull::None));
+        Self::new_inner(raw, [ch1_pin, ch2_pin])
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
-        let inner = Timer::new(tim);
-        let r = inner.regs_gp16();
+    fn new_inner(raw: RawTimer<'d, General4ChTim>, pins: [RawTimerPin<'d>; 2]) -> Self {
+        let inner = Timer::new(raw);
 
         // Configure TxC1 and TxC2 as captures
-        r.ccmr_input(0).modify(|w| {
+        inner.raw.ccmr_input_1ch(0).modify(|w| {
             w.set_ccs(0, vals::CcmrInputCcs::TI4);
             w.set_ccs(1, vals::CcmrInputCcs::TI4);
         });
 
         // enable and configure to capture on rising edge
-        r.ccer().modify(|w| {
+        inner.raw.ccer_1ch().modify(|w| {
             w.set_cce(0, true);
             w.set_cce(1, true);
 
@@ -81,19 +53,19 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
             w.set_ccp(1, false);
         });
 
-        r.smcr().modify(|w| {
+        inner.raw.smcr_4ch().modify(|w| {
             w.set_sms(vals::Sms::ENCODER_MODE_3);
         });
 
-        r.arr().modify(|w| w.set_arr(u16::MAX));
-        r.cr1().modify(|w| w.set_cen(true));
+        inner.raw.arr().modify(|w| w.set_arr(u16::MAX));
+        inner.raw.cr1_core().modify(|w| w.set_cen(true));
 
-        Self { inner }
+        Self { inner, _pins: pins }
     }
 
     /// Get direction.
-    pub fn read_direction(&self) -> Direction {
-        match self.inner.regs_gp16().cr1().read().dir() {
+    pub fn direction(&self) -> Direction {
+        match self.inner.raw.cr1_4ch().read().dir() {
             vals::Dir::DOWN => Direction::Downcounting,
             vals::Dir::UP => Direction::Upcounting,
         }
@@ -101,6 +73,6 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
 
     /// Get count.
     pub fn count(&self) -> u16 {
-        self.inner.regs_gp16().cnt().read().cnt()
+        self.inner.raw.cnt().read().cnt()
     }
 }

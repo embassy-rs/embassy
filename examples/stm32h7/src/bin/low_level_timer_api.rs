@@ -3,11 +3,12 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{AfType, Flex, OutputType, Speed};
+use embassy_stm32::gpio::{AfType, OutputType, Speed};
 use embassy_stm32::time::{khz, Hertz};
 use embassy_stm32::timer::low_level::{OutputCompareMode, Timer as LLTimer};
-use embassy_stm32::timer::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance32bit4Channel};
-use embassy_stm32::{into_ref, Config, Peripheral};
+use embassy_stm32::timer::raw::{RawTimer, RawTimerPin};
+use embassy_stm32::timer::{Ch1, Ch2, Ch3, Ch4, Channel, General32BitInstance, General32BitTim, TimerPin};
+use embassy_stm32::{Config, Peripheral};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -39,7 +40,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut pwm = SimplePwm32::new(p.TIM5, p.PA0, p.PA1, p.PA2, p.PA3, khz(10));
-    let max = pwm.get_max_duty();
+    let max = pwm.max_duty();
     pwm.enable(Channel::Ch1);
 
     info!("PWM initialized");
@@ -56,83 +57,61 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(300).await;
     }
 }
-pub struct SimplePwm32<'d, T: GeneralInstance32bit4Channel> {
-    tim: LLTimer<'d, T>,
-    _ch1: Flex<'d>,
-    _ch2: Flex<'d>,
-    _ch3: Flex<'d>,
-    _ch4: Flex<'d>,
+pub struct SimplePwm32<'d> {
+    tim: LLTimer<'d, General32BitTim>,
+    _pins: [RawTimerPin<'d>; 4],
 }
 
-impl<'d, T: GeneralInstance32bit4Channel> SimplePwm32<'d, T> {
-    pub fn new(
+impl<'d> SimplePwm32<'d> {
+    pub fn new<T: General32BitInstance>(
         tim: impl Peripheral<P = T> + 'd,
-        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
-        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
-        ch3: impl Peripheral<P = impl Channel3Pin<T>> + 'd,
-        ch4: impl Peripheral<P = impl Channel4Pin<T>> + 'd,
+        ch1: impl Peripheral<P = impl TimerPin<T, Ch1>> + 'd,
+        ch2: impl Peripheral<P = impl TimerPin<T, Ch2>> + 'd,
+        ch3: impl Peripheral<P = impl TimerPin<T, Ch3>> + 'd,
+        ch4: impl Peripheral<P = impl TimerPin<T, Ch4>> + 'd,
         freq: Hertz,
     ) -> Self {
-        into_ref!(ch1, ch2, ch3, ch4);
-
-        let af1 = ch1.af_num();
-        let af2 = ch2.af_num();
-        let af3 = ch3.af_num();
-        let af4 = ch4.af_num();
-        let mut ch1 = Flex::new(ch1);
-        let mut ch2 = Flex::new(ch2);
-        let mut ch3 = Flex::new(ch3);
-        let mut ch4 = Flex::new(ch4);
-        ch1.set_as_af_unchecked(af1, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        ch2.set_as_af_unchecked(af2, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        ch3.set_as_af_unchecked(af3, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        ch4.set_as_af_unchecked(af4, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        let tim = RawTimer::new_general_32bit(tim);
+        let ch1 = RawTimerPin::new(ch1, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        let ch2 = RawTimerPin::new(ch2, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        let ch3 = RawTimerPin::new(ch3, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        let ch4 = RawTimerPin::new(ch4, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         let mut this = Self {
             tim: LLTimer::new(tim),
-            _ch1: ch1,
-            _ch2: ch2,
-            _ch3: ch3,
-            _ch4: ch4,
+            _pins: [ch1, ch2, ch3, ch4],
         };
 
         this.set_frequency(freq);
         this.tim.start();
-
-        let r = this.tim.regs_gp32();
-        r.ccmr_output(0)
-            .modify(|w| w.set_ocm(0, OutputCompareMode::PwmMode1.into()));
-        r.ccmr_output(0)
-            .modify(|w| w.set_ocm(1, OutputCompareMode::PwmMode1.into()));
-        r.ccmr_output(1)
-            .modify(|w| w.set_ocm(0, OutputCompareMode::PwmMode1.into()));
-        r.ccmr_output(1)
-            .modify(|w| w.set_ocm(1, OutputCompareMode::PwmMode1.into()));
+        for n in 0..4 {
+            this.tim
+                .raw
+                .ccmr_output_1ch(n / 2)
+                .modify(|w| w.set_ocm(n % 2, OutputCompareMode::PwmMode1.into()));
+        }
 
         this
     }
 
     pub fn enable(&mut self, channel: Channel) {
-        self.tim.regs_gp32().ccer().modify(|w| w.set_cce(channel.index(), true));
+        self.tim.raw.ccer_1ch().modify(|w| w.set_cce(channel.index(), true));
     }
 
     pub fn disable(&mut self, channel: Channel) {
-        self.tim
-            .regs_gp32()
-            .ccer()
-            .modify(|w| w.set_cce(channel.index(), false));
+        self.tim.raw.ccer_1ch().modify(|w| w.set_cce(channel.index(), false));
     }
 
     pub fn set_frequency(&mut self, freq: Hertz) {
         self.tim.set_frequency(freq);
     }
 
-    pub fn get_max_duty(&self) -> u32 {
-        self.tim.regs_gp32().arr().read()
+    pub fn max_duty(&self) -> u32 {
+        self.tim.raw.arr_32bit().read()
     }
 
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
-        defmt::assert!(duty < self.get_max_duty());
-        self.tim.regs_gp32().ccr(channel.index()).write_value(duty)
+        defmt::assert!(duty < self.max_duty());
+        self.tim.raw.ccr_32bit(channel.index()).write_value(duty)
     }
 }
