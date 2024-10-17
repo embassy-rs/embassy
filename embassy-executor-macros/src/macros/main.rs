@@ -5,6 +5,7 @@ use quote::quote;
 use syn::{Expr, ReturnType, Type};
 
 use crate::util::ctxt::Ctxt;
+use crate::util::item_fn::ItemFn;
 
 #[derive(Debug, FromMeta)]
 struct Args {
@@ -118,7 +119,7 @@ pub fn std() -> TokenStream {
     }
 }
 
-pub fn run(args: &[NestedMeta], f: syn::ItemFn, main: TokenStream) -> Result<TokenStream, TokenStream> {
+pub fn run(args: &[NestedMeta], f: ItemFn, main: TokenStream) -> Result<TokenStream, TokenStream> {
     #[allow(unused_variables)]
     let args = Args::from_list(args).map_err(|e| e.write_errors())?;
 
@@ -159,7 +160,7 @@ pub fn run(args: &[NestedMeta], f: syn::ItemFn, main: TokenStream) -> Result<Tok
 
     ctxt.check()?;
 
-    let f_body = f.block;
+    let f_body = f.body;
     let out = &f.sig.output;
 
     let result = quote! {

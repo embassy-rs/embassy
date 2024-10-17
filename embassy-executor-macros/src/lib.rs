@@ -10,6 +10,7 @@ use macros::*;
 use syn::parse::{Parse, ParseBuffer};
 use syn::punctuated::Punctuated;
 use syn::Token;
+use util::item_fn::ItemFn;
 
 struct Args {
     meta: Vec<NestedMeta>,
@@ -57,7 +58,7 @@ impl Parse for Args {
 #[proc_macro_attribute]
 pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(args as Args);
-    let f = syn::parse_macro_input!(item as syn::ItemFn);
+    let f = syn::parse_macro_input!(item as ItemFn);
 
     task::run(&args.meta, f).unwrap_or_else(|x| x).into()
 }
@@ -65,7 +66,7 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn main_avr(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(args as Args);
-    let f = syn::parse_macro_input!(item as syn::ItemFn);
+    let f = syn::parse_macro_input!(item as ItemFn);
     main::run(&args.meta, f, main::avr()).unwrap_or_else(|x| x).into()
 }
 
@@ -90,7 +91,7 @@ pub fn main_avr(args: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn main_cortex_m(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(args as Args);
-    let f = syn::parse_macro_input!(item as syn::ItemFn);
+    let f = syn::parse_macro_input!(item as ItemFn);
     main::run(&args.meta, f, main::cortex_m()).unwrap_or_else(|x| x).into()
 }
 
@@ -117,7 +118,7 @@ pub fn main_cortex_m(args: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn main_spin(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(args as Args);
-    let f = syn::parse_macro_input!(item as syn::ItemFn);
+    let f = syn::parse_macro_input!(item as ItemFn);
     main::run(&args.meta, f, main::spin(&args.meta))
         .unwrap_or_else(|x| x)
         .into()
@@ -154,7 +155,7 @@ pub fn main_spin(args: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn main_riscv(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(args as Args);
-    let f = syn::parse_macro_input!(item as syn::ItemFn);
+    let f = syn::parse_macro_input!(item as ItemFn);
     main::run(&args.meta, f, main::riscv(&args.meta))
         .unwrap_or_else(|x| x)
         .into()
@@ -181,7 +182,7 @@ pub fn main_riscv(args: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn main_std(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(args as Args);
-    let f = syn::parse_macro_input!(item as syn::ItemFn);
+    let f = syn::parse_macro_input!(item as ItemFn);
     main::run(&args.meta, f, main::std()).unwrap_or_else(|x| x).into()
 }
 
@@ -206,6 +207,6 @@ pub fn main_std(args: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn main_wasm(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(args as Args);
-    let f = syn::parse_macro_input!(item as syn::ItemFn);
+    let f = syn::parse_macro_input!(item as ItemFn);
     main::run(&args.meta, f, main::wasm()).unwrap_or_else(|x| x).into()
 }

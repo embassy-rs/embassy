@@ -2,9 +2,10 @@ use darling::export::NestedMeta;
 use darling::FromMeta;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_quote, Expr, ExprLit, ItemFn, Lit, LitInt, ReturnType, Type};
+use syn::{parse_quote, Expr, ExprLit, Lit, LitInt, ReturnType, Type};
 
 use crate::util::ctxt::Ctxt;
+use crate::util::item_fn::ItemFn;
 
 #[derive(Debug, FromMeta)]
 struct Args {
@@ -12,7 +13,7 @@ struct Args {
     pool_size: Option<syn::Expr>,
 }
 
-pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
+pub fn run(args: &[NestedMeta], f: ItemFn) -> Result<TokenStream, TokenStream> {
     let args = Args::from_list(args).map_err(|e| e.write_errors())?;
 
     let pool_size = args.pool_size.unwrap_or(Expr::Lit(ExprLit {
