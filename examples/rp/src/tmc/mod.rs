@@ -31,6 +31,54 @@ pub enum Status {
     CounterClockwise = 2,
 }
 
+impl Status {
+    pub fn reverse(&self) -> Self {
+        match self {
+            Self::Clockwise => Self::CounterClockwise,
+            Self::CounterClockwise => Self::Clockwise,
+            Self::Stopped => Self::Stopped,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum MotorIndex {
+    One = 0,
+    Two = 1,
+    Three = 2,
+    Four = 3,
+    Five = 4,
+    Six = 5,
+}
+
+#[derive(Debug)]
+pub struct Motor {
+    pub direction: Status,
+    pub id: MotorIndex,
+    pub last_position: (i32, u64),
+    pub mode: Mode,
+    pub position: i32,
+    pub pps: i32, // pps == pulses per seconds == microsteps/second
+    pub target_position: i32,
+    pub dirty: bool,
+}
+
+impl Motor {
+    pub fn new(id: MotorIndex) -> Self {
+        Self {
+            direction: Status::Stopped,
+            id,
+            last_position: (0, 0),
+            mode: Mode::Continuous,
+            position: 0,
+            pps: 0,
+            target_position: 0,
+            dirty: false,
+        }
+    }
+}
+
 pub const TMC_MICROSTEPS_PER_STEP: u64 = 256;
 pub const TMC_STEPS_PER_REV: f32 = 200.;
 

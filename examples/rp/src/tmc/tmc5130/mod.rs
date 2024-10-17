@@ -1,11 +1,15 @@
 use core::time::Duration;
+
+use embassy_time::{Instant, Timer};
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_async::spi::SpiBus;
 
 mod constants;
 pub use constants::*;
 
-pub use super::{params, vactual_to_signed_pps, Mode, Speed, Status};
+use self::params::HomeParams;
+
+pub use super::{params, vactual_to_signed_pps, Mode, Motor, MotorIndex, Speed, Status};
 
 pub const NUMBER_MOTORS: usize = 1;
 pub const DEFAULT_INTERVAL_MS: u64 = 100;
@@ -51,7 +55,7 @@ pub enum MotorStatus {
 
 #[derive(Debug, Default)]
 pub struct FrequencyScalingDataPoint {
-    ticks: MonotonicTicks,
+    millis: u64,
     position: i32,
 }
 
@@ -63,7 +67,7 @@ pub struct FrequencyScalingData {
 
 impl FrequencyScalingData {
     fn calc_scaling(&self, vmax: i32) -> f32 {
-        (vmax as f32 * (self.end.ticks.saturating_sub(self.start.ticks) as f32) / (TICKS_PER_SECOND as f32))
+        (vmax as f32 * (self.end.millis.saturating_sub(self.start.millis) as f32) / (1000 as f32))
             / (self.end.position.abs_diff(self.start.position) as f32)
     }
 }
@@ -247,10 +251,13 @@ impl TMC5130 {
         self.read_register(spi, cs, REG::TMC5130_RAMPSTAT).await?;
 
         self.write_register(spi, cs, REG::TMC5130_GCONF, p.gconf).await?;
-        self.write_register(spi, cs, REG::TMC5130_SLAVECONF, p.slaveconf).await?;
-        self.write_register(spi, cs, REG::TMC5130_IHOLD_IRUN, p.ihold_irun).await?;
+        self.write_register(spi, cs, REG::TMC5130_SLAVECONF, p.slaveconf)
+            .await?;
+        self.write_register(spi, cs, REG::TMC5130_IHOLD_IRUN, p.ihold_irun)
+            .await?;
         self.write_register(spi, cs, REG::TMC5130_TPWMTHRS, p.tpwmthrs).await?;
-        self.write_register(spi, cs, REG::TMC5130_TCOOLTHRS, p.tcoolthrs).await?;
+        self.write_register(spi, cs, REG::TMC5130_TCOOLTHRS, p.tcoolthrs)
+            .await?;
         self.write_register(spi, cs, REG::TMC5130_THIGH, p.thigh).await?;
         self.write_register(spi, cs, REG::TMC5130_A1, p.a1).await?;
         self.write_register(spi, cs, REG::TMC5130_V1, p.v1).await?;
@@ -268,18 +275,16 @@ impl TMC5130 {
     }
 
     #[inline(always)]
-    pub async fn get_xactual<SPI: SpiBus, CS: OutputPin>(
-        &mut self,
-        spi: &mut SPI,
-        cs: &mut CS,
-    ) -> Result<i32, Error> {
-        Ok(self.field_read(
-            spi,
-            cs,
-            REG::TMC5130_XACTUAL,
-            MASK::TMC5130_XACTUAL_MASK,
-            SHIFT::TMC5130_XACTUAL_SHIFT,
-        ).await? as i32)
+    pub async fn get_xactual<SPI: SpiBus, CS: OutputPin>(&mut self, spi: &mut SPI, cs: &mut CS) -> Result<i32, Error> {
+        Ok(self
+            .field_read(
+                spi,
+                cs,
+                REG::TMC5130_XACTUAL,
+                MASK::TMC5130_XACTUAL_MASK,
+                SHIFT::TMC5130_XACTUAL_SHIFT,
+            )
+            .await? as i32)
     }
 
     pub async fn set_xactual<SPI: SpiBus, CS: OutputPin>(
@@ -296,22 +301,20 @@ impl TMC5130 {
             MASK::TMC5130_XACTUAL_MASK,
             SHIFT::TMC5130_XACTUAL_SHIFT,
             v as u32,
-        ).await
+        )
+        .await
     }
 
     #[inline(always)]
-    pub async fn get_vactual<SPI: SpiBus, CS: OutputPin>(
-        &mut self,
-        spi: &mut SPI,
-        cs: &mut CS,
-    ) -> Result<u32, Error> {
+    pub async fn get_vactual<SPI: SpiBus, CS: OutputPin>(&mut self, spi: &mut SPI, cs: &mut CS) -> Result<u32, Error> {
         self.field_read(
             spi,
             cs,
             REG::TMC5130_VACTUAL,
             MASK::TMC5130_VACTUAL_MASK,
             SHIFT::TMC5130_VACTUAL_SHIFT,
-        ).await
+        )
+        .await
     }
 
     #[inline(always)]
@@ -357,17 +360,18 @@ impl TMC5130 {
                     MASK::TMC5130_RAMPMODE_MASK,
                     SHIFT::TMC5130_RAMPMODE_SHIFT,
                     direction,
-                )?;
+                )
+                .await?;
 
                 self.field_update(
                     spi,
                     cs,
-                    d,
                     REG::TMC5130_VMAX,
                     MASK::TMC5130_VMAX_MASK,
                     SHIFT::TMC5130_VMAX_SHIFT,
                     self.speed_to_pps(params.speed) as u32,
                 )
+                .await
             }
             Mode::Finite => {
                 self.field_update_and_verify(
@@ -377,7 +381,8 @@ impl TMC5130 {
                     MASK::TMC5130_RAMPMODE_MASK,
                     SHIFT::TMC5130_RAMPMODE_SHIFT,
                     0x00,
-                )?;
+                )
+                .await?;
 
                 match (params.position, params.reset) {
                     (None, _) => Err(Error::MessageError),
@@ -390,12 +395,13 @@ impl TMC5130 {
                                 MASK::TMC5130_XACTUAL_MASK,
                                 SHIFT::TMC5130_XACTUAL_SHIFT,
                                 0,
-                            )?;
+                            )
+                            .await?;
 
                             let mut count: usize = 0;
 
-                            while self.get_xactual(spi, cs)? != 0 && count < 5 {
-                                self.stop(spi, cs)?;
+                            while self.get_xactual(spi, cs).await? != 0 && count < 5 {
+                                self.stop(spi, cs).await?;
                                 self.field_update(
                                     spi,
                                     cs,
@@ -403,7 +409,8 @@ impl TMC5130 {
                                     MASK::TMC5130_XACTUAL_MASK,
                                     SHIFT::TMC5130_XACTUAL_SHIFT,
                                     0,
-                                )?;
+                                )
+                                .await?;
                                 count += 1;
                             }
                         }
@@ -424,6 +431,7 @@ impl TMC5130 {
                             SHIFT::TMC5130_XTARGET_SHIFT,
                             position as u32,
                         )
+                        .await
                     }
                 }?;
 
@@ -435,6 +443,7 @@ impl TMC5130 {
                     SHIFT::TMC5130_VMAX_SHIFT,
                     self.speed_to_pps(params.speed) as u32,
                 )
+                .await
             }
         }?;
 
@@ -458,11 +467,12 @@ impl TMC5130 {
             MASK::TMC5130_VMAX_MASK,
             SHIFT::TMC5130_VMAX_SHIFT,
             0x00,
-        ).await?;
+        )
+        .await?;
         Ok(None)
     }
 
-    pub fn change_speed<SPI: SpiBus, CS: OutputPin>(
+    pub async fn change_speed<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
@@ -471,35 +481,35 @@ impl TMC5130 {
         self.field_update(
             spi,
             cs,
-            d,
             REG::TMC5130_VMAX,
             MASK::TMC5130_VMAX_MASK,
             SHIFT::TMC5130_VMAX_SHIFT,
             self.speed_to_pps(params.speed) as u32,
-        )?;
+        )
+        .await?;
 
         Ok(None)
     }
 
-    pub fn move_to<SPI: SpiBus, CS: OutputPin>(
+    pub async fn move_to<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
         params: &params::MoveToParams,
     ) -> Result<Option<Duration>, Error> {
         // stop
-        self.stop(spi, cs, d)?;
+        self.stop(spi, cs).await?;
 
         if params.reset {
             self.field_update(
                 spi,
                 cs,
-                d,
                 REG::TMC5130_XACTUAL,
                 MASK::TMC5130_XACTUAL_MASK,
                 SHIFT::TMC5130_XACTUAL_SHIFT,
                 0,
-            )?;
+            )
+            .await?;
         }
 
         let direction = if self.motor.position > params.position {
@@ -513,22 +523,22 @@ impl TMC5130 {
         self.field_update_and_verify(
             spi,
             cs,
-            d,
             REG::TMC5130_XTARGET,
             MASK::TMC5130_XTARGET_MASK,
             SHIFT::TMC5130_XTARGET_SHIFT,
             params.position as u32,
-        )?;
+        )
+        .await?;
 
         self.field_update(
             spi,
             cs,
-            d,
             REG::TMC5130_VMAX,
             MASK::TMC5130_VMAX_MASK,
             SHIFT::TMC5130_VMAX_SHIFT,
             self.speed_to_pps(params.speed) as u32,
-        )?;
+        )
+        .await?;
 
         self.motor.direction = direction;
         self.motor.pps = self.speed_to_pps(params.speed);
@@ -537,7 +547,7 @@ impl TMC5130 {
         Ok(None)
     }
 
-    pub fn config<SPI: SpiBus, CS: OutputPin>(
+    pub async fn config<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
@@ -547,21 +557,21 @@ impl TMC5130 {
             self.field_update(
                 spi,
                 cs,
-                d,
                 REG::TMC5130_XACTUAL,
                 MASK::TMC5130_XACTUAL_MASK,
                 SHIFT::TMC5130_XACTUAL_SHIFT,
                 0,
-            )?;
+            )
+            .await?;
             self.field_update_and_verify(
                 spi,
                 cs,
-                d,
                 REG::TMC5130_XTARGET,
                 MASK::TMC5130_XTARGET_MASK,
                 SHIFT::TMC5130_XTARGET_SHIFT,
                 0,
-            )?;
+            )
+            .await?;
         }
 
         Ok(None)
@@ -579,371 +589,184 @@ impl TMC5130 {
         us_step_per_s / 256. / 200. * 60.
     }
 
-    pub fn home<SPI: SpiBus, CS: OutputPin, EN: OutputPin>(
+    pub async fn home<SPI: SpiBus, CS: OutputPin, EN: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
         en: &mut EN,
-        d: &mut D,
-    ) -> Result<Option<Duration>, Error> {
-        let p = match &self.homing_params {
-            Some(p) => Ok(*p),
-            None => Err(Error::HomingParamsNotSet),
-        }?;
+        params: HomeParams,
+    ) -> Result<(), Error> {
+        // stop
+        self.stop(spi, cs).await?;
 
-        let phase = match self.status {
-            MotorStatus::Homing(s) => s,
-            _ => HomingPhase::Init,
+        // reset from a stall
+        self.read_register(spi, cs, REG::TMC5130_RAMPSTAT).await?;
+
+        // backoff
+        let backoff_params = params::StartParams {
+            mode: Mode::Finite,
+            direction: params.direction.reverse(),
+            speed: params.speed,
+            position: Some(params.backoff_steps as u64),
+            reset: true,
         };
 
-        match phase {
-            HomingPhase::Init => {
-                // stop
-                self.stop(spi, cs, d)?;
+        self.start(spi, cs, &backoff_params).await?;
 
-                // reset from a stall
-                self.read_register(spi, cs, d, REG::TMC5130_RAMPSTAT)?;
+        // wait 10 ms before checking again
+        // to allow for acceleration
+        Timer::after_millis(10).await;
 
-                // backoff
-                let backoff_params = params::StartParams {
-                    mode: Mode::Finite,
-                    direction: p.direction.reverse(),
-                    speed: p.speed,
-                    position: Some(p.backoff_steps as u64),
-                    reset: true,
-                };
+        // wait for stopped
+        if self.get_vactual(spi, cs).await? != 0 {
+            Timer::after_millis(10).await;
+        } else {
+            // start motion toward hard stop
+            // by starting stall seek
 
-                self.start(spi, cs, d, &backoff_params)?;
+            // 1. disable softstop
+            self.field_update(
+                spi,
+                cs,
+                REG::TMC5130_SWMODE,
+                MASK::TMC5130_EN_SOFTSTOP_MASK,
+                SHIFT::TMC5130_EN_SOFTSTOP_SHIFT,
+                0,
+            )
+            .await?;
 
-                // update status
-                log::info!("BackOffStarted...");
-                self.status = MotorStatus::Homing(HomingPhase::BackOffStarted);
+            // 2. enable sg_stop
+            self.field_update(
+                spi,
+                cs,
+                REG::TMC5130_SWMODE,
+                MASK::TMC5130_SG_STOP_MASK,
+                SHIFT::TMC5130_SG_STOP_SHIFT,
+                1,
+            )
+            .await?;
 
+            // update ihold_irun
+            self.write_register(spi, cs, REG::TMC5130_IHOLD_IRUN, params.ihold_irun)
+                .await?;
+
+            // set SGT: this signed value controls StallGuard2 level for stall
+            // output and sets the optimum measurement range for
+            // readout. A lower value gives a higher sensitivity. Zero is
+            // the starting value working with most motors
+            self.write_register(spi, cs, REG::TMC5130_COOLCONF, params.coolconf)
+                .await?;
+
+            // wait 10 ms to allow changes to propagate
+            Timer::after_millis(10).await;
+
+            let stall_seek_params = params::StartParams {
+                mode: Mode::Continuous,
+                direction: params.direction,
+                speed: params.speed,
+                position: None,
+                reset: false,
+            };
+
+            self.start(spi, cs, &stall_seek_params).await?;
+
+            // reset counter
+            self.homing_attempts = 0;
+
+            // wait 200 ms before checking again
+            Timer::after_millis(200).await;
+        }
+
+        let is_stalled = self
+            .field_read(
+                spi,
+                cs,
+                REG::TMC5130_RAMPSTAT,
+                MASK::TMC5130_STATUS_SG_MASK,
+                SHIFT::TMC5130_STATUS_SG_SHIFT,
+            )
+            .await?
+            != 0;
+
+        let sg_val = self.read_register(spi, cs, REG::TMC5130_DRVSTATUS).await?;
+        let tstep_val = self.read_register(spi, cs, REG::TMC5130_TSTEP).await?;
+
+        if is_stalled {
+            // wait 100 ms before checking again
+            Timer::after_millis(100).await;
+        } else {
+            self.homing_attempts += 1;
+
+            if self.homing_attempts >= 3000 {
                 // wait 10 ms before checking again
-                // to allow for acceleration
-                Ok(Some(Duration::from_millis(10)))
-            }
-            HomingPhase::BackOffStarted => {
-                // wait for stopped
-                if self.get_vactual(spi, cs, d)? != 0 {
-                    Ok(Some(Duration::from_millis(10)))
-                } else {
-                    // start motion toward hard stop
-                    // by starting stall seek
-
-                    // 1. disable softstop
-                    self.field_update(
-                        spi,
-                        cs,
-                        d,
-                        REG::TMC5130_SWMODE,
-                        MASK::TMC5130_EN_SOFTSTOP_MASK,
-                        SHIFT::TMC5130_EN_SOFTSTOP_SHIFT,
-                        0,
-                    )?;
-
-                    // 2. enable sg_stop
-                    self.field_update(
-                        spi,
-                        cs,
-                        d,
-                        REG::TMC5130_SWMODE,
-                        MASK::TMC5130_SG_STOP_MASK,
-                        SHIFT::TMC5130_SG_STOP_SHIFT,
-                        1,
-                    )?;
-
-                    // update ihold_irun
-                    self.write_register(spi, cs, d, REG::TMC5130_IHOLD_IRUN, p.ihold_irun)?;
-
-                    // set SGT: this signed value controls StallGuard2 level for stall
-                    // output and sets the optimum measurement range for
-                    // readout. A lower value gives a higher sensitivity. Zero is
-                    // the starting value working with most motors
-                    self.write_register(spi, cs, d, REG::TMC5130_COOLCONF, p.coolconf)?;
-
-                    // wait 10 ms to allow changes to propagate
-                    d.delay_us(10_000 as MonotonicTicks);
-
-                    let stall_seek_params = params::StartParams {
-                        mode: Mode::Continuous,
-                        direction: p.direction,
-                        speed: p.speed,
-                        position: None,
-                        reset: false,
-                    };
-
-                    self.start(spi, cs, d, &stall_seek_params)?;
-
-                    // update status
-                    log::info!("StallSeekStarted...");
-                    self.status = MotorStatus::Homing(HomingPhase::StallSeekStarted);
-
-                    // reset counter
-                    self.homing_attempts = 0;
-
-                    // wait 200 ms before checking again
-                    Ok(Some(Duration::from_millis(200)))
-                }
-            }
-            HomingPhase::StallSeekStarted => {
-                let is_stalled = self.field_read(
-                    spi,
-                    cs,
-                    d,
-                    REG::TMC5130_RAMPSTAT,
-                    MASK::TMC5130_STATUS_SG_MASK,
-                    SHIFT::TMC5130_STATUS_SG_SHIFT,
-                )? != 0;
-
-                let sg_val = self.read_register(spi, cs, d, REG::TMC5130_DRVSTATUS)?;
-                let tstep_val = self.read_register(spi, cs, d, REG::TMC5130_TSTEP)?;
-                log::debug!("sg_val: {:08X}, tstep_val: {:08X}", &sg_val, &tstep_val);
-
-                if is_stalled {
-                    // update status
-                    self.status = MotorStatus::Homing(HomingPhase::Stalled);
-
-                    // wait 100 ms before checking again
-                    log::info!("stall detected..");
-                    Ok(Some(Duration::from_millis(100)))
-                } else {
-                    log::info!("waiting for stall...");
-
-                    self.homing_attempts += 1;
-
-                    if self.homing_attempts >= 3000 {
-                        log::warn!("timed out waiting for stall...");
-
-                        self.status = MotorStatus::Homing(HomingPhase::Stalled);
-
-                        // wait 10 ms before checking again
-                        Ok(Some(Duration::from_millis(100)))
-                    } else {
-                        // wait 1 ms before checking again
-                        Ok(Some(Duration::from_millis(1)))
-                    }
-                }
-            }
-            HomingPhase::Stalled => {
-                // reset from a stall
-                self.read_register(spi, cs, d, REG::TMC5130_RAMPSTAT)?;
-
-                // reapply initialization params
-                self.init(spi, cs, en, d)?;
-
-                // backoff
-                let backoff_params = params::StartParams {
-                    mode: Mode::Finite,
-                    direction: p.direction.reverse(),
-                    speed: p.speed,
-                    position: Some(p.backoff_steps as u64),
-                    reset: true,
-                };
-
-                self.start(spi, cs, d, &backoff_params)?;
-
-                // update status
-                self.status = MotorStatus::Operational;
-                // wait 10 ms before checking again
-                Ok(Some(Duration::from_millis(10)))
+                Timer::after_millis(10).await;
+            } else {
+                // wait 1 ms before checking again
+                Timer::after_millis(1).await;
             }
         }
+
+        // reset from a stall
+        self.read_register(spi, cs, REG::TMC5130_RAMPSTAT).await?;
+
+        // reapply initialization params
+        self.init(spi, cs, en).await?;
+
+        // backoff
+        let backoff_params = params::StartParams {
+            mode: Mode::Finite,
+            direction: params.direction.reverse(),
+            speed: params.speed,
+            position: Some(params.backoff_steps as u64),
+            reset: true,
+        };
+
+        self.start(spi, cs, &backoff_params).await?;
+
+        Ok(())
     }
 
-    pub fn find_frequency_scaling<SPI: SpiBus, CS: OutputPin>(
+    pub async fn find_frequency_scaling<SPI: SpiBus, CS: OutputPin>(
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-        d: &mut D,
-        ticks: Option<MonotonicTicks>,
-    ) -> Result<(Option<Duration>, Option<f32>), Error> {
-        let phase = match self.status {
-            MotorStatus::FrequencyScaling(s) => s,
-            _ => FrequencyScalingPhase::Init,
-        };
-
+    ) -> Result<(), Error> {
         const VMAX: i32 = 10_000;
 
-        match phase {
-            FrequencyScalingPhase::Init => {
-                // stop
-                self.stop(spi, cs, d)?;
+        // stop
+        self.stop(spi, cs).await?;
 
-                // start at 10_000
-                let params = params::StartParams {
-                    mode: Mode::Continuous,
-                    direction: Status::Clockwise,
-                    speed: Speed::Pps(VMAX),
-                    position: None,
-                    reset: true,
-                };
+        // start at 10_000
+        let params = params::StartParams {
+            mode: Mode::Continuous,
+            direction: Status::Clockwise,
+            speed: Speed::Pps(VMAX),
+            position: None,
+            reset: true,
+        };
 
-                self.start(spi, cs, d, &params)?;
+        self.start(spi, cs, &params).await?;
 
-                self.status = MotorStatus::FrequencyScaling(FrequencyScalingPhase::Waiting);
+        Timer::after_millis(100).await;
 
-                Ok((Some(Duration::from_millis(10)), None))
-            }
+        let position = self.get_xactual(spi, cs).await?;
+        self.frequency_scaling_data.start = FrequencyScalingDataPoint {
+            millis: Instant::now().as_millis(),
+            position,
+        };
 
-            FrequencyScalingPhase::Waiting => {
-                self.status = MotorStatus::FrequencyScaling(FrequencyScalingPhase::FirstPoint);
-                Ok((Some(Duration::from_millis(50)), None))
-            }
+        Timer::after_millis(1000).await;
 
-            FrequencyScalingPhase::FirstPoint => {
-                if let Some(ticks) = ticks {
-                    let position = self.get_xactual(spi, cs, d)?;
-                    self.frequency_scaling_data.start = FrequencyScalingDataPoint { ticks, position };
-                    self.status = MotorStatus::FrequencyScaling(FrequencyScalingPhase::SecondPoint);
+        let position = self.get_xactual(spi, cs).await?;
+        self.frequency_scaling_data.end = FrequencyScalingDataPoint {
+            millis: Instant::now().as_millis(),
+            position,
+        };
 
-                    Ok((Some(Duration::from_millis(1000)), None))
-                } else {
-                    self.stop(spi, cs, d)?;
-                    self.status = MotorStatus::Operational;
-                    Ok((Some(Duration::from_millis(10)), None))
-                }
-            }
+        self.stop(spi, cs).await?;
+        self.frequency_scaling = self.frequency_scaling_data.calc_scaling(VMAX);
 
-            FrequencyScalingPhase::SecondPoint => {
-                if let Some(ticks) = ticks {
-                    let position = self.get_xactual(spi, cs, d)?;
-                    self.frequency_scaling_data.end = FrequencyScalingDataPoint { ticks, position };
-
-                    self.stop(spi, cs, d)?;
-
-                    self.frequency_scaling = self.frequency_scaling_data.calc_scaling(VMAX);
-
-                    self.status = MotorStatus::Operational;
-
-                    Ok((Some(Duration::from_millis(50)), Some(self.frequency_scaling)))
-                } else {
-                    self.stop(spi, cs, d)?;
-                    self.status = MotorStatus::Operational;
-                    Ok((Some(Duration::from_millis(10)), None))
-                }
-            }
-        }
-    }
-
-    pub fn events<SPI: SpiBus, CS: OutputPin, EN: OutputPin>(
-        &mut self,
-        spi: &mut SPI,
-        cs: &mut CS,
-        en: &mut EN,
-        d: &mut D,
-        ticks: MonotonicTicks,
-    ) -> Result<(Duration, Response<{ NUMBER_MOTORS }>), Error> {
-        match self.status {
-            MotorStatus::Operational => {
-                let mut response = StatusResponse::new(ticks);
-
-                self.motor.position = self.get_xactual(spi, cs, d)?;
-                self.motor.pps = ((self.get_signed_vactual(spi, cs, d)? as f32) / self.frequency_scaling) as i32;
-
-                if !self.motor.dirty {
-                    if self.motor.pps == 0 && self.motor.position == self.motor.last_position.0 {
-                        self.motor.direction = Status::Stopped;
-                    }
-                }
-
-                self.motor.last_position = (self.motor.position, ticks);
-
-                self.motor.dirty = false;
-                response.responses[0] = Some((&self.motor).into());
-
-                Ok((Duration::from_millis(DEFAULT_INTERVAL_MS), Response::Status(response)))
-            }
-
-            MotorStatus::FrequencyScaling(_p) => {
-                let (duration, response) = match self.find_frequency_scaling(spi, cs, d, Some(ticks))? {
-                    (Some(d), Some(f)) => (d, Response::FrequencyScaling(FrequencyScalingResponse::new([Some(f)]))),
-                    (Some(d), None) => (d, Response::Status(StatusResponse::new(ticks))),
-                    _ => (
-                        Duration::from_millis(DEFAULT_INTERVAL_MS),
-                        Response::Status(StatusResponse::new(ticks)),
-                    ),
-                };
-                Ok((duration, response))
-            }
-
-            MotorStatus::Homing(_p) => {
-                let duration = match self.home(spi, cs, en, d)? {
-                    Some(d) => d,
-                    None => Duration::from_millis(DEFAULT_INTERVAL_MS),
-                };
-                Ok((duration, Response::Status(StatusResponse::new(ticks))))
-            }
-        }
-    }
-
-    pub fn handle_message<SPI: SpiBus, CS: OutputPin, EN: OutputPin>(
-        &mut self,
-        spi: &mut SPI,
-        cs: &mut CS,
-        en: &mut EN,
-        d: &mut D,
-        message: Message<NUMBER_MOTORS>,
-    ) -> Result<Option<Duration>, Error> {
-        const MOTOR_INDEX: usize = 0;
-
-        match message {
-            Message::None => Ok(None),
-            Message::MoveTo(p) => {
-                if let Some(Some(p)) = p.get(MOTOR_INDEX) {
-                    self.move_to(spi, cs, d, p)
-                } else {
-                    Ok(None)
-                }
-            }
-            Message::Config(p) => {
-                if let Some(Some(p)) = p.get(MOTOR_INDEX) {
-                    self.config(spi, cs, d, p)
-                } else {
-                    Ok(None)
-                }
-            }
-            Message::Stop(p) => {
-                if let Some(Some(true)) = p.get(MOTOR_INDEX) {
-                    self.stop(spi, cs, d)
-                } else {
-                    Ok(None)
-                }
-            }
-            Message::ChangeSpeed(p) => {
-                if let Some(Some(p)) = p.get(MOTOR_INDEX) {
-                    self.change_speed(spi, cs, d, p)
-                } else {
-                    Ok(None)
-                }
-            }
-            Message::Start(p) => {
-                if let Some(Some(p)) = p.get(MOTOR_INDEX) {
-                    self.start(spi, cs, d, p)
-                } else {
-                    Ok(None)
-                }
-            }
-            Message::Init(mut p) => {
-                if let Some(Some(p)) = p.get_mut(MOTOR_INDEX) {
-                    self.init_params = Some(*p);
-                }
-                self.init(spi, cs, en, d)
-            }
-            Message::Home(mut p) => {
-                if let Some(Some(p)) = p.get_mut(MOTOR_INDEX) {
-                    self.homing_params = Some(*p);
-                }
-                self.home(spi, cs, en, d)
-            }
-            Message::FrequencyScaling(p) => {
-                if let Some(Some(true)) = p.get(MOTOR_INDEX) {
-                    Ok(self.find_frequency_scaling(spi, cs, d, None)?.0)
-                } else {
-                    Ok(None)
-                }
-            }
-        }
+        Ok(())
     }
 }
 
