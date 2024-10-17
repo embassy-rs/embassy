@@ -59,7 +59,10 @@ pub struct StartParams {
 pub struct MoveToParams {
     pub speed: Speed,
     pub position: i32,
+    /// Reset the position (incremental move)
     pub reset: bool,
+    /// Stop before starting new move
+    pub stop: bool,
 }
 
 #[derive(Debug, Clone, Copy)]

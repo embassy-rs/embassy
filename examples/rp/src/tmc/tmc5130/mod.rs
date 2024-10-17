@@ -16,9 +16,10 @@ pub const DEFAULT_INTERVAL_MS: u64 = 100;
 pub const DEFAULT_FREQUENCY_SCALING: f32 = 1.21_f32;
 
 #[derive(Debug)]
-pub enum Error {
-    SpiTransfer,
-    OutputPin,
+pub enum Tmc5130Error<SpiError, PinError> {
+    SpiError(SpiError),
+    PinError(PinError),
+    EnablePinError,
     MessageError,
     InitParamsNotSet,
     HomingParamsNotSet,
@@ -96,10 +97,10 @@ impl TMC5130 {
         }
     }
 
-    pub async fn transact<'a, O, F, R>(&self, cs: &'a mut O, act: F) -> Result<R, Error>
+    pub async fn transact<'a, O, F, R, SPI, CS>(&self, cs: &'a mut O, act: F) -> Result<R, Tmc5130Error<SPI, CS>>
     where
-        O: OutputPin,
-        F: core::future::Future<Output = Result<R, Error>>,
+        O: OutputPin<Error = CS>,
+        F: core::future::Future<Output = Result<R, Tmc5130Error<SPI, CS>>>,
     {
         while cs.set_low().is_err() {}
         let res = act.await;
@@ -147,7 +148,7 @@ impl TMC5130 {
         address: u8,
         mask: u32,
         shift: u8,
-    ) -> Result<u32, Error> {
+    ) -> Result<u32, Tmc5130Error<SPI::Error, CS::Error>> {
         Ok(self.field_get(self.read_register(spi, cs, address).await?, mask, shift))
     }
 
@@ -161,7 +162,7 @@ impl TMC5130 {
         mask: u32,
         shift: u8,
         value: u32,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Tmc5130Error<SPI::Error, CS::Error>> {
         self.write_register(spi, cs, address, (value << shift) & mask).await
     }
 
@@ -174,8 +175,11 @@ impl TMC5130 {
         mask: u32,
         shift: u8,
         value: u32,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Tmc5130Error<SPI::Error, CS::Error>> {
+        // Read the register value first
         let v = self.field_set(self.read_register(spi, cs, address).await?, mask, shift, value);
+
+        // Write the updated value back to the register
         self.write_register(spi, cs, address, v).await
     }
 
@@ -188,7 +192,7 @@ impl TMC5130 {
         mask: u32,
         shift: u8,
         value: u32,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Tmc5130Error<SPI::Error, CS::Error>> {
         self.field_update(spi, cs, address, mask, shift, value).await?;
 
         while self.field_read(spi, cs, address, mask, shift).await? != value {
@@ -205,11 +209,12 @@ impl TMC5130 {
         cs: &mut CS,
         address: u8,
         data: u32,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Tmc5130Error<SPI::Error, CS::Error>> {
+        // Use the `transact` method to execute SPI write operations
         self.transact(cs, async {
             spi.write(&self.to_write_data(address, data))
                 .await
-                .map_err(|_| Error::SpiTransfer)
+                .map_err(Tmc5130Error::SpiError)
         })
         .await
     }
@@ -220,12 +225,12 @@ impl TMC5130 {
         spi: &mut SPI,
         cs: &mut CS,
         address: u8,
-    ) -> Result<u32, Error> {
-        let mut data = self.to_read_data(address); // Prepare the buffer for transfer
+    ) -> Result<u32, Tmc5130Error<SPI::Error, CS::Error>> {
+        let mut data = self.to_read_data(address);
 
-        // First SPI transfer: we send the read command and get the response in the same buffer
+        // Use `transact` method to execute SPI read operation in-place
         self.transact(cs, async {
-            spi.transfer_in_place(&mut data).await.map_err(|_| Error::SpiTransfer)
+            spi.transfer_in_place(&mut data).await.map_err(Tmc5130Error::SpiError)
         })
         .await?;
 
@@ -240,8 +245,8 @@ impl TMC5130 {
         spi: &mut SPI,
         cs: &mut CS,
         en: &mut EN,
-    ) -> Result<Option<Duration>, Error> {
-        en.set_high().map_err(|_| Error::OutputPin)?;
+    ) -> Result<Option<Duration>, Tmc5130Error<SPI::Error, CS::Error>> {
+        en.set_high().map_err(|_| Tmc5130Error::EnablePinError)?;
 
         let p = match &self.init_params {
             Some(p) => *p,
@@ -269,13 +274,17 @@ impl TMC5130 {
         self.write_register(spi, cs, REG::TMC5130_CHOPCONF, p.chopconf).await?;
         self.write_register(spi, cs, REG::TMC5130_COOLCONF, p.coolconf).await?;
 
-        en.set_low().map_err(|_| Error::OutputPin)?;
+        en.set_low().map_err(|_| Tmc5130Error::EnablePinError)?;
 
         Ok(None)
     }
 
     #[inline(always)]
-    pub async fn get_xactual<SPI: SpiBus, CS: OutputPin>(&mut self, spi: &mut SPI, cs: &mut CS) -> Result<i32, Error> {
+    pub async fn get_xactual<SPI: SpiBus, CS: OutputPin>(
+        &mut self,
+        spi: &mut SPI,
+        cs: &mut CS,
+    ) -> Result<i32, Tmc5130Error<SPI::Error, CS::Error>> {
         Ok(self
             .field_read(
                 spi,
@@ -292,7 +301,7 @@ impl TMC5130 {
         spi: &mut SPI,
         cs: &mut CS,
         value: u32,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Tmc5130Error<SPI::Error, CS::Error>> {
         let v = vactual_to_signed_pps(value);
         self.field_update(
             spi,
@@ -306,7 +315,11 @@ impl TMC5130 {
     }
 
     #[inline(always)]
-    pub async fn get_vactual<SPI: SpiBus, CS: OutputPin>(&mut self, spi: &mut SPI, cs: &mut CS) -> Result<u32, Error> {
+    pub async fn get_vactual<SPI: SpiBus, CS: OutputPin>(
+        &mut self,
+        spi: &mut SPI,
+        cs: &mut CS,
+    ) -> Result<u32, Tmc5130Error<SPI::Error, CS::Error>> {
         self.field_read(
             spi,
             cs,
@@ -322,7 +335,7 @@ impl TMC5130 {
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-    ) -> Result<i32, Error> {
+    ) -> Result<i32, Tmc5130Error<SPI::Error, CS::Error>> {
         let v = self.get_vactual(spi, cs).await?;
         Ok(vactual_to_signed_pps(v))
     }
@@ -339,7 +352,7 @@ impl TMC5130 {
         spi: &mut SPI,
         cs: &mut CS,
         params: &params::StartParams,
-    ) -> Result<Option<Duration>, Error> {
+    ) -> Result<Option<Duration>, Tmc5130Error<SPI::Error, CS::Error>> {
         // stop
         self.stop(spi, cs).await?;
 
@@ -385,7 +398,7 @@ impl TMC5130 {
                 .await?;
 
                 match (params.position, params.reset) {
-                    (None, _) => Err(Error::MessageError),
+                    (None, _) => Err(Tmc5130Error::MessageError),
                     (Some(position), reset) => {
                         if reset {
                             self.field_update(
@@ -459,7 +472,7 @@ impl TMC5130 {
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-    ) -> Result<Option<Duration>, Error> {
+    ) -> Result<Option<Duration>, Tmc5130Error<SPI::Error, CS::Error>> {
         self.field_update(
             spi,
             cs,
@@ -477,7 +490,7 @@ impl TMC5130 {
         spi: &mut SPI,
         cs: &mut CS,
         params: &params::ChangeSpeedParams,
-    ) -> Result<Option<Duration>, Error> {
+    ) -> Result<Option<Duration>, Tmc5130Error<SPI::Error, CS::Error>> {
         self.field_update(
             spi,
             cs,
@@ -496,9 +509,11 @@ impl TMC5130 {
         spi: &mut SPI,
         cs: &mut CS,
         params: &params::MoveToParams,
-    ) -> Result<Option<Duration>, Error> {
+    ) -> Result<Option<Duration>, Tmc5130Error<SPI::Error, CS::Error>> {
         // stop
-        self.stop(spi, cs).await?;
+        if params.stop {
+            self.stop(spi, cs).await?;
+        }
 
         if params.reset {
             self.field_update(
@@ -552,7 +567,7 @@ impl TMC5130 {
         spi: &mut SPI,
         cs: &mut CS,
         params: &params::ConfigParams,
-    ) -> Result<Option<Duration>, Error> {
+    ) -> Result<Option<Duration>, Tmc5130Error<SPI::Error, CS::Error>> {
         if params.reset_position {
             self.field_update(
                 spi,
@@ -595,7 +610,7 @@ impl TMC5130 {
         cs: &mut CS,
         en: &mut EN,
         params: HomeParams,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Tmc5130Error<SPI::Error, CS::Error>> {
         // stop
         self.stop(spi, cs).await?;
 
@@ -730,7 +745,7 @@ impl TMC5130 {
         &mut self,
         spi: &mut SPI,
         cs: &mut CS,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Tmc5130Error<SPI::Error, CS::Error>> {
         const VMAX: i32 = 10_000;
 
         // stop
