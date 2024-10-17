@@ -24,7 +24,7 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
 }
 
 impl<'d, M: Mode> I2c<'d, M> {
-    pub(crate) fn init(&mut self, freq: Hertz, _config: Config) {
+    pub(crate) fn init(&mut self, freq: Hertz, config: Config) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
             reg.set_anfoff(false);
@@ -43,6 +43,36 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(true);
         });
+        if config.slave_address_1 > 0 {
+            self.info.regs.oar1().write(|reg| {
+                reg.set_oa1en(false);
+            });
+            let (mode, address) = if config.address_11bits {
+                (i2c::vals::Addmode::BIT10, config.slave_address_1)
+            } else {
+                (i2c::vals::Addmode::BIT7, config.slave_address_1 << 1)
+            };
+            self.info.regs.oar1().write(|reg| {
+                reg.set_oa1(address);
+                reg.set_oa1mode(mode);
+                reg.set_oa1en(true);
+            });
+            self.state.mutex.lock(|f| {
+                let mut state_m = f.borrow_mut();
+                state_m.address1 = config.slave_address_1;
+            });
+        }
+
+        if config.slave_address_2 > 0 {
+            self.info.regs.oar2().write(|reg| {
+                reg.set_oa2en(false);
+            });
+            self.info.regs.oar2().write(|reg| {
+                reg.set_oa2msk(config.slave_address_mask.to_vals_impl());
+                reg.set_oa2(config.slave_address_2);
+                reg.set_oa2en(true);
+            });
+        }
     }
 
     fn master_stop(&mut self) {
