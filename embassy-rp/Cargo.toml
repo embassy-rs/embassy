@@ -92,7 +92,7 @@ boot2-none = []
 
 ## Configure the hal for use with the rp2040
 rp2040 = ["rp-pac/rp2040"]
-_rp235x = ["rp-pac/rp235x"]
+_rp235x = ["rp-pac/rp235x", "pio/rp2350", "pio-proc/rp2350"]
 ## Configure the hal for use with the rp235xA
 rp235xa = ["_rp235x"]
 ## Configure the hal for use with the rp235xB
@@ -139,7 +139,7 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 
 pio-proc = {version= "0.2" }
-pio = {version= "0.2.1" }
+pio = { version= "0.2.1" }
 rp2040-boot2 = "0.3"
 document-features = "0.2.7"
 sha2-const-stable = "0.1"
@@ -149,3 +149,8 @@ smart-leds = "0.4.0"
 [dev-dependencies]
 embassy-executor = { version = "0.6.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }
+
+[patch.crates-io]
+pio = { git="https://github.com/CBJamo/pio-rs.git", rev="72a5a7daa859b9d8a416564a2fbf849f58e51639" }
+pio-parser = { git="https://github.com/CBJamo/pio-rs.git", rev="72a5a7daa859b9d8a416564a2fbf849f58e51639" }
+pio-proc = { git="https://github.com/CBJamo/pio-rs.git", rev="72a5a7daa859b9d8a416564a2fbf849f58e51639" }
