@@ -35,6 +35,76 @@ pub enum EndpointType {
     Interrupt = 0b11,
 }
 
+impl From<u8> for EndpointType {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => Self::Control,
+            0b01 => Self::Isochronous,
+            0b10 => Self::Bulk,
+            0b11 => Self::Interrupt,
+            4_u8..=u8::MAX => unreachable!(),
+        }
+    }
+}
+
+/// USB endpoint synchronization type. The values of this enum can be directly
+/// cast into `u8` to get the bmAttributes synchronization type bits.
+/// Values other than `NoSynchronization` are only allowed on isochronous endpoints.
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SynchronizationType {
+    /// No synchronization is used.
+    NoSynchronization = 0b00,
+    /// Unsynchronized, although sinks provide data rate feedback.
+    Asynchronous = 0b01,
+    /// Synchronized using feedback or feedforward data rate information.
+    Adaptive = 0b10,
+    /// Synchronized to the USB’s SOF.
+    Synchronous = 0b11,
+}
+
+impl From<u8> for SynchronizationType {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => Self::NoSynchronization,
+            0b01 => Self::Asynchronous,
+            0b10 => Self::Adaptive,
+            0b11 => Self::Synchronous,
+            4_u8..=u8::MAX => unreachable!(),
+        }
+    }
+}
+
+/// USB endpoint usage type. The values of this enum can be directly cast into
+/// `u8` to get the bmAttributes usage type bits.
+/// Values other than `DataEndpoint` are only allowed on isochronous endpoints.
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum UsageType {
+    /// Use the endpoint for regular data transfer.
+    DataEndpoint = 0b00,
+    /// Endpoint conveys explicit feedback information for one or more data endpoints.
+    FeedbackEndpoint = 0b01,
+    /// A data endpoint that also serves as an implicit feedback endpoint for one or more data endpoints.
+    ImplicitFeedbackDataEndpoint = 0b10,
+    /// Reserved usage type.
+    Reserved = 0b11,
+}
+
+impl From<u8> for UsageType {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => Self::DataEndpoint,
+            0b01 => Self::FeedbackEndpoint,
+            0b10 => Self::ImplicitFeedbackDataEndpoint,
+            0b11 => Self::Reserved,
+            4_u8..=u8::MAX => unreachable!(),
+        }
+    }
+}
+
 /// Type-safe endpoint address.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -166,6 +236,12 @@ pub trait Driver<'a> {
     /// This consumes the `Driver` instance, so it's no longer possible to allocate more
     /// endpoints.
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe);
+
+    /// Grows the endpoint buffer to the maximum size necessary to service all associated enpoint descriptors to the point of calling it
+    fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_size: u16);
+
+    /// Grows the endpoint buffer to the maximum size necessary to service all associated enpoint descriptors to the point of calling it
+    fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_size: u16);
 }
 
 /// USB bus trait.
@@ -184,6 +260,18 @@ pub trait Bus {
     /// This method should asynchronously wait for an event to happen, then
     /// return it. See [`Event`] for the list of events this method should return.
     async fn poll(&mut self) -> Event;
+
+    /// Change buffersize of endpoint
+    fn endpoint_set_sync_type(&mut self, ep_addr: EndpointAddress, synchronization_type: SynchronizationType);
+
+    /// Change buffersize of endpoint
+    fn endpoint_set_usage_type(&mut self, ep_addr: EndpointAddress, usage_type: UsageType);
+
+    /// Change buffersize of endpoint
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: u16);
+
+    /// Change type of endpoint
+    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType);
 
     /// Enable or disable an endpoint.
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool);
