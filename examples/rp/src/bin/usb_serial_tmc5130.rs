@@ -134,12 +134,14 @@ async fn spi_task(
 
     driver.init(&mut spi, &mut cs, &mut en, init_params).await.ok();
 
+    driver.set_xactual(&mut spi, &mut cs, 0).await.ok();
+
     let mut ticker = Ticker::every(Duration::from_millis(2000));
 
     loop {
         let params = tmc::params::MoveToParams {
-            speed: tmc::Speed::Pps(50),
-            position: 20000,
+            speed: tmc::Speed::Rpm(50_f32),
+            position: 50000,
             reset: false,
             stop: false,
         };
@@ -153,7 +155,7 @@ async fn spi_task(
         }
 
         let params = tmc::params::MoveToParams {
-            speed: tmc::Speed::Pps(50),
+            speed: tmc::Speed::Rpm(50_f32),
             position: 0,
             reset: false,
             stop: false,
