@@ -10,8 +10,10 @@ use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_time::{Duration, Timer};
+use embedded_hal_1::i2c::I2c as _;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -31,7 +33,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn temperature(mut i2c: impl embedded_hal_1::i2c::I2c + 'static) {
+async fn temperature(mut i2c: I2cDevice<'static, NoopRawMutex, I2c<'static, Async>>) {
     let mut data = [0u8; 2];
 
     loop {
@@ -48,7 +50,7 @@ async fn temperature(mut i2c: impl embedded_hal_1::i2c::I2c + 'static) {
 }
 
 #[embassy_executor::task]
-async fn humidity(mut i2c: impl embedded_hal_1::i2c::I2c + 'static) {
+async fn humidity(mut i2c: I2cDevice<'static, NoopRawMutex, I2c<'static, Async>>) {
     let mut data = [0u8; 6];
 
     loop {
