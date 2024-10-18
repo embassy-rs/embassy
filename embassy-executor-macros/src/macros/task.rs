@@ -2,6 +2,7 @@ use darling::export::NestedMeta;
 use darling::FromMeta;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
+use syn::visit::Visit;
 use syn::{Expr, ExprLit, Lit, LitInt, ReturnType, Type};
 
 use crate::util::*;
@@ -77,19 +78,22 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
             syn::FnArg::Receiver(_) => {
                 error(&mut errors, arg, "task functions must not have receiver arguments");
             }
-            syn::FnArg::Typed(t) => match t.pat.as_mut() {
-                syn::Pat::Ident(id) => {
-                    id.mutability = None;
-                    args.push((id.clone(), t.attrs.clone()));
+            syn::FnArg::Typed(t) => {
+                check_arg_ty(&mut errors, &t.ty);
+                match t.pat.as_mut() {
+                    syn::Pat::Ident(id) => {
+                        id.mutability = None;
+                        args.push((id.clone(), t.attrs.clone()));
+                    }
+                    _ => {
+                        error(
+                            &mut errors,
+                            arg,
+                            "pattern matching in task arguments is not yet supported",
+                        );
+                    }
                 }
-                _ => {
-                    error(
-                        &mut errors,
-                        arg,
-                        "pattern matching in task arguments is not yet supported",
-                    );
-                }
-            },
+            }
         }
     }
 
@@ -168,4 +172,18 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     result
+}
+
+fn check_arg_ty(errors: &mut TokenStream, ty: &Type) {
+    struct Visitor<'a> {
+        errors: &'a mut TokenStream,
+    }
+
+    impl<'a, 'ast> Visit<'ast> for Visitor<'a> {
+        fn visit_type_impl_trait(&mut self, i: &'ast syn::TypeImplTrait) {
+            error(self.errors, i, "`impl Trait` is not allowed in task arguments. It is syntax sugar for generics, and tasks can't be generic.");
+        }
+    }
+
+    Visit::visit_type(&mut Visitor { errors }, ty);
 }
