@@ -6,6 +6,8 @@
 //!
 //! The available functionality depends on the timer type.
 
+use core::mem::ManuallyDrop;
+
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 // Re-export useful enums
 pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
@@ -196,6 +198,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         rcc::enable_and_reset::<T>();
 
         Self { tim }
+    }
+
+    pub(crate) unsafe fn clone_unchecked(&self) -> ManuallyDrop<Self> {
+        let tim = unsafe { self.tim.clone_unchecked() };
+        ManuallyDrop::new(Self { tim })
     }
 
     /// Get access to the virutal core 16bit timer registers.

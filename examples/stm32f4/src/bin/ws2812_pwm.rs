@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
     // construct ws2812 non-return-to-zero (NRZ) code bit by bit
     // ws2812 only need 24 bits for each LED, but we add one bit more to keep PWM output low
 
-    let max_duty = ws2812_pwm.get_max_duty() as u16;
+    let max_duty = ws2812_pwm.max_duty_cycle();
     let n0 = 8 * max_duty / 25; // ws2812 Bit 0 high level timing
     let n1 = 2 * n0; // ws2812 Bit 1 high level timing
 
@@ -84,7 +84,7 @@ async fn main(_spawner: Spawner) {
     let pwm_channel = Channel::Ch1;
 
     // make sure PWM output keep low on first start
-    ws2812_pwm.set_duty(pwm_channel, 0);
+    ws2812_pwm.channel(pwm_channel).set_duty_cycle(0);
 
     // flip color at 2 Hz
     let mut ticker = Ticker::every(Duration::from_millis(500));
