@@ -1,6 +1,7 @@
 # Embassy USB driver for the Synopsys USB OTG core
 
 This crate implements [`embassy-usb-driver`](https://crates.io/crates/embassy-usb-driver) for Synopsys USB OTG devices. 
+The included pac generated from [`stm32-data`](https://github.com/embassy-rs/stm32-data)'s `otg_v1.yaml` using [`chiptool`](https://github.com/embassy-rs/chiptool).
 
 It contains the "core" of the driver that is common across all chips using
 the Synopsys OTG IP, but it doesn't contain chip-specific initialization such
