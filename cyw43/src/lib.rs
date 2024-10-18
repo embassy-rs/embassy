@@ -9,7 +9,8 @@
 pub(crate) mod fmt;
 
 #[cfg(feature = "bluetooth")]
-mod bluetooth;
+/// Bluetooth module.
+pub mod bluetooth;
 mod bus;
 mod consts;
 mod control;
