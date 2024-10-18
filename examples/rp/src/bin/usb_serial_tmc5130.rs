@@ -5,7 +5,7 @@ use core::fmt::Write;
 use defmt::{info, panic, unwrap};
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::{Level, Output};
+use embassy_rp::gpio::{Level, Output, Input, Pull};
 use embassy_rp::peripherals::{SPI0, USB};
 use embassy_rp::spi::{Async, Config, Spi};
 use embassy_rp::usb::{Driver, InterruptHandler as UsbInterruptHandler};
@@ -82,6 +82,7 @@ async fn main(spawner: Spawner) {
     let clk = p.PIN_18;
     let cs = Output::new(p.PIN_17, Level::High);
     let en = Output::new(p.PIN_20, Level::High);
+    let hall = Input::new(p.PIN_21, Pull::Down);
 
     let mut config = Config::default();
     config.polarity = embassy_rp::spi::Polarity::IdleHigh;
@@ -92,7 +93,7 @@ async fn main(spawner: Spawner) {
 
     // Run the USB device.
     unwrap!(spawner.spawn(usb_task(usb)));
-    unwrap!(spawner.spawn(spi_task(class, spi, cs, en)));
+    unwrap!(spawner.spawn(spi_task(class, spi, cs, en, hall)));
 }
 
 type MyUsbDriver = Driver<'static, USB>;
@@ -109,14 +110,15 @@ async fn spi_task(
     mut spi: Spi<'static, SPI0, Async>,
     mut cs: Output<'static>,
     mut en: Output<'static>,
+    mut hall: Input<'static>,
 ) -> ! {
     let mut driver = tmc::tmc5130::TMC5130::new();
 
     let init_params = tmc::params::InitParams {
         gconf: 0x00000000,
         slaveconf: 0x00000000,
-        // IHOLD=3, IRUN=24, IHOLDDELAY=7 (RMS current = 0.75A with VSENSE = 1)
-        ihold_irun: 0x00071803,
+        // IHOLD=3, IRUN=20, IHOLDDELAY=7 (RMS current = 0.75A with VSENSE = 1)
+        ihold_irun: 0x00071403,
         tpwmthrs: 0x00000000,
         tcoolthrs: 0x00000010,
         thigh: 0x00000010,
@@ -136,12 +138,63 @@ async fn spi_task(
 
     driver.set_xactual(&mut spi, &mut cs, 0).await.ok();
 
-    let mut ticker = Ticker::every(Duration::from_millis(2000));
+    let move_to =  tmc::params::MoveToParams {
+        position: 800 * tmc::TMC_MICROSTEPS_PER_STEP as i32,
+        speed: tmc::Speed::Rpm(50_f32),
+        reset: true,
+        stop: false
+    };
+
+    while driver
+        .move_to(&mut spi, &mut cs, &move_to).await
+        .is_err()
+    {}
+
+    Timer::after_millis(10).await;
+
+    while let Ok(0) = driver.get_vactual(&mut spi, &mut cs).await {}
+
+    while hall.is_low() {
+        Timer::after_millis(10).await;
+    }
+
+    driver.stop(&mut spi, &mut cs).await.ok();
+
+    while driver.get_vactual(&mut spi, &mut cs).await.unwrap_or(0) != 0 {
+        Timer::after_millis(10).await;
+    }
+
+    driver.set_xactual(&mut spi, &mut cs, 0).await.ok();
+
+    let backoff =  tmc::params::MoveToParams {
+        position: -90 * tmc::TMC_MICROSTEPS_PER_STEP as i32,
+        speed: tmc::Speed::Rpm(50_f32),
+        reset: false,
+        stop: false
+    };
+
+    while driver
+        .move_to(&mut spi, &mut cs, &backoff).await
+        .is_err()
+    {}
+
+    Timer::after_millis(10).await;
+
+    while driver.get_vactual(&mut spi, &mut cs).await.unwrap_or(0) != 0 {
+        Timer::after_millis(10).await;
+    }
+
+    driver.stop(&mut spi, &mut cs).await.ok();
+    driver.set_xactual(&mut spi, &mut cs, 0).await.ok();
+
+    Timer::after_millis(2000).await;
+
+    let mut ticker = Ticker::every(Duration::from_millis(4000));
 
     loop {
         let params = tmc::params::MoveToParams {
             speed: tmc::Speed::Rpm(50_f32),
-            position: 50000,
+            position: -50000,
             reset: false,
             stop: false,
         };
