@@ -1,14 +1,26 @@
+use std::fmt::Display;
+
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, TokenStreamExt};
 use syn::parse::{Parse, ParseStream};
 use syn::{braced, bracketed, token, AttrStyle, Attribute, Signature, Token, Visibility};
+
+pub fn token_stream_with_error(mut tokens: TokenStream, error: syn::Error) -> TokenStream {
+    tokens.extend(error.into_compile_error());
+    tokens
+}
+
+pub fn error<A: ToTokens, T: Display>(s: &mut TokenStream, obj: A, msg: T) {
+    s.extend(syn::Error::new_spanned(obj.into_token_stream(), msg).into_compile_error())
+}
 
 /// Function signature and body.
 ///
 /// Same as `syn`'s `ItemFn` except we keep the body as a TokenStream instead of
 /// parsing it. This makes the macro not error if there's a syntax error in the body,
 /// which helps IDE autocomplete work better.
-pub(crate) struct ItemFn {
+#[derive(Debug, Clone)]
+pub struct ItemFn {
     pub attrs: Vec<Attribute>,
     pub vis: Visibility,
     pub sig: Signature,
