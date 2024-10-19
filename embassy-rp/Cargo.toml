@@ -92,7 +92,7 @@ boot2-none = []
 
 ## Configure the hal for use with the rp2040
 rp2040 = ["rp-pac/rp2040"]
-_rp235x = ["rp-pac/rp235x", "pio/rp2350", "pio-proc/rp2350"]
+_rp235x = ["rp-pac/rp235x"]
 ## Configure the hal for use with the rp235xA
 rp235xa = ["_rp235x"]
 ## Configure the hal for use with the rp235xB
