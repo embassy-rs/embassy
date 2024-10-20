@@ -68,7 +68,7 @@ multicast = ["smoltcp/multicast"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { git="https://github.com/smoltcp-rs/smoltcp", rev="b65e1b64dc9b66fa984a2ad34e90685cb0b606de", default-features = false, features = [
+smoltcp = { git="https://github.com/ProfFan/smoltcp", rev="dad57e8d1cc0045f53585efe6398b19d391e72af", default-features = false, features = [
   "socket",
   "async",
 ] }
