@@ -1,23 +1,23 @@
 //! # PWM TB6612FNG motor driver
-//! 
+//!
 //! This example shows the use of a TB6612FNG motor driver. The driver is built on top of embedded_hal and the example demonstrates how embassy_rp can be used to interact with ist.
 
 #![no_std]
 #![no_main]
 
+use assign_resources::assign_resources;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
+use embassy_rp::gpio;
 use embassy_rp::gpio::Output;
 use embassy_rp::peripherals;
-use embassy_rp::gpio;
 use embassy_rp::pwm;
 use embassy_time::Duration;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
 use tb6612fng::{DriveCommand, Motor, Tb6612fng};
-use assign_resources::assign_resources;
+use {defmt_rtt as _, panic_probe as _};
 
 /// Maximum PWM value (fully on)
 const PWM_MAX: u16 = 50000;
@@ -94,21 +94,20 @@ async fn main(_spawner: Spawner) {
         Timer::after(Duration::from_secs(2)).await;
 
         // actively brake
-        info!("brake");	
+        info!("brake");
         control.motor_a.drive(DriveCommand::Brake).unwrap();
         control.motor_b.drive(DriveCommand::Brake).unwrap();
         Timer::after(Duration::from_secs(1)).await;
 
         // slowly turn for 3s
-        info!( "turn");
+        info!("turn");
         control.motor_a.drive(DriveCommand::Backward(10)).unwrap();
         control.motor_b.drive(DriveCommand::Forward(10)).unwrap();
         Timer::after(Duration::from_secs(3)).await;
 
         // and put the driver in standby mode and wait for 5s
-        info!( "standby");
+        info!("standby");
         control.enable_standby().unwrap();
         Timer::after(Duration::from_secs(5)).await;
     }
 }
-
