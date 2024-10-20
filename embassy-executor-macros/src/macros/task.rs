@@ -2,7 +2,7 @@ use darling::export::NestedMeta;
 use darling::FromMeta;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::visit::Visit;
+use syn::visit::{self, Visit};
 use syn::{Expr, ExprLit, Lit, LitInt, ReturnType, Type};
 
 use crate::util::*;
@@ -76,7 +76,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     for arg in fargs.iter_mut() {
         match arg {
             syn::FnArg::Receiver(_) => {
-                error(&mut errors, arg, "task functions must not have receiver arguments");
+                error(&mut errors, arg, "task functions must not have `self` arguments");
             }
             syn::FnArg::Typed(t) => {
                 check_arg_ty(&mut errors, &t.ty);
@@ -180,6 +180,28 @@ fn check_arg_ty(errors: &mut TokenStream, ty: &Type) {
     }
 
     impl<'a, 'ast> Visit<'ast> for Visitor<'a> {
+        fn visit_type_reference(&mut self, i: &'ast syn::TypeReference) {
+            // only check for elided lifetime here. If not elided, it's checked by `visit_lifetime`.
+            if i.lifetime.is_none() {
+                error(
+                    self.errors,
+                    i.and_token,
+                    "Arguments for tasks must live forever. Try using the `'static` lifetime.",
+                )
+            }
+            visit::visit_type_reference(self, i);
+        }
+
+        fn visit_lifetime(&mut self, i: &'ast syn::Lifetime) {
+            if i.ident.to_string() != "static" {
+                error(
+                    self.errors,
+                    i,
+                    "Arguments for tasks must live forever. Try using the `'static` lifetime.",
+                )
+            }
+        }
+
         fn visit_type_impl_trait(&mut self, i: &'ast syn::TypeImplTrait) {
             error(self.errors, i, "`impl Trait` is not allowed in task arguments. It is syntax sugar for generics, and tasks can't be generic.");
         }
