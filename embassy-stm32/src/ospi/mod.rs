@@ -1178,7 +1178,7 @@ impl SealedOctospimInstance for peripherals::OCTOSPI1 {
     const OCTOSPI_IDX: u8 = 1;
 }
 
-#[cfg(octospim_v1)]
+#[cfg(all(octospim_v1, peri_octospi2))]
 impl SealedOctospimInstance for peripherals::OCTOSPI2 {
     const OCTOSPIM_REGS: Octospim = crate::pac::OCTOSPIM;
     const OCTOSPI_IDX: u8 = 2;

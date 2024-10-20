@@ -55,7 +55,7 @@ fn main() {
     let mut singletons: Vec<String> = Vec::new();
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" || r.kind == "otg" {
+            if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" || r.kind == "otg" || r.kind == "octospi" {
                 // TODO: should we emit this for all peripherals? if so, we will need a list of all
                 // possible peripherals across all chips, so that we can declare the configs
                 // (replacing the hard-coded list of `peri_*` cfgs below)
@@ -113,6 +113,7 @@ fn main() {
         "peri_ucpd2",
         "peri_usb_otg_fs",
         "peri_usb_otg_hs",
+        "peri_octospi2",
     ]);
     cfgs.declare_all(&["mco", "mco1", "mco2"]);
 
@@ -1137,11 +1138,14 @@ fn main() {
 
                     // OCTOSPIM is special
                     if p.name == "OCTOSPIM" {
+                        // Some chips have OCTOSPIM but not OCTOSPI2.
+                        if METADATA.peripherals.iter().any(|p| p.name == "OCTOSPI2") {
+                            peri = format_ident!("{}", "OCTOSPI2");
+                            g.extend(quote! {
+                                pin_trait_impl!(#tr, #peri, #pin_name, #af);
+                            });
+                        }
                         peri = format_ident!("{}", "OCTOSPI1");
-                        g.extend(quote! {
-                            pin_trait_impl!(#tr, #peri, #pin_name, #af);
-                        });
-                        peri = format_ident!("{}", "OCTOSPI2");
                     }
 
                     g.extend(quote! {
