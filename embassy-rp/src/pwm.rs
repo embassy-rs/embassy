@@ -1,6 +1,7 @@
 //! Pulse Width Modulation (PWM)
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType, SetDutyCycle};
 use fixed::traits::ToFixed;
 use fixed::FixedU16;
 use pac::pwm::regs::{ChDiv, Intr};
@@ -80,11 +81,52 @@ impl From<InputMode> for Divmode {
     }
 }
 
+/// PWM error.
+#[derive(Debug)]
+pub enum PwmError {
+    /// Invalid Duty Cycle.
+    InvalidDutyCycle,
+}
+
+impl Error for PwmError {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            PwmError::InvalidDutyCycle => ErrorKind::Other,
+        }
+    }
+}
+
 /// PWM driver.
 pub struct Pwm<'d> {
     pin_a: Option<PeripheralRef<'d, AnyPin>>,
     pin_b: Option<PeripheralRef<'d, AnyPin>>,
     slice: usize,
+}
+
+impl<'d> ErrorType for Pwm<'d> {
+    type Error = PwmError;
+}
+
+impl<'d> SetDutyCycle for Pwm<'d> {
+    fn max_duty_cycle(&self) -> u16 {
+        pac::PWM.ch(self.slice).top().read().top()
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        info!("duty {}",&duty);
+        let max_duty = self.max_duty_cycle();
+        info!("max duty {}", &max_duty);
+        if duty > max_duty {
+            return Err(PwmError::InvalidDutyCycle);
+        }
+
+        let p = pac::PWM.ch(self.slice);
+        p.cc().modify(|w| {
+            w.set_a(duty);
+            w.set_b(duty);
+        });
+        Ok(())
+    }
 }
 
 impl<'d> Pwm<'d> {
