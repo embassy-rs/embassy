@@ -1,0 +1,5 @@
+error: Arguments for tasks must live forever. Try using the `'static` lifetime.
+ --> tests/ui/nonstatic_ref_anon_nested.rs:4:28
+  |
+4 | async fn foo(_x: &'static &'_ u32) {}
+  |                            ^^

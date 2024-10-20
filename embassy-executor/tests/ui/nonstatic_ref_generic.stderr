@@ -1,0 +1,11 @@
+error: task functions must not be generic
+ --> tests/ui/nonstatic_ref_generic.rs:4:1
+  |
+4 | async fn foo<'a>(_x: &'a u32) {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: Arguments for tasks must live forever. Try using the `'static` lifetime.
+ --> tests/ui/nonstatic_ref_generic.rs:4:23
+  |
+4 | async fn foo<'a>(_x: &'a u32) {}
+  |                       ^^
