@@ -13,7 +13,6 @@ use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::{PIN_25, PIN_4, PWM_SLICE2, PWM_SLICE4};
 use embassy_rp::pwm::{Config, Pwm, SetDutyCycle};
 use embassy_time::Timer;
-// use embedded_hal_1::pwm::SetDutyCycle;
 use {defmt_rtt as _, panic_probe as _};
 
 #[link_section = ".start_block"]

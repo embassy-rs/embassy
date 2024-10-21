@@ -10,12 +10,9 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
-use embassy_rp::gpio;
 use embassy_rp::gpio::Output;
-use embassy_rp::peripherals;
-use embassy_rp::pwm;
-use embassy_time::Duration;
-use embassy_time::Timer;
+use embassy_rp::{gpio, peripherals, pwm};
+use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand, Motor, Tb6612fng};
 use {defmt_rtt as _, panic_probe as _};
 
