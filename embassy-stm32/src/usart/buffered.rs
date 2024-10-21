@@ -246,7 +246,7 @@ impl<'d> BufferedUart<'d> {
         )
     }
 
-    /// Create a new bidirectional buffered UART driver with only RTS pin as the DE pin
+    /// Create a new bidirectional buffered UART driver with only the RTS pin as the DE pin
     pub fn new_with_rts_as_de<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -286,7 +286,7 @@ impl<'d> BufferedUart<'d> {
             new_pin!(rx, AfType::input(Pull::None)),
             new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             new_pin!(rts, AfType::input(Pull::None)),
-            None, // no RTS
+            None, // no CTS
             None, // no DE
             tx_buffer,
             rx_buffer,
