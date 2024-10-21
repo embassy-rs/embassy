@@ -755,4 +755,30 @@ mod tests {
         assert_eq!(1, sub0.try_next_message_pure().unwrap().0);
         assert_eq!(0, sub1.try_next_message_pure().unwrap().0);
     }
+
+    #[futures_test::test]
+    async fn publisher_sink() {
+        use futures_util::{SinkExt, StreamExt};
+
+        let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
+
+        let mut sub = channel.subscriber().unwrap();
+
+        let publ = channel.publisher().unwrap();
+        let mut sink = publ.sink();
+
+        sink.send(0).await.unwrap();
+        assert_eq!(0, sub.try_next_message_pure().unwrap());
+
+        sink.send(1).await.unwrap();
+        assert_eq!(1, sub.try_next_message_pure().unwrap());
+
+        sink.send_all(&mut futures_util::stream::iter(0..4).map(Ok))
+            .await
+            .unwrap();
+        assert_eq!(0, sub.try_next_message_pure().unwrap());
+        assert_eq!(1, sub.try_next_message_pure().unwrap());
+        assert_eq!(2, sub.try_next_message_pure().unwrap());
+        assert_eq!(3, sub.try_next_message_pure().unwrap());
+    }
 }
