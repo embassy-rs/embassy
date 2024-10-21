@@ -1,6 +1,7 @@
 //! Pulse Width Modulation (PWM)
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embedded_hal_1::pwm::SetDutyCycle;
 use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 use fixed::traits::ToFixed;
 use fixed::FixedU16;
@@ -9,8 +10,6 @@ use pac::pwm::vals::Divmode;
 
 use crate::gpio::{AnyPin, Pin as GpioPin, Pull, SealedPin as _};
 use crate::{pac, peripherals, RegExt};
-
-pub use embedded_hal_1::pwm::SetDutyCycle;
 
 /// The configuration of a PWM slice.
 /// Note the period in clock cycles of a slice can be computed as:
