@@ -246,7 +246,6 @@ impl<'d> BufferedUart<'d> {
         )
     }
 
-
     /// Create a new bidirectional buffered UART driver with only RTS pin as the DE pin
     pub fn new_with_rts_as_de<T: Instance>(
         peri: impl Peripheral<P = T> + 'd,
