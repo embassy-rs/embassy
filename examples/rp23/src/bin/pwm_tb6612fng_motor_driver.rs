@@ -40,8 +40,8 @@ async fn main(_spawner: Spawner) {
     let s = split_resources!(p);
     let r = s.motor;
 
-    // we want a PWM frequency of 25KHz
-    let pwm_freq = 25_000; // Hz, our desired frequency
+    // we want a PWM frequency of 1KHz, especially cheaper motors do not respond well to higher frequencies
+    let pwm_freq = 1_000; // Hz, our desired frequency
     let clock_freq = embassy_rp::clocks::clk_sys_freq();
     let period = (clock_freq / pwm_freq) as u16 - 1;
 
@@ -77,8 +77,8 @@ async fn main(_spawner: Spawner) {
 
         // drive a straight line forward at 20% speed for 5s
         info!("drive straight");
-        control.motor_a.drive(DriveCommand::Forward(20)).unwrap();
-        control.motor_b.drive(DriveCommand::Forward(20)).unwrap();
+        control.motor_a.drive(DriveCommand::Forward(80)).unwrap();
+        control.motor_b.drive(DriveCommand::Forward(80)).unwrap();
         Timer::after(Duration::from_secs(5)).await;
 
         // coast for 2s
@@ -95,8 +95,8 @@ async fn main(_spawner: Spawner) {
 
         // slowly turn for 3s
         info!("turn");
-        control.motor_a.drive(DriveCommand::Backward(10)).unwrap();
-        control.motor_b.drive(DriveCommand::Forward(10)).unwrap();
+        control.motor_a.drive(DriveCommand::Backward(50)).unwrap();
+        control.motor_b.drive(DriveCommand::Forward(50)).unwrap();
         Timer::after(Duration::from_secs(3)).await;
 
         // and put the driver in standby mode and wait for 5s
