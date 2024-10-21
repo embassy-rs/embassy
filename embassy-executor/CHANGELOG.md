@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.1 - 2024-10-21
+
+- Soundness fix: Deny using `impl Trait` in task arguments. This was previously accidentally allowed when not using the `nightly` feature,
+  and could cause out of bounds memory accesses if spawning the same task mulitple times with different underlying types
+  for the `impl Trait`.
+
 ## 0.5.0 - 2024-01-11
 
 - Updated to `embassy-time-driver 0.1`, `embassy-time-queue-driver 0.1`, compatible with `embassy-time v0.3` and higher.

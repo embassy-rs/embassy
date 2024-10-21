@@ -2,6 +2,7 @@ use darling::export::NestedMeta;
 use darling::FromMeta;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
+use syn::visit::Visit;
 use syn::{parse_quote, Expr, ExprLit, ItemFn, Lit, LitInt, ReturnType, Type};
 
 use crate::util::ctxt::Ctxt;
@@ -57,15 +58,18 @@ pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStre
             syn::FnArg::Receiver(_) => {
                 ctxt.error_spanned_by(arg, "task functions must not have receiver arguments");
             }
-            syn::FnArg::Typed(t) => match t.pat.as_mut() {
-                syn::Pat::Ident(id) => {
-                    id.mutability = None;
-                    args.push((id.clone(), t.attrs.clone()));
+            syn::FnArg::Typed(t) => {
+                check_arg_ty(&t.ty)?;
+                match t.pat.as_mut() {
+                    syn::Pat::Ident(id) => {
+                        id.mutability = None;
+                        args.push((id.clone(), t.attrs.clone()));
+                    }
+                    _ => {
+                        ctxt.error_spanned_by(arg, "pattern matching in task arguments is not yet supported");
+                    }
                 }
-                _ => {
-                    ctxt.error_spanned_by(arg, "pattern matching in task arguments is not yet supported");
-                }
-            },
+            }
         }
     }
 
@@ -122,4 +126,28 @@ pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStre
     };
 
     Ok(result)
+}
+
+fn check_arg_ty(ty: &Type) -> Result<(), TokenStream> {
+    struct Visitor {
+        errors: Option<TokenStream>,
+    }
+
+    impl<'ast> Visit<'ast> for Visitor {
+        fn visit_type_impl_trait(&mut self, i: &'ast syn::TypeImplTrait) {
+            use syn::spanned::Spanned;
+            self.errors = Some(quote::quote_spanned! { i.span() =>
+                compile_error!("`impl Trait` is not allowed in task arguments. It is syntax sugar for generics, and tasks can't be generic.");
+            });
+        }
+    }
+
+    let mut visitor = Visitor { errors: None };
+    Visit::visit_type(&mut visitor, ty);
+
+    if let Some(errors) = visitor.errors {
+        Err(errors)
+    } else {
+        Ok(())
+    }
 }
