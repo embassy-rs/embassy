@@ -18,6 +18,22 @@ use crate::pac::spdifrx::Spdifrx as Regs;
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::{interrupt, peripherals, Peripheral};
 
+/// Possible S/PDIF preamble types.
+#[allow(dead_code)]
+#[repr(u8)]
+enum PreambleType {
+    Unused = 0x00,
+    /// The preamble changes to preamble “B” once every 192 frames to identify the start of the block structure used to
+    /// organize the channel status and user information.
+    B = 0x01,
+    /// The first sub-frame (left or “A” channel in stereophonic operation and primary channel in monophonic operation)
+    /// normally starts with preamble “M”
+    M = 0x02,
+    /// The second sub-frame (right or “B” channel in stereophonic operation and secondary channel in monophonic
+    /// operation) always starts with preamble “W”.
+    W = 0x03,
+}
+
 macro_rules! new_spdifrx_pin {
     ($name:ident, $af_type:expr) => {{
         let pin = $name.into_ref();
@@ -77,6 +93,20 @@ pub enum ControlChannelSelection {
 pub struct Config {
     /// Select the channel for capturing control information.
     pub control_channel_selection: ControlChannelSelection,
+}
+
+/// S/PDIF errors.
+pub enum Error {
+    /// DMA overrun error.
+    OverrunError,
+    /// Left/right channel Synchronization error.
+    SyncError,
+}
+
+impl From<OverrunError> for Error {
+    fn from(_: OverrunError) -> Self {
+        Error::OverrunError
+    }
 }
 
 impl Default for Config {
@@ -177,7 +207,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         });
 
         regs.cr().write(|cr| {
-            cr.set_spdifen(0x01); // Enable SPDIF receiver synchronization.
+            cr.set_spdifen(0x00); // Disable SPDIF receiver synchronization.
             cr.set_rxdmaen(true); // Use RX DMA for data.
             cr.set_cbdmaen(read_channel_info); // Use RX DMA for channel info.
             cr.set_rxsteo(true); // Operate in stereo mode.
@@ -185,15 +215,15 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
 
             // Disable all status fields in the data register.
             // Status can be obtained directly with the status register DMA.
-            cr.set_pmsk(false); // Write parity error bit to the data register.
+            cr.set_pmsk(false); // Write parity bit to the data register. FIXME: Add parity check.
             cr.set_vmsk(false); // Write validity to the data register.
-            cr.set_cumsk(false); // C and U bits are written to the data register.
-            cr.set_ptmsk(false); // Preamble bits are written to the data register.
+            cr.set_cumsk(true); // Do not write C and U bits to the data register.
+            cr.set_ptmsk(false); // Write preamble bits to the data register.
 
             cr.set_chsel(match config.control_channel_selection {
                 ControlChannelSelection::A => false,
                 ControlChannelSelection::B => true,
-            }); // Channel status is read from sub-frame A.
+            }); // Select channel status source.
 
             cr.set_nbtr(0x02); // 16 attempts are allowed.
             cr.set_wfa(true); // Wait for activity before going to synchronization phase.
@@ -210,19 +240,48 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         if let Some(csr_ring_buffer) = self.channel_status_ring_buffer.as_mut() {
             csr_ring_buffer.start();
         }
+
+        T::info().regs.cr().modify(|cr| {
+            cr.set_spdifen(0x01); // Enable S/PDIF receiver synchronization.
+        });
     }
 
     /// Read from the SPDIFRX data ring buffer.
-    ///
-    /// The peripheral is configured not to store any channel information in the data register.
-    /// Therefore, the upper 24 bit are audio sample information, and the lower 8 bit are always zero.
     ///
     /// SPDIFRX is always receiving data in the background. This function pops already-received
     /// data from the buffer.
     ///
     /// If there's less than `data.len()` data in the buffer, this waits until there is.
-    pub async fn read_data(&mut self, data: &mut [u32]) -> Result<usize, OverrunError> {
-        self.data_ring_buffer.read_exact(data).await
+    pub async fn read_data(&mut self, data: &mut [u32]) -> Result<(), Error> {
+        self.data_ring_buffer.read_exact(data).await?;
+
+        if ((data[0] >> 4) & 0b11_u32) as u8 == (PreambleType::W as u8) {
+            trace!("S/PDIF resync");
+
+            // First sample is for the right channel.
+            let regs = T::info().regs;
+
+            // Resynchronize until the first sample is for the left channel.
+            regs.cr().modify(|cr| cr.set_spdifen(0x00));
+            regs.cr().modify(|cr| cr.set_spdifen(0x01));
+
+            return Err(Error::SyncError);
+        };
+
+        #[cfg(spdifrx_h7)]
+        {
+            for sample in data.as_mut() {
+                if (*sample & (0x0002_u32)) == 0x0001 {
+                    // Discard invalid samples, setting them to mute level.
+                    *sample = 0;
+                } else {
+                    // Discard remaining status information.
+                    *sample &= 0xFFFFFF00;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Read from the SPDIFRX channel status ring buffer.
@@ -240,10 +299,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
 
 impl<'d, T: Instance> Drop for Spdifrx<'d, T> {
     fn drop(&mut self) {
-        T::GlobalInterrupt::disable();
-
-        let regs = T::info().regs;
-        regs.cr().modify(|cr| cr.set_spdifen(0x00));
+        T::info().regs.cr().modify(|cr| cr.set_spdifen(0x00));
         self.spdifrx_in.as_ref().map(|x| x.set_as_disconnected());
     }
 }
