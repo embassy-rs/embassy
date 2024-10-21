@@ -56,7 +56,7 @@ async fn main(_spawner: Spawner) {
     // Now that the card is initialized, the SPI clock can go faster
     let mut config = spi::Config::default();
     config.frequency = 16_000_000;
-    sdcard.spi(|dev| dev.bus_mut().set_config(&config)).ok();
+    sdcard.spi(|dev| SetConfig::set_config(dev.bus_mut(), &config)).ok();
 
     // Now let's look for volumes (also known as partitions) on our block device.
     // To do this we need a Volume Manager. It will take ownership of the block device.
