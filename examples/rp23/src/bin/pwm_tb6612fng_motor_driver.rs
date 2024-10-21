@@ -16,12 +16,6 @@ use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand, Motor, Tb6612fng};
 use {defmt_rtt as _, panic_probe as _};
 
-/// Maximum PWM value (fully on)
-const PWM_MAX: u16 = 50000;
-
-/// Minimum PWM value (fully off)
-const PWM_MIN: u16 = 0;
-
 #[link_section = ".start_block"]
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
@@ -46,6 +40,11 @@ async fn main(_spawner: Spawner) {
     let s = split_resources!(p);
     let r = s.motor;
 
+    // we want a PWM frequency of 25KHz
+    let pwm_freq = 25_000; // Hz, our desired frequency
+    let clock_freq = embassy_rp::clocks::clk_sys_freq();
+    let period = (clock_freq / pwm_freq) as u16 - 1;
+
     // we need a standby output and two motors to construct a full TB6612FNG
 
     // standby pin
@@ -55,8 +54,7 @@ async fn main(_spawner: Spawner) {
     let left_fwd = gpio::Output::new(r.left_forward_pin, gpio::Level::Low);
     let left_bckw = gpio::Output::new(r.left_backward_pin, gpio::Level::Low);
     let mut left_speed = pwm::Config::default();
-    left_speed.top = PWM_MAX;
-    left_speed.compare_a = PWM_MIN;
+    left_speed.top = period;
     let left_pwm = pwm::Pwm::new_output_a(r.left_slice, r.left_pwm_pin, left_speed);
     let left_motor = Motor::new(left_fwd, left_bckw, left_pwm).unwrap();
 
@@ -64,8 +62,7 @@ async fn main(_spawner: Spawner) {
     let right_fwd = gpio::Output::new(r.right_forward_pin, gpio::Level::Low);
     let right_bckw = gpio::Output::new(r.right_backward_pin, gpio::Level::Low);
     let mut right_speed = pwm::Config::default();
-    right_speed.top = PWM_MAX;
-    right_speed.compare_b = PWM_MIN;
+    right_speed.top = period;
     let right_pwm = pwm::Pwm::new_output_b(r.right_slice, r.right_pwm_pin, right_speed);
     let right_motor = Motor::new(right_fwd, right_bckw, right_pwm).unwrap();
 

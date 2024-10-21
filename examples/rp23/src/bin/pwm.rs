@@ -50,8 +50,14 @@ async fn pwm_set_config(slice4: PWM_SLICE4, pin25: PIN_25) {
 /// Using GP4 in Slice2, make sure to use an appropriate resistor.
 #[embassy_executor::task]
 async fn pwm_set_dutycycle(slice2: PWM_SLICE2, pin4: PIN_4) {
+    // If we aim for a specific frequency, here is how we can calculate the top value.
+    // The top value sets the period of the PWM cycle, so a counter goes from 0 to top and then wraps around to 0.
+    // Every such wraparound is one PWM cycle. So here is how we get 25KHz:
     let mut c = Config::default();
-    c.top = 32_768;
+    let pwm_freq = 25_000; // Hz, our desired frequency
+    let clock_freq = embassy_rp::clocks::clk_sys_freq();
+    c.top = (clock_freq / pwm_freq) as u16 - 1;
+
     let mut pwm = Pwm::new_output_a(slice2, pin4, c.clone());
 
     loop {
@@ -64,7 +70,7 @@ async fn pwm_set_dutycycle(slice2: PWM_SLICE2, pin4: PIN_4) {
         Timer::after_secs(1).await;
 
         // 25% duty cycle. Expressed as 32768/4 = 8192.
-        pwm.set_duty_cycle(8_192).unwrap();
+        pwm.set_duty_cycle(c.top / 4).unwrap();
         Timer::after_secs(1).await;
 
         // 0% duty cycle, fully off.
