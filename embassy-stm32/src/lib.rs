@@ -107,6 +107,8 @@ pub mod rtc;
 pub mod sai;
 #[cfg(sdmmc)]
 pub mod sdmmc;
+#[cfg(spdifrx)]
+pub mod spdifrx;
 #[cfg(spi)]
 pub mod spi;
 #[cfg(tsc)]
