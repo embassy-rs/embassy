@@ -1,7 +1,7 @@
 //! Pulse Width Modulation (PWM)
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
-use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType, SetDutyCycle};
+use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 use fixed::traits::ToFixed;
 use fixed::FixedU16;
 use pac::pwm::regs::{ChDiv, Intr};
@@ -9,6 +9,8 @@ use pac::pwm::vals::Divmode;
 
 use crate::gpio::{AnyPin, Pin as GpioPin, Pull, SealedPin as _};
 use crate::{pac, peripherals, RegExt};
+
+pub use embedded_hal_1::pwm::SetDutyCycle;
 
 /// The configuration of a PWM slice.
 /// Note the period in clock cycles of a slice can be computed as:
@@ -113,9 +115,7 @@ impl<'d> SetDutyCycle for Pwm<'d> {
     }
 
     fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
-        info!("duty {}",&duty);
         let max_duty = self.max_duty_cycle();
-        info!("max duty {}", &max_duty);
         if duty > max_duty {
             return Err(PwmError::InvalidDutyCycle);
         }
