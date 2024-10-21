@@ -59,12 +59,12 @@ async fn pwm_set_dutycycle(slice2: PWM_SLICE2, pin4: PIN_4) {
         pwm.set_duty_cycle_fully_on().unwrap();
         Timer::after_secs(1).await;
 
-        // 50% duty cycle, half on. Expressed as simple percentage.
-        pwm.set_duty_cycle_percent(50).unwrap();
+        // 66% duty cycle. Expressed as simple percentage.
+        pwm.set_duty_cycle_percent(66).unwrap();
         Timer::after_secs(1).await;
 
-        // 25% duty cycle, quarter on. Expressed as (duty / max_duty)
-        pwm.set_duty_cycle(8_192 / c.top).unwrap();
+        // 25% duty cycle. Expressed as 32768/4 = 8192.
+        pwm.set_duty_cycle(8_192).unwrap();
         Timer::after_secs(1).await;
 
         // 0% duty cycle, fully off.
