@@ -189,7 +189,8 @@ macro_rules! bind_interrupts {
             }
 
             $(
-                $(#[cfg(all($cond_irq, $cond_handler))])?
+                $(#[cfg($cond_irq)])?
+                $(#[cfg($cond_handler)])?
                 unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
             )*
         )*
