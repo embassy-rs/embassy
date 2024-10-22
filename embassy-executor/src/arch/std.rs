@@ -64,13 +64,13 @@ mod thread {
         }
     }
 
-    struct Signaler {
+    pub struct Signaler {
         mutex: Mutex<bool>,
         condvar: Condvar,
     }
 
     impl Signaler {
-        fn new() -> Self {
+        pub fn new() -> Self {
             Self {
                 mutex: Mutex::new(false),
                 condvar: Condvar::new(),
