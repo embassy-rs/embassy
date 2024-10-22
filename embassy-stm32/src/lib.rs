@@ -165,7 +165,7 @@ pub use crate::_generated::interrupt;
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+    ($vis:vis struct $name:ident { $($(#[cfg($cond:meta)])? $irq:ident => $($handler:ty),*;)* }) => {
         #[derive(Copy, Clone)]
         $vis struct $name;
 
@@ -174,11 +174,13 @@ macro_rules! bind_interrupts {
             #[no_mangle]
             unsafe extern "C" fn $irq() {
                 $(
+                    $(#[cfg($cond)])?
                     <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
                 )*
             }
 
             $(
+                $(#[cfg($cond)])?
                 unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
             )*
         )*
