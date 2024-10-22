@@ -185,32 +185,12 @@ macro_rules! bind_interrupts {
                 $(
                     $(#[cfg($cond_handler)])?
                     <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+
+                    $(#[cfg($cond_handler)])?
+                    unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
                 )*
             }
-
-            $crate::bind_interrupts!(@__generate_impls $name $(#[cfg($cond_irq)])? $irq => $(
-                $(#[cfg($cond_handler)])?
-                $handler;
-            )*);
         )*
-    };
-
-    (@__generate_single_impl $name:ident $(#[cfg($cond_irq:meta)])? $irq:ident => $(#[cfg($cond_handler:meta)])? $handler:ty;) => {
-        #[cfg(all(
-            $($cond_irq,)?
-            $($cond_handler,)?
-        ))]
-        unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
-    };
-
-    (@__generate_impls $name:ident $(#[cfg($cond_irq:meta)])? $irq:ident => $(#[cfg($cond_handler:meta)])? $handler:ty;) => {
-        $crate::bind_interrupts!(@__generate_single_impl $name $(#[cfg($cond_irq)])? $irq => $(#[cfg($cond_handler)])? $handler;);
-    };
-
-    (@__generate_impls $name:ident $(#[cfg($cond_irq:meta)])? $irq:ident => $(#[cfg($cond_handler:meta)])? $handler:ty; $($(#[cfg($cond_rest:meta)])? $handler_rest:ty;)+) => {
-        $crate::bind_interrupts!(@__generate_single_impl $name $(#[cfg($cond_irq)])? $irq => $(#[cfg($cond_handler)])? $handler;);
-
-        $crate::bind_interrupts!(@__generate_impls $name $(#[cfg($cond_irq)])? $irq => $($(#[cfg($cond_rest)])? $handler_rest;)+);
     };
 }
 
