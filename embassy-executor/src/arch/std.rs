@@ -64,12 +64,26 @@ mod thread {
         }
     }
 
+    /// `Signaler` is used in `__pender()`;
+    ///
+    /// This is only needed when creating a [`raw::Executor`].
+    ///
+    /// # Example
+    /// ```rust
+    /// let signaler = Box::leak(Box::new(Signaler::new()));
+    /// let executor = &*Box::leak(Box::new(Executor::new(signaler)));
+    ///
+    /// executor.spawner().spawn(/* EmbassyTask(Arguments) */).unwrap();
+    ///
+    /// unsafe { executor.poll() };
+    /// ```
     pub struct Signaler {
         mutex: Mutex<bool>,
         condvar: Condvar,
     }
 
     impl Signaler {
+        /// Create a new Signaler.
         pub fn new() -> Self {
             Self {
                 mutex: Mutex::new(false),
