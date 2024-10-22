@@ -207,10 +207,10 @@ macro_rules! bind_interrupts {
         $crate::bind_interrupts!(@__generate_single_impl $name $(#[cfg($cond_irq)])? $irq => $(#[cfg($cond_handler)])? $handler;);
     };
 
-    (@__generate_impls $name:ident $(#[cfg($cond_irq:meta)])? $irq:ident => $(#[cfg($cond_handler:meta)])? $handler:ty; $(tail:tt)*) => {
+    (@__generate_impls $name:ident $(#[cfg($cond_irq:meta)])? $irq:ident => $(#[cfg($cond_handler:meta)])? $handler:ty; $($(#[cfg($cond_rest:meta)])? $handler_rest:ty;)+) => {
         $crate::bind_interrupts!(@__generate_single_impl $name $(#[cfg($cond_irq)])? $irq => $(#[cfg($cond_handler)])? $handler;);
 
-        $crate::bind_interrupts!(@__generate_impls $name $(#[cfg($cond_irq)])? $irq => $(tail)*);
+        $crate::bind_interrupts!(@__generate_impls $name $(#[cfg($cond_irq)])? $irq => $($(#[cfg($cond_rest)])? $handler_rest;)+);
     };
 }
 
