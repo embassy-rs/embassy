@@ -1,82 +1,141 @@
-//! PWM driver with complementary output support.
+//! PWM driver with complementary (negated) output support.
 
-use core::marker::PhantomData;
+use core::array;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use stm32_metapac::timer::vals::Ckd;
 
 use super::low_level::{CountingMode, OutputPolarity, Timer};
-use super::simple_pwm::{Ch1, Ch2, Ch3, Ch4, PwmPin};
+use super::raw::{RawTimer, RawTimerPin};
 use super::{
-    AdvancedInstance4Channel, Channel, Channel1ComplementaryPin, Channel2ComplementaryPin, Channel3ComplementaryPin,
-    Channel4ComplementaryPin,
+    Advanced4ChInstance, Advanced4ChTim, Ch1, Ch1N, Ch2, Ch2N, Ch3, Ch3N, Ch4, Ch4N, Channel, ChannelMarker,
+    NChannelMarker, TimerPin,
 };
-use crate::gpio::{AnyPin, OutputType};
+use crate::gpio::{AfType, OutputType, Speed};
 use crate::time::Hertz;
 use crate::timer::low_level::OutputCompareMode;
 use crate::Peripheral;
 
-/// Complementary PWM pin wrapper.
+/// Builder for [`ComplementaryPwm`].
 ///
-/// This wraps a pin to make it usable with PWM.
-pub struct ComplementaryPwmPin<'d, T, C> {
-    _pin: PeripheralRef<'d, AnyPin>,
-    phantom: PhantomData<(T, C)>,
+/// Create the builder using [`Builder::new()`], then attach output pins using methods on the
+/// builder, and finally build the [`ComplementaryPwm`] driver using one of the `build` methods().
+pub struct Builder<'d, T> {
+    tim: PeripheralRef<'d, T>,
+    channel_pins: [Option<RawTimerPin<'d>>; 4],
+    n_channel_pins: [Option<RawTimerPin<'d>>; 4],
 }
 
-macro_rules! complementary_channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: AdvancedInstance4Channel> ComplementaryPwmPin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, output_type: OutputType) -> Self {
-                into_ref!(pin);
-                critical_section::with(|_| {
-                    pin.set_low();
-                    pin.set_as_af(
-                        pin.af_num(),
-                        crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh),
-                    );
-                });
-                ComplementaryPwmPin {
-                    _pin: pin.map_into(),
-                    phantom: PhantomData,
-                }
+impl<'d, T: Advanced4ChInstance> Builder<'d, T> {
+    /// Create a builder for the PWM driver using timer peripheral `tim`.
+    pub fn new(tim: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(tim);
+        Self {
+            tim,
+            channel_pins: array::from_fn(|_| None),
+            n_channel_pins: array::from_fn(|_| None),
+        }
+    }
+
+    /// Attach an output pin to the PWM driver.
+    ///
+    /// You may use convenience methods [`ch1_pin()`][Self::ch1_pin()] to `ch4_pin()` to aid type
+    /// inference.
+    pub fn pin<C: ChannelMarker>(
+        mut self,
+        pin: impl Peripheral<P = impl TimerPin<T, C>> + 'd,
+        output_type: OutputType,
+    ) -> Self {
+        let pin = RawTimerPin::new(pin, AfType::output(output_type, Speed::VeryHigh));
+        self.channel_pins[C::CHANNEL.index()] = Some(pin);
+        self
+    }
+
+    /// Attach a complementary (negated) output pin to the PWM driver.
+    ///
+    /// You may use convenience methods [`ch1n_pin()`][Self::ch1n_pin()] to `ch4n_pin()` to aid type
+    /// inference.
+    pub fn n_pin<C: NChannelMarker>(
+        mut self,
+        pin: impl Peripheral<P = impl TimerPin<T, C>> + 'd,
+        output_type: OutputType,
+    ) -> Self {
+        let pin = RawTimerPin::new(pin, AfType::output(output_type, Speed::VeryHigh));
+        self.n_channel_pins[C::N_CHANNEL.index()] = Some(pin);
+        self
+    }
+}
+
+#[rustfmt::skip]
+macro_rules! channel_impl {
+    ($chx_pin:ident, $chxn_pin:ident, $channel:ident, $nchannel:ident) => {
+        impl<'d, T: Advanced4ChInstance> Builder<'d, T> {
+            #[doc = concat!(
+                "Attach an output pin for channel ",
+                stringify!($channel),
+                " to the complementary PWM driver.\n\nSee [`pin()`][Self::pin()] for details.",
+            )]
+            pub fn $chx_pin(
+                self,
+                pin: impl Peripheral<P = impl TimerPin<T, $channel>> + 'd,
+                output_type: OutputType,
+            ) -> Self {
+                self.pin::<$channel>(pin, output_type)
+            }
+
+            #[doc = concat!(
+                "Attach a complementary output pin for channel ",
+                stringify!($channel),
+                " to the complementary PWM driver.\n\nSee [`n_pin()`][Self::pin()] for details.",
+            )]
+            pub fn $chxn_pin(
+                self,
+                pin: impl Peripheral<P = impl TimerPin<T, $nchannel>> + 'd,
+                output_type: OutputType,
+            ) -> Self {
+                self.n_pin::<$nchannel>(pin, output_type)
             }
         }
     };
 }
+channel_impl!(ch1_pin, ch1n_pin, Ch1, Ch1N);
+channel_impl!(ch2_pin, ch2n_pin, Ch2, Ch2N);
+channel_impl!(ch3_pin, ch3n_pin, Ch3, Ch3N);
+channel_impl!(ch4_pin, ch4n_pin, Ch4, Ch4N);
 
-complementary_channel_impl!(new_ch1, Ch1, Channel1ComplementaryPin);
-complementary_channel_impl!(new_ch2, Ch2, Channel2ComplementaryPin);
-complementary_channel_impl!(new_ch3, Ch3, Channel3ComplementaryPin);
-complementary_channel_impl!(new_ch4, Ch4, Channel4ComplementaryPin);
-
-/// PWM driver with support for standard and complementary outputs.
-pub struct ComplementaryPwm<'d, T: AdvancedInstance4Channel> {
-    inner: Timer<'d, T>,
+impl<'d, T: Advanced4ChInstance> Builder<'d, T>
+where
+    PeripheralRef<'d, T>: Peripheral<P = T> + 'd,
+{
+    /// Initialize the complementary PWM driver.
+    pub fn build(self, freq: Hertz, counting_mode: CountingMode) -> ComplementaryPwm<'d> {
+        let raw = RawTimer::new_advanced_4ch(self.tim);
+        ComplementaryPwm::new_inner(raw, self.channel_pins, self.n_channel_pins, freq, counting_mode)
+    }
 }
 
-impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
-    /// Create a new complementary PWM driver.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        tim: impl Peripheral<P = T> + 'd,
-        _ch1: Option<PwmPin<'d, T, Ch1>>,
-        _ch1n: Option<ComplementaryPwmPin<'d, T, Ch1>>,
-        _ch2: Option<PwmPin<'d, T, Ch2>>,
-        _ch2n: Option<ComplementaryPwmPin<'d, T, Ch2>>,
-        _ch3: Option<PwmPin<'d, T, Ch3>>,
-        _ch3n: Option<ComplementaryPwmPin<'d, T, Ch3>>,
-        _ch4: Option<PwmPin<'d, T, Ch4>>,
-        _ch4n: Option<ComplementaryPwmPin<'d, T, Ch4>>,
+/// PWM driver with support for standard and complementary (negated) outputs.
+///
+/// Use [`Builder`] to build an instance of this driver.
+pub struct ComplementaryPwm<'d> {
+    inner: Timer<'d, Advanced4ChTim>,
+    _channel_pins: [Option<RawTimerPin<'d>>; 4],
+    _n_channel_pins: [Option<RawTimerPin<'d>>; 4],
+}
+
+impl<'d> ComplementaryPwm<'d> {
+    fn new_inner(
+        raw: RawTimer<'d, Advanced4ChTim>,
+        channel_pins: [Option<RawTimerPin<'d>>; 4],
+        n_channel_pins: [Option<RawTimerPin<'d>>; 4],
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
-        Self::new_inner(tim, freq, counting_mode)
-    }
-
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut this = Self {
+            inner: Timer::new(raw),
+            _channel_pins: channel_pins,
+            _n_channel_pins: n_channel_pins,
+        };
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
@@ -111,7 +170,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Note: when you call this, the max duty value changes, so you will have to
     /// call `set_duty` on all channels with the duty calculated based on the new max duty.
     pub fn set_frequency(&mut self, freq: Hertz) {
-        let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
+        let multiplier = if self.inner.counting_mode().is_center_aligned() {
             2u8
         } else {
             1u8
@@ -122,15 +181,15 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn get_max_duty(&self) -> u16 {
-        self.inner.get_max_compare_value() as u16 + 1
+    pub fn max_duty(&self) -> u16 {
+        self.inner.max_compare_value() as u16 + 1
     }
 
     /// Set the duty for a given channel.
     ///
-    /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
+    /// The value ranges from 0 for 0% duty, to [`max_duty`](Self::max_duty) for 100% duty, both included.
     pub fn set_duty(&mut self, channel: Channel, duty: u16) {
-        assert!(duty <= self.get_max_duty());
+        assert!(duty <= self.max_duty());
         self.inner.set_compare_value(channel, duty as _)
     }
 
@@ -149,7 +208,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     }
 }
 
-impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<'d, T> {
+impl<'d> embedded_hal_02::Pwm for ComplementaryPwm<'d> {
     type Channel = Channel;
     type Time = Hertz;
     type Duty = u16;
@@ -165,15 +224,15 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 
     fn get_period(&self) -> Self::Time {
-        self.inner.get_frequency()
+        self.inner.frequency()
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {
-        self.inner.get_compare_value(channel) as u16
+        self.inner.compare_value(channel) as u16
     }
 
     fn get_max_duty(&self) -> Self::Duty {
-        self.inner.get_max_compare_value() as u16 + 1
+        self.inner.max_compare_value() as u16 + 1
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
