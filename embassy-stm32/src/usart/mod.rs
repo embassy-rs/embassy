@@ -260,6 +260,8 @@ pub enum Error {
     Parity,
     /// Buffer too large for DMA
     BufferTooLong,
+    // TODO: ask what this is and document it (dvdsk)
+    DmaUnsynced,
 }
 
 enum ReadCompletionEvent {
@@ -1689,6 +1691,7 @@ impl embedded_hal_nb::serial::Error for Error {
             Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
             Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
             Self::BufferTooLong => embedded_hal_nb::serial::ErrorKind::Other,
+            Self::DmaUnsynced => embedded_hal_nb::serial::ErrorKind::Other,
         }
     }
 }
