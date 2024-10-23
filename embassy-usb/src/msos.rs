@@ -286,6 +286,18 @@ pub struct DescriptorSetInformation {
     bAltEnumCode: u8,
 }
 
+impl DescriptorSetInformation {
+    /// Creates a MS OS descriptor set information.
+    pub fn new() -> Self {
+        DescriptorSetInformation {
+            dwWindowsVersion: 0,
+            wMSOSDescriptorSetTotalLength: 0,
+            bMS_VendorCode: 0,
+            bAltEnumCode: 0,
+        }
+    }
+}
+
 /// Table 4. Microsoft OS 2.0 platform capability descriptor header.
 #[allow(non_snake_case)]
 #[repr(C, packed(1))]
@@ -296,6 +308,20 @@ pub struct PlatformDescriptor {
     bReserved: u8,
     platformCapabilityUUID: [u8; 16],
     descriptor_set_information: DescriptorSetInformation,
+}
+
+impl PlatformDescriptor {
+    /// Creates a MS OS platform descriptor.
+    pub fn new() -> Self {
+        PlatformDescriptor {
+            bLength: 0,
+            bDescriptorType: 0,
+            bDevCapabilityType: 0,
+            bReserved: 0,
+            platformCapabilityUUID: [0; 16],
+            descriptor_set_information: DescriptorSetInformation::new(),
+        }
+    }
 }
 
 /// Table 10. Microsoft OS 2.0 descriptor set header.
