@@ -179,6 +179,43 @@ pub struct Ospi<'d, T: Instance, M: PeriMode> {
 }
 
 impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
+    pub fn enable_memory_mapped_mode(&mut self) {
+        let reg = T::REGS;
+        while reg.sr().read().busy() {
+            info!("wait ospi busy");
+        }
+    
+        reg.ccr().modify(|r| {
+            r.set_isize(crate::ospi::vals::SizeInBits::_8BIT);
+            r.set_adsize(crate::ospi::vals::SizeInBits::_24BIT);
+            r.set_admode(crate::ospi::vals::PhaseMode::ONELINE);
+            r.set_imode(crate::ospi::vals::PhaseMode::ONELINE);
+            r.set_dmode(crate::ospi::vals::PhaseMode::FOURLINES);
+        });
+    
+        reg.cr().modify(|r| {
+            r.set_fmode(crate::ospi::vals::FunctionalMode::MEMORYMAPPED);
+            r.set_dmaen(false);
+            r.set_en(true);
+        });
+    
+        // reg.tcr().modify(|r| {
+        //     r.set_dcyc(6);
+        // });
+
+    }
+    pub fn disable_memory_mapped_mode(&mut self) {
+        let reg = T::REGS;
+        while reg.sr().read().busy() {
+            info!("wait ospi busy");
+        }
+        reg.cr().modify(|r| {
+            r.set_fmode(crate::ospi::vals::FunctionalMode::INDIRECTWRITE);
+            r.set_dmaen(false);
+            r.set_en(true);
+        });
+    }
+
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
         d0: Option<PeripheralRef<'d, AnyPin>>,
