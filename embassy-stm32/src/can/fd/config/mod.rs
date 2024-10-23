@@ -3,6 +3,11 @@
 
 use core::num::{NonZeroU16, NonZeroU8};
 
+#[cfg(can_fdcan_h7)]
+mod message_ram;
+#[cfg(can_fdcan_h7)]
+pub use message_ram::*;
+
 /// Configures the bit timings.
 ///
 /// You can use <http://www.bittiming.can-wiki.info/> to calculate the `btr` parameter. Enter
@@ -115,20 +120,6 @@ impl Default for DataBitTiming {
             sync_jump_width: NonZeroU8::new(4).unwrap(),
         }
     }
-}
-
-/// Configures which modes to use
-/// Individual headers can contain a desire to be send via FdCan
-/// or use Bit rate switching. But if this general setting does not allow
-/// that, only classic CAN is used instead.
-#[derive(Clone, Copy, Debug)]
-pub enum FrameTransmissionConfig {
-    /// Only allow Classic CAN message Frames
-    ClassicCanOnly,
-    /// Allow (non-brs) FdCAN Message Frames
-    AllowFdCan,
-    /// Allow FdCAN Message Frames and allow Bit Rate Switching
-    AllowFdCanAndBRS,
 }
 
 ///
@@ -314,6 +305,70 @@ impl From<crate::pac::can::vals::Tfqm> for TxBufferMode {
     }
 }
 
+/// Configures which modes to use
+/// Individual headers can contain a desire to be send via FdCan
+/// or use Bit rate switching. But if this general setting does not allow
+/// that, only classic CAN is used instead.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CanFdMode {
+    /// Only allow Classic CAN message Frames.
+    /// Will behave as a Classic CAN node on the bus, will reject
+    /// CAN FD frames.
+    ClassicCanOnly,
+    /// Allow (non-BRS) FdCAN Message Frames.
+    /// This will allow the peripheral to send and receive frames
+    /// with data length up to 64 bytes, but will never perform bit
+    /// rate switching.
+    AllowFdCan,
+    /// Allow FdCAN Message Frames and allow Bit Rate Switching.
+    AllowFdCanAndBRS,
+}
+
+/// Error handling mode for the driver.
+/// Indicates how BusOff errors should be handled.
+#[derive(Clone, Copy, Debug)]
+pub enum ErrorHandlingMode {
+    /// Bus Off conditions will be automatically recovered from.
+    /// This is usually not what you want.
+    ///
+    /// In this mode, if you attempt transmission of a frame it will be
+    /// retried forever. This has implications for both the bus and your code:
+    /// * The bus will be spammed with retries for the frame until it is ACKed
+    /// * If you are waiting on frame transmission, of the Tx buffers are full,
+    ///   your code will block forever.
+    ///
+    /// If there are no other devices on the bus, no ACK will ever occur.
+    Auto,
+    /// Error handling happens at every call site.
+    ///
+    /// If bus off condition occurs while a task is waiting on transmission or
+    /// reception, the error will be returned in that task.
+    ///
+    /// If multiple tasks are waiting for tx/rx, they will all receive the
+    /// error. This should be kept in mind if attempting to recover on the bus,
+    /// but most recovery related functions are indepotent and could be called
+    /// multiple times from several tasks without harm.
+    Local,
+    /// Same as `Local`, but only reception will return errors.
+    ///
+    /// The rationale here is that Tx may be retried at will transparrently when
+    /// the bus has recovered, whereas Rx has the added implication of potential
+    /// missed messages.
+    LocalRx,
+    /// Error handling happens centrally.
+    ///
+    /// If an error condition occurs while a task is waiting on tx or rx, they
+    /// will blocking until transmission succeeds.
+    ///
+    /// You are expected to handle error conditions in a central location by
+    /// calling the dedicated error management functions.
+    ///
+    /// If the error condition is not handled centrally by a task, transmitters and
+    /// receivers will block forever. Make sure you implement an error handling
+    /// task.
+    Central,
+}
+
 /// FdCan Config Struct
 #[derive(Clone, Copy, Debug)]
 pub struct FdCanConfig {
@@ -334,16 +389,6 @@ pub struct FdCanConfig {
     /// "babbling idiot" scenarios where the application program erroneously requests too many
     /// transmissions.
     pub transmit_pause: bool,
-    /// Enabled or disables the pausing between transmissions
-    ///
-    /// This feature looses up burst transmissions coming from a single node and it protects against
-    /// "babbling idiot" scenarios where the application program erroneously requests too many
-    /// transmissions.
-    pub frame_transmit: FrameTransmissionConfig,
-    /// Non Isoe Mode
-    /// If this is set, the FDCAN uses the CAN FD frame format as specified by the Bosch CAN
-    /// FD Specification V1.0.
-    pub non_iso_mode: bool,
     /// Edge Filtering: Two consecutive dominant tq required to detect an edge for hard synchronization
     pub edge_filtering: bool,
     /// Enables protocol exception handling
@@ -356,6 +401,21 @@ pub struct FdCanConfig {
     pub global_filter: GlobalFilter,
     /// TX buffer mode (FIFO or priority queue)
     pub tx_buffer_mode: TxBufferMode,
+
+    /// Error handling mode for the CAN driver
+    pub error_handling_mode: ErrorHandlingMode,
+
+    /// Configures whether the peripheral uses CAN FD as specified by the
+    /// Bosch CAN FD Specification V1.0 or if it is limited to regular classic
+    /// ISO CAN.
+    pub can_fd_mode: CanFdMode,
+
+    /// This peripheral stores TX/RX buffers and more in a memory region called
+    /// Message RAM.
+    ///
+    /// The size of the different buffers are reconfigurable.
+    #[cfg(can_fdcan_h7)]
+    pub message_ram_config: MessageRamConfig,
 }
 
 impl FdCanConfig {
@@ -396,11 +456,12 @@ impl FdCanConfig {
         self
     }
 
-    /// If this is set, the FDCAN uses the CAN FD frame format as specified by the Bosch CAN
-    /// FD Specification V1.0.
+    /// Configures whether the peripheral uses CAN FD as specified by the
+    /// Bosch CAN FD Specification V1.0 or if it is limited to regular classic
+    /// ISO CAN.
     #[inline]
-    pub const fn set_non_iso_mode(mut self, enabled: bool) -> Self {
-        self.non_iso_mode = enabled;
+    pub const fn set_can_fd_mode(mut self, mode: CanFdMode) -> Self {
+        self.can_fd_mode = mode;
         self
     }
 
@@ -408,13 +469,6 @@ impl FdCanConfig {
     #[inline]
     pub const fn set_edge_filtering(mut self, enabled: bool) -> Self {
         self.edge_filtering = enabled;
-        self
-    }
-
-    /// Sets the allowed transmission types for messages.
-    #[inline]
-    pub const fn set_frame_transmit(mut self, fts: FrameTransmissionConfig) -> Self {
-        self.frame_transmit = fts;
         self
     }
 
@@ -452,6 +506,16 @@ impl FdCanConfig {
         self.tx_buffer_mode = txbm;
         self
     }
+
+    /// The FDCAN/M_CAN peripheral uses a RAM region called `message_ram` to
+    /// store data for Rx/Tx and more.
+    /// The layout of this memory region is customizable depending on your needs.
+    #[cfg(can_fdcan_h7)]
+    #[inline]
+    pub const fn set_message_ram_config(mut self, config: MessageRamConfig) -> Self {
+        self.message_ram_config = config;
+        self
+    }
 }
 
 impl Default for FdCanConfig {
@@ -462,14 +526,15 @@ impl Default for FdCanConfig {
             dbtr: DataBitTiming::default(),
             automatic_retransmit: true,
             transmit_pause: false,
-            frame_transmit: FrameTransmissionConfig::ClassicCanOnly,
-            non_iso_mode: false,
             edge_filtering: false,
             protocol_exception_handling: true,
             clock_divider: ClockDivider::_1,
             timestamp_source: TimestampSource::None,
             global_filter: GlobalFilter::default(),
             tx_buffer_mode: TxBufferMode::Priority,
+            error_handling_mode: ErrorHandlingMode::Local,
+            can_fd_mode: CanFdMode::ClassicCanOnly,
+            message_ram_config: MessageRamConfig::default(),
         }
     }
 }
