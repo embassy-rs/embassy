@@ -65,6 +65,9 @@ compile_error!("feature `nfc-pins-as-gpio` is only valid for nRF52, or nRF53's a
 pub(crate) mod fmt;
 pub(crate) mod util;
 
+#[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
+pub mod aar;
+
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 

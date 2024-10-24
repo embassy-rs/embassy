@@ -254,6 +254,8 @@ embassy_hal_internal::peripherals! {
 
     // EGU
     EGU0,
+
+    AAR,
 }
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);
