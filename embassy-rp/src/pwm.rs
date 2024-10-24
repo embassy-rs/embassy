@@ -407,10 +407,6 @@ pub struct PwmBatch(u32);
 
 impl PwmBatch {
     #[inline]
-    pub fn new() -> Self{
-        Self(0)
-    }
-    #[inline]
     /// Enable a PWM slice in this batch.
     pub fn enable(&mut self, pwm: &Pwm<'_>) {
         self.0 |= pwm.bit();
