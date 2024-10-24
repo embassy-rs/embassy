@@ -344,6 +344,73 @@ impl<'d> Pwm<'d> {
     fn bit(&self) -> u32 {
         1 << self.slice as usize
     }
+
+    #[inline]
+    /// Split Pwm driver to allow separate duty cycle control of each channel
+    pub fn split(self) -> (Option<PwmOutput>, Option<PwmOutput>) {
+        
+            let pwm_output_a = if let Some(pin_a) = self.pin_a {
+                Some(PwmOutput::new(PwmChannelPin::A(pin_a), self.slice.clone()))
+            };
+
+            let pwm_output_b = if let Some(pin_b) = self.pin_b {
+                Some(PwmOutput::new(PwmChannelPin::B(pin_b), self.slice.clone()))
+            };
+
+            (pwm_output_a,pwm_output_b)
+    }
+
+}
+
+enum PwmChannelPin<'d> {
+    A(PeripheralRef<'d, AnyPin>),
+    B(PeripheralRef<'d, AnyPin>)
+}
+
+/// Single channel of Pwm driver.
+pub struct PwmOutput<'d> {
+    //pin that can be ether ChannelAPin or ChannelBPin
+    channel_pin: PwmChannelPin<'d> ,
+    slice: usize,
+}
+
+impl <'d> PwmOutput<'d> {
+    fn new(channel_pin: PwmChannelPin<'d>, slice: usize) -> Self {
+        Self { channel_pin ,slice }
+    }
+}
+
+impl ErrorType for PwmOutput {
+    type Error = PwmError;
+}
+
+impl<'d> SetDutyCycle for PwmOutput<'d> {
+    fn max_duty_cycle(&self) -> u16 {
+        pac::PWM.ch(self.slice).top().read().top()
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        let max_duty = self.max_duty_cycle();
+        if duty > max_duty {
+            return Err(PwmError::InvalidDutyCycle);
+        }
+
+        let p = pac::PWM.ch(self.slice);
+        match self.channel_pin {
+            PwmChannelPin::A => {
+                p.cc().modify(|w| {
+                    w.set_a(duty);
+                });
+            }
+            PwmChannelPin::B => {
+                p.cc().modify(|w| {
+                    w.set_b(duty);
+                });
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Batch representation of PWM slices.
