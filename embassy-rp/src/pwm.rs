@@ -347,7 +347,7 @@ impl<'d> Pwm<'d> {
 
     #[inline]
     /// Split Pwm driver to allow separate duty cycle control of each channel
-    pub fn split(self) -> (Option<PwmOutput>, Option<PwmOutput>) {
+    pub fn split(self) -> (Option<PwmOutput<'d>>, Option<PwmOutput<'d>>) {
         
             let pwm_output_a = if let Some(pin_a) = self.pin_a {
                 Some(PwmOutput::new(PwmChannelPin::A(pin_a), self.slice.clone()))
@@ -380,7 +380,7 @@ impl <'d> PwmOutput<'d> {
     }
 }
 
-impl ErrorType for PwmOutput {
+impl<'d> ErrorType for PwmOutput<'d> {
     type Error = PwmError;
 }
 
