@@ -24,8 +24,10 @@ target = "x86_64-unknown-linux-gnu"
 features = ["defmt", "std"]
 
 [features]
+default = ["panic_on_webworker"]
 std = ["tick-hz-1_000_000", "critical-section/std"]
-wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000"]
+wasm = ["dep:wasm-bindgen", "dep:js-sys", "tick-hz-1_000_000"]
+panic_on_webworker = []
 
 ## Display the time since startup next to defmt log messages.
 ## At most 1 `defmt-timestamp-uptime-*` feature can be used.
@@ -426,7 +428,6 @@ document-features = "0.2.7"
 # WASM dependencies
 wasm-bindgen = { version = "0.2.81", optional = true }
 js-sys = { version = "0.3", optional = true }
-wasm-timer = { version = "0.2.5", optional = true }
 
 [dev-dependencies]
 serial_test = "0.9"
