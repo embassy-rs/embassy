@@ -344,6 +344,58 @@ impl<'d> Pwm<'d> {
     fn bit(&self) -> u32 {
         1 << self.slice as usize
     }
+
+    #[inline]
+    /// Split Pwm driver to allow separate duty cycle control of each channel
+    pub fn split(&self) -> (PwmOutput,PwmOutput){
+        (PwmOutput::new(PwmChannel::A,self.slice.clone()),PwmOutput::new(PwmChannel::B,self.slice.clone()))
+    }
+}
+
+enum PwmChannel{
+    A,
+    B
+}
+
+/// Single channel of Pwm driver.
+pub struct PwmOutput {
+    channel: PwmChannel,
+    slice: usize
+}
+
+impl PwmOutput {
+    fn new(channel: PwmChannel,slice: usize) -> Self{
+        Self { channel, slice }
+    }
+}
+
+impl SetDutyCycle for PwmOutput {
+    fn max_duty_cycle(&self) -> u16 {
+        pac::PWM.ch(self.slice).top().read().top()
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        let max_duty = self.max_duty_cycle();
+        if duty > max_duty {
+            return Err(PwmError::InvalidDutyCycle);
+        }
+
+        let p = pac::PWM.ch(self.slice);
+        match self.channel {
+            PwmChannel::A => {
+                p.cc().modify(|w| {
+                    w.set_a(duty);
+                });
+            },
+            PwmChannel::B => {
+                p.cc().modify(|w| {
+                    w.set_b(duty);
+                });
+            },
+        }
+   
+        Ok(())
+    }
 }
 
 /// Batch representation of PWM slices.
