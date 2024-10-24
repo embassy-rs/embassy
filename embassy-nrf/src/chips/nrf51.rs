@@ -102,6 +102,8 @@ embassy_hal_internal::peripherals! {
 
     // Radio
     RADIO,
+
+    AAR,
 }
 
 impl_timer!(TIMER0, TIMER0, TIMER0);

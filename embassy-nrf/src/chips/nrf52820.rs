@@ -141,6 +141,8 @@ embassy_hal_internal::peripherals! {
     EGU3,
     EGU4,
     EGU5,
+
+    AAR,
 }
 
 impl_usb!(USBD, USBD, USBD);
