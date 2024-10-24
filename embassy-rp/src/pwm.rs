@@ -351,10 +351,14 @@ impl<'d> Pwm<'d> {
         
             let pwm_output_a = if let Some(pin_a) = self.pin_a {
                 Some(PwmOutput::new(PwmChannelPin::A(pin_a), self.slice.clone()))
+            }else{
+                None
             };
 
             let pwm_output_b = if let Some(pin_b) = self.pin_b {
                 Some(PwmOutput::new(PwmChannelPin::B(pin_b), self.slice.clone()))
+            }else {
+                None
             };
 
             (pwm_output_a,pwm_output_b)
@@ -397,12 +401,12 @@ impl<'d> SetDutyCycle for PwmOutput<'d> {
 
         let p = pac::PWM.ch(self.slice);
         match self.channel_pin {
-            PwmChannelPin::A => {
+            PwmChannelPin::A(_) => {
                 p.cc().modify(|w| {
                     w.set_a(duty);
                 });
             }
-            PwmChannelPin::B => {
+            PwmChannelPin::B(_) => {
                 p.cc().modify(|w| {
                     w.set_b(duty);
                 });
