@@ -369,6 +369,10 @@ impl PwmOutput {
     }
 }
 
+impl ErrorType for PwmOutput {
+    type Error = PwmError;
+}
+
 impl SetDutyCycle for PwmOutput {
     fn max_duty_cycle(&self) -> u16 {
         pac::PWM.ch(self.slice).top().read().top()
