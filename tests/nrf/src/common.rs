@@ -52,51 +52,66 @@ define_peris!(PIN_A = P0_13, PIN_B = P0_14,);
 #[cfg(feature = "nrf52832")]
 define_peris!(
     PIN_A = P0_11, PIN_B = P0_12,
+    PIN_X = P0_13,
     UART0 = UARTE0,
+    SPIM0 = TWISPI0,
     @irq UART0 = {UARTE0_UART0 => uarte::InterruptHandler<peripherals::UARTE0>;},
     @irq UART0_BUFFERED = {UARTE0_UART0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;},
+    @irq SPIM0 = {SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => spim::InterruptHandler<peripherals::TWISPI0>;},
 );
 
 #[cfg(feature = "nrf52833")]
 define_peris!(
     PIN_A = P1_01, PIN_B = P1_02,
+    PIN_X = P1_03,
     UART0 = UARTE0,
     UART1 = UARTE1,
+    SPIM0 = TWISPI0,
     @irq UART0 = {UARTE0_UART0 => uarte::InterruptHandler<peripherals::UARTE0>;},
     @irq UART1 = {UARTE1 => uarte::InterruptHandler<peripherals::UARTE1>;},
     @irq UART0_BUFFERED = {UARTE0_UART0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;},
     @irq UART1_BUFFERED = {UARTE1 => buffered_uarte::InterruptHandler<peripherals::UARTE1>;},
+    @irq SPIM0 = {SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => spim::InterruptHandler<peripherals::TWISPI0>;},
 );
 
 #[cfg(feature = "nrf52840")]
 define_peris!(
     PIN_A = P1_02, PIN_B = P1_03,
+    PIN_X = P1_04,
     UART0 = UARTE0,
     UART1 = UARTE1,
+    SPIM0 = TWISPI0,
     @irq UART0 = {UARTE0_UART0 => uarte::InterruptHandler<peripherals::UARTE0>;},
     @irq UART1 = {UARTE1 => uarte::InterruptHandler<peripherals::UARTE1>;},
     @irq UART0_BUFFERED = {UARTE0_UART0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;},
     @irq UART1_BUFFERED = {UARTE1 => buffered_uarte::InterruptHandler<peripherals::UARTE1>;},
+    @irq SPIM0 = {SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => spim::InterruptHandler<peripherals::TWISPI0>;},
 );
 
 #[cfg(feature = "nrf5340")]
 define_peris!(
     PIN_A = P1_08, PIN_B = P1_09,
+    PIN_X = P1_10,
     UART0 = SERIAL0,
     UART1 = SERIAL1,
+    SPIM0 = SERIAL0,
     @irq UART0 = {SERIAL0 => uarte::InterruptHandler<peripherals::SERIAL0>;},
     @irq UART1 = {SERIAL1 => uarte::InterruptHandler<peripherals::SERIAL1>;},
     @irq UART0_BUFFERED = {SERIAL0 => buffered_uarte::InterruptHandler<peripherals::SERIAL0>;},
     @irq UART1_BUFFERED = {SERIAL1 => buffered_uarte::InterruptHandler<peripherals::SERIAL1>;},
+    @irq SPIM0 = {SERIAL0 => spim::InterruptHandler<peripherals::SERIAL0>;},
 );
 
 #[cfg(feature = "nrf9160")]
 define_peris!(
     PIN_A = P0_00, PIN_B = P0_01,
+    PIN_X = P0_02,
     UART0 = SERIAL0,
     UART1 = SERIAL1,
+    SPIM0 = SERIAL0,
     @irq UART0 = {UARTE0_SPIM0_SPIS0_TWIM0_TWIS0 => uarte::InterruptHandler<peripherals::SERIAL0>;},
     @irq UART1 = {UARTE1_SPIM1_SPIS1_TWIM1_TWIS1 => uarte::InterruptHandler<peripherals::SERIAL1>;},
     @irq UART0_BUFFERED = {UARTE0_SPIM0_SPIS0_TWIM0_TWIS0 => buffered_uarte::InterruptHandler<peripherals::SERIAL0>;},
     @irq UART1_BUFFERED = {UARTE1_SPIM1_SPIS1_TWIM1_TWIS1 => buffered_uarte::InterruptHandler<peripherals::SERIAL1>;},
+    @irq SPIM0 = {UARTE0_SPIM0_SPIS0_TWIM0_TWIS0 => spim::InterruptHandler<peripherals::SERIAL0>;},
 );

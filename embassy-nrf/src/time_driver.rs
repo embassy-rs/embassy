@@ -10,8 +10,8 @@ use embassy_time_driver::{AlarmHandle, Driver};
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
-fn rtc() -> &'static pac::rtc0::RegisterBlock {
-    unsafe { &*pac::RTC1::ptr() }
+fn rtc() -> pac::rtc::Rtc {
+    pac::RTC1
 }
 
 /// Calculate the timestamp from the period count and the tick count.
@@ -128,19 +128,18 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 impl RtcDriver {
     fn init(&'static self, irq_prio: crate::interrupt::Priority) {
         let r = rtc();
-        r.cc[3].write(|w| unsafe { w.bits(0x800000) });
+        r.cc(3).write(|w| w.set_compare(0x800000));
 
-        r.intenset.write(|w| {
-            let w = w.ovrflw().set();
-            let w = w.compare3().set();
-            w
+        r.intenset().write(|w| {
+            w.set_ovrflw(true);
+            w.set_compare3(true);
         });
 
-        r.tasks_clear.write(|w| unsafe { w.bits(1) });
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
+        r.tasks_clear().write_value(1);
+        r.tasks_start().write_value(1);
 
         // Wait for clear
-        while r.counter.read().bits() != 0 {}
+        while r.counter().read().0 != 0 {}
 
         interrupt::RTC1.set_priority(irq_prio);
         unsafe { interrupt::RTC1.enable() };
@@ -148,19 +147,19 @@ impl RtcDriver {
 
     fn on_interrupt(&self) {
         let r = rtc();
-        if r.events_ovrflw.read().bits() == 1 {
-            r.events_ovrflw.write(|w| w);
+        if r.events_ovrflw().read() == 1 {
+            r.events_ovrflw().write_value(0);
             self.next_period();
         }
 
-        if r.events_compare[3].read().bits() == 1 {
-            r.events_compare[3].write(|w| w);
+        if r.events_compare(3).read() == 1 {
+            r.events_compare(3).write_value(0);
             self.next_period();
         }
 
         for n in 0..ALARM_COUNT {
-            if r.events_compare[n].read().bits() == 1 {
-                r.events_compare[n].write(|w| w);
+            if r.events_compare(n).read() == 1 {
+                r.events_compare(n).write_value(0);
                 critical_section::with(|cs| {
                     self.trigger_alarm(n, cs);
                 })
@@ -181,7 +180,7 @@ impl RtcDriver {
 
                 if at < t + 0xc00000 {
                     // just enable it. `set_alarm` has already set the correct CC val.
-                    r.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
+                    r.intenset().write(|w| w.0 = compare_n(n));
                 }
             }
         })
@@ -195,7 +194,7 @@ impl RtcDriver {
 
     fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
         let r = rtc();
-        r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+        r.intenclr().write(|w| w.0 = compare_n(n));
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -215,7 +214,7 @@ impl Driver for RtcDriver {
         // `period` MUST be read before `counter`, see comment at the top for details.
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
-        let counter = rtc().counter.read().bits();
+        let counter = rtc().counter().read().0;
         calc_now(period, counter)
     }
 
@@ -252,7 +251,7 @@ impl Driver for RtcDriver {
             if timestamp <= t {
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+                r.intenclr().write(|w| w.0 = compare_n(n));
 
                 alarm.timestamp.set(u64::MAX);
 
@@ -277,15 +276,15 @@ impl Driver for RtcDriver {
             // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
             // and we don't do that here.
             let safe_timestamp = timestamp.max(t + 3);
-            r.cc[n].write(|w| unsafe { w.bits(safe_timestamp as u32 & 0xFFFFFF) });
+            r.cc(n).write(|w| w.set_compare(safe_timestamp as u32 & 0xFFFFFF));
 
             let diff = timestamp - t;
             if diff < 0xc00000 {
-                r.intenset.write(|w| unsafe { w.bits(compare_n(n)) });
+                r.intenset().write(|w| w.0 = compare_n(n));
             } else {
                 // If it's too far in the future, don't setup the compare channel yet.
                 // It will be setup later by `next_period`.
-                r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+                r.intenclr().write(|w| w.0 = compare_n(n));
             }
 
             true

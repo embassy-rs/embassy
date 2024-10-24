@@ -14,7 +14,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, pac, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -26,7 +26,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
 
         // Clear the event.
-        r.events_valrdy.reset();
+        r.events_valrdy().write_value(0);
 
         // Mutate the slice within a critical section,
         // so that the future isn't dropped in between us loading the pointer and actually dereferencing it.
@@ -40,7 +40,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 // The safety contract of `Rng::new` means that the future can't have been dropped
                 // without calling its destructor.
                 unsafe {
-                    *state.ptr = r.value.read().value().bits();
+                    *state.ptr = r.value().read().value();
                     state.ptr = state.ptr.add(1);
                 }
 
@@ -84,19 +84,19 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 
     fn stop(&self) {
-        T::regs().tasks_stop.write(|w| unsafe { w.bits(1) })
+        T::regs().tasks_stop().write_value(1)
     }
 
     fn start(&self) {
-        T::regs().tasks_start.write(|w| unsafe { w.bits(1) })
+        T::regs().tasks_start().write_value(1)
     }
 
     fn enable_irq(&self) {
-        T::regs().intenset.write(|w| w.valrdy().set());
+        T::regs().intenset().write(|w| w.set_valrdy(true));
     }
 
     fn disable_irq(&self) {
-        T::regs().intenclr.write(|w| w.valrdy().clear());
+        T::regs().intenclr().write(|w| w.set_valrdy(true));
     }
 
     /// Enable or disable the RNG's bias correction.
@@ -106,7 +106,7 @@ impl<'d, T: Instance> Rng<'d, T> {
     ///
     /// Defaults to disabled.
     pub fn set_bias_correction(&self, enable: bool) {
-        T::regs().config.write(|w| w.dercen().bit(enable))
+        T::regs().config().write(|w| w.set_dercen(enable))
     }
 
     /// Fill the buffer with random bytes.
@@ -162,9 +162,9 @@ impl<'d, T: Instance> Rng<'d, T> {
 
         for byte in dest.iter_mut() {
             let regs = T::regs();
-            while regs.events_valrdy.read().bits() == 0 {}
-            regs.events_valrdy.reset();
-            *byte = regs.value.read().value().bits();
+            while regs.events_valrdy().read() == 0 {}
+            regs.events_valrdy().write_value(0);
+            *byte = regs.value().read().value();
         }
 
         self.stop();
@@ -244,7 +244,7 @@ impl InnerState {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static crate::pac::rng::RegisterBlock;
+    fn regs() -> pac::rng::Rng;
     fn state() -> &'static State;
 }
 
@@ -258,8 +258,8 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
 macro_rules! impl_rng {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::rng::SealedInstance for peripherals::$type {
-            fn regs() -> &'static crate::pac::rng::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> crate::pac::rng::Rng {
+                pac::$pac_type
             }
             fn state() -> &'static crate::rng::State {
                 static STATE: crate::rng::State = crate::rng::State::new();

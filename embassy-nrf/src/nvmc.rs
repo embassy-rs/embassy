@@ -7,6 +7,7 @@ use embedded_storage::nor_flash::{
     ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
 };
 
+use crate::pac::nvmc::vals;
 use crate::peripherals::NVMC;
 use crate::{pac, Peripheral};
 
@@ -51,13 +52,13 @@ impl<'d> Nvmc<'d> {
         Self { _p }
     }
 
-    fn regs() -> &'static pac::nvmc::RegisterBlock {
-        unsafe { &*pac::NVMC::ptr() }
+    fn regs() -> pac::nvmc::Nvmc {
+        pac::NVMC
     }
 
     fn wait_ready(&mut self) {
         let p = Self::regs();
-        while p.ready.read().ready().is_busy() {}
+        while !p.ready().read().ready() {}
     }
 
     #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340")))]
@@ -68,12 +69,12 @@ impl<'d> Nvmc<'d> {
     #[cfg(any(feature = "_nrf91", feature = "_nrf5340"))]
     fn wait_ready_write(&mut self) {
         let p = Self::regs();
-        while p.readynext.read().readynext().is_busy() {}
+        while !p.readynext().read().readynext() {}
     }
 
     #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340")))]
     fn erase_page(&mut self, page_addr: u32) {
-        Self::regs().erasepage().write(|w| unsafe { w.bits(page_addr) });
+        Self::regs().erasepage().write_value(page_addr);
     }
 
     #[cfg(any(feature = "_nrf91", feature = "_nrf5340"))]
@@ -86,23 +87,23 @@ impl<'d> Nvmc<'d> {
 
     fn enable_erase(&self) {
         #[cfg(not(feature = "_ns"))]
-        Self::regs().config.write(|w| w.wen().een());
+        Self::regs().config().write(|w| w.set_wen(vals::Wen::EEN));
         #[cfg(feature = "_ns")]
-        Self::regs().configns.write(|w| w.wen().een());
+        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::EEN));
     }
 
     fn enable_read(&self) {
         #[cfg(not(feature = "_ns"))]
-        Self::regs().config.write(|w| w.wen().ren());
+        Self::regs().config().write(|w| w.set_wen(vals::Wen::REN));
         #[cfg(feature = "_ns")]
-        Self::regs().configns.write(|w| w.wen().ren());
+        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::REN));
     }
 
     fn enable_write(&self) {
         #[cfg(not(feature = "_ns"))]
-        Self::regs().config.write(|w| w.wen().wen());
+        Self::regs().config().write(|w| w.set_wen(vals::Wen::WEN));
         #[cfg(feature = "_ns")]
-        Self::regs().configns.write(|w| w.wen().wen());
+        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::WEN));
     }
 }
 

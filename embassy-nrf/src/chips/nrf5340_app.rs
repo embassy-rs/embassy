@@ -5,16 +5,17 @@ pub mod pac {
     // The nRF5340 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
 
-    pub use nrf5340_app_pac::NVIC_PRIO_BITS;
+    #[cfg(feature="rt")]
+    pub use nrf_pac::NVIC_PRIO_BITS;
+    pub use nrf_pac::{common, shared};
 
     #[cfg(feature="rt")]
     #[doc(no_inline)]
-    pub use nrf5340_app_pac::interrupt;
+    pub use nrf_pac::interrupt;
 
     #[doc(no_inline)]
-    pub use nrf5340_app_pac::{
+    pub use nrf_pac::{
         Interrupt,
-        Peripherals,
 
         cache_s as cache,
         cachedata_s as cachedata,
@@ -26,11 +27,11 @@ pub mod pac {
         ctrlap_ns as ctrlap,
         dcnf_ns as dcnf,
         dppic_ns as dppic,
-        egu0_ns as egu0,
+        egu_ns as egu,
         ficr_s as ficr,
         fpu_ns as fpu,
-        gpiote0_s as gpiote,
-        i2s0_ns as i2s0,
+        gpiote_s as gpiote,
+        i2s_ns as i2s,
         ipc_ns as ipc,
         kmu_ns as kmu,
         lpcomp_ns as lpcomp,
@@ -38,36 +39,36 @@ pub mod pac {
         nfct_ns as nfct,
         nvmc_ns as nvmc,
         oscillators_ns as oscillators,
-        p0_ns as p0,
-        pdm0_ns as pdm,
+        gpio_ns as gpio,
+        pdm_ns as pdm,
         power_ns as power,
-        pwm0_ns as pwm0,
-        qdec0_ns as qdec,
+        pwm_ns as pwm,
+        qdec_ns as qdec,
         qspi_ns as qspi,
         regulators_ns as regulators,
         reset_ns as reset,
-        rtc0_ns as rtc0,
+        rtc_ns as rtc,
         saadc_ns as saadc,
-        spim0_ns as spim0,
-        spis0_ns as spis0,
+        spim_ns as spim,
+        spis_ns as spis,
         spu_s as spu,
         tad_s as tad,
-        timer0_ns as timer0,
-        twim0_ns as twim0,
-        twis0_ns as twis0,
-        uarte0_ns as uarte0,
+        timer_ns as timer,
+        twim_ns as twim,
+        twis_ns as twis,
+        uarte_ns as uarte,
         uicr_s as uicr,
         usbd_ns as usbd,
         usbregulator_ns as usbregulator,
         vmc_ns as vmc,
-        wdt0_ns as wdt0,
+        wdt_ns as wdt,
     };
     
     /// Non-Secure mode (NS) peripherals
     pub mod ns {
         #[cfg(feature = "nrf5340-app-ns")]
         #[doc(no_inline)]
-        pub use nrf5340_app_pac::{
+        pub use nrf_pac::{
             CLOCK_NS as CLOCK,
             COMP_NS as COMP,
             CTRLAP_NS as CTRLAP,
@@ -141,7 +142,7 @@ pub mod pac {
     pub mod s {
         #[cfg(feature = "nrf5340-app-s")]
         #[doc(no_inline)]
-        pub use nrf5340_app_pac::{
+        pub use nrf_pac::{
             CACHEDATA_S as CACHEDATA,
             CACHEINFO_S as CACHEINFO,
             CACHE_S as CACHE,
