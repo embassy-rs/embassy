@@ -10,7 +10,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     let mut led = Output::new(p.PB14, Level::Low, Speed::VeryHigh);
-    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up);
+    let mut button = ExtiInput::new(p.PC13, p.EXTI15_10, Pull::Up);
 
     loop {
         button.wait_for_any_edge().await;
