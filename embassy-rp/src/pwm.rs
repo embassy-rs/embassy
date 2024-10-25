@@ -347,40 +347,84 @@ impl<'d> Pwm<'d> {
 
     #[inline]
     /// Split Pwm driver to allow separate duty cycle control of each channel
-    pub fn split(self) -> (Option<PwmOutput>, Option<PwmOutput>) {
-        
-            let pwm_output_a = if let Some(pin_a) = self.pin_a {
-                Some(PwmOutput::new(PwmChannelPin::A(pin_a), self.slice.clone()))
-            };
-
-            let pwm_output_b = if let Some(pin_b) = self.pin_b {
-                Some(PwmOutput::new(PwmChannelPin::B(pin_b), self.slice.clone()))
-            };
-
-            (pwm_output_a,pwm_output_b)
+    pub fn split(mut self) -> (Option<PwmOutput<'d>>, Option<PwmOutput<'d>>) {
+        (
+            self.pin_a
+                .take()
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin), self.slice.clone(), true)),
+            self.pin_b
+                .take()
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin), self.slice.clone(), true)),
+        )
     }
 
+    pub fn split_by_ref(&mut self) -> (Option<PwmOutput<'_>>, Option<PwmOutput<'_>>) {
+        (
+            self.pin_a
+                .as_mut()
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin.reborrow()), self.slice.clone(), false)),
+            self.pin_b
+                .as_mut()
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin.reborrow()), self.slice.clone(), false)),
+        )
+    }
 }
 
 enum PwmChannelPin<'d> {
     A(PeripheralRef<'d, AnyPin>),
-    B(PeripheralRef<'d, AnyPin>)
+    B(PeripheralRef<'d, AnyPin>),
 }
 
 /// Single channel of Pwm driver.
 pub struct PwmOutput<'d> {
     //pin that can be ether ChannelAPin or ChannelBPin
-    channel_pin: PwmChannelPin<'d> ,
+    channel_pin: PwmChannelPin<'d>,
     slice: usize,
+    is_owned: bool,
 }
 
-impl <'d> PwmOutput<'d> {
-    fn new(channel_pin: PwmChannelPin<'d>, slice: usize) -> Self {
-        Self { channel_pin ,slice }
+impl<'d> PwmOutput<'d> {
+    fn new(channel_pin: PwmChannelPin<'d>, slice: usize, is_owned: bool) -> Self {
+        Self {
+            channel_pin,
+            slice,
+            is_owned,
+        }
     }
 }
 
-impl ErrorType for PwmOutput {
+impl<'d> Drop for PwmOutput<'d> {
+    fn drop(&mut self) {
+        if self.is_owned {
+            let p = pac::PWM.ch(self.slice);
+            match &self.channel_pin {
+                PwmChannelPin::A(pin) => {
+                    p.cc().modify(|w| {
+                        w.set_a(0);
+                    });
+
+                    pin.gpio().ctrl().write(|w| w.set_funcsel(31));
+                    ///Enable pin PULL-DOWN
+                    pin.pad_ctrl().modify(|w| {
+                        w.set_pde(true);
+                    });
+                }
+                PwmChannelPin::B(pin) => {
+                    p.cc().modify(|w| {
+                        w.set_b(0);
+                    });
+                    pin.gpio().ctrl().write(|w| w.set_funcsel(31));
+                    ///Enable pin PULL-DOWN
+                    pin.pad_ctrl().modify(|w| {
+                        w.set_pde(true);
+                    });
+                }
+            }
+        }
+    }
+}
+
+impl<'d> ErrorType for PwmOutput<'d> {
     type Error = PwmError;
 }
 
@@ -397,12 +441,12 @@ impl<'d> SetDutyCycle for PwmOutput<'d> {
 
         let p = pac::PWM.ch(self.slice);
         match self.channel_pin {
-            PwmChannelPin::A => {
+            PwmChannelPin::A(_) => {
                 p.cc().modify(|w| {
                     w.set_a(duty);
                 });
             }
-            PwmChannelPin::B => {
+            PwmChannelPin::B(_) => {
                 p.cc().modify(|w| {
                     w.set_b(duty);
                 });
