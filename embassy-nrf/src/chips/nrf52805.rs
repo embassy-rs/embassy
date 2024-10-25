@@ -138,6 +138,7 @@ embassy_hal_internal::peripherals! {
     EGU1,
 
     AAR,
+    ECB,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);

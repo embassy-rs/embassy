@@ -104,6 +104,7 @@ embassy_hal_internal::peripherals! {
     RADIO,
 
     AAR,
+    ECB,
 }
 
 impl_timer!(TIMER0, TIMER0, TIMER0);

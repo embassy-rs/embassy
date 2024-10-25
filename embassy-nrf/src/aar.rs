@@ -7,7 +7,7 @@ use crate::peripherals::AAR;
 /// AAR (Accelerated Address Resolver)
 ///
 /// Note: This peripheral is current unimplemented!
-/// TODO: AAR shares resources with CCM
+/// TODO: AAR shares resources with CCM and ECB
 pub struct Aar<'d> {
     _p: PeripheralRef<'d, AAR>,
 }

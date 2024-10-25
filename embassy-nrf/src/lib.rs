@@ -67,6 +67,8 @@ pub(crate) mod util;
 
 #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
 pub mod aar;
+#[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
+pub mod ecb;
 
 #[cfg(feature = "_time-driver")]
 mod time_driver;

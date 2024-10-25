@@ -155,6 +155,7 @@ embassy_hal_internal::peripherals! {
     RADIO,
 
     AAR,
+    ECB,
 
     // EGU
     EGU0,
