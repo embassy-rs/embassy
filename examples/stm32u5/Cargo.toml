@@ -21,6 +21,8 @@ cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
+embedded-graphics = { version = "0.8.1" }
+tinybmp = { version = "0.6.0" }
 
 micromath = "2.0.0"
 
