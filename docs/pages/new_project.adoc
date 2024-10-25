@@ -84,7 +84,7 @@ embassy-executor = { version = "0.6.1", features = ["nightly", "arch-cortex-m", 
 embassy-time = { version = "0.3.2", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 ----
 
-Prior embassy needed to be installed straight from the git repository. This can is still useful, if you want to checkout a specic revision of an embassy crate which is not yet published.
+Prior, embassy needed to be installed straight from the git repository. Installing from git is still useful, if you want to checkout a specic revision of an embassy crate which is not yet published.
 The recommended way of doing so is as follows:
 
 * Copy the required `embassy-*` lines from the example `Cargo.toml`
