@@ -345,8 +345,8 @@ impl<'d> Pwm<'d> {
         1 << self.slice as usize
     }
 
+    /// Splits the PWM driver into separate `PwmOutput` instances for channels A and B.
     #[inline]
-    /// Split Pwm driver to allow separate duty cycle control of each channel
     pub fn split(mut self) -> (Option<PwmOutput<'d>>, Option<PwmOutput<'d>>) {
         (
             self.pin_a
@@ -357,7 +357,9 @@ impl<'d> Pwm<'d> {
                 .map(|pin| PwmOutput::new(PwmChannelPin::B(pin), self.slice.clone(), true)),
         )
     }
-
+    /// Splits the PWM driver by reference to allow for separate duty cycle control
+    /// of each channel (A and B) without taking ownership of the PWM instance.
+    #[inline]
     pub fn split_by_ref(&mut self) -> (Option<PwmOutput<'_>>, Option<PwmOutput<'_>>) {
         (
             self.pin_a
@@ -404,7 +406,7 @@ impl<'d> Drop for PwmOutput<'d> {
                     });
 
                     pin.gpio().ctrl().write(|w| w.set_funcsel(31));
-                    ///Enable pin PULL-DOWN
+                    //Enable pin PULL-DOWN
                     pin.pad_ctrl().modify(|w| {
                         w.set_pde(true);
                     });
@@ -414,7 +416,7 @@ impl<'d> Drop for PwmOutput<'d> {
                         w.set_b(0);
                     });
                     pin.gpio().ctrl().write(|w| w.set_funcsel(31));
-                    ///Enable pin PULL-DOWN
+                    //Enable pin PULL-DOWN
                     pin.pad_ctrl().modify(|w| {
                         w.set_pde(true);
                     });
