@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
         free_running_clock: false,
         clock_mode: false,
         wrap_size: WrapSize::None,
-        clock_prescaler: 2,
+        clock_prescaler: 4,
         sample_shifting: true,
         delay_hold_quarter_cycle: false,
         chip_select_boundary: 0,
@@ -94,8 +94,8 @@ async fn main(_spawner: Spawner) {
     flash.read_memory(0, &mut rd_buf, true);
     info!("WRITE BUF: {=[u8]:#X}", wr_buf);
     info!("READ BUF: {=[u8]:#X}", rd_buf);
-    info!("Enabling memory mapped mode");
     flash.enable_mm().await;
+    info!("Enabled memory mapped mode");
 
     let first_u32 = unsafe { *(0x90000000 as *const u32) };
     assert_eq!(first_u32, 0x03020100);
@@ -121,7 +121,6 @@ const CMD_QUAD_READ: u8 = 0x6B;
 const CMD_QUAD_WRITE_PG: u8 = 0x32;
 
 const CMD_READ_ID: u8 = 0x9F;
-const CMD_READ_UUID: u8 = 0x4B;
 
 const CMD_ENABLE_RESET: u8 = 0x66;
 const CMD_RESET: u8 = 0x99;
