@@ -260,8 +260,6 @@ pub enum Error {
     Parity,
     /// Buffer too large for DMA
     BufferTooLong,
-    // TODO: ask what this is and document it (dvdsk)
-    DmaUnsynced,
 }
 
 enum ReadCompletionEvent {

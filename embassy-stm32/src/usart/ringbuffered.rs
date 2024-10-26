@@ -268,7 +268,14 @@ impl ReadReady for RingBufferedUartRx<'_> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
         let len = self.ring_buf.len().map_err(|e| match e {
             crate::dma::ringbuffer::Error::Overrun => Self::Error::Overrun,
-            crate::dma::ringbuffer::Error::DmaUnsynced => Self::Error::DmaUnsynced,
+            crate::dma::ringbuffer::Error::DmaUnsynced => {
+                error!(
+                    "Ringbuffer error: DmaUNsynced, driver implementation is 
+                    probably bugged please open an issue"
+                );
+                // we report this as overrun since its recoverable in the same way
+                Self::Error::Overrun
+            }
         })?;
         Ok(len > 0)
     }
