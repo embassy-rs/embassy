@@ -4,18 +4,17 @@
 // Tested on weact stm32h7b0 board + w25q64 spi flash
 
 use defmt::info;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::{
-    gpio::{Level, Output, Speed},
-    mode::Blocking,
-    ospi::{AddressSize, DummyCycles, Instance, Ospi, OspiWidth, TransferConfig},
-    ospi::{ChipSelectHighTime, FIFOThresholdLevel, MemorySize, MemoryType, WrapSize},
-    time::Hertz,
-    Config,
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::mode::Blocking;
+use embassy_stm32::ospi::{
+    AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, Instance, MemorySize, MemoryType, Ospi,
+    OspiWidth, TransferConfig, WrapSize,
 };
+use embassy_stm32::time::Hertz;
+use embassy_stm32::Config;
 use embassy_time::Timer;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
