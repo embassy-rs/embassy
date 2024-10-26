@@ -180,7 +180,7 @@ pub struct Ospi<'d, T: Instance, M: PeriMode> {
 
 impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     /// Enter memory mode.
-    /// The Input `TransferConfig` is used to configure the read operation in memory mode
+    /// The Input `read_config` is used to configure the read operation in memory mode
     pub fn enable_memory_mapped_mode(
         &mut self,
         read_config: TransferConfig,
@@ -190,9 +190,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         self.configure_command(&read_config, None)?;
 
         let reg = T::REGS;
-        while reg.sr().read().busy() {
-            info!("wait ospi busy");
-        }
+        while reg.sr().read().busy() {}
 
         reg.ccr().modify(|r| {
             r.set_dqse(false);
@@ -229,9 +227,6 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     /// Quit from memory mapped mode
     pub fn disable_memory_mapped_mode(&mut self) {
         let reg = T::REGS;
-        while reg.sr().read().busy() {
-            info!("wait ospi busy");
-        }
 
         reg.cr().modify(|r| {
             r.set_fmode(crate::ospi::vals::FunctionalMode::INDIRECTWRITE);
