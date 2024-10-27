@@ -179,6 +179,71 @@ pub struct Ospi<'d, T: Instance, M: PeriMode> {
 }
 
 impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
+    /// Enter memory mode.
+    /// The Input `read_config` is used to configure the read operation in memory mode
+    pub fn enable_memory_mapped_mode(
+        &mut self,
+        read_config: TransferConfig,
+        write_config: TransferConfig,
+    ) -> Result<(), OspiError> {
+        // Use configure command to set read config
+        self.configure_command(&read_config, None)?;
+
+        let reg = T::REGS;
+        while reg.sr().read().busy() {}
+
+        reg.ccr().modify(|r| {
+            r.set_dqse(false);
+            r.set_sioo(true);
+        });
+
+        // Set wrting configurations, there are separate registers for write configurations in memory mapped mode
+        reg.wccr().modify(|w| {
+            w.set_imode(PhaseMode::from_bits(write_config.iwidth.into()));
+            w.set_idtr(write_config.idtr);
+            w.set_isize(SizeInBits::from_bits(write_config.isize.into()));
+
+            w.set_admode(PhaseMode::from_bits(write_config.adwidth.into()));
+            w.set_addtr(write_config.idtr);
+            w.set_adsize(SizeInBits::from_bits(write_config.adsize.into()));
+
+            w.set_dmode(PhaseMode::from_bits(write_config.dwidth.into()));
+            w.set_ddtr(write_config.ddtr);
+
+            w.set_abmode(PhaseMode::from_bits(write_config.abwidth.into()));
+            w.set_dqse(true);
+        });
+
+        reg.wtcr().modify(|w| w.set_dcyc(write_config.dummy.into()));
+
+        // Enable memory mapped mode
+        reg.cr().modify(|r| {
+            r.set_fmode(crate::ospi::vals::FunctionalMode::MEMORYMAPPED);
+            r.set_tcen(false);
+        });
+        Ok(())
+    }
+
+    /// Quit from memory mapped mode
+    pub fn disable_memory_mapped_mode(&mut self) {
+        let reg = T::REGS;
+
+        reg.cr().modify(|r| {
+            r.set_fmode(crate::ospi::vals::FunctionalMode::INDIRECTWRITE);
+            r.set_abort(true);
+            r.set_dmaen(false);
+            r.set_en(false);
+        });
+
+        // Clear transfer complete flag
+        reg.fcr().write(|w| w.set_ctcf(true));
+
+        // Re-enable ospi
+        reg.cr().modify(|r| {
+            r.set_en(true);
+        });
+    }
+
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
         d0: Option<PeripheralRef<'d, AnyPin>>,
