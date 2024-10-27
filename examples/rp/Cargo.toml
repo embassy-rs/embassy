@@ -37,10 +37,10 @@ cortex-m = { version = "0.7.6", features = ["inline-asm"] }
 cortex-m-rt = "0.7.0"
 critical-section = "1.1"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-display-interface-spi = "0.4.1"
-embedded-graphics = "0.7.1"
-st7789 = "0.6.1"
-display-interface = "0.4.1"
+display-interface-spi = "0.5.0"
+embedded-graphics = "0.8.1"
+mipidsi = "0.8.0"
+display-interface = "0.5.0"
 byte-slice-cast = { version = "1.2.0", default-features = false }
 smart-leds = "0.4.0"
 heapless = "0.8"
