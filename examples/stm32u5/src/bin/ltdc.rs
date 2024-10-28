@@ -316,9 +316,8 @@ impl OriginDimensions for DoubleBuffer {
 
 mod rcc_setup {
 
-    use embassy_stm32::rcc;
     use embassy_stm32::time::Hertz;
-    use embassy_stm32::{Config, Peripherals};
+    use embassy_stm32::{rcc, Config, Peripherals};
 
     /// Sets up clocks for the stm32u5g9zj mcu
     /// change this if you plan to use a different microcontroller
