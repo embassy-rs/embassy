@@ -202,6 +202,18 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     }
 
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
+        if let (Some(_), QspiWidth::NONE) = (transaction.address, transaction.awidth) {
+            panic!("QSPI address can't be sent with an address width of NONE");
+        }
+
+        if let (Some(_), QspiWidth::NONE) = (data_len, transaction.dwidth) {
+            panic!("QSPI data can't be sent with a data width of NONE");
+        }
+
+        if let Some(0) = data_len {
+            panic!("QSPI data must be at least one byte");
+        }
+
         T::REGS.fcr().modify(|v| {
             v.set_csmf(true);
             v.set_ctcf(true);
