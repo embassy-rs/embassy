@@ -108,6 +108,23 @@ impl<'a> RawSocket<'a> {
             }
         })
     }
+
+    /// Flush the socket.
+    ///
+    /// This method will wait until the socket is flushed.
+    pub async fn flush(&mut self) {
+        poll_fn(move |cx| {
+            self.with_mut(|s, _| {
+                if s.send_queue() == 0 {
+                    Poll::Ready(())
+                } else {
+                    s.register_send_waker(cx.waker());
+                    Poll::Pending
+                }
+            })
+        })
+        .await
+    }
 }
 
 impl Drop for RawSocket<'_> {

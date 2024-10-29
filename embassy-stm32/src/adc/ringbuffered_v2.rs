@@ -6,10 +6,12 @@ use embassy_hal_internal::{into_ref, Peripheral};
 use stm32_metapac::adc::vals::SampleTime;
 
 use crate::adc::{Adc, AdcChannel, Instance, RxDma};
-use crate::dma::ringbuffer::OverrunError;
 use crate::dma::{Priority, ReadableRingBuffer, TransferOptions};
 use crate::pac::adc::vals;
 use crate::rcc;
+
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct OverrunError;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
@@ -226,9 +228,8 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
     /// Turns on ADC if it is not already turned on and starts continuous DMA transfer.
     pub fn start(&mut self) -> Result<(), OverrunError> {
-        self.ring_buf.clear();
-
         self.setup_adc();
+        self.ring_buf.clear();
 
         Ok(())
     }
@@ -245,7 +246,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// [`start`]: #method.start
     pub fn teardown_adc(&mut self) {
         // Stop the DMA transfer
-        self.ring_buf.request_stop();
+        self.ring_buf.request_pause();
 
         let r = T::regs();
 

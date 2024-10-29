@@ -15,16 +15,6 @@ use {defmt_rtt as _, panic_probe as _};
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
-// Program metadata for `picotool info`
-#[link_section = ".bi_entries"]
-#[used]
-pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
-    embassy_rp::binary_info::rp_program_name!(c"example"),
-    embassy_rp::binary_info::rp_cargo_version!(),
-    embassy_rp::binary_info::rp_program_description!(c"Flash"),
-    embassy_rp::binary_info::rp_program_build_attribute!(),
-];
-
 const ADDR_OFFSET: u32 = 0x100000;
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
 

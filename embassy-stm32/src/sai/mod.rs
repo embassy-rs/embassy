@@ -27,8 +27,14 @@ pub enum Error {
 }
 
 #[cfg(not(gpdma))]
-impl From<ringbuffer::OverrunError> for Error {
-    fn from(_: ringbuffer::OverrunError) -> Self {
+impl From<ringbuffer::Error> for Error {
+    fn from(#[allow(unused)] err: ringbuffer::Error) -> Self {
+        #[cfg(feature = "defmt")]
+        {
+            if err == ringbuffer::Error::DmaUnsynced {
+                defmt::error!("Ringbuffer broken invariants detected!");
+            }
+        }
         Self::Overrun
     }
 }

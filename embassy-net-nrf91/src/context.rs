@@ -21,6 +21,8 @@ pub struct Config<'a> {
     pub auth_prot: AuthProt,
     /// Credentials.
     pub auth: Option<(&'a [u8], &'a [u8])>,
+    /// SIM pin
+    pub pin: Option<&'a [u8]>,
 }
 
 /// Authentication protocol.
@@ -132,6 +134,16 @@ impl<'a> Control<'a> {
         let n = self.control.at_command(op, &mut buf).await;
         // info!("RES2: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+
+        if let Some(pin) = config.pin {
+            let op = CommandBuilder::create_set(&mut cmd, true)
+                .named("+CPIN")
+                .with_string_parameter(pin)
+                .finish()
+                .map_err(|_| Error::BufferTooSmall)?;
+            let _ = self.control.at_command(op, &mut buf).await;
+            // Ignore ERROR which means no pin required
+        }
 
         Ok(())
     }

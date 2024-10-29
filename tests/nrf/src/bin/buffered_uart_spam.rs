@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner) {
     let task = unsafe { Task::new_unchecked(NonNull::new_unchecked(&spam_peri.tasks_starttx as *const _ as _)) };
     let mut spam_ppi = Ppi::new_one_to_one(p.PPI_CH2, event, task);
     spam_ppi.enable();
-    let p = unsafe { TX_BUF.as_mut_ptr() };
+    let p = (&raw mut TX_BUF) as *mut u8;
     spam_peri.txd.ptr.write(|w| unsafe { w.ptr().bits(p as u32) });
     spam_peri.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(NSPAM as _) });
     spam_peri.tasks_starttx.write(|w| unsafe { w.bits(1) });

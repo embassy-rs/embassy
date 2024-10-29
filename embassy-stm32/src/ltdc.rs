@@ -395,7 +395,10 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         // framebuffer pitch and line length
         layer.cfblr().modify(|w| {
             w.set_cfbp(width * bytes_per_pixel);
+            #[cfg(not(stm32u5))]
             w.set_cfbll(width * bytes_per_pixel + 7);
+            #[cfg(stm32u5)]
+            w.set_cfbll(width * bytes_per_pixel + 3);
         });
 
         // framebuffer line number

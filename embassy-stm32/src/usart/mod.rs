@@ -69,6 +69,12 @@ unsafe fn on_interrupt(r: Regs, s: &'static State) {
             // disable idle line detection
             w.set_idleie(false);
         });
+    } else if cr1.tcie() && sr.tc() {
+        // Transmission complete detected
+        r.cr1().modify(|w| {
+            // disable Transmission complete interrupt
+            w.set_tcie(false);
+        });
     } else if cr1.rxneie() {
         // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
 
@@ -167,6 +173,9 @@ pub struct Config {
     #[cfg(any(usart_v3, usart_v4))]
     pub invert_rx: bool,
 
+    /// Set the pull configuration for the RX pin.
+    pub rx_pull: Pull,
+
     // private: set by new_half_duplex, not by the user.
     half_duplex: bool,
 }
@@ -175,7 +184,7 @@ impl Config {
     fn tx_af(&self) -> AfType {
         #[cfg(any(usart_v3, usart_v4))]
         if self.swap_rx_tx {
-            return AfType::input(Pull::None);
+            return AfType::input(self.rx_pull);
         };
         AfType::output(OutputType::PushPull, Speed::Medium)
     }
@@ -185,7 +194,7 @@ impl Config {
         if self.swap_rx_tx {
             return AfType::output(OutputType::PushPull, Speed::Medium);
         };
-        AfType::input(Pull::None)
+        AfType::input(self.rx_pull)
     }
 }
 
@@ -206,6 +215,7 @@ impl Default for Config {
             invert_tx: false,
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
+            rx_pull: Pull::None,
             half_duplex: false,
         }
     }
@@ -416,7 +426,7 @@ impl<'d> UartTx<'d, Async> {
 
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
-        self.blocking_flush()
+        flush(&self.info, &self.state).await
     }
 }
 
@@ -448,7 +458,7 @@ impl<'d> UartTx<'d, Blocking> {
         Self::new_inner(
             peri,
             new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(cts, AfType::input(config.rx_pull)),
             None,
             config,
         )
@@ -527,13 +537,40 @@ impl<'d, M: Mode> UartTx<'d, M> {
     }
 }
 
+/// Wait until transmission complete
+async fn flush(info: &Info, state: &State) -> Result<(), Error> {
+    let r = info.regs;
+    if r.cr1().read().te() && !sr(r).read().tc() {
+        r.cr1().modify(|w| {
+            // enable Transmission Complete interrupt
+            w.set_tcie(true);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        // future which completes when Transmission complete is detected
+        let abort = poll_fn(move |cx| {
+            state.rx_waker.register(cx.waker());
+
+            let sr = sr(r).read();
+            if sr.tc() {
+                // Transmission complete detected
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        });
+
+        abort.await;
+    }
+
+    Ok(())
+}
+
 fn blocking_flush(info: &Info) -> Result<(), Error> {
     let r = info.regs;
-    while !sr(r).read().tc() {}
-
-    // Enable Receiver after transmission complete for Half-Duplex mode
-    if r.cr3().read().hdsel() {
-        r.cr1().modify(|reg| reg.set_re(true));
+    if r.cr1().read().te() {
+        while !sr(r).read().tc() {}
     }
 
     Ok(())
@@ -567,7 +604,7 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             None,
             new_dma!(rx_dma),
             config,
@@ -585,7 +622,7 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
             new_dma!(rx_dma),
             config,
@@ -614,7 +651,13 @@ impl<'d> UartRx<'d, Async> {
         // Call flush for Half-Duplex mode if some bytes were written and flush was not called.
         // It prevents reading of bytes which have just been written.
         if r.cr3().read().hdsel() && r.cr1().read().te() {
-            blocking_flush(self.info)?;
+            flush(&self.info, &self.state).await?;
+
+            // Disable Transmitter and enable Receiver after flush
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
         }
 
         // make sure USART state is restored to neutral state when this future is dropped
@@ -815,7 +858,7 @@ impl<'d> UartRx<'d, Blocking> {
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, AfType::input(Pull::None)), None, None, config)
+        Self::new_inner(peri, new_pin!(rx, AfType::input(config.rx_pull)), None, None, config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
@@ -827,7 +870,7 @@ impl<'d> UartRx<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             config,
@@ -953,6 +996,12 @@ impl<'d, M: Mode> UartRx<'d, M> {
         // It prevents reading of bytes which have just been written.
         if r.cr3().read().hdsel() && r.cr1().read().te() {
             blocking_flush(self.info)?;
+
+            // Disable Transmitter and enable Receiver after flush
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
         }
 
         for b in buffer {
@@ -1146,6 +1195,11 @@ impl<'d> Uart<'d, Async> {
     /// Perform an asynchronous write
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.write(buffer).await
+    }
+
+    /// Wait until transmission complete
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.tx.flush().await
     }
 
     /// Perform an asynchronous read into `buffer`
@@ -1726,7 +1780,7 @@ impl embedded_io_async::Write for Uart<'_, Async> {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.blocking_flush()
+        self.flush().await
     }
 }
 
@@ -1737,7 +1791,7 @@ impl embedded_io_async::Write for UartTx<'_, Async> {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.blocking_flush()
+        self.flush().await
     }
 }
 

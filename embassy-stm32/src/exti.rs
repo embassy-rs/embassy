@@ -41,9 +41,6 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 unsafe fn on_irq() {
-    #[cfg(feature = "low-power")]
-    crate::low_power::on_wakeup_irq();
-
     #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
     let bits = EXTI.pr(0).read().0;
     #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
@@ -68,6 +65,9 @@ unsafe fn on_irq() {
         EXTI.rpr(0).write_value(Lines(bits));
         EXTI.fpr(0).write_value(Lines(bits));
     }
+
+    #[cfg(feature = "low-power")]
+    crate::low_power::on_wakeup_irq();
 }
 
 struct BitIter(u32);

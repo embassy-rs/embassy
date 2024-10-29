@@ -9,7 +9,7 @@ use core::str::FromStr;
 
 use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
-use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_net::{Ipv4Cidr, Stack, StackResources};
 use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{context, Runner, State, TraceBuffer, TraceReader};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
@@ -70,18 +70,16 @@ fn status_to_config(status: &Status) -> embassy_net::ConfigV4 {
     let Some(IpAddr::V4(addr)) = status.ip else {
         panic!("Unexpected IP address");
     };
-    let addr = Ipv4Address(addr.octets());
 
-    let gateway = if let Some(IpAddr::V4(addr)) = status.gateway {
-        Some(Ipv4Address(addr.octets()))
-    } else {
-        None
+    let gateway = match status.gateway {
+        Some(IpAddr::V4(addr)) => Some(addr),
+        _ => None,
     };
 
     let mut dns_servers = Vec::new();
     for dns in status.dns.iter() {
         if let IpAddr::V4(ip) = dns {
-            unwrap!(dns_servers.push(Ipv4Address(ip.octets())));
+            unwrap!(dns_servers.push(*ip));
         }
     }
 
@@ -163,6 +161,7 @@ async fn main(spawner: Spawner) {
             apn: b"iot.nat.es",
             auth_prot: context::AuthProt::Pap,
             auth: Some((b"orange", b"orange")),
+            pin: None,
         },
         stack
     )));

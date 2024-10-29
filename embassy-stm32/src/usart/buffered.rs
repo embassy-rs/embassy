@@ -210,7 +210,7 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
@@ -246,6 +246,54 @@ impl<'d> BufferedUart<'d> {
         )
     }
 
+    /// Create a new bidirectional buffered UART driver with only the RTS pin as the DE pin
+    pub fn new_with_rts_as_de<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            None,
+            None,
+            new_pin!(rts, AfType::input(Pull::None)), // RTS mapped used as DE
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
+    }
+
+    /// Create a new bidirectional buffered UART driver with only the request-to-send pin
+    pub fn new_with_rts<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rts, AfType::input(Pull::None)),
+            None, // no CTS
+            None, // no DE
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
+    }
+
     /// Create a new bidirectional buffered UART driver with a driver-enable pin
     #[cfg(not(any(usart_v1, usart_v2)))]
     pub fn new_with_de<T: Instance>(
@@ -260,7 +308,7 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
+            new_pin!(rx, AfType::input(config.rx_pull)),
             new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,

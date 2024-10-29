@@ -165,22 +165,31 @@ pub use crate::_generated::interrupt;
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+    ($vis:vis struct $name:ident {
+        $(
+            $(#[cfg($cond_irq:meta)])?
+            $irq:ident => $(
+                $(#[cfg($cond_handler:meta)])?
+                $handler:ty
+            ),*;
+        )*
+    }) => {
         #[derive(Copy, Clone)]
         $vis struct $name;
 
         $(
             #[allow(non_snake_case)]
             #[no_mangle]
+            $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
                 $(
+                    $(#[cfg($cond_handler)])?
                     <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+
+                    $(#[cfg($cond_handler)])?
+                    unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
                 )*
             }
-
-            $(
-                unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
-            )*
         )*
     };
 }
@@ -296,6 +305,9 @@ mod dual_core {
     /// It cannot be initialized by the user. The intended use is:
     ///
     /// ```
+    /// use core::mem::MaybeUninit;
+    /// use embassy_stm32::{init_secondary, SharedData};
+    ///
     /// #[link_section = ".ram_d3"]
     /// static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
     ///

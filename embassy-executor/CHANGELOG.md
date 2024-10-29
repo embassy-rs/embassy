@@ -7,11 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.1 - 2024-10-21
+
+- Soundness fix: Deny using `impl Trait` in task arguments. This was previously accidentally allowed when not using the `nightly` feature,
+  and could cause out of bounds memory accesses if spawning the same task mulitple times with different underlying types
+  for the `impl Trait`. Affected versions are 0.4.x, 0.5.0 and 0.6.0, which have been yanked.
+- Add an architecture-agnostic executor that spins waiting for tasks to run, enabled with the `arch-spin` feature.
+- Update for breaking change in the nightly waker_getters API. The `nightly` feature now requires`nightly-2024-09-06` or newer.
+- Improve macro error messages.
+
 ## 0.6.0 - 2024-08-05
 
 - Add collapse_debuginfo to fmt.rs macros.
-- initial support for avr
+- initial support for AVR
 - use nightly waker_getters APIs 
+
+## 0.5.1 - 2024-10-21
+
+- Soundness fix: Deny using `impl Trait` in task arguments. This was previously accidentally allowed when not using the `nightly` feature,
+  and could cause out of bounds memory accesses if spawning the same task mulitple times with different underlying types
+  for the `impl Trait`. Affected versions are 0.4.x, 0.5.0 and 0.6.0, which have been yanked.
 
 ## 0.5.0 - 2024-01-11
 

@@ -18,7 +18,7 @@ use crate::{peripherals, Peripheral};
 
 /// QSPI transfer configuration.
 pub struct TransferConfig {
-    /// Instraction width (IMODE)
+    /// Instruction width (IMODE)
     pub iwidth: QspiWidth,
     /// Address width (ADMODE)
     pub awidth: QspiWidth,

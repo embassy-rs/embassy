@@ -27,7 +27,7 @@ default = []
 std = []
 
 ## Enable defmt
-defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03"]
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
 
 ## Trace all raw received and transmitted packets using defmt or log.
 packet-trace = []
@@ -65,10 +65,10 @@ multicast = ["smoltcp/multicast"]
 
 [dependencies]
 
-defmt = { version = "0.3", optional = true }
+defmt = { version = "0.3.8", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { git="https://github.com/smoltcp-rs/smoltcp", rev="dd43c8f189178b0ab3bda798ed8578b5b0a6f094", default-features = false, features = [
+smoltcp = { git="https://github.com/smoltcp-rs/smoltcp", rev="fe0b4d102253465850cd1cf39cd33d4721a4a8d5", default-features = false, features = [
   "socket",
   "async",
 ] }
@@ -80,5 +80,5 @@ embedded-io-async = { version = "0.6.1" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
 heapless = { version = "0.8", default-features = false }
-embedded-nal-async = { version = "0.7.1" }
+embedded-nal-async = "0.8.0"
 document-features = "0.2.7"

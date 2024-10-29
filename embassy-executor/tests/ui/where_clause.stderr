@@ -1,0 +1,7 @@
+error: task functions must not have `where` clauses
+ --> tests/ui/where_clause.rs:6:1
+  |
+6 | / async fn task()
+7 | | where
+8 | |     (): Sized,
+  | |______________^

@@ -53,7 +53,7 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
             buf: buf.as_mut_ptr(),
             phantom: PhantomData,
             state: Mutex::new(RefCell::new(State {
-                len,
+                capacity: len,
                 front: 0,
                 back: 0,
                 full: false,
@@ -69,6 +69,28 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
     /// [`Receiver::borrow`] respectively.
     pub fn split(&mut self) -> (Sender<'_, M, T>, Receiver<'_, M, T>) {
         (Sender { channel: self }, Receiver { channel: self })
+    }
+
+    /// Clears all elements in the channel.
+    pub fn clear(&mut self) {
+        self.state.lock(|s| {
+            s.borrow_mut().clear();
+        });
+    }
+
+    /// Returns the number of elements currently in the channel.
+    pub fn len(&self) -> usize {
+        self.state.lock(|s| s.borrow().len())
+    }
+
+    /// Returns whether the channel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.state.lock(|s| s.borrow().is_empty())
+    }
+
+    /// Returns whether the channel is full.
+    pub fn is_full(&self) -> bool {
+        self.state.lock(|s| s.borrow().is_full())
     }
 }
 
@@ -130,6 +152,28 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
     pub fn send_done(&mut self) {
         self.channel.state.lock(|s| s.borrow_mut().push_done())
     }
+
+    /// Clears all elements in the channel.
+    pub fn clear(&mut self) {
+        self.channel.state.lock(|s| {
+            s.borrow_mut().clear();
+        });
+    }
+
+    /// Returns the number of elements currently in the channel.
+    pub fn len(&self) -> usize {
+        self.channel.state.lock(|s| s.borrow().len())
+    }
+
+    /// Returns whether the channel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.channel.state.lock(|s| s.borrow().is_empty())
+    }
+
+    /// Returns whether the channel is full.
+    pub fn is_full(&self) -> bool {
+        self.channel.state.lock(|s| s.borrow().is_full())
+    }
 }
 
 /// Receive-only access to a [`Channel`].
@@ -190,10 +234,33 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     pub fn receive_done(&mut self) {
         self.channel.state.lock(|s| s.borrow_mut().pop_done())
     }
+
+    /// Clears all elements in the channel.
+    pub fn clear(&mut self) {
+        self.channel.state.lock(|s| {
+            s.borrow_mut().clear();
+        });
+    }
+
+    /// Returns the number of elements currently in the channel.
+    pub fn len(&self) -> usize {
+        self.channel.state.lock(|s| s.borrow().len())
+    }
+
+    /// Returns whether the channel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.channel.state.lock(|s| s.borrow().is_empty())
+    }
+
+    /// Returns whether the channel is full.
+    pub fn is_full(&self) -> bool {
+        self.channel.state.lock(|s| s.borrow().is_full())
+    }
 }
 
 struct State {
-    len: usize,
+    /// Maximum number of elements the channel can hold.
+    capacity: usize,
 
     /// Front index. Always 0..=(N-1)
     front: usize,
@@ -210,10 +277,28 @@ struct State {
 
 impl State {
     fn increment(&self, i: usize) -> usize {
-        if i + 1 == self.len {
+        if i + 1 == self.capacity {
             0
         } else {
             i + 1
+        }
+    }
+
+    fn clear(&mut self) {
+        self.front = 0;
+        self.back = 0;
+        self.full = false;
+    }
+
+    fn len(&self) -> usize {
+        if !self.full {
+            if self.back >= self.front {
+                self.back - self.front
+            } else {
+                self.capacity + self.back - self.front
+            }
+        } else {
+            self.capacity
         }
     }
 

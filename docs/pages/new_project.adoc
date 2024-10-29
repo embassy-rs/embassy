@@ -73,16 +73,28 @@ Now that cargo knows what target to compile for (and probe-rs knows what chip to
 
 Looking in `examples/stm32g4/Cargo.toml`, we can see that the examples require a number of embassy crates. For blinky, we’ll only need three of them: `embassy-stm32`, `embassy-executor` and `embassy-time`.
 
-At the time of writing, the latest version of embassy isn‘t available on crates.io, so we need to install it straight from the git repository. The recommended way of doing so is as follows:
+
+At the time of writing, embassy is already published to crates.io. Therefore, dependencies can easily added via Cargo.toml.
+
+[source,toml]
+----
+[dependencies]
+embassy-stm32 = { version = "0.1.0", features =  ["defmt", "time-driver-any", "stm32g474re", "memory-x", "unstable-pac", "exti"] }
+embassy-executor = { version = "0.6.1", features = ["nightly", "arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.3.2", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+----
+
+Prior, embassy needed to be installed straight from the git repository. Installing from git is still useful, if you want to checkout a specic revision of an embassy crate which is not yet published.
+The recommended way of doing so is as follows:
 
 * Copy the required `embassy-*` lines from the example `Cargo.toml`
 * Make any necessary changes to `features`, e.g. requiring the `stm32g474re` feature of `embassy-stm32`
 * Remove the `path = ""` keys in the `embassy-*` entries
 * Create a `[patch.crates-io]` section, with entries for each embassy crate we need. These should all contain identical values: a link to the git repository, and a reference to the commit we’re checking out. Assuming you want the latest commit, you can find it by running `git ls-remote https://github.com/embassy-rs/embassy.git HEAD`
 
-NOTE: When using this method, it’s necessary that the `version` keys in `[dependencies]` match up with the versions defined in each crate’s `Cargo.toml` in the specificed `rev` under `[patch.crates.io]`. This means that when updating, you have to a pick a new revision, change everything in `[patch.crates.io]` to match it, and then correct any versions under `[dependencies]` which have changed. Hopefully this will no longer be necessary once embassy is released on crates.io!
+NOTE: When using this method, it’s necessary that the `version` keys in `[dependencies]` match up with the versions defined in each crate’s `Cargo.toml` in the specificed `rev` under `[patch.crates.io]`. This means that when updating, you have to a pick a new revision, change everything in `[patch.crates.io]` to match it, and then correct any versions under `[dependencies]` which have changed.
 
-At the time of writing, this method produces the following results:
+An example Cargo.toml file might look as follows:
 
 [source,toml]
 ----

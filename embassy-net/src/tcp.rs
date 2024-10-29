@@ -10,7 +10,7 @@
 
 use core::future::poll_fn;
 use core::mem;
-use core::task::Poll;
+use core::task::{Context, Poll};
 
 use embassy_time::Duration;
 use smoltcp::iface::{Interface, SocketHandle};
@@ -274,6 +274,16 @@ impl<'a> TcpSocket<'a> {
         .await
     }
 
+    /// Wait until the socket becomes readable.
+    ///
+    /// A socket becomes readable when the receive half of the full-duplex connection is open
+    /// (see [may_recv](#method.may_recv)), and there is some pending data in the receive buffer.
+    ///
+    /// This is the equivalent of [read](#method.read), without buffering any data.
+    pub async fn wait_read_ready(&self) {
+        poll_fn(move |cx| self.io.poll_read_ready(cx)).await
+    }
+
     /// Read data from the socket.
     ///
     /// Returns how many bytes were read, or an error. If no data is available, it waits
@@ -283,6 +293,16 @@ impl<'a> TcpSocket<'a> {
     /// able to receive any data.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.io.read(buf).await
+    }
+
+    /// Wait until the socket becomes writable.
+    ///
+    /// A socket becomes writable when the transmit half of the full-duplex connection is open
+    /// (see [may_send](#method.may_send)), and the transmit buffer is not full.
+    ///
+    /// This is the equivalent of [write](#method.write), without sending any data.
+    pub async fn wait_write_ready(&self) {
+        poll_fn(move |cx| self.io.poll_write_ready(cx)).await
     }
 
     /// Write data to the socket.
@@ -376,9 +396,23 @@ impl<'a> TcpSocket<'a> {
         self.io.with_mut(|s, _| s.abort())
     }
 
-    /// Get whether the socket is ready to send data, i.e. whether there is space in the send buffer.
+    /// Return whether the transmit half of the full-duplex connection is open.
+    ///
+    /// This function returns true if it's possible to send data and have it arrive
+    /// to the remote endpoint. However, it does not make any guarantees about the state
+    /// of the transmit buffer, and even if it returns true, [write](#method.write) may
+    /// not be able to enqueue any octets.
+    ///
+    /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED` or
+    /// `CLOSE-WAIT` state.
     pub fn may_send(&self) -> bool {
         self.io.with(|s, _| s.may_send())
+    }
+
+    /// Check whether the transmit half of the full-duplex connection is open
+    /// (see [may_send](#method.may_send)), and the transmit buffer is not full.
+    pub fn can_send(&self) -> bool {
+        self.io.with(|s, _| s.can_send())
     }
 
     /// return whether the receive half of the full-duplex connection is open.
@@ -427,12 +461,23 @@ impl<'d> TcpIo<'d> {
         })
     }
 
-    fn with_mut<R>(&mut self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
+    fn with_mut<R>(&self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
         self.stack.with_mut(|i| {
             let socket = i.sockets.get_mut::<tcp::Socket>(self.handle);
             let res = f(socket, &mut i.iface);
             i.waker.wake();
             res
+        })
+    }
+
+    fn poll_read_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
+        self.with_mut(|s, _| {
+            if s.can_recv() {
+                Poll::Ready(())
+            } else {
+                s.register_recv_waker(cx.waker());
+                Poll::Pending
+            }
         })
     }
 
@@ -462,6 +507,17 @@ impl<'d> TcpIo<'d> {
             })
         })
         .await
+    }
+
+    fn poll_write_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
+        self.with_mut(|s, _| {
+            if s.can_send() {
+                Poll::Ready(())
+            } else {
+                s.register_send_waker(cx.waker());
+                Poll::Pending
+            }
+        })
     }
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
@@ -675,9 +731,8 @@ mod embedded_io_impls {
 pub mod client {
     use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;
+    use core::net::IpAddr;
     use core::ptr::NonNull;
-
-    use embedded_nal_async::IpAddr;
 
     use super::*;
 
@@ -713,19 +768,19 @@ pub mod client {
         for TcpClient<'d, N, TX_SZ, RX_SZ>
     {
         type Error = Error;
-        type Connection<'m> = TcpConnection<'m, N, TX_SZ, RX_SZ> where Self: 'm;
+        type Connection<'m>
+            = TcpConnection<'m, N, TX_SZ, RX_SZ>
+        where
+            Self: 'm;
 
-        async fn connect<'a>(
-            &'a self,
-            remote: embedded_nal_async::SocketAddr,
-        ) -> Result<Self::Connection<'a>, Self::Error> {
+        async fn connect<'a>(&'a self, remote: core::net::SocketAddr) -> Result<Self::Connection<'a>, Self::Error> {
             let addr: crate::IpAddress = match remote.ip() {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),
+                IpAddr::V4(addr) => crate::IpAddress::Ipv4(addr),
                 #[cfg(not(feature = "proto-ipv4"))]
                 IpAddr::V4(_) => panic!("ipv4 support not enabled"),
                 #[cfg(feature = "proto-ipv6")]
-                IpAddr::V6(addr) => crate::IpAddress::Ipv6(crate::Ipv6Address::from_bytes(&addr.octets())),
+                IpAddr::V6(addr) => crate::IpAddress::Ipv6(addr),
                 #[cfg(not(feature = "proto-ipv6"))]
                 IpAddr::V6(_) => panic!("ipv6 support not enabled"),
             };
