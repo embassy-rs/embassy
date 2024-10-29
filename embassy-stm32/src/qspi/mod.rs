@@ -369,7 +369,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         transfer.blocking_wait();
     }
 
-    /// Blocking read data, using DMA.
+    /// Async read data, using DMA.
     pub async fn read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
         let transfer = self.start_read_transfer(transaction, buf);
         transfer.await;
