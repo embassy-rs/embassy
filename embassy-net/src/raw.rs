@@ -5,7 +5,7 @@ use core::mem;
 use core::task::{Context, Poll};
 
 use embassy_net_driver::Driver;
-pub use smoltcp::iface::{Interface, SocketHandle};
+use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::raw;
 pub use smoltcp::socket::raw::PacketMetadata;
 pub use smoltcp::wire::{IpProtocol, IpVersion};
