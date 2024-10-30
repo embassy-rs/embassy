@@ -2,13 +2,13 @@
 
 use core::future::{poll_fn, Future};
 use core::pin::Pin;
-use core::sync::atomic::{fence, AtomicUsize, Ordering, AtomicBool};
+use core::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer, self};
+use super::ringbuffer::{self, DmaCtrl, ReadableDmaRingBuffer};
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Channel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
@@ -113,7 +113,9 @@ impl AnyChannel {
         if circ {
             // wake the future for the half-transfer event
             if sr.htf() {
-                ch.fcr().write(|w| { w.set_htf(true); });
+                ch.fcr().write(|w| {
+                    w.set_htf(true);
+                });
                 state.waker.wake();
                 return;
             }
@@ -381,7 +383,6 @@ impl<'a> Future for Transfer<'a> {
     }
 }
 
-
 /// Dma control interface for this DMA Type
 struct DmaCtrlImpl<'a> {
     channel: PeripheralRef<'a, AnyChannel>,
@@ -444,12 +445,12 @@ impl RingBuffer {
                 Dir::MemoryToPeripheral => {
                     w.set_uda(false);
                     w.set_usa(true);
-                },
+                }
 
                 Dir::PeripheralToMemory => {
                     w.set_uda(true);
                     w.set_usa(false);
-                },
+                }
             }
 
             // lower 16 bits of the memory address
@@ -599,7 +600,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let info = self.channel.info();
         RingBuffer::request_suspend(&info.dma.ch(info.num));
     }
-
 
     /// Request the transfer to stop. Use is_running() to see when the transfer is complete.
     pub fn request_stop(&mut self) {
