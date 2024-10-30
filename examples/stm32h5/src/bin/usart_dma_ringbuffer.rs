@@ -1,14 +1,13 @@
-
 #![no_std]
 #![no_main]
 
-use {defmt_rtt as _, panic_probe as _};
-
-use embassy_time::Timer;
+use defmt::{debug, error, info};
 use embassy_executor::Spawner;
-use embassy_stm32::{bind_interrupts, peripherals, usart::{self, Uart}};
-use defmt::{debug, info, error};
+use embassy_stm32::usart::{self, Uart};
+use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_time::Timer;
 use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
 
 /*--- Main ---------------------------------------------------------------------------------------*/
 
@@ -28,15 +27,15 @@ async fn main(_spawner: Spawner) {
     info!("debug uart baudrate: {}", config.baudrate);
 
     let port = Uart::new(
-        p.USART3,                                             // periph
-        p.PD9,                                                // rx,
-        p.PD8,                                                // tx,
-        Irqs,                                                 // prove irq bound
+        p.USART3,     // periph
+        p.PD9,        // rx,
+        p.PD8,        // tx,
+        Irqs,         // prove irq bound
         p.GPDMA2_CH0, // tx_dma
         p.GPDMA2_CH1, // rx_dma
         config,
     )
-        .unwrap();
+    .unwrap();
 
     const S: usize = 2000;
     static BUFF: StaticCell<[u8; S]> = StaticCell::new();
@@ -51,18 +50,12 @@ async fn main(_spawner: Spawner) {
     let mut count = 0;
 
     loop {
-        if let Ok(c) = port_rx.read(&mut read_buff)
-            .await
-            .map_err(|e| {
-                error!("read error: {}", e);
-            })
-
-        {
-            if let Ok(s) = core::str::from_utf8(&read_buff)
-                .map_err(|e| {
-                    error!("str parse error: {}", defmt::Debug2Format(&e));
-                })
-            {
+        if let Ok(c) = port_rx.read(&mut read_buff).await.map_err(|e| {
+            error!("read error: {}", e);
+        }) {
+            if let Ok(s) = core::str::from_utf8(&read_buff).map_err(|e| {
+                error!("str parse error: {}", defmt::Debug2Format(&e));
+            }) {
                 count += c;
 
                 debug!("total_rx: {} delta: {} -- rx: {}", count, c, s);
