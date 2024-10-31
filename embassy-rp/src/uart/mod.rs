@@ -1268,6 +1268,12 @@ impl<'d, T: Instance> embedded_io::ErrorType for Uart<'d, T, Blocking> {
     type Error = Error;
 }
 
+impl<'d, T: Instance> embedded_io::Read for Uart<'d, T, Blocking> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.blocking_read(buf).map(|_| buf.len())
+    }
+}
+
 impl<'d, T: Instance> embedded_io::Write for Uart<'d, T, Blocking> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf).map(|_| buf.len())
