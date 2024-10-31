@@ -1054,9 +1054,17 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
         into_ref!(pin);
         pin.gpio().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL as _));
-        #[cfg(feature = "_rp235x")]
-        pin.pad_ctrl().modify(|w| {
+        pin.pad_ctrl().write(|w| {
+            #[cfg(feature = "_rp235x")]
             w.set_iso(false);
+            w.set_schmitt(true);
+            w.set_slewfast(false);
+            // TODO rp235x errata E9 recommends to not enable IE if we're not
+            // going to use input. Maybe add an API for the user to enable/disable this?
+            w.set_ie(true);
+            w.set_od(false);
+            w.set_pue(false);
+            w.set_pde(false);
         });
         // we can be relaxed about this because we're &mut here and nothing is cached
         PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
