@@ -73,6 +73,16 @@ pub struct TcpWriter<'a> {
 }
 
 impl<'a> TcpReader<'a> {
+    /// Wait until the socket becomes readable.
+    ///
+    /// A socket becomes readable when the receive half of the full-duplex connection is open
+    /// (see [`may_recv()`](TcpSocket::may_recv)), and there is some pending data in the receive buffer.
+    ///
+    /// This is the equivalent of [read](#method.read), without buffering any data.
+    pub async fn wait_read_ready(&self) {
+        poll_fn(move |cx| self.io.poll_read_ready(cx)).await
+    }
+
     /// Read data from the socket.
     ///
     /// Returns how many bytes were read, or an error. If no data is available, it waits
@@ -115,6 +125,16 @@ impl<'a> TcpReader<'a> {
 }
 
 impl<'a> TcpWriter<'a> {
+    /// Wait until the socket becomes writable.
+    ///
+    /// A socket becomes writable when the transmit half of the full-duplex connection is open
+    /// (see [`may_send()`](TcpSocket::may_send)), and the transmit buffer is not full.
+    ///
+    /// This is the equivalent of [write](#method.write), without sending any data.
+    pub async fn wait_write_ready(&self) {
+        poll_fn(move |cx| self.io.poll_write_ready(cx)).await
+    }
+
     /// Write data to the socket.
     ///
     /// Returns how many bytes were written, or an error. If the socket is not ready to
