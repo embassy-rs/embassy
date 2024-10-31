@@ -1264,6 +1264,20 @@ impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for Uart<'d, T, M>
     }
 }
 
+impl<'d, T: Instance> embedded_io::ErrorType for Uart<'d, T, Blocking> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance> embedded_io::Write for Uart<'d, T, Blocking> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf).map(|_| buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
 trait SealedMode {}
 
 trait SealedInstance {
