@@ -1,6 +1,6 @@
 //! USB host driver traits and data types.
 
-use crate::{Direction, EndpointType};
+use crate::{Direction, EndpointInfo, EndpointType, Speed};
 
 /// Errors returned by [`ChannelOut::write`] and [`ChannelIn::read`]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -9,6 +9,12 @@ pub enum ChannelError {
     /// Either the packet to be written is too long to fit in the transmission
     /// buffer or the received packet is too long to fit in `buf`.
     BufferOverflow,
+
+    /// Response from device/bus was not interpretable (Crc, Babble)
+    BadResponse,
+
+    /// Transaction was canceled
+    Canceled,
 
     /// The device endpoint is stalled.
     Stall,
@@ -103,62 +109,11 @@ impl SetupPacket {
     }
 }
 
-/// USB endpoint descriptor as defined in the USB 2.0 specification.
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct EndpointDescriptor {
-    /// Length of this descriptor in bytes.
-    pub len: u8,
-    /// Type of this descriptor. Must be 0x05.
-    pub descriptor_type: u8,
-    /// Endpoint address.
-    pub endpoint_address: u8,
-    /// Attributes of this endpoint.
-    pub attributes: u8,
-    /// Maximum packet size.
-    pub max_packet_size: u16,
-    /// Polling interval.
-    pub interval: u8,
-}
-
-impl EndpointDescriptor {
-    /// Returns the direction of the endpoint
-    pub fn ep_dir(&self) -> Direction {
-        match self.endpoint_address & 0x80 {
-            0x80 => Direction::In,
-            0x00 => Direction::Out,
-            _ => unreachable!(),
-        }
-    }
-
-    /// Returns the endpoint type as inferred from the `attributes` field.
-    pub fn ep_type(&self) -> EndpointType {
-        match self.attributes & 0x03 {
-            0 => EndpointType::Control,
-            1 => EndpointType::Isochronous,
-            2 => EndpointType::Bulk,
-            3 => EndpointType::Interrupt,
-            _ => unreachable!(),
-        }
-    }
-
-    /// Create descriptor for CONTROL endpoint
-    pub fn control(addr: u8, max_packet_size: u16) -> Self {
-        Self {
-            len: 8,
-            descriptor_type: 0x05,
-            endpoint_address: addr,
-            attributes: EndpointType::Control as u8,
-            max_packet_size,
-            interval: 0,
-        }
-    }
-}
-
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DeviceEvent {
-    Connected,
+    /// Indicates a root-device has become attached
+    Connected(Speed),
     Disconnected,
 }
 
@@ -183,7 +138,7 @@ impl From<ChannelError> for HostError {
 /// Async USB Host Driver trait.
 /// To be implemented by the HAL.
 pub trait UsbHostDriver: Sized {
-    type Channel<T: channel::Type, D: channel::Direction>: UsbChannel<T, D, Self>;
+    type Channel<T: channel::Type, D: channel::Direction>: UsbChannel<T, D>;
 
     /// Wait for device connect or disconnect
     async fn wait_for_device_event(&self) -> DeviceEvent;
@@ -191,27 +146,21 @@ pub trait UsbHostDriver: Sized {
     /// Issue a bus reset.
     async fn bus_reset(&self);
 
-    /// Retarget channel
-    // fn retarget_channel<TO: channel::Type, DO: channel::Direction, TN: channel::Type, DN: channel::Direction>(
-    //     &mut self,
-    //     channel: Self::Channel<TO, DO>,
-    //     addr: u8,
-    //     endpoint: &EndpointDescriptor,
-    //     pre: bool,
-    // ) -> Result<Self::Channel<TN, DN>, HostError>;
-
     /// Allocate channel for communication with device
+    ///
+    /// This can be a scarce resource, for one-off requests please scope the channel so it's dropped after completion
     ///
     /// `pre` - device is low-speed and communication is going through hub, so send PRE packet
     fn alloc_channel<T: channel::Type, D: channel::Direction>(
         &self,
         addr: u8,
-        endpoint: &EndpointDescriptor,
+        endpoint: &EndpointInfo,
         pre: bool,
     ) -> Result<Self::Channel<T, D>, HostError>;
 
-    /// Drop allocated channel
-    fn drop_channel<T: channel::Type, D: channel::Direction>(&self, channel: &mut Self::Channel<T, D>);
+    // Drop happens implicitly on channel-side
+    // / Drop allocated channel
+    // fn drop_channel<T: channel::Type, D: channel::Direction>(&self, channel: &mut Self::Channel<T, D>);
 }
 
 /// [UsbChannel] Typelevel structs and traits
@@ -298,7 +247,7 @@ pub mod channel {
     impl IsOut for InOut {}
 }
 
-pub trait UsbChannel<T: channel::Type, D: channel::Direction, H: UsbHostDriver> {
+pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
@@ -312,12 +261,7 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction, H: UsbHostDriver> 
         D: channel::IsOut;
 
     /// Retargets channel to a new endpoint, may error if the underlying driver runs out of resources
-    fn retarget_channel<TN: channel::Type, DN: channel::Direction>(
-        channel: Self,
-        addr: u8,
-        endpoint: &EndpointDescriptor,
-        pre: bool,
-    ) -> Result<H::Channel<TN, DN>, HostError>;
+    fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError>;
 
     /// Send IN request of type other from control
     /// For interrupt channels this will return the result of the next succesful interrupt poll

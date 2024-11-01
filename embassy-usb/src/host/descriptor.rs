@@ -1,5 +1,5 @@
 use crate::descriptor::descriptor_type;
-use embassy_usb_driver::host::EndpointDescriptor;
+use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 use heapless::Vec;
 
 type StringIndex = u8;
@@ -147,6 +147,7 @@ impl USBDescriptor for ConfigurationDescriptor {
     const DESC_TYPE: u8 = descriptor_type::CONFIGURATION;
     type Error = ();
 
+    // TODO(perf): ConfigurationDescriptor::try_from_bytes (and similar) `clone`s the descriptor; but should be parsable with lazy or zero copy (current only used in read-only)
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() < Self::SIZE {
             return Err(());
@@ -381,6 +382,68 @@ impl<'a> InterfaceDescriptor<'a> {
         }
 
         return Some(offset);
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct EndpointDescriptor {
+    /// Length of this descriptor in bytes.
+    pub len: u8,
+    /// Type of this descriptor. Must be 0x05.
+    pub descriptor_type: u8,
+    /// Endpoint address.
+    pub endpoint_address: u8,
+    /// Attributes of this endpoint.
+    pub attributes: u8,
+    /// Maximum packet size.
+    pub max_packet_size: u16,
+    /// Polling interval.
+    pub interval: u8,
+}
+
+impl EndpointDescriptor {
+    /// Returns the endpoint direction based on the address
+    pub fn ep_dir(&self) -> Direction {
+        match self.endpoint_address & 0x80 {
+            0x00 => Direction::Out,
+            0x80 => Direction::In,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Returns the endpoint type as inferred from the `attributes` field.
+    pub fn ep_type(&self) -> EndpointType {
+        match self.attributes & 0x03 {
+            0 => EndpointType::Control,
+            1 => EndpointType::Isochronous,
+            2 => EndpointType::Bulk,
+            3 => EndpointType::Interrupt,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Create descriptor for CONTROL endpoint
+    pub fn control(max_packet_size: u16) -> Self {
+        Self {
+            len: 8,
+            descriptor_type: 0x05,
+            endpoint_address: 0,
+            attributes: EndpointType::Control as u8,
+            max_packet_size,
+            interval: 0,
+        }
+    }
+}
+
+impl From<EndpointDescriptor> for EndpointInfo {
+    fn from(value: EndpointDescriptor) -> Self {
+        EndpointInfo {
+            addr: value.endpoint_address.into(),
+            ep_type: value.ep_type(),
+            max_packet_size: value.max_packet_size,
+            interval_ms: value.interval,
+        }
     }
 }
 
