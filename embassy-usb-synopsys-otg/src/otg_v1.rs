@@ -247,7 +247,7 @@ impl Otg {
     #[doc = "Device IN endpoint transmit FIFO size register"]
     #[inline(always)]
     pub const fn dieptxf(self, n: usize) -> Reg<regs::Fsiz, RW> {
-        assert!(n < 7usize);
+        core::assert!(n < 7usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0104usize + n * 4usize) as _) }
     }
     #[doc = "Host configuration register"]
@@ -293,43 +293,43 @@ impl Otg {
     #[doc = "Host channel characteristics register"]
     #[inline(always)]
     pub const fn hcchar(self, n: usize) -> Reg<regs::Hcchar, RW> {
-        assert!(n < 12usize);
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0500usize + n * 32usize) as _) }
     }
     #[doc = "Host channel split control register"]
     #[inline(always)]
     pub const fn hcsplt(self, n: usize) -> Reg<u32, RW> {
-        assert!(n < 12usize);
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0504usize + n * 32usize) as _) }
     }
     #[doc = "Host channel interrupt register"]
     #[inline(always)]
     pub const fn hcint(self, n: usize) -> Reg<regs::Hcint, RW> {
-        assert!(n < 12usize);
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0508usize + n * 32usize) as _) }
     }
     #[doc = "Host channel mask register"]
     #[inline(always)]
     pub const fn hcintmsk(self, n: usize) -> Reg<regs::Hcintmsk, RW> {
-        assert!(n < 12usize);
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x050cusize + n * 32usize) as _) }
     }
     #[doc = "Host channel transfer size register"]
     #[inline(always)]
     pub const fn hctsiz(self, n: usize) -> Reg<regs::Hctsiz, RW> {
-        assert!(n < 12usize);
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0510usize + n * 32usize) as _) }
     }
     #[doc = "Host channel DMA address register (config for scatter/gather, ptr for buffer-dma)"]
     #[inline(always)]
     pub const fn hcdma(self, n: usize) -> Reg<regs::Hcdma, RW> {
-        assert!(n < 12usize);
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0514usize + n * 32usize) as _) }
     }
     #[doc = "Host channel DMA address register (addr buffer for current transfer; used to debug ddma)"]
     #[inline(always)]
     pub const fn hcdmab(self, n: usize) -> Reg<u32, RW> {
-        assert!(n < 12usize);
+        core::assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x051cusize + n * 32usize) as _) }
     }
     #[doc = "Device configuration register"]
@@ -385,49 +385,49 @@ impl Otg {
     #[doc = "Device IN endpoint control register"]
     #[inline(always)]
     pub const fn diepctl(self, n: usize) -> Reg<regs::Diepctl, RW> {
-        assert!(n < 16usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0900usize + n * 32usize) as _) }
     }
     #[doc = "Device IN endpoint interrupt register"]
     #[inline(always)]
     pub const fn diepint(self, n: usize) -> Reg<regs::Diepint, RW> {
-        assert!(n < 16usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0908usize + n * 32usize) as _) }
     }
     #[doc = "Device IN endpoint transfer size register"]
     #[inline(always)]
     pub const fn dieptsiz(self, n: usize) -> Reg<regs::Dieptsiz, RW> {
-        assert!(n < 16usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0910usize + n * 32usize) as _) }
     }
     #[doc = "Device IN endpoint transmit FIFO status register"]
     #[inline(always)]
     pub const fn dtxfsts(self, n: usize) -> Reg<regs::Dtxfsts, R> {
-        assert!(n < 16usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0918usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT endpoint control register"]
     #[inline(always)]
     pub const fn doepctl(self, n: usize) -> Reg<regs::Doepctl, RW> {
-        assert!(n < 16usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b00usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT endpoint interrupt register"]
     #[inline(always)]
     pub const fn doepint(self, n: usize) -> Reg<regs::Doepint, RW> {
-        assert!(n < 16usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b08usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT endpoint transfer size register"]
     #[inline(always)]
     pub const fn doeptsiz(self, n: usize) -> Reg<regs::Doeptsiz, RW> {
-        assert!(n < 16usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b10usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT/IN endpoint DMA address register"]
     #[inline(always)]
     pub const fn doepdma(self, n: usize) -> Reg<u32, RW> {
-        assert!(n < 16usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b14usize + n * 32usize) as _) }
     }
     #[doc = "Power and clock gating control register"]
@@ -438,7 +438,7 @@ impl Otg {
     #[doc = "Device endpoint / host channel FIFO register"]
     #[inline(always)]
     pub const fn fifo(self, n: usize) -> Reg<regs::Fifo, RW> {
-        assert!(n < 16usize);
+        core::assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x1000usize + n * 4096usize) as _) }
     }
 }
@@ -4248,7 +4248,7 @@ pub mod regs {
         #[doc = "QTD list base address"]
         #[inline(always)]
         pub fn set_qtdaddr(&mut self, val: u32) {
-            debug_assert!(val & 0xFFFFFE00 == val, "QTD list needs to be 512 byte aligned");
+            core::debug_assert!(val & 0xFFFFFE00 == val, "QTD list needs to be 512 byte aligned");
             self.0 = (self.0 & !0xFFFFFE00) | val;
         }
     }

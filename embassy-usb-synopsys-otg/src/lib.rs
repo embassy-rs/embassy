@@ -6,6 +6,9 @@
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
 
+#[cfg(feature = "usbhost")]
+pub mod host;
+
 use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;

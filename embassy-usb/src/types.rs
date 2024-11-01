@@ -35,11 +35,3 @@ impl From<StringIndex> for u8 {
         i.0
     }
 }
-
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) enum Speed {
-    Low,
-    Full,
-    High,
-}

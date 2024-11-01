@@ -2,11 +2,15 @@
 
 use core::num::NonZeroU8;
 
-use embassy_usb_driver::host::{channel, HostError, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::{
+    host::{channel, HostError, UsbChannel, UsbHostDriver},
+    Speed,
+};
 
 use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor};
 
 pub mod hub;
+pub mod kbd;
 
 pub struct DeviceFilter {
     base_class: Option<NonZeroU8>, // 0 would mean it's defined on an interface-level
@@ -20,20 +24,28 @@ pub struct StaticHandlerSpec {
 }
 
 pub struct EnumerationInfo {
+    /// Device address
+    pub device_address: u8,
     /// Used to indicate a low-speed device over a full-speed or higher interface
-    ls_over_fs: bool,
+    pub ls_over_fs: bool,
+    /// Negotiated speed of the device
+    pub speed: Speed,
     // Device Specs
-    device_desc: DeviceDescriptor,
+    pub device_desc: DeviceDescriptor,
     /// Device Configuration
-    cfg_desc: ConfigurationDescriptor,
+    pub cfg_desc: ConfigurationDescriptor,
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HandlerEvent<T> {
     NoChange,
     HandlerDisconnected,
     HandlerEvent(T),
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RegisterError {
     NoSupportedInterface,
     HostError(HostError),
@@ -65,11 +77,7 @@ pub trait UsbHostHandler: Sized {
     /// finally the appropriate channels are allocated andn stored in the resulting handler
     ///
     /// NOTE: Channels are expected to self-clean on `Drop`. FIXME: this is not the case for stm32
-    async fn try_register(
-        bus: &Self::Driver,
-        device_address: u8,
-        enum_info: EnumerationInfo,
-    ) -> Result<Self, RegisterError>;
+    async fn try_register(bus: &Self::Driver, enum_info: EnumerationInfo) -> Result<Self, RegisterError>;
 
     /// Wait for changes to handler, the handler is expected to defer (`yield_now` or Timer::after) whenever idle.
     /// Handler users should not use `select` or `join` to avoid dropping futures.
