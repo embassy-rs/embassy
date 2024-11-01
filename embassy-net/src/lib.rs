@@ -391,12 +391,12 @@ impl<'d> Stack<'d> {
         self.with(|i| i.hardware_address)
     }
 
-    /// Get whether the link is up.
+    /// Check whether the link is up.
     pub fn is_link_up(&self) -> bool {
         self.with(|i| i.link_up)
     }
 
-    /// Get whether the network stack has a valid IP configuration.
+    /// Check whether the network stack has a valid IP configuration.
     /// This is true if the network stack has a static IP configuration or if DHCP has completed
     pub fn is_config_up(&self) -> bool {
         let v4_up;
