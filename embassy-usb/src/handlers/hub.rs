@@ -14,25 +14,26 @@ use crate::{
         },
         ControlChannelExt,
     },
-    types::Speed,
 };
 
 use embassy_time::Timer;
 use embassy_usb_driver::{
-    host::{channel, EndpointDescriptor, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver},
-    Direction, EndpointType,
+    host::{channel, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver},
+    Direction, EndpointInfo, EndpointType, Speed,
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub struct HubHandler<H: UsbHostDriver, const MAX_PORTS: usize> {
     interrupt_channel: H::Channel<channel::Interrupt, channel::In>,
-    interrupt_ep: EndpointDescriptor,
     control_channel: H::Channel<channel::Control, channel::InOut>,
     desc: HubDescriptor,
     device_address: u8,
     device_lut: [Option<NonZeroU8>; MAX_PORTS],
+    speed: Speed,
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HubEvent {
     DeviceDetected { port: u8, speed: Speed },
     DeviceRemoved { address: Option<NonZeroU8>, port: u8 },
@@ -52,15 +53,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
         }
     }
 
-    async fn try_register(bus: &H, device_address: u8, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
-        let control_ep = EndpointDescriptor::control(
-            0,
-            enum_info
-                .device_desc
-                .max_packet_size0
-                .min(if enum_info.ls_over_fs { 8 } else { 64 }) as u16,
-        );
-
+    async fn try_register(bus: &H, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
         let iface = enum_info
             .cfg_desc
             .iter_interface()
@@ -75,27 +68,39 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
             })
             .ok_or(RegisterError::NoSupportedInterface)?;
 
-        // TODO: check if IN
         let interrupt_ep = iface
             .iter_endpoints()
             .find(|v| v.ep_type() == EndpointType::Interrupt && v.ep_dir() == Direction::In)
             .ok_or(RegisterError::NoSupportedInterface)?;
 
-        let interrupt_channel =
-            bus.alloc_channel::<channel::Interrupt, channel::In>(device_address, &interrupt_ep, enum_info.ls_over_fs)?;
+        let interrupt_channel = bus.alloc_channel::<channel::Interrupt, channel::In>(
+            enum_info.device_address,
+            &interrupt_ep.into(),
+            enum_info.ls_over_fs,
+        )?;
 
-        let mut control_channel =
-            bus.alloc_channel::<channel::Control, channel::InOut>(device_address, &control_ep, enum_info.ls_over_fs)?;
+        let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
+            enum_info.device_address,
+            &EndpointInfo::new(
+                0.into(),
+                EndpointType::Control,
+                enum_info
+                    .device_desc
+                    .max_packet_size0
+                    .min(if enum_info.ls_over_fs { 8 } else { 64 }) as u16,
+            ),
+            enum_info.ls_over_fs,
+        )?;
 
         let desc = control_channel.request_descriptor::<HubDescriptor, 64>(true).await?;
 
         let mut hub = HubHandler {
             interrupt_channel,
-            interrupt_ep,
             control_channel,
             desc,
-            device_address,
+            device_address: enum_info.device_address,
             device_lut: [None; MAX_PORTS],
+            speed: enum_info.speed,
         };
 
         // Power-On ports
@@ -144,7 +149,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
                         // Device connected, perform bus reset and configure
                         true => {
                             // Determine speed
-                            let speed = Speed::from_status(status);
+                            let speed: Speed = status.into();
 
                             debug!(
                                 "HUB {}: Device connected to port {} with {} speed",
@@ -178,91 +183,18 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         new_device_address: u8,
     ) -> Result<EnumerationInfo, HostError> {
         // NOTE: we probably could do this in the wait loop but it would require a arc mutex registry which seems unnecessary
-        // TODO: add registry as parameter (or the next device_id), and add device to our lut
-
         self.port_feature(true, PortFeature::Reset, port, 0).await?;
         Timer::after_millis(50).await;
         self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
 
-        // SAFETY: using retarget in async requires a exclusive reference (&mut self)
-        let ls_over_fs = match speed {
-            Speed::Low => true,
+        let ls_pre = match (speed, self.speed) {
+            (Speed::Low, Speed::Full | Speed::High) => true,
             _ => false,
         };
 
-        self.control_channel =
-            H::Channel::retarget_channel(self.control_channel, 0, &EndpointDescriptor::control(0, 8), ls_over_fs)?;
-
-        let max_packet_size0 = {
-            let mut max_retries = 10;
-            loop {
-                match self
-                    .control_channel
-                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(false)
-                    .await
-                {
-                    Ok(desc) => break desc.max_packet_size0,
-                    Err(e) => {
-                        warn!("Request descriptor error: {}, retries: {}", e, max_retries);
-                        if max_retries > 0 {
-                            max_retries -= 1;
-                            Timer::after_millis(1).await;
-                            trace!("Retry Device Descriptor");
-                            continue;
-                        } else {
-                            return Err(HostError::RequestFailed);
-                        }
-                    }
-                }
-            }
-        };
-
-        self.control_channel.device_set_address(new_device_address);
-        self.control_channel = H::Channel::retarget_channel(
-            self.control_channel,
-            new_device_address,
-            &EndpointDescriptor::control(0, max_packet_size0 as u16),
-            ls_over_fs,
-        )?;
-
-        let device_desc = self
-            .control_channel
-            .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(false)
-            .await?;
-
-        trace!("Device Descriptor: {:?}", device_desc);
-
-        let cfg_desc_short = self
-            .control_channel
-            .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>(false)
-            .await?;
-
-        let total_len = cfg_desc_short.total_len as usize;
-        let mut desc_buffer = [0u8; 256];
-        let dest_buffer = &mut desc_buffer[0..total_len];
-
         self.control_channel
-            .request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
-            .await?;
-
-        trace!(
-            "Full Configuration Descriptor [{}]: {:?}",
-            cfg_desc_short.total_len,
-            dest_buffer
-        );
-
-        self.control_channel
-            .set_configuration(cfg_desc_short.configuration_value)
-            .await?;
-
-        let cfg_desc =
-            ConfigurationDescriptor::try_from_bytes(&dest_buffer).map_err(|_| HostError::InvalidDescriptor)?;
-
-        Ok(EnumerationInfo {
-            ls_over_fs,
-            device_desc,
-            cfg_desc,
-        })
+            .enumerate_device(speed, new_device_address, ls_pre)
+            .await
     }
 
     /// Set/Clear PortFeature
