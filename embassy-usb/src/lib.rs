@@ -6,6 +6,7 @@
 pub(crate) mod fmt;
 
 pub use embassy_usb_driver as driver;
+use embassy_usb_driver::{EndpointType, SynchronizationType, UsageType};
 
 mod builder;
 pub mod class;
@@ -461,6 +462,30 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         h.set_alternate_setting(InterfaceNumber::new(i as _), 0);
                     }
                 }
+
+                // Disable all EPs.
+                foreach_endpoint(self.config_descriptor, |ep| {
+                    self.bus.endpoint_set_enabled(ep.ep_address, false);
+                })
+                .unwrap();
+
+                //Enable all endpoints if they're alt_function 0
+                foreach_endpoint(self.config_descriptor, |ep| {
+                    if ep.interface_alt == 0 {
+                        self.bus.endpoint_set_buffersize(ep.ep_address, ep.ep_max_packet_size);
+
+                        self.bus
+                            .endpoint_set_type(ep.ep_address, EndpointType::from((ep.ep_attributes >> 0) & 0b11));
+                        self.bus.endpoint_set_sync_type(
+                            ep.ep_address,
+                            SynchronizationType::from((ep.ep_attributes >> 2) & 0b11),
+                        );
+                        self.bus
+                            .endpoint_set_usage_type(ep.ep_address, UsageType::from((ep.ep_attributes >> 4) & 0b11));
+                        self.bus.endpoint_set_enabled(ep.ep_address, true);
+                    }
+                })
+                .unwrap();
             }
             Event::Resume => {
                 trace!("usb: resume");
@@ -530,11 +555,30 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     debug!("SET_CONFIGURATION: configured");
                     self.device_state = UsbDeviceState::Configured;
 
+                    // Disable all endpoints.
+                    foreach_endpoint(self.config_descriptor, |ep| {
+                        self.bus.endpoint_set_enabled(ep.ep_address, false);
+                    })
+                    .unwrap();
+
                     // Enable all endpoints of selected alt settings.
                     foreach_endpoint(self.config_descriptor, |ep| {
                         let iface = &self.interfaces[ep.interface.0 as usize];
-                        self.bus
-                            .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
+                        if ep.interface_alt == iface.current_alt_setting {
+                            self.bus.endpoint_set_buffersize(ep.ep_address, ep.ep_max_packet_size);
+
+                            self.bus
+                                .endpoint_set_type(ep.ep_address, EndpointType::from((ep.ep_attributes >> 0) & 0b11));
+                            self.bus.endpoint_set_sync_type(
+                                ep.ep_address,
+                                SynchronizationType::from((ep.ep_attributes >> 2) & 0b11),
+                            );
+                            self.bus.endpoint_set_usage_type(
+                                ep.ep_address,
+                                UsageType::from((ep.ep_attributes >> 4) & 0b11),
+                            );
+                            self.bus.endpoint_set_enabled(ep.ep_address, true);
+                        }
                     })
                     .unwrap();
 
@@ -582,15 +626,36 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
                         iface.current_alt_setting = new_altsetting;
 
-                        // Enable/disable EPs of this interface as needed.
+                        // Disable all endpoints of selected interface.
                         foreach_endpoint(self.config_descriptor, |ep| {
-                            if ep.interface == iface_num {
-                                self.bus
-                                    .endpoint_set_enabled(ep.ep_address, iface.current_alt_setting == ep.interface_alt);
-                            }
+                            if ep.interface.0 == iface_num.0 {
+                                self.bus.endpoint_set_enabled(ep.ep_address, false)
+                            };
                         })
                         .unwrap();
 
+                        // Enable all endpoints of selected interface and alt settings.
+                        foreach_endpoint(self.config_descriptor, |ep| {
+                            let iface = &self.interfaces[ep.interface.0 as usize];
+                            if ep.interface.0 == iface_num.0 && ep.interface_alt == iface.current_alt_setting {
+                                self.bus.endpoint_set_buffersize(ep.ep_address, ep.ep_max_packet_size);
+
+                                self.bus.endpoint_set_type(
+                                    ep.ep_address,
+                                    EndpointType::from((ep.ep_attributes >> 0) & 0b11),
+                                );
+                                self.bus.endpoint_set_sync_type(
+                                    ep.ep_address,
+                                    SynchronizationType::from((ep.ep_attributes >> 2) & 0b11),
+                                );
+                                self.bus.endpoint_set_usage_type(
+                                    ep.ep_address,
+                                    UsageType::from((ep.ep_attributes >> 4) & 0b11),
+                                );
+                                self.bus.endpoint_set_enabled(ep.ep_address, true);
+                            }
+                        })
+                        .unwrap();
                         // TODO check it is valid (not out of range)
 
                         for h in &mut self.handlers {

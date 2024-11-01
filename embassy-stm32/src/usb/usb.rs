@@ -11,6 +11,7 @@ use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
+pub use embassy_usb_driver::{SynchronizationType, UsageType};
 
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
@@ -519,6 +520,18 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             },
         )
     }
+
+    fn grow_endpoint_in_buffer(&mut self, ep: &mut Self::EndpointIn, new_max_packet_size: u16) {
+        let _ = new_max_packet_size;
+        let _ = ep;
+        warn!("Not implemented yet!!!");
+    }
+
+    fn grow_endpoint_out_buffer(&mut self, ep: &mut Self::EndpointOut, new_max_packet_size: u16) {
+        let _ = new_max_packet_size;
+        let _ = ep;
+        warn!("Not implemented yet!!!");
+    }
 }
 
 /// USB bus.
@@ -640,6 +653,30 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             Direction::In => epr.stat_tx() == Stat::STALL,
             Direction::Out => epr.stat_rx() == Stat::STALL,
         }
+    }
+
+    fn endpoint_set_buffersize(&mut self, ep_addr: EndpointAddress, buf_size: u16) {
+        let _ = ep_addr;
+        let _ = buf_size;
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_sync_type(&mut self, ep_addr: EndpointAddress, synchronization_type: SynchronizationType) {
+        let _ = ep_addr;
+        let _ = synchronization_type;
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_usage_type(&mut self, ep_addr: EndpointAddress, usage_type: UsageType) {
+        let _ = ep_addr;
+        let _ = usage_type;
+        warn!("Not implemented yet!!!");
+    }
+
+    fn endpoint_set_type(&mut self, ep_addr: EndpointAddress, ep_type: EndpointType) {
+        let _ = ep_addr;
+        let _ = ep_type;
+        warn!("Not implemented yet!!!");
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
