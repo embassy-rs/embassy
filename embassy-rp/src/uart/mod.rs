@@ -1248,6 +1248,20 @@ impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, T, 
     }
 }
 
+impl<'d, T: Instance> embedded_io::ErrorType for UartTx<'d, T, Blocking> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance> embedded_io::Write for UartTx<'d, T, Blocking> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf).map(|_| buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
 impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for Uart<'d, T, M> {
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
         embedded_hal_02::serial::Read::read(&mut self.rx)
