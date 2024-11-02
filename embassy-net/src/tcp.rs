@@ -186,7 +186,7 @@ impl<'a> TcpSocket<'a> {
         });
 
         Self {
-            io: TcpIo { stack: stack, handle },
+            io: TcpIo { stack, handle },
         }
     }
 
@@ -806,7 +806,7 @@ pub mod client {
             };
             let remote_endpoint = (addr, remote.port());
             let mut socket = TcpConnection::new(self.stack, self.state)?;
-            socket.socket.set_timeout(self.socket_timeout.clone());
+            socket.socket.set_timeout(self.socket_timeout);
             socket
                 .socket
                 .connect(remote_endpoint)

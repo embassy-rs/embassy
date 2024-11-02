@@ -84,7 +84,7 @@ where
     {
         self.0.consume(|buf| {
             #[cfg(feature = "packet-trace")]
-            trace!("rx: {:?}", buf);
+            trace!("embassy device rx: {:02x}", buf);
             f(buf)
         })
     }
@@ -105,7 +105,7 @@ where
         self.0.consume(len, |buf| {
             let r = f(buf);
             #[cfg(feature = "packet-trace")]
-            trace!("tx: {:?}", buf);
+            trace!("embassy device tx: {:02x}", buf);
             r
         })
     }

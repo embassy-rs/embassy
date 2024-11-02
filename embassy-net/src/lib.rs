@@ -33,14 +33,14 @@ pub use embassy_net_driver as driver;
 use embassy_net_driver::{Driver, LinkState};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
-#[allow(unused_imports)]
 use heapless::Vec;
 #[cfg(feature = "dns")]
 pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "multicast")]
 pub use smoltcp::iface::MulticastError;
-#[allow(unused_imports)]
-use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
+#[cfg(any(feature = "dns", feature = "dhcpv4"))]
+use smoltcp::iface::SocketHandle;
+use smoltcp::iface::{Interface, SocketSet, SocketStorage};
 use smoltcp::phy::Medium;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
@@ -379,11 +379,11 @@ fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddres
 
 impl<'d> Stack<'d> {
     fn with<R>(&self, f: impl FnOnce(&Inner) -> R) -> R {
-        f(&*self.inner.borrow())
+        f(&self.inner.borrow())
     }
 
     fn with_mut<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> R {
-        f(&mut *self.inner.borrow_mut())
+        f(&mut self.inner.borrow_mut())
     }
 
     /// Get the hardware address of the network interface.
@@ -391,12 +391,12 @@ impl<'d> Stack<'d> {
         self.with(|i| i.hardware_address)
     }
 
-    /// Get whether the link is up.
+    /// Check whether the link is up.
     pub fn is_link_up(&self) -> bool {
         self.with(|i| i.link_up)
     }
 
-    /// Get whether the network stack has a valid IP configuration.
+    /// Check whether the network stack has a valid IP configuration.
     /// This is true if the network stack has a static IP configuration or if DHCP has completed
     pub fn is_config_up(&self) -> bool {
         let v4_up;
@@ -642,7 +642,7 @@ impl<'d> Stack<'d> {
 }
 
 impl Inner {
-    #[allow(clippy::absurd_extreme_comparisons, dead_code)]
+    #[allow(clippy::absurd_extreme_comparisons)]
     pub fn get_local_port(&mut self) -> u16 {
         let res = self.next_local_port;
         self.next_local_port = if res >= LOCAL_PORT_MAX { LOCAL_PORT_MIN } else { res + 1 };
@@ -732,7 +732,7 @@ impl Inner {
             debug!("   Default gateway: {:?}", config.gateway);
 
             unwrap!(addrs.push(IpCidr::Ipv4(config.address)).ok());
-            gateway_v4 = config.gateway.into();
+            gateway_v4 = config.gateway;
             #[cfg(feature = "dns")]
             for s in &config.dns_servers {
                 debug!("   DNS server:      {:?}", s);
@@ -831,22 +831,19 @@ impl Inner {
             self.state_waker.wake();
         }
 
-        #[allow(unused_mut)]
-        let mut apply_config = false;
-
         #[cfg(feature = "dhcpv4")]
         if let Some(dhcp_handle) = self.dhcp_socket {
             let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
 
-            if self.link_up {
+            let configure = if self.link_up {
                 if old_link_up != self.link_up {
                     socket.reset();
                 }
                 match socket.poll() {
-                    None => {}
+                    None => false,
                     Some(dhcpv4::Event::Deconfigured) => {
                         self.static_v4 = None;
-                        apply_config = true;
+                        true
                     }
                     Some(dhcpv4::Event::Configured(config)) => {
                         self.static_v4 = Some(StaticConfigV4 {
@@ -854,18 +851,19 @@ impl Inner {
                             gateway: config.router,
                             dns_servers: config.dns_servers,
                         });
-                        apply_config = true;
+                        true
                     }
                 }
             } else if old_link_up {
                 socket.reset();
                 self.static_v4 = None;
-                apply_config = true;
+                true
+            } else {
+                false
+            };
+            if configure {
+                self.apply_static_config()
             }
-        }
-
-        if apply_config {
-            self.apply_static_config();
         }
 
         if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets) {

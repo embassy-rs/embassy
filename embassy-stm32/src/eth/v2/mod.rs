@@ -192,6 +192,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             // TODO: Carrier sense ? ECRSFD
         });
 
+        // Disable multicast filter
+        mac.macpfr().modify(|w| w.set_pm(true));
+
         // Note: Writing to LR triggers synchronisation of both LR and HR into the MAC core,
         // so the LR write must happen after the HR write.
         mac.maca0hr()
