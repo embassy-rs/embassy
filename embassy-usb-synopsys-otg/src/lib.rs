@@ -43,7 +43,16 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
         let ep_num = status.epnum() as usize;
         let len = status.bcnt() as usize;
 
-        assert!(ep_num < ep_count);
+        if ep_num >= ep_count {
+            // Removed `assert!(ep_num < ep_count);` as this fails for second serial connection UNLESS
+            // defmt-trace level debugging is enabled embassy-stm32 (note that the defmt feature
+            // doesnt work in embassy-usb-synopsys-otg as defmt::assert! generates multiple errors)
+            //
+            // I'm guessing this may be some sort of timing issue so instead of panic-ing skip
+            // invalid packet :‑(
+            error!("Skipping Invalid Packet (ep_num >= ep_count): ep_num: {} ep_count: {}", ep_num, ep_count);
+            continue;
+        }
 
         match status.pktstsd() {
             vals::Pktstsd::SETUP_DATA_RX => {
