@@ -50,7 +50,10 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
             //
             // I'm guessing this may be some sort of timing issue so instead of panic-ing skip
             // invalid packet :‑(
-            error!("Skipping Invalid Packet (ep_num >= ep_count): ep_num: {} ep_count: {}", ep_num, ep_count);
+            error!(
+                "Skipping Invalid Packet (ep_num >= ep_count): ep_num: {} ep_count: {}",
+                ep_num, ep_count
+            );
             continue;
         }
 
