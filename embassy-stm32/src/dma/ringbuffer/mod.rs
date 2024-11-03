@@ -21,6 +21,10 @@ pub trait DmaCtrl {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Overrun,
+    /// the newly read DMA positions don't make sense compared to the previous
+    /// ones. This can usually only occur due to wrong Driver implementation, if
+    /// the driver author (or the user using raw metapac code) directly resets
+    /// the channel for instance.
     DmaUnsynced,
 }
 
