@@ -140,6 +140,8 @@ impl SealedInstance for crate::peripherals::RTC {
         } else if #[cfg(any(stm32l5, stm32h5))] {
             const EXTI_WAKEUP_LINE: usize = 17;
             type WakeupInterrupt = crate::interrupt::typelevel::RTC;
+        } else if #[cfg(stm32u5)] {
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC;
         }
     );
 
