@@ -109,12 +109,20 @@ pub trait Driver: Send + Sync + 'static {
     /// Try allocating an alarm handle. Returns None if no alarms left.
     /// Initially the alarm has no callback set, and a null `ctx` pointer.
     ///
+    /// The allocated alarm is a reusable resource and can be used multiple times.
+    /// Once the alarm has fired, it remains allocated and can be set again without needing
+    /// to be reallocated.
+    ///
     /// # Safety
     /// It is UB to make the alarm fire before setting a callback.
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle>;
 
     /// Set the callback function to be called when the alarm triggers.
     /// The callback may be called from any context (interrupt or thread mode).
+    ///
+    /// The callback is maintained after the alarm has fired. Callers do not need
+    /// to set a callback again before setting another alarm, unless they want to
+    /// change the callback function or context.
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ());
 
     /// Set an alarm at the given timestamp.
