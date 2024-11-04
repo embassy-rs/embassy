@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use darling::export::NestedMeta;
 use darling::FromMeta;
 use proc_macro2::{Span, TokenStream};
@@ -11,6 +13,9 @@ use crate::util::*;
 struct Args {
     #[darling(default)]
     pool_size: Option<syn::Expr>,
+    /// Use this to override the `embassy_executor` crate path. Defaults to `::embassy_executor`.
+    #[darling(default)]
+    embassy_executor: Option<syn::Expr>,
 }
 
 pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
@@ -41,6 +46,10 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         attrs: vec![],
         lit: Lit::Int(LitInt::new("1", Span::call_site())),
     }));
+
+    let embassy_executor = args
+        .embassy_executor
+        .unwrap_or(Expr::Verbatim(TokenStream::from_str("::embassy_executor").unwrap()));
 
     if f.sig.asyncness.is_none() {
         error(&mut errors, &f.sig, "task functions must be async");
@@ -131,13 +140,13 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         const POOL_SIZE: usize = #pool_size;
-        static POOL: ::embassy_executor::raw::TaskPool<<() as _EmbassyInternalTaskTrait>::Fut, POOL_SIZE> = ::embassy_executor::raw::TaskPool::new();
+        static POOL: #embassy_executor::raw::TaskPool<<() as _EmbassyInternalTaskTrait>::Fut, POOL_SIZE> = #embassy_executor::raw::TaskPool::new();
         unsafe { POOL._spawn_async_fn(move || <() as _EmbassyInternalTaskTrait>::construct(#(#full_args,)*)) }
     };
     #[cfg(not(feature = "nightly"))]
     let mut task_outer_body = quote! {
         const POOL_SIZE: usize = #pool_size;
-        static POOL: ::embassy_executor::_export::TaskPoolRef = ::embassy_executor::_export::TaskPoolRef::new();
+        static POOL: #embassy_executor::_export::TaskPoolRef = #embassy_executor::_export::TaskPoolRef::new();
         unsafe { POOL.get::<_, POOL_SIZE>()._spawn_async_fn(move || #task_inner_ident(#(#full_args,)*)) }
     };
 
@@ -146,7 +155,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     if !errors.is_empty() {
         task_outer_body = quote! {
             #![allow(unused_variables, unreachable_code)]
-            let _x: ::embassy_executor::SpawnToken<()> = ::core::todo!();
+            let _x: #embassy_executor::SpawnToken<()> = ::core::todo!();
             _x
         };
     }
@@ -164,7 +173,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         #task_inner
 
         #(#task_outer_attrs)*
-        #visibility fn #task_ident #generics (#fargs) -> ::embassy_executor::SpawnToken<impl Sized> #where_clause{
+        #visibility fn #task_ident #generics (#fargs) -> #embassy_executor::SpawnToken<impl Sized> #where_clause{
             #task_outer_body
         }
 
