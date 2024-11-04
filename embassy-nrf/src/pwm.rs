@@ -132,6 +132,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             pin.set_low();
             pin.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
+                w.set_input(gpiovals::Input::DISCONNECT);
                 w.set_drive(convert_drive(config.ch0_drive));
             });
         }
@@ -139,6 +140,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             pin.set_low();
             pin.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
+                w.set_input(gpiovals::Input::DISCONNECT);
                 w.set_drive(convert_drive(config.ch1_drive));
             });
         }
@@ -146,6 +148,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             pin.set_low();
             pin.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
+                w.set_input(gpiovals::Input::DISCONNECT);
                 w.set_drive(convert_drive(config.ch2_drive));
             });
         }
@@ -153,6 +156,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             pin.set_low();
             pin.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
+                w.set_input(gpiovals::Input::DISCONNECT);
                 w.set_drive(convert_drive(config.ch3_drive));
             });
         }
@@ -679,9 +683,14 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         for (i, ch) in [&ch0, &ch1, &ch2, &ch3].into_iter().enumerate() {
             if let Some(pin) = ch {
                 pin.set_low();
-                pin.conf().write(|w| w.set_dir(gpiovals::Dir::OUTPUT));
+
+                pin.conf().write(|w| {
+                    w.set_dir(gpiovals::Dir::OUTPUT);
+                    w.set_input(gpiovals::Input::DISCONNECT);
+                    w.set_drive(gpiovals::Drive::S0S1);
+                });
             }
-            r.psel().out(i).write_value(ch0.psel_bits());
+            r.psel().out(i).write_value(ch.psel_bits());
         }
 
         let pwm = Self {
