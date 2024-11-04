@@ -15,23 +15,15 @@ use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
 use embedded_hal_1::i2c::Operation;
+pub use pac::twim::vals::Frequency;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::gpio::vals as gpiovals;
+use crate::pac::twim::vals;
 use crate::util::slice_in_ram;
 use crate::{gpio, interrupt, pac, Peripheral};
-
-/// TWI frequency
-#[derive(Clone, Copy)]
-pub enum Frequency {
-    /// 100 kbps
-    K100 = 26738688,
-    /// 250 kbps
-    K250 = 67108864,
-    /// 400 kbps
-    K400 = 104857600,
-}
 
 /// TWIM config.
 #[non_exhaustive]
@@ -105,17 +97,17 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        if r.events_suspended.read().bits() != 0 {
+        if r.events_suspended().read() != 0 {
             s.end_waker.wake();
-            r.intenclr.write(|w| w.suspended().clear());
+            r.intenclr().write(|w| w.set_suspended(true));
         }
-        if r.events_stopped.read().bits() != 0 {
+        if r.events_stopped().read() != 0 {
             s.end_waker.wake();
-            r.intenclr.write(|w| w.stopped().clear());
+            r.intenclr().write(|w| w.set_stopped(true));
         }
-        if r.events_error.read().bits() != 0 {
+        if r.events_error().read() != 0 {
             s.end_waker.wake();
-            r.intenclr.write(|w| w.error().clear());
+            r.intenclr().write(|w| w.set_error(true));
         }
     }
 }
@@ -140,38 +132,34 @@ impl<'d, T: Instance> Twim<'d, T> {
 
         // Configure pins
         sda.conf().write(|w| {
-            w.dir().input();
-            w.input().connect();
-            if config.sda_high_drive {
-                w.drive().h0d1();
-            } else {
-                w.drive().s0d1();
-            }
+            w.set_dir(gpiovals::Dir::OUTPUT);
+            w.set_input(gpiovals::Input::CONNECT);
+            w.set_drive(match config.sda_high_drive {
+                true => gpiovals::Drive::H0D1,
+                false => gpiovals::Drive::S0D1,
+            });
             if config.sda_pullup {
-                w.pull().pullup();
+                w.set_pull(gpiovals::Pull::PULLUP);
             }
-            w
         });
         scl.conf().write(|w| {
-            w.dir().input();
-            w.input().connect();
-            if config.scl_high_drive {
-                w.drive().h0d1();
-            } else {
-                w.drive().s0d1();
+            w.set_dir(gpiovals::Dir::OUTPUT);
+            w.set_input(gpiovals::Input::CONNECT);
+            w.set_drive(match config.scl_high_drive {
+                true => gpiovals::Drive::H0D1,
+                false => gpiovals::Drive::S0D1,
+            });
+            if config.sda_pullup {
+                w.set_pull(gpiovals::Pull::PULLUP);
             }
-            if config.scl_pullup {
-                w.pull().pullup();
-            }
-            w
         });
 
         // Select pins.
-        r.psel.sda.write(|w| unsafe { w.bits(sda.psel_bits()) });
-        r.psel.scl.write(|w| unsafe { w.bits(scl.psel_bits()) });
+        r.psel().sda().write_value(sda.psel_bits());
+        r.psel().scl().write_value(scl.psel_bits());
 
         // Enable TWIM instance.
-        r.enable.write(|w| w.enable().enabled());
+        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
 
         let mut twim = Self { _p: twim };
 
@@ -179,7 +167,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         Self::set_config(&mut twim, &config).unwrap();
 
         // Disable all events interrupts
-        r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+        r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -211,22 +199,18 @@ impl<'d, T: Instance> Twim<'d, T> {
 
         let r = T::regs();
 
-        r.txd.ptr.write(|w|
-            // We're giving the register a pointer to the stack. Since we're
-            // waiting for the I2C transaction to end before this stack pointer
-            // becomes invalid, there's nothing wrong here.
-            //
-            // The PTR field is a full 32 bits wide and accepts the full range
-            // of values.
-            w.ptr().bits(buffer.as_ptr() as u32));
-        r.txd.maxcnt.write(|w|
+        // We're giving the register a pointer to the stack. Since we're
+        // waiting for the I2C transaction to end before this stack pointer
+        // becomes invalid, there's nothing wrong here.
+        r.txd().ptr().write_value(buffer.as_ptr() as u32);
+        r.txd().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to `u8` is also fine.
             //
             // The MAXCNT field is 8 bits wide and accepts the full range of
             // values.
-            w.maxcnt().bits(buffer.len() as _));
+            w.set_maxcnt(buffer.len() as _));
 
         Ok(())
     }
@@ -242,15 +226,11 @@ impl<'d, T: Instance> Twim<'d, T> {
 
         let r = T::regs();
 
-        r.rxd.ptr.write(|w|
-            // We're giving the register a pointer to the stack. Since we're
-            // waiting for the I2C transaction to end before this stack pointer
-            // becomes invalid, there's nothing wrong here.
-            //
-            // The PTR field is a full 32 bits wide and accepts the full range
-            // of values.
-            w.ptr().bits(buffer.as_mut_ptr() as u32));
-        r.rxd.maxcnt.write(|w|
+        // We're giving the register a pointer to the stack. Since we're
+        // waiting for the I2C transaction to end before this stack pointer
+        // becomes invalid, there's nothing wrong here.
+        r.rxd().ptr().write_value(buffer.as_mut_ptr() as u32);
+        r.rxd().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to the type of maxcnt
@@ -260,29 +240,32 @@ impl<'d, T: Instance> Twim<'d, T> {
             // type than a u8, so we use a `_` cast rather than a `u8` cast.
             // The MAXCNT field is thus at least 8 bits wide and accepts the
             // full range of values that fit in a `u8`.
-            w.maxcnt().bits(buffer.len() as _));
+            w.set_maxcnt(buffer.len() as _));
 
         Ok(())
     }
 
     fn clear_errorsrc(&mut self) {
         let r = T::regs();
-        r.errorsrc
-            .write(|w| w.anack().bit(true).dnack().bit(true).overrun().bit(true));
+        r.errorsrc().write(|w| {
+            w.set_anack(true);
+            w.set_dnack(true);
+            w.set_overrun(true);
+        });
     }
 
     /// Get Error instance, if any occurred.
     fn check_errorsrc(&self) -> Result<(), Error> {
         let r = T::regs();
 
-        let err = r.errorsrc.read();
-        if err.anack().is_received() {
+        let err = r.errorsrc().read();
+        if err.anack() {
             return Err(Error::AddressNack);
         }
-        if err.dnack().is_received() {
+        if err.dnack() {
             return Err(Error::DataNack);
         }
-        if err.overrun().is_received() {
+        if err.overrun() {
             return Err(Error::Overrun);
         }
         Ok(())
@@ -290,7 +273,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     fn check_rx(&self, len: usize) -> Result<(), Error> {
         let r = T::regs();
-        if r.rxd.amount.read().bits() != len as u32 {
+        if r.rxd().amount().read().0 != len as u32 {
             Err(Error::Receive)
         } else {
             Ok(())
@@ -299,7 +282,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     fn check_tx(&self, len: usize) -> Result<(), Error> {
         let r = T::regs();
-        if r.txd.amount.read().bits() != len as u32 {
+        if r.txd().amount().read().0 != len as u32 {
             Err(Error::Transmit)
         } else {
             Ok(())
@@ -310,14 +293,14 @@ impl<'d, T: Instance> Twim<'d, T> {
     fn blocking_wait(&mut self) {
         let r = T::regs();
         loop {
-            if r.events_suspended.read().bits() != 0 || r.events_stopped.read().bits() != 0 {
-                r.events_suspended.reset();
-                r.events_stopped.reset();
+            if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
+                r.events_suspended().write_value(0);
+                r.events_stopped().write_value(0);
                 break;
             }
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
             }
         }
     }
@@ -328,16 +311,16 @@ impl<'d, T: Instance> Twim<'d, T> {
         let r = T::regs();
         let deadline = Instant::now() + timeout;
         loop {
-            if r.events_suspended.read().bits() != 0 || r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
+            if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
                 break;
             }
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
             }
             if Instant::now() > deadline {
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                r.tasks_stop().write_value(1);
                 return Err(Error::Timeout);
             }
         }
@@ -352,16 +335,16 @@ impl<'d, T: Instance> Twim<'d, T> {
             let s = T::state();
 
             s.end_waker.register(cx.waker());
-            if r.events_suspended.read().bits() != 0 || r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
+            if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
 
                 return Poll::Ready(());
             }
 
             // stop if an error occurred
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
             }
 
             Poll::Pending
@@ -380,18 +363,25 @@ impl<'d, T: Instance> Twim<'d, T> {
 
         compiler_fence(SeqCst);
 
-        r.address.write(|w| unsafe { w.address().bits(address) });
+        r.address().write(|w| w.set_address(address));
 
-        r.events_suspended.reset();
-        r.events_stopped.reset();
-        r.events_error.reset();
+        r.events_suspended().write_value(0);
+        r.events_stopped().write_value(0);
+        r.events_error().write_value(0);
         self.clear_errorsrc();
 
         if inten {
-            r.intenset.write(|w| w.suspended().set().stopped().set().error().set());
+            r.intenset().write(|w| {
+                w.set_suspended(true);
+                w.set_stopped(true);
+                w.set_error(true);
+            });
         } else {
-            r.intenclr
-                .write(|w| w.suspended().clear().stopped().clear().error().clear());
+            r.intenclr().write(|w| {
+                w.set_suspended(true);
+                w.set_stopped(true);
+                w.set_error(true);
+            });
         }
 
         assert!(!operations.is_empty());
@@ -408,26 +398,25 @@ impl<'d, T: Instance> Twim<'d, T> {
                     self.set_rx_buffer(rd_buffer)?;
                 }
 
-                r.shorts.write(|w| {
-                    w.lastrx_starttx().enabled();
+                r.shorts().write(|w| {
+                    w.set_lastrx_starttx(true);
                     if stop {
-                        w.lasttx_stop().enabled();
+                        w.set_lasttx_stop(true);
                     } else {
-                        w.lasttx_suspend().enabled();
+                        w.set_lasttx_suspend(true);
                     }
-                    w
                 });
 
                 // Start read+write operation.
-                r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+                r.tasks_startrx().write_value(1);
                 if last_op.is_some() {
-                    r.tasks_resume.write(|w| unsafe { w.bits(1) });
+                    r.tasks_resume().write_value(1);
                 }
 
                 // TODO: Handle empty write buffer
                 if rd_buffer.is_empty() {
                     // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STARTTX ourselves.
-                    r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+                    r.tasks_starttx().write_value(1);
                 }
 
                 Ok(2)
@@ -438,17 +427,17 @@ impl<'d, T: Instance> Twim<'d, T> {
                     self.set_rx_buffer(buffer)?;
                 }
 
-                r.shorts.write(|w| w.lastrx_stop().enabled());
+                r.shorts().write(|w| w.set_lastrx_stop(true));
 
                 // Start read operation.
-                r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+                r.tasks_startrx().write_value(1);
                 if last_op.is_some() {
-                    r.tasks_resume.write(|w| unsafe { w.bits(1) });
+                    r.tasks_resume().write_value(1);
                 }
 
                 if buffer.is_empty() {
                     // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STOP ourselves.
-                    r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                    r.tasks_stop().write_value(1);
                 }
 
                 Ok(1)
@@ -463,15 +452,14 @@ impl<'d, T: Instance> Twim<'d, T> {
                 }
 
                 // Start write+read operation.
-                r.shorts.write(|w| {
-                    w.lasttx_startrx().enabled();
-                    w.lastrx_stop().enabled();
-                    w
+                r.shorts().write(|w| {
+                    w.set_lasttx_startrx(true);
+                    w.set_lastrx_stop(true);
                 });
 
-                r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+                r.tasks_starttx().write_value(1);
                 if last_op.is_some() {
-                    r.tasks_resume.write(|w| unsafe { w.bits(1) });
+                    r.tasks_resume().write_value(1);
                 }
 
                 Ok(2)
@@ -485,26 +473,25 @@ impl<'d, T: Instance> Twim<'d, T> {
                 }
 
                 // Start write operation.
-                r.shorts.write(|w| {
+                r.shorts().write(|w| {
                     if stop {
-                        w.lasttx_stop().enabled();
+                        w.set_lasttx_stop(true);
                     } else {
-                        w.lasttx_suspend().enabled();
+                        w.set_lasttx_suspend(true);
                     }
-                    w
                 });
 
-                r.tasks_starttx.write(|w| unsafe { w.bits(1) });
+                r.tasks_starttx().write_value(1);
                 if last_op.is_some() {
-                    r.tasks_resume.write(|w| unsafe { w.bits(1) });
+                    r.tasks_resume().write_value(1);
                 }
 
                 if buffer.is_empty() {
                     // With a zero-length buffer, LASTTX doesn't fire (because there's no last byte!), so do the STOP/SUSPEND ourselves.
                     if stop {
-                        r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                        r.tasks_stop().write_value(1);
                     } else {
-                        r.tasks_suspend.write(|w| unsafe { w.bits(1) });
+                        r.tasks_suspend().write_value(1);
                     }
                 }
 
@@ -827,10 +814,10 @@ impl<'a, T: Instance> Drop for Twim<'a, T> {
 
         // disable!
         let r = T::regs();
-        r.enable.write(|w| w.enable().disabled());
+        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
 
-        gpio::deconfigure_pin(r.psel.sda.read().bits());
-        gpio::deconfigure_pin(r.psel.scl.read().bits());
+        gpio::deconfigure_pin(r.psel().sda().read());
+        gpio::deconfigure_pin(r.psel().scl().read());
 
         trace!("twim drop: done");
     }
@@ -849,7 +836,7 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static pac::twim0::RegisterBlock;
+    fn regs() -> pac::twim::Twim;
     fn state() -> &'static State;
 }
 
@@ -863,8 +850,8 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
 macro_rules! impl_twim {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::twim::SealedInstance for peripherals::$type {
-            fn regs() -> &'static pac::twim0::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> pac::twim::Twim {
+                pac::$pac_type
             }
             fn state() -> &'static crate::twim::State {
                 static STATE: crate::twim::State = crate::twim::State::new();
@@ -948,8 +935,7 @@ impl<'d, T: Instance> SetConfig for Twim<'d, T> {
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         let r = T::regs();
-        r.frequency
-            .write(|w| unsafe { w.frequency().bits(config.frequency as u32) });
+        r.frequency().write(|w| w.set_frequency(config.frequency));
 
         Ok(())
     }

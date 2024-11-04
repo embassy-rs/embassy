@@ -8,7 +8,7 @@ use cortex_m_rt::{entry, exception};
 use defmt_rtt as _;
 use embassy_boot_nrf::*;
 use embassy_nrf::nvmc::Nvmc;
-use embassy_nrf::wdt;
+use embassy_nrf::wdt::{self, HaltConfig, SleepConfig};
 use embassy_sync::blocking_mutex::Mutex;
 
 #[entry]
@@ -25,8 +25,8 @@ fn main() -> ! {
 
     let mut wdt_config = wdt::Config::default();
     wdt_config.timeout_ticks = 32768 * 5; // timeout seconds
-    wdt_config.run_during_sleep = true;
-    wdt_config.run_during_debug_halt = false;
+    wdt_config.action_during_sleep = SleepConfig::RUN;
+    wdt_config.action_during_debug_halt = HaltConfig::PAUSE;
 
     let flash = WatchdogFlash::start(Nvmc::new(p.NVMC), p.WDT, wdt_config);
     let flash = Mutex::new(RefCell::new(flash));

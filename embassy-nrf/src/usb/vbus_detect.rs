@@ -34,9 +34,9 @@ type UsbRegIrq = interrupt::typelevel::POWER_CLOCK;
 type UsbRegIrq = interrupt::typelevel::USBREGULATOR;
 
 #[cfg(not(feature = "_nrf5340"))]
-type UsbRegPeri = pac::POWER;
+const USB_REG_PERI: pac::power::Power = pac::POWER;
 #[cfg(feature = "_nrf5340")]
-type UsbRegPeri = pac::USBREGULATOR;
+const USB_REG_PERI: pac::usbregulator::Usbregulator = pac::USBREGULATOR;
 
 /// Interrupt handler.
 pub struct InterruptHandler {
@@ -45,21 +45,21 @@ pub struct InterruptHandler {
 
 impl interrupt::typelevel::Handler<UsbRegIrq> for InterruptHandler {
     unsafe fn on_interrupt() {
-        let regs = unsafe { &*UsbRegPeri::ptr() };
+        let regs = USB_REG_PERI;
 
-        if regs.events_usbdetected.read().bits() != 0 {
-            regs.events_usbdetected.reset();
+        if regs.events_usbdetected().read() != 0 {
+            regs.events_usbdetected().write_value(0);
             BUS_WAKER.wake();
         }
 
-        if regs.events_usbremoved.read().bits() != 0 {
-            regs.events_usbremoved.reset();
+        if regs.events_usbremoved().read() != 0 {
+            regs.events_usbremoved().write_value(0);
             BUS_WAKER.wake();
             POWER_WAKER.wake();
         }
 
-        if regs.events_usbpwrrdy.read().bits() != 0 {
-            regs.events_usbpwrrdy.reset();
+        if regs.events_usbpwrrdy().read() != 0 {
+            regs.events_usbpwrrdy().write_value(0);
             POWER_WAKER.wake();
         }
     }
@@ -78,13 +78,16 @@ static POWER_WAKER: AtomicWaker = AtomicWaker::new();
 impl HardwareVbusDetect {
     /// Create a new `VbusDetectNative`.
     pub fn new(_irq: impl interrupt::typelevel::Binding<UsbRegIrq, InterruptHandler> + 'static) -> Self {
-        let regs = unsafe { &*UsbRegPeri::ptr() };
+        let regs = USB_REG_PERI;
 
         UsbRegIrq::unpend();
         unsafe { UsbRegIrq::enable() };
 
-        regs.intenset
-            .write(|w| w.usbdetected().set().usbremoved().set().usbpwrrdy().set());
+        regs.intenset().write(|w| {
+            w.set_usbdetected(true);
+            w.set_usbremoved(true);
+            w.set_usbpwrrdy(true);
+        });
 
         Self { _private: () }
     }
@@ -92,16 +95,16 @@ impl HardwareVbusDetect {
 
 impl VbusDetect for HardwareVbusDetect {
     fn is_usb_detected(&self) -> bool {
-        let regs = unsafe { &*UsbRegPeri::ptr() };
-        regs.usbregstatus.read().vbusdetect().is_vbus_present()
+        let regs = USB_REG_PERI;
+        regs.usbregstatus().read().vbusdetect()
     }
 
     async fn wait_power_ready(&mut self) -> Result<(), ()> {
         poll_fn(move |cx| {
             POWER_WAKER.register(cx.waker());
-            let regs = unsafe { &*UsbRegPeri::ptr() };
+            let regs = USB_REG_PERI;
 
-            if regs.usbregstatus.read().outputrdy().is_ready() {
+            if regs.usbregstatus().read().outputrdy() {
                 Poll::Ready(Ok(()))
             } else if !self.is_usb_detected() {
                 Poll::Ready(Err(()))

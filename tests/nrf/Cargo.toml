@@ -87,6 +87,11 @@ path = "src/bin/gpiote.rs"
 required-features = []
 
 [[bin]]
+name = "spim"
+path = "src/bin/spim.rs"
+required-features = [ "easydma",]
+
+[[bin]]
 name = "timer"
 path = "src/bin/timer.rs"
 required-features = []

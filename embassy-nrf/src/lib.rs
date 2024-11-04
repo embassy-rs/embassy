@@ -11,7 +11,7 @@
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 #[cfg(not(any(
-    feature = "nrf51",
+    feature = "_nrf51",
     feature = "nrf52805",
     feature = "nrf52810",
     feature = "nrf52811",
@@ -68,7 +68,7 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
@@ -78,7 +78,7 @@ pub mod gpiote;
 #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
 pub mod radio;
 
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 pub mod egu;
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
@@ -95,32 +95,32 @@ pub mod nvmc;
 pub mod pdm;
 pub mod ppi;
 #[cfg(not(any(
-    feature = "nrf51",
+    feature = "_nrf51",
     feature = "nrf52805",
     feature = "nrf52820",
     feature = "_nrf5340-net"
 )))]
 pub mod pwm;
-#[cfg(not(any(feature = "nrf51", feature = "_nrf91", feature = "_nrf5340-net")))]
+#[cfg(not(any(feature = "_nrf51", feature = "_nrf91", feature = "_nrf5340-net")))]
 pub mod qdec;
 #[cfg(any(feature = "nrf52840", feature = "_nrf5340-app"))]
 pub mod qspi;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
-#[cfg(not(any(feature = "nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
+#[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 pub mod spim;
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 pub mod spis;
 #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
 pub mod temp;
 pub mod timer;
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 pub mod twim;
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 pub mod twis;
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 pub mod uarte;
 #[cfg(any(
     feature = "_nrf5340-app",
@@ -133,7 +133,7 @@ pub mod usb;
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
-#[cfg_attr(feature = "nrf51", path = "chips/nrf51.rs")]
+#[cfg_attr(feature = "_nrf51", path = "chips/nrf51.rs")]
 #[cfg_attr(feature = "nrf52805", path = "chips/nrf52805.rs")]
 #[cfg_attr(feature = "nrf52810", path = "chips/nrf52810.rs")]
 #[cfg_attr(feature = "nrf52811", path = "chips/nrf52811.rs")]
@@ -216,6 +216,7 @@ pub use chip::{peripherals, Peripherals, EASY_DMA_SIZE};
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
 pub use crate::chip::interrupt;
+#[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
 
 pub mod config {
@@ -405,7 +406,7 @@ mod consts {
     pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
 }
 
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum WriteResult {
@@ -417,12 +418,12 @@ enum WriteResult {
     Failed,
 }
 
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
     uicr_write_masked(address, value, 0xFFFF_FFFF)
 }
 
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
     let curr_val = address.read_volatile();
     if curr_val & mask == value & mask {
@@ -434,13 +435,13 @@ unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteRe
         return WriteResult::Failed;
     }
 
-    let nvmc = &*pac::NVMC::ptr();
-    nvmc.config.write(|w| w.wen().wen());
-    while nvmc.ready.read().ready().is_busy() {}
+    let nvmc = pac::NVMC;
+    nvmc.config().write(|w| w.set_wen(pac::nvmc::vals::Wen::WEN));
+    while !nvmc.ready().read().ready() {}
     address.write_volatile(value | !mask);
-    while nvmc.ready.read().ready().is_busy() {}
-    nvmc.config.reset();
-    while nvmc.ready.read().ready().is_busy() {}
+    while !nvmc.ready().read().ready() {}
+    nvmc.config().write(|_| {});
+    while !nvmc.ready().read().ready() {}
 
     WriteResult::Written
 }
@@ -459,7 +460,7 @@ pub fn init(config: config::Config) -> Peripherals {
     let mut needs_reset = false;
 
     // Setup debug protection.
-    #[cfg(not(feature = "nrf51"))]
+    #[cfg(not(feature = "_nrf51"))]
     match config.debug {
         config::Debug::Allowed => {
             #[cfg(feature = "_nrf52")]
@@ -486,17 +487,17 @@ pub fn init(config: config::Config) -> Peripherals {
 
             #[cfg(feature = "_nrf5340")]
             unsafe {
-                let p = &*pac::CTRLAP::ptr();
+                let p = pac::CTRLAP;
 
                 let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
                 needs_reset |= res == WriteResult::Written;
-                p.approtect.disable.write(|w| w.bits(consts::APPROTECT_DISABLED));
+                p.approtect().disable().write_value(consts::APPROTECT_DISABLED);
 
                 #[cfg(feature = "_nrf5340-app")]
                 {
                     let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_DISABLED);
                     needs_reset |= res == WriteResult::Written;
-                    p.secureapprotect.disable.write(|w| w.bits(consts::APPROTECT_DISABLED));
+                    p.secureapprotect().disable().write_value(consts::APPROTECT_DISABLED);
                 }
             }
 
@@ -576,85 +577,79 @@ pub fn init(config: config::Config) -> Peripherals {
         cortex_m::peripheral::SCB::sys_reset();
     }
 
-    let r = unsafe { &*pac::CLOCK::ptr() };
+    let r = pac::CLOCK;
 
     // Start HFCLK.
     match config.hfclk_source {
         config::HfclkSource::Internal => {}
         config::HfclkSource::ExternalXtal => {
             // Datasheet says this is likely to take 0.36ms
-            r.events_hfclkstarted.write(|w| unsafe { w.bits(0) });
-            r.tasks_hfclkstart.write(|w| unsafe { w.bits(1) });
-            while r.events_hfclkstarted.read().bits() == 0 {}
+            r.events_hfclkstarted().write_value(0);
+            r.tasks_hfclkstart().write_value(1);
+            while r.events_hfclkstarted().read() == 0 {}
         }
     }
 
     // Configure LFCLK.
-    #[cfg(not(any(feature = "nrf51", feature = "_nrf5340", feature = "_nrf91")))]
+    #[cfg(not(any(feature = "_nrf51", feature = "_nrf5340", feature = "_nrf91")))]
     match config.lfclk_source {
-        config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().rc()),
-        config::LfclkSource::Synthesized => r.lfclksrc.write(|w| w.src().synth()),
-
-        config::LfclkSource::ExternalXtal => r.lfclksrc.write(|w| w.src().xtal()),
-
-        config::LfclkSource::ExternalLowSwing => r.lfclksrc.write(|w| {
-            w.src().xtal();
-            w.external().enabled();
-            w.bypass().disabled();
-            w
+        config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::RC)),
+        config::LfclkSource::Synthesized => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::SYNTH)),
+        config::LfclkSource::ExternalXtal => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::XTAL)),
+        config::LfclkSource::ExternalLowSwing => r.lfclksrc().write(|w| {
+            w.set_src(pac::clock::vals::Lfclksrc::XTAL);
+            w.set_external(true);
+            w.set_bypass(false);
         }),
-        config::LfclkSource::ExternalFullSwing => r.lfclksrc.write(|w| {
-            w.src().xtal();
-            w.external().enabled();
-            w.bypass().enabled();
-            w
+        config::LfclkSource::ExternalFullSwing => r.lfclksrc().write(|w| {
+            w.set_src(pac::clock::vals::Lfclksrc::XTAL);
+            w.set_external(true);
+            w.set_bypass(true);
         }),
     }
     #[cfg(feature = "_nrf91")]
     match config.lfclk_source {
-        config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().lfrc()),
-        config::LfclkSource::ExternalXtal => r.lfclksrc.write(|w| w.src().lfxo()),
+        config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFRC)),
+        config::LfclkSource::ExternalXtal => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFXO)),
     }
 
     // Start LFCLK.
     // Datasheet says this could take 100us from synth source
     // 600us from rc source, 0.25s from an external source.
-    r.events_lfclkstarted.write(|w| unsafe { w.bits(0) });
-    r.tasks_lfclkstart.write(|w| unsafe { w.bits(1) });
-    while r.events_lfclkstarted.read().bits() == 0 {}
+    r.events_lfclkstarted().write_value(0);
+    r.tasks_lfclkstart().write_value(1);
+    while r.events_lfclkstarted().read() == 0 {}
 
     #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
     {
         // Setup DCDCs.
-        let pwr = unsafe { &*pac::POWER::ptr() };
         #[cfg(feature = "nrf52840")]
         if config.dcdc.reg0 {
-            pwr.dcdcen0.write(|w| w.dcdcen().set_bit());
+            pac::POWER.dcdcen0().write(|w| w.set_dcdcen(true));
         }
         if config.dcdc.reg1 {
-            pwr.dcdcen.write(|w| w.dcdcen().set_bit());
+            pac::POWER.dcdcen().write(|w| w.set_dcdcen(true));
         }
     }
     #[cfg(feature = "_nrf91")]
     {
         // Setup DCDC.
-        let reg = unsafe { &*pac::REGULATORS::ptr() };
         if config.dcdc.regmain {
-            reg.dcdcen.write(|w| w.dcdcen().set_bit());
+            pac::REGULATORS.dcdcen().write(|w| w.set_dcdcen(true));
         }
     }
     #[cfg(feature = "_nrf5340-app")]
     {
         // Setup DCDC.
-        let reg = unsafe { &*pac::REGULATORS::ptr() };
+        let reg = pac::REGULATORS;
         if config.dcdc.regh {
-            reg.vregh.dcdcen.write(|w| w.dcdcen().set_bit());
+            reg.vregh().dcdcen().write(|w| w.set_dcdcen(true));
         }
         if config.dcdc.regmain {
-            reg.vregmain.dcdcen.write(|w| w.dcdcen().set_bit());
+            reg.vregmain().dcdcen().write(|w| w.set_dcdcen(true));
         }
         if config.dcdc.regradio {
-            reg.vregradio.dcdcen.write(|w| w.dcdcen().set_bit());
+            reg.vregradio().dcdcen().write(|w| w.set_dcdcen(true));
         }
     }
 
@@ -668,9 +663,10 @@ pub fn init(config: config::Config) -> Peripherals {
 
     // Disable UARTE (enabled by default for some reason)
     #[cfg(feature = "_nrf91")]
-    unsafe {
-        (*pac::UARTE0::ptr()).enable.write(|w| w.enable().disabled());
-        (*pac::UARTE1::ptr()).enable.write(|w| w.enable().disabled());
+    {
+        use pac::uarte::vals::Enable;
+        pac::UARTE0.enable().write(|w| w.set_enable(Enable::DISABLED));
+        pac::UARTE1.enable().write(|w| w.set_enable(Enable::DISABLED));
     }
 
     peripherals

@@ -3,7 +3,8 @@
 //! This HAL implements a basic watchdog timer with 1..=8 handles.
 //! Once the watchdog has been started, it cannot be stopped.
 
-use crate::pac::WDT;
+use crate::pac::wdt::vals;
+pub use crate::pac::wdt::vals::{Halt as HaltConfig, Sleep as SleepConfig};
 use crate::peripherals;
 
 const MIN_TICKS: u32 = 15;
@@ -18,29 +19,29 @@ pub struct Config {
     pub timeout_ticks: u32,
 
     /// Should the watchdog continue to count during sleep modes?
-    pub run_during_sleep: bool,
+    pub action_during_sleep: SleepConfig,
 
     /// Should the watchdog continue to count when the CPU is halted for debug?
-    pub run_during_debug_halt: bool,
+    pub action_during_debug_halt: HaltConfig,
 }
 
 impl Config {
     /// Create a config structure from the current configuration of the WDT
     /// peripheral.
     pub fn try_new(_wdt: &peripherals::WDT) -> Option<Self> {
-        let r = unsafe { &*WDT::ptr() };
+        let r = crate::pac::WDT;
 
         #[cfg(not(feature = "_nrf91"))]
-        let runstatus = r.runstatus.read().runstatus().bit();
+        let runstatus = r.runstatus().read().runstatus();
         #[cfg(feature = "_nrf91")]
-        let runstatus = r.runstatus.read().runstatuswdt().bit();
+        let runstatus = r.runstatus().read().runstatuswdt();
 
         if runstatus {
-            let config = r.config.read();
+            let config = r.config().read();
             Some(Self {
-                timeout_ticks: r.crv.read().bits(),
-                run_during_sleep: config.sleep().bit(),
-                run_during_debug_halt: config.halt().bit(),
+                timeout_ticks: r.crv().read(),
+                action_during_sleep: config.sleep(),
+                action_during_debug_halt: config.halt(),
             })
         } else {
             None
@@ -52,8 +53,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             timeout_ticks: 32768, // 1 second
-            run_during_debug_halt: true,
-            run_during_sleep: true,
+            action_during_debug_halt: HaltConfig::RUN,
+            action_during_sleep: SleepConfig::RUN,
         }
     }
 }
@@ -78,36 +79,35 @@ impl Watchdog {
     ) -> Result<(Self, [WatchdogHandle; N]), peripherals::WDT> {
         assert!(N >= 1 && N <= 8);
 
-        let r = unsafe { &*WDT::ptr() };
+        let r = crate::pac::WDT;
 
         let crv = config.timeout_ticks.max(MIN_TICKS);
-        let rren = (1u32 << N) - 1;
+        let rren = crate::pac::wdt::regs::Rren((1u32 << N) - 1);
 
         #[cfg(not(feature = "_nrf91"))]
-        let runstatus = r.runstatus.read().runstatus().bit();
+        let runstatus = r.runstatus().read().runstatus();
         #[cfg(feature = "_nrf91")]
-        let runstatus = r.runstatus.read().runstatuswdt().bit();
+        let runstatus = r.runstatus().read().runstatuswdt();
 
         if runstatus {
-            let curr_config = r.config.read();
-            if curr_config.halt().bit() != config.run_during_debug_halt
-                || curr_config.sleep().bit() != config.run_during_sleep
-                || r.crv.read().bits() != crv
-                || r.rren.read().bits() != rren
+            let curr_config = r.config().read();
+            if curr_config.halt() != config.action_during_debug_halt
+                || curr_config.sleep() != config.action_during_sleep
+                || r.crv().read() != crv
+                || r.rren().read() != rren
             {
                 return Err(wdt);
             }
         } else {
-            r.config.write(|w| {
-                w.sleep().bit(config.run_during_sleep);
-                w.halt().bit(config.run_during_debug_halt);
-                w
+            r.config().write(|w| {
+                w.set_sleep(config.action_during_sleep);
+                w.set_halt(config.action_during_debug_halt);
             });
-            r.intenset.write(|w| w.timeout().set_bit());
+            r.intenset().write(|w| w.set_timeout(true));
 
-            r.crv.write(|w| unsafe { w.bits(crv) });
-            r.rren.write(|w| unsafe { w.bits(rren) });
-            r.tasks_start.write(|w| unsafe { w.bits(1) });
+            r.crv().write_value(crv);
+            r.rren().write_value(rren);
+            r.tasks_start().write_value(1);
         }
 
         let this = Self { _private: () };
@@ -130,8 +130,7 @@ impl Watchdog {
     /// interrupt has been enabled.
     #[inline(always)]
     pub fn enable_interrupt(&mut self) {
-        let r = unsafe { &*WDT::ptr() };
-        r.intenset.write(|w| w.timeout().set_bit());
+        crate::pac::WDT.intenset().write(|w| w.set_timeout(true));
     }
 
     /// Disable the watchdog interrupt.
@@ -139,8 +138,7 @@ impl Watchdog {
     /// NOTE: This has no effect on the reset caused by the Watchdog.
     #[inline(always)]
     pub fn disable_interrupt(&mut self) {
-        let r = unsafe { &*WDT::ptr() };
-        r.intenclr.write(|w| w.timeout().set_bit());
+        crate::pac::WDT.intenclr().write(|w| w.set_timeout(true));
     }
 
     /// Is the watchdog still awaiting pets from any handle?
@@ -149,9 +147,9 @@ impl Watchdog {
     /// handles to prevent a reset this time period.
     #[inline(always)]
     pub fn awaiting_pets(&self) -> bool {
-        let r = unsafe { &*WDT::ptr() };
-        let enabled = r.rren.read().bits();
-        let status = r.reqstatus.read().bits();
+        let r = crate::pac::WDT;
+        let enabled = r.rren().read().0;
+        let status = r.reqstatus().read().0;
         (status & enabled) == 0
     }
 }
@@ -170,16 +168,14 @@ impl WatchdogHandle {
     /// prevent a reset from occurring.
     #[inline]
     pub fn pet(&mut self) {
-        let r = unsafe { &*WDT::ptr() };
-        r.rr[self.index as usize].write(|w| w.rr().reload());
+        let r = crate::pac::WDT;
+        r.rr(self.index as usize).write(|w| w.set_rr(vals::Rr::RELOAD));
     }
 
     /// Has this handle been pet within the current window?
     pub fn is_pet(&self) -> bool {
-        let r = unsafe { &*WDT::ptr() };
-        let rd = r.reqstatus.read().bits();
-        let idx = self.index as usize;
-        ((rd >> idx) & 0x1) == 0
+        let r = crate::pac::WDT;
+        !r.reqstatus().read().rr(self.index as usize)
     }
 
     /// Steal a watchdog handle by index.

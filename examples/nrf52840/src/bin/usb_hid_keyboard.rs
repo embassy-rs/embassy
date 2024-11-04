@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-use core::mem;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
@@ -30,11 +29,10 @@ static SUSPENDED: AtomicBool = AtomicBool::new(false);
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
-    let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");
-    clock.tasks_hfclkstart.write(|w| unsafe { w.bits(1) });
-    while clock.events_hfclkstarted.read().bits() != 1 {}
+    pac::CLOCK.tasks_hfclkstart().write_value(1);
+    while pac::CLOCK.events_hfclkstarted().read() != 1 {}
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));

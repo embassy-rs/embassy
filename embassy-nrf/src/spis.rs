@@ -10,11 +10,13 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-pub use pac::spis0::config::ORDER_A as BitOrder;
+pub use pac::spis::vals::Order as BitOrder;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::gpio::{self, AnyPin, Pin as GpioPin, SealedPin as _};
+use crate::gpio::{self, convert_drive, AnyPin, OutputDrive, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::gpio::vals as gpiovals;
+use crate::pac::spis::vals;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
 
@@ -54,6 +56,9 @@ pub struct Config {
 
     /// Automatically make the firmware side acquire the semaphore on transfer end.
     pub auto_acquire: bool,
+
+    /// Drive strength for the MISO line.
+    pub miso_drive: OutputDrive,
 }
 
 impl Default for Config {
@@ -64,6 +69,7 @@ impl Default for Config {
             orc: 0x00,
             def: 0x00,
             auto_acquire: true,
+            miso_drive: OutputDrive::HighDrive,
         }
     }
 }
@@ -78,14 +84,14 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        if r.events_end.read().bits() != 0 {
+        if r.events_end().read() != 0 {
             s.waker.wake();
-            r.intenclr.write(|w| w.end().clear());
+            r.intenclr().write(|w| w.set_end(true));
         }
 
-        if r.events_acquired.read().bits() != 0 {
+        if r.events_acquired().read() != 0 {
             s.waker.wake();
-            r.intenclr.write(|w| w.acquired().clear());
+            r.intenclr().write(|w| w.set_acquired(true));
         }
     }
 }
@@ -184,23 +190,26 @@ impl<'d, T: Instance> Spis<'d, T> {
         let r = T::regs();
 
         // Configure pins.
-        cs.conf().write(|w| w.input().connect().drive().h0h1());
-        r.psel.csn.write(|w| unsafe { w.bits(cs.psel_bits()) });
+        cs.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+        r.psel().csn().write_value(cs.psel_bits());
         if let Some(sck) = &sck {
-            sck.conf().write(|w| w.input().connect().drive().h0h1());
-            r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
+            sck.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+            r.psel().sck().write_value(sck.psel_bits());
         }
         if let Some(mosi) = &mosi {
-            mosi.conf().write(|w| w.input().connect().drive().h0h1());
-            r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
+            mosi.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+            r.psel().mosi().write_value(mosi.psel_bits());
         }
         if let Some(miso) = &miso {
-            miso.conf().write(|w| w.dir().output().drive().h0h1());
-            r.psel.miso.write(|w| unsafe { w.bits(miso.psel_bits()) });
+            miso.conf().write(|w| {
+                w.set_dir(gpiovals::Dir::OUTPUT);
+                w.set_drive(convert_drive(config.miso_drive))
+            });
+            r.psel().miso().write_value(miso.psel_bits());
         }
 
         // Enable SPIS instance.
-        r.enable.write(|w| w.enable().enabled());
+        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
 
         let mut spis = Self { _p: spis };
 
@@ -208,7 +217,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         Self::set_config(&mut spis, &config).unwrap();
 
         // Disable all events interrupts.
-        r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+        r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -229,21 +238,21 @@ impl<'d, T: Instance> Spis<'d, T> {
         if tx.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
-        r.txd.ptr.write(|w| unsafe { w.ptr().bits(tx as *const u8 as _) });
-        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx.len() as _) });
+        r.txd().ptr().write_value(tx as *const u8 as _);
+        r.txd().maxcnt().write(|w| w.set_maxcnt(tx.len() as _));
 
         // Set up the DMA read.
         if rx.len() > EASY_DMA_SIZE {
             return Err(Error::RxBufferTooLong);
         }
-        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(rx as *mut u8 as _) });
-        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx.len() as _) });
+        r.rxd().ptr().write_value(rx as *mut u8 as _);
+        r.rxd().maxcnt().write(|w| w.set_maxcnt(rx.len() as _));
 
         // Reset end event.
-        r.events_end.reset();
+        r.events_end().write_value(0);
 
         // Release the semaphore.
-        r.tasks_release.write(|w| unsafe { w.bits(1) });
+        r.tasks_release().write_value(1);
 
         Ok(())
     }
@@ -253,20 +262,20 @@ impl<'d, T: Instance> Spis<'d, T> {
         let r = T::regs();
 
         // Acquire semaphore.
-        if r.semstat.read().bits() != 1 {
-            r.events_acquired.reset();
-            r.tasks_acquire.write(|w| unsafe { w.bits(1) });
+        if r.semstat().read().0 != 1 {
+            r.events_acquired().write_value(0);
+            r.tasks_acquire().write_value(1);
             // Wait until CPU has acquired the semaphore.
-            while r.semstat.read().bits() != 1 {}
+            while r.semstat().read().0 != 1 {}
         }
 
         self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
-        while r.events_end.read().bits() == 0 {}
+        while r.events_end().read() == 0 {}
 
-        let n_rx = r.rxd.amount.read().bits() as usize;
-        let n_tx = r.txd.amount.read().bits() as usize;
+        let n_rx = r.rxd().amount().read().0 as usize;
+        let n_tx = r.txd().amount().read().0 as usize;
 
         compiler_fence(Ordering::SeqCst);
 
@@ -291,22 +300,25 @@ impl<'d, T: Instance> Spis<'d, T> {
         let s = T::state();
 
         // Clear status register.
-        r.status.write(|w| w.overflow().clear().overread().clear());
+        r.status().write(|w| {
+            w.set_overflow(true);
+            w.set_overread(true);
+        });
 
         // Acquire semaphore.
-        if r.semstat.read().bits() != 1 {
+        if r.semstat().read().0 != 1 {
             // Reset and enable the acquire event.
-            r.events_acquired.reset();
-            r.intenset.write(|w| w.acquired().set());
+            r.events_acquired().write_value(0);
+            r.intenset().write(|w| w.set_acquired(true));
 
             // Request acquiring the SPIS semaphore.
-            r.tasks_acquire.write(|w| unsafe { w.bits(1) });
+            r.tasks_acquire().write_value(1);
 
             // Wait until CPU has acquired the semaphore.
             poll_fn(|cx| {
                 s.waker.register(cx.waker());
-                if r.events_acquired.read().bits() == 1 {
-                    r.events_acquired.reset();
+                if r.events_acquired().read() == 1 {
+                    r.events_acquired().write_value(0);
                     return Poll::Ready(());
                 }
                 Poll::Pending
@@ -317,19 +329,19 @@ impl<'d, T: Instance> Spis<'d, T> {
         self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
-        r.intenset.write(|w| w.end().set());
+        r.intenset().write(|w| w.set_end(true));
         poll_fn(|cx| {
             s.waker.register(cx.waker());
-            if r.events_end.read().bits() != 0 {
-                r.events_end.reset();
+            if r.events_end().read() != 0 {
+                r.events_end().write_value(0);
                 return Poll::Ready(());
             }
             Poll::Pending
         })
         .await;
 
-        let n_rx = r.rxd.amount.read().bits() as usize;
-        let n_tx = r.txd.amount.read().bits() as usize;
+        let n_rx = r.rxd().amount().read().0 as usize;
+        let n_tx = r.txd().amount().read().0 as usize;
 
         compiler_fence(Ordering::SeqCst);
 
@@ -428,12 +440,12 @@ impl<'d, T: Instance> Spis<'d, T> {
 
     /// Checks if last transaction overread.
     pub fn is_overread(&mut self) -> bool {
-        T::regs().status.read().overread().is_present()
+        T::regs().status().read().overread()
     }
 
     /// Checks if last transaction overflowed.
     pub fn is_overflow(&mut self) -> bool {
-        T::regs().status.read().overflow().is_present()
+        T::regs().status().read().overflow()
     }
 }
 
@@ -443,12 +455,12 @@ impl<'d, T: Instance> Drop for Spis<'d, T> {
 
         // Disable
         let r = T::regs();
-        r.enable.write(|w| w.enable().disabled());
+        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
 
-        gpio::deconfigure_pin(r.psel.sck.read().bits());
-        gpio::deconfigure_pin(r.psel.csn.read().bits());
-        gpio::deconfigure_pin(r.psel.miso.read().bits());
-        gpio::deconfigure_pin(r.psel.mosi.read().bits());
+        gpio::deconfigure_pin(r.psel().sck().read());
+        gpio::deconfigure_pin(r.psel().csn().read());
+        gpio::deconfigure_pin(r.psel().miso().read());
+        gpio::deconfigure_pin(r.psel().mosi().read());
 
         trace!("spis drop: done");
     }
@@ -467,7 +479,7 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static pac::spis0::RegisterBlock;
+    fn regs() -> pac::spis::Spis;
     fn state() -> &'static State;
 }
 
@@ -481,8 +493,8 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
 macro_rules! impl_spis {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::spis::SealedInstance for peripherals::$type {
-            fn regs() -> &'static pac::spis0::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> pac::spis::Spis {
+                pac::$pac_type
             }
             fn state() -> &'static crate::spis::State {
                 static STATE: crate::spis::State = crate::spis::State::new();
@@ -504,44 +516,39 @@ impl<'d, T: Instance> SetConfig for Spis<'d, T> {
         let r = T::regs();
         // Configure mode.
         let mode = config.mode;
-        r.config.write(|w| {
+        r.config().write(|w| {
+            w.set_order(config.bit_order);
             match mode {
                 MODE_0 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_high();
-                    w.cpha().leading();
+                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
+                    w.set_cpha(vals::Cpha::LEADING);
                 }
                 MODE_1 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_high();
-                    w.cpha().trailing();
+                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
+                    w.set_cpha(vals::Cpha::TRAILING);
                 }
                 MODE_2 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_low();
-                    w.cpha().leading();
+                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
+                    w.set_cpha(vals::Cpha::LEADING);
                 }
                 MODE_3 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_low();
-                    w.cpha().trailing();
+                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
+                    w.set_cpha(vals::Cpha::TRAILING);
                 }
             }
-
-            w
         });
 
         // Set over-read character.
         let orc = config.orc;
-        r.orc.write(|w| unsafe { w.orc().bits(orc) });
+        r.orc().write(|w| w.set_orc(orc));
 
         // Set default character.
         let def = config.def;
-        r.def.write(|w| unsafe { w.def().bits(def) });
+        r.def().write(|w| w.set_def(def));
 
         // Configure auto-acquire on 'transfer end' event.
         let auto_acquire = config.auto_acquire;
-        r.shorts.write(|w| w.end_acquire().bit(auto_acquire));
+        r.shorts().write(|w| w.set_end_acquire(auto_acquire));
 
         Ok(())
     }

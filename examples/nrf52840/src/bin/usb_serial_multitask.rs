@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-use core::mem;
-
 use defmt::{info, panic, unwrap};
 use embassy_executor::Spawner;
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
@@ -39,11 +37,10 @@ async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>) {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
-    let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");
-    clock.tasks_hfclkstart.write(|w| unsafe { w.bits(1) });
-    while clock.events_hfclkstarted.read().bits() != 1 {}
+    pac::CLOCK.tasks_hfclkstart().write_value(1);
+    while pac::CLOCK.events_hfclkstarted().read() != 1 {}
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));

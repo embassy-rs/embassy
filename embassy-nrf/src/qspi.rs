@@ -14,11 +14,12 @@ use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashEr
 
 use crate::gpio::{self, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
-pub use crate::pac::qspi::ifconfig0::{
-    ADDRMODE_A as AddressMode, PPSIZE_A as WritePageSize, READOC_A as ReadOpcode, WRITEOC_A as WriteOpcode,
+use crate::pac::gpio::vals as gpiovals;
+use crate::pac::qspi::vals;
+pub use crate::pac::qspi::vals::{
+    Addrmode as AddressMode, Ppsize as WritePageSize, Readoc as ReadOpcode, Spimode as SpiMode, Writeoc as WriteOpcode,
 };
-pub use crate::pac::qspi::ifconfig1::SPIMODE_A as SpiMode;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, pac, Peripheral};
 
 /// Deep power-down config.
 pub struct DeepPowerDownConfig {
@@ -129,9 +130,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        if r.events_ready.read().bits() != 0 {
+        if r.events_ready().read() != 0 {
             s.waker.wake();
-            r.intenclr.write(|w| w.ready().clear());
+            r.intenclr().write(|w| w.set_ready(true));
         }
     }
 }
@@ -164,13 +165,12 @@ impl<'d, T: Instance> Qspi<'d, T> {
             ($pin:ident) => {
                 $pin.set_high();
                 $pin.conf().write(|w| {
-                    w.dir().output();
-                    w.drive().h0h1();
+                    w.set_dir(gpiovals::Dir::OUTPUT);
+                    w.set_drive(gpiovals::Drive::H0H1);
                     #[cfg(all(feature = "_nrf5340", feature = "_s"))]
-                    w.mcusel().peripheral();
-                    w
+                    w.set_mcusel(gpiovals::Mcusel::PERIPHERAL);
                 });
-                r.psel.$pin.write(|w| unsafe { w.bits($pin.psel_bits()) });
+                r.psel().$pin().write_value($pin.psel_bits());
             };
         }
 
@@ -181,46 +181,39 @@ impl<'d, T: Instance> Qspi<'d, T> {
         config_pin!(io2);
         config_pin!(io3);
 
-        r.ifconfig0.write(|w| {
-            w.addrmode().variant(config.address_mode);
-            w.dpmenable().bit(config.deep_power_down.is_some());
-            w.ppsize().variant(config.write_page_size);
-            w.readoc().variant(config.read_opcode);
-            w.writeoc().variant(config.write_opcode);
-            w
+        r.ifconfig0().write(|w| {
+            w.set_addrmode(config.address_mode);
+            w.set_dpmenable(config.deep_power_down.is_some());
+            w.set_ppsize(config.write_page_size);
+            w.set_readoc(config.read_opcode);
+            w.set_writeoc(config.write_opcode);
         });
 
         if let Some(dpd) = &config.deep_power_down {
-            r.dpmdur.write(|w| unsafe {
-                w.enter().bits(dpd.enter_time);
-                w.exit().bits(dpd.exit_time);
-                w
+            r.dpmdur().write(|w| {
+                w.set_enter(dpd.enter_time);
+                w.set_exit(dpd.exit_time);
             })
         }
 
-        r.ifconfig1.write(|w| unsafe {
-            w.sckdelay().bits(config.sck_delay);
-            w.dpmen().exit();
-            w.spimode().variant(config.spi_mode);
-            w.sckfreq().bits(config.frequency as u8);
-            w
+        r.ifconfig1().write(|w| {
+            w.set_sckdelay(config.sck_delay);
+            w.set_dpmen(false);
+            w.set_spimode(config.spi_mode);
+            w.set_sckfreq(config.frequency as u8);
         });
 
-        r.iftiming.write(|w| unsafe {
-            w.rxdelay().bits(config.rx_delay & 0b111);
-            w
+        r.iftiming().write(|w| {
+            w.set_rxdelay(config.rx_delay & 0b111);
         });
 
-        r.xipoffset.write(|w| unsafe {
-            w.xipoffset().bits(config.xip_offset);
-            w
-        });
+        r.xipoffset().write_value(config.xip_offset);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
         // Enable it
-        r.enable.write(|w| w.enable().enabled());
+        r.enable().write(|w| w.set_enable(true));
 
         let res = Self {
             _peri: qspi,
@@ -228,10 +221,10 @@ impl<'d, T: Instance> Qspi<'d, T> {
             capacity: config.capacity,
         };
 
-        r.events_ready.reset();
-        r.intenset.write(|w| w.ready().set());
+        r.events_ready().write_value(0);
+        r.intenset().write(|w| w.set_ready(true));
 
-        r.tasks_activate.write(|w| w.tasks_activate().bit(true));
+        r.tasks_activate().write_value(1);
 
         Self::blocking_wait_ready();
 
@@ -284,22 +277,21 @@ impl<'d, T: Instance> Qspi<'d, T> {
         }
 
         let r = T::regs();
-        r.cinstrdat0.write(|w| unsafe { w.bits(dat0) });
-        r.cinstrdat1.write(|w| unsafe { w.bits(dat1) });
+        r.cinstrdat0().write(|w| w.0 = dat0);
+        r.cinstrdat1().write(|w| w.0 = dat1);
 
-        r.events_ready.reset();
-        r.intenset.write(|w| w.ready().set());
+        r.events_ready().write_value(0);
+        r.intenset().write(|w| w.set_ready(true));
 
-        r.cinstrconf.write(|w| {
-            let w = unsafe { w.opcode().bits(opcode) };
-            let w = unsafe { w.length().bits(len + 1) };
-            let w = w.lio2().bit(true);
-            let w = w.lio3().bit(true);
-            let w = w.wipwait().bit(true);
-            let w = w.wren().bit(true);
-            let w = w.lfen().bit(false);
-            let w = w.lfstop().bit(false);
-            w
+        r.cinstrconf().write(|w| {
+            w.set_opcode(opcode);
+            w.set_length(vals::Length::from_bits(len + 1));
+            w.set_lio2(true);
+            w.set_lio3(true);
+            w.set_wipwait(true);
+            w.set_wren(true);
+            w.set_lfen(false);
+            w.set_lfstop(false);
         });
         Ok(())
     }
@@ -307,8 +299,8 @@ impl<'d, T: Instance> Qspi<'d, T> {
     fn custom_instruction_finish(&mut self, resp: &mut [u8]) -> Result<(), Error> {
         let r = T::regs();
 
-        let dat0 = r.cinstrdat0.read().bits();
-        let dat1 = r.cinstrdat1.read().bits();
+        let dat0 = r.cinstrdat0().read().0;
+        let dat1 = r.cinstrdat1().read().0;
         for i in 0..4 {
             if i < resp.len() {
                 resp[i] = (dat0 >> (i * 8)) as u8;
@@ -327,7 +319,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
             let r = T::regs();
             let s = T::state();
             s.waker.register(cx.waker());
-            if r.events_ready.read().bits() != 0 {
+            if r.events_ready().read() != 0 {
                 return Poll::Ready(());
             }
             Poll::Pending
@@ -338,7 +330,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     fn blocking_wait_ready() {
         loop {
             let r = T::regs();
-            if r.events_ready.read().bits() != 0 {
+            if r.events_ready().read() != 0 {
                 break;
             }
         }
@@ -352,13 +344,13 @@ impl<'d, T: Instance> Qspi<'d, T> {
 
         let r = T::regs();
 
-        r.read.src.write(|w| unsafe { w.src().bits(address) });
-        r.read.dst.write(|w| unsafe { w.dst().bits(data.as_ptr() as u32) });
-        r.read.cnt.write(|w| unsafe { w.cnt().bits(data.len() as u32) });
+        r.read().src().write_value(address);
+        r.read().dst().write_value(data.as_ptr() as u32);
+        r.read().cnt().write(|w| w.set_cnt(data.len() as u32));
 
-        r.events_ready.reset();
-        r.intenset.write(|w| w.ready().set());
-        r.tasks_readstart.write(|w| w.tasks_readstart().bit(true));
+        r.events_ready().write_value(0);
+        r.intenset().write(|w| w.set_ready(true));
+        r.tasks_readstart().write_value(1);
 
         Ok(())
     }
@@ -370,13 +362,13 @@ impl<'d, T: Instance> Qspi<'d, T> {
         assert_eq!(address % 4, 0);
 
         let r = T::regs();
-        r.write.src.write(|w| unsafe { w.src().bits(data.as_ptr() as u32) });
-        r.write.dst.write(|w| unsafe { w.dst().bits(address) });
-        r.write.cnt.write(|w| unsafe { w.cnt().bits(data.len() as u32) });
+        r.write().src().write_value(data.as_ptr() as u32);
+        r.write().dst().write_value(address);
+        r.write().cnt().write(|w| w.set_cnt(data.len() as u32));
 
-        r.events_ready.reset();
-        r.intenset.write(|w| w.ready().set());
-        r.tasks_writestart.write(|w| w.tasks_writestart().bit(true));
+        r.events_ready().write_value(0);
+        r.intenset().write(|w| w.set_ready(true));
+        r.tasks_writestart().write_value(1);
 
         Ok(())
     }
@@ -386,12 +378,12 @@ impl<'d, T: Instance> Qspi<'d, T> {
         assert_eq!(address % 4096, 0);
 
         let r = T::regs();
-        r.erase.ptr.write(|w| unsafe { w.ptr().bits(address) });
-        r.erase.len.write(|w| w.len()._4kb());
+        r.erase().ptr().write_value(address);
+        r.erase().len().write(|w| w.set_len(vals::Len::_4KB));
 
-        r.events_ready.reset();
-        r.intenset.write(|w| w.ready().set());
-        r.tasks_erasestart.write(|w| w.tasks_erasestart().bit(true));
+        r.events_ready().write_value(0);
+        r.intenset().write(|w| w.set_ready(true));
+        r.tasks_erasestart().write_value(1);
 
         Ok(())
     }
@@ -538,12 +530,12 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
         if self.dpm_enabled {
             trace!("qspi: doing deep powerdown...");
 
-            r.ifconfig1.modify(|_, w| w.dpmen().enter());
+            r.ifconfig1().modify(|w| w.set_dpmen(true));
 
             // Wait for DPM enter.
             // Unfortunately we must spin. There's no way to do this interrupt-driven.
             // The READY event does NOT fire on DPM enter (but it does fire on DPM exit :shrug:)
-            while r.status.read().dpm().is_disabled() {}
+            while !r.status().read().dpm() {}
 
             // Wait MORE for DPM enter.
             // I have absolutely no idea why, but the wait above is not enough :'(
@@ -552,23 +544,23 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
         }
 
         // it seems events_ready is not generated in response to deactivate. nrfx doesn't wait for it.
-        r.tasks_deactivate.write(|w| w.tasks_deactivate().set_bit());
+        r.tasks_deactivate().write_value(1);
 
         // Workaround https://infocenter.nordicsemi.com/topic/errata_nRF52840_Rev1/ERR/nRF52840/Rev1/latest/anomaly_840_122.html?cp=4_0_1_2_1_7
         // Note that the doc has 2 register writes, but the first one is really the write to tasks_deactivate,
         // so we only do the second one here.
         unsafe { ptr::write_volatile(0x40029054 as *mut u32, 1) }
 
-        r.enable.write(|w| w.enable().disabled());
+        r.enable().write(|w| w.set_enable(false));
 
         // Note: we do NOT deconfigure CSN here. If DPM is in use and we disconnect CSN,
         // leaving it floating, the flash chip might read it as zero which would cause it to
         // spuriously exit DPM.
-        gpio::deconfigure_pin(r.psel.sck.read().bits());
-        gpio::deconfigure_pin(r.psel.io0.read().bits());
-        gpio::deconfigure_pin(r.psel.io1.read().bits());
-        gpio::deconfigure_pin(r.psel.io2.read().bits());
-        gpio::deconfigure_pin(r.psel.io3.read().bits());
+        gpio::deconfigure_pin(r.psel().sck().read());
+        gpio::deconfigure_pin(r.psel().io0().read());
+        gpio::deconfigure_pin(r.psel().io1().read());
+        gpio::deconfigure_pin(r.psel().io2().read());
+        gpio::deconfigure_pin(r.psel().io3().read());
 
         trace!("qspi: dropped");
     }
@@ -667,7 +659,7 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static crate::pac::qspi::RegisterBlock;
+    fn regs() -> pac::qspi::Qspi;
     fn state() -> &'static State;
 }
 
@@ -681,8 +673,8 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
 macro_rules! impl_qspi {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::qspi::SealedInstance for peripherals::$type {
-            fn regs() -> &'static crate::pac::qspi::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> pac::qspi::Qspi {
+                pac::$pac_type
             }
             fn state() -> &'static crate::qspi::State {
                 static STATE: crate::qspi::State = crate::qspi::State::new();

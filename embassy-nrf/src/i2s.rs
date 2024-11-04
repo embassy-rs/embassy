@@ -13,11 +13,11 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Pin as GpioPin};
+use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::i2s::RegisterBlock;
+use crate::pac::i2s::vals;
 use crate::util::slice_in_ram_or;
-use crate::{interrupt, Peripheral, EASY_DMA_SIZE};
+use crate::{interrupt, pac, Peripheral, EASY_DMA_SIZE};
 
 /// Type alias for `MultiBuffering` with 2 buffers.
 pub type DoubleBuffering<S, const NS: usize> = MultiBuffering<S, 2, NS>;
@@ -117,9 +117,20 @@ pub enum MckFreq {
 }
 
 impl MckFreq {
-    const REGISTER_VALUES: &'static [u32] = &[
-        0x20000000, 0x18000000, 0x16000000, 0x11000000, 0x10000000, 0x0C000000, 0x0B000000, 0x08800000, 0x08400000,
-        0x08000000, 0x06000000, 0x04100000, 0x020C0000,
+    const REGISTER_VALUES: &'static [vals::Mckfreq] = &[
+        vals::Mckfreq::_32MDIV8,
+        vals::Mckfreq::_32MDIV10,
+        vals::Mckfreq::_32MDIV11,
+        vals::Mckfreq::_32MDIV15,
+        vals::Mckfreq::_32MDIV16,
+        vals::Mckfreq::_32MDIV21,
+        vals::Mckfreq::_32MDIV23,
+        vals::Mckfreq::_32MDIV30,
+        vals::Mckfreq::_32MDIV31,
+        vals::Mckfreq::_32MDIV32,
+        vals::Mckfreq::_32MDIV42,
+        vals::Mckfreq::_32MDIV63,
+        vals::Mckfreq::_32MDIV125,
     ];
 
     const FREQUENCIES: &'static [u32] = &[
@@ -128,7 +139,7 @@ impl MckFreq {
     ];
 
     /// Return the value that needs to be written to the register.
-    pub fn to_register_value(&self) -> u32 {
+    pub fn to_register_value(&self) -> vals::Mckfreq {
         Self::REGISTER_VALUES[usize::from(*self)]
     }
 
@@ -174,8 +185,8 @@ impl Ratio {
     const RATIOS: &'static [u32] = &[32, 48, 64, 96, 128, 192, 256, 384, 512];
 
     /// Return the value that needs to be written to the register.
-    pub fn to_register_value(&self) -> u8 {
-        usize::from(*self) as u8
+    pub fn to_register_value(&self) -> vals::Ratio {
+        vals::Ratio::from_bits(*self as u8)
     }
 
     /// Return the divisor for this ratio
@@ -304,9 +315,9 @@ pub enum SampleWidth {
     _24bit,
 }
 
-impl From<SampleWidth> for u8 {
+impl From<SampleWidth> for vals::Swidth {
     fn from(variant: SampleWidth) -> Self {
-        variant as _
+        vals::Swidth::from_bits(variant as u8)
     }
 }
 
@@ -319,11 +330,11 @@ pub enum Align {
     Right,
 }
 
-impl From<Align> for bool {
+impl From<Align> for vals::Align {
     fn from(variant: Align) -> Self {
         match variant {
-            Align::Left => false,
-            Align::Right => true,
+            Align::Left => vals::Align::LEFT,
+            Align::Right => vals::Align::RIGHT,
         }
     }
 }
@@ -337,11 +348,11 @@ pub enum Format {
     Aligned,
 }
 
-impl From<Format> for bool {
+impl From<Format> for vals::Format {
     fn from(variant: Format) -> Self {
         match variant {
-            Format::I2S => false,
-            Format::Aligned => true,
+            Format::I2S => vals::Format::I2S,
+            Format::Aligned => vals::Format::ALIGNED,
         }
     }
 }
@@ -357,9 +368,9 @@ pub enum Channels {
     MonoRight,
 }
 
-impl From<Channels> for u8 {
+impl From<Channels> for vals::Channels {
     fn from(variant: Channels) -> Self {
-        variant as _
+        vals::Channels::from_bits(variant as u8)
     }
 }
 
@@ -506,61 +517,32 @@ impl<'d, T: Instance> I2S<'d, T> {
     }
 
     fn apply_config(&self) {
-        let c = &T::regs().config;
+        let c = T::regs().config();
         match &self.master_clock {
             Some(MasterClock { freq, ratio }) => {
-                c.mode.write(|w| w.mode().master());
-                c.mcken.write(|w| w.mcken().enabled());
-                c.mckfreq
-                    .write(|w| unsafe { w.mckfreq().bits(freq.to_register_value()) });
-                c.ratio.write(|w| unsafe { w.ratio().bits(ratio.to_register_value()) });
+                c.mode().write(|w| w.set_mode(vals::Mode::MASTER));
+                c.mcken().write(|w| w.set_mcken(true));
+                c.mckfreq().write(|w| w.set_mckfreq(freq.to_register_value()));
+                c.ratio().write(|w| w.set_ratio(ratio.to_register_value()));
             }
             None => {
-                c.mode.write(|w| w.mode().slave());
+                c.mode().write(|w| w.set_mode(vals::Mode::SLAVE));
             }
         };
 
-        c.swidth
-            .write(|w| unsafe { w.swidth().bits(self.config.sample_width.into()) });
-        c.align.write(|w| w.align().bit(self.config.align.into()));
-        c.format.write(|w| w.format().bit(self.config.format.into()));
-        c.channels
-            .write(|w| unsafe { w.channels().bits(self.config.channels.into()) });
+        c.swidth().write(|w| w.set_swidth(self.config.sample_width.into()));
+        c.align().write(|w| w.set_align(self.config.align.into()));
+        c.format().write(|w| w.set_format(self.config.format.into()));
+        c.channels().write(|w| w.set_channels(self.config.channels.into()));
     }
 
     fn select_pins(&self) {
-        let psel = &T::regs().psel;
-
-        if let Some(mck) = &self.mck {
-            psel.mck.write(|w| {
-                unsafe { w.bits(mck.psel_bits()) };
-                w.connect().connected()
-            });
-        }
-
-        psel.sck.write(|w| {
-            unsafe { w.bits(self.sck.psel_bits()) };
-            w.connect().connected()
-        });
-
-        psel.lrck.write(|w| {
-            unsafe { w.bits(self.lrck.psel_bits()) };
-            w.connect().connected()
-        });
-
-        if let Some(sdin) = &self.sdin {
-            psel.sdin.write(|w| {
-                unsafe { w.bits(sdin.psel_bits()) };
-                w.connect().connected()
-            });
-        }
-
-        if let Some(sdout) = &self.sdout {
-            psel.sdout.write(|w| {
-                unsafe { w.bits(sdout.psel_bits()) };
-                w.connect().connected()
-            });
-        }
+        let psel = T::regs().psel();
+        psel.mck().write_value(self.mck.psel_bits());
+        psel.sck().write_value(self.sck.psel_bits());
+        psel.lrck().write_value(self.lrck.psel_bits());
+        psel.sdin().write_value(self.sdin.psel_bits());
+        psel.sdout().write_value(self.sdout.psel_bits());
     }
 
     fn setup_interrupt(&self) {
@@ -888,7 +870,7 @@ impl<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> FullDuplexStr
 }
 
 /// Helper encapsulating common I2S device operations.
-struct Device<T>(&'static RegisterBlock, PhantomData<T>);
+struct Device<T>(pac::i2s::I2s, PhantomData<T>);
 
 impl<T: Instance> Device<T> {
     fn new() -> Self {
@@ -898,132 +880,132 @@ impl<T: Instance> Device<T> {
     #[inline(always)]
     pub fn enable(&self) {
         trace!("ENABLED");
-        self.0.enable.write(|w| w.enable().enabled());
+        self.0.enable().write(|w| w.set_enable(true));
     }
 
     #[inline(always)]
     pub fn disable(&self) {
         trace!("DISABLED");
-        self.0.enable.write(|w| w.enable().disabled());
+        self.0.enable().write(|w| w.set_enable(false));
     }
 
     #[inline(always)]
     fn enable_tx(&self) {
         trace!("TX ENABLED");
-        self.0.config.txen.write(|w| w.txen().enabled());
+        self.0.config().txen().write(|w| w.set_txen(true));
     }
 
     #[inline(always)]
     fn disable_tx(&self) {
         trace!("TX DISABLED");
-        self.0.config.txen.write(|w| w.txen().disabled());
+        self.0.config().txen().write(|w| w.set_txen(false));
     }
 
     #[inline(always)]
     fn enable_rx(&self) {
         trace!("RX ENABLED");
-        self.0.config.rxen.write(|w| w.rxen().enabled());
+        self.0.config().rxen().write(|w| w.set_rxen(true));
     }
 
     #[inline(always)]
     fn disable_rx(&self) {
         trace!("RX DISABLED");
-        self.0.config.rxen.write(|w| w.rxen().disabled());
+        self.0.config().rxen().write(|w| w.set_rxen(false));
     }
 
     #[inline(always)]
     fn start(&self) {
         trace!("START");
-        self.0.tasks_start.write(|w| unsafe { w.bits(1) });
+        self.0.tasks_start().write_value(1);
     }
 
     #[inline(always)]
     fn stop(&self) {
-        self.0.tasks_stop.write(|w| unsafe { w.bits(1) });
+        self.0.tasks_stop().write_value(1);
     }
 
     #[inline(always)]
     fn is_stopped(&self) -> bool {
-        self.0.events_stopped.read().bits() != 0
+        self.0.events_stopped().read() != 0
     }
 
     #[inline(always)]
     fn reset_stopped_event(&self) {
         trace!("STOPPED EVENT: Reset");
-        self.0.events_stopped.reset();
+        self.0.events_stopped().write_value(0);
     }
 
     #[inline(always)]
     fn disable_stopped_interrupt(&self) {
         trace!("STOPPED INTERRUPT: Disabled");
-        self.0.intenclr.write(|w| w.stopped().clear());
+        self.0.intenclr().write(|w| w.set_stopped(true));
     }
 
     #[inline(always)]
     fn enable_stopped_interrupt(&self) {
         trace!("STOPPED INTERRUPT: Enabled");
-        self.0.intenset.write(|w| w.stopped().set());
+        self.0.intenset().write(|w| w.set_stopped(true));
     }
 
     #[inline(always)]
     fn reset_tx_ptr_event(&self) {
         trace!("TX PTR EVENT: Reset");
-        self.0.events_txptrupd.reset();
+        self.0.events_txptrupd().write_value(0);
     }
 
     #[inline(always)]
     fn reset_rx_ptr_event(&self) {
         trace!("RX PTR EVENT: Reset");
-        self.0.events_rxptrupd.reset();
+        self.0.events_rxptrupd().write_value(0);
     }
 
     #[inline(always)]
     fn disable_tx_ptr_interrupt(&self) {
         trace!("TX PTR INTERRUPT: Disabled");
-        self.0.intenclr.write(|w| w.txptrupd().clear());
+        self.0.intenclr().write(|w| w.set_txptrupd(true));
     }
 
     #[inline(always)]
     fn disable_rx_ptr_interrupt(&self) {
         trace!("RX PTR INTERRUPT: Disabled");
-        self.0.intenclr.write(|w| w.rxptrupd().clear());
+        self.0.intenclr().write(|w| w.set_rxptrupd(true));
     }
 
     #[inline(always)]
     fn enable_tx_ptr_interrupt(&self) {
         trace!("TX PTR INTERRUPT: Enabled");
-        self.0.intenset.write(|w| w.txptrupd().set());
+        self.0.intenset().write(|w| w.set_txptrupd(true));
     }
 
     #[inline(always)]
     fn enable_rx_ptr_interrupt(&self) {
         trace!("RX PTR INTERRUPT: Enabled");
-        self.0.intenset.write(|w| w.rxptrupd().set());
+        self.0.intenset().write(|w| w.set_rxptrupd(true));
     }
 
     #[inline(always)]
     fn is_tx_ptr_updated(&self) -> bool {
-        self.0.events_txptrupd.read().bits() != 0
+        self.0.events_txptrupd().read() != 0
     }
 
     #[inline(always)]
     fn is_rx_ptr_updated(&self) -> bool {
-        self.0.events_rxptrupd.read().bits() != 0
+        self.0.events_rxptrupd().read() != 0
     }
 
     #[inline]
     fn update_tx<S>(&self, buffer_ptr: *const [S]) -> Result<(), Error> {
         let (ptr, maxcnt) = Self::validated_dma_parts(buffer_ptr)?;
-        self.0.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
-        self.0.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr) });
+        self.0.rxtxd().maxcnt().write(|w| w.0 = maxcnt);
+        self.0.txd().ptr().write_value(ptr);
         Ok(())
     }
 
     #[inline]
     fn update_rx<S>(&self, buffer_ptr: *const [S]) -> Result<(), Error> {
         let (ptr, maxcnt) = Self::validated_dma_parts(buffer_ptr)?;
-        self.0.rxtxd.maxcnt.write(|w| unsafe { w.bits(maxcnt) });
-        self.0.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr) });
+        self.0.rxtxd().maxcnt().write(|w| w.0 = maxcnt);
+        self.0.rxd().ptr().write_value(ptr);
         Ok(())
     }
 
@@ -1160,7 +1142,7 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static crate::pac::i2s::RegisterBlock;
+    fn regs() -> pac::i2s::I2s;
     fn state() -> &'static State;
 }
 
@@ -1174,8 +1156,8 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
 macro_rules! impl_i2s {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::i2s::SealedInstance for peripherals::$type {
-            fn regs() -> &'static crate::pac::i2s::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> pac::i2s::I2s {
+                pac::$pac_type
             }
             fn state() -> &'static crate::i2s::State {
                 static STATE: crate::i2s::State = crate::i2s::State::new();
