@@ -681,7 +681,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
                 pin.set_low();
                 pin.conf().write(|w| w.set_dir(gpiovals::Dir::OUTPUT));
             }
-            r.psel().out(i).write_value(ch0.psel_bits());
+            r.psel().out(i).write_value(ch.psel_bits());
         }
 
         let pwm = Self {
