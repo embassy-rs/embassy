@@ -14,7 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::interrupt::InterruptExt;
 // use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::peripherals::NFCT;
-use crate::util::slice_in_ram_or;
+use crate::util::{slice_in_ram, slice_in_ram_or};
 use crate::{interrupt, pac, Peripheral};
 
 /// Bit frame SDD as defined by the b5:b1 of byte 1 in SENS_RES response in the NFC Forum, NFC Digital
@@ -201,7 +201,7 @@ pub struct InterruptHandler {
 
 impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHandler {
     unsafe fn on_interrupt() {
-        info!("NFC Interrupt entry");
+        info!("\tNFC Interrupt entry");
 
         let r = unsafe { &*pac::NFCT::ptr() };
         let mut wake = false;
@@ -268,6 +268,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
 
         if r.events_error.read().bits() != 0 {
             r.intenclr.write(|w| w.error().set_bit());
+            info!("errorstatus={}", r.errorstatus.read().bits());
             wake = true;
             info!("NFC Interrupt: error")
         }
@@ -298,6 +299,18 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
             info!("NFC Interrupt: started")
         }
 
+        if r.events_collision.read().bits() != 0 {
+            r.intenclr.write(|w| w.collision().set_bit());
+            r.events_collision.reset();
+            info!("NFC Interrupt: collision");
+        }
+
+        if r.events_autocolresstarted.read().bits() != 0 {
+            r.intenclr.write(|w| w.autocolresstarted().set_bit());
+            // r.events_autocolresstarted.reset();
+            info!("NFC Interrupt: autocolresstarted");
+        }
+
         if wake {
             WAKER.wake();
         }
@@ -305,7 +318,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
         r.framedelaymax
             .write(|w| unsafe { w.bits(FRM_DELAY_MAX.load(Ordering::Relaxed)) });
 
-        info!("NFC Interrupt exit");
+        info!("\tNFC Interrupt exit");
     }
 }
 
@@ -447,15 +460,28 @@ impl<'d> NfcT<'d> {
                 .set()
                 .rxerror()
                 .set()
+                .selected()
+                .set()
+                .error()
+                .set()
+                .collision()
+                .set()
+                .autocolresstarted()
+                .set()
         });
         r.tasks_activate.write(|w| w.tasks_activate().set_bit());
 
         // r.tasks_activate.write(|w| w.tasks_activate().set_bit());
-        Self {
+        let res = Self {
             _p,
             tx_buf: [0u8; 256],
             rx_buf: [0u8; 256],
-        }
+        };
+
+        assert!(slice_in_ram(&res.tx_buf), "TX Buf not in ram");
+        assert!(slice_in_ram(&res.rx_buf), "RX Buf not in ram");
+
+        res
     }
 
     fn regs() -> &'static pac::nfct::RegisterBlock {
@@ -492,6 +518,24 @@ impl<'d> NfcT<'d> {
             Poll::Pending
         })
         .await;
+    }
+
+    /// Waits for automatic collision detection engine to tell us we've been selected
+    pub async fn wait_for_selected(&mut self) -> () {
+        trace!("Waiting to be selected");
+        poll_fn(|cx| {
+            let r = Self::regs();
+
+            WAKER.register(cx.waker());
+
+            if r.events_selected.read().bits() != 0 {
+                r.events_selected.reset();
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await
     }
 
     /// Blocks until ready event is triggered
@@ -710,6 +754,92 @@ impl<'d> NfcT<'d> {
         Ok(())
     }
 
+    pub async fn tx_frame2(&mut self, buf: &[u8], bits: u8) -> Result<(), Error> {
+        let r = Self::regs();
+
+        //Setup DMA
+        self.tx_buf[..buf.len()].copy_from_slice(buf);
+        r.packetptr.write(|w| unsafe { w.bits(self.tx_buf.as_ptr() as u32) });
+        r.maxlen.write(|w| unsafe { w.bits(buf.len() as _) });
+
+        // TODO: configure frameconfig
+        // Set packet length
+        r.txd.amount.write(|w| unsafe {
+            w.txdatabits()
+                .bits(bits)
+                .txdatabytes()
+                .bits(buf.len() as u16 - (bits > 0) as u16)
+        });
+
+        let config = TxdFrameConfig {
+            parity: false,
+            discard_mode: DiscardMode::DiscardEnd,
+            add_sof: true,
+            crc_mode: CrcMode::Crc16,
+        };
+
+        r.txd.frameconfig.write(|w| {
+            w.crcmodetx()
+                .bit(config.crc_mode == CrcMode::Crc16)
+                .discardmode()
+                .bit(config.discard_mode == DiscardMode::DiscardStart)
+                .parity()
+                .bit(config.parity)
+                .sof()
+                .bit(config.add_sof)
+        });
+
+        r.events_txframestart.reset();
+        r.events_txframeend.reset();
+        r.events_error.reset();
+        r.events_fieldlost.reset();
+
+        r.intenset.write(|w| {
+            w.txframestart()
+                .set()
+                .txframeend()
+                .set()
+                .error()
+                .set()
+                .fieldlost()
+                .set()
+        });
+
+        // Start starttx task
+        compiler_fence(Ordering::SeqCst);
+        r.tasks_starttx.write(|w| w.tasks_starttx().set_bit());
+
+        poll_fn(move |cx| {
+            trace!("polling tx");
+            let r = Self::regs();
+            WAKER.register(cx.waker());
+
+            // if r.events_fieldlost.read().bits() != 0 {
+            //     return Poll::Ready(Err(Error::LostField));
+            // }
+
+            if r.events_txframestart.read().bits() != 0 {
+                trace!("Txframstart hit");
+                r.events_txframestart.reset();
+            }
+
+            if r.events_txframeend.read().bits() != 0 {
+                trace!("Txframend hit, should be finished trasmitting");
+                r.events_txframeend.reset();
+                return Poll::Ready(Ok(()));
+            }
+
+            if r.events_error.read().bits() != 0 {
+                trace!("Got error?");
+                r.events_error.reset();
+                // return Poll::Ready(Err(Error::RxError));
+            }
+
+            Poll::Pending
+        })
+        .await
+    }
+
     /// Simplified recv_frame2 which only implements the NFCT state machine as found in the product specs of the NRF5340
     pub async fn recv_frame2<'a>(&mut self, buf: &'a mut [u8], cfg: RxdFrameConfig) -> Result<(&'a [u8], u8), Error> {
         let r = Self::regs();
@@ -731,6 +861,18 @@ impl<'d> NfcT<'d> {
         // Reset and enable the end event
         r.events_rxframeend.reset();
         r.events_rxerror.reset();
+        r.events_fieldlost.reset();
+
+        r.intenset.write(|w| {
+            w.rxframestart()
+                .set()
+                .rxframeend()
+                .set()
+                .rxerror()
+                .set()
+                .fieldlost()
+                .set()
+        });
 
         // Start enablerxdata only after configs are finished writing
         compiler_fence(Ordering::SeqCst);
@@ -741,16 +883,20 @@ impl<'d> NfcT<'d> {
             let r = Self::regs();
             WAKER.register(cx.waker());
 
-            if r.events_rxframeend.read().bits() != 0 {
-                trace!("RX Frameend got in recv frame, should have data");
-                r.events_rxframeend.reset();
-                return Poll::Ready(Ok(()));
+            if r.events_fieldlost.read().bits() != 0 {
+                return Poll::Ready(Err(Error::LostField));
             }
 
             if r.events_rxerror.read().bits() != 0 {
                 trace!("RXerror got in recv frame, should be back in idle state");
                 r.events_rxerror.reset();
                 return Poll::Ready(Err(Error::RxError));
+            }
+
+            if r.events_rxframeend.read().bits() != 0 {
+                trace!("RX Frameend got in recv frame, should have data");
+                r.events_rxframeend.reset();
+                return Poll::Ready(Ok(()));
             }
 
             Poll::Pending
@@ -761,9 +907,10 @@ impl<'d> NfcT<'d> {
         let rx_bits = rxd_amount & 0b111;
         let rx_bytes = (rxd_amount >> 3) & 0x1f;
 
-        buf[..rx_bytes].copy_from_slice(&self.rx_buf[..rx_bytes]);
+        let buf_bytes = rx_bytes + rx_bits.div_ceil(8);
+        buf[..buf_bytes].copy_from_slice(&self.rx_buf[..buf_bytes]);
 
-        Ok((&buf[..rx_bytes], rx_bits as u8))
+        Ok((&buf[..buf_bytes], rx_bits as u8))
     }
 
     pub async fn recv_frame<'a>(&mut self, buf: &'a mut [u8]) -> Result<(&'a [u8], u8), Error> {

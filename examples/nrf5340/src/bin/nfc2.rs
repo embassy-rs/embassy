@@ -7,8 +7,8 @@ use embassy_executor::Spawner;
 use embassy_nrf::config::HfclkSource;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::nfc::{
-    Config as NfcConfig, CrcMode, DiscardMode, Error as NfcError, FrameDelayConfig, NfcId, NfcT, RxdFrameConfig,
-    ShortsConfig, TxdFrameConfig,
+    AutoCollConfig, Config as NfcConfig, CrcMode, DiscardMode, Error as NfcError, FrameDelayConfig, NfcId, NfcT,
+    RxdFrameConfig, ShortsConfig, TxdFrameConfig,
 };
 use embassy_nrf::{
     bind_interrupts,
@@ -76,12 +76,12 @@ fn calc_bcc(bytes: &mut [u8]) {
 // }
 
 async fn handle_nfc_comm(mut nfc: NfcT<'_>, mut led: Output<'_>, tx_rx_buf: &mut [u8]) {
-    let autocoll_config = AutocollConfig {
-        uid: NfcId::DoubleSize([0x04, 0x68, 0x95, 0x71, 0xFA, 0x5C, 0x64]),
-        atqa: [0x44, 0x00],
-        sak: 0x00,
-        ats: None,
-    };
+    // let autocoll_config = AutocollConfig {
+    //     uid: NfcId::DoubleSize([0x04, 0x68, 0x95, 0x71, 0xFA, 0x5C, 0x64]),
+    //     atqa: [0x44, 0x00],
+    //     sak: 0x00,
+    //     ats: None,
+    // };
 
     // nfc.setup_shorts(ShortsConfig {
     //     fielddetected_activate: false,
@@ -103,10 +103,11 @@ async fn handle_nfc_comm(mut nfc: NfcT<'_>, mut led: Output<'_>, tx_rx_buf: &mut
     Timer::after_millis(30).await;
     info!("NFCT is active");
 
-    loop {
-        trace!("Waiting for field");
-        nfc.wait_for_active().await;
+    trace!("Waiting for field");
+    // nfc.wait_for_active().await;
+    nfc.wait_for_selected().await;
 
+    loop {
         trace!("Got field, trying rx");
         let result = nfc
             .recv_frame2(
@@ -126,8 +127,26 @@ async fn handle_nfc_comm(mut nfc: NfcT<'_>, mut led: Output<'_>, tx_rx_buf: &mut
             }
         };
 
+        // We are here: https://community.st.com/t5/st25-nfc-rfid-tags-and-readers/cr95hf-card-emulation-help-me-plz/td-p/72052
         trace!("received frame {=[u8]:#x} odd bits {=u8}", bytes, odd_bits);
-        todo!("RX finished now we should tx probably");
+
+        match bytes {
+            [0xe0, v @ ..] => {
+                trace!("Got RATS, tx'ing empty ATS");
+                nfc.tx_frame2(&[0x02, 0x08], 0).await.unwrap();
+            }
+            _ => {
+                trace!("Unknown command");
+            }
+        }
+        // if bytes.get(0).is_some_and(|v| v == 0xe0) {}
+
+        // if odd_bits == 7 && bytes.get(0).is_some_and(|v| *v == 0x52 || *v == 0x26) {
+        //     // Got short-frame WupA polling command, should send back our info
+        //     let atqa = 0x0344u16.to_le_bytes();
+        //     nfc.tx_frame2(&atqa, 0).await.unwrap();
+        // }
+        // todo!("RX finished now we should tx probably");
     }
 
     #[cfg(feature = "old")]
@@ -502,12 +521,12 @@ async fn main(spawner: Spawner) {
 
     dbg!("Setting up...");
     let config = NfcConfig {
-        autocoll_config: /*Some(AutoCollConfig {
+        autocoll_config: Some(AutoCollConfig {
             nfcid1: NfcId::DoubleSize([0x04, 0x68, 0x95, 0x71, 0xFA, 0x5C, 0x64]),
-            sdd_pat: SddPat::Sdd00100,
+            sdd_pat: nfc::SddPat::Sdd00100,
             plat_conf: 0b0000,
-            protocol: SelResProtocol::Type2,
-        })*/ None,
+            protocol: nfc::SelResProtocol::Type4A,
+        }),
         txd_frame_config: TxdFrameConfig::default(),
         rxd_frame_config: RxdFrameConfig::default(),
         frame_delay_config: FrameDelayConfig::WindowGrid(0x480..4096),
