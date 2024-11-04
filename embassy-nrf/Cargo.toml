@@ -15,7 +15,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nrf/s
 
 features = ["time", "defmt", "unstable-pac", "gpiote", "time-driver-rtc1"]
 flavors = [
-    { regex_feature = "_nrf51", target = "thumbv6m-none-eabi" },
+    { regex_feature = "nrf51", target = "thumbv6m-none-eabi" },
     { regex_feature = "nrf52.*", target = "thumbv7em-none-eabihf" },
     { regex_feature = "nrf53.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "nrf91.*", target = "thumbv8m.main-none-eabihf" },
@@ -150,4 +150,3 @@ embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.1"
 cfg-if = "1.0.0"
 document-features = "0.2.7"
-
