@@ -541,8 +541,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
     }
 
     /// Set baudrate
-    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError>
-    {
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, self.kernel_clock, baudrate)
     }
 }
@@ -1022,8 +1021,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
     }
 
     /// Set baudrate
-    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError>
-    {
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, self.kernel_clock, baudrate)
     }
 }
@@ -1469,8 +1467,7 @@ impl<'d, M: Mode> Uart<'d, M> {
     }
 
     /// Set baudrate
-    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError>
-    {
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         self.tx.set_baudrate(baudrate)?;
         self.rx.set_baudrate(baudrate)?;
         Ok(())
