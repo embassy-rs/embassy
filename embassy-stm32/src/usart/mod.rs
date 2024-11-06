@@ -539,6 +539,12 @@ impl<'d, M: Mode> UartTx<'d, M> {
     pub fn send_break(&self) {
         send_break(&self.info.regs);
     }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError>
+    {
+        set_baudrate(self.info, self.kernel_clock, baudrate)
+    }
 }
 
 /// Wait until transmission complete
@@ -1014,6 +1020,12 @@ impl<'d, M: Mode> UartRx<'d, M> {
         }
         Ok(())
     }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError>
+    {
+        set_baudrate(self.info, self.kernel_clock, baudrate)
+    }
 }
 
 impl<'d, M: Mode> Drop for UartTx<'d, M> {
@@ -1455,6 +1467,14 @@ impl<'d, M: Mode> Uart<'d, M> {
     pub fn send_break(&self) {
         self.tx.send_break();
     }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError>
+    {
+        self.tx.set_baudrate(baudrate)?;
+        self.rx.set_baudrate(baudrate)?;
+        Ok(())
+    }
 }
 
 fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ConfigError> {
@@ -1466,6 +1486,120 @@ fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), 
 
     info.interrupt.unpend();
     unsafe { info.interrupt.enable() };
+
+    Ok(())
+}
+
+fn calculate_brr(baud: u32, pclk: u32, presc: u32, mul: u32) -> u32 {
+    // The calculation to be done to get the BRR is `mul * pclk / presc / baud`
+    // To do this in 32-bit only we can't multiply `mul` and `pclk`
+    let clock = pclk / presc;
+
+    // The mul is applied as the last operation to prevent overflow
+    let brr = clock / baud * mul;
+
+    // The BRR calculation will be a bit off because of integer rounding.
+    // Because we multiplied our inaccuracy with mul, our rounding now needs to be in proportion to mul.
+    let rounding = ((clock % baud) * mul + (baud / 2)) / baud;
+
+    brr + rounding
+}
+
+fn set_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result<(), ConfigError> {
+    info.interrupt.disable();
+
+    set_usart_baudrate(info, kernel_clock, baudrate)?;
+
+    info.interrupt.unpend();
+    unsafe { info.interrupt.enable() };
+
+    Ok(())
+}
+
+fn set_usart_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result<(), ConfigError> {
+    let r = info.regs;
+    let kind = info.kind;
+
+    #[cfg(not(usart_v4))]
+    static DIVS: [(u16, ()); 1] = [(1, ())];
+
+    #[cfg(usart_v4)]
+    static DIVS: [(u16, vals::Presc); 12] = [
+        (1, vals::Presc::DIV1),
+        (2, vals::Presc::DIV2),
+        (4, vals::Presc::DIV4),
+        (6, vals::Presc::DIV6),
+        (8, vals::Presc::DIV8),
+        (10, vals::Presc::DIV10),
+        (12, vals::Presc::DIV12),
+        (16, vals::Presc::DIV16),
+        (32, vals::Presc::DIV32),
+        (64, vals::Presc::DIV64),
+        (128, vals::Presc::DIV128),
+        (256, vals::Presc::DIV256),
+    ];
+
+    let (mul, brr_min, brr_max) = match kind {
+        #[cfg(any(usart_v3, usart_v4))]
+        Kind::Lpuart => {
+            trace!("USART: Kind::Lpuart");
+            (256, 0x300, 0x10_0000)
+        }
+        Kind::Uart => {
+            trace!("USART: Kind::Uart");
+            (1, 0x10, 0x1_0000)
+        }
+    };
+
+    r.cr1().modify(|w| {
+        // disable uart
+        w.set_ue(false);
+    });
+
+    let mut found_brr = None;
+    for &(presc, _presc_val) in &DIVS {
+        let brr = calculate_brr(baudrate, kernel_clock.0, presc as u32, mul);
+        trace!(
+            "USART: presc={}, div=0x{:08x} (mantissa = {}, fraction = {})",
+            presc,
+            brr,
+            brr >> 4,
+            brr & 0x0F
+        );
+
+        if brr < brr_min {
+            #[cfg(not(usart_v1))]
+            if brr * 2 >= brr_min && kind == Kind::Uart && !cfg!(usart_v1) {
+                r.brr().write_value(regs::Brr(((brr << 1) & !0xF) | (brr & 0x07)));
+                #[cfg(usart_v4)]
+                r.presc().write(|w| w.set_prescaler(_presc_val));
+                found_brr = Some(brr);
+                break;
+            }
+            return Err(ConfigError::BaudrateTooHigh);
+        }
+
+        if brr < brr_max {
+            r.brr().write_value(regs::Brr(brr));
+            #[cfg(usart_v4)]
+            r.presc().write(|w| w.set_prescaler(_presc_val));
+            found_brr = Some(brr);
+            break;
+        }
+    }
+
+    let brr = found_brr.ok_or(ConfigError::BaudrateTooLow)?;
+
+    trace!(
+        "Desired baudrate: {}, actual baudrate: {}",
+        baudrate,
+        kernel_clock.0 / brr * mul
+    );
+
+    r.cr1().modify(|w| {
+        // enable uart
+        w.set_ue(true);
+    });
 
     Ok(())
 }
@@ -1514,21 +1648,6 @@ fn configure(
             (1, 0x10, 0x1_0000)
         }
     };
-
-    fn calculate_brr(baud: u32, pclk: u32, presc: u32, mul: u32) -> u32 {
-        // The calculation to be done to get the BRR is `mul * pclk / presc / baud`
-        // To do this in 32-bit only we can't multiply `mul` and `pclk`
-        let clock = pclk / presc;
-
-        // The mul is applied as the last operation to prevent overflow
-        let brr = clock / baud * mul;
-
-        // The BRR calculation will be a bit off because of integer rounding.
-        // Because we multiplied our inaccuracy with mul, our rounding now needs to be in proportion to mul.
-        let rounding = ((clock % baud) * mul + (baud / 2)) / baud;
-
-        brr + rounding
-    }
 
     // UART must be disabled during configuration.
     r.cr1().modify(|w| {
