@@ -1440,6 +1440,13 @@ impl<'d, M: Mode> Uart<'d, M> {
         (self.tx, self.rx)
     }
 
+    /// Split the Uart into a transmitter and receiver by mutable reference,
+    /// which is particularly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split_ref(&mut self) -> (&mut UartTx<'d, M>, &mut UartRx<'d, M>) {
+        (&mut self.tx, &mut self.rx)
+    }
+
     /// Send break character
     pub fn send_break(&self) {
         self.tx.send_break();
