@@ -2,9 +2,7 @@ use core::sync::atomic::AtomicBool;
 use core::{future::poll_fn, sync::atomic::AtomicU32, task::Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, lazy_lock::LazyLock, mutex::Mutex};
 use embassy_time::Timer;
-use embassy_usb_driver::host::channel::IsControl;
 use embassy_usb_driver::{
     host::{
         channel::{self, Direction, Type},
@@ -28,7 +26,7 @@ const OTG_MAX_PIPES: usize = 8;
 /// First bit is used to indicate control pipes
 static ALLOCATED_PIPES: AtomicU32 = AtomicU32::new(0);
 const NEW_AW: AtomicWaker = AtomicWaker::new();
-static EP_IN_WAKERS: [AtomicWaker; OTG_MAX_PIPES] = [NEW_AW; OTG_MAX_PIPES];
+static CH_WAKERS: [AtomicWaker; OTG_MAX_PIPES] = [NEW_AW; OTG_MAX_PIPES];
 
 #[must_use = "need to hold until finished"]
 #[clippy::has_significant_drop]
@@ -98,29 +96,38 @@ unsafe fn dma_dealloc_buffer<T>(buf: &mut [T], align: usize) {
 struct HfnumInterruptInterval {
     interval: u16,
     next_hfnum: u16,
-    paused: bool,
+    pub paused: bool,
 }
 
 impl HfnumInterruptInterval {
-    pub fn new() -> Self {
+    pub fn new(interval: u16) -> Self {
         HfnumInterruptInterval {
-            interval: 0,
+            interval,
             next_hfnum: 0,
             paused: false,
         }
     }
 
-    pub fn set_interval(&mut self, frame_interval: u16) {
-        self.interval = frame_interval
+    pub const fn get_interval(&self) -> u16 {
+        self.interval
+    }
+
+    fn hfnum_delta(&self, hfnum: u16) -> u16 {
+        self.next_hfnum.saturating_sub(hfnum)
+    }
+
+    fn reset_interval(&mut self, hfnum: u16) {
+        self.next_hfnum = hfnum + self.interval;
     }
 
     fn check_and_reset_interval(&mut self, hfnum: u16) -> bool {
-        if self.interval == 0 || self.paused {
-            return false; // No interval set
+        // Not allowed to rqeuest
+        if self.paused {
+            return false;
         }
 
         if self.next_hfnum.wrapping_sub(hfnum) & 0x3fff > self.interval {
-            self.next_hfnum = hfnum;
+            self.reset_interval(hfnum);
             return true;
         }
         false
@@ -130,7 +137,7 @@ impl HfnumInterruptInterval {
 pub struct OtgChannel<T: Type, D: Direction> {
     regs: Otg,
     channel_idx: u8,
-    interrupt_interval: HfnumInterruptInterval,
+    interrupt_interval: Option<HfnumInterruptInterval>,
     buffer: &'static mut [u8],
     pid: Dpid,
 
@@ -149,7 +156,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             regs: otg,
             channel_idx,
 
-            interrupt_interval: HfnumInterruptInterval::new(),
+            interrupt_interval: None,
             pid: Dpid::DATA0,
 
             device_addr: 0,
@@ -189,6 +196,11 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
 
             w.set_chena(false);
             w.set_chdis(false);
+
+            // Clear halted status for improved error handling
+            self.regs.hcint(self.channel_idx as usize).modify(|w| {
+                w.set_chh(true);
+            });
         });
     }
 
@@ -197,10 +209,9 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
 
         self.configure_for_endpoint(Some(embassy_usb_driver::Direction::Out));
 
-        let txs = setup_data.len() as u32;
         self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
             w.set_pktcnt(1);
-            w.set_xfrsiz(txs);
+            w.set_xfrsiz(setup_data.len() as u32);
             w.set_dpid(Dpid::MDATA.into());
             w.set_doping(false);
         });
@@ -223,6 +234,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             w.set_bberrm(true);
             w.set_frmorm(true);
             w.set_dterrm(true);
+            w.set_nakm(true);
         });
 
         self.regs.hcchar(self.channel_idx as usize).modify(|w| {
@@ -240,7 +252,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             let hcintr = self.regs.hcint(self.channel_idx as usize).read();
 
             trace!(
-                "Polling wait_for_txresult: chintr={}, hcintr={}",
+                "Polling wait_for_txresult: ch_idx={}, hcintr={}",
                 self.channel_idx,
                 hcintr.0
             );
@@ -257,22 +269,28 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
                 });
                 self.regs.hcchar(self.channel_idx as usize).modify(|w| {
                     w.set_chena(false);
-                    w.set_chdis(true);
+                    w.set_chdis(false);
                 });
                 return Poll::Ready(Err(ChannelError::BadResponse));
             }
 
-            // NOTE: these are not needed but useful to log
+            if hcintr.nak() {
+                debug!("Got NAK");
+                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_nak(true));
+                return Poll::Ready(Err(ChannelError::Timeout));
+            }
+
+            // FIXME: frame overrun for interrupt polling
             if hcintr.frmor() {
-                debug!("Framme overrun");
+                debug!("Frame overrun");
                 //     self.interrupt_interval.2 = false; // Pause interrupt channel
-                //     self.regs.hcint(self.channel_idx as usize).write(|w| w.set_frmor(true));
+                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_frmor(true));
             }
 
             if hcintr.dterr() {
                 debug!("Data toggle error");
                 //     self.interrupt_interval.2 = false; // Pause interrupt channel
-                //     self.regs.hcint(self.channel_idx as usize).write(|w| w.set_dterr(true));
+                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_dterr(true));
             }
 
             if hcintr.xfrc() {
@@ -290,19 +308,22 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
                     w.set_ack(true);
                 });
 
+                trace!("xfrc completed");
                 return Poll::Ready(Ok(()));
             }
 
             // Need to check this after xfrc, since xfrc can cause a halt
             if hcintr.chh() {
-                //     // Channel halted, transaction canceled
-                //     // TODO[CherryUSB]: apparently Control endpoints do something when at INDATA state?
+                // Channel halted, transaction canceled
+                // TODO[CherryUSB]: apparently Control endpoints do something when at INDATA state?
+
+                // TODO: need to ensure we clear halted before each tx so we can maybe rely on it?
                 trace!("Halted");
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_chh(true));
-                //     Err(ChannelError::Canceled)?
+                Err(ChannelError::Canceled)?
             }
 
-            EP_IN_WAKERS[self.channel_idx as usize].register(cx.waker());
+            CH_WAKERS[self.channel_idx as usize].register(cx.waker());
 
             // Re-enable the interrupt this handled
             self.regs.haintmsk().modify(|w| {
@@ -321,7 +342,11 @@ impl<T: Type, D: Direction> Drop for OtgChannel<T, D> {
             ALLOCATED_PIPES.fetch_nand(!(1 << self.channel_idx), core::sync::atomic::Ordering::AcqRel);
         }
         // Cancel any active txs & disable interrupts
-        self.regs.hcchar(self.channel_idx as usize).write(|w| w.set_chdis(true));
+
+        // FIXME: chdis causes next tx to fail on the same ch idx,
+        //  but we really should chdis to avoid writing after free to the dma buffer
+
+        // self.regs.hcchar(self.channel_idx as usize).write(|w| w.set_chdis(true));
         self.regs.hcint(self.channel_idx as usize).write(|w| w.0 = 0);
         unsafe {
             dma_dealloc_buffer(self.buffer, 512);
@@ -337,12 +362,22 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
     {
         let _ = SharedChannelGuard::try_claim(0).await;
 
-        trace!("trying CTRL_IN setup={}, rt={}", setup, setup.request_type.bits());
+        trace!(
+            "trying CTRL_IN setup={}, rt={}, buf.len()={}",
+            setup,
+            setup.request_type.bits(),
+            buf.len()
+        );
         self.write_setup(setup)?;
         trace!("Wating for setup ack");
         self.wait_for_txresult().await?;
 
         self.configure_for_endpoint(Some(embassy_usb_driver::Direction::In));
+
+        assert!(
+            buf.len() == setup.length as usize,
+            "Expected buffer/setup length to match"
+        );
 
         let transfer_size: u32 = setup.length as u32;
         trace!(
@@ -369,16 +404,6 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
             w.set_hcim(true);
         });
 
-        self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
-            w.set_xfrcm(true);
-            w.set_chhm(true);
-            w.set_stallm(true);
-            w.set_txerrm(true);
-            w.set_bberrm(true);
-            w.set_frmorm(true);
-            w.set_dterrm(true);
-        });
-
         self.regs.hcchar(self.channel_idx as usize).modify(|w| {
             w.set_chena(true);
             w.set_chdis(false);
@@ -386,7 +411,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
         trace!("Wating for CNTRL_IN Ack");
         self.wait_for_txresult().await?;
-        buf[..transfer_size as usize].copy_from_slice(&self.buffer[..transfer_size as usize]);
+        buf.copy_from_slice(&self.buffer[..transfer_size as usize]);
 
         // TODO: this is kind of useless since we already defined in our setup input
         Ok(setup.length as usize)
@@ -399,11 +424,25 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
     {
         let _ = SharedChannelGuard::try_claim(0).await;
 
-        trace!("trying CTRL_OUT setup={}", setup);
+        self.buffer[..buf.len()].copy_from_slice(buf);
+
+        trace!("trying CTRL_OUT setup={} rt={}", setup, setup.request_type.bits());
         self.write_setup(setup)?;
         self.wait_for_txresult().await?;
 
-        let transfer_size: u32 = setup.length as u32;
+        assert!(
+            buf.len() == setup.length as usize,
+            "Expected buffer/setup length to match"
+        );
+
+        let transfer_size: u32 = buf.len() as u32;
+
+        if buf.is_empty() {
+            // Special case, write DATA_IN with zero-length
+            self.configure_for_endpoint(Some(embassy_usb_driver::Direction::In));
+        } else {
+            self.configure_for_endpoint(Some(embassy_usb_driver::Direction::Out));
+        }
 
         trace!(
             "Finished setup; trying CTRL_OUT transfer pid={}, xfrsize={}, mps={}, ep_num={}, dad={}",
@@ -414,8 +453,6 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
             self.device_addr
         );
 
-        self.configure_for_endpoint(Some(embassy_usb_driver::Direction::Out));
-        self.buffer[..buf.len()].copy_from_slice(buf);
         self.regs
             .hcdma(self.channel_idx as usize)
             .write(|w| w.0 = self.buffer.as_ptr() as u32);
@@ -457,16 +494,22 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
             Err(HostError::InvalidDescriptor)?
         }
 
+        if endpoint.ep_type == EndpointType::Interrupt {
+            self.interrupt_interval
+                .replace(HfnumInterruptInterval::new(endpoint.interval_ms as u16));
+        }
+
         self.regs.hcchar(self.channel_idx as usize).modify(|w| {
             w.set_dad(addr);
             w.set_lsdev(pre);
 
+            w.set_epdir(D::is_in());
             w.set_epnum(endpoint.addr.into());
             w.set_eptyp(Eptyp::from_bits(endpoint.ep_type as u8));
             w.set_mpsiz(endpoint.max_packet_size);
 
             w.set_chena(false);
-            w.set_chdis(true);
+            w.set_chdis(false);
         });
 
         Ok(())
@@ -476,42 +519,94 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
     where
         D: channel::IsIn,
     {
-        // TODO: find a good way to do sofware interruptpipes (maybe in Driver `run_forever()`)
         // Interrupt pipes should be able to resolve instantly assuming the first poll has been resolved
 
-        let intx = self.endpoint.addr.is_in();
-        let transfer_size: u32 = buf.len() as u32;
-        self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
-            w.set_pktcnt(transfer_size.div_ceil(self.endpoint.max_packet_size as u32).max(1) as u16);
-            w.set_xfrsiz(if !intx {
-                w.pktcnt() as u32 * self.endpoint.max_packet_size as u32
-            } else {
-                transfer_size
+        loop {
+            trace!("trying {}_IN buf.len()={}", T::ep_type(), buf.len());
+
+            if T::ep_type() == EndpointType::Interrupt {
+                // Retry (NACK only) at polling-rate until cleared
+                // TODO: create a better interface for interrupts (e.g. message queue)
+                // This is different from hardware interrupt behaviour, as hw would discard responses if we don't handle them fast enough
+                //  but the given interface doesn't allow for this exact behaviour
+                // To ensure maximum sound-ness we will only maintain the lower boundary of interrupt polling
+
+                // SAFETY: EndpointType Interrupt should always have a interrupt_interval if retargeted
+
+                // FIXME: interval is slightly too fast in certain cases causing a frame overrun
+                while !self
+                    .interrupt_interval
+                    .as_mut()
+                    .expect("Missing interrupt_interval; did you retarget_channel?")
+                    .check_and_reset_interval(self.regs.hfnum().read().frnum())
+                {
+                    // NOTE: depends on speed, we assume LS/FS here
+                    Timer::after_micros(
+                        self.interrupt_interval
+                            .as_ref()
+                            .unwrap()
+                            .hfnum_delta(self.regs.hfnum().read().frnum()) as u64,
+                    )
+                    .await;
+                }
+
+                trace!(
+                    "Trying interrupt poll @{} interval={}",
+                    self.regs.hfnum().read().frnum(),
+                    self.interrupt_interval.as_ref().unwrap().get_interval(),
+                );
+            }
+
+            self.configure_for_endpoint(Some(embassy_usb_driver::Direction::In));
+
+            self.regs
+                .hcdma(self.channel_idx as usize)
+                .write(|w| w.0 = self.buffer.as_ptr() as u32);
+
+            let transfer_size: u32 = buf.len() as u32;
+            self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
+                w.set_pktcnt(transfer_size.div_ceil(self.endpoint.max_packet_size as u32).max(1) as u16);
+                w.set_xfrsiz(w.pktcnt() as u32 * self.endpoint.max_packet_size as u32);
+                // The OTGCore engine will actually toggle PIDs
+                // w.set_dpid(self.pid.into());
+                w.set_doping(false);
             });
-            w.set_dpid(self.pid.into());
-            w.set_doping(false);
-        });
 
-        self.regs.hcchar(self.channel_idx as usize).modify(|w| {
-            w.set_epdir(false); // ENDPOINT_TYPE; IN
-        });
+            self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
+                w.set_xfrcm(true);
+                w.set_chhm(true);
+                w.set_stallm(true);
+                w.set_txerrm(true);
+                w.set_bberrm(true);
+                w.set_frmorm(true);
+                w.set_dterrm(true);
+                w.set_nakm(true);
+            });
 
-        self.regs
-            .hcdma(self.channel_idx as usize)
-            .write(|w| w.0 = self.buffer.as_ptr() as u32);
+            self.regs.hcchar(self.channel_idx as usize).modify(|w| {
+                w.set_chena(true);
+                w.set_chdis(false);
+            });
 
-        self.regs.gintmsk().modify(|w| {
-            w.set_hcim(false);
-        });
+            let tx_result = self.wait_for_txresult().await;
 
-        self.regs.hcchar(self.channel_idx as usize).modify(|w| {
-            w.set_chena(true);
-            w.set_chdis(false);
-        });
+            if T::ep_type() == EndpointType::Interrupt && tx_result.is_err_and(|v| v == ChannelError::Timeout) {
+                continue;
+            }
 
-        self.flip_pid();
-        self.wait_for_txresult().await?;
-        Ok(buf.len())
+            tx_result?;
+            // self.flip_pid();
+            buf.copy_from_slice(&self.buffer[..transfer_size as usize]);
+
+            if T::ep_type() == EndpointType::Interrupt {
+                self.interrupt_interval
+                    .as_mut()
+                    .unwrap()
+                    .reset_interval(self.regs.hfnum().read().frnum())
+            }
+
+            return Ok(buf.len());
+        }
     }
 
     async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
@@ -632,15 +727,14 @@ impl UsbHostBus {
         while chintr != 0 {
             let idx = chintr.trailing_zeros() as usize;
             trace!("Waking CH = {}", idx);
-            EP_IN_WAKERS[idx].wake();
+            CH_WAKERS[idx].wake();
             chintr ^= 1 << idx as u16;
 
             // Don't trigger an interrupt for this until CH has handled the wake (or re-initialized)
             regs.haintmsk().modify(|w| {
-                w.0 ^= 1 << idx as u16;
+                w.set_haintm(w.haintm() & !(1 << idx as u16));
             })
         }
-
         // todo!("Interrupt pipe polling initiation");
 
         // Clear gintsts
@@ -691,17 +785,25 @@ impl UsbHostBus {
             w.set_descdma(false);
             w.set_perschedena(false);
         });
+        self.regs.hprt().modify(|w| {
+            w.0 &= !HPRT_W1C_MASK;
+            w.set_pena(true);
+        });
+
         let hprt = self.regs.hprt().read();
+
+        // NOTE: hfir & fslspcs only required for FS/LS PHY
         self.regs.hfir().modify(|w| {
             w.set_rldctrl(true);
             w.set_frivl(match hprt.pspd() {
-                1 => 48000,
-                2 => 6000,
+                2 | 1 => 48000,
+                0 => 6000,
                 _ => unreachable!(),
             })
         });
         let hcfg = self.regs.hcfg().read();
         if hcfg.fslspcs() != hprt.pspd() {
+            warn!("Changed FSLSPCS, would require bus reset");
             self.regs.hcfg().modify(|w| {
                 // [CherryUSB] Align clock for Full-speed/Low-speed
                 w.set_fslspcs(hprt.pspd());
@@ -719,11 +821,11 @@ impl UsbHostDriver for UsbHostBus {
 
     fn alloc_channel<T: embassy_usb_driver::host::channel::Type, D: embassy_usb_driver::host::channel::Direction>(
         &self,
-        addr: u8,
+        dev_addr: u8,
         endpoint: &embassy_usb_driver::EndpointInfo,
         pre: bool,
     ) -> Result<Self::Channel<T, D>, embassy_usb_driver::host::HostError> {
-        trace!("Attempting to alloc channel {}, {}, {}", addr, pre, endpoint);
+        trace!("Attempting to alloc channel {}, {}, {}", dev_addr, pre, endpoint);
 
         let new_index = if T::ep_type() == EndpointType::Control {
             // Only a single control channel is available
@@ -732,7 +834,8 @@ impl UsbHostDriver for UsbHostBus {
             // Atomic read-modify-write to acquire a pipe
             loop {
                 let pipes = ALLOCATED_PIPES.load(core::sync::atomic::Ordering::Acquire);
-                let new_index = pipes.trailing_ones();
+                // Ignore index 0
+                let new_index = (pipes | 1).trailing_ones();
                 if new_index as usize >= OTG_MAX_PIPES {
                     Err(HostError::OutOfChannels)?;
                 }
@@ -751,8 +854,11 @@ impl UsbHostDriver for UsbHostBus {
             }
         };
 
-        let mut channel = OtgChannel::<T, D>::new_alloc(self.regs, new_index as u8, endpoint.max_packet_size.into());
-        channel.retarget_channel(addr, endpoint, pre)?;
+        // FIXME: max_packet_size should be independent to buffer-size but due to how buffer-dma works this seems difficult to configure
+        //  (maybe we should realloc upon receiving a larger IN/OUT request)
+        let mut channel =
+            OtgChannel::<T, D>::new_alloc(self.regs, new_index as u8, (endpoint.max_packet_size * 32) as usize);
+        channel.retarget_channel(dev_addr, endpoint, pre)?;
         Ok(channel)
     }
 
@@ -762,6 +868,7 @@ impl UsbHostDriver for UsbHostBus {
 
             let hprt = self.regs.hprt().read();
 
+            // FIXME: this is not reliable
             if hprt.pcsts() && !self.dev_conn.load(core::sync::atomic::Ordering::Relaxed) {
                 // NOTE: de-bounce skipped here; could be done interrupt poll
                 // crate::rom::ets_delay_us(30_000);

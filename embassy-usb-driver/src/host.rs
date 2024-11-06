@@ -247,6 +247,12 @@ pub mod channel {
     impl IsOut for InOut {}
 }
 
+/// ## Interrupt Channels
+/// There are two ways to soundly implement Interrupt channels in the curren trait
+/// - Start & repeat the poll upon call of request_*
+/// - Poll in background/hardware and stop polling once a valid response is returned holding that value until read
+///
+/// Implementing it differently can cause dropped packet
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>

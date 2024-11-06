@@ -23,6 +23,12 @@ pub struct StaticHandlerSpec {
     device_filter: Option<DeviceFilter>,
 }
 
+impl StaticHandlerSpec {
+    pub fn new(device_filter: Option<DeviceFilter>) -> Self {
+        StaticHandlerSpec { device_filter }
+    }
+}
+
 pub struct EnumerationInfo {
     /// Device address
     pub device_address: u8,
