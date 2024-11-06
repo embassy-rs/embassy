@@ -198,7 +198,7 @@ impl ConfigurationDescriptor {
         InterfaceIterator {
             num_interface: self.num_interfaces as usize,
             index: 0,
-            cfg_desc: &self,
+            cfg_desc: self,
         }
     }
 
@@ -263,7 +263,7 @@ impl ConfigurationDescriptor {
         }
 
         let interface_number = slice[offset + 2];
-        return Some((offset, interface_number));
+        Some((offset, interface_number))
     }
 }
 
@@ -282,16 +282,15 @@ impl<'a> Iterator for EndpointIterator<'a> {
         } else {
             let mut working_buffer = &self.iface_desc.buffer[self.buffer_idx..];
             if let Some(endpoint) = InterfaceDescriptor::identify_descriptor::<EndpointDescriptor>(working_buffer)
-                .map(|i| {
+                .and_then(|i| {
                     working_buffer = &working_buffer[i..];
                     EndpointDescriptor::try_from_bytes(working_buffer).ok()
                 })
-                .flatten()
             {
+                self.buffer_idx += EndpointDescriptor::SIZE;
+                self.index += 1;
                 return Some(endpoint);
             }
-            self.buffer_idx += EndpointDescriptor::SIZE;
-            self.index += 1;
             None
         }
     }
@@ -327,16 +326,15 @@ impl<'a> InterfaceDescriptor<'a> {
 
     /// Try to parse a class descriptor of a given type
     pub fn parse_class_descriptor<T: USBDescriptor>(&self) -> Option<T> {
-        Self::identify_descriptor::<T>(self.buffer)
-            .map(|i| T::try_from_bytes(&self.buffer[i..]).ok())
-            .flatten()
+        Self::identify_descriptor::<T>(self.buffer).and_then(|i| T::try_from_bytes(&self.buffer[i..]).ok())
     }
 
+    /// Iterate over endpoints
     pub fn iter_endpoints(&'a self) -> EndpointIterator<'a> {
         EndpointIterator {
             index: 0,
             buffer_idx: 0,
-            iface_desc: &self,
+            iface_desc: self,
         }
     }
 
@@ -345,15 +343,12 @@ impl<'a> InterfaceDescriptor<'a> {
     pub fn parse_endpoints<const L: usize>(&self) -> Vec<EndpointDescriptor, L> {
         let mut endpoints: Vec<EndpointDescriptor, L> = Vec::new();
 
-        let mut working_buffer = &self.buffer[..];
+        let mut working_buffer = self.buffer;
         for _ in 0..self.num_endpoints.min(L as u8) {
-            if let Some(endpoint) = Self::identify_descriptor::<EndpointDescriptor>(working_buffer)
-                .map(|i| {
-                    working_buffer = &working_buffer[i..];
-                    EndpointDescriptor::try_from_bytes(working_buffer).ok()
-                })
-                .flatten()
-            {
+            if let Some(endpoint) = Self::identify_descriptor::<EndpointDescriptor>(working_buffer).and_then(|i| {
+                working_buffer = &working_buffer[i..];
+                EndpointDescriptor::try_from_bytes(working_buffer).ok()
+            }) {
                 // safe because we limited the iterations.
                 endpoints.push(endpoint).ok();
             }
@@ -381,7 +376,7 @@ impl<'a> InterfaceDescriptor<'a> {
             desc_type = slice[offset + 1];
         }
 
-        return Some(offset);
+        Some(offset)
     }
 }
 

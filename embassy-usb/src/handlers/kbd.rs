@@ -18,10 +18,26 @@ use embassy_usb_driver::{
 };
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
+#[repr(C)]
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct KeyStatusUpdate {
+    modifiers: u8,
+    reserved: u8,
+    keypress: [Option<NonZeroU8>; 6],
+}
+
+impl KeyStatusUpdate {
+    fn from_buffer_unchecked(value: [u8; 8]) -> Self {
+        // SAFETY: Option<NonZeroU8> is None when u8 = 0
+        unsafe { core::mem::transmute(value) }
+    }
+}
+
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum KbdEvent {
-    KeyPressUpdate([Option<NonZeroU8>; 8]),
+    KeyStatusUpdate(KeyStatusUpdate),
 }
 
 pub struct KbdHandler<H: UsbHostDriver> {
@@ -41,14 +57,16 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
         let iface = enum_info
             .cfg_desc
             .iter_interface()
-            .find(|v| match v {
-                InterfaceDescriptor {
-                    interface_class: 0x03,
-                    interface_subclass: 0x1,
-                    interface_protocol: 0x1,
-                    ..
-                } => true,
-                _ => false,
+            .find(|v| {
+                matches!(
+                    v,
+                    InterfaceDescriptor {
+                        interface_class: 0x03,
+                        interface_subclass: 0x1,
+                        interface_protocol: 0x1,
+                        ..
+                    }
+                )
             })
             .ok_or(RegisterError::NoSupportedInterface)?;
 
@@ -68,23 +86,21 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
             &EndpointInfo::new(
                 0.into(),
                 EndpointType::Control,
-                enum_info
-                    .device_desc
-                    .max_packet_size0
-                    .min(if enum_info.ls_over_fs { 8 } else { 64 }) as u16,
+                (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed.max_packet_size()),
             ),
             enum_info.ls_over_fs,
         )?;
 
+        debug!("[kbd]: Setting PROTOCOL & idle");
         const SET_PROTOCOL: u8 = 0x0B;
         const BOOT_PROTOCOL: u16 = 0x0000;
         control_channel
-            .class_request_out(SET_PROTOCOL, BOOT_PROTOCOL, iface.interface_number as u16, &mut [])
+            .class_request_out(SET_PROTOCOL, BOOT_PROTOCOL, iface.interface_number as u16, &[])
             .await?;
 
         const SET_IDLE: u8 = 0x0A;
         control_channel
-            .class_request_out(SET_IDLE, 0, iface.interface_number as u16, &mut [])
+            .class_request_out(SET_IDLE, 0, iface.interface_number as u16, &[])
             .await?;
 
         Ok(KbdHandler {
@@ -94,39 +110,43 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
     }
 
     async fn wait_for_event(&mut self) -> Result<HandlerEvent<Self::PollEvent>, HostError> {
-        loop {
-            let mut buffer = [0u8; 8];
-            self.interrupt_channel.request_in(&mut buffer[..]).await?;
-            let keycodes = parse_payload(buffer);
+        let mut buffer = [0u8; 8];
 
-            return Ok(HandlerEvent::HandlerEvent(KbdEvent::KeyPressUpdate(keycodes)));
-        }
+        debug!("[kbd]: Requesting interrupt IN");
+        self.interrupt_channel.request_in(&mut buffer[..]).await?;
+        debug!("[kbd]: Got interrupt {:?}", buffer);
+
+        Ok(HandlerEvent::HandlerEvent(KbdEvent::KeyStatusUpdate(
+            KeyStatusUpdate::from_buffer_unchecked(buffer),
+        )))
     }
 }
 
 bitflags! {
-    struct KeyboardState: u8 {
+    /// Commond keyboard state options
+    pub struct KeyboardState: u8 {
+        /// Enables NumLock
         const NumLock   = 1 << 0;
+        /// Enables CapsLock
         const CapsLock     = 1 << 1;
+        /// Enables ScrollLock
         const ScrollLock   = 1 << 2;
+        /// Enables Compose-mode
         const Compose = 1 << 3;
+        /// Enables Kana-mode
         const Kana    = 1 << 4;
     }
 }
 
 impl<H: UsbHostDriver> KbdHandler<H> {
-    async fn set_state(&mut self, state: &KeyboardState) -> Result<(), HostError> {
+    /// Sets the state of the keyboard
+    pub async fn set_state(&mut self, state: &KeyboardState) -> Result<(), HostError> {
         const SET_REPORT: u8 = 0x09;
         const OUTPUT_REPORT: u16 = 2 << 8;
         self.control_channel
             .class_request_out(SET_REPORT, OUTPUT_REPORT, 0, &[state.bits()])
             .await
     }
-}
-
-fn parse_payload(buffer: [u8; 8]) -> [Option<NonZeroU8>; 8] {
-    // SAFETY: Option<NonZeroU8> is None when u8 = 0
-    unsafe { core::mem::transmute(buffer) }
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
