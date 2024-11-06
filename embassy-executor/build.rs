@@ -96,4 +96,15 @@ fn main() {
 
     let mut rustc_cfgs = common::CfgSet::new();
     common::set_target_cfgs(&mut rustc_cfgs);
+
+    // Waker API changed on 2024-09-06
+    rustc_cfgs.declare("at_least_2024_09_06");
+    let Some(compiler) = common::compiler_info() else {
+        return;
+    };
+    if compiler.channel == rustc_version::Channel::Nightly
+        && compiler.commit_date.map(|d| d >= "2024-09-06").unwrap_or(false)
+    {
+        rustc_cfgs.enable("at_least_2024_09_06");
+    }
 }
