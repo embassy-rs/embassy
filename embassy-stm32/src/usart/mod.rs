@@ -1513,12 +1513,7 @@ fn set_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result<(), C
     Ok(())
 }
 
-fn find_and_set_brr(
-    r: stm32_metapac::usart::Usart,
-    kind: Kind,
-    kernel_clock: Hertz,
-    baudrate: u32,
-) -> Result<bool, ConfigError> {
+fn find_and_set_brr(r: Regs, kind: Kind, kernel_clock: Hertz, baudrate: u32) -> Result<bool, ConfigError> {
     #[cfg(not(usart_v4))]
     static DIVS: [(u16, ()); 1] = [(1, ())];
 
@@ -1551,7 +1546,11 @@ fn find_and_set_brr(
     };
 
     let mut found_brr = None;
+    #[cfg(not(usart_v1))]
     let mut over8 = false;
+    #[cfg(usart_v1)]
+    let over8 = false;
+
     for &(presc, _presc_val) in &DIVS {
         let brr = calculate_brr(baudrate, kernel_clock.0, presc as u32, mul);
         trace!(
@@ -1608,7 +1607,11 @@ fn set_usart_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result
         // disable uart
         w.set_ue(false);
     });
+
+    #[cfg(not(usart_v1))]
     let over8 = find_and_set_brr(r, info.kind, kernel_clock, baudrate)?;
+    #[cfg(usart_v1)]
+    let _over8 = find_and_set_brr(r, info.kind, kernel_clock, baudrate)?;
 
     r.cr1().modify(|w| {
         // enable uart
@@ -1640,7 +1643,10 @@ fn configure(
         w.set_ue(false);
     });
 
+    #[cfg(not(usart_v1))]
     let over8 = find_and_set_brr(r, kind, kernel_clock, config.baudrate)?;
+    #[cfg(usart_v1)]
+    let _over8 = find_and_set_brr(r, kind, kernel_clock, config.baudrate)?;
 
     r.cr2().write(|w| {
         w.set_stop(match config.stop_bits {
