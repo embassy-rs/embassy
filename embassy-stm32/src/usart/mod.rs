@@ -1513,10 +1513,12 @@ fn set_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result<(), C
     Ok(())
 }
 
-fn set_usart_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result<(), ConfigError> {
-    let r = info.regs;
-    let kind = info.kind;
-
+fn find_and_set_brr(
+    r: stm32_metapac::usart::Usart,
+    kind: Kind,
+    kernel_clock: Hertz,
+    baudrate: u32,
+) -> Result<bool, ConfigError> {
     #[cfg(not(usart_v4))]
     static DIVS: [(u16, ()); 1] = [(1, ())];
 
@@ -1548,114 +1550,10 @@ fn set_usart_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result
         }
     };
 
-    r.cr1().modify(|w| {
-        // disable uart
-        w.set_ue(false);
-    });
-
     let mut found_brr = None;
+    let mut over8 = false;
     for &(presc, _presc_val) in &DIVS {
         let brr = calculate_brr(baudrate, kernel_clock.0, presc as u32, mul);
-        trace!(
-            "USART: presc={}, div=0x{:08x} (mantissa = {}, fraction = {})",
-            presc,
-            brr,
-            brr >> 4,
-            brr & 0x0F
-        );
-
-        if brr < brr_min {
-            #[cfg(not(usart_v1))]
-            if brr * 2 >= brr_min && kind == Kind::Uart && !cfg!(usart_v1) {
-                r.brr().write_value(regs::Brr(((brr << 1) & !0xF) | (brr & 0x07)));
-                #[cfg(usart_v4)]
-                r.presc().write(|w| w.set_prescaler(_presc_val));
-                found_brr = Some(brr);
-                break;
-            }
-            return Err(ConfigError::BaudrateTooHigh);
-        }
-
-        if brr < brr_max {
-            r.brr().write_value(regs::Brr(brr));
-            #[cfg(usart_v4)]
-            r.presc().write(|w| w.set_prescaler(_presc_val));
-            found_brr = Some(brr);
-            break;
-        }
-    }
-
-    let brr = found_brr.ok_or(ConfigError::BaudrateTooLow)?;
-
-    trace!(
-        "Desired baudrate: {}, actual baudrate: {}",
-        baudrate,
-        kernel_clock.0 / brr * mul
-    );
-
-    r.cr1().modify(|w| {
-        // enable uart
-        w.set_ue(true);
-    });
-
-    Ok(())
-}
-
-fn configure(
-    info: &Info,
-    kernel_clock: Hertz,
-    config: &Config,
-    enable_rx: bool,
-    enable_tx: bool,
-) -> Result<(), ConfigError> {
-    let r = info.regs;
-    let kind = info.kind;
-
-    if !enable_rx && !enable_tx {
-        return Err(ConfigError::RxOrTxNotEnabled);
-    }
-
-    #[cfg(not(usart_v4))]
-    static DIVS: [(u16, ()); 1] = [(1, ())];
-
-    #[cfg(usart_v4)]
-    static DIVS: [(u16, vals::Presc); 12] = [
-        (1, vals::Presc::DIV1),
-        (2, vals::Presc::DIV2),
-        (4, vals::Presc::DIV4),
-        (6, vals::Presc::DIV6),
-        (8, vals::Presc::DIV8),
-        (10, vals::Presc::DIV10),
-        (12, vals::Presc::DIV12),
-        (16, vals::Presc::DIV16),
-        (32, vals::Presc::DIV32),
-        (64, vals::Presc::DIV64),
-        (128, vals::Presc::DIV128),
-        (256, vals::Presc::DIV256),
-    ];
-
-    let (mul, brr_min, brr_max) = match kind {
-        #[cfg(any(usart_v3, usart_v4))]
-        Kind::Lpuart => {
-            trace!("USART: Kind::Lpuart");
-            (256, 0x300, 0x10_0000)
-        }
-        Kind::Uart => {
-            trace!("USART: Kind::Uart");
-            (1, 0x10, 0x1_0000)
-        }
-    };
-
-    // UART must be disabled during configuration.
-    r.cr1().modify(|w| {
-        w.set_ue(false);
-    });
-
-    #[cfg(not(usart_v1))]
-    let mut over8 = false;
-    let mut found_brr = None;
-    for &(presc, _presc_val) in &DIVS {
-        let brr = calculate_brr(config.baudrate, kernel_clock.0, presc as u32, mul);
         trace!(
             "USART: presc={}, div=0x{:08x} (mantissa = {}, fraction = {})",
             presc,
@@ -1686,18 +1584,63 @@ fn configure(
         }
     }
 
-    let brr = found_brr.ok_or(ConfigError::BaudrateTooLow)?;
+    match found_brr {
+        Some(brr) => {
+            #[cfg(not(usart_v1))]
+            let oversampling = if over8 { "8 bit" } else { "16 bit" };
+            #[cfg(usart_v1)]
+            let oversampling = "default";
+            trace!(
+                "Using {} oversampling, desired baudrate: {}, actual baudrate: {}",
+                oversampling,
+                baudrate,
+                kernel_clock.0 / brr * mul
+            );
+            Ok(over8)
+        }
+        None => Err(ConfigError::BaudrateTooLow),
+    }
+}
 
-    #[cfg(not(usart_v1))]
-    let oversampling = if over8 { "8 bit" } else { "16 bit" };
-    #[cfg(usart_v1)]
-    let oversampling = "default";
-    trace!(
-        "Using {} oversampling, desired baudrate: {}, actual baudrate: {}",
-        oversampling,
-        config.baudrate,
-        kernel_clock.0 / brr * mul
-    );
+fn set_usart_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result<(), ConfigError> {
+    let r = info.regs;
+    r.cr1().modify(|w| {
+        // disable uart
+        w.set_ue(false);
+    });
+    let over8 = find_and_set_brr(r, info.kind, kernel_clock, baudrate)?;
+
+    r.cr1().modify(|w| {
+        // enable uart
+        w.set_ue(true);
+
+        #[cfg(not(usart_v1))]
+        w.set_over8(vals::Over8::from_bits(over8 as _));
+    });
+
+    Ok(())
+}
+
+fn configure(
+    info: &Info,
+    kernel_clock: Hertz,
+    config: &Config,
+    enable_rx: bool,
+    enable_tx: bool,
+) -> Result<(), ConfigError> {
+    let r = info.regs;
+    let kind = info.kind;
+
+    if !enable_rx && !enable_tx {
+        return Err(ConfigError::RxOrTxNotEnabled);
+    }
+
+    // UART must be disabled during configuration.
+    r.cr1().modify(|w| {
+        w.set_ue(false);
+    });
+
+    let over8 = find_and_set_brr(r, kind, kernel_clock, config.baudrate)?;
 
     r.cr2().write(|w| {
         w.set_stop(match config.stop_bits {
