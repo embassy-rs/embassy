@@ -8,8 +8,8 @@ use core::task::Poll;
 use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
-use embassy_usb_driver::host::{channel, ChannelError, HostError, UsbChannel, UsbHostDriver};
-use embassy_usb_driver::EndpointType;
+use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::{EndpointType, Speed};
 
 use super::{DmPin, DpPin, Instance};
 use crate::pac::usb::regs;
@@ -241,13 +241,13 @@ static ALLOCATED_PIPES: AtomicU32 = AtomicU32::new(0);
 static EP_MEM_FREE: AtomicU16 = AtomicU16::new(0);
 
 /// USB host driver.
-pub struct USBHostDriver<'d, I: Instance> {
+pub struct UsbHost<'d, I: Instance> {
     phantom: PhantomData<&'d mut I>,
     // first free address in EP mem, in bytes.
     // ep_mem_free: u16,
 }
 
-impl<'d, I: Instance> USBHostDriver<'d, I> {
+impl<'d, I: Instance> UsbHost<'d, I> {
     /// Create a new USB driver.
     pub fn new(
         _usb: impl Peripheral<P = I> + 'd,
@@ -665,7 +665,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
     }
 }
 
-impl<'d, I: Instance> UsbHostDriver for USBHostDriver<'d, I> {
+impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
     type Channel<T: channel::Type, D: channel::Direction> = Channel<'d, I, D, T>;
 
     fn alloc_channel<T: channel::Type, D: channel::Direction>(
@@ -849,6 +849,23 @@ impl<'d, I: Instance> UsbHostDriver for USBHostDriver<'d, I> {
     // }
 
     async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
-        todo!()
+        poll_fn(|cx| {
+            let istr = I::regs().istr().read();
+
+            BUS_WAKER.register(cx.waker());
+
+            if istr.dcon_stat() {
+                let speed = if istr.ls_dcon() {
+                    Speed::Low
+                } else {
+                    Speed::Full
+                };
+                // device has been detected
+                return Poll::Ready(DeviceEvent::Connected(speed));
+            } else {
+                Poll::Pending
+            }
+            })
+        .await
     }
 }
