@@ -1,22 +1,23 @@
-#![allow(non_snake_case)]
-
+#[cfg(feature = "low-power")]
 use core::cell::Cell;
+use core::mem;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
-use core::{mem, ptr};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_time_driver::{AlarmHandle, Driver, TICK_HZ};
+use embassy_time::TICK_HZ;
+use embassy_time_driver::{AlarmHandle, Driver};
 use stm32_metapac::timer::{regs, TimGp16};
 
+use super::{AlarmState, ALARM_STATE_NEW};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
-use crate::rcc::{self, SealedRccPeripheral};
+use crate::rcc::SealedRccPeripheral;
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
 use crate::timer::{CoreInstance, GeneralInstance1Channel};
-use crate::{interrupt, peripherals};
+use crate::{interrupt, peripherals, rcc};
 
 // NOTE regarding ALARM_COUNT:
 //
@@ -31,9 +32,9 @@ use crate::{interrupt, peripherals};
 
 cfg_if::cfg_if! {
     if #[cfg(any(time_driver_tim9, time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22))] {
-        const ALARM_COUNT: usize = 1;
+        pub(crate) const ALARM_COUNT: usize = 1;
     } else {
-        const ALARM_COUNT: usize = 3;
+        pub(crate) const ALARM_COUNT: usize = 3;
     }
 }
 
@@ -230,27 +231,6 @@ fn calc_now(period: u32, counter: u16) -> u64 {
     ((period as u64) << 15) + ((counter as u32 ^ ((period & 1) << 15)) as u64)
 }
 
-struct AlarmState {
-    timestamp: Cell<u64>,
-
-    // This is really a Option<(fn(*mut ()), *mut ())>
-    // but fn pointers aren't allowed in const yet
-    callback: Cell<*const ()>,
-    ctx: Cell<*mut ()>,
-}
-
-unsafe impl Send for AlarmState {}
-
-impl AlarmState {
-    const fn new() -> Self {
-        Self {
-            timestamp: Cell::new(u64::MAX),
-            callback: Cell::new(ptr::null()),
-            ctx: Cell::new(ptr::null_mut()),
-        }
-    }
-}
-
 pub(crate) struct RtcDriver {
     /// Number of 2^15 periods elapsed since boot.
     period: AtomicU32,
@@ -261,9 +241,6 @@ pub(crate) struct RtcDriver {
     rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
 }
 
-#[allow(clippy::declare_interior_mutable_const)]
-const ALARM_STATE_NEW: AlarmState = AlarmState::new();
-
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
@@ -273,7 +250,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 });
 
 impl RtcDriver {
-    fn init(&'static self, cs: critical_section::CriticalSection) {
+    pub(crate) fn init(&'static self, cs: critical_section::CriticalSection) {
         let r = regs_gp16();
 
         rcc::enable_and_reset_with_cs::<T>(cs);
@@ -318,6 +295,7 @@ impl RtcDriver {
         // XXX: reduce the size of this critical section ?
         critical_section::with(|cs| {
             let sr = r.sr().read();
+
             let dier = r.dier().read();
 
             // Clear all interrupt flags. Bits in SR are "write 0 to clear", so write the bitwise NOT.

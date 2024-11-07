@@ -17,6 +17,7 @@ pin_trait!(Channel2Pin, BasicInstance);
 
 pub(crate) trait SealedInstance: RccPeripheral {
     fn regs() -> crate::pac::lptim::Lptim;
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 pub(crate) trait SealedBasicInstance: RccPeripheral {}
 
@@ -34,6 +35,7 @@ foreach_interrupt! {
             fn regs() -> crate::pac::lptim::Lptim {
                 crate::pac::$inst
             }
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
         impl SealedBasicInstance for crate::peripherals::$inst {
         }
