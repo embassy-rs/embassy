@@ -2,12 +2,13 @@
 #![allow(missing_docs)]
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
-use embassy_usb_driver::host::{ChannelError, ChannelIn, ChannelOut, EndpointDescriptor, USBHostDriverTrait};
+use embassy_usb_driver::host::{channel, ChannelError, HostError, UsbChannel, UsbHostDriver};
 use embassy_usb_driver::EndpointType;
 
 use super::{DmPin, DpPin, Instance};
@@ -16,14 +17,20 @@ use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
 use crate::{interrupt, Peripheral};
 
+/// The number of registers is 8, allowing up to 16 mono-
+/// directional/single-buffer or up to 7 double-buffer endpoints in any combination. For
+/// example the USB peripheral can be programmed to have 4 double buffer endpoints
+/// and 8 single-buffer/mono-directional endpoints.
+const USB_MAX_PIPES: usize = 8;
+
 /// Interrupt handler.
-pub struct USBHostInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+pub struct USBHostInterruptHandler<I: Instance> {
+    _phantom: PhantomData<I>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for USBHostInterruptHandler<T> {
+impl<I: Instance> interrupt::typelevel::Handler<I::Interrupt> for USBHostInterruptHandler<I> {
     unsafe fn on_interrupt() {
-        let regs = T::regs();
+        let regs = I::regs();
         // let x = regs.istr().read().0;
         // trace!("USB IRQ: {:08x}", x);
 
@@ -154,20 +161,20 @@ fn calc_receive_len_bits(len: u16) -> (u16, u16) {
 mod btable {
     use super::*;
 
-    pub(super) fn write_in<T: Instance>(_index: usize, _addr: u16) {}
+    pub(super) fn write_in<I: Instance>(_index: usize, _addr: u16) {}
 
     // // Write to Transmit Buffer Descriptor for Channel/endpoint (USB_CHEP_TXRXBD_n)
     // // Device: IN endpoint
     // // Host: Out endpoint
     // // Address offset: n*8 [bytes] or n*2 in 32 bit words
-    // pub(super) fn write_in_len<T: Instance>(index: usize, addr: u16, len: u16) {
+    // pub(super) fn write_in_len<I: Instance>(index: usize, addr: u16, len: u16) {
     //     USBRAM.mem(index * 2).write_value((addr as u32) | ((len as u32) << 16));
     // }
 
     // TODO: Replaces write_in_len
     /// Writes to Transmit Buffer Descriptor for Channel/endpoint `index``
     /// For Device this is an IN endpoint for Host an OUT endpoint
-    pub(super) fn write_transmit_buffer_descriptor<T: Instance>(index: usize, addr: u16, len: u16) {
+    pub(super) fn write_transmit_buffer_descriptor<I: Instance>(index: usize, addr: u16, len: u16) {
         // Address offset: index*8 [bytes] thus index*2 in 32 bit words
         USBRAM.mem(index * 2).write_value((addr as u32) | ((len as u32) << 16));
     }
@@ -175,26 +182,34 @@ mod btable {
     // Replaces write_out
     /// Writes to Receive Buffer Descriptor for Channel/endpoint `index``
     /// For Device this is an OUT endpoint for Host an IN endpoint
-    pub(super) fn write_receive_buffer_descriptor<T: Instance>(index: usize, addr: u16, max_len_bits: u16) {
+    pub(super) fn write_receive_buffer_descriptor<I: Instance>(index: usize, addr: u16, max_len_bits: u16) {
         // Address offset: index*8 + 4 [bytes] thus index*2 + 1 in 32 bit words
         USBRAM
             .mem(index * 2 + 1)
             .write_value((addr as u32) | ((max_len_bits as u32) << 16));
     }
 
-    pub(super) fn read_out_len<T: Instance>(index: usize) -> u16 {
+    pub(super) fn read_out_len<I: Instance>(index: usize) -> u16 {
         (USBRAM.mem(index * 2 + 1).read() >> 16) as u16
     }
 }
 
 // Maybe replace with struct that only knows its index
-struct EndpointBuffer<T: Instance> {
+struct EndpointBuffer<I: Instance> {
     addr: u16,
     len: u16,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<I>,
 }
 
-impl<T: Instance> EndpointBuffer<T> {
+impl<I: Instance> EndpointBuffer<I> {
+    fn new(addr: u16, len: u16) -> Self {
+        EndpointBuffer {
+            addr,
+            len,
+            _phantom: PhantomData,
+        }
+    }
+
     fn read(&mut self, buf: &mut [u8]) {
         assert!(buf.len() <= self.len as usize);
         for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
@@ -220,29 +235,31 @@ impl<T: Instance> EndpointBuffer<T> {
     }
 }
 
+/// First bit is used to indicate control pipes
+/// bitfield for keeping track of used channels
+static ALLOCATED_PIPES: AtomicU32 = AtomicU32::new(0);
+static EP_MEM_FREE: AtomicU16 = AtomicU16::new(0);
+
 /// USB host driver.
-pub struct USBHostDriver<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-    ep_mem_free: u16, // first free address in EP mem, in bytes.
-    control_channel_in: Channel<'d, T, In>,
-    control_channel_out: Channel<'d, T, Out>,
-    channels_in_used: u8,
-    channels_out_used: u8,
+pub struct USBHostDriver<'d, I: Instance> {
+    phantom: PhantomData<&'d mut I>,
+    // first free address in EP mem, in bytes.
+    // ep_mem_free: u16,
 }
 
-impl<'d, T: Instance> USBHostDriver<'d, T> {
+impl<'d, I: Instance> USBHostDriver<'d, I> {
     /// Create a new USB driver.
     pub fn new(
-        _usb: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, USBHostInterruptHandler<T>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        _usb: impl Peripheral<P = I> + 'd,
+        _irq: impl interrupt::typelevel::Binding<I::Interrupt, USBHostInterruptHandler<I>> + 'd,
+        dp: impl Peripheral<P = impl DpPin<I>> + 'd,
+        dm: impl Peripheral<P = impl DmPin<I>> + 'd,
     ) -> Self {
         into_ref!(dp, dm);
 
-        super::super::common_init::<T>();
+        super::super::common_init::<I>();
 
-        let regs = T::regs();
+        let regs = I::regs();
 
         regs.cntr().write(|w| {
             w.set_pdwn(false);
@@ -268,21 +285,22 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
         #[cfg(stm32l1)]
         let _ = (dp, dm); // suppress "unused" warnings.
 
+        EP_MEM_FREE.store(EP_COUNT as u16 * 8, Ordering::Relaxed);
         Self {
             phantom: PhantomData,
-            ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
-            control_channel_in: Channel::new(0, 0, 0, 0),
-            control_channel_out: Channel::new(0, 0, 0, 0),
-            channels_in_used: 0,
-            channels_out_used: 0,
+            // ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
+            // control_channel_in: Channel::new(0, 0, 0, 0),
+            // control_channel_out: Channel::new(0, 0, 0, 0),
+            // channels_used: 0,
+            // channels_out_used: 0,
         }
     }
 
     /// Start the USB peripheral
     pub fn start(&mut self) {
-        let _ = self.reconfigure_channel0(8, 0);
+        // let _ = self.reconfigure_channel0(8, 0);
 
-        let regs = T::regs();
+        let regs = I::regs();
 
         regs.cntr().write(|w| {
             w.set_host(true);
@@ -307,7 +325,7 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
     }
 
     pub fn get_status(&self) -> u32 {
-        let regs = T::regs();
+        let regs = I::regs();
 
         let istr = regs.istr().read();
 
@@ -316,140 +334,182 @@ impl<'d, T: Instance> USBHostDriver<'d, T> {
 
     fn reset_alloc(&mut self) {
         // Reset alloc pointer.
-        self.ep_mem_free = EP_COUNT as u16 * 8; // for each EP, 4 regs, so 8 bytes
+        // self.ep_mem_free = EP_COUNT as u16 * 8; // for each EP, 4 regs, so 8 bytes
 
-        self.channels_in_used = 0;
-        self.channels_out_used = 0;
+        // self.channels_used = 0;
+        // self.channels_out_used = 0;
     }
 
-    fn alloc_channel_mem(&mut self, len: u16) -> Result<u16, ()> {
+    fn alloc_channel_mem(&self, len: u16) -> Result<u16, ()> {
         assert!(len as usize % USBRAM_ALIGN == 0);
-        let addr = self.ep_mem_free;
+        let addr = EP_MEM_FREE.load(Ordering::Relaxed);
         if addr + len > USBRAM_SIZE as _ {
             // panic!("Endpoint memory full");
             error!("Endpoint memory full");
             return Err(());
         }
-        self.ep_mem_free += len;
+        EP_MEM_FREE.store(addr + len, Ordering::Relaxed);
         Ok(addr)
     }
 
-    fn claim_channel_in(
-        &mut self,
-        index: usize,
-        max_packet_size: u16,
-        ep_type: EpType,
-        dev_addr: u8,
-    ) -> Result<Channel<'d, T, In>, ()> {
-        if self.channels_in_used & (1 << index) != 0 {
-            error!("Channel {} In already in use", index);
-            return Err(());
-        }
+    // fn claim_channel_in(
+    //     &mut self,
+    //     index: usize,
+    //     max_packet_size: u16,
+    //     ep_type: EpType,
+    //     dev_addr: u8,
+    // ) -> Result<Channel<'d, T, In>, ()> {
+    //     if self.channels_in_used & (1 << index) != 0 {
+    //         error!("Channel {} In already in use", index);
+    //         return Err(());
+    //     }
 
-        self.channels_in_used |= 1 << index;
+    //     self.channels_in_used |= 1 << index;
 
-        let (len, len_bits) = calc_receive_len_bits(max_packet_size);
-        let Ok(addr) = self.alloc_channel_mem(len) else {
-            return Err(());
-        };
+    //     let (len, len_bits) = calc_receive_len_bits(max_packet_size);
+    //     let Ok(addr) = self.alloc_channel_mem(len) else {
+    //         return Err(());
+    //     };
 
-        btable::write_receive_buffer_descriptor::<T>(index, addr, len_bits);
+    //     btable::write_receive_buffer_descriptor::<I>(index, addr, len_bits);
 
-        let in_channel: Channel<T, In> = Channel::new(index, addr, len, max_packet_size);
+    //     let in_channel: Channel<I, In> = Channel::new(index, addr, len, max_packet_size);
 
-        // configure channel register
-        let epr_reg = T::regs().epr(index);
-        let mut epr = invariant(epr_reg.read());
-        epr.set_devaddr(dev_addr);
-        epr.set_ep_type(ep_type);
-        epr.set_ea(index as _);
-        epr_reg.write_value(epr);
+    //     // configure channel register
+    //     let epr_reg = I::regs().epr(index);
+    //     let mut epr = invariant(epr_reg.read());
+    //     epr.set_devaddr(dev_addr);
+    //     epr.set_ep_type(ep_type);
+    //     epr.set_ea(index as _);
+    //     epr_reg.write_value(epr);
 
-        Ok(in_channel)
-    }
+    //     Ok(in_channel)
+    // }
 
-    fn claim_channel_out(
-        &mut self,
-        index: usize,
-        max_packet_size: u16,
-        ep_type: EpType,
-        dev_addr: u8,
-    ) -> Result<Channel<'d, T, Out>, ()> {
-        if self.channels_out_used & (1 << index) != 0 {
-            error!("Channel {} In already in use", index);
-            return Err(());
-        }
-        self.channels_out_used |= 1 << index;
+    // fn claim_channel_out(
+    //     &mut self,
+    //     index: usize,
+    //     max_packet_size: u16,
+    //     ep_type: EpType,
+    //     dev_addr: u8,
+    // ) -> Result<Channel<'d, T, Out>, ()> {
+    //     if self.channels_out_used & (1 << index) != 0 {
+    //         error!("Channel {} In already in use", index);
+    //         return Err(());
+    //     }
+    //     self.channels_out_used |= 1 << index;
 
-        let len = align_len_up(max_packet_size);
-        let Ok(addr) = self.alloc_channel_mem(len) else {
-            return Err(());
-        };
+    //     let len = align_len_up(max_packet_size);
+    //     let Ok(addr) = self.alloc_channel_mem(len) else {
+    //         return Err(());
+    //     };
 
-        // ep_in_len is written when actually TXing packets.
-        btable::write_in::<T>(index, addr);
+    //     // ep_in_len is written when actually TXing packets.
+    //     btable::write_in::<I>(index, addr);
 
-        let out_channel: Channel<T, Out> = Channel::new(index, addr, len, max_packet_size);
+    //     let out_channel: Channel<I, Out> = Channel::new(index, addr, len, max_packet_size);
 
-        // configure channel register
-        let epr_reg = T::regs().epr(index);
-        let mut epr = invariant(epr_reg.read());
-        epr.set_devaddr(dev_addr);
-        epr.set_ep_type(ep_type);
-        epr.set_ea(index as _);
-        epr_reg.write_value(epr);
+    //     // configure channel register
+    //     let epr_reg = I::regs().epr(index);
+    //     let mut epr = invariant(epr_reg.read());
+    //     epr.set_devaddr(dev_addr);
+    //     epr.set_ep_type(ep_type);
+    //     epr.set_ea(index as _);
+    //     epr_reg.write_value(epr);
 
-        Ok(out_channel)
-    }
+    //     Ok(out_channel)
+    // }
 }
 
-/// Marker type for the "IN" direction.
-pub enum In {}
+// struct EndpointBuffer
 
-/// Marker type for the "OUT" direction.
-pub enum Out {}
-
-/// USB endpoint.
-pub struct Channel<'d, T: Instance, D> {
-    _phantom: PhantomData<(&'d mut T, D)>,
+/// USB endpoint. Only implements single buffer mode.
+pub struct Channel<'d, I: Instance, D: channel::Direction, T: channel::Type> {
+    _phantom: PhantomData<(&'d mut I, D, T)>,
+    /// Register index (there are 8 in total)
     index: usize,
-    max_packet_size: u16,
-    buf: EndpointBuffer<T>,
+    max_packet_size_in: u16,
+    max_packet_size_out: u16,
+    buf_in: Option<EndpointBuffer<I>>,
+    buf_out: Option<EndpointBuffer<I>>,
 }
 
-impl<'d, T: Instance, D> Channel<'d, T, D> {
-    fn new(index: usize, addr: u16, len: u16, max_packet_size: u16) -> Self {
+impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D, T> {
+    fn new(
+        index: usize,
+        buf_in: Option<EndpointBuffer<I>>,
+        buf_out: Option<EndpointBuffer<I>>,
+        max_packet_size_in: u16,
+        max_packet_size_out: u16,
+    ) -> Self {
         Self {
             _phantom: PhantomData,
             index,
-            max_packet_size,
-            buf: EndpointBuffer {
-                addr,
-                len,
-                _phantom: PhantomData,
-            },
+            max_packet_size_in,
+            max_packet_size_out,
+            buf_in,
+            buf_out,
         }
     }
-}
-
-impl<'d, T: Instance> Channel<'d, T, In> {
     fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
         let index = self.index;
-        let rx_len = btable::read_out_len::<T>(index) as usize & 0x3FF;
+        let rx_len = btable::read_out_len::<I>(index) as usize & 0x3FF;
         trace!("READ DONE, rx_len = {}", rx_len);
         if rx_len > buf.len() {
             return Err(ChannelError::BufferOverflow);
         }
-        self.buf.read(&mut buf[..rx_len]);
+        self.buf_in.as_mut().unwrap().read(&mut buf[..rx_len]);
         Ok(rx_len)
     }
-}
 
-impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
+    fn write_data(&mut self, buf: &[u8]) {
+        let index = self.index;
+        if let Some(buf_out) = self.buf_out.as_mut() {
+            buf_out.write(buf);
+            btable::write_transmit_buffer_descriptor::<I>(index, buf_out.addr, buf.len() as _);
+        }
+    }
+
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, ChannelError> {
+        self.write_data(buf);
+
+        let index = self.index;
+
+        let regs = I::regs();
+
+        let epr = regs.epr(index).read();
+        let current_stat_tx = epr.stat_tx().to_bits();
+        // stat_rx can only be toggled by writing a 1.
+        // We want to set it to Active (0b11)
+        let stat_valid = Stat::from_bits(!current_stat_tx & 0x3);
+
+        let mut epr = invariant(epr);
+        epr.set_stat_tx(stat_valid);
+        regs.epr(index).write_value(epr);
+
+        let stat = poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+            let regs = I::regs();
+            let stat = regs.epr(index).read().stat_rx();
+            if matches!(stat, Stat::STALL | Stat::DISABLED) {
+                Poll::Ready(stat)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        if stat == Stat::STALL {
+            return Err(ChannelError::Stall);
+        }
+
+        Ok(buf.len())
+    }
+
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError> {
         let index = self.index;
 
-        let regs = T::regs();
+        let regs = I::regs();
         let epr = regs.epr(index);
         let epr_val = epr.read();
         let current_stat_rx = epr_val.stat_rx().to_bits();
@@ -475,7 +535,7 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
                     count += n;
                     // If transfer is smaller than max_packet_size, we are done
                     // If we have read buf.len() bytes, we are done
-                    if count == buf.len() || n < self.max_packet_size as usize {
+                    if count == buf.len() || n < self.max_packet_size_in as usize {
                         Poll::Ready(Ok(count))
                     } else {
                         // issue another read
@@ -505,109 +565,241 @@ impl<'d, T: Instance> ChannelIn for Channel<'d, T, In> {
     }
 }
 
-impl<'d, T: Instance> Channel<'d, T, Out> {
-    fn write_data(&mut self, buf: &[u8]) {
-        let index = self.index;
-        self.buf.write(buf);
-        btable::write_transmit_buffer_descriptor::<T>(index, self.buf.addr, buf.len() as _);
+// impl<'d, I: Instance> Channel<'d, D, In> {
+// }
+
+impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<'d, I, D, T> {
+    async fn control_in(
+        &mut self,
+        setup: &embassy_usb_driver::host::SetupPacket,
+        buf: &mut [u8],
+    ) -> Result<usize, ChannelError>
+    where
+        T: channel::IsControl,
+        D: channel::IsIn,
+    {
+        let epr0 = I::regs().epr(0);
+
+        // setup stage
+        let mut epr_val = invariant(epr0.read());
+        epr_val.set_setup(true);
+        epr0.write_value(epr_val);
+
+        self.write(setup.as_bytes()).await?;
+
+        // data stage
+        let count = self.read(buf).await?;
+
+        // status stage
+
+        // Send 0 bytes
+        let zero: [u8; 0] = [0u8; 0];
+        self.write(&zero).await?;
+
+        Ok(count)
     }
-}
 
-impl<'d, T: Instance> ChannelOut for Channel<'d, T, Out> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), ChannelError> {
-        self.write_data(buf);
+    async fn control_out(
+        &mut self,
+        setup: &embassy_usb_driver::host::SetupPacket,
+        buf: &[u8],
+    ) -> Result<usize, ChannelError>
+    where
+        T: channel::IsControl,
+        D: channel::IsOut,
+    {
+        let epr0 = I::regs().epr(0);
 
+        // setup stage
+        let mut epr_val = invariant(epr0.read());
+        epr_val.set_setup(true);
+        epr0.write_value(epr_val);
+        self.write(setup.as_bytes()).await?;
+
+        if buf.is_empty() {
+            // TODO data stage
+            todo!("implement data stage");
+        } else {
+            self.write(buf).await?;
+        }
+
+        // Status stage
+        let mut status = [0u8; 0];
+        self.read(&mut status).await?;
+
+        Ok(buf.len())
+    }
+
+    fn retarget_channel(
+        &mut self,
+        addr: u8,
+        endpoint: &embassy_usb_driver::EndpointInfo,
+        pre: bool,
+    ) -> Result<(), embassy_usb_driver::host::HostError> {
+        let eptype = endpoint.ep_type;
         let index = self.index;
 
-        let regs = T::regs();
-
-        let epr = regs.epr(index).read();
-        let current_stat_tx = epr.stat_tx().to_bits();
-        // stat_rx can only be toggled by writing a 1.
-        // We want to set it to Active (0b11)
-        let stat_valid = Stat::from_bits(!current_stat_tx & 0x3);
-
-        let mut epr = invariant(epr);
-        epr.set_stat_tx(stat_valid);
-        regs.epr(index).write_value(epr);
-
-        let stat = poll_fn(|cx| {
-            EP_OUT_WAKERS[index].register(cx.waker());
-            let regs = T::regs();
-            let stat = regs.epr(index).read().stat_rx();
-            if matches!(stat, Stat::STALL | Stat::DISABLED) {
-                Poll::Ready(stat)
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-
-        if stat == Stat::STALL {
-            return Err(ChannelError::Stall);
-        }
+        // configure channel register
+        let epr_reg = I::regs().epr(index);
+        let mut epr = invariant(epr_reg.read());
+        epr.set_devaddr(addr);
+        epr.set_ep_type(convert_type(eptype));
+        epr.set_ea(index as _);
+        epr_reg.write_value(epr);
 
         Ok(())
     }
+
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
+    where
+        D: channel::IsIn,
+    {
+        self.read(buf).await
+    }
+
+    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
+    where
+        D: channel::IsOut,
+    {
+        self.write(buf).await
+    }
 }
 
-impl<'d, T: Instance> USBHostDriverTrait for USBHostDriver<'d, T> {
-    type ChannelIn = Channel<'d, T, In>;
-    type ChannelOut = Channel<'d, T, Out>;
+impl<'d, I: Instance> UsbHostDriver for USBHostDriver<'d, I> {
+    type Channel<T: channel::Type, D: channel::Direction> = Channel<'d, I, D, T>;
 
-    fn alloc_channel_in(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelIn, ()> {
-        let index = (desc.endpoint_address - 0x80) as usize;
+    fn alloc_channel<T: channel::Type, D: channel::Direction>(
+        &self,
+        addr: u8,
+        endpoint: &embassy_usb_driver::EndpointInfo,
+        pre: bool,
+    ) -> Result<Self::Channel<T, D>, embassy_usb_driver::host::HostError> {
+        let new_index = if T::ep_type() == EndpointType::Control {
+            // Only a single control channel is available
+            0
+        } else {
+            loop {
+                let pipes = ALLOCATED_PIPES.load(Ordering::Relaxed);
 
-        if index == 0 {
-            return Err(());
-        }
-        if index > EP_COUNT - 1 {
-            return Err(());
-        }
-        let max_packet_size = desc.max_packet_size;
-        let ep_type = desc.ep_type();
-        debug!(
-            "alloc_channel_in: index = {}, max_packet_size = {}, type = {:?}",
-            index, max_packet_size, ep_type
+                // Ignore index 0
+                let new_index = (pipes | 1).trailing_ones();
+                if new_index as usize >= USB_MAX_PIPES {
+                    Err(HostError::OutOfChannels)?;
+                }
+
+                ALLOCATED_PIPES.store(pipes | 1 << new_index, Ordering::Relaxed);
+
+                // TODO make this thread safe using atomics or critical section?
+                // cortex m0 does not have compare_exchange_weak, only load and store
+                // if ALLOCATED_PIPES
+                //     .compare_exchange_weak(
+                //         pipes,
+                //         pipes | 1 << new_index,
+                //         core::sync::atomic::Ordering::Acquire,
+                //         core::sync::atomic::Ordering::Relaxed,
+                //     )
+                //     .is_ok()
+                // {
+                //     break new_index;
+                // }
+                break new_index;
+            }
+        };
+
+        let max_packet_size = endpoint.max_packet_size;
+
+        let buffer_in = if D::is_in() {
+            let (len, len_bits) = calc_receive_len_bits(max_packet_size);
+            let Ok(buffer_addr) = self.alloc_channel_mem(len) else {
+                return Err(HostError::OutOfSlots);
+            };
+
+            btable::write_receive_buffer_descriptor::<I>(new_index as usize, buffer_addr, len_bits);
+
+            Some(EndpointBuffer::new(buffer_addr, len))
+        } else {
+            None
+        };
+
+        let buffer_out = if D::is_out() {
+            let len = align_len_up(max_packet_size);
+            let Ok(buffer_addr) = self.alloc_channel_mem(len) else {
+                return Err(HostError::OutOfSlots);
+            };
+
+            // ep_in_len is written when actually TXing packets.
+            btable::write_in::<I>(new_index as usize, buffer_addr);
+
+            Some(EndpointBuffer::new(buffer_addr, len))
+        } else {
+            None
+        };
+
+        let mut channel = Channel::<I, D, T>::new(
+            new_index as usize,
+            buffer_in,
+            buffer_out,
+            endpoint.max_packet_size,
+            endpoint.max_packet_size,
         );
 
-        // read current device address from channel 0
-        let epr_reg = T::regs().epr(0);
-        let addr = epr_reg.read().devaddr();
-
-        self.claim_channel_in(index, max_packet_size, convert_type(ep_type), addr)
+        channel.retarget_channel(addr, endpoint, pre)?;
+        Ok(channel)
     }
 
-    fn alloc_channel_out(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelOut, ()> {
-        let index = desc.endpoint_address as usize;
-        if index == 0 {
-            return Err(());
-        }
-        if index > EP_COUNT - 1 {
-            return Err(());
-        }
-        let max_packet_size = desc.max_packet_size;
-        let ep_type = desc.ep_type();
+    // fn alloc_channel_in(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelIn, ()> {
+    //     let index = (desc.endpoint_address - 0x80) as usize;
 
-        // read current device address from channel 0
-        let epr_reg = T::regs().epr(0);
-        let addr = epr_reg.read().devaddr();
+    //     if index == 0 {
+    //         return Err(());
+    //     }
+    //     if index > EP_COUNT - 1 {
+    //         return Err(());
+    //     }
+    //     let max_packet_size = desc.max_packet_size;
+    //     let ep_type = desc.ep_type();
+    //     debug!(
+    //         "alloc_channel_in: index = {}, max_packet_size = {}, type = {:?}",
+    //         index, max_packet_size, ep_type
+    //     );
 
-        self.claim_channel_out(index, max_packet_size, convert_type(ep_type), addr)
-    }
+    //     // read current device address from channel 0
+    //     let epr_reg = I::regs().epr(0);
+    //     let addr = epr_reg.read().devaddr();
 
-    fn reconfigure_channel0(&mut self, max_packet_size: u16, dev_addr: u8) -> Result<(), ()> {
-        // Clear all buffer memory
-        self.reset_alloc();
+    //     self.claim_channel_in(index, max_packet_size, convert_type(ep_type), addr)
+    // }
 
-        self.control_channel_in = self.claim_channel_in(0, max_packet_size, EpType::CONTROL, dev_addr)?;
-        self.control_channel_out = self.claim_channel_out(0, max_packet_size, EpType::CONTROL, dev_addr)?;
+    // fn alloc_channel_out(&mut self, desc: &EndpointDescriptor) -> Result<Self::ChannelOut, ()> {
+    //     let index = desc.endpoint_address as usize;
+    //     if index == 0 {
+    //         return Err(());
+    //     }
+    //     if index > EP_COUNT - 1 {
+    //         return Err(());
+    //     }
+    //     let max_packet_size = desc.max_packet_size;
+    //     let ep_type = desc.ep_type();
 
-        Ok(())
-    }
+    //     // read current device address from channel 0
+    //     let epr_reg = I::regs().epr(0);
+    //     let addr = epr_reg.read().devaddr();
 
-    async fn bus_reset(&mut self) {
-        let regs = T::regs();
+    //     self.claim_channel_out(index, max_packet_size, convert_type(ep_type), addr)
+    // }
+
+    // fn reconfigure_channel0(&mut self, max_packet_size: u16, dev_addr: u8) -> Result<(), ()> {
+    //     // Clear all buffer memory
+    //     self.reset_alloc();
+
+    //     self.control_channel_in = self.claim_channel_in(0, max_packet_size, EpType::CONTROL, dev_addr)?;
+    //     self.control_channel_out = self.claim_channel_out(0, max_packet_size, EpType::CONTROL, dev_addr)?;
+
+    //     Ok(())
+    // }
+
+    async fn bus_reset(&self) {
+        let regs = I::regs();
 
         trace!("Bus reset");
         // Set bus in reset state
@@ -624,77 +816,39 @@ impl<'d, T: Instance> USBHostDriverTrait for USBHostDriver<'d, T> {
         });
     }
 
-    async fn wait_for_device_connect(&mut self) {
-        poll_fn(|cx| {
-            let istr = T::regs().istr().read();
+    // async fn wait_for_device_connect(&mut self) {
+    //     poll_fn(|cx| {
+    //         let istr = I::regs().istr().read();
 
-            BUS_WAKER.register(cx.waker());
+    //         BUS_WAKER.register(cx.waker());
 
-            if istr.dcon_stat() {
-                // device has been detected
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-    }
+    //         if istr.dcon_stat() {
+    //             // device has been detected
+    //             Poll::Ready(())
+    //         } else {
+    //             Poll::Pending
+    //         }
+    //     })
+    //     .await;
+    // }
 
-    async fn wait_for_device_disconnect(&mut self) {
-        poll_fn(|cx| {
-            let istr = T::regs().istr().read();
+    // async fn wait_for_device_disconnect(&mut self) {
+    //     poll_fn(|cx| {
+    //         let istr = I::regs().istr().read();
 
-            BUS_WAKER.register(cx.waker());
+    //         BUS_WAKER.register(cx.waker());
 
-            if !istr.dcon_stat() {
-                // device has dosconnected
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
-    }
+    //         if !istr.dcon_stat() {
+    //             // device has dosconnected
+    //             Poll::Ready(())
+    //         } else {
+    //             Poll::Pending
+    //         }
+    //     })
+    //     .await;
+    // }
 
-    async fn control_request_out(&mut self, bytes: &[u8]) -> Result<(), ()> {
-        let epr0 = T::regs().epr(0);
-
-        // setup stage
-        let mut epr_val = invariant(epr0.read());
-        epr_val.set_setup(true);
-        epr0.write_value(epr_val);
-        self.control_channel_out.write(bytes).await.map_err(|_| ())?;
-
-        // TODO data stage
-        // self.control_channel_out.write(bytes).await.map_err(|_| ())?;
-
-        // Status stage
-        let mut status = [0u8; 0];
-        self.control_channel_in.read(&mut status).await.map_err(|_| ())?;
-
-        Ok(())
-    }
-
-    async fn control_request_in(&mut self, bytes: &[u8], dest: &mut [u8]) -> Result<usize, ()> {
-        let epr0 = T::regs().epr(0);
-
-        // setup stage
-        let mut epr_val = invariant(epr0.read());
-        epr_val.set_setup(true);
-        epr0.write_value(epr_val);
-
-        self.control_channel_out.write(bytes).await.map_err(|_| ())?;
-
-        // data stage
-
-        let count = self.control_channel_in.read(dest).await.map_err(|_| ())?;
-
-        // status stage
-
-        // Send 0 bytes
-        let zero = [0u8; 0];
-        self.control_channel_out.write(&zero).await.map_err(|_| ())?;
-
-        Ok(count)
+    async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
+        todo!()
     }
 }
