@@ -248,7 +248,8 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
 
     async fn wait_for_txresult(&mut self) -> Result<(), ChannelError> {
         poll_fn(|cx| {
-            // FIXME: add timeout
+            // NOTE: timeout is handled in hardware by shown by txerr, however we can't know if it was a timeout specifically
+
             let hcintr = self.regs.hcint(self.channel_idx as usize).read();
 
             trace!(
@@ -280,7 +281,6 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
                 return Poll::Ready(Err(ChannelError::Timeout));
             }
 
-            // FIXME: frame overrun for interrupt polling
             if hcintr.frmor() {
                 debug!("Frame overrun");
                 //     self.interrupt_interval.2 = false; // Pause interrupt channel
@@ -316,8 +316,6 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             if hcintr.chh() {
                 // Channel halted, transaction canceled
                 // TODO[CherryUSB]: apparently Control endpoints do something when at INDATA state?
-
-                // TODO: need to ensure we clear halted before each tx so we can maybe rely on it?
                 trace!("Halted");
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_chh(true));
                 Err(ChannelError::Canceled)?
@@ -533,7 +531,6 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
                 // SAFETY: EndpointType Interrupt should always have a interrupt_interval if retargeted
 
-                // FIXME: interval is slightly too fast in certain cases causing a frame overrun
                 while !self
                     .interrupt_interval
                     .as_mut()
@@ -624,7 +621,6 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
                 // SAFETY: EndpointType Interrupt should always have a interrupt_interval if retargeted
 
-                // FIXME: interval is slightly too fast in certain cases causing a frame overrun
                 while !self
                     .interrupt_interval
                     .as_mut()
