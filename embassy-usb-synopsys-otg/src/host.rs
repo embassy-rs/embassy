@@ -339,7 +339,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
 impl<T: Type, D: Direction> Drop for OtgChannel<T, D> {
     fn drop(&mut self) {
         if self.channel_idx != 0 {
-            ALLOCATED_PIPES.fetch_nand(!(1 << self.channel_idx), core::sync::atomic::Ordering::AcqRel);
+            ALLOCATED_PIPES.fetch_and(!(1 << self.channel_idx), core::sync::atomic::Ordering::AcqRel);
         }
         // Cancel any active txs & disable interrupts
 
@@ -541,7 +541,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
                     .check_and_reset_interval(self.regs.hfnum().read().frnum())
                 {
                     // NOTE: depends on speed, we assume LS/FS here
-                    Timer::after_micros(
+                    Timer::after_millis(
                         self.interrupt_interval
                             .as_ref()
                             .unwrap()
@@ -613,7 +613,92 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
     where
         D: channel::IsOut,
     {
-        todo!()
+        loop {
+            trace!("trying {}_OUT buf.len()={}", T::ep_type(), buf.len());
+
+            if T::ep_type() == EndpointType::Interrupt {
+                // Retry (NACK only) at polling-rate until cleared
+                // This is different from hardware interrupt behaviour, as hw would discard responses if we don't handle them fast enough
+                //  but the given interface doesn't allow for this exact behaviour
+                // To ensure maximum sound-ness we will only maintain the lower boundary of interrupt polling
+
+                // SAFETY: EndpointType Interrupt should always have a interrupt_interval if retargeted
+
+                // FIXME: interval is slightly too fast in certain cases causing a frame overrun
+                while !self
+                    .interrupt_interval
+                    .as_mut()
+                    .expect("Missing interrupt_interval; did you retarget_channel?")
+                    .check_and_reset_interval(self.regs.hfnum().read().frnum())
+                {
+                    // NOTE: depends on speed, we assume LS/FS here
+                    Timer::after_millis(
+                        self.interrupt_interval
+                            .as_ref()
+                            .unwrap()
+                            .hfnum_delta(self.regs.hfnum().read().frnum()) as u64,
+                    )
+                    .await;
+                }
+
+                trace!(
+                    "Trying interrupt poll @{} interval={}",
+                    self.regs.hfnum().read().frnum(),
+                    self.interrupt_interval.as_ref().unwrap().get_interval(),
+                );
+            }
+
+            self.configure_for_endpoint(Some(embassy_usb_driver::Direction::Out));
+
+            self.buffer[..buf.len()].copy_from_slice(buf);
+
+            self.regs
+                .hcdma(self.channel_idx as usize)
+                .write(|w| w.0 = self.buffer.as_ptr() as u32);
+
+            let transfer_size: u32 = buf.len() as u32;
+            self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
+                w.set_pktcnt(transfer_size.div_ceil(self.endpoint.max_packet_size as u32).max(1) as u16);
+                w.set_xfrsiz(transfer_size);
+                // The OTGCore engine will actually toggle PIDs
+                // w.set_dpid(self.pid.into());
+                w.set_doping(false);
+            });
+
+            self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
+                w.set_xfrcm(true);
+                w.set_chhm(true);
+                w.set_stallm(true);
+                w.set_txerrm(true);
+                w.set_bberrm(true);
+                w.set_frmorm(true);
+                w.set_dterrm(true);
+                w.set_nakm(true);
+            });
+
+            self.regs.hcchar(self.channel_idx as usize).modify(|w| {
+                w.set_chena(true);
+                w.set_chdis(false);
+            });
+
+            let tx_result = self.wait_for_txresult().await;
+
+            if T::ep_type() == EndpointType::Interrupt && tx_result.is_err_and(|v| v == ChannelError::Timeout) {
+                continue;
+            }
+
+            tx_result?;
+            // self.flip_pid();
+
+            if T::ep_type() == EndpointType::Interrupt {
+                self.interrupt_interval
+                    .as_mut()
+                    .unwrap()
+                    .reset_interval(self.regs.hfnum().read().frnum())
+            }
+
+            return Ok(buf.len());
+        }
     }
 }
 
