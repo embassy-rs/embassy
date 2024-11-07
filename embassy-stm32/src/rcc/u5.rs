@@ -5,6 +5,7 @@ pub use crate::pac::rcc::vals::{
 };
 use crate::pac::rcc::vals::{Hseext, Msirgsel, Pllmboost, Pllrge};
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -294,6 +295,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
+    let lse = config.ls.lse.map(|l| l.frequency);
+    let lsi = config.ls.lsi.then_some(LSI_FREQ);
+
     config.mux.init();
 
     set_clocks!(
@@ -309,6 +313,8 @@ pub(crate) unsafe fn init(config: Config) {
         msik: msik,
         hsi48: hsi48,
         rtc: rtc,
+        lse: lse,
+        lsi: lsi,
         hse: hse,
         hse_div_2: hse.map(|clk| clk / 2u32),
         hsi: hsi,
@@ -329,8 +335,6 @@ pub(crate) unsafe fn init(config: Config) {
         // TODO
         audioclk: None,
         hsi48_div_2: None,
-        lse: None,
-        lsi: None,
         shsi: None,
         shsi_div_2: None,
     );
