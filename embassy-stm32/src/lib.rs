@@ -186,12 +186,21 @@ macro_rules! bind_interrupts {
                     $(#[cfg($cond_handler)])?
                     <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
 
+                )*
+            }
+
+            $(#[cfg($cond_irq)])?
+            $crate::bind_interrupts!(@inner
+                $(
                     $(#[cfg($cond_handler)])?
                     unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
                 )*
-            }
+            );
         )*
     };
+    (@inner $($t:tt)*) => {
+        $($t)*
+    }
 }
 
 // Reexports
