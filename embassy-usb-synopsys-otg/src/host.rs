@@ -246,7 +246,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
         Ok(())
     }
 
-    async fn wait_for_txresult(&mut self) -> Result<(), ChannelError> {
+    async fn wait_for_txresult(&mut self, handle_nak: bool) -> Result<(), ChannelError> {
         poll_fn(|cx| {
             // NOTE: timeout is handled in hardware by shown by txerr, however we can't know if it was a timeout specifically
 
@@ -278,7 +278,9 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             if hcintr.nak() {
                 debug!("Got NAK");
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_nak(true));
-                return Poll::Ready(Err(ChannelError::Timeout));
+                if handle_nak {
+                    return Poll::Ready(Err(ChannelError::Timeout));
+                }
             }
 
             if hcintr.frmor() {
@@ -368,7 +370,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
         );
         self.write_setup(setup)?;
         trace!("Wating for setup ack");
-        self.wait_for_txresult().await?;
+        self.wait_for_txresult(true).await?;
 
         self.configure_for_endpoint(Some(embassy_usb_driver::Direction::In));
 
@@ -408,7 +410,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
         });
 
         trace!("Wating for CNTRL_IN Ack");
-        self.wait_for_txresult().await?;
+        self.wait_for_txresult(false).await?;
         buf.copy_from_slice(&self.buffer[..transfer_size as usize]);
 
         // TODO: this is kind of useless since we already defined in our setup input
@@ -426,7 +428,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
         trace!("trying CTRL_OUT setup={} rt={}", setup, setup.request_type.bits());
         self.write_setup(setup)?;
-        self.wait_for_txresult().await?;
+        self.wait_for_txresult(true).await?;
 
         assert!(
             buf.len() == setup.length as usize,
@@ -467,7 +469,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
             w.set_chdis(false);
         });
 
-        self.wait_for_txresult().await?;
+        self.wait_for_txresult(false).await?;
 
         Ok(transfer_size as usize)
     }
@@ -585,7 +587,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
                 w.set_chdis(false);
             });
 
-            let tx_result = self.wait_for_txresult().await;
+            let tx_result = self.wait_for_txresult(true).await;
 
             if T::ep_type() == EndpointType::Interrupt && tx_result.is_err_and(|v| v == ChannelError::Timeout) {
                 continue;
@@ -677,7 +679,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
                 w.set_chdis(false);
             });
 
-            let tx_result = self.wait_for_txresult().await;
+            let tx_result = self.wait_for_txresult(true).await;
 
             if T::ep_type() == EndpointType::Interrupt && tx_result.is_err_and(|v| v == ChannelError::Timeout) {
                 continue;
