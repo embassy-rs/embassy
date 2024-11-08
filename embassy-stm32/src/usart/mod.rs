@@ -167,7 +167,7 @@ pub struct Config {
     // private: set by new_half_duplex, not by the user.
     half_duplex: bool,
 
-    //Variable to Change the Output Type of the TX pin to Open Drain
+    /// Variable to Change the Output Type of the TX pin to Open Drain
     pub output_open_drain: bool,
 }
 
@@ -188,7 +188,7 @@ impl Config {
             return AFType::OutputPushPull;
         };
         if(self.output_open_drain) {
-            return AFType::Input;
+            return AFType::OutputOpenDrain;
         }
         AFType::Input
     }
