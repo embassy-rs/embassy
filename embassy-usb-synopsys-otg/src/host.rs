@@ -276,7 +276,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             }
 
             if hcintr.nak() {
-                debug!("Got NAK");
+                trace!("Got NAK");
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_nak(true));
                 if handle_nak {
                     return Poll::Ready(Err(ChannelError::Timeout));
@@ -284,13 +284,13 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             }
 
             if hcintr.frmor() {
-                debug!("Frame overrun");
+                trace!("Frame overrun");
                 //     self.interrupt_interval.2 = false; // Pause interrupt channel
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_frmor(true));
             }
 
             if hcintr.dterr() {
-                debug!("Data toggle error");
+                trace!("Data toggle error");
                 //     self.interrupt_interval.2 = false; // Pause interrupt channel
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_dterr(true));
             }
