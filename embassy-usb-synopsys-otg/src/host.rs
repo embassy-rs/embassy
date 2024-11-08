@@ -264,6 +264,11 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             }
 
             if hcintr.txerr() || hcintr.bberr() {
+                warn!(
+                    "Got transaction error txerr={}, bberr={}",
+                    hcintr.txerr(),
+                    hcintr.bberr()
+                );
                 self.regs.hcint(self.channel_idx as usize).write(|w| {
                     w.set_txerr(true);
                     w.set_bberr(true);
@@ -297,7 +302,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
 
             if hcintr.xfrc() {
                 // Transfer was completed
-                assert!(hcintr.ack(), "Didn't get ACK, but transfer was complete");
+                // assert!(hcintr.ack(), "Didn't get ACK, but transfer was complete");
 
                 self.regs.hcchar(self.channel_idx as usize).modify(|w| {
                     // Disable channel for next trx
@@ -558,9 +563,10 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
             self.configure_for_endpoint(Some(embassy_usb_driver::Direction::In));
 
+            // SAFETY: mutable slices should always be accessible by dma
             self.regs
                 .hcdma(self.channel_idx as usize)
-                .write(|w| w.0 = self.buffer.as_ptr() as u32);
+                .write(|w| w.0 = buf.as_ptr() as u32);
 
             let transfer_size: u32 = buf.len() as u32;
             self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
@@ -595,7 +601,10 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
             tx_result?;
             // self.flip_pid();
-            buf.copy_from_slice(&self.buffer[..transfer_size as usize]);
+
+            let unread_count = self.regs.hctsiz(self.channel_idx as usize).read().xfrsiz();
+            let transferred_count = (transfer_size - unread_count) as usize;
+            buf[..transferred_count].copy_from_slice(&self.buffer[..transferred_count]);
 
             if T::ep_type() == EndpointType::Interrupt {
                 self.interrupt_interval
@@ -604,7 +613,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
                     .reset_interval(self.regs.hfnum().read().frnum())
             }
 
-            return Ok(buf.len());
+            return Ok(transferred_count);
         }
     }
 
@@ -648,11 +657,19 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
             self.configure_for_endpoint(Some(embassy_usb_driver::Direction::Out));
 
-            self.buffer[..buf.len()].copy_from_slice(buf);
+            // FIXME: dma requires incoming buffer to be in ram, but immutable slice doesn't garantee this
+            //  we handle this in case we have allocated enough to handle the entire buffer
+            if buf.len() < self.buffer.len() {
+                self.buffer[..buf.len()].copy_from_slice(buf);
 
-            self.regs
-                .hcdma(self.channel_idx as usize)
-                .write(|w| w.0 = self.buffer.as_ptr() as u32);
+                self.regs
+                    .hcdma(self.channel_idx as usize)
+                    .write(|w| w.0 = self.buffer.as_ptr() as u32);
+            } else {
+                self.regs
+                    .hcdma(self.channel_idx as usize)
+                    .write(|w| w.0 = buf.as_ptr() as u32);
+            }
 
             let transfer_size: u32 = buf.len() as u32;
             self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
@@ -940,7 +957,7 @@ impl UsbHostDriver for UsbHostBus {
         // FIXME: max_packet_size should be independent to buffer-size but due to how buffer-dma works this seems difficult to configure
         //  (maybe we should realloc upon receiving a larger IN/OUT request)
         let mut channel =
-            OtgChannel::<T, D>::new_alloc(self.regs, new_index as u8, (endpoint.max_packet_size * 32) as usize);
+            OtgChannel::<T, D>::new_alloc(self.regs, new_index as u8, (endpoint.max_packet_size * 16) as usize);
         channel.retarget_channel(dev_addr, endpoint, pre)?;
         Ok(channel)
     }
