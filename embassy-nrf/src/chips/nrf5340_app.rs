@@ -252,6 +252,7 @@ embassy_hal_internal::peripherals! {
     SERIAL1,
     SERIAL2,
     SERIAL3,
+    SPIM4,
 
     // SAADC
     SAADC,
@@ -402,6 +403,7 @@ impl_spim!(SERIAL0, SPIM0, SERIAL0);
 impl_spim!(SERIAL1, SPIM1, SERIAL1);
 impl_spim!(SERIAL2, SPIM2, SERIAL2);
 impl_spim!(SERIAL3, SPIM3, SERIAL3);
+impl_spim!(SPIM4, SPIM4, SPIM4);
 
 impl_spis!(SERIAL0, SPIS0, SERIAL0);
 impl_spis!(SERIAL1, SPIS1, SERIAL1);
