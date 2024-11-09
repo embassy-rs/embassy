@@ -20,6 +20,9 @@ pub enum LseMode {
 pub struct LseConfig {
     pub frequency: Hertz,
     pub mode: LseMode,
+    /// If peripherals other than RTC/TAMP or RCC functions need the lse this bit must be set
+    #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+    pub peripherals_clocked: bool,
 }
 
 #[allow(dead_code)]
@@ -95,6 +98,8 @@ impl LsConfig {
             lse: Some(LseConfig {
                 frequency: Hertz(32_768),
                 mode: LseMode::Oscillator(LseDrive::MediumHigh),
+                #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+                peripherals_clocked: false,
             }),
             lsi: false,
         }
@@ -148,6 +153,12 @@ impl LsConfig {
             },
             None => (false, false, None),
         };
+        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+        let lse_sysen = if let Some(lse) = self.lse {
+            Some(lse.peripherals_clocked)
+        } else {
+            None
+        };
         _ = lse_drv; // not all chips have it.
 
         // Disable backup domain write protection
@@ -188,6 +199,10 @@ impl LsConfig {
         }
         ok &= reg.lseon() == lse_en;
         ok &= reg.lsebyp() == lse_byp;
+        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+        if let Some(lse_sysen) = lse_sysen {
+            ok &= reg.lsesysen() == lse_sysen;
+        }
         #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1)))]
         if let Some(lse_drv) = lse_drv {
             ok &= reg.lsedrv() == lse_drv.into();
@@ -235,6 +250,15 @@ impl LsConfig {
             });
 
             while !bdcr().read().lserdy() {}
+
+            #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+            if let Some(lse_sysen) = lse_sysen {
+                bdcr().modify(|w| {
+                    w.set_lsesysen(lse_sysen);
+                });
+
+                while !bdcr().read().lsesysrdy() {}
+            }
         }
 
         if self.rtc != RtcClockSource::DISABLE {
