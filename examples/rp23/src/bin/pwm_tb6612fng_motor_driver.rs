@@ -40,10 +40,11 @@ async fn main(_spawner: Spawner) {
     let s = split_resources!(p);
     let r = s.motor;
 
-    // we want a PWM frequency of 1KHz, especially cheaper motors do not respond well to higher frequencies
-    let pwm_freq = 1_000; // Hz, our desired frequency
-    let clock_freq = embassy_rp::clocks::clk_sys_freq();
-    let period = (clock_freq / pwm_freq) as u16 - 1;
+    // we want a PWM frequency of 10KHz, especially cheaper motors do not respond well to higher frequencies
+    let desired_freq_hz = 10_000;
+    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
+    let divider = 16u8;
+    let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
 
     // we need a standby output and two motors to construct a full TB6612FNG
 
@@ -55,6 +56,7 @@ async fn main(_spawner: Spawner) {
     let left_bckw = gpio::Output::new(r.left_backward_pin, gpio::Level::Low);
     let mut left_speed = pwm::Config::default();
     left_speed.top = period;
+    left_speed.divider = divider.into();
     let left_pwm = pwm::Pwm::new_output_a(r.left_slice, r.left_pwm_pin, left_speed);
     let left_motor = Motor::new(left_fwd, left_bckw, left_pwm).unwrap();
 
@@ -63,6 +65,7 @@ async fn main(_spawner: Spawner) {
     let right_bckw = gpio::Output::new(r.right_backward_pin, gpio::Level::Low);
     let mut right_speed = pwm::Config::default();
     right_speed.top = period;
+    right_speed.divider = divider.into();
     let right_pwm = pwm::Pwm::new_output_b(r.right_slice, r.right_pwm_pin, right_speed);
     let right_motor = Motor::new(right_fwd, right_bckw, right_pwm).unwrap();
 
