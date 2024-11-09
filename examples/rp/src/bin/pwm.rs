@@ -9,7 +9,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::peripherals::{PIN_25, PIN_4, PWM_SLICE2, PWM_SLICE4};
+use embassy_rp::peripherals::{PIN_4, PIN_25, PWM_SLICE2, PWM_SLICE4};
 use embassy_rp::pwm::{Config, Pwm, SetDutyCycle};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -48,15 +48,15 @@ async fn pwm_set_dutycycle(slice2: PWM_SLICE2, pin4: PIN_4) {
     // If we aim for a specific frequency, here is how we can calculate the top value.
     // The top value sets the period of the PWM cycle, so a counter goes from 0 to top and then wraps around to 0.
     // Every such wraparound is one PWM cycle. So here is how we get 25KHz:
-    let desired_freq_hz = 25_000; 
+    let desired_freq_hz = 25_000;
     let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
     let divider = 16u8;
     let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
-    
+
     let mut c = Config::default();
     c.top = period;
     c.divider = divider.into();
-    
+
     let mut pwm = Pwm::new_output_a(slice2, pin4, c.clone());
 
     loop {
