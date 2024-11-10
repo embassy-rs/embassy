@@ -308,7 +308,7 @@ impl<M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
                 receiver_count: 0,
             })),
         }
-}
+    }
 
     /// Create a new `Watch` channel.
     pub const fn new_with(data: Option<T>) -> Self {
