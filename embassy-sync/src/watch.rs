@@ -31,7 +31,7 @@ use crate::waitqueue::MultiWakerRegistration;
 ///
 /// let f = async {
 ///
-/// static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new(None);
+/// static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new();
 ///
 /// // Obtain receivers and sender
 /// let mut rcv0 = WATCH.receiver().unwrap();
@@ -299,7 +299,19 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
 
 impl<M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
     /// Create a new `Watch` channel.
-    pub const fn new(data: Option<T>) -> Self {
+    pub const fn new() -> Self {
+        Self {
+            mutex: Mutex::new(RefCell::new(WatchState {
+                data: None,
+                current_id: 0,
+                wakers: MultiWakerRegistration::new(),
+                receiver_count: 0,
+            })),
+        }
+}
+
+    /// Create a new `Watch` channel.
+    pub const fn new_with(data: Option<T>) -> Self {
         Self {
             mutex: Mutex::new(RefCell::new(WatchState {
                 data,
@@ -775,7 +787,7 @@ mod tests {
     #[test]
     fn multiple_sends() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new();
 
             // Obtain receiver and sender
             let mut rcv = WATCH.receiver().unwrap();
@@ -801,7 +813,7 @@ mod tests {
     #[test]
     fn all_try_get() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new();
 
             // Obtain receiver and sender
             let mut rcv = WATCH.receiver().unwrap();
@@ -835,7 +847,7 @@ mod tests {
             static CONFIG0: u8 = 10;
             static CONFIG1: u8 = 20;
 
-            static WATCH: Watch<CriticalSectionRawMutex, &'static u8, 1> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, &'static u8, 1> = Watch::new();
 
             // Obtain receiver and sender
             let mut rcv = WATCH.receiver().unwrap();
@@ -867,7 +879,7 @@ mod tests {
     #[test]
     fn sender_modify() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new();
 
             // Obtain receiver and sender
             let mut rcv = WATCH.receiver().unwrap();
@@ -894,7 +906,7 @@ mod tests {
     #[test]
     fn predicate_fn() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new();
 
             // Obtain receiver and sender
             let mut rcv = WATCH.receiver().unwrap();
@@ -923,7 +935,7 @@ mod tests {
     #[test]
     fn receive_after_create() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new();
 
             // Obtain sender and send value
             let snd = WATCH.sender();
@@ -939,7 +951,7 @@ mod tests {
     #[test]
     fn max_receivers_drop() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new();
 
             // Try to create 3 receivers (only 2 can exist at once)
             let rcv0 = WATCH.receiver();
@@ -964,7 +976,7 @@ mod tests {
     #[test]
     fn multiple_receivers() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new();
 
             // Obtain receivers and sender
             let mut rcv0 = WATCH.receiver().unwrap();
@@ -989,7 +1001,7 @@ mod tests {
     fn clone_senders() {
         let f = async {
             // Obtain different ways to send
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new();
             let snd0 = WATCH.sender();
             let snd1 = snd0.clone();
 
@@ -1010,7 +1022,7 @@ mod tests {
     #[test]
     fn use_dynamics() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new();
 
             // Obtain receiver and sender
             let mut anon_rcv = WATCH.dyn_anon_receiver();
@@ -1031,7 +1043,7 @@ mod tests {
     #[test]
     fn convert_to_dyn() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new();
 
             // Obtain receiver and sender
             let anon_rcv = WATCH.anon_receiver();
@@ -1057,7 +1069,7 @@ mod tests {
     #[test]
     fn dynamic_receiver_count() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new();
 
             // Obtain receiver and sender
             let rcv0 = WATCH.receiver();
@@ -1087,7 +1099,7 @@ mod tests {
     #[test]
     fn contains_value() {
         let f = async {
-            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new(None);
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 2> = Watch::new();
 
             // Obtain receiver and sender
             let rcv = WATCH.receiver().unwrap();
