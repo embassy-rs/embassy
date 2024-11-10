@@ -310,11 +310,11 @@ impl<M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
         }
     }
 
-    /// Create a new `Watch` channel.
-    pub const fn new_with(data: Option<T>) -> Self {
+    /// Create a new `Watch` channel with default data.
+    pub const fn new_with(data: T) -> Self {
         Self {
             mutex: Mutex::new(RefCell::new(WatchState {
-                data,
+                data: Some(data),
                 current_id: 0,
                 wakers: MultiWakerRegistration::new(),
                 receiver_count: 0,
