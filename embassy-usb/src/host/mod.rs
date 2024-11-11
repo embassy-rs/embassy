@@ -5,6 +5,7 @@
 
 #![allow(async_fn_in_trait)]
 
+use core::future::Future;
 use core::marker::PhantomData;
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -235,9 +236,6 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
         self.device_set_address(new_device_address).await?;
 
-        // TODO: device has 2ms to change internally by spec but may be faster, we can retry to speed up enumertion
-        Timer::after_millis(2).await;
-
         trace!("[enum] Finished setting address");
         self.retarget_channel(
             new_device_address,
@@ -245,9 +243,27 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
             ls_over_fs,
         )?;
 
-        let device_desc = self
-            .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(false)
-            .await?;
+        // device has 2ms to change internally by spec but may be faster, we can retry to speed up enumertion
+
+        // TODO: macro this shit
+        // Retries a request `retries` times until a non-timeout (NAK) is recevied, if all requests time-out `Err(ChannelError::Timeout)` is returned
+        let retries = 5;
+        let device_desc = async {
+            for _ in 0..retries {
+                match self
+                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(false)
+                    .await
+                {
+                    Err(HostError::ChannelError(ChannelError::Timeout)) => {
+                        Timer::after_millis(1).await;
+                        continue;
+                    }
+                    v => return v,
+                }
+            }
+            Err(HostError::ChannelError(ChannelError::Timeout))
+        }
+        .await?;
 
         trace!("Device Descriptor: {:?}", device_desc);
 
@@ -271,7 +287,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         self.set_configuration(cfg_desc_short.configuration_value).await?;
 
         let cfg_desc =
-            ConfigurationDescriptor::try_from_bytes(&dest_buffer).map_err(|_| HostError::InvalidDescriptor)?;
+            ConfigurationDescriptor::try_from_bytes(dest_buffer).map_err(|_| HostError::InvalidDescriptor)?;
 
         Ok(EnumerationInfo {
             device_address: new_device_address,

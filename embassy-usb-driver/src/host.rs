@@ -105,7 +105,7 @@ impl SetupPacket {
     /// Get a reference to the underlying bytes of the setup packet.
     pub fn as_bytes(&self) -> &[u8] {
         // Safe because we know that the size of SetupPacket is 8 bytes.
-        unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, size_of::<Self>()) }
+        unsafe { core::slice::from_raw_parts(self as *const _ as *const u8, core::mem::size_of::<Self>()) }
     }
 }
 

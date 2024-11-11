@@ -246,9 +246,10 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
         Ok(())
     }
 
-    async fn wait_for_txresult(&mut self) -> Result<(), ChannelError> {
+    async fn wait_for_txresult(&mut self, handle_nak: bool) -> Result<(), ChannelError> {
         poll_fn(|cx| {
-            // FIXME: add timeout
+            // NOTE: timeout is handled in hardware by shown by txerr, however we can't know if it was a timeout specifically
+
             let hcintr = self.regs.hcint(self.channel_idx as usize).read();
 
             trace!(
@@ -263,6 +264,11 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             }
 
             if hcintr.txerr() || hcintr.bberr() {
+                warn!(
+                    "Got transaction error txerr={}, bberr={}",
+                    hcintr.txerr(),
+                    hcintr.bberr()
+                );
                 self.regs.hcint(self.channel_idx as usize).write(|w| {
                     w.set_txerr(true);
                     w.set_bberr(true);
@@ -275,27 +281,28 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             }
 
             if hcintr.nak() {
-                debug!("Got NAK");
+                trace!("Got NAK");
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_nak(true));
-                return Poll::Ready(Err(ChannelError::Timeout));
+                if handle_nak {
+                    return Poll::Ready(Err(ChannelError::Timeout));
+                }
             }
 
-            // FIXME: frame overrun for interrupt polling
             if hcintr.frmor() {
-                debug!("Frame overrun");
+                trace!("Frame overrun");
                 //     self.interrupt_interval.2 = false; // Pause interrupt channel
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_frmor(true));
             }
 
             if hcintr.dterr() {
-                debug!("Data toggle error");
+                trace!("Data toggle error");
                 //     self.interrupt_interval.2 = false; // Pause interrupt channel
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_dterr(true));
             }
 
             if hcintr.xfrc() {
                 // Transfer was completed
-                assert!(hcintr.ack(), "Didn't get ACK, but transfer was complete");
+                // assert!(hcintr.ack(), "Didn't get ACK, but transfer was complete");
 
                 self.regs.hcchar(self.channel_idx as usize).modify(|w| {
                     // Disable channel for next trx
@@ -316,8 +323,6 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             if hcintr.chh() {
                 // Channel halted, transaction canceled
                 // TODO[CherryUSB]: apparently Control endpoints do something when at INDATA state?
-
-                // TODO: need to ensure we clear halted before each tx so we can maybe rely on it?
                 trace!("Halted");
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_chh(true));
                 Err(ChannelError::Canceled)?
@@ -339,7 +344,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
 impl<T: Type, D: Direction> Drop for OtgChannel<T, D> {
     fn drop(&mut self) {
         if self.channel_idx != 0 {
-            ALLOCATED_PIPES.fetch_nand(!(1 << self.channel_idx), core::sync::atomic::Ordering::AcqRel);
+            ALLOCATED_PIPES.fetch_and(!(1 << self.channel_idx), core::sync::atomic::Ordering::AcqRel);
         }
         // Cancel any active txs & disable interrupts
 
@@ -370,7 +375,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
         );
         self.write_setup(setup)?;
         trace!("Wating for setup ack");
-        self.wait_for_txresult().await?;
+        self.wait_for_txresult(true).await?;
 
         self.configure_for_endpoint(Some(embassy_usb_driver::Direction::In));
 
@@ -410,7 +415,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
         });
 
         trace!("Wating for CNTRL_IN Ack");
-        self.wait_for_txresult().await?;
+        self.wait_for_txresult(false).await?;
         buf.copy_from_slice(&self.buffer[..transfer_size as usize]);
 
         // TODO: this is kind of useless since we already defined in our setup input
@@ -428,7 +433,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
         trace!("trying CTRL_OUT setup={} rt={}", setup, setup.request_type.bits());
         self.write_setup(setup)?;
-        self.wait_for_txresult().await?;
+        self.wait_for_txresult(true).await?;
 
         assert!(
             buf.len() == setup.length as usize,
@@ -469,7 +474,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
             w.set_chdis(false);
         });
 
-        self.wait_for_txresult().await?;
+        self.wait_for_txresult(false).await?;
 
         Ok(transfer_size as usize)
     }
@@ -533,7 +538,6 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
                 // SAFETY: EndpointType Interrupt should always have a interrupt_interval if retargeted
 
-                // FIXME: interval is slightly too fast in certain cases causing a frame overrun
                 while !self
                     .interrupt_interval
                     .as_mut()
@@ -541,7 +545,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
                     .check_and_reset_interval(self.regs.hfnum().read().frnum())
                 {
                     // NOTE: depends on speed, we assume LS/FS here
-                    Timer::after_micros(
+                    Timer::after_millis(
                         self.interrupt_interval
                             .as_ref()
                             .unwrap()
@@ -559,9 +563,10 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
             self.configure_for_endpoint(Some(embassy_usb_driver::Direction::In));
 
+            // SAFETY: mutable slices should always be accessible by dma
             self.regs
                 .hcdma(self.channel_idx as usize)
-                .write(|w| w.0 = self.buffer.as_ptr() as u32);
+                .write(|w| w.0 = buf.as_ptr() as u32);
 
             let transfer_size: u32 = buf.len() as u32;
             self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
@@ -588,7 +593,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
                 w.set_chdis(false);
             });
 
-            let tx_result = self.wait_for_txresult().await;
+            let tx_result = self.wait_for_txresult(true).await;
 
             if T::ep_type() == EndpointType::Interrupt && tx_result.is_err_and(|v| v == ChannelError::Timeout) {
                 continue;
@@ -596,7 +601,109 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
             tx_result?;
             // self.flip_pid();
-            buf.copy_from_slice(&self.buffer[..transfer_size as usize]);
+
+            let unread_count = self.regs.hctsiz(self.channel_idx as usize).read().xfrsiz();
+            let transferred_count = (transfer_size - unread_count) as usize;
+            buf[..transferred_count].copy_from_slice(&self.buffer[..transferred_count]);
+
+            if T::ep_type() == EndpointType::Interrupt {
+                self.interrupt_interval
+                    .as_mut()
+                    .unwrap()
+                    .reset_interval(self.regs.hfnum().read().frnum())
+            }
+
+            return Ok(transferred_count);
+        }
+    }
+
+    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
+    where
+        D: channel::IsOut,
+    {
+        loop {
+            trace!("trying {}_OUT buf.len()={}", T::ep_type(), buf.len());
+
+            if T::ep_type() == EndpointType::Interrupt {
+                // Retry (NACK only) at polling-rate until cleared
+                // This is different from hardware interrupt behaviour, as hw would discard responses if we don't handle them fast enough
+                //  but the given interface doesn't allow for this exact behaviour
+                // To ensure maximum sound-ness we will only maintain the lower boundary of interrupt polling
+
+                // SAFETY: EndpointType Interrupt should always have a interrupt_interval if retargeted
+
+                while !self
+                    .interrupt_interval
+                    .as_mut()
+                    .expect("Missing interrupt_interval; did you retarget_channel?")
+                    .check_and_reset_interval(self.regs.hfnum().read().frnum())
+                {
+                    // NOTE: depends on speed, we assume LS/FS here
+                    Timer::after_millis(
+                        self.interrupt_interval
+                            .as_ref()
+                            .unwrap()
+                            .hfnum_delta(self.regs.hfnum().read().frnum()) as u64,
+                    )
+                    .await;
+                }
+
+                trace!(
+                    "Trying interrupt poll @{} interval={}",
+                    self.regs.hfnum().read().frnum(),
+                    self.interrupt_interval.as_ref().unwrap().get_interval(),
+                );
+            }
+
+            self.configure_for_endpoint(Some(embassy_usb_driver::Direction::Out));
+
+            // FIXME: dma requires incoming buffer to be in ram, but immutable slice doesn't garantee this
+            //  we handle this in case we have allocated enough to handle the entire buffer
+            if buf.len() < self.buffer.len() {
+                self.buffer[..buf.len()].copy_from_slice(buf);
+
+                self.regs
+                    .hcdma(self.channel_idx as usize)
+                    .write(|w| w.0 = self.buffer.as_ptr() as u32);
+            } else {
+                self.regs
+                    .hcdma(self.channel_idx as usize)
+                    .write(|w| w.0 = buf.as_ptr() as u32);
+            }
+
+            let transfer_size: u32 = buf.len() as u32;
+            self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
+                w.set_pktcnt(transfer_size.div_ceil(self.endpoint.max_packet_size as u32).max(1) as u16);
+                w.set_xfrsiz(transfer_size);
+                // The OTGCore engine will actually toggle PIDs
+                // w.set_dpid(self.pid.into());
+                w.set_doping(false);
+            });
+
+            self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
+                w.set_xfrcm(true);
+                w.set_chhm(true);
+                w.set_stallm(true);
+                w.set_txerrm(true);
+                w.set_bberrm(true);
+                w.set_frmorm(true);
+                w.set_dterrm(true);
+                w.set_nakm(true);
+            });
+
+            self.regs.hcchar(self.channel_idx as usize).modify(|w| {
+                w.set_chena(true);
+                w.set_chdis(false);
+            });
+
+            let tx_result = self.wait_for_txresult(true).await;
+
+            if T::ep_type() == EndpointType::Interrupt && tx_result.is_err_and(|v| v == ChannelError::Timeout) {
+                continue;
+            }
+
+            tx_result?;
+            // self.flip_pid();
 
             if T::ep_type() == EndpointType::Interrupt {
                 self.interrupt_interval
@@ -607,13 +714,6 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
             return Ok(buf.len());
         }
-    }
-
-    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
-    where
-        D: channel::IsOut,
-    {
-        todo!()
     }
 }
 
@@ -857,7 +957,7 @@ impl UsbHostDriver for UsbHostBus {
         // FIXME: max_packet_size should be independent to buffer-size but due to how buffer-dma works this seems difficult to configure
         //  (maybe we should realloc upon receiving a larger IN/OUT request)
         let mut channel =
-            OtgChannel::<T, D>::new_alloc(self.regs, new_index as u8, (endpoint.max_packet_size * 32) as usize);
+            OtgChannel::<T, D>::new_alloc(self.regs, new_index as u8, (endpoint.max_packet_size * 16) as usize);
         channel.retarget_channel(dev_addr, endpoint, pre)?;
         Ok(channel)
     }
