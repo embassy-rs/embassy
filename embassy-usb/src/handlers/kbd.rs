@@ -94,14 +94,18 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
         debug!("[kbd]: Setting PROTOCOL & idle");
         const SET_PROTOCOL: u8 = 0x0B;
         const BOOT_PROTOCOL: u16 = 0x0000;
-        control_channel
+        if let Err(err) = control_channel
             .class_request_out(SET_PROTOCOL, BOOT_PROTOCOL, iface.interface_number as u16, &[])
-            .await?;
+            .await {
+                error!("[kbd]: Failed to set protocol: {:?}", err);
+            }
 
         const SET_IDLE: u8 = 0x0A;
-        control_channel
+        if let Err(err) = control_channel
             .class_request_out(SET_IDLE, 0, iface.interface_number as u16, &[])
-            .await?;
+            .await {
+                error!("[kbd]: Failed to set idle: {:?}", err);
+            }
 
         Ok(KbdHandler {
             interrupt_channel,
