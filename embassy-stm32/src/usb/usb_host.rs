@@ -364,8 +364,6 @@ impl<'d, I: Instance> UsbHost<'d, I> {
     }
 }
 
-// struct EndpointBuffer
-
 /// USB endpoint. Only implements single buffer mode.
 pub struct Channel<'d, I: Instance, D: channel::Direction, T: channel::Type> {
     _phantom: PhantomData<(&'d mut I, D, T)>,
@@ -664,6 +662,17 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         D: channel::IsOut,
     {
         self.write(buf).await
+    }
+}
+
+impl<'d, I: Instance, T: channel::Type, D: channel::Direction> Drop for Channel<'d, I, D, T> {
+    fn drop(&mut self) {
+        critical_section::with(|_| {
+            ALLOCATED_PIPES.store(
+                ALLOCATED_PIPES.load(Ordering::Relaxed) & !(1 << self.index),
+                Ordering::Relaxed,
+            );
+        });
     }
 }
 
