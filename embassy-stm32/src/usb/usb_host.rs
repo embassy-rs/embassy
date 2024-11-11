@@ -329,6 +329,39 @@ impl<'d, I: Instance> UsbHost<'d, I> {
         EP_MEM_FREE.store(addr + len, Ordering::Relaxed);
         Ok(addr)
     }
+
+    async fn wait_for_device_connect(&self) -> DeviceEvent {
+        poll_fn(|cx| {
+            let istr = I::regs().istr().read();
+
+            BUS_WAKER.register(cx.waker());
+
+            if istr.dcon_stat() {
+                let speed = if istr.ls_dcon() { Speed::Low } else { Speed::Full };
+                // device has been detected
+                Poll::Ready(DeviceEvent::Connected(speed))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    async fn wait_for_device_disconnect(&self) -> DeviceEvent {
+        poll_fn(|cx| {
+            let istr = I::regs().istr().read();
+
+            BUS_WAKER.register(cx.waker());
+
+            if !istr.dcon_stat() {
+                // device has dosconnected
+                Poll::Ready(DeviceEvent::Disconnected)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
 }
 
 // struct EndpointBuffer
@@ -647,32 +680,18 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
             // Only a single control channel is available
             0
         } else {
-            loop {
+            critical_section::with(|_| {
                 let pipes = ALLOCATED_PIPES.load(Ordering::Relaxed);
 
                 // Ignore index 0
                 let new_index = (pipes | 1).trailing_ones();
                 if new_index as usize >= USB_MAX_PIPES {
-                    Err(HostError::OutOfChannels)?;
+                    Err(HostError::OutOfChannels)
+                } else {
+                    ALLOCATED_PIPES.store(pipes | 1 << new_index, Ordering::Relaxed);
+                    Ok(new_index)
                 }
-
-                ALLOCATED_PIPES.store(pipes | 1 << new_index, Ordering::Relaxed);
-
-                // TODO make this thread safe using atomics or critical section?
-                // cortex m0 does not have compare_exchange_weak, only load and store
-                // if ALLOCATED_PIPES
-                //     .compare_exchange_weak(
-                //         pipes,
-                //         pipes | 1 << new_index,
-                //         core::sync::atomic::Ordering::Acquire,
-                //         core::sync::atomic::Ordering::Relaxed,
-                //     )
-                //     .is_ok()
-                // {
-                //     break new_index;
-                // }
-                break new_index;
-            }
+            })?
         };
 
         let max_packet_size = endpoint.max_packet_size;
@@ -735,21 +754,7 @@ impl<'d, I: Instance> UsbHostDriver for UsbHost<'d, I> {
     }
 
     async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
-        poll_fn(|cx| {
-            let istr = I::regs().istr().read();
-
-            BUS_WAKER.register(cx.waker());
-
-            if istr.dcon_stat() {
-                let speed = if istr.ls_dcon() { Speed::Low } else { Speed::Full };
-                // device has been detected
-                return Poll::Ready(DeviceEvent::Connected(speed));
-            } else {
-                Poll::Pending
-            }
-            //
-            // return Poll::Ready(DeviceEvent::Disconnected);
-        })
-        .await
+        // TODO: which event do we expect?
+        self.wait_for_device_connect().await
     }
 }
