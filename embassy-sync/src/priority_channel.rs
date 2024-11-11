@@ -72,6 +72,17 @@ where
         self.channel.poll_ready_to_send(cx)
     }
 
+    /// Removes the elements from the channel that satisfy the predicate.
+    ///
+    /// See [`PriorityChannel::remove_if()`]
+    pub fn remove_if<F>(&self, predicate: F)
+    where
+        F: Fn(&T) -> bool,
+        T: Clone,
+    {
+        self.channel.remove_if(predicate)
+    }
+
     /// Returns the maximum number of elements the channel can hold.
     ///
     /// See [`PriorityChannel::capacity()`]
@@ -187,6 +198,17 @@ where
     /// See [`PriorityChannel::poll_receive()`]
     pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
         self.channel.poll_receive(cx)
+    }
+
+    /// Removes the elements from the channel that satisfy the predicate.
+    ///
+    /// See [`PriorityChannel::remove_if()`]
+    pub fn remove_if<F>(&self, predicate: F)
+    where
+        F: Fn(&T) -> bool,
+        T: Clone,
+    {
+        self.channel.remove_if(predicate)
     }
 
     /// Returns the maximum number of elements the channel can hold.
@@ -532,6 +554,26 @@ where
     /// if the channel is empty.
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.lock(|c| c.try_receive())
+    }
+
+    /// Removes elements from the channel based on the given predicate.
+    pub fn remove_if<F>(&self, predicate: F)
+    where
+        F: Fn(&T) -> bool,
+        T: Clone,
+    {
+        self.lock(|c| {
+            let mut new_heap = BinaryHeap::<T, K, N>::new();
+            for item in c.queue.iter() {
+                if !predicate(item) {
+                    match new_heap.push(item.clone()) {
+                        Ok(_) => (),
+                        Err(_) => panic!("Error pushing item to heap"),
+                    }
+                }
+            }
+            c.queue = new_heap;
+        });
     }
 
     /// Returns the maximum number of elements the channel can hold.
