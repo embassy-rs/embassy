@@ -64,6 +64,28 @@ impl Drop for SharedChannelGuard {
     }
 }
 
+struct OnDrop<F: FnOnce()> {
+    f: core::mem::MaybeUninit<F>,
+}
+
+impl<F: FnOnce()> OnDrop<F> {
+    pub fn new(f: F) -> Self {
+        Self {
+            f: core::mem::MaybeUninit::new(f),
+        }
+    }
+
+    pub fn defuse(self) {
+        core::mem::forget(self)
+    }
+}
+
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        unsafe { self.f.as_ptr().read()() }
+    }
+}
+
 /// Buffer-DMA implementation of USBOTG host driver
 pub struct UsbHostBus {
     regs: Otg,
@@ -198,8 +220,10 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             w.set_chdis(false);
 
             // Clear halted status for improved error handling
-            self.regs.hcint(self.channel_idx as usize).modify(|w| {
+            self.regs.hcint(self.channel_idx as usize).write(|w| {
                 w.set_chh(true);
+                w.set_txerr(true);
+                w.set_bberr(true);
             });
         });
     }
@@ -226,17 +250,6 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             w.set_hcim(true);
         });
 
-        self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
-            w.set_xfrcm(true);
-            w.set_chhm(true);
-            w.set_stallm(true);
-            w.set_txerrm(true);
-            w.set_bberrm(true);
-            w.set_frmorm(true);
-            w.set_dterrm(true);
-            w.set_nakm(true);
-        });
-
         self.regs.hcchar(self.channel_idx as usize).modify(|w| {
             w.set_chena(true);
             w.set_chdis(false);
@@ -249,6 +262,18 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
     async fn wait_for_txresult(&mut self, handle_nak: bool) -> Result<(), ChannelError> {
         poll_fn(|cx| {
             // NOTE: timeout is handled in hardware by shown by txerr, however we can't know if it was a timeout specifically
+
+            critical_section::with(|_| {
+                self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
+                    w.set_xfrcm(false);
+                    w.set_txerrm(false);
+                    w.set_stallm(false);
+                    w.set_chhm(false);
+                });
+                self.regs.haintmsk().modify(|w| {
+                    w.0 &= !(1 << self.channel_idx as u32);
+                });
+            });
 
             let hcintr = self.regs.hcint(self.channel_idx as usize).read();
 
@@ -263,31 +288,6 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
                 return Poll::Ready(Err(ChannelError::Stall));
             }
 
-            if hcintr.txerr() || hcintr.bberr() {
-                warn!(
-                    "Got transaction error txerr={}, bberr={}",
-                    hcintr.txerr(),
-                    hcintr.bberr()
-                );
-                self.regs.hcint(self.channel_idx as usize).write(|w| {
-                    w.set_txerr(true);
-                    w.set_bberr(true);
-                });
-                self.regs.hcchar(self.channel_idx as usize).modify(|w| {
-                    w.set_chena(false);
-                    w.set_chdis(false);
-                });
-                return Poll::Ready(Err(ChannelError::BadResponse));
-            }
-
-            if hcintr.nak() {
-                trace!("Got NAK");
-                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_nak(true));
-                if handle_nak {
-                    return Poll::Ready(Err(ChannelError::Timeout));
-                }
-            }
-
             if hcintr.frmor() {
                 trace!("Frame overrun");
                 //     self.interrupt_interval.2 = false; // Pause interrupt channel
@@ -300,6 +300,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_dterr(true));
             }
 
+            // For OUT request ack seems like it's also counts here?
             if hcintr.xfrc() {
                 // Transfer was completed
                 // assert!(hcintr.ack(), "Didn't get ACK, but transfer was complete");
@@ -321,9 +322,31 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
 
             // Need to check this after xfrc, since xfrc can cause a halt
             if hcintr.chh() {
+                if hcintr.txerr() || hcintr.bberr() {
+                    warn!(
+                        "Got transaction error txerr={}, bberr={}, hcint={}",
+                        hcintr.txerr(),
+                        hcintr.bberr(),
+                        hcintr.0
+                    );
+                    self.regs.hcint(self.channel_idx as usize).write(|w| {
+                        w.set_txerr(true);
+                        w.set_bberr(true);
+                    });
+                    return Poll::Ready(Err(ChannelError::BadResponse));
+                }
+
+                if hcintr.nak() {
+                    trace!("Got NAK");
+                    self.regs.hcint(self.channel_idx as usize).write(|w| w.set_nak(true));
+                    if handle_nak {
+                        return Poll::Ready(Err(ChannelError::Timeout));
+                    }
+                }
+
                 // Channel halted, transaction canceled
                 // TODO[CherryUSB]: apparently Control endpoints do something when at INDATA state?
-                trace!("Halted");
+                trace!("Halted hcint={}", hcintr.0);
                 self.regs.hcint(self.channel_idx as usize).write(|w| w.set_chh(true));
                 Err(ChannelError::Canceled)?
             }
@@ -331,6 +354,13 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
             CH_WAKERS[self.channel_idx as usize].register(cx.waker());
 
             // Re-enable the interrupt this handled
+            self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
+                w.set_xfrcm(true);
+                w.set_txerrm(true);
+                w.set_stallm(true);
+                w.set_chhm(true);
+            });
+
             self.regs.haintmsk().modify(|w| {
                 w.0 |= 1 << self.channel_idx as u16;
             });
@@ -577,17 +607,6 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
                 w.set_doping(false);
             });
 
-            self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
-                w.set_xfrcm(true);
-                w.set_chhm(true);
-                w.set_stallm(true);
-                w.set_txerrm(true);
-                w.set_bberrm(true);
-                w.set_frmorm(true);
-                w.set_dterrm(true);
-                w.set_nakm(true);
-            });
-
             self.regs.hcchar(self.channel_idx as usize).modify(|w| {
                 w.set_chena(true);
                 w.set_chdis(false);
@@ -655,45 +674,38 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
                 );
             }
 
-            self.configure_for_endpoint(Some(embassy_usb_driver::Direction::Out));
+            critical_section::with(|_| {
+                self.configure_for_endpoint(Some(embassy_usb_driver::Direction::Out));
 
-            // FIXME: dma requires incoming buffer to be in ram, but immutable slice doesn't garantee this
-            //  we handle this in case we have allocated enough to handle the entire buffer
-            if buf.len() < self.buffer.len() {
-                self.buffer[..buf.len()].copy_from_slice(buf);
+                // FIXME: dma requires incoming buffer to be in ram, but immutable slice doesn't garantee this
+                //  we handle this in case we have allocated enough to handle the entire buffer
+                if buf.len() < self.buffer.len() {
+                    self.buffer[..buf.len()].copy_from_slice(buf);
 
-                self.regs
-                    .hcdma(self.channel_idx as usize)
-                    .write(|w| w.0 = self.buffer.as_ptr() as u32);
-            } else {
-                self.regs
-                    .hcdma(self.channel_idx as usize)
-                    .write(|w| w.0 = buf.as_ptr() as u32);
-            }
+                    self.regs
+                        .hcdma(self.channel_idx as usize)
+                        .write(|w| w.0 = self.buffer.as_ptr() as u32);
+                } else {
+                    self.regs
+                        .hcdma(self.channel_idx as usize)
+                        .write(|w| w.0 = buf.as_ptr() as u32);
+                }
 
-            let transfer_size: u32 = buf.len() as u32;
-            self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
-                w.set_pktcnt(transfer_size.div_ceil(self.endpoint.max_packet_size as u32).max(1) as u16);
-                w.set_xfrsiz(transfer_size);
-                // The OTGCore engine will actually toggle PIDs
-                // w.set_dpid(self.pid.into());
-                w.set_doping(false);
-            });
+                let transfer_size: u32 = buf.len() as u32;
+                self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
+                    w.set_pktcnt(transfer_size.div_ceil(self.endpoint.max_packet_size as u32).max(1) as u16);
+                    w.set_xfrsiz(transfer_size);
+                    // The OTGCore engine will actually toggle PIDs
+                    // w.set_dpid(self.pid.into());
+                    w.set_doping(false);
+                });
 
-            self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
-                w.set_xfrcm(true);
-                w.set_chhm(true);
-                w.set_stallm(true);
-                w.set_txerrm(true);
-                w.set_bberrm(true);
-                w.set_frmorm(true);
-                w.set_dterrm(true);
-                w.set_nakm(true);
-            });
+                core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 
-            self.regs.hcchar(self.channel_idx as usize).modify(|w| {
-                w.set_chena(true);
-                w.set_chdis(false);
+                self.regs.hcchar(self.channel_idx as usize).modify(|w| {
+                    w.set_chena(true);
+                    w.set_chdis(false);
+                });
             });
 
             let tx_result = self.wait_for_txresult(true).await;
@@ -726,6 +738,10 @@ const TX_FIFO_WORDS: usize = OTG_FIFO_DEPTH / 4;
 const PTX_FIFO_WORDS: usize = OTG_FIFO_DEPTH / 8;
 const RX_FIFO_WORDS: usize = OTG_FIFO_DEPTH - PTX_FIFO_WORDS - TX_FIFO_WORDS;
 
+const MAX_OUT_MPS: usize = TX_FIFO_WORDS * 4;
+const MAX_IN_MPS: usize = (RX_FIFO_WORDS - 2) * 4;
+const MAX_PTX_MPS: usize = PTX_FIFO_WORDS * 4;
+
 const RX_FIFO_SIZE: usize = RX_FIFO_WORDS * 4;
 const TX_FIFO_SIZE: usize = TX_FIFO_WORDS * 4;
 
@@ -746,8 +762,11 @@ impl UsbHostBus {
             w.set_srpcap(false);
             w.set_hnpcap(false);
             w.set_physel(true);
+            // w.set_fsintf(true);
             w.set_trdt(5); // Maximum
-            w.set_tocal(7); // Maximum timeout calibration
+
+            // Use default `tocal` unless HS PHY
+            // w.set_tocal(7); // Maximum timeout calibration
         });
 
         // Perform core soft-reset
@@ -812,9 +831,9 @@ impl UsbHostBus {
     pub fn on_interrupt_or_poll(regs: Otg) {
         let intr = regs.gintsts().read();
 
-        trace!("[usbhostbus]: intr/polling: {}", intr.0);
+        // trace!("[usbhostbus]: intr/polling: {}", intr.0);
         if intr.discint() || intr.hprtint() {
-            trace!("Prt change, waking DEVICE_WAKER");
+            // trace!("Prt change, waking DEVICE_WAKER");
             DEVICE_WAKER.wake();
 
             regs.gintmsk().modify(|w| {
@@ -826,13 +845,13 @@ impl UsbHostBus {
         let mut chintr = regs.haint().read().haint();
         while chintr != 0 {
             let idx = chintr.trailing_zeros() as usize;
-            trace!("Waking CH = {}", idx);
+            // trace!("Waking CH = {}, hcint={}", idx, regs.hcint(idx).read().0);
             CH_WAKERS[idx].wake();
             chintr ^= 1 << idx as u16;
 
             // Don't trigger an interrupt for this until CH has handled the wake (or re-initialized)
             regs.haintmsk().modify(|w| {
-                w.set_haintm(w.haintm() & !(1 << idx as u16));
+                w.0 &= !(1 << idx as u32);
             })
         }
         // todo!("Interrupt pipe polling initiation");
@@ -890,18 +909,8 @@ impl UsbHostBus {
             w.set_pena(true);
         });
 
-        let hprt = self.regs.hprt().read();
-
-        // NOTE: hfir & fslspcs only required for FS/LS PHY
-        self.regs.hfir().modify(|w| {
-            w.set_rldctrl(true);
-            w.set_frivl(match hprt.pspd() {
-                2 | 1 => 48000,
-                0 => 6000,
-                _ => unreachable!(),
-            })
-        });
         let hcfg = self.regs.hcfg().read();
+        let hprt = self.regs.hprt().read();
         if hcfg.fslspcs() != hprt.pspd() {
             warn!("Changed FSLSPCS, would require bus reset");
             self.regs.hcfg().modify(|w| {
@@ -911,6 +920,16 @@ impl UsbHostBus {
             // FIXME: Required after fslspcs change [RM0390]
             // self.bus_reset().await;
         }
+
+        // NOTE: hfir & fslspcs only required for FS/LS PHY
+        self.regs.hfir().modify(|w| {
+            w.set_rldctrl(true);
+            w.set_frivl(match hprt.pspd() {
+                1 => 48000,
+                2 => 6000,
+                _ => unreachable!("HS feature discovery not implemented"),
+            })
+        });
 
         self.init_fifo();
     }
@@ -964,9 +983,8 @@ impl UsbHostDriver for UsbHostBus {
 
     async fn wait_for_device_event(&self) -> embassy_usb_driver::host::DeviceEvent {
         poll_fn(move |cx| {
-            trace!("Polling device event");
-
             let hprt = self.regs.hprt().read();
+            trace!("Polling device event hprt={}", hprt.0);
 
             // FIXME: this is not reliable
             if hprt.pcsts() && !self.dev_conn.load(core::sync::atomic::Ordering::Relaxed) {
@@ -992,6 +1010,17 @@ impl UsbHostDriver for UsbHostBus {
             }
 
             DEVICE_WAKER.register(cx.waker());
+
+            // Reset interrupts
+            self.regs.hprt().modify(|w| {
+                w.0 &= !HPRT_W1C_MASK;
+                w.set_pocchng(true);
+                w.set_penchng(true);
+                w.set_pcdet(true);
+            });
+            self.regs.gintsts().write(|w| {
+                w.set_discint(true);
+            });
             self.regs.gintmsk().modify(|w| {
                 w.set_prtim(true);
                 w.set_discint(true);
