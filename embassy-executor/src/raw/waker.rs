@@ -43,7 +43,9 @@ pub fn task_from_waker(waker: &Waker) -> TaskRef {
     // TODO use waker_getters when stable. https://github.com/rust-lang/rust/issues/96992
     let hack: &WakerHack = unsafe { core::mem::transmute(waker) };
 
-    if hack.vtable != &VTABLE {
+    // make sure to compare vtable addresses. Doing `==` on the references
+    // will compare the contents, which is slower.
+    if hack.vtable as *const _ != &VTABLE as *const _ {
         panic!("Found waker not created by the Embassy executor. `embassy_time::Timer` only works with the Embassy executor.")
     }
     // safety: our wakers are always created with `TaskRef::as_ptr`
