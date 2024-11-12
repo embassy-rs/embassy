@@ -388,42 +388,37 @@ impl<'d, T: Instance> Pdm<'d, T> {
     {
         let r = T::regs();
 
-        if r.events_started.read().bits() != 0 {
+        if r.events_started().read() != 0 {
             return Err(Error::AlreadyRunning);
         }
 
-        r.sample
-            .ptr
-            .write(|w| unsafe { w.sampleptr().bits(vec_raw_parts[0].0 as u32) });
-        r.sample
-            .maxcnt
-            .write(|w| unsafe { w.buffsize().bits(vec_raw_parts[0].1 as _) });
+        r.sample().ptr().write_value(vec_raw_parts[0].0 as u32);
+        r.sample().maxcnt().write(|w| w.set_buffsize(vec_raw_parts[0].1 as _));
 
         // Reset and enable the events
-        r.events_end.reset();
-        r.events_started.reset();
-        r.events_stopped.reset();
-        r.intenset.write(|w| {
-            w.end().set();
-            w.started().set();
-            w.stopped().set();
-            w
+        r.events_end().write_value(0);
+        r.events_started().write_value(0);
+        r.events_stopped().write_value(0);
+        r.intenset().write(|w| {
+            w.set_end(true);
+            w.set_started(true);
+            w.set_stopped(true);
         });
 
         // Don't reorder the start event before the previous writes. Hopefully self
         // wouldn't happen anyway.
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
+        r.tasks_start().write_value(1);
 
         let mut current_buffer = 0;
 
         let mut done = false;
 
         let drop = OnDrop::new(|| {
-            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            r.tasks_stop().write_value(1);
             // N.B. It would be better if this were async, but Drop only support sync code.
-            while r.events_stopped.read().bits() != 0 {}
+            while r.events_stopped().read() != 0 {}
         });
 
         // Wait for events and complete when the sampler indicates it has had enough.
@@ -432,11 +427,11 @@ impl<'d, T: Instance> Pdm<'d, T> {
 
             T::state().waker.register(cx.waker());
 
-            if r.events_end.read().bits() != 0 {
+            if r.events_end().read() != 0 {
                 compiler_fence(Ordering::SeqCst);
 
-                r.events_end.reset();
-                r.intenset.write(|w| w.end().set());
+                r.events_end().write_value(0);
+                r.intenset().write(|w| w.set_end(true));
 
                 if !done {
                     // Discard the last buffer after the user requested a stop.
@@ -448,24 +443,22 @@ impl<'d, T: Instance> Pdm<'d, T> {
                         }
                         DoubleBufferSampleState::Stop => {
                             vec_raw_parts[current_buffer] = (0 as _, 0, 0);
-                            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                            r.tasks_stop().write_value(1);
                             done = true;
                         }
                     }
                 };
             }
 
-            if r.events_started.read().bits() != 0 {
-                r.events_started.reset();
-                r.intenset.write(|w| w.started().set());
+            if r.events_started().read() != 0 {
+                r.events_started().write_value(0);
+                r.intenset().write(|w| w.set_started(true));
 
                 let next_buffer = 1 - current_buffer;
-                r.sample
-                    .ptr
-                    .write(|w| unsafe { w.sampleptr().bits(vec_raw_parts[next_buffer].0 as u32) });
+                r.sample().ptr().write_value(vec_raw_parts[next_buffer].0 as u32);
             }
 
-            if r.events_stopped.read().bits() != 0 {
+            if r.events_stopped().read() != 0 {
                 return Poll::Ready(());
             }
 

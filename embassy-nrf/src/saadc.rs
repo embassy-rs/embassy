@@ -315,8 +315,11 @@ impl<'d, const N: usize> Saadc<'d, N> {
         // We want the task start to effectively short with the last one ending so
         // we don't miss any samples. It'd be great for the SAADC to offer a SHORTS
         // register instead, but it doesn't, so we must use PPI.
-        let mut start_ppi =
-            Ppi::new_one_to_one(ppi_ch1, Event::from_reg(&r.events_end), Task::from_reg(&r.tasks_start));
+        let mut start_ppi = Ppi::new_one_to_one(
+            ppi_ch1,
+            Event::from_reg(r.events_end()),
+            Task::from_reg(r.tasks_start()),
+        );
         start_ppi.enable();
 
         let timer = Timer::new(timer);
@@ -326,7 +329,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         let timer_cc = timer.cc(0);
 
-        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer_cc.event_compare(), Task::from_reg(&r.tasks_sample));
+        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer_cc.event_compare(), Task::from_reg(r.tasks_sample()));
 
         timer.start();
         let mut init = || {
@@ -339,32 +342,28 @@ impl<'d, const N: usize> Saadc<'d, N> {
         let r = Self::regs();
 
         // Establish mode and sample rate
-        r.samplerate.write(|w| unsafe {
-            w.cc().bits(0);
-            w.mode().task();
-            w
+        r.samplerate().write(|w| {
+            w.set_cc(0);
+            w.set_mode(vals::SamplerateMode::TASK);
         });
 
         // Set up the initial DMA
-        r.result.ptr.write(|w| unsafe { w.ptr().bits(vec_raw_parts[0].0 as _) });
-        r.result
-            .maxcnt
-            .write(|w| unsafe { w.maxcnt().bits(vec_raw_parts[0].1 as _) });
+        r.result().ptr().write_value(vec_raw_parts[0].0 as u32);
+        r.result().maxcnt().write(|w| w.set_maxcnt(vec_raw_parts[0].1 as _));
 
         // Reset and enable the events
-        r.events_end.reset();
-        r.events_started.reset();
-        r.intenset.write(|w| {
-            w.end().set();
-            w.started().set();
-            w
+        r.events_end().write_value(0);
+        r.events_started().write_value(0);
+        r.intenset().write(|w| {
+            w.set_end(true);
+            w.set_started(true);
         });
 
         // Don't reorder the ADC start event before the previous writes. Hopefully self
         // wouldn't happen anyway.
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
+        r.tasks_start().write_value(1);
 
         let mut inited = false;
 
@@ -376,11 +375,11 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
             WAKER.register(cx.waker());
 
-            if r.events_end.read().bits() != 0 {
+            if r.events_end().read() != 0 {
                 compiler_fence(Ordering::SeqCst);
 
-                r.events_end.reset();
-                r.intenset.write(|w| w.end().set());
+                r.events_end().write_value(0);
+                r.intenset().write(|w| w.set_end(true));
 
                 match callback(vec_raw_parts[current_buffer]) {
                     DoubleBufferCallbackResult::Swap(buf) => {
@@ -395,9 +394,9 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 }
             }
 
-            if r.events_started.read().bits() != 0 {
-                r.events_started.reset();
-                r.intenset.write(|w| w.started().set());
+            if r.events_started().read() != 0 {
+                r.events_started().write_value(0);
+                r.intenset().write(|w| w.set_started(true));
 
                 if !inited {
                     init();
@@ -405,9 +404,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 }
 
                 let next_buffer = 1 - current_buffer;
-                r.result
-                    .ptr
-                    .write(|w| unsafe { w.ptr().bits(vec_raw_parts[next_buffer].0 as u32) });
+                r.result().ptr().write_value(vec_raw_parts[next_buffer].0 as u32);
             }
 
             Poll::Pending
@@ -624,12 +621,10 @@ impl<'d> Saadc<'d, 1> {
 impl<'d, const N: usize> Drop for Saadc<'d, N> {
     fn drop(&mut self) {
         let r = Self::regs();
-        r.enable.write(|w| w.enable().disabled());
-        for channel in r.ch.iter() {
-            channel.pselp.reset();
-            channel.pseln.reset();
-            channel.config.reset();
-            channel.limit.reset();
+        r.enable().write(|w| w.set_enable(false));
+        for i in 0..N {
+            let channel = r.ch(i);
+            channel.config().write_value(nrf_pac::saadc::regs::Config::default());
         }
     }
 }
