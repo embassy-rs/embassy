@@ -124,22 +124,3 @@ impl PartialOrd<&str> for CompilerDate {
         Self::parse(other).map(|other| self.cmp(&other))
     }
 }
-
-pub struct CompilerInfo {
-    #[allow(unused)]
-    pub version: rustc_version::Version,
-    pub channel: rustc_version::Channel,
-    pub commit_date: Option<CompilerDate>,
-}
-
-pub fn compiler_info() -> Option<CompilerInfo> {
-    let Ok(meta) = rustc_version::version_meta() else {
-        return None;
-    };
-
-    Some(CompilerInfo {
-        version: meta.semver,
-        channel: meta.channel,
-        commit_date: meta.commit_date.as_deref().and_then(CompilerDate::parse),
-    })
-}
