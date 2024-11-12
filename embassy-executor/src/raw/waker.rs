@@ -50,13 +50,13 @@ pub fn task_from_waker(waker: &Waker) -> TaskRef {
 
         #[cfg(feature = "nightly")]
         {
-            #[cfg(not(at_least_2024_09_06))]
+            #[cfg(not(stable_waker_getters))]
             {
                 let raw_waker = waker.as_raw();
                 (raw_waker.vtable(), raw_waker.data())
             }
 
-            #[cfg(at_least_2024_09_06)]
+            #[cfg(stable_waker_getters)]
             {
                 (waker.vtable(), waker.data())
             }
