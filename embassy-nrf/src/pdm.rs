@@ -367,7 +367,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
     /// The bufers are accepted as a tuple of raw pointers, lengths and capacities matching
     /// the Vec::from_raw_parts() function.
     ///
-    /// SAFTEY:
+    /// SAFETY:
     /// It is expected that the caller will set the length to non-zero and re-use the same
     /// length and capacity for each buffer. Changing buffer sizes is not supported.
     ///
