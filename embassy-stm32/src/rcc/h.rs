@@ -779,7 +779,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
         ..=3_999_999 => Pllrge::RANGE2,
         ..=7_999_999 => Pllrge::RANGE4,
         ..=16_000_000 => Pllrge::RANGE8,
-        x => panic!("pll ref_clk out of range: {} mhz", x),
+        x => panic!("pll ref_clk out of range: {} hz", x),
     };
 
     // The smaller range (150 to 420 MHz) must
