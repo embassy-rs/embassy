@@ -40,7 +40,7 @@ fn main() -> ! {
         config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
-        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
     }
     let p = embassy_stm32::init(config);
 

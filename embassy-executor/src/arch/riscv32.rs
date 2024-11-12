@@ -6,9 +6,9 @@ pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
     use core::marker::PhantomData;
+    use core::sync::atomic::{AtomicBool, Ordering};
 
     pub use embassy_executor_macros::main_riscv as main;
-    use portable_atomic::{AtomicBool, Ordering};
 
     use crate::{raw, Spawner};
 

@@ -8,14 +8,18 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use self::sealed::Pin as _;
 use crate::interrupt::InterruptExt;
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
-const BANK0_PIN_COUNT: usize = 30;
+
+#[cfg(any(feature = "rp2040", feature = "rp235xa"))]
+pub(crate) const BANK0_PIN_COUNT: usize = 30;
+#[cfg(feature = "rp235xb")]
+pub(crate) const BANK0_PIN_COUNT: usize = 48;
+
 static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [NEW_AW; BANK0_PIN_COUNT];
 #[cfg(feature = "qspi-as-gpio")]
 const QSPI_PIN_COUNT: usize = 6;
@@ -179,6 +183,13 @@ impl<'d> Input<'d> {
     pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<'_> {
         self.pin.dormant_wake(cfg)
     }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.set_pad_isolation(isolate)
+    }
 }
 
 /// Interrupt trigger levels.
@@ -225,8 +236,8 @@ fn irq_handler<const N: usize>(bank: pac::io::Io, wakers: &[AtomicWaker; N]) {
         // The status register is divided into groups of four, one group for
         // each pin. Each group consists of four trigger levels LEVEL_LOW,
         // LEVEL_HIGH, EDGE_LOW, and EDGE_HIGH for each pin.
-        let pin_group = (pin % 8) as usize;
-        let event = (intsx.read().0 >> pin_group * 4) & 0xf as u32;
+        let pin_group = pin % 8;
+        let event = (intsx.read().0 >> (pin_group * 4)) & 0xf;
 
         // no more than one event can be awaited per pin at any given time, so
         // we can just clear all interrupt enables for that pin without having
@@ -238,7 +249,7 @@ fn irq_handler<const N: usize>(bank: pac::io::Io, wakers: &[AtomicWaker; N]) {
                 w.set_level_high(pin_group, true);
                 w.set_level_low(pin_group, true);
             });
-            wakers[pin as usize].wake();
+            wakers[pin].wake();
         }
     }
 }
@@ -414,6 +425,13 @@ impl<'d> Output<'d> {
     pub fn toggle(&mut self) {
         self.pin.toggle()
     }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.set_pad_isolation(isolate)
+    }
 }
 
 /// GPIO output open-drain.
@@ -540,6 +558,13 @@ impl<'d> OutputOpenDrain<'d> {
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await;
     }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.set_pad_isolation(isolate)
+    }
 }
 
 /// GPIO flexible pin.
@@ -561,11 +586,16 @@ impl<'d> Flex<'d> {
         into_ref!(pin);
 
         pin.pad_ctrl().write(|w| {
+            #[cfg(feature = "_rp235x")]
+            w.set_iso(false);
             w.set_ie(true);
         });
 
         pin.gpio().ctrl().write(|w| {
+            #[cfg(feature = "rp2040")]
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0 as _);
+            #[cfg(feature = "_rp235x")]
+            w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIOB_PROC_0 as _);
         });
 
         Self { pin: pin.map_into() }
@@ -573,7 +603,7 @@ impl<'d> Flex<'d> {
 
     #[inline]
     fn bit(&self) -> u32 {
-        1 << self.pin.pin()
+        1 << (self.pin.pin() % 32)
     }
 
     /// Set the pin's pull.
@@ -761,6 +791,15 @@ impl<'d> Flex<'d> {
             cfg,
         }
     }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.pad_ctrl().modify(|w| {
+            w.set_iso(isolate);
+        });
+    }
 }
 
 impl<'d> Drop for Flex<'d> {
@@ -802,68 +841,77 @@ impl<'w> Drop for DormantWake<'w> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+pub(crate) trait SealedPin: Sized {
+    fn pin_bank(&self) -> u8;
 
-    pub trait Pin: Sized {
-        fn pin_bank(&self) -> u8;
+    #[inline]
+    fn _pin(&self) -> u8 {
+        self.pin_bank() & 0x7f
+    }
 
-        #[inline]
-        fn _pin(&self) -> u8 {
-            self.pin_bank() & 0x1f
+    #[inline]
+    fn _bank(&self) -> Bank {
+        match self.pin_bank() >> 7 {
+            #[cfg(feature = "qspi-as-gpio")]
+            1 => Bank::Qspi,
+            _ => Bank::Bank0,
         }
+    }
 
-        #[inline]
-        fn _bank(&self) -> Bank {
-            match self.pin_bank() & 0x20 {
-                #[cfg(feature = "qspi-as-gpio")]
-                1 => Bank::Qspi,
-                _ => Bank::Bank0,
-            }
+    fn io(&self) -> pac::io::Io {
+        match self._bank() {
+            Bank::Bank0 => crate::pac::IO_BANK0,
+            #[cfg(feature = "qspi-as-gpio")]
+            Bank::Qspi => crate::pac::IO_QSPI,
         }
+    }
 
-        fn io(&self) -> pac::io::Io {
-            match self._bank() {
-                Bank::Bank0 => crate::pac::IO_BANK0,
-                #[cfg(feature = "qspi-as-gpio")]
-                Bank::Qspi => crate::pac::IO_QSPI,
-            }
-        }
+    fn gpio(&self) -> pac::io::Gpio {
+        self.io().gpio(self._pin() as _)
+    }
 
-        fn gpio(&self) -> pac::io::Gpio {
-            self.io().gpio(self._pin() as _)
-        }
+    fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
+        let block = match self._bank() {
+            Bank::Bank0 => crate::pac::PADS_BANK0,
+            #[cfg(feature = "qspi-as-gpio")]
+            Bank::Qspi => crate::pac::PADS_QSPI,
+        };
+        block.gpio(self._pin() as _)
+    }
 
-        fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
-            let block = match self._bank() {
-                Bank::Bank0 => crate::pac::PADS_BANK0,
-                #[cfg(feature = "qspi-as-gpio")]
-                Bank::Qspi => crate::pac::PADS_QSPI,
-            };
-            block.gpio(self._pin() as _)
-        }
-
-        fn sio_out(&self) -> pac::sio::Gpio {
+    fn sio_out(&self) -> pac::sio::Gpio {
+        if cfg!(feature = "rp2040") {
             SIO.gpio_out(self._bank() as _)
+        } else {
+            SIO.gpio_out((self._pin() / 32) as _)
         }
+    }
 
-        fn sio_oe(&self) -> pac::sio::Gpio {
+    fn sio_oe(&self) -> pac::sio::Gpio {
+        if cfg!(feature = "rp2040") {
             SIO.gpio_oe(self._bank() as _)
+        } else {
+            SIO.gpio_oe((self._pin() / 32) as _)
         }
+    }
 
-        fn sio_in(&self) -> Reg<u32, RW> {
+    fn sio_in(&self) -> Reg<u32, RW> {
+        if cfg!(feature = "rp2040") {
             SIO.gpio_in(self._bank() as _)
+        } else {
+            SIO.gpio_in((self._pin() / 32) as _)
         }
+    }
 
-        fn int_proc(&self) -> pac::io::Int {
-            let proc = SIO.cpuid().read();
-            self.io().int_proc(proc as _)
-        }
+    fn int_proc(&self) -> pac::io::Int {
+        let proc = SIO.cpuid().read();
+        self.io().int_proc(proc as _)
     }
 }
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Degrade to a generic pin struct
     fn degrade(self) -> AnyPin {
         AnyPin {
@@ -889,10 +937,21 @@ pub struct AnyPin {
     pin_bank: u8,
 }
 
+impl AnyPin {
+    /// Unsafely create a new type-erased pin.
+    ///
+    /// # Safety
+    ///
+    /// You must ensure that you’re only using one instance of this type at a time.
+    pub unsafe fn steal(pin_bank: u8) -> Self {
+        Self { pin_bank }
+    }
+}
+
 impl_peripheral!(AnyPin);
 
 impl Pin for AnyPin {}
-impl sealed::Pin for AnyPin {
+impl SealedPin for AnyPin {
     fn pin_bank(&self) -> u8 {
         self.pin_bank
     }
@@ -903,10 +962,10 @@ impl sealed::Pin for AnyPin {
 macro_rules! impl_pin {
     ($name:ident, $bank:expr, $pin_num:expr) => {
         impl Pin for peripherals::$name {}
-        impl sealed::Pin for peripherals::$name {
+        impl SealedPin for peripherals::$name {
             #[inline]
             fn pin_bank(&self) -> u8 {
-                ($bank as u8) * 32 + $pin_num
+                ($bank as u8) * 128 + $pin_num
             }
         }
 
@@ -949,6 +1008,44 @@ impl_pin!(PIN_27, Bank::Bank0, 27);
 impl_pin!(PIN_28, Bank::Bank0, 28);
 impl_pin!(PIN_29, Bank::Bank0, 29);
 
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_30, Bank::Bank0, 30);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_31, Bank::Bank0, 31);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_32, Bank::Bank0, 32);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_33, Bank::Bank0, 33);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_34, Bank::Bank0, 34);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_35, Bank::Bank0, 35);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_36, Bank::Bank0, 36);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_37, Bank::Bank0, 37);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_38, Bank::Bank0, 38);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_39, Bank::Bank0, 39);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_40, Bank::Bank0, 40);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_41, Bank::Bank0, 41);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, Bank::Bank0, 42);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, Bank::Bank0, 43);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_44, Bank::Bank0, 44);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_45, Bank::Bank0, 45);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, Bank::Bank0, 46);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, Bank::Bank0, 47);
+
+// TODO rp235x bank1 as gpio support
 #[cfg(feature = "qspi-as-gpio")]
 impl_pin!(PIN_QSPI_SCLK, Bank::Qspi, 0);
 #[cfg(feature = "qspi-as-gpio")]
@@ -965,8 +1062,6 @@ impl_pin!(PIN_QSPI_SD3, Bank::Qspi, 5);
 // ====================
 
 mod eh02 {
-    use core::convert::Infallible;
-
     use super::*;
 
     impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {

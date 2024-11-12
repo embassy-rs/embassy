@@ -20,6 +20,7 @@ use core::ptr::NonNull;
 
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
+use crate::pac::common::{Reg, RW, W};
 use crate::{peripherals, Peripheral};
 
 #[cfg_attr(feature = "_dppi", path = "dppi.rs")]
@@ -50,7 +51,7 @@ impl<'d, G: Group> PpiGroup<'d, G> {
 
         let r = regs();
         let n = g.number();
-        r.chg[n].write(|w| unsafe { w.bits(0) });
+        r.chg(n).write(|_| ());
 
         Self { g }
     }
@@ -65,7 +66,7 @@ impl<'d, G: Group> PpiGroup<'d, G> {
         let r = regs();
         let ng = self.g.number();
         let nc = ch.ch.number();
-        r.chg[ng].modify(|r, w| unsafe { w.bits(r.bits() | 1 << nc) });
+        r.chg(ng).modify(|w| w.set_ch(nc, true));
     }
 
     /// Remove a PPI channel from this group.
@@ -78,19 +79,19 @@ impl<'d, G: Group> PpiGroup<'d, G> {
         let r = regs();
         let ng = self.g.number();
         let nc = ch.ch.number();
-        r.chg[ng].modify(|r, w| unsafe { w.bits(r.bits() & !(1 << nc)) });
+        r.chg(ng).modify(|w| w.set_ch(nc, false));
     }
 
     /// Enable all the channels in this group.
     pub fn enable_all(&mut self) {
         let n = self.g.number();
-        regs().tasks_chg[n].en.write(|w| unsafe { w.bits(1) });
+        regs().tasks_chg(n).en().write_value(1);
     }
 
     /// Disable all the channels in this group.
     pub fn disable_all(&mut self) {
         let n = self.g.number();
-        regs().tasks_chg[n].dis.write(|w| unsafe { w.bits(1) });
+        regs().tasks_chg(n).dis().write_value(1);
     }
 
     /// Get a reference to the "enable all" task.
@@ -98,7 +99,7 @@ impl<'d, G: Group> PpiGroup<'d, G> {
     /// When triggered, it will enable all the channels in this group.
     pub fn task_enable_all(&self) -> Task<'d> {
         let n = self.g.number();
-        Task::from_reg(&regs().tasks_chg[n].en)
+        Task::from_reg(regs().tasks_chg(n).en())
     }
 
     /// Get a reference to the "disable all" task.
@@ -106,7 +107,7 @@ impl<'d, G: Group> PpiGroup<'d, G> {
     /// When triggered, it will disable all the channels in this group.
     pub fn task_disable_all(&self) -> Task<'d> {
         let n = self.g.number();
-        Task::from_reg(&regs().tasks_chg[n].dis)
+        Task::from_reg(regs().tasks_chg(n).dis())
     }
 }
 
@@ -114,7 +115,7 @@ impl<'d, G: Group> Drop for PpiGroup<'d, G> {
     fn drop(&mut self) {
         let r = regs();
         let n = self.g.number();
-        r.chg[n].write(|w| unsafe { w.bits(0) });
+        r.chg(n).write(|_| ());
     }
 }
 
@@ -143,11 +144,8 @@ impl<'d> Task<'d> {
         unsafe { self.0.as_ptr().write_volatile(1) };
     }
 
-    pub(crate) fn from_reg<T>(reg: &T) -> Self {
-        Self(
-            unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) },
-            PhantomData,
-        )
+    pub(crate) fn from_reg(reg: Reg<u32, W>) -> Self {
+        Self(unsafe { NonNull::new_unchecked(reg.as_ptr()) }, PhantomData)
     }
 
     /// Address of subscription register for this task.
@@ -178,11 +176,8 @@ impl<'d> Event<'d> {
         Self(ptr, PhantomData)
     }
 
-    pub(crate) fn from_reg<T>(reg: &'d T) -> Self {
-        Self(
-            unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) },
-            PhantomData,
-        )
+    pub(crate) fn from_reg(reg: Reg<u32, RW>) -> Self {
+        Self(unsafe { NonNull::new_unchecked(reg.as_ptr()) }, PhantomData)
     }
 
     /// Describes whether this Event is currently in a triggered state.
@@ -210,13 +205,12 @@ unsafe impl Send for Event<'_> {}
 // ======================
 //       traits
 
-pub(crate) mod sealed {
-    pub trait Channel {}
-    pub trait Group {}
-}
+pub(crate) trait SealedChannel {}
+pub(crate) trait SealedGroup {}
 
 /// Interface for PPI channels.
-pub trait Channel: sealed::Channel + Peripheral<P = Self> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Channel: SealedChannel + Peripheral<P = Self> + Sized + 'static {
     /// Returns the number of the channel
     fn number(&self) -> usize;
 }
@@ -234,7 +228,8 @@ pub trait StaticChannel: Channel + Into<AnyStaticChannel> {
 }
 
 /// Interface for a group of PPI channels.
-pub trait Group: sealed::Group + Peripheral<P = Self> + Into<AnyGroup> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Group: SealedGroup + Peripheral<P = Self> + Into<AnyGroup> + Sized + 'static {
     /// Returns the number of the group.
     fn number(&self) -> usize;
     /// Convert into a type erased group.
@@ -254,7 +249,7 @@ pub struct AnyStaticChannel {
     pub(crate) number: u8,
 }
 impl_peripheral!(AnyStaticChannel);
-impl sealed::Channel for AnyStaticChannel {}
+impl SealedChannel for AnyStaticChannel {}
 impl Channel for AnyStaticChannel {
     fn number(&self) -> usize {
         self.number as usize
@@ -272,7 +267,7 @@ pub struct AnyConfigurableChannel {
     pub(crate) number: u8,
 }
 impl_peripheral!(AnyConfigurableChannel);
-impl sealed::Channel for AnyConfigurableChannel {}
+impl SealedChannel for AnyConfigurableChannel {}
 impl Channel for AnyConfigurableChannel {
     fn number(&self) -> usize {
         self.number as usize
@@ -284,10 +279,10 @@ impl ConfigurableChannel for AnyConfigurableChannel {
     }
 }
 
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 macro_rules! impl_ppi_channel {
     ($type:ident, $number:expr) => {
-        impl crate::ppi::sealed::Channel for peripherals::$type {}
+        impl crate::ppi::SealedChannel for peripherals::$type {}
         impl crate::ppi::Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number
@@ -338,7 +333,7 @@ pub struct AnyGroup {
     number: u8,
 }
 impl_peripheral!(AnyGroup);
-impl sealed::Group for AnyGroup {}
+impl SealedGroup for AnyGroup {}
 impl Group for AnyGroup {
     fn number(&self) -> usize {
         self.number as usize
@@ -347,7 +342,7 @@ impl Group for AnyGroup {
 
 macro_rules! impl_group {
     ($type:ident, $number:expr) => {
-        impl sealed::Group for peripherals::$type {}
+        impl SealedGroup for peripherals::$type {}
         impl Group for peripherals::$type {
             fn number(&self) -> usize {
                 $number
@@ -366,7 +361,7 @@ impl_group!(PPI_GROUP0, 0);
 impl_group!(PPI_GROUP1, 1);
 impl_group!(PPI_GROUP2, 2);
 impl_group!(PPI_GROUP3, 3);
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 impl_group!(PPI_GROUP4, 4);
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 impl_group!(PPI_GROUP5, 5);

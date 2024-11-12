@@ -13,11 +13,12 @@ use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
 use crate::dma::NoDma;
-use crate::gpio::sealed::{AFType, Pin};
-use crate::gpio::{AnyPin, Pull, Speed};
+#[cfg(gpio_v2)]
+use crate::gpio::Pull;
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals, Peripheral};
 
@@ -88,6 +89,34 @@ impl Deref for DataBlock {
 }
 
 impl DerefMut for DataBlock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+/// Command Block buffer for SDMMC command transfers.
+///
+/// This is a 16-word array, exposed so that DMA commpatible memory can be used if required.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct CmdBlock(pub [u32; 16]);
+
+impl CmdBlock {
+    /// Creates a new instance of CmdBlock
+    pub const fn new() -> Self {
+        Self([0u32; 16])
+    }
+}
+
+impl Deref for CmdBlock {
+    type Target = [u32; 16];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for CmdBlock {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -228,10 +257,10 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
 }
 
 #[cfg(sdmmc_v1)]
-type Transfer<'a, C> = crate::dma::Transfer<'a, C>;
+type Transfer<'a> = crate::dma::Transfer<'a>;
 #[cfg(sdmmc_v2)]
-struct Transfer<'a, C> {
-    _dummy: core::marker::PhantomData<&'a mut C>,
+struct Transfer<'a> {
+    _dummy: PhantomData<&'a ()>,
 }
 
 #[cfg(all(sdmmc_v1, dma))]
@@ -240,12 +269,14 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
     mburst: crate::dma::Burst::Incr4,
     flow_ctrl: crate::dma::FlowControl::Peripheral,
     fifo_threshold: Some(crate::dma::FifoThreshold::Full),
+    priority: crate::dma::Priority::VeryHigh,
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
 };
 #[cfg(all(sdmmc_v1, not(dma)))]
 const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {
+    priority: crate::dma::Priority::VeryHigh,
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
@@ -289,7 +320,18 @@ pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
     signalling: Signalling,
     /// Card
     card: Option<Card>,
+
+    /// An optional buffer to be used for commands
+    /// This should be used if there are special memory location requirements for dma
+    cmd_block: Option<&'d mut CmdBlock>,
 }
+
+const CLK_AF: AfType = AfType::output(OutputType::PushPull, Speed::VeryHigh);
+#[cfg(gpio_v1)]
+const CMD_AF: AfType = AfType::output(OutputType::PushPull, Speed::VeryHigh);
+#[cfg(gpio_v2)]
+const CMD_AF: AfType = AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up);
+const DATA_AF: AfType = CMD_AF;
 
 #[cfg(sdmmc_v1)]
 impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
@@ -306,13 +348,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
         into_ref!(clk, cmd, d0);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -344,19 +382,12 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
         into_ref!(clk, cmd, d0, d1, d2, d3);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-            d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::Up);
-            d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::Up);
-            d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
-            d1.set_speed(Speed::VeryHigh);
-            d2.set_speed(Speed::VeryHigh);
-            d3.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
+            d1.set_as_af(d1.af_num(), DATA_AF);
+            d2.set_as_af(d2.af_num(), DATA_AF);
+            d3.set_as_af(d3.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -387,13 +418,9 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
         into_ref!(clk, cmd, d0);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -424,19 +451,12 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
         into_ref!(clk, cmd, d0, d1, d2, d3);
 
         critical_section::with(|_| {
-            clk.set_as_af_pull(clk.af_num(), AFType::OutputPushPull, Pull::None);
-            cmd.set_as_af_pull(cmd.af_num(), AFType::OutputPushPull, Pull::Up);
-            d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::Up);
-            d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::Up);
-            d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::Up);
-            d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::Up);
-
-            clk.set_speed(Speed::VeryHigh);
-            cmd.set_speed(Speed::VeryHigh);
-            d0.set_speed(Speed::VeryHigh);
-            d1.set_speed(Speed::VeryHigh);
-            d2.set_speed(Speed::VeryHigh);
-            d3.set_speed(Speed::VeryHigh);
+            clk.set_as_af(clk.af_num(), CLK_AF);
+            cmd.set_as_af(cmd.af_num(), CMD_AF);
+            d0.set_as_af(d0.af_num(), DATA_AF);
+            d1.set_as_af(d1.af_num(), DATA_AF);
+            d2.set_as_af(d2.af_num(), DATA_AF);
+            d3.set_as_af(d3.af_num(), DATA_AF);
         });
 
         Self::new_inner(
@@ -467,7 +487,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     ) -> Self {
         into_ref!(sdmmc, dma);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -507,6 +527,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             clock: SD_INIT_FREQ,
             signalling: Default::default(),
             card: None,
+            cmd_block: None,
         }
     }
 
@@ -543,12 +564,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
+    #[allow(unused_variables)]
     fn prepare_datapath_read<'a>(
-        &'a mut self,
+        config: &Config,
+        dma: &'a mut PeripheralRef<'d, Dma>,
         buffer: &'a mut [u32],
         length_bytes: u32,
         block_size: u8,
-    ) -> Transfer<'a, Dma> {
+    ) -> Transfer<'a> {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = T::regs();
 
@@ -556,15 +579,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         Self::wait_idle();
         Self::clear_interrupt_flags();
 
-        regs.dtimer()
-            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
+        regs.dtimer().write(|w| w.set_datatime(config.data_transfer_timeout));
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
-            let request = self.dma.request();
+            let request = dma.request();
             Transfer::new_read(
-                &mut self.dma,
+                dma,
                 request,
                 regs.fifor().as_ptr() as *mut u32,
                 buffer,
@@ -596,12 +618,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
-    fn prepare_datapath_write<'a>(
-        &'a mut self,
-        buffer: &'a [u32],
-        length_bytes: u32,
-        block_size: u8,
-    ) -> Transfer<'a, Dma> {
+    fn prepare_datapath_write<'a>(&'a mut self, buffer: &'a [u32], length_bytes: u32, block_size: u8) -> Transfer<'a> {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = T::regs();
 
@@ -670,7 +687,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             _ => panic!("Invalid Bus Width"),
         };
 
-        let ker_ck = T::kernel_clk();
+        let ker_ck = T::frequency();
         let (_bypass, clkdiv, new_clock) = clk_div(ker_ck, freq)?;
 
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
@@ -709,13 +726,16 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
                 Signalling::SDR12 => 0xFF_FF00,
             };
 
-        let mut status = [0u32; 16];
+        let status = match self.cmd_block.as_deref_mut() {
+            Some(x) => x,
+            None => &mut CmdBlock::new(),
+        };
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(&mut status, 64, 6);
+        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, status.as_mut(), 64, 6);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd6(set_function), true)?; // CMD6
 
@@ -787,16 +807,21 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
         let rca = card.rca;
 
+        let cmd_block = match self.cmd_block.as_deref_mut() {
+            Some(x) => x,
+            None => &mut CmdBlock::new(),
+        };
+
         Self::cmd(Cmd::set_block_length(64), false)?; // CMD16
         Self::cmd(Cmd::app_cmd(rca << 16), false)?; // APP
 
-        let mut status = [0u32; 16];
+        let status = cmd_block;
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(&mut status, 64, 6);
+        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, status.as_mut(), 64, 6);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::card_status(0), true)?;
 
@@ -830,7 +855,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             for byte in status.iter_mut() {
                 *byte = u32::from_be(*byte);
             }
-            self.card.as_mut().unwrap().status = status.into();
+            self.card.as_mut().unwrap().status = status.0.into();
         }
         res
     }
@@ -889,13 +914,17 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         Self::cmd(Cmd::set_block_length(8), false)?; // CMD16
         Self::cmd(Cmd::app_cmd(card.rca << 16), false)?;
 
-        let mut scr = [0u32; 2];
+        let cmd_block = match self.cmd_block.as_deref_mut() {
+            Some(x) => x,
+            None => &mut CmdBlock::new(),
+        };
+        let scr = &mut cmd_block.0[..2];
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(&mut scr[..], 8, 3);
+        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, scr, 8, 3);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd51(), true)?;
 
@@ -927,7 +956,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             drop(transfer);
 
             unsafe {
-                let scr_bytes = &*(&scr as *const [u32; 2] as *const [u8; 8]);
+                let scr_bytes = &*(&scr as *const _ as *const [u8; 8]);
                 card.scr = SCR(u64::from_be_bytes(*scr_bytes));
             }
         }
@@ -1019,11 +1048,10 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         Self::stop_datapath();
     }
 
-    /// Initializes card (if present) and sets the bus at the
-    /// specified frequency.
+    /// Initializes card (if present) and sets the bus at the specified frequency.
     pub async fn init_card(&mut self, freq: Hertz) -> Result<(), Error> {
         let regs = T::regs();
-        let ker_ck = T::kernel_clk();
+        let ker_ck = T::frequency();
 
         let bus_width = match self.d3.is_some() {
             true => BusWidth::Four,
@@ -1160,6 +1188,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
                 }
             }
         }
+
         // Read status after signalling change
         self.read_sd_status().await?;
 
@@ -1185,7 +1214,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = self.prepare_datapath_read(buffer, 512, 9);
+        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, buffer, 512, 9);
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::read_single_block(address), true)?;
 
@@ -1308,6 +1337,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     pub fn clock(&self) -> Hertz {
         self.clock
     }
+
+    /// Set a specific cmd buffer rather than using the default stack allocated one.
+    /// This is required if stack RAM cannot be used with DMA and usually manifests
+    /// itself as an indefinite wait on a dma transfer because the dma peripheral
+    /// cannot access the memory.
+    pub fn set_cmd_block(&mut self, cmd_block: &'d mut CmdBlock) {
+        self.cmd_block = Some(cmd_block)
+    }
 }
 
 impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Drop for Sdmmc<'d, T, Dma> {
@@ -1421,22 +1458,17 @@ impl Cmd {
 
 //////////////////////////////////////////////////////
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        type Interrupt: interrupt::typelevel::Interrupt;
-
-        fn regs() -> RegBlock;
-        fn state() -> &'static AtomicWaker;
-        fn kernel_clk() -> Hertz;
-    }
-
-    pub trait Pins<T: Instance> {}
+trait SealedInstance {
+    fn regs() -> RegBlock;
+    fn state() -> &'static AtomicWaker;
 }
 
 /// SDMMC instance trait.
-pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + 'static {
+    /// Interrupt for this instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 pin_trait!(CkPin, Instance);
 pin_trait!(CmdPin, Instance);
@@ -1461,66 +1493,9 @@ pub trait SdmmcDma<T: Instance> {}
 #[cfg(sdmmc_v2)]
 impl<T: Instance> SdmmcDma<T> for NoDma {}
 
-cfg_if::cfg_if! {
-    // TODO, these could not be implemented, because required clocks are not exposed in RCC:
-    // - H7 uses pll1_q_ck or pll2_r_ck depending on SDMMCSEL
-    // - L1 uses pll48
-    // - L4 uses clk48(pll48)
-    // - L4+, L5, U5 uses clk48(pll48) or PLLSAI3CLK(PLLP) depending on SDMMCSEL
-    if #[cfg(stm32f1)] {
-        // F1 uses AHB1(HCLK), which is correct in PAC
-        macro_rules! kernel_clk {
-            ($inst:ident) => {
-                <peripherals::$inst as crate::rcc::sealed::RccPeripheral>::frequency()
-            }
-        }
-    } else if #[cfg(any(stm32f2, stm32f4))] {
-        // F2, F4 always use pll48
-        macro_rules! kernel_clk {
-            ($inst:ident) => {
-                critical_section::with(|_| unsafe {
-                    unwrap!(crate::rcc::get_freqs().pll1_q)
-                })
-            }
-        }
-    } else if #[cfg(stm32f7)] {
-        macro_rules! kernel_clk {
-            (SDMMC1) => {
-                critical_section::with(|_| unsafe {
-                    let sdmmcsel = crate::pac::RCC.dckcfgr2().read().sdmmc1sel();
-                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYS {
-                        crate::rcc::get_freqs().sys
-                    } else {
-                        unwrap!(crate::rcc::get_freqs().pll1_q)
-                    }
-                })
-            };
-            (SDMMC2) => {
-                critical_section::with(|_| unsafe {
-                    let sdmmcsel = crate::pac::RCC.dckcfgr2().read().sdmmc2sel();
-                    if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYS {
-                        crate::rcc::get_freqs().sys
-                    } else {
-                        unwrap!(crate::rcc::get_freqs().pll1_q)
-                    }
-                })
-            };
-        }
-    } else {
-        // Use default peripheral clock and hope it works
-        macro_rules! kernel_clk {
-            ($inst:ident) => {
-                <peripherals::$inst as crate::rcc::sealed::RccPeripheral>::frequency()
-            }
-        }
-    }
-}
-
 foreach_peripheral!(
     (sdmmc, $inst:ident) => {
-        impl sealed::Instance for peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$inst;
-
+        impl SealedInstance for peripherals::$inst {
             fn regs() -> RegBlock {
                 crate::pac::$inst
             }
@@ -1529,12 +1504,51 @@ foreach_peripheral!(
                 static WAKER: ::embassy_sync::waitqueue::AtomicWaker = ::embassy_sync::waitqueue::AtomicWaker::new();
                 &WAKER
             }
-
-            fn kernel_clk() -> Hertz {
-                kernel_clk!($inst)
-            }
         }
 
-        impl Instance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$inst;
+        }
     };
 );
+
+impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> block_device_driver::BlockDevice<512> for Sdmmc<'d, T, Dma> {
+    type Error = Error;
+    type Align = aligned::A4;
+
+    async fn read(
+        &mut self,
+        mut block_address: u32,
+        buf: &mut [aligned::Aligned<Self::Align, [u8; 512]>],
+    ) -> Result<(), Self::Error> {
+        // FIXME/TODO because of missing read_blocks multiple we have to do this one block at a time
+        for block in buf.iter_mut() {
+            // safety aligned by block device
+            let block = unsafe { &mut *(block as *mut _ as *mut crate::sdmmc::DataBlock) };
+            self.read_block(block_address, block).await?;
+            block_address += 1;
+        }
+
+        Ok(())
+    }
+
+    async fn write(
+        &mut self,
+        mut block_address: u32,
+        buf: &[aligned::Aligned<Self::Align, [u8; 512]>],
+    ) -> Result<(), Self::Error> {
+        // FIXME/TODO because of missing read_blocks multiple we have to do this one block at a time
+        for block in buf.iter() {
+            // safety aligned by block device
+            let block = unsafe { &*(block as *const _ as *const crate::sdmmc::DataBlock) };
+            self.write_block(block_address, block).await?;
+            block_address += 1;
+        }
+
+        Ok(())
+    }
+
+    async fn size(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.card()?.size())
+    }
+}

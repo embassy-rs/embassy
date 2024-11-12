@@ -6,7 +6,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::task::Context;
 
 use async_io::Async;
-use embassy_net_driver::{self, Capabilities, Driver, HardwareAddress, LinkState};
+use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState};
 use log::*;
 
 /// Get the MTU of the given interface.
@@ -152,8 +152,14 @@ impl TunTapDevice {
 }
 
 impl Driver for TunTapDevice {
-    type RxToken<'a> = RxToken where Self: 'a;
-    type TxToken<'a> = TxToken<'a> where Self: 'a;
+    type RxToken<'a>
+        = RxToken
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = TxToken<'a>
+    where
+        Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let mut buf = vec![0; self.device.get_ref().mtu];

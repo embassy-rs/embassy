@@ -1,10 +1,11 @@
 //! Generic SMI Ethernet PHY
 
+use core::task::Context;
+
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Timer};
-use futures::task::Context;
 #[cfg(feature = "time")]
-use futures::FutureExt;
+use futures_util::FutureExt;
 
 use super::{StationManagement, PHY};
 

@@ -1,4 +1,4 @@
-use crate::rcc::sealed::RccPeripheral;
+use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 
 #[repr(u8)]
@@ -72,90 +72,92 @@ impl Prescaler {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
+pub(crate) trait SealedInstance: RccPeripheral {
+    fn regs() -> crate::pac::hrtim::Hrtim;
 
-    pub trait Instance: RccPeripheral {
-        fn regs() -> crate::pac::hrtim::Hrtim;
+    #[allow(unused)]
+    fn set_master_frequency(frequency: Hertz) {
+        let f = frequency.0;
 
-        fn set_master_frequency(frequency: Hertz) {
-            let f = frequency.0;
-            #[cfg(not(stm32f334))]
-            let timer_f = Self::frequency().0;
-            #[cfg(stm32f334)]
-            let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(Self::frequency()).0;
+        // TODO: wire up HRTIM to the RCC mux infra.
+        //#[cfg(stm32f334)]
+        //let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(Self::frequency()).0;
+        //#[cfg(not(stm32f334))]
+        let timer_f = Self::frequency().0;
 
-            let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
-            let psc = if Self::regs().isr().read().dllrdy() {
-                Prescaler::compute_min_high_res(psc_min)
-            } else {
-                Prescaler::compute_min_low_res(psc_min)
-            };
+        let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
+        let psc = if Self::regs().isr().read().dllrdy() {
+            Prescaler::compute_min_high_res(psc_min)
+        } else {
+            Prescaler::compute_min_low_res(psc_min)
+        };
 
-            let timer_f = 32 * (timer_f / psc as u32);
-            let per: u16 = (timer_f / f) as u16;
+        let timer_f = 32 * (timer_f / psc as u32);
+        let per: u16 = (timer_f / f) as u16;
 
-            let regs = Self::regs();
+        let regs = Self::regs();
 
-            regs.mcr().modify(|w| w.set_ckpsc(psc.into()));
-            regs.mper().modify(|w| w.set_mper(per));
-        }
+        regs.mcr().modify(|w| w.set_ckpsc(psc.into()));
+        regs.mper().modify(|w| w.set_mper(per));
+    }
 
-        fn set_channel_frequency(channel: usize, frequency: Hertz) {
-            let f = frequency.0;
-            #[cfg(not(stm32f334))]
-            let timer_f = Self::frequency().0;
-            #[cfg(stm32f334)]
-            let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(Self::frequency()).0;
+    fn set_channel_frequency(channel: usize, frequency: Hertz) {
+        let f = frequency.0;
 
-            let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
-            let psc = if Self::regs().isr().read().dllrdy() {
-                Prescaler::compute_min_high_res(psc_min)
-            } else {
-                Prescaler::compute_min_low_res(psc_min)
-            };
+        // TODO: wire up HRTIM to the RCC mux infra.
+        //#[cfg(stm32f334)]
+        //let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(Self::frequency()).0;
+        //#[cfg(not(stm32f334))]
+        let timer_f = Self::frequency().0;
 
-            let timer_f = 32 * (timer_f / psc as u32);
-            let per: u16 = (timer_f / f) as u16;
+        let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
+        let psc = if Self::regs().isr().read().dllrdy() {
+            Prescaler::compute_min_high_res(psc_min)
+        } else {
+            Prescaler::compute_min_low_res(psc_min)
+        };
 
-            let regs = Self::regs();
+        let timer_f = 32 * (timer_f / psc as u32);
+        let per: u16 = (timer_f / f) as u16;
 
-            regs.tim(channel).cr().modify(|w| w.set_ckpsc(psc.into()));
-            regs.tim(channel).per().modify(|w| w.set_per(per));
-        }
+        let regs = Self::regs();
 
-        /// Set the dead time as a proportion of max_duty
-        fn set_channel_dead_time(channel: usize, dead_time: u16) {
-            let regs = Self::regs();
+        regs.tim(channel).cr().modify(|w| w.set_ckpsc(psc.into()));
+        regs.tim(channel).per().modify(|w| w.set_per(per));
+    }
 
-            let channel_psc: Prescaler = regs.tim(channel).cr().read().ckpsc().into();
+    /// Set the dead time as a proportion of max_duty
+    fn set_channel_dead_time(channel: usize, dead_time: u16) {
+        let regs = Self::regs();
 
-            // The dead-time base clock runs 4 times slower than the hrtim base clock
-            // u9::MAX = 511
-            let psc_min = (channel_psc as u32 * dead_time as u32) / (4 * 511);
-            let psc = if Self::regs().isr().read().dllrdy() {
-                Prescaler::compute_min_high_res(psc_min)
-            } else {
-                Prescaler::compute_min_low_res(psc_min)
-            };
+        let channel_psc: Prescaler = regs.tim(channel).cr().read().ckpsc().into();
 
-            let dt_val = (psc as u32 * dead_time as u32) / (4 * channel_psc as u32);
+        // The dead-time base clock runs 4 times slower than the hrtim base clock
+        // u9::MAX = 511
+        let psc_min = (channel_psc as u32 * dead_time as u32) / (4 * 511);
+        let psc = if Self::regs().isr().read().dllrdy() {
+            Prescaler::compute_min_high_res(psc_min)
+        } else {
+            Prescaler::compute_min_low_res(psc_min)
+        };
 
-            regs.tim(channel).dt().modify(|w| {
-                w.set_dtprsc(psc.into());
-                w.set_dtf(dt_val as u16);
-                w.set_dtr(dt_val as u16);
-            });
-        }
+        let dt_val = (psc as u32 * dead_time as u32) / (4 * channel_psc as u32);
+
+        regs.tim(channel).dt().modify(|w| {
+            w.set_dtprsc(psc.into());
+            w.set_dtf(dt_val as u16);
+            w.set_dtr(dt_val as u16);
+        });
     }
 }
 
 /// HRTIM instance trait.
-pub trait Instance: sealed::Instance + 'static {}
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + 'static {}
 
 foreach_interrupt! {
     ($inst:ident, hrtim, HRTIM, MASTER, $irq:ident) => {
-        impl sealed::Instance for crate::peripherals::$inst {
+        impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> crate::pac::hrtim::Hrtim {
                 crate::pac::$inst
             }

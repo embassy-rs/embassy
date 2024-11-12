@@ -12,13 +12,16 @@ pub enum RegisterBlock {
 pub enum W5500 {}
 
 impl super::Chip for W5500 {}
-impl super::sealed::Chip for W5500 {
+impl super::SealedChip for W5500 {
     type Address = (RegisterBlock, u16);
+
+    const CHIP_VERSION: u8 = 0x04;
 
     const COMMON_MODE: Self::Address = (RegisterBlock::Common, 0x00);
     const COMMON_MAC: Self::Address = (RegisterBlock::Common, 0x09);
     const COMMON_SOCKET_INTR: Self::Address = (RegisterBlock::Common, 0x18);
     const COMMON_PHY_CFG: Self::Address = (RegisterBlock::Common, 0x2E);
+    const COMMON_VERSION: Self::Address = (RegisterBlock::Common, 0x39);
 
     const SOCKET_MODE: Self::Address = (RegisterBlock::Socket0, 0x00);
     const SOCKET_COMMAND: Self::Address = (RegisterBlock::Socket0, 0x01);

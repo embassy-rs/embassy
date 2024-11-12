@@ -129,7 +129,7 @@ impl<'a> TDesRing<'a> {
 
 /// Receive Descriptor representation
 ///
-/// * rdes0: recieve buffer address
+/// * rdes0: receive buffer address
 /// * rdes1:
 /// * rdes2:
 /// * rdes3: OWN and Status

@@ -2,7 +2,7 @@
 
 An [Embassy](https://embassy.dev) project.
 
-An adaptation of `embassy-boot` for nRF. 
+An adaptation of `embassy-boot` for nRF.
 
 ## Features
 

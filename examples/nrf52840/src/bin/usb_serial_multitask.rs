@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-use core::mem;
-
 use defmt::{info, panic, unwrap};
 use embassy_executor::Spawner;
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
@@ -39,11 +37,10 @@ async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>) {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
-    let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");
-    clock.tasks_hfclkstart.write(|w| unsafe { w.bits(1) });
-    while clock.events_hfclkstarted.read().bits() != 1 {}
+    pac::CLOCK.tasks_hfclkstart().write_value(1);
+    while pac::CLOCK.events_hfclkstarted().read() != 1 {}
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
@@ -67,7 +64,6 @@ async fn main(spawner: Spawner) {
     let state = STATE.init(State::new());
 
     // Create embassy-usb DeviceBuilder using the driver and config.
-    static DEVICE_DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static CONFIG_DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static BOS_DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static MSOS_DESC: StaticCell<[u8; 128]> = StaticCell::new();
@@ -75,7 +71,6 @@ async fn main(spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut DEVICE_DESC.init([0; 256])[..],
         &mut CONFIG_DESC.init([0; 256])[..],
         &mut BOS_DESC.init([0; 256])[..],
         &mut MSOS_DESC.init([0; 128])[..],

@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{State, DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -49,16 +49,51 @@ pub struct BootLoaderConfig<ACTIVE, DFU, STATE> {
     pub state: STATE,
 }
 
-impl<'a, FLASH: NorFlash>
+impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>
     BootLoaderConfig<
-        BlockingPartition<'a, NoopRawMutex, FLASH>,
-        BlockingPartition<'a, NoopRawMutex, FLASH>,
-        BlockingPartition<'a, NoopRawMutex, FLASH>,
+        BlockingPartition<'a, NoopRawMutex, ACTIVE>,
+        BlockingPartition<'a, NoopRawMutex, DFU>,
+        BlockingPartition<'a, NoopRawMutex, STATE>,
     >
 {
-    /// Create a bootloader config from the flash and address symbols defined in the linkerfile
+    /// Constructs a `BootLoaderConfig` instance from flash memory and address symbols defined in the linker file.
+    ///
+    /// This method initializes `BlockingPartition` instances for the active, DFU (Device Firmware Update),
+    /// and state partitions, leveraging start and end addresses specified by the linker. These partitions
+    /// are critical for managing firmware updates, application state, and boot operations within the bootloader.
+    ///
+    /// # Parameters
+    /// - `active_flash`: A reference to a mutex-protected `RefCell` for the active partition's flash interface.
+    /// - `dfu_flash`: A reference to a mutex-protected `RefCell` for the DFU partition's flash interface.
+    /// - `state_flash`: A reference to a mutex-protected `RefCell` for the state partition's flash interface.
+    ///
+    /// # Safety
+    /// The method contains `unsafe` blocks for dereferencing raw pointers that represent the start and end addresses
+    /// of the bootloader's partitions in flash memory. It is crucial that these addresses are accurately defined
+    /// in the memory.x file to prevent undefined behavior.
+    ///
+    /// The caller must ensure that the memory regions defined by these symbols are valid and that the flash memory
+    /// interfaces provided are compatible with these regions.
+    ///
+    /// # Returns
+    /// A `BootLoaderConfig` instance with `BlockingPartition` instances for the active, DFU, and state partitions.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Assume `active_flash`, `dfu_flash`, and `state_flash` all share the same flash memory interface.
+    /// let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
+    /// let flash = Mutex::new(RefCell::new(layout.bank1_region));
+    ///
+    /// let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);
+    /// // `config` can now be used to create a `BootLoader` instance for managing boot operations.
+    /// ```
+    /// Working examples can be found in the bootloader examples folder.
     // #[cfg(target_os = "none")]
-    pub fn from_linkerfile_blocking(flash: &'a Mutex<NoopRawMutex, RefCell<FLASH>>) -> Self {
+    pub fn from_linkerfile_blocking(
+        active_flash: &'a Mutex<NoopRawMutex, RefCell<ACTIVE>>,
+        dfu_flash: &'a Mutex<NoopRawMutex, RefCell<DFU>>,
+        state_flash: &'a Mutex<NoopRawMutex, RefCell<STATE>>,
+    ) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
@@ -73,21 +108,21 @@ impl<'a, FLASH: NorFlash>
             let end = &__bootloader_active_end as *const u32 as u32;
             trace!("ACTIVE: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(active_flash, start, end - start)
         };
         let dfu = unsafe {
             let start = &__bootloader_dfu_start as *const u32 as u32;
             let end = &__bootloader_dfu_end as *const u32 as u32;
             trace!("DFU: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(dfu_flash, start, end - start)
         };
         let state = unsafe {
             let start = &__bootloader_state_start as *const u32 as u32;
             let end = &__bootloader_state_end as *const u32 as u32;
             trace!("STATE: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(state_flash, start, end - start)
         };
 
         Self { active, dfu, state }
@@ -148,29 +183,29 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|------------|--------|--------|--------|--------|
     /// |    Active |          0 |      1 |      2 |      3 |      - |
-    /// |       DFU |          0 |      3 |      2 |      1 |      X |
+    /// |       DFU |          0 |      4 |      5 |      6 |      X |
     ///
     /// The algorithm starts by copying 'backwards', and after the first step, the layout is
     /// as follows:
     ///
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|------------|--------|--------|--------|--------|
-    /// |    Active |          1 |      1 |      2 |      1 |      - |
-    /// |       DFU |          1 |      3 |      2 |      1 |      3 |
+    /// |    Active |          1 |      1 |      2 |      6 |      - |
+    /// |       DFU |          1 |      4 |      5 |      6 |      3 |
     ///
     /// The next iteration performs the same steps
     ///
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|------------|--------|--------|--------|--------|
-    /// |    Active |          2 |      1 |      2 |      1 |      - |
-    /// |       DFU |          2 |      3 |      2 |      2 |      3 |
+    /// |    Active |          2 |      1 |      5 |      6 |      - |
+    /// |       DFU |          2 |      4 |      5 |      2 |      3 |
     ///
     /// And again until we're done
     ///
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|------------|--------|--------|--------|--------|
-    /// |    Active |          3 |      3 |      2 |      1 |      - |
-    /// |       DFU |          3 |      3 |      1 |      2 |      3 |
+    /// |    Active |          3 |      4 |      5 |      6 |      - |
+    /// |       DFU |          3 |      4 |      1 |      2 |      3 |
     ///
     /// ## REVERTING
     ///
@@ -185,27 +220,30 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     ///
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|--------------|--------|--------|--------|--------|
-    /// |    Active |            3 |      1 |      2 |      1 |      - |
-    /// |       DFU |            3 |      3 |      1 |      2 |      3 |
+    /// |    Active |            3 |      1 |      5 |      6 |      - |
+    /// |       DFU |            3 |      4 |      1 |      2 |      3 |
     ///
     ///
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|--------------|--------|--------|--------|--------|
-    /// |    Active |            3 |      1 |      2 |      1 |      - |
-    /// |       DFU |            3 |      3 |      2 |      2 |      3 |
+    /// |    Active |            3 |      1 |      2 |      6 |      - |
+    /// |       DFU |            3 |      4 |      5 |      2 |      3 |
     ///
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// |-----------|--------------|--------|--------|--------|--------|
     /// |    Active |            3 |      1 |      2 |      3 |      - |
-    /// |       DFU |            3 |      3 |      2 |      1 |      3 |
+    /// |       DFU |            3 |      4 |      5 |      6 |      3 |
     ///
     pub fn prepare_boot(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
+        const {
+            core::assert!(Self::PAGE_SIZE % ACTIVE::WRITE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % DFU::WRITE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % DFU::ERASE_SIZE as u32 == 0);
+        }
+
         // Ensure we have enough progress pages to store copy progress
         assert_eq!(0, Self::PAGE_SIZE % aligned_buf.len() as u32);
-        assert_eq!(0, Self::PAGE_SIZE % ACTIVE::WRITE_SIZE as u32);
-        assert_eq!(0, Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32);
-        assert_eq!(0, Self::PAGE_SIZE % DFU::WRITE_SIZE as u32);
-        assert_eq!(0, Self::PAGE_SIZE % DFU::ERASE_SIZE as u32);
         assert!(aligned_buf.len() >= STATE::WRITE_SIZE);
         assert_eq!(0, aligned_buf.len() % ACTIVE::WRITE_SIZE);
         assert_eq!(0, aligned_buf.len() % DFU::WRITE_SIZE);
@@ -238,7 +276,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
                 self.state.erase(0, self.state.capacity() as u32)?;
 
                 // Set magic
-                state_word.fill(BOOT_MAGIC);
+                state_word.fill(REVERT_MAGIC);
                 self.state.write(0, state_word)?;
             }
         }
@@ -373,6 +411,8 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
             Ok(State::Swap)
         } else if !state_word.iter().any(|&b| b != DFU_DETACH_MAGIC) {
             Ok(State::DfuDetach)
+        } else if !state_word.iter().any(|&b| b != REVERT_MAGIC) {
+            Ok(State::Revert)
         } else {
             Ok(State::Boot)
         }

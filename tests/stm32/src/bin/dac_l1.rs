@@ -19,13 +19,13 @@ use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    ADC1 => embassy_stm32::adc::InterruptHandler<peripherals::ADC>;
+    ADC1 => embassy_stm32::adc::InterruptHandler<peripherals::ADC1>;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
-    let p: embassy_stm32::Peripherals = embassy_stm32::init(config());
+    let p: embassy_stm32::Peripherals = init();
 
     let adc = peri!(p, ADC);
     let dac = peri!(p, DAC);

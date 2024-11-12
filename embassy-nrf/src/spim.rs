@@ -4,20 +4,23 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+#[cfg(feature = "_nrf52832_anomaly_109")]
+use core::sync::atomic::AtomicU8;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-pub use pac::spim0::config::ORDER_A as BitOrder;
-pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
+pub use pac::spim::vals::{Frequency, Order as BitOrder};
 
-use crate::chip::FORCE_COPY_BUFFER_SIZE;
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
+use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::gpio::{self, convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
-use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
+use crate::pac::gpio::vals as gpiovals;
+use crate::pac::spim::vals;
+use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
 
 /// SPIM error
@@ -25,16 +28,13 @@ use crate::{interrupt, pac, Peripheral};
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    /// TX buffer was too long.
-    TxBufferTooLong,
-    /// RX buffer was too long.
-    RxBufferTooLong,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
     BufferNotInRAM,
 }
 
 /// SPIM configuration.
 #[non_exhaustive]
+#[derive(Clone)]
 pub struct Config {
     /// Frequency
     pub frequency: Frequency,
@@ -50,6 +50,12 @@ pub struct Config {
     /// When doing bidirectional transfers, if the TX buffer is shorter than the RX buffer,
     /// this byte will be transmitted in the MOSI line for the left-over bytes.
     pub orc: u8,
+
+    /// Drive strength for the SCK line.
+    pub sck_drive: OutputDrive,
+
+    /// Drive strength for the MOSI line.
+    pub mosi_drive: OutputDrive,
 }
 
 impl Default for Config {
@@ -59,6 +65,8 @@ impl Default for Config {
             mode: MODE_0,
             bit_order: BitOrder::MSB_FIRST,
             orc: 0x00,
+            sck_drive: OutputDrive::HighDrive,
+            mosi_drive: OutputDrive::HighDrive,
         }
     }
 }
@@ -74,14 +82,18 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let s = T::state();
 
         #[cfg(feature = "_nrf52832_anomaly_109")]
-        if r.events_started.read().bits() != 0 {
-            s.waker.wake();
-            r.intenclr.write(|w| w.started().clear());
+        {
+            // Ideally we should call this only during the first chunk transfer,
+            // but so far calling this every time doesn't seem to be causing any issues.
+            if r.events_started().read() != 0 {
+                s.waker.wake();
+                r.intenclr().write(|w| w.set_started(true));
+            }
         }
 
-        if r.events_end.read().bits() != 0 {
+        if r.events_end().read() != 0 {
             s.waker.wake();
-            r.intenclr.write(|w| w.end().clear());
+            r.intenclr().write(|w| w.set_end(true));
         }
     }
 }
@@ -159,13 +171,19 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Configure pins
         if let Some(sck) = &sck {
-            sck.conf().write(|w| w.dir().output().drive().h0h1());
+            sck.conf().write(|w| {
+                w.set_dir(gpiovals::Dir::OUTPUT);
+                w.set_drive(convert_drive(config.sck_drive))
+            });
         }
         if let Some(mosi) = &mosi {
-            mosi.conf().write(|w| w.dir().output().drive().h0h1());
+            mosi.conf().write(|w| {
+                w.set_dir(gpiovals::Dir::OUTPUT);
+                w.set_drive(convert_drive(config.mosi_drive))
+            });
         }
         if let Some(miso) = &miso {
-            miso.conf().write(|w| w.input().connect().drive().h0h1());
+            miso.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
         }
 
         match config.mode.polarity {
@@ -188,12 +206,12 @@ impl<'d, T: Instance> Spim<'d, T> {
         }
 
         // Select pins.
-        r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
-        r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
-        r.psel.miso.write(|w| unsafe { w.bits(miso.psel_bits()) });
+        r.psel().sck().write_value(sck.psel_bits());
+        r.psel().mosi().write_value(mosi.psel_bits());
+        r.psel().miso().write_value(miso.psel_bits());
 
         // Enable SPIM instance.
-        r.enable.write(|w| w.enable().enabled());
+        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
 
         let mut spim = Self { _p: spim };
 
@@ -201,7 +219,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         Self::set_config(&mut spim, &config).unwrap();
 
         // Disable all events interrupts
-        r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+        r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -209,64 +227,85 @@ impl<'d, T: Instance> Spim<'d, T> {
         spim
     }
 
-    fn prepare(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        slice_in_ram_or(tx, Error::BufferNotInRAM)?;
-        // NOTE: RAM slice check for rx is not necessary, as a mutable
-        // slice can only be built from data located in RAM.
-
+    fn prepare_dma_transfer(&mut self, rx: *mut [u8], tx: *const [u8], offset: usize, length: usize) {
         compiler_fence(Ordering::SeqCst);
 
         let r = T::regs();
 
-        // Set up the DMA write.
-        let (ptr, tx_len) = slice_ptr_parts(tx);
-        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
-        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx_len as _) });
+        fn xfer_params(ptr: u32, total: usize, offset: usize, length: usize) -> (u32, usize) {
+            if total > offset {
+                (ptr.wrapping_add(offset as _), core::cmp::min(total - offset, length))
+            } else {
+                (ptr, 0)
+            }
+        }
 
         // Set up the DMA read.
-        let (ptr, rx_len) = slice_ptr_parts_mut(rx);
-        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
-        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx_len as _) });
+        let (rx_ptr, rx_len) = xfer_params(rx as *mut u8 as _, rx.len() as _, offset, length);
+        r.rxd().ptr().write_value(rx_ptr);
+        r.rxd().maxcnt().write(|w| w.set_maxcnt(rx_len as _));
+
+        // Set up the DMA write.
+        let (tx_ptr, tx_len) = xfer_params(tx as *const u8 as _, tx.len() as _, offset, length);
+        r.txd().ptr().write_value(tx_ptr);
+        r.txd().maxcnt().write(|w| w.set_maxcnt(tx_len as _));
+
+        /*
+        trace!("XFER: offset: {}, length: {}", offset, length);
+        trace!("RX(len: {}, ptr: {=u32:02x})", rx_len, rx_ptr as u32);
+        trace!("TX(len: {}, ptr: {=u32:02x})", tx_len, tx_ptr as u32);
+        */
 
         #[cfg(feature = "_nrf52832_anomaly_109")]
-        {
+        if offset == 0 {
             let s = T::state();
 
-            r.events_started.reset();
+            r.events_started().write_value(0);
 
             // Set rx/tx buffer lengths to 0...
-            r.txd.maxcnt.reset();
-            r.rxd.maxcnt.reset();
+            r.txd().maxcnt().write(|_| ());
+            r.rxd().maxcnt().write(|_| ());
 
             // ...and keep track of original buffer lengths...
             s.tx.store(tx_len as _, Ordering::Relaxed);
             s.rx.store(rx_len as _, Ordering::Relaxed);
 
             // ...signalling the start of the fake transfer.
-            r.intenset.write(|w| w.started().bit(true));
+            r.intenset().write(|w| w.set_started(true));
         }
 
         // Reset and enable the event
-        r.events_end.reset();
-        r.intenset.write(|w| w.end().set());
+        r.events_end().write_value(0);
+        r.intenset().write(|w| w.set_end(true));
 
         // Start SPI transaction.
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
+        r.tasks_start().write_value(1);
+    }
 
-        Ok(())
+    fn blocking_inner_from_ram_chunk(&mut self, rx: *mut [u8], tx: *const [u8], offset: usize, length: usize) {
+        self.prepare_dma_transfer(rx, tx, offset, length);
+
+        #[cfg(feature = "_nrf52832_anomaly_109")]
+        if offset == 0 {
+            while self.nrf52832_dma_workaround_status().is_pending() {}
+        }
+
+        // Wait for 'end' event.
+        while T::regs().events_end().read() == 0 {}
+
+        compiler_fence(Ordering::SeqCst);
     }
 
     fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        self.prepare(rx, tx)?;
+        slice_in_ram_or(tx, Error::BufferNotInRAM)?;
+        // NOTE: RAM slice check for rx is not necessary, as a mutable
+        // slice can only be built from data located in RAM.
 
-        #[cfg(feature = "_nrf52832_anomaly_109")]
-        while let Poll::Pending = self.nrf52832_dma_workaround_status() {}
-
-        // Wait for 'end' event.
-        while T::regs().events_end.read().bits() == 0 {}
-
-        compiler_fence(Ordering::SeqCst);
-
+        let xfer_len = core::cmp::max(rx.len(), tx.len());
+        for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
+            let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
+            self.blocking_inner_from_ram_chunk(rx, tx, offset, length);
+        }
         Ok(())
     }
 
@@ -274,32 +313,33 @@ impl<'d, T: Instance> Spim<'d, T> {
         match self.blocking_inner_from_ram(rx, tx) {
             Ok(_) => Ok(()),
             Err(Error::BufferNotInRAM) => {
-                trace!("Copying SPIM tx buffer into RAM for DMA");
+                // trace!("Copying SPIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
                 tx_ram_buf.copy_from_slice(tx);
                 self.blocking_inner_from_ram(rx, tx_ram_buf)
             }
-            Err(error) => Err(error),
         }
     }
 
-    async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        self.prepare(rx, tx)?;
+    async fn async_inner_from_ram_chunk(&mut self, rx: *mut [u8], tx: *const [u8], offset: usize, length: usize) {
+        self.prepare_dma_transfer(rx, tx, offset, length);
 
         #[cfg(feature = "_nrf52832_anomaly_109")]
-        poll_fn(|cx| {
-            let s = T::state();
+        if offset == 0 {
+            poll_fn(|cx| {
+                let s = T::state();
 
-            s.waker.register(cx.waker());
+                s.waker.register(cx.waker());
 
-            self.nrf52832_dma_workaround_status()
-        })
-        .await;
+                self.nrf52832_dma_workaround_status()
+            })
+            .await;
+        }
 
         // Wait for 'end' event.
         poll_fn(|cx| {
             T::state().waker.register(cx.waker());
-            if T::regs().events_end.read().bits() != 0 {
+            if T::regs().events_end().read() != 0 {
                 return Poll::Ready(());
             }
 
@@ -308,7 +348,18 @@ impl<'d, T: Instance> Spim<'d, T> {
         .await;
 
         compiler_fence(Ordering::SeqCst);
+    }
 
+    async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        slice_in_ram_or(tx, Error::BufferNotInRAM)?;
+        // NOTE: RAM slice check for rx is not necessary, as a mutable
+        // slice can only be built from data located in RAM.
+
+        let xfer_len = core::cmp::max(rx.len(), tx.len());
+        for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
+            let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
+            self.async_inner_from_ram_chunk(rx, tx, offset, length).await;
+        }
         Ok(())
     }
 
@@ -316,12 +367,11 @@ impl<'d, T: Instance> Spim<'d, T> {
         match self.async_inner_from_ram(rx, tx).await {
             Ok(_) => Ok(()),
             Err(Error::BufferNotInRAM) => {
-                trace!("Copying SPIM tx buffer into RAM for DMA");
+                // trace!("Copying SPIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
                 tx_ram_buf.copy_from_slice(tx);
                 self.async_inner_from_ram(rx, tx_ram_buf).await
             }
-            Err(error) => Err(error),
         }
     }
 
@@ -393,24 +443,20 @@ impl<'d, T: Instance> Spim<'d, T> {
     #[cfg(feature = "_nrf52832_anomaly_109")]
     fn nrf52832_dma_workaround_status(&mut self) -> Poll<()> {
         let r = T::regs();
-        if r.events_started.read().bits() != 0 {
+        if r.events_started().read() != 0 {
             let s = T::state();
 
             // Handle the first "fake" transmission
-            r.events_started.reset();
-            r.events_end.reset();
+            r.events_started().write_value(0);
+            r.events_end().write_value(0);
 
             // Update DMA registers with correct rx/tx buffer sizes
-            r.rxd
-                .maxcnt
-                .write(|w| unsafe { w.maxcnt().bits(s.rx.load(Ordering::Relaxed)) });
-            r.txd
-                .maxcnt
-                .write(|w| unsafe { w.maxcnt().bits(s.tx.load(Ordering::Relaxed)) });
+            r.rxd().maxcnt().write(|w| w.set_maxcnt(s.rx.load(Ordering::Relaxed)));
+            r.txd().maxcnt().write(|w| w.set_maxcnt(s.tx.load(Ordering::Relaxed)));
 
-            r.intenset.write(|w| w.end().set());
+            r.intenset().write(|w| w.set_end(true));
             // ... and start actual, hopefully glitch-free transmission
-            r.tasks_start.write(|w| unsafe { w.bits(1) });
+            r.tasks_start().write_value(1);
             return Poll::Ready(());
         }
         Poll::Pending
@@ -425,11 +471,11 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
 
         // disable!
         let r = T::regs();
-        r.enable.write(|w| w.enable().disabled());
+        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
 
-        gpio::deconfigure_pin(r.psel.sck.read().bits());
-        gpio::deconfigure_pin(r.psel.miso.read().bits());
-        gpio::deconfigure_pin(r.psel.mosi.read().bits());
+        gpio::deconfigure_pin(r.psel().sck().read());
+        gpio::deconfigure_pin(r.psel().miso().read());
+        gpio::deconfigure_pin(r.psel().mosi().read());
 
         // Disable all events interrupts
         T::Interrupt::disable();
@@ -438,54 +484,46 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
+pub(crate) struct State {
+    waker: AtomicWaker,
     #[cfg(feature = "_nrf52832_anomaly_109")]
-    use core::sync::atomic::AtomicU8;
+    rx: AtomicU8,
+    #[cfg(feature = "_nrf52832_anomaly_109")]
+    tx: AtomicU8,
+}
 
-    use embassy_sync::waitqueue::AtomicWaker;
-
-    use super::*;
-
-    pub struct State {
-        pub waker: AtomicWaker,
-        #[cfg(feature = "_nrf52832_anomaly_109")]
-        pub rx: AtomicU8,
-        #[cfg(feature = "_nrf52832_anomaly_109")]
-        pub tx: AtomicU8,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-                #[cfg(feature = "_nrf52832_anomaly_109")]
-                rx: AtomicU8::new(0),
-                #[cfg(feature = "_nrf52832_anomaly_109")]
-                tx: AtomicU8::new(0),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+            #[cfg(feature = "_nrf52832_anomaly_109")]
+            rx: AtomicU8::new(0),
+            #[cfg(feature = "_nrf52832_anomaly_109")]
+            tx: AtomicU8::new(0),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static pac::spim0::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> pac::spim::Spim;
+    fn state() -> &'static State;
+}
+
 /// SPIM peripheral instance
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_spim {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::spim::sealed::Instance for peripherals::$type {
-            fn regs() -> &'static pac::spim0::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+        impl crate::spim::SealedInstance for peripherals::$type {
+            fn regs() -> pac::spim::Spim {
+                pac::$pac_type
             }
-            fn state() -> &'static crate::spim::sealed::State {
-                static STATE: crate::spim::sealed::State = crate::spim::sealed::State::new();
+            fn state() -> &'static crate::spim::State {
+                static STATE: crate::spim::State = crate::spim::State::new();
                 &STATE
             }
         }
@@ -520,8 +558,6 @@ mod eh02 {
 impl embedded_hal_1::spi::Error for Error {
     fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
         match *self {
-            Self::TxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
-            Self::RxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
             Self::BufferNotInRAM => embedded_hal_1::spi::ErrorKind::Other,
         }
     }
@@ -582,40 +618,35 @@ impl<'d, T: Instance> SetConfig for Spim<'d, T> {
         let r = T::regs();
         // Configure mode.
         let mode = config.mode;
-        r.config.write(|w| {
+        r.config().write(|w| {
+            w.set_order(config.bit_order);
             match mode {
                 MODE_0 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_high();
-                    w.cpha().leading();
+                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
+                    w.set_cpha(vals::Cpha::LEADING);
                 }
                 MODE_1 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_high();
-                    w.cpha().trailing();
+                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
+                    w.set_cpha(vals::Cpha::TRAILING);
                 }
                 MODE_2 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_low();
-                    w.cpha().leading();
+                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
+                    w.set_cpha(vals::Cpha::LEADING);
                 }
                 MODE_3 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_low();
-                    w.cpha().trailing();
+                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
+                    w.set_cpha(vals::Cpha::TRAILING);
                 }
             }
-
-            w
         });
 
         // Configure frequency.
         let frequency = config.frequency;
-        r.frequency.write(|w| w.frequency().variant(frequency));
+        r.frequency().write(|w| w.set_frequency(frequency));
 
         // Set over-read character
         let orc = config.orc;
-        r.orc.write(|w| unsafe { w.orc().bits(orc) });
+        r.orc().write(|w| w.set_orc(orc));
 
         Ok(())
     }

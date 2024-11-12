@@ -1,0 +1,13 @@
+= System description
+
+This section describes different parts of Embassy in more detail.
+
+include::runtime.adoc[leveloffset = 2]
+include::bootloader.adoc[leveloffset = 2]
+include::time_keeping.adoc[leveloffset = 2]
+include::hal.adoc[leveloffset = 2]
+include::nrf.adoc[leveloffset = 2]
+include::stm32.adoc[leveloffset = 2]
+include::sharing_peripherals.adoc[leveloffset = 2]
+include::developer.adoc[leveloffset = 2]
+include::developer_stm32.adoc[leveloffset = 2]

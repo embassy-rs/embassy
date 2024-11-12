@@ -1,0 +1,5 @@
+error: task functions must not have an ABI qualifier
+ --> tests/ui/abi.rs:6:1
+  |
+6 | async extern "C" fn task() {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^

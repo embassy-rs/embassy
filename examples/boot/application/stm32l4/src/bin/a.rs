@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-#[cfg(feature = "defmt-rtt")]
+#[cfg(feature = "defmt")]
 use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PB14, Level::Low, Speed::Low);
     led.set_high();
 
-    let config = FirmwareUpdaterConfig::from_linkerfile(&flash);
+    let config = FirmwareUpdaterConfig::from_linkerfile(&flash, &flash);
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     let mut updater = FirmwareUpdater::new(config, &mut magic.0);
     button.wait_for_falling_edge().await;

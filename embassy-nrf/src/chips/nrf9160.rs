@@ -5,14 +5,16 @@ pub mod pac {
     // The nRF9160 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
 
-    pub use nrf9160_pac::NVIC_PRIO_BITS;
+    #[cfg(feature="rt")]
+    pub use nrf_pac::NVIC_PRIO_BITS;
+    pub use nrf_pac::{common, shared};
 
     #[cfg(feature="rt")]
     #[doc(no_inline)]
-    pub use nrf9160_pac::interrupt;
+    pub use nrf_pac::interrupt;
 
     #[doc(no_inline)]
-    pub use nrf9160_pac::{
+    pub use nrf_pac::{
         Interrupt,
 
         cc_host_rgf_s as cc_host_rgf,
@@ -20,29 +22,29 @@ pub mod pac {
         cryptocell_s as cryptocell,
         ctrl_ap_peri_s as ctrl_ap_peri,
         dppic_ns as dppic,
-        egu0_ns as egu0,
+        egu_ns as egu,
         ficr_s as ficr,
         fpu_ns as fpu,
-        gpiote0_s as gpiote,
+        gpiote_s as gpiote,
         i2s_ns as i2s,
         ipc_ns as ipc,
         kmu_ns as kmu,
         nvmc_ns as nvmc,
-        p0_ns as p0,
+        gpio_ns as gpio,
         pdm_ns as pdm,
         power_ns as power,
-        pwm0_ns as pwm0,
+        pwm_ns as pwm,
         regulators_ns as regulators,
-        rtc0_ns as rtc0,
+        rtc_ns as rtc,
         saadc_ns as saadc,
-        spim0_ns as spim0,
-        spis0_ns as spis0,
+        spim_ns as spim,
+        spis_ns as spis,
         spu_s as spu,
         tad_s as tad,
-        timer0_ns as timer0,
-        twim0_ns as twim0,
-        twis0_ns as twis0,
-        uarte0_ns as uarte0,
+        timer_ns as timer,
+        twim_ns as twim,
+        twis_ns as twis,
+        uarte_ns as uarte,
         uicr_s as uicr,
         vmc_ns as vmc,
         wdt_ns as wdt,
@@ -51,7 +53,7 @@ pub mod pac {
     /// Non-Secure mode (NS) peripherals
     pub mod ns {
         #[doc(no_inline)]
-        pub use nrf9160_pac::{
+        pub use nrf_pac::{
             CLOCK_NS as CLOCK,
             DPPIC_NS as DPPIC,
             EGU0_NS as EGU0,
@@ -108,7 +110,7 @@ pub mod pac {
     /// Secure mode (S) peripherals
     pub mod s {
         #[doc(no_inline)]
-        pub use nrf9160_pac::{
+        pub use nrf_pac::{
             CC_HOST_RGF_S as CC_HOST_RGF,
             CLOCK_S as CLOCK,
             CRYPTOCELL_S as CRYPTOCELL,
@@ -283,6 +285,14 @@ embassy_hal_internal::peripherals! {
 
     // PDM
     PDM,
+
+    // EGU
+    EGU0,
+    EGU1,
+    EGU2,
+    EGU3,
+    EGU4,
+    EGU5,
 }
 
 impl_uarte!(SERIAL0, UARTE0, UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
@@ -379,6 +389,13 @@ impl_saadc_input!(P0_17, ANALOG_INPUT4);
 impl_saadc_input!(P0_18, ANALOG_INPUT5);
 impl_saadc_input!(P0_19, ANALOG_INPUT6);
 impl_saadc_input!(P0_20, ANALOG_INPUT7);
+
+impl_egu!(EGU0, EGU0, EGU0);
+impl_egu!(EGU1, EGU1, EGU1);
+impl_egu!(EGU2, EGU2, EGU2);
+impl_egu!(EGU3, EGU3, EGU3);
+impl_egu!(EGU4, EGU4, EGU4);
+impl_egu!(EGU5, EGU5, EGU5);
 
 embassy_hal_internal::interrupt_mod!(
     SPU,

@@ -10,11 +10,12 @@ memory management designed to work well for embedded systems, aiming for a more 
 
 - IPv4, IPv6
 - Ethernet and bare-IP mediums.
-- TCP, UDP, DNS, DHCPv4, IGMPv4
+- TCP, UDP, DNS, DHCPv4
 - TCP sockets implement the `embedded-io` async traits.
+- Multicast
 
-See the [`smoltcp`](https://github.com/smoltcp-rs/smoltcp) README for a detailed list of implemented and 
-unimplemented features of the network protocols. 
+See the [`smoltcp`](https://github.com/smoltcp-rs/smoltcp) README for a detailed list of implemented and
+unimplemented features of the network protocols.
 
 ## Hardware support
 
@@ -37,7 +38,7 @@ To add `embassy-net` support for new hardware (i.e. a new Ethernet or WiFi chip,
 an Ethernet/WiFi MCU peripheral), you have to implement the [`embassy-net-driver`](https://crates.io/crates/embassy-net-driver)
 traits.
 
-Alternatively, [`embassy-net-driver-channel`](https://crates.io/crates/embassy-net-driver-channel) provides a higer-level API
+Alternatively, [`embassy-net-driver-channel`](https://crates.io/crates/embassy-net-driver-channel) provides a higher-level API
 to construct a driver that processes packets in its own background task and communicates with the `embassy-net` task via
 packet queues for RX and TX.
 

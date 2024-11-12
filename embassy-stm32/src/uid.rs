@@ -27,5 +27,5 @@ pub fn uid_hex_bytes() -> &'static [u8; 24] {
             LOADED = true;
         }
     });
-    unsafe { &UID_HEX }
+    unsafe { &*core::ptr::addr_of!(UID_HEX) }
 }

@@ -3,7 +3,7 @@
 
 use core::cell::RefCell;
 
-#[cfg(feature = "defmt-rtt")]
+#[cfg(feature = "defmt")]
 use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, BlockingFirmwareState, FirmwareUpdaterConfig};
 use embassy_executor::Spawner;
@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
 
-    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     let mut firmware_state = BlockingFirmwareState::from_config(config, &mut magic.0);
     firmware_state.mark_booted().expect("Failed to mark booted");
@@ -41,7 +41,6 @@ async fn main(_spawner: Spawner) {
     config.product = Some("USB-DFU Runtime example");
     config.serial_number = Some("1235678");
 
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
@@ -49,7 +48,6 @@ async fn main(_spawner: Spawner) {
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut [],

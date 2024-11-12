@@ -5,7 +5,7 @@ use core::task::Poll;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::MutexGuard;
 use embassy_sync::signal::Signal;
-use futures::FutureExt;
+use futures_util::FutureExt;
 
 use super::commands::MacCommand;
 use super::event::MacEvent;

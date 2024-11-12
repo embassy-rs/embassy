@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
+#![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
 
 use std::boxed::Box;
 use std::future::poll_fn;

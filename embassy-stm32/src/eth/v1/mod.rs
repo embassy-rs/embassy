@@ -12,14 +12,16 @@ use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress
 pub(crate) use self::rx_desc::{RDes, RDesRing};
 pub(crate) use self::tx_desc::{TDes, TDesRing};
 use super::*;
-use crate::gpio::sealed::{AFType, Pin as __GpioPin};
-use crate::gpio::AnyPin;
+#[cfg(eth_v1a)]
+use crate::gpio::Pull;
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::interrupt::InterruptExt;
 #[cfg(eth_v1a)]
 use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::SYSCFG;
 use crate::pac::{ETH, RCC};
+use crate::rcc::SealedRccPeripheral;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -61,7 +63,7 @@ macro_rules! config_in_pins {
         critical_section::with(|_| {
             $(
                 // TODO properly create a set_as_input function
-                $pin.set_as_af($pin.af_num(), AFType::Input);
+                $pin.set_as_af($pin.af_num(), AfType::input(Pull::None));
             )*
         })
     }
@@ -72,8 +74,7 @@ macro_rules! config_af_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                // We are lucky here, this configures to max speed (50MHz)
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
+                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -84,8 +85,7 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                $pin.set_speed(crate::gpio::Speed::VeryHigh);
+                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -148,8 +148,8 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         #[cfg(any(eth_v1b, eth_v1c))]
         config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
-        let dma = ETH.ethernet_dma();
-        let mac = ETH.ethernet_mac();
+        let dma = T::regs().ethernet_dma();
+        let mac = T::regs().ethernet_mac();
 
         // Reset and wait
         dma.dmabmr().modify(|w| w.set_sr(true));
@@ -191,8 +191,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
-        // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
-        let hclk = unsafe { crate::rcc::get_freqs() }.hclk1;
+        let hclk = <T as SealedRccPeripheral>::frequency();
         let hclk_mhz = hclk.0 / 1_000_000;
 
         // Set the MDC clock frequency in the range 1MHz - 2.5MHz
@@ -235,8 +234,8 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 
         fence(Ordering::SeqCst);
 
-        let mac = ETH.ethernet_mac();
-        let dma = ETH.ethernet_dma();
+        let mac = T::regs().ethernet_mac();
+        let dma = T::regs().ethernet_dma();
 
         mac.maccr().modify(|w| {
             w.set_re(true);
@@ -275,7 +274,7 @@ pub struct EthernetStationManagement<T: Instance> {
 
 unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
     fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
-        let mac = ETH.ethernet_mac();
+        let mac = T::regs().ethernet_mac();
 
         mac.macmiiar().modify(|w| {
             w.set_pa(phy_addr);
@@ -289,7 +288,7 @@ unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
     }
 
     fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) {
-        let mac = ETH.ethernet_mac();
+        let mac = T::regs().ethernet_mac();
 
         mac.macmiidr().write(|w| w.set_md(val));
         mac.macmiiar().modify(|w| {
@@ -305,8 +304,8 @@ unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
 
 impl<'d, T: Instance, P: PHY> Drop for Ethernet<'d, T, P> {
     fn drop(&mut self) {
-        let dma = ETH.ethernet_dma();
-        let mac = ETH.ethernet_mac();
+        let dma = T::regs().ethernet_dma();
+        let mac = T::regs().ethernet_mac();
 
         // Disable the TX DMA and wait for any previous transmissions to be completed
         dma.dmaomr().modify(|w| w.set_st(St::STOPPED));

@@ -4,13 +4,14 @@ use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use stm32_metapac::syscfg::vals::EthSelPhy;
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
-use crate::gpio::sealed::{AFType, Pin as _};
-use crate::gpio::{AnyPin, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
 use crate::interrupt::InterruptExt;
 use crate::pac::ETH;
+use crate::rcc::SealedRccPeripheral;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -55,8 +56,8 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                $pin.set_speed(Speed::VeryHigh);
+                // TODO: shouldn't some pins be configured as inputs?
+                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -80,31 +81,15 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        // Enable the necessary Clocks
-        #[cfg(not(rcc_h5))]
+        // Enable the necessary clocks
         critical_section::with(|_| {
-            crate::pac::RCC.ahb1enr().modify(|w| {
-                w.set_eth1macen(true);
-                w.set_eth1txen(true);
-                w.set_eth1rxen(true);
-            });
-
-            crate::pac::SYSCFG.pmcr().modify(|w| w.set_epis(0b100));
-        });
-
-        #[cfg(rcc_h5)]
-        critical_section::with(|_| {
-            crate::pac::RCC.apb3enr().modify(|w| w.set_sbsen(true));
-
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_ethen(true);
                 w.set_ethtxen(true);
                 w.set_ethrxen(true);
             });
 
-            crate::pac::SYSCFG
-                .pmcr()
-                .modify(|w| w.set_eth_sel_phy(crate::pac::syscfg::vals::EthSelPhy::B_0X4));
+            crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(EthSelPhy::RMII));
         });
 
         into_ref!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
@@ -147,32 +132,17 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        // Enable necessary clocks.
-        #[cfg(not(rcc_h5))]
+        // Enable the necessary clocks
         critical_section::with(|_| {
-            crate::pac::RCC.ahb1enr().modify(|w| {
-                w.set_eth1macen(true);
-                w.set_eth1txen(true);
-                w.set_eth1rxen(true);
-            });
-
-            crate::pac::SYSCFG.pmcr().modify(|w| w.set_epis(0b000));
-        });
-
-        #[cfg(rcc_h5)]
-        critical_section::with(|_| {
-            crate::pac::RCC.apb3enr().modify(|w| w.set_sbsen(true));
-
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_ethen(true);
                 w.set_ethtxen(true);
                 w.set_ethrxen(true);
             });
 
-            // TODO: This is for RMII - what would MII need here?
             crate::pac::SYSCFG
                 .pmcr()
-                .modify(|w| w.set_eth_sel_phy(crate::pac::syscfg::vals::EthSelPhy::B_0X4));
+                .modify(|w| w.set_eth_sel_phy(EthSelPhy::MII_GMII));
         });
 
         into_ref!(rx_clk, tx_clk, mdio, mdc, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
@@ -206,9 +176,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        let dma = ETH.ethernet_dma();
-        let mac = ETH.ethernet_mac();
-        let mtl = ETH.ethernet_mtl();
+        let dma = T::regs().ethernet_dma();
+        let mac = T::regs().ethernet_mac();
+        let mtl = T::regs().ethernet_mtl();
 
         // Reset and wait
         dma.dmamr().modify(|w| w.set_swr(true));
@@ -221,6 +191,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             w.set_dm(true);
             // TODO: Carrier sense ? ECRSFD
         });
+
+        // Disable multicast filter
+        mac.macpfr().modify(|w| w.set_pm(true));
 
         // Note: Writing to LR triggers synchronisation of both LR and HR into the MAC core,
         // so the LR write must happen after the HR write.
@@ -264,8 +237,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
-        // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
-        let hclk = unsafe { crate::rcc::get_freqs() }.hclk1;
+        let hclk = <T as SealedRccPeripheral>::frequency();
         let hclk_mhz = hclk.0 / 1_000_000;
 
         // Set the MDC clock frequency in the range 1MHz - 2.5MHz
@@ -296,9 +268,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 
         fence(Ordering::SeqCst);
 
-        let mac = ETH.ethernet_mac();
-        let mtl = ETH.ethernet_mtl();
-        let dma = ETH.ethernet_dma();
+        let mac = T::regs().ethernet_mac();
+        let mtl = T::regs().ethernet_mtl();
+        let dma = T::regs().ethernet_dma();
 
         mac.maccr().modify(|w| {
             w.set_re(true);
@@ -334,7 +306,7 @@ pub struct EthernetStationManagement<T: Instance> {
 
 unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
     fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
-        let mac = ETH.ethernet_mac();
+        let mac = T::regs().ethernet_mac();
 
         mac.macmdioar().modify(|w| {
             w.set_pa(phy_addr);
@@ -348,7 +320,7 @@ unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
     }
 
     fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) {
-        let mac = ETH.ethernet_mac();
+        let mac = T::regs().ethernet_mac();
 
         mac.macmdiodr().write(|w| w.set_md(val));
         mac.macmdioar().modify(|w| {
@@ -364,9 +336,9 @@ unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
 
 impl<'d, T: Instance, P: PHY> Drop for Ethernet<'d, T, P> {
     fn drop(&mut self) {
-        let dma = ETH.ethernet_dma();
-        let mac = ETH.ethernet_mac();
-        let mtl = ETH.ethernet_mtl();
+        let dma = T::regs().ethernet_dma();
+        let mac = T::regs().ethernet_mac();
+        let mtl = T::regs().ethernet_mtl();
 
         // Disable the TX DMA and wait for any previous transmissions to be completed
         dma.dmactx_cr().modify(|w| w.set_st(false));

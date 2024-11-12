@@ -1,4 +1,3 @@
-use core::mem;
 use core::task::{RawWaker, RawWakerVTable, Waker};
 
 use super::{wake_task, TaskHeader, TaskRef};
@@ -33,20 +32,22 @@ pub(crate) unsafe fn from_task(p: TaskRef) -> Waker {
 ///
 /// Panics if the waker is not created by the Embassy executor.
 pub fn task_from_waker(waker: &Waker) -> TaskRef {
+    struct WakerHack {
+        data: *const (),
+        vtable: &'static RawWakerVTable,
+    }
+
     // safety: OK because WakerHack has the same layout as Waker.
     // This is not really guaranteed because the structs are `repr(Rust)`, it is
     // indeed the case in the current implementation.
     // TODO use waker_getters when stable. https://github.com/rust-lang/rust/issues/96992
-    let hack: &WakerHack = unsafe { mem::transmute(waker) };
-    if hack.vtable != &VTABLE {
+    let hack: &WakerHack = unsafe { core::mem::transmute(waker) };
+
+    // make sure to compare vtable addresses. Doing `==` on the references
+    // will compare the contents, which is slower.
+    if hack.vtable as *const _ != &VTABLE as *const _ {
         panic!("Found waker not created by the Embassy executor. `embassy_time::Timer` only works with the Embassy executor.")
     }
-
     // safety: our wakers are always created with `TaskRef::as_ptr`
     unsafe { TaskRef::from_ptr(hack.data as *const TaskHeader) }
-}
-
-struct WakerHack {
-    data: *const (),
-    vtable: &'static RawWakerVTable,
 }

@@ -1,4 +1,4 @@
-pub use nrf51_pac as pac;
+pub use nrf_pac as pac;
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
 pub const EASY_DMA_SIZE: usize = (1 << 14) - 1;
@@ -99,6 +99,9 @@ embassy_hal_internal::peripherals! {
 
     // TEMP
     TEMP,
+
+    // Radio
+    RADIO,
 }
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
@@ -139,6 +142,8 @@ impl_pin!(P0_28, 0, 28);
 impl_pin!(P0_29, 0, 29);
 impl_pin!(P0_30, 0, 30);
 impl_pin!(P0_31, 0, 31);
+
+impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,

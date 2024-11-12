@@ -3,12 +3,14 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embedded_hal_02::blocking::delay::DelayUs;
+#[cfg(adc_l0)]
+use stm32_metapac::adc::vals::Ckmode;
 
-use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
+use super::blocking_delay_us;
+use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
-use crate::peripherals::ADC;
-use crate::{interrupt, Peripheral};
+use crate::peripherals::ADC1;
+use crate::{interrupt, rcc, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const VREF_INT: u32 = 1230;
@@ -30,25 +32,30 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
+#[cfg(not(adc_l0))]
 pub struct Vbat;
-impl AdcPin<ADC> for Vbat {}
-impl super::sealed::AdcPin<ADC> for Vbat {
+
+#[cfg(not(adc_l0))]
+impl AdcChannel<ADC1> for Vbat {}
+
+#[cfg(not(adc_l0))]
+impl super::SealedAdcChannel<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
 }
 
 pub struct Vref;
-impl AdcPin<ADC> for Vref {}
-impl super::sealed::AdcPin<ADC> for Vref {
+impl AdcChannel<ADC1> for Vref {}
+impl super::SealedAdcChannel<ADC1> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl AdcPin<ADC> for Temperature {}
-impl super::sealed::AdcPin<ADC> for Temperature {
+impl AdcChannel<ADC1> for Temperature {}
+impl super::SealedAdcChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
@@ -58,20 +65,28 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
         adc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        delay: &mut impl DelayUs<u32>,
     ) -> Self {
         into_ref!(adc);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         // Delay 1μs when using HSI14 as the ADC clock.
         //
         // Table 57. ADC characteristics
         // tstab = 14 * 1/fadc
-        delay.delay_us(1);
+        blocking_delay_us(1);
+
+        // set default PCKL/2 on L0s because HSI is disabled in the default clock config
+        #[cfg(adc_l0)]
+        T::regs().cfgr2().modify(|reg| reg.set_ckmode(Ckmode::PCLK_DIV2));
 
         // A.7.1 ADC calibration code example
         T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));
         T::regs().cr().modify(|reg| reg.set_adcal(true));
+
+        #[cfg(adc_l0)]
+        while !T::regs().isr().read().eocal() {}
+
+        #[cfg(not(adc_l0))]
         while T::regs().cr().read().adcal() {}
 
         // A.7.2 ADC enable sequence code example
@@ -93,11 +108,12 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         }
     }
 
-    pub fn enable_vbat(&self, _delay: &mut impl DelayUs<u32>) -> Vbat {
+    #[cfg(not(adc_l0))]
+    pub fn enable_vbat(&self) -> Vbat {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.20 Vbat monitoring characteristics
@@ -106,22 +122,22 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat
     }
 
-    pub fn enable_vref(&self, delay: &mut impl DelayUs<u32>) -> Vref {
+    pub fn enable_vref(&self) -> Vref {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
-        delay.delay_us(10);
+        blocking_delay_us(10);
         Vref
     }
 
-    pub fn enable_temperature(&self, delay: &mut impl DelayUs<u32>) -> Temperature {
+    pub fn enable_temperature(&self) -> Temperature {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
         //
         // 6.3.19 Temperature sensor characteristics
         // tstart ≤ 10μs
         // ts_temp ≥ 4μs
         T::regs().ccr().modify(|reg| reg.set_tsen(true));
-        delay.delay_us(10);
+        blocking_delay_us(10);
         Temperature
     }
 
@@ -133,12 +149,18 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        let channel = pin.channel();
-        pin.set_as_analog();
+    #[cfg(adc_l0)]
+    pub fn set_ckmode(&mut self, ckmode: Ckmode) {
+        // set ADC clock mode
+        T::regs().cfgr2().modify(|reg| reg.set_ckmode(ckmode));
+    }
+
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        let ch_num = channel.channel();
+        channel.setup();
 
         // A.7.5 Single conversion sequence code example - Software trigger
-        T::regs().chselr().write(|reg| reg.set_chselx(channel as usize, true));
+        T::regs().chselr().write(|reg| reg.set_chselx(ch_num as usize, true));
 
         self.convert().await
     }
@@ -177,6 +199,6 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
         T::regs().cr().modify(|reg| reg.set_addis(true));
         while T::regs().cr().read().aden() {}
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }

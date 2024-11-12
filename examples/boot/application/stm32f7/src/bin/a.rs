@@ -3,7 +3,7 @@
 
 use core::cell::RefCell;
 
-#[cfg(feature = "defmt-rtt")]
+#[cfg(feature = "defmt")]
 use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_executor::Spawner;
@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PB7, Level::Low, Speed::Low);
     led.set_high();
 
-    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     let mut updater = BlockingFirmwareUpdater::new(config, &mut magic.0);
     let writer = updater.prepare_update().unwrap();

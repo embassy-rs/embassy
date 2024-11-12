@@ -2,16 +2,19 @@
 
 #![macro_use]
 
+use core::cell::{RefCell, RefMut};
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
 
+use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, pac, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -23,7 +26,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
 
         // Clear the event.
-        r.events_valrdy.reset();
+        r.events_valrdy().write_value(0);
 
         // Mutate the slice within a critical section,
         // so that the future isn't dropped in between us loading the pointer and actually dereferencing it.
@@ -37,7 +40,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 // The safety contract of `Rng::new` means that the future can't have been dropped
                 // without calling its destructor.
                 unsafe {
-                    *state.ptr = r.value.read().value().bits();
+                    *state.ptr = r.value().read().value();
                     state.ptr = state.ptr.add(1);
                 }
 
@@ -81,19 +84,19 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 
     fn stop(&self) {
-        T::regs().tasks_stop.write(|w| unsafe { w.bits(1) })
+        T::regs().tasks_stop().write_value(1)
     }
 
     fn start(&self) {
-        T::regs().tasks_start.write(|w| unsafe { w.bits(1) })
+        T::regs().tasks_start().write_value(1)
     }
 
     fn enable_irq(&self) {
-        T::regs().intenset.write(|w| w.valrdy().set());
+        T::regs().intenset().write(|w| w.set_valrdy(true));
     }
 
     fn disable_irq(&self) {
-        T::regs().intenclr.write(|w| w.valrdy().clear());
+        T::regs().intenclr().write(|w| w.set_valrdy(true));
     }
 
     /// Enable or disable the RNG's bias correction.
@@ -103,12 +106,12 @@ impl<'d, T: Instance> Rng<'d, T> {
     ///
     /// Defaults to disabled.
     pub fn set_bias_correction(&self, enable: bool) {
-        T::regs().config.write(|w| w.dercen().bit(enable))
+        T::regs().config().write(|w| w.set_dercen(enable))
     }
 
     /// Fill the buffer with random bytes.
     pub async fn fill_bytes(&mut self, dest: &mut [u8]) {
-        if dest.len() == 0 {
+        if dest.is_empty() {
             return; // Nothing to fill
         }
 
@@ -159,9 +162,9 @@ impl<'d, T: Instance> Rng<'d, T> {
 
         for byte in dest.iter_mut() {
             let regs = T::regs();
-            while regs.events_valrdy.read().bits() == 0 {}
-            regs.events_valrdy.reset();
-            *byte = regs.value.read().value().bits();
+            while regs.events_valrdy().read() == 0 {}
+            regs.events_valrdy().write_value(0);
+            *byte = regs.value().read().value();
         }
 
         self.stop();
@@ -205,73 +208,61 @@ impl<'d, T: Instance> rand_core::RngCore for Rng<'d, T> {
 
 impl<'d, T: Instance> rand_core::CryptoRng for Rng<'d, T> {}
 
-pub(crate) mod sealed {
-    use core::cell::{Ref, RefCell, RefMut};
+/// Peripheral static state
+pub(crate) struct State {
+    inner: Mutex<RefCell<InnerState>>,
+}
 
-    use critical_section::{CriticalSection, Mutex};
-    use embassy_sync::waitqueue::WakerRegistration;
+struct InnerState {
+    ptr: *mut u8,
+    end: *mut u8,
+    waker: WakerRegistration,
+}
 
-    use super::*;
+unsafe impl Send for InnerState {}
 
-    /// Peripheral static state
-    pub struct State {
-        inner: Mutex<RefCell<InnerState>>,
-    }
-
-    pub struct InnerState {
-        pub ptr: *mut u8,
-        pub end: *mut u8,
-        pub waker: WakerRegistration,
-    }
-
-    unsafe impl Send for InnerState {}
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                inner: Mutex::new(RefCell::new(InnerState::new())),
-            }
-        }
-
-        pub fn borrow<'cs>(&'cs self, cs: CriticalSection<'cs>) -> Ref<'cs, InnerState> {
-            self.inner.borrow(cs).borrow()
-        }
-
-        pub fn borrow_mut<'cs>(&'cs self, cs: CriticalSection<'cs>) -> RefMut<'cs, InnerState> {
-            self.inner.borrow(cs).borrow_mut()
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            inner: Mutex::new(RefCell::new(InnerState::new())),
         }
     }
 
-    impl InnerState {
-        pub const fn new() -> Self {
-            Self {
-                ptr: ptr::null_mut(),
-                end: ptr::null_mut(),
-                waker: WakerRegistration::new(),
-            }
-        }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static crate::pac::rng::RegisterBlock;
-        fn state() -> &'static State;
+    fn borrow_mut<'cs>(&'cs self, cs: CriticalSection<'cs>) -> RefMut<'cs, InnerState> {
+        self.inner.borrow(cs).borrow_mut()
     }
 }
 
+impl InnerState {
+    const fn new() -> Self {
+        Self {
+            ptr: ptr::null_mut(),
+            end: ptr::null_mut(),
+            waker: WakerRegistration::new(),
+        }
+    }
+}
+
+pub(crate) trait SealedInstance {
+    fn regs() -> pac::rng::Rng;
+    fn state() -> &'static State;
+}
+
 /// RNG peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_rng {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::rng::sealed::Instance for peripherals::$type {
-            fn regs() -> &'static crate::pac::rng::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+        impl crate::rng::SealedInstance for peripherals::$type {
+            fn regs() -> crate::pac::rng::Rng {
+                pac::$pac_type
             }
-            fn state() -> &'static crate::rng::sealed::State {
-                static STATE: crate::rng::sealed::State = crate::rng::sealed::State::new();
+            fn state() -> &'static crate::rng::State {
+                static STATE: crate::rng::State = crate::rng::State::new();
                 &STATE
             }
         }

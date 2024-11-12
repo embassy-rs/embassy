@@ -13,6 +13,7 @@ use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
+use crate::rcc::RccPeripheral;
 
 #[allow(unused)]
 const MTU: usize = 1514;
@@ -73,8 +74,14 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d, T: Instance, P: PHY> embassy_net_driver::Driver for Ethernet<'d, T, P> {
-    type RxToken<'a> = RxToken<'a, 'd> where Self: 'a;
-    type TxToken<'a> = TxToken<'a, 'd> where Self: 'a;
+    type RxToken<'a>
+        = RxToken<'a, 'd>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = TxToken<'a, 'd>
+    where
+        Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         WAKER.register(cx.waker());
@@ -176,16 +183,29 @@ pub unsafe trait PHY {
     fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool;
 }
 
-pub(crate) mod sealed {
-    pub trait Instance {
-        fn regs() -> crate::pac::eth::Eth;
+impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
+    /// Directly expose the SMI interface used by the Ethernet driver.
+    ///
+    /// This can be used to for example configure special PHY registers for compliance testing.
+    ///
+    /// # Safety
+    ///
+    /// Revert any temporary PHY register changes such as to enable test modes before handing
+    /// the Ethernet device over to the networking stack otherwise things likely won't work.
+    pub unsafe fn station_management(&mut self) -> &mut impl StationManagement {
+        &mut self.station_management
     }
 }
 
-/// Ethernet instance.
-pub trait Instance: sealed::Instance + Send + 'static {}
+trait SealedInstance {
+    fn regs() -> crate::pac::eth::Eth;
+}
 
-impl sealed::Instance for crate::peripherals::ETH {
+/// Ethernet instance.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + RccPeripheral + Send + 'static {}
+
+impl SealedInstance for crate::peripherals::ETH {
     fn regs() -> crate::pac::eth::Eth {
         crate::pac::ETH
     }

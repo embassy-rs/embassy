@@ -6,9 +6,9 @@ use embassy_executor::Spawner;
 use embassy_stm32::dac::{DacCh1, DacCh2, ValueArray};
 use embassy_stm32::pac::timer::vals::Mms;
 use embassy_stm32::peripherals::{DAC1, DMA1_CH3, DMA1_CH4, TIM6, TIM7};
-use embassy_stm32::rcc::low_level::RccPeripheral;
+use embassy_stm32::rcc::frequency;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::timer::low_level::Basic16bitInstance;
+use embassy_stm32::timer::low_level::Timer;
 use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -22,19 +22,19 @@ async fn main(spawner: Spawner) {
     // Obtain two independent channels (p.DAC1 can only be consumed once, though!)
     let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, p.DMA1_CH3, p.DMA1_CH4, p.PA4, p.PA5).split();
 
-    spawner.spawn(dac_task1(dac_ch1)).ok();
-    spawner.spawn(dac_task2(dac_ch2)).ok();
+    spawner.spawn(dac_task1(p.TIM6, dac_ch1)).ok();
+    spawner.spawn(dac_task2(p.TIM7, dac_ch2)).ok();
 }
 
 #[embassy_executor::task]
-async fn dac_task1(mut dac: DacCh1<'static, DAC1, DMA1_CH3>) {
+async fn dac_task1(tim: TIM6, mut dac: DacCh1<'static, DAC1, DMA1_CH3>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
-    info!("TIM6 frequency is {}", TIM6::frequency());
+    info!("TIM6 frequency is {}", frequency::<TIM6>());
     const FREQUENCY: Hertz = Hertz::hz(200);
 
     // Compute the reload value such that we obtain the FREQUENCY for the sine
-    let reload: u32 = (TIM6::frequency().0 / FREQUENCY.0) / data.len() as u32;
+    let reload: u32 = (frequency::<TIM6>().0 / FREQUENCY.0) / data.len() as u32;
 
     // Depends on your clock and on the specific chip used, you may need higher or lower values here
     if reload < 10 {
@@ -45,17 +45,17 @@ async fn dac_task1(mut dac: DacCh1<'static, DAC1, DMA1_CH3>) {
     dac.set_triggering(true);
     dac.enable();
 
-    TIM6::enable_and_reset();
-    TIM6::regs().arr().modify(|w| w.set_arr(reload as u16 - 1));
-    TIM6::regs().cr2().modify(|w| w.set_mms(Mms::UPDATE));
-    TIM6::regs().cr1().modify(|w| {
+    let tim = Timer::new(tim);
+    tim.regs_basic().arr().modify(|w| w.set_arr(reload as u16 - 1));
+    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::UPDATE));
+    tim.regs_basic().cr1().modify(|w| {
         w.set_opm(false);
         w.set_cen(true);
     });
 
     debug!(
         "TIM6 Frequency {}, Target Frequency {}, Reload {}, Reload as u16 {}, Samples {}",
-        TIM6::frequency(),
+        frequency::<TIM6>(),
         FREQUENCY,
         reload,
         reload as u16,
@@ -70,22 +70,22 @@ async fn dac_task1(mut dac: DacCh1<'static, DAC1, DMA1_CH3>) {
 }
 
 #[embassy_executor::task]
-async fn dac_task2(mut dac: DacCh2<'static, DAC1, DMA1_CH4>) {
+async fn dac_task2(tim: TIM7, mut dac: DacCh2<'static, DAC1, DMA1_CH4>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
-    info!("TIM7 frequency is {}", TIM7::frequency());
+    info!("TIM7 frequency is {}", frequency::<TIM7>());
 
     const FREQUENCY: Hertz = Hertz::hz(600);
-    let reload: u32 = (TIM7::frequency().0 / FREQUENCY.0) / data.len() as u32;
+    let reload: u32 = (frequency::<TIM7>().0 / FREQUENCY.0) / data.len() as u32;
 
     if reload < 10 {
         error!("Reload value {} below threshold!", reload);
     }
 
-    TIM7::enable_and_reset();
-    TIM7::regs().arr().modify(|w| w.set_arr(reload as u16 - 1));
-    TIM7::regs().cr2().modify(|w| w.set_mms(Mms::UPDATE));
-    TIM7::regs().cr1().modify(|w| {
+    let tim = Timer::new(tim);
+    tim.regs_basic().arr().modify(|w| w.set_arr(reload as u16 - 1));
+    tim.regs_basic().cr2().modify(|w| w.set_mms(Mms::UPDATE));
+    tim.regs_basic().cr1().modify(|w| {
         w.set_opm(false);
         w.set_cen(true);
     });
@@ -96,7 +96,7 @@ async fn dac_task2(mut dac: DacCh2<'static, DAC1, DMA1_CH4>) {
 
     debug!(
         "TIM7 Frequency {}, Target Frequency {}, Reload {}, Reload as u16 {}, Samples {}",
-        TIM7::frequency(),
+        frequency::<TIM7>(),
         FREQUENCY,
         reload,
         reload as u16,

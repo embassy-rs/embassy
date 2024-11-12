@@ -15,7 +15,7 @@ use crate::{interrupt, pac, peripherals};
 #[cfg(feature = "rt")]
 #[interrupt]
 fn DMA_IRQ_0() {
-    let ints0 = pac::DMA.ints0().read().ints0();
+    let ints0 = pac::DMA.ints(0).read();
     for channel in 0..CHANNEL_COUNT {
         let ctrl_trig = pac::DMA.ch(channel).ctrl_trig().read();
         if ctrl_trig.ahb_error() {
@@ -26,14 +26,14 @@ fn DMA_IRQ_0() {
             CHANNEL_WAKERS[channel].wake();
         }
     }
-    pac::DMA.ints0().write(|w| w.set_ints0(ints0));
+    pac::DMA.ints(0).write_value(ints0);
 }
 
 pub(crate) unsafe fn init() {
     interrupt::DMA_IRQ_0.disable();
     interrupt::DMA_IRQ_0.set_priority(interrupt::Priority::P3);
 
-    pac::DMA.inte0().write(|w| w.set_inte0(0xFFFF));
+    pac::DMA.inte(0).write_value(0xFFFF);
 
     interrupt::DMA_IRQ_0.enable();
 }
@@ -45,14 +45,13 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const W,
     to: *mut [W],
-    dreq: u8,
+    dreq: vals::TreqSel,
 ) -> Transfer<'a, C> {
-    let (to_ptr, len) = crate::dma::slice_ptr_parts(to);
     copy_inner(
         ch,
         from as *const u32,
-        to_ptr as *mut u32,
-        len,
+        to as *mut W as *mut u32,
+        to.len(),
         W::size(),
         false,
         true,
@@ -67,14 +66,13 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const [W],
     to: *mut W,
-    dreq: u8,
+    dreq: vals::TreqSel,
 ) -> Transfer<'a, C> {
-    let (from_ptr, len) = crate::dma::slice_ptr_parts(from);
     copy_inner(
         ch,
-        from_ptr as *const u32,
+        from as *const W as *const u32,
         to as *mut u32,
-        len,
+        from.len(),
         W::size(),
         true,
         false,
@@ -92,11 +90,11 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     to: *mut W,
     len: usize,
-    dreq: u8,
+    dreq: vals::TreqSel,
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
-        &mut DUMMY as *const u32,
+        core::ptr::addr_of_mut!(DUMMY) as *const u32,
         to as *mut u32,
         len,
         W::size(),
@@ -114,18 +112,18 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(
     from: &[W],
     to: &mut [W],
 ) -> Transfer<'a, C> {
-    let (from_ptr, from_len) = crate::dma::slice_ptr_parts(from);
-    let (to_ptr, to_len) = crate::dma::slice_ptr_parts_mut(to);
+    let from_len = from.len();
+    let to_len = to.len();
     assert_eq!(from_len, to_len);
     copy_inner(
         ch,
-        from_ptr as *const u32,
-        to_ptr as *mut u32,
+        from.as_ptr() as *const u32,
+        to.as_mut_ptr() as *mut u32,
         from_len,
         W::size(),
         true,
         true,
-        vals::TreqSel::PERMANENT.0,
+        vals::TreqSel::PERMANENT,
     )
 }
 
@@ -137,7 +135,7 @@ fn copy_inner<'a, C: Channel>(
     data_size: DataSize,
     incr_read: bool,
     incr_write: bool,
-    dreq: u8,
+    dreq: vals::TreqSel,
 ) -> Transfer<'a, C> {
     into_ref!(ch);
 
@@ -145,14 +143,20 @@ fn copy_inner<'a, C: Channel>(
 
     p.read_addr().write_value(from as u32);
     p.write_addr().write_value(to as u32);
-    p.trans_count().write_value(len as u32);
+    #[cfg(feature = "rp2040")]
+    p.trans_count().write(|w| {
+        *w = len as u32;
+    });
+    #[cfg(feature = "_rp235x")]
+    p.trans_count().write(|w| {
+        w.set_mode(0.into());
+        w.set_count(len as u32);
+    });
 
     compiler_fence(Ordering::SeqCst);
 
     p.ctrl_trig().write(|w| {
-        // TODO: Add all DREQ options to pac vals::TreqSel, and use
-        // `set_treq:sel`
-        w.0 = ((dreq as u32) & 0x3f) << 15usize;
+        w.set_treq_sel(dreq);
         w.set_data_size(data_size);
         w.set_incr_read(incr_read);
         w.set_incr_write(incr_write);
@@ -204,18 +208,19 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
     }
 }
 
+#[cfg(feature = "rp2040")]
 pub(crate) const CHANNEL_COUNT: usize = 12;
+#[cfg(feature = "_rp235x")]
+pub(crate) const CHANNEL_COUNT: usize = 16;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 
-mod sealed {
-    pub trait Channel {}
-
-    pub trait Word {}
-}
+trait SealedChannel {}
+trait SealedWord {}
 
 /// DMA channel interface.
-pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + Sized + 'static {
+#[allow(private_bounds)]
+pub trait Channel: Peripheral<P = Self> + SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Channel number.
     fn number(&self) -> u8;
 
@@ -231,26 +236,27 @@ pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + S
 }
 
 /// DMA word.
-pub trait Word: sealed::Word {
+#[allow(private_bounds)]
+pub trait Word: SealedWord {
     /// Word size.
     fn size() -> vals::DataSize;
 }
 
-impl sealed::Word for u8 {}
+impl SealedWord for u8 {}
 impl Word for u8 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_BYTE
     }
 }
 
-impl sealed::Word for u16 {}
+impl SealedWord for u16 {}
 impl Word for u16 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_HALFWORD
     }
 }
 
-impl sealed::Word for u32 {}
+impl SealedWord for u32 {}
 impl Word for u32 {
     fn size() -> vals::DataSize {
         vals::DataSize::SIZE_WORD
@@ -264,7 +270,7 @@ pub struct AnyChannel {
 
 impl_peripheral!(AnyChannel);
 
-impl sealed::Channel for AnyChannel {}
+impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> u8 {
         self.number
@@ -273,7 +279,7 @@ impl Channel for AnyChannel {
 
 macro_rules! channel {
     ($name:ident, $num:expr) => {
-        impl sealed::Channel for peripherals::$name {}
+        impl SealedChannel for peripherals::$name {}
         impl Channel for peripherals::$name {
             fn number(&self) -> u8 {
                 $num
@@ -288,17 +294,6 @@ macro_rules! channel {
     };
 }
 
-// TODO: replace transmutes with core::ptr::metadata once it's stable
-#[allow(unused)]
-pub(crate) fn slice_ptr_parts<T>(slice: *const [T]) -> (usize, usize) {
-    unsafe { core::mem::transmute(slice) }
-}
-
-#[allow(unused)]
-pub(crate) fn slice_ptr_parts_mut<T>(slice: *mut [T]) -> (usize, usize) {
-    unsafe { core::mem::transmute(slice) }
-}
-
 channel!(DMA_CH0, 0);
 channel!(DMA_CH1, 1);
 channel!(DMA_CH2, 2);
@@ -311,3 +306,11 @@ channel!(DMA_CH8, 8);
 channel!(DMA_CH9, 9);
 channel!(DMA_CH10, 10);
 channel!(DMA_CH11, 11);
+#[cfg(feature = "_rp235x")]
+channel!(DMA_CH12, 12);
+#[cfg(feature = "_rp235x")]
+channel!(DMA_CH13, 13);
+#[cfg(feature = "_rp235x")]
+channel!(DMA_CH14, 14);
+#[cfg(feature = "_rp235x")]
+channel!(DMA_CH15, 15);

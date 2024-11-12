@@ -80,7 +80,7 @@ async fn run_med() {
         info!("    [med] Starting long computation");
 
         // Spin-wait to simulate a long CPU computation
-        cortex_m::asm::delay(8_000_000); // ~1 second
+        embassy_time::block_for(embassy_time::Duration::from_secs(1)); // ~1 second
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
@@ -97,7 +97,7 @@ async fn run_low() {
         info!("[low] Starting long computation");
 
         // Spin-wait to simulate a long CPU computation
-        cortex_m::asm::delay(16_000_000); // ~2 seconds
+        embassy_time::block_for(embassy_time::Duration::from_secs(2)); // ~2 seconds
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
@@ -126,6 +126,11 @@ fn main() -> ! {
     info!("Hello World!");
 
     let _p = embassy_stm32::init(Default::default());
+
+    // STM32s don’t have any interrupts exclusively for software use, but they can all be triggered by software as well as
+    // by the peripheral, so we can just use any free interrupt vectors which aren’t used by the rest of your application.
+    // In this case we’re using UART4 and UART5, but there’s nothing special about them. Any otherwise unused interrupt
+    // vector would work exactly the same.
 
     // High-priority executor: UART4, priority level 6
     interrupt::UART4.set_priority(Priority::P6);

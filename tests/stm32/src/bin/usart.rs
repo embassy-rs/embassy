@@ -6,13 +6,12 @@ mod common;
 use common::*;
 use defmt::{assert, assert_eq, unreachable};
 use embassy_executor::Spawner;
-use embassy_stm32::dma::NoDma;
 use embassy_stm32::usart::{Config, ConfigError, Error, Uart};
 use embassy_time::{block_for, Duration, Instant};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let p = init();
     info!("Hello World!");
 
     // Arduino pins D0 and D1
@@ -20,11 +19,10 @@ async fn main(_spawner: Spawner) {
     let mut usart = peri!(p, UART);
     let mut rx = peri!(p, UART_RX);
     let mut tx = peri!(p, UART_TX);
-    let irq = irqs!(UART);
 
     {
         let config = Config::default();
-        let mut usart = Uart::new(&mut usart, &mut rx, &mut tx, irq, NoDma, NoDma, config).unwrap();
+        let mut usart = Uart::new_blocking(&mut usart, &mut rx, &mut tx, config).unwrap();
 
         // We can't send too many bytes, they have to fit in the FIFO.
         // This is because we aren't sending+receiving at the same time.
@@ -35,12 +33,19 @@ async fn main(_spawner: Spawner) {
         let mut buf = [0; 2];
         usart.blocking_read(&mut buf).unwrap();
         assert_eq!(buf, data);
+
+        // Test flush doesn't hang.
+        usart.blocking_write(&data).unwrap();
+        usart.blocking_flush().unwrap();
+
+        // Test flush doesn't hang if there's nothing to flush
+        usart.blocking_flush().unwrap();
     }
 
     // Test error handling with with an overflow error
     {
         let config = Config::default();
-        let mut usart = Uart::new(&mut usart, &mut rx, &mut tx, irq, NoDma, NoDma, config).unwrap();
+        let mut usart = Uart::new_blocking(&mut usart, &mut rx, &mut tx, config).unwrap();
 
         // Send enough bytes to fill the RX FIFOs off all USART versions.
         let data = [0; 64];
@@ -70,7 +75,7 @@ async fn main(_spawner: Spawner) {
 
         let mut config = Config::default();
         config.baudrate = baudrate;
-        let mut usart = match Uart::new(&mut usart, &mut rx, &mut tx, irq, NoDma, NoDma, config) {
+        let mut usart = match Uart::new_blocking(&mut usart, &mut rx, &mut tx, config) {
             Ok(x) => x,
             Err(ConfigError::BaudrateTooHigh) => {
                 info!("baudrate too high");
