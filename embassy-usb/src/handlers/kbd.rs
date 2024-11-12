@@ -1,30 +1,22 @@
 use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
-use crate::{
-    control::Request,
-    host::{
-        descriptor::{
-            ConfigurationDescriptor, DeviceDescriptor, DeviceDescriptorPartial, InterfaceDescriptor, USBDescriptor,
-        },
-        ControlChannelExt,
-    },
+use crate::host::{
+    descriptor::{InterfaceDescriptor, USBDescriptor},
+    ControlChannelExt,
 };
 use core::num::NonZeroU8;
 
-use bitflags::Flags;
-use embassy_time::Timer;
 use embassy_usb_driver::{
-    host::{channel, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver},
-    Direction, EndpointInfo, EndpointType, Speed,
+    host::{channel, HostError, UsbChannel, UsbHostDriver},
+    Direction, EndpointInfo, EndpointType,
 };
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 #[repr(C)]
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct KeyStatusUpdate {
-    modifiers: u8,
-    reserved: u8,
-    keypress: [Option<NonZeroU8>; 6],
+    pub modifiers: u8,
+    pub reserved: u8,
+    pub keypress: [Option<NonZeroU8>; 6],
 }
 
 impl KeyStatusUpdate {
@@ -96,16 +88,18 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
         const BOOT_PROTOCOL: u16 = 0x0000;
         if let Err(err) = control_channel
             .class_request_out(SET_PROTOCOL, BOOT_PROTOCOL, iface.interface_number as u16, &[])
-            .await {
-                error!("[kbd]: Failed to set protocol: {:?}", err);
-            }
+            .await
+        {
+            error!("[kbd]: Failed to set protocol: {:?}", err);
+        }
 
         const SET_IDLE: u8 = 0x0A;
         if let Err(err) = control_channel
             .class_request_out(SET_IDLE, 0, iface.interface_number as u16, &[])
-            .await {
-                error!("[kbd]: Failed to set idle: {:?}", err);
-            }
+            .await
+        {
+            error!("[kbd]: Failed to set idle: {:?}", err);
+        }
 
         Ok(KbdHandler {
             interrupt_channel,
