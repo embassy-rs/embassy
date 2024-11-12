@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.3 - 2024-11-12
+
+- Building with the `nightly` feature now works with the Xtensa Rust compiler 1.82.
+- Compare vtable address instead of contents. Saves 44 bytes of flash on cortex-m.
+
 ## 0.6.2 - 2024-11-06
 
 - The `nightly` feature no longer requires `nightly-2024-09-06` or newer.
