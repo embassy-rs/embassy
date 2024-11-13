@@ -674,7 +674,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
             // SAFETY: mutable slices should always be accessible by dma
             self.regs
                 .hcdma(self.channel_idx as usize)
-                .write(|w| w.0 = buf.as_ptr() as u32);
+                .write(|w| w.0 = self.buffer.as_ptr() as u32);
 
             let transfer_size: u32 = buf.len() as u32;
             self.regs.hctsiz(self.channel_idx as usize).modify(|w| {
