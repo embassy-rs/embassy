@@ -1295,8 +1295,8 @@ impl<'d, T: Instance> embedded_io::Write for Uart<'d, T, Blocking> {
 trait SealedMode {}
 
 trait SealedInstance {
-    const TX_DREQ: u8;
-    const RX_DREQ: u8;
+    const TX_DREQ: pac::dma::vals::TreqSel;
+    const RX_DREQ: pac::dma::vals::TreqSel;
 
     fn regs() -> pac::uart::Uart;
 
@@ -1334,8 +1334,8 @@ pub trait Instance: SealedInstance {
 macro_rules! impl_instance {
     ($inst:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl SealedInstance for peripherals::$inst {
-            const TX_DREQ: u8 = $tx_dreq;
-            const RX_DREQ: u8 = $rx_dreq;
+            const TX_DREQ: pac::dma::vals::TreqSel = $tx_dreq;
+            const RX_DREQ: pac::dma::vals::TreqSel = $rx_dreq;
 
             fn regs() -> pac::uart::Uart {
                 pac::$inst
@@ -1360,8 +1360,18 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(UART0, UART0_IRQ, 20, 21);
-impl_instance!(UART1, UART1_IRQ, 22, 23);
+impl_instance!(
+    UART0,
+    UART0_IRQ,
+    pac::dma::vals::TreqSel::UART0_TX,
+    pac::dma::vals::TreqSel::UART0_RX
+);
+impl_instance!(
+    UART1,
+    UART1_IRQ,
+    pac::dma::vals::TreqSel::UART1_TX,
+    pac::dma::vals::TreqSel::UART1_RX
+);
 
 /// Trait for TX pins.
 pub trait TxPin<T: Instance>: crate::gpio::Pin {}
