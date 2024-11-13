@@ -260,99 +260,8 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
     }
 
     async fn wait_for_txresult(&mut self, handle_nak: bool) -> Result<(), ChannelError> {
-        loop {
-            Timer::after_millis(1).await;
-            let hcintr = self.regs.hcint(self.channel_idx as usize).read();
-
-            trace!(
-                "Polling wait_for_txresult: ch_idx={}, hcintr={}",
-                self.channel_idx,
-                hcintr.0
-            );
-
-            if hcintr.stall() {
-                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_stall(true));
-                return Err(ChannelError::Stall);
-            }
-
-            if hcintr.frmor() {
-                trace!("Frame overrun");
-                //     self.interrupt_interval.2 = false; // Pause interrupt channel
-                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_frmor(true));
-            }
-
-            if hcintr.dterr() {
-                trace!("Data toggle error");
-                //     self.interrupt_interval.2 = false; // Pause interrupt channel
-                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_dterr(true));
-            }
-
-            // For OUT request ack seems like it's also counts here?
-            if hcintr.xfrc() {
-                // Transfer was completed
-                // assert!(hcintr.ack(), "Didn't get ACK, but transfer was complete");
-
-                self.regs.hcchar(self.channel_idx as usize).modify(|w| {
-                    // Disable channel for next trx
-                    w.set_chena(false);
-                    w.set_chdis(false);
-                });
-
-                self.regs.hcint(self.channel_idx as usize).write(|w| {
-                    w.set_xfrc(true);
-                    w.set_ack(true);
-                });
-
-                trace!("xfrc completed");
-                return Ok(());
-            }
-
-            // Need to check this after xfrc, since xfrc can cause a halt
-            if hcintr.chh() {
-                if hcintr.txerr() || hcintr.bberr() {
-                    warn!(
-                        "Got transaction error txerr={}, bberr={}, hcint={}",
-                        hcintr.txerr(),
-                        hcintr.bberr(),
-                        hcintr.0
-                    );
-                    self.regs.hcint(self.channel_idx as usize).write(|w| {
-                        w.set_txerr(true);
-                        w.set_bberr(true);
-                    });
-                    return Err(ChannelError::BadResponse);
-                }
-
-                if hcintr.nak() {
-                    trace!("Got NAK");
-                    self.regs.hcint(self.channel_idx as usize).write(|w| w.set_nak(true));
-                    if handle_nak {
-                        return Err(ChannelError::Timeout);
-                    }
-                }
-
-                // Channel halted, transaction canceled
-                // TODO[CherryUSB]: apparently Control endpoints do something when at INDATA state?
-                trace!("Halted hcint={}", hcintr.0);
-                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_chh(true));
-                Err(ChannelError::Canceled)?
-            }
-        }
-        // poll_fn(|cx| {
-        //     // NOTE: timeout is handled in hardware by shown by txerr, however we can't know if it was a timeout specifically
-
-        //     critical_section::with(|_| {
-        //         self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
-        //             w.set_xfrcm(false);
-        //             w.set_txerrm(false);
-        //             w.set_stallm(false);
-        //             w.set_chhm(false);
-        //         });
-        //         self.regs.haintmsk().modify(|w| {
-        //             w.0 &= !(1 << self.channel_idx as u32);
-        //         });
-        //     });
-
+        // loop {
+        //     Timer::after_millis(1).await;
         //     let hcintr = self.regs.hcint(self.channel_idx as usize).read();
 
         //     trace!(
@@ -363,7 +272,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
 
         //     if hcintr.stall() {
         //         self.regs.hcint(self.channel_idx as usize).write(|w| w.set_stall(true));
-        //         return Poll::Ready(Err(ChannelError::Stall));
+        //         return Err(ChannelError::Stall);
         //     }
 
         //     if hcintr.frmor() {
@@ -395,7 +304,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
         //         });
 
         //         trace!("xfrc completed");
-        //         return Poll::Ready(Ok(()));
+        //         return Ok(());
         //     }
 
         //     // Need to check this after xfrc, since xfrc can cause a halt
@@ -411,14 +320,14 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
         //                 w.set_txerr(true);
         //                 w.set_bberr(true);
         //             });
-        //             return Poll::Ready(Err(ChannelError::BadResponse));
+        //             return Err(ChannelError::BadResponse);
         //         }
 
         //         if hcintr.nak() {
         //             trace!("Got NAK");
         //             self.regs.hcint(self.channel_idx as usize).write(|w| w.set_nak(true));
         //             if handle_nak {
-        //                 return Poll::Ready(Err(ChannelError::Timeout));
+        //                 return Err(ChannelError::Timeout);
         //             }
         //         }
 
@@ -428,24 +337,115 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
         //         self.regs.hcint(self.channel_idx as usize).write(|w| w.set_chh(true));
         //         Err(ChannelError::Canceled)?
         //     }
+        // }
+        poll_fn(|cx| {
+            // NOTE: timeout is handled in hardware by shown by txerr, however we can't know if it was a timeout specifically
 
-        //     CH_WAKERS[self.channel_idx as usize].register(cx.waker());
+            critical_section::with(|_| {
+                self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
+                    w.set_xfrcm(false);
+                    w.set_txerrm(false);
+                    w.set_stallm(false);
+                    w.set_chhm(false);
+                });
+                self.regs.haintmsk().modify(|w| {
+                    w.0 &= !(1 << self.channel_idx as u32);
+                });
+            });
 
-        //     // Re-enable the interrupt this handled
-        //     self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
-        //         w.set_xfrcm(true);
-        //         w.set_txerrm(true);
-        //         w.set_stallm(true);
-        //         w.set_chhm(true);
-        //     });
+            let hcintr = self.regs.hcint(self.channel_idx as usize).read();
 
-        //     self.regs.haintmsk().modify(|w| {
-        //         w.0 |= 1 << self.channel_idx as u16;
-        //     });
+            trace!(
+                "Polling wait_for_txresult: ch_idx={}, hcintr={}",
+                self.channel_idx,
+                hcintr.0
+            );
 
-        //     Poll::Pending
-        // })
-        // .await
+            if hcintr.stall() {
+                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_stall(true));
+                return Poll::Ready(Err(ChannelError::Stall));
+            }
+
+            if hcintr.frmor() {
+                trace!("Frame overrun");
+                //     self.interrupt_interval.2 = false; // Pause interrupt channel
+                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_frmor(true));
+            }
+
+            if hcintr.dterr() {
+                trace!("Data toggle error");
+                //     self.interrupt_interval.2 = false; // Pause interrupt channel
+                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_dterr(true));
+            }
+
+            // For OUT request ack seems like it's also counts here?
+            if hcintr.xfrc() {
+                // Transfer was completed
+                // assert!(hcintr.ack(), "Didn't get ACK, but transfer was complete");
+
+                self.regs.hcchar(self.channel_idx as usize).modify(|w| {
+                    // Disable channel for next trx
+                    w.set_chena(false);
+                    w.set_chdis(false);
+                });
+
+                self.regs.hcint(self.channel_idx as usize).write(|w| {
+                    w.set_xfrc(true);
+                    w.set_ack(true);
+                });
+
+                trace!("xfrc completed");
+                return Poll::Ready(Ok(()));
+            }
+
+            // Need to check this after xfrc, since xfrc can cause a halt
+            if hcintr.chh() {
+                if hcintr.txerr() || hcintr.bberr() {
+                    warn!(
+                        "Got transaction error txerr={}, bberr={}, hcint={}",
+                        hcintr.txerr(),
+                        hcintr.bberr(),
+                        hcintr.0
+                    );
+                    self.regs.hcint(self.channel_idx as usize).write(|w| {
+                        w.set_txerr(true);
+                        w.set_bberr(true);
+                    });
+                    return Poll::Ready(Err(ChannelError::BadResponse));
+                }
+
+                if hcintr.nak() {
+                    trace!("Got NAK");
+                    self.regs.hcint(self.channel_idx as usize).write(|w| w.set_nak(true));
+                    if handle_nak {
+                        return Poll::Ready(Err(ChannelError::Timeout));
+                    }
+                }
+
+                // Channel halted, transaction canceled
+                // TODO[CherryUSB]: apparently Control endpoints do something when at INDATA state?
+                trace!("Halted hcint={}", hcintr.0);
+                self.regs.hcint(self.channel_idx as usize).write(|w| w.set_chh(true));
+                Err(ChannelError::Canceled)?
+            }
+
+            CH_WAKERS[self.channel_idx as usize].register(cx.waker());
+
+            // Re-enable the interrupt this handled
+            self.regs.hcintmsk(self.channel_idx as usize).modify(|w| {
+                w.set_xfrcm(true);
+                w.set_txerrm(true);
+                w.set_stallm(true);
+                w.set_chhm(true);
+            });
+
+            self.regs.haintmsk().modify(|w| {
+                w.0 |= 1 << self.channel_idx as u16;
+            });
+
+            Poll::Pending
+        })
+        .await
     }
 }
 
@@ -718,7 +718,8 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
     where
         D: channel::IsOut,
     {
-        // Flush fifos (UNSAFE)
+        // Flush fifos (UNSAFE; assumes single-thread)
+        // FIXME: find the fifo leak
         self.regs.grstctl().write(|w| {
             w.set_rxfflsh(true);
             w.set_txfflsh(true);
