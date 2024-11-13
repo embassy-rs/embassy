@@ -1083,7 +1083,7 @@ impl UsbHostDriver for UsbHostBus {
             trace!("Polling device event hprt={}", hprt.0);
 
             // FIXME: this is not reliable
-            if hprt.pcsts() && !self.dev_conn.load(core::sync::atomic::Ordering::Relaxed) {
+            if !self.dev_conn.load(core::sync::atomic::Ordering::Relaxed) {
                 // NOTE: de-bounce skipped here; could be done interrupt poll
                 // crate::rom::ets_delay_us(30_000);
                 // let hprt = self.regs.hprt().read();
@@ -1099,10 +1099,10 @@ impl UsbHostDriver for UsbHostBus {
                     self.dev_conn.store(true, core::sync::atomic::Ordering::Relaxed);
                     self.regs.gccfg_v1().modify(|w| w.set_sofouten(true));
                     return Poll::Ready(DeviceEvent::Connected(speed));
-                } else {
-                    self.dev_conn.store(false, core::sync::atomic::Ordering::Relaxed);
-                    return Poll::Ready(DeviceEvent::Disconnected);
                 }
+            } else if !hprt.pcsts() {
+                self.dev_conn.store(false, core::sync::atomic::Ordering::Relaxed);
+                return Poll::Ready(DeviceEvent::Disconnected);
             }
 
             DEVICE_WAKER.register(cx.waker());
