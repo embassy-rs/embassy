@@ -1045,6 +1045,7 @@ impl<'d, T: Instance, W: word::Word> Drop for Sai<'d, T, W> {
     fn drop(&mut self) {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr1().modify(|w| w.set_saien(false));
+        ch.cr2().modify(|w| w.set_fflush(true));
         self.fs.as_ref().map(|x| x.set_as_disconnected());
         self.sd.as_ref().map(|x| x.set_as_disconnected());
         self.sck.as_ref().map(|x| x.set_as_disconnected());
