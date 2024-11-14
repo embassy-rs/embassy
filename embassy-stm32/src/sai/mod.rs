@@ -861,11 +861,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         ring_buffer: RingBuffer<'d, W>,
         config: Config,
     ) -> Self {
+        let ch = T::REGS.ch(sub_block as usize);
+
         #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
         {
-            let ch = T::REGS.ch(sub_block as usize);
             ch.cr1().modify(|w| w.set_saien(false));
         }
+
+        ch.cr2().modify(|w| w.set_fflush(true));
 
         #[cfg(any(sai_v4_2pdm, sai_v4_4pdm))]
         {
@@ -888,7 +891,6 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
 
         #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
         {
-            let ch = T::REGS.ch(sub_block as usize);
             ch.cr1().modify(|w| {
                 w.set_mode(config.mode.mode(if Self::is_transmitter(&ring_buffer) {
                     TxRx::Transmitter
