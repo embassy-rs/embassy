@@ -138,15 +138,15 @@ embassy_hal_internal::peripherals! {
     EGU1,
 }
 
-impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
+impl_uarte!(UARTE0, UARTE0, UARTE0);
 
-impl_spim!(SPI0, SPIM0, SPIM0_SPIS0_SPI0);
+impl_spim!(SPI0, SPIM0, SPI0);
 
-impl_spis!(SPI0, SPIS0, SPIM0_SPIS0_SPI0);
+impl_spis!(SPI0, SPIS0, SPI0);
 
-impl_twim!(TWI0, TWIM0, TWIM0_TWIS0_TWI0);
+impl_twim!(TWI0, TWIM0, TWI0);
 
-impl_twis!(TWI0, TWIS0, TWIM0_TWIS0_TWI0);
+impl_twis!(TWI0, TWIS0, TWI0);
 
 impl_qdec!(QDEC, QDEC, QDEC);
 
@@ -218,15 +218,15 @@ impl_saadc_input!(P0_05, ANALOG_INPUT3);
 
 impl_radio!(RADIO, RADIO, RADIO);
 
-impl_egu!(EGU0, EGU0, SWI0_EGU0);
-impl_egu!(EGU1, EGU1, SWI1_EGU1);
+impl_egu!(EGU0, EGU0, EGU0_SWI0);
+impl_egu!(EGU1, EGU1, EGU1_SWI1);
 
 embassy_hal_internal::interrupt_mod!(
-    POWER_CLOCK,
+    CLOCK_POWER,
     RADIO,
-    UARTE0_UART0,
-    TWIM0_TWIS0_TWI0,
-    SPIM0_SPIS0_SPI0,
+    UARTE0,
+    TWI0,
+    SPI0,
     GPIOTE,
     SAADC,
     TIMER0,
@@ -236,12 +236,12 @@ embassy_hal_internal::interrupt_mod!(
     TEMP,
     RNG,
     ECB,
-    CCM_AAR,
+    AAR_CCM,
     WDT,
     RTC1,
     QDEC,
-    SWI0_EGU0,
-    SWI1_EGU1,
+    EGU0_SWI0,
+    EGU1_SWI1,
     SWI2,
     SWI3,
     SWI4,

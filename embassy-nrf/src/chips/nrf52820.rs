@@ -145,19 +145,19 @@ embassy_hal_internal::peripherals! {
 
 impl_usb!(USBD, USBD, USBD);
 
-impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
+impl_uarte!(UARTE0, UARTE0, UARTE0);
 
-impl_spim!(TWISPI0, SPIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-impl_spim!(TWISPI1, SPIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+impl_spim!(TWISPI0, SPIM0, TWISPI0);
+impl_spim!(TWISPI1, SPIM1, TWISPI1);
 
-impl_spis!(TWISPI0, SPIS0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-impl_spis!(TWISPI1, SPIS1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+impl_spis!(TWISPI0, SPIS0, TWISPI0);
+impl_spis!(TWISPI1, SPIS1, TWISPI1);
 
-impl_twim!(TWISPI0, TWIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-impl_twim!(TWISPI1, TWIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+impl_twim!(TWISPI0, TWIM0, TWISPI0);
+impl_twim!(TWISPI1, TWIM1, TWISPI1);
 
-impl_twis!(TWISPI0, TWIS0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-impl_twis!(TWISPI1, TWIS1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+impl_twis!(TWISPI0, TWIS0, TWISPI0);
+impl_twis!(TWISPI1, TWIS1, TWISPI1);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
@@ -237,19 +237,19 @@ impl_ppi_channel!(PPI_CH31, 31 => static);
 
 impl_radio!(RADIO, RADIO, RADIO);
 
-impl_egu!(EGU0, EGU0, SWI0_EGU0);
-impl_egu!(EGU1, EGU1, SWI1_EGU1);
-impl_egu!(EGU2, EGU2, SWI2_EGU2);
-impl_egu!(EGU3, EGU3, SWI3_EGU3);
-impl_egu!(EGU4, EGU4, SWI4_EGU4);
-impl_egu!(EGU5, EGU5, SWI5_EGU5);
+impl_egu!(EGU0, EGU0, EGU0_SWI0);
+impl_egu!(EGU1, EGU1, EGU1_SWI1);
+impl_egu!(EGU2, EGU2, EGU2_SWI2);
+impl_egu!(EGU3, EGU3, EGU3_SWI3);
+impl_egu!(EGU4, EGU4, EGU4_SWI4);
+impl_egu!(EGU5, EGU5, EGU5_SWI5);
 
 embassy_hal_internal::interrupt_mod!(
-    POWER_CLOCK,
+    CLOCK_POWER,
     RADIO,
-    UARTE0_UART0,
-    SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0,
-    SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
+    UARTE0,
+    TWISPI0,
+    TWISPI1,
     GPIOTE,
     TIMER0,
     TIMER1,
@@ -258,17 +258,17 @@ embassy_hal_internal::interrupt_mod!(
     TEMP,
     RNG,
     ECB,
-    CCM_AAR,
+    AAR_CCM,
     WDT,
     RTC1,
     QDEC,
     COMP,
-    SWI0_EGU0,
-    SWI1_EGU1,
-    SWI2_EGU2,
-    SWI3_EGU3,
-    SWI4_EGU4,
-    SWI5_EGU5,
+    EGU0_SWI0,
+    EGU1_SWI1,
+    EGU2_SWI2,
+    EGU3_SWI3,
+    EGU4_SWI4,
+    EGU5_SWI5,
     TIMER3,
     USBD,
 );

@@ -28,7 +28,7 @@ fn IPC() {
 }
 
 bind_interrupts!(struct Irqs {
-    UARTE0_SPIM0_SPIS0_TWIM0_TWIS0 => buffered_uarte::InterruptHandler<peripherals::SERIAL0>;
+    SERIAL0 => buffered_uarte::InterruptHandler<peripherals::SERIAL0>;
 });
 
 #[embassy_executor::task]
