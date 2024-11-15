@@ -170,7 +170,7 @@ mod chip;
 ///
 /// bind_interrupts!(struct Irqs {
 ///     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
-///     SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => twim::InterruptHandler<peripherals::TWISPI0>;
+///     TWISPI0 => twim::InterruptHandler<peripherals::TWISPI0>;
 /// });
 /// ```
 

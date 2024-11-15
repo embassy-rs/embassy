@@ -27,8 +27,8 @@ embassy_hal_internal::peripherals! {
     UARTE0,
 
     // SPI/TWI
-    TWISPI0,
-    SPI1,
+    TWI0_SPI1,
+    SPI0,
 
     // SAADC
     SAADC,
@@ -144,17 +144,17 @@ embassy_hal_internal::peripherals! {
     EGU1,
 }
 
-impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
+impl_uarte!(UARTE0, UARTE0, UARTE0);
 
-impl_spim!(TWISPI0, SPIM0, TWIM0_TWIS0_TWI0_SPIM0_SPIS0_SPI0);
-impl_spim!(SPI1, SPIM1, SPIM1_SPIS1_SPI1);
+impl_spim!(SPI0, SPIM0, SPI0);
+impl_spim!(TWI0_SPI1, SPIM1, TWI0_SPI1);
 
-impl_spis!(TWISPI0, SPIS0, TWIM0_TWIS0_TWI0_SPIM0_SPIS0_SPI0);
-impl_spis!(SPI1, SPIS1, SPIM1_SPIS1_SPI1);
+impl_spis!(SPI0, SPIS0, SPI0);
+impl_spis!(TWI0_SPI1, SPIS1, TWI0_SPI1);
 
-impl_twim!(TWISPI0, TWIM0, TWIM0_TWIS0_TWI0_SPIM0_SPIS0_SPI0);
+impl_twim!(TWI0_SPI1, TWIM0, TWI0_SPI1);
 
-impl_twis!(TWISPI0, TWIS0, TWIM0_TWIS0_TWI0_SPIM0_SPIS0_SPI0);
+impl_twis!(TWI0_SPI1, TWIS0, TWI0_SPI1);
 
 impl_pwm!(PWM0, PWM0, PWM0);
 
@@ -246,15 +246,15 @@ impl_saadc_input!(P0_31, ANALOG_INPUT7);
 
 impl_radio!(RADIO, RADIO, RADIO);
 
-impl_egu!(EGU0, EGU0, SWI0_EGU0);
-impl_egu!(EGU1, EGU1, SWI1_EGU1);
+impl_egu!(EGU0, EGU0, EGU0_SWI0);
+impl_egu!(EGU1, EGU1, EGU1_SWI1);
 
 embassy_hal_internal::interrupt_mod!(
-    POWER_CLOCK,
+    CLOCK_POWER,
     RADIO,
-    UARTE0_UART0,
-    TWIM0_TWIS0_TWI0_SPIM0_SPIS0_SPI0,
-    SPIM1_SPIS1_SPI1,
+    UARTE0,
+    TWI0_SPI1,
+    SPI0,
     GPIOTE,
     SAADC,
     TIMER0,
@@ -264,13 +264,13 @@ embassy_hal_internal::interrupt_mod!(
     TEMP,
     RNG,
     ECB,
-    CCM_AAR,
+    AAR_CCM,
     WDT,
     RTC1,
     QDEC,
     COMP,
-    SWI0_EGU0,
-    SWI1_EGU1,
+    EGU0_SWI0,
+    EGU1_SWI1,
     SWI2,
     SWI3,
     SWI4,

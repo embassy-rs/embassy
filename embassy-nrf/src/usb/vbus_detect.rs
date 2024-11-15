@@ -29,14 +29,14 @@ pub trait VbusDetect {
 }
 
 #[cfg(not(feature = "_nrf5340"))]
-type UsbRegIrq = interrupt::typelevel::POWER_CLOCK;
+type UsbRegIrq = interrupt::typelevel::CLOCK_POWER;
 #[cfg(feature = "_nrf5340")]
 type UsbRegIrq = interrupt::typelevel::USBREGULATOR;
 
 #[cfg(not(feature = "_nrf5340"))]
 const USB_REG_PERI: pac::power::Power = pac::POWER;
 #[cfg(feature = "_nrf5340")]
-const USB_REG_PERI: pac::usbregulator::Usbregulator = pac::USBREGULATOR;
+const USB_REG_PERI: pac::usbreg::Usbreg = pac::USBREGULATOR;
 
 /// Interrupt handler.
 pub struct InterruptHandler {

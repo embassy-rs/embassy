@@ -146,11 +146,11 @@ impl_pin!(P0_31, 0, 31);
 impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(
-    POWER_CLOCK,
+    CLOCK_POWER,
     RADIO,
     UART0,
-    SPI0_TWI0,
-    SPI1_TWI1,
+    TWISPI0,
+    TWISPI1,
     GPIOTE,
     ADC,
     TIMER0,
@@ -160,7 +160,7 @@ embassy_hal_internal::interrupt_mod!(
     TEMP,
     RNG,
     ECB,
-    CCM_AAR,
+    AAR_CCM,
     WDT,
     RTC1,
     QDEC,

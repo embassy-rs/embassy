@@ -132,7 +132,7 @@ impl RtcDriver {
 
         r.intenset().write(|w| {
             w.set_ovrflw(true);
-            w.set_compare3(true);
+            w.set_compare(3, true);
         });
 
         r.tasks_clear().write_value(1);

@@ -13,7 +13,7 @@ use {defmt_rtt as _, panic_probe as _};
 static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
 
 bind_interrupts!(struct Irqs {
-    UARTE0_UART0 => uarte::InterruptHandler<UARTE0>;
+    UARTE0 => uarte::InterruptHandler<UARTE0>;
 });
 
 #[embassy_executor::main]

@@ -2,55 +2,10 @@
 #[allow(unused_imports)]
 #[rustfmt::skip]
 pub mod pac {
-    // The nRF5340 has a secure and non-secure (NS) mode.
-    // To avoid cfg spam, we remove _ns or _s suffixes here.
-
-    #[cfg(feature="rt")]
-    pub use nrf_pac::NVIC_PRIO_BITS;
-    pub use nrf_pac::{common, shared};
-
-    #[cfg(feature="rt")]
-    #[doc(no_inline)]
-    pub use nrf_pac::interrupt;
+    pub use nrf_pac::*;
 
     #[doc(no_inline)]
     pub use nrf_pac::{
-        Interrupt,
-
-        aar_ns as aar,
-        acl_ns as acl,
-        appmutex_ns as appmutex,
-        ccm_ns as ccm,
-        clock_ns as clock,
-        cti_ns as cti,
-        ctrlap_ns as ctrlap,
-        dcnf_ns as dcnf,
-        dppic_ns as dppic,
-        ecb_ns as ecb,
-        egu_ns as egu,
-        ficr_ns as ficr,
-        gpiote_ns as gpiote,
-        ipc_ns as ipc,
-        nvmc_ns as nvmc,
-        gpio_ns as gpio,
-        power_ns as power,
-        radio_ns as radio,
-        reset_ns as reset,
-        rng_ns as rng,
-        rtc_ns as rtc,
-        spim_ns as spim,
-        spis_ns as spis,
-        swi_ns as swi,
-        temp_ns as temp,
-        timer_ns as timer,
-        twim_ns as twim,
-        twis_ns as twis,
-        uarte_ns as uarte,
-        uicr_ns as uicr,
-        vmc_ns as vmc,
-        vreqctrl_ns as vreqctrl,
-        wdt_ns as wdt,
-
         AAR_NS as AAR,
         ACL_NS as ACL,
         APPMUTEX_NS as APPMUTEX,
@@ -93,7 +48,6 @@ pub mod pac {
         VREQCTRL_NS as VREQCTRL,
         WDT_NS as WDT,
     };
-    
 }
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
