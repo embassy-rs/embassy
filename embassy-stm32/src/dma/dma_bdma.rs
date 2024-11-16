@@ -828,7 +828,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
         self.channel.start();
-        self.clear();
     }
 
     /// Clear all data in the ring buffer.
@@ -981,7 +980,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
         self.channel.start();
-        self.clear();
     }
 
     /// Clear all data in the ring buffer.
@@ -991,7 +989,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Write elements directly to the raw buffer.
     /// This can be used to fill the buffer before starting the DMA transfer.
-    #[allow(dead_code)]
     pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
         self.ringbuf.write_immediate(buf)
     }
