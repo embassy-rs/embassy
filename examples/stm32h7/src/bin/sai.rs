@@ -107,8 +107,7 @@ async fn main(_spawner: Spawner) {
 
     let mut sai_receiver = Sai::new_synchronous(sub_block_rx, p.PE3, p.DMA1_CH1, rx_buffer, rx_config);
 
-    sai_receiver.start();
-    sai_transmitter.start();
+    sai_receiver.start().unwrap();
 
     let mut buf = [0u32; HALF_DMA_BUFFER_LENGTH];
 
