@@ -1006,6 +1006,13 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             .await
     }
 
+    /// Wait for any ring buffer write error.
+    pub async fn wait_write_error(&mut self) -> Result<usize, Error> {
+        self.ringbuf
+            .wait_write_error(&mut DmaCtrlImpl(self.channel.reborrow()))
+            .await
+    }
+
     /// The current length of the ringbuffer
     pub fn len(&mut self) -> Result<usize, Error> {
         Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)

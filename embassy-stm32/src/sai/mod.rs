@@ -1003,6 +1003,22 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         }
     }
 
+    /// Wait until any SAI write error occurs.
+    ///
+    /// One useful application for this is stopping playback as soon as the SAI
+    /// experiences an overrun of the ring buffer. Then, instead of letting
+    /// the SAI peripheral play the last written buffer over and over again, SAI
+    /// can be muted or dropped instead.
+    pub async fn wait_write_error(&mut self) -> Result<(), Error> {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => {
+                buffer.wait_write_error().await?;
+                Ok(())
+            }
+            _ => return Err(Error::NotATransmitter),
+        }
+    }
+
     /// Write data to the SAI ringbuffer.
     ///
     /// The first write starts the DMA after filling the ring buffer with the provided data.
