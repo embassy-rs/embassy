@@ -261,7 +261,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     /// Wait for any ring buffer write error.
-    pub async fn write_error(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
+    pub async fn wait_write_error(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
         poll_fn(|cx| {
             dma.set_waker(cx.waker());
 
