@@ -260,6 +260,19 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         Ok((written, self.cap() - written))
     }
 
+    /// Wait for any ring buffer write error.
+    pub async fn write_error(&mut self, dma: &mut impl DmaCtrl) -> Result<usize, Error> {
+        poll_fn(|cx| {
+            dma.set_waker(cx.waker());
+
+            match self.len(dma) {
+                Ok(_) => Poll::Pending,
+                Err(e) => Poll::Ready(Err(e)),
+            }
+        })
+        .await
+    }
+
     /// Write an exact number of elements to the ringbuffer.
     pub async fn write_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<usize, Error> {
         let mut written_data = 0;
