@@ -203,7 +203,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         if let Some(miso) = &miso {
             miso.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_drive(convert_drive(config.miso_drive))
+                convert_drive(w, config.miso_drive);
             });
             r.psel().miso().write_value(miso.psel_bits());
         }

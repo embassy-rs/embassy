@@ -10,6 +10,11 @@ use embassy_time_driver::{AlarmHandle, Driver};
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
+#[cfg(feature = "_nrf54l")]
+fn rtc() -> pac::rtc::Rtc {
+    pac::RTC30
+}
+#[cfg(not(feature = "_nrf54l"))]
 fn rtc() -> pac::rtc::Rtc {
     pac::RTC1
 }
@@ -141,8 +146,16 @@ impl RtcDriver {
         // Wait for clear
         while r.counter().read().0 != 0 {}
 
-        interrupt::RTC1.set_priority(irq_prio);
-        unsafe { interrupt::RTC1.enable() };
+        #[cfg(feature = "_nrf54l")]
+        {
+            interrupt::RTC30.set_priority(irq_prio);
+            unsafe { interrupt::RTC30.enable() };
+        }
+        #[cfg(not(feature = "_nrf54l"))]
+        {
+            interrupt::RTC1.set_priority(irq_prio);
+            unsafe { interrupt::RTC1.enable() };
+        }
     }
 
     fn on_interrupt(&self) {
@@ -292,6 +305,14 @@ impl Driver for RtcDriver {
     }
 }
 
+#[cfg(feature = "_nrf54l")]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn RTC30() {
+    DRIVER.on_interrupt()
+}
+
+#[cfg(not(feature = "_nrf54l"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn RTC1() {

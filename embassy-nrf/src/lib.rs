@@ -22,6 +22,8 @@
     feature = "nrf5340-app-s",
     feature = "nrf5340-app-ns",
     feature = "nrf5340-net",
+    feature = "nrf54l15-app-s",
+    feature = "nrf54l15-app-ns",
     feature = "nrf9160-s",
     feature = "nrf9160-ns",
     feature = "nrf9120-s",
@@ -44,6 +46,8 @@ compile_error!(
     nrf5340-app-s,
     nrf5340-app-ns,
     nrf5340-net,
+    nrf54l15-app-s,
+    nrf54l15-app-ns,
     nrf9160-s,
     nrf9160-ns,
     nrf9120-s,
@@ -68,21 +72,22 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod buffered_uarte;
-pub mod gpio;
-#[cfg(feature = "gpiote")]
-pub mod gpiote;
-
-// TODO: tested on other chips
-#[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
-pub mod radio;
-
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod egu;
+pub mod gpio;
+#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(feature = "gpiote")]
+pub mod gpiote;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod nvmc;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "nrf52810",
     feature = "nrf52811",
@@ -93,7 +98,9 @@ pub mod nvmc;
     feature = "_nrf91",
 ))]
 pub mod pdm;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod ppi;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(
     feature = "_nrf51",
     feature = "nrf52805",
@@ -101,27 +108,42 @@ pub mod ppi;
     feature = "_nrf5340-net"
 )))]
 pub mod pwm;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf91", feature = "_nrf5340-net")))]
 pub mod qdec;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52840", feature = "_nrf5340-app"))]
 pub mod qspi;
+#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
+pub mod radio;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spim;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
 pub mod temp;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod timer;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twim;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twis;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod uarte;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "_nrf5340-app",
     feature = "nrf52820",
@@ -129,6 +151,7 @@ pub mod uarte;
     feature = "nrf52840"
 ))]
 pub mod usb;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;
 
@@ -143,6 +166,7 @@ pub mod wdt;
 #[cfg_attr(feature = "nrf52840", path = "chips/nrf52840.rs")]
 #[cfg_attr(feature = "_nrf5340-app", path = "chips/nrf5340_app.rs")]
 #[cfg_attr(feature = "_nrf5340-net", path = "chips/nrf5340_net.rs")]
+#[cfg_attr(feature = "_nrf54l15-app", path = "chips/nrf54l15_app.rs")]
 #[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 #[cfg_attr(feature = "_nrf9120", path = "chips/nrf9120.rs")]
 mod chip;
@@ -249,10 +273,10 @@ pub mod config {
         /// External source from xtal.
         ExternalXtal,
         /// External source from xtal with low swing applied.
-        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
+        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
         ExternalLowSwing,
         /// External source from xtal with full swing applied.
-        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
+        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
         ExternalFullSwing,
     }
 
@@ -325,7 +349,7 @@ pub mod config {
         pub hfclk_source: HfclkSource,
         /// Low frequency clock source.
         pub lfclk_source: LfclkSource,
-        #[cfg(not(feature = "_nrf5340-net"))]
+        #[cfg(not(any(feature = "_nrf5340-net", feature = "_nrf54l")))]
         /// DCDC configuration.
         pub dcdc: DcdcConfig,
         /// GPIOTE interrupt priority. Should be lower priority than softdevice if used.
@@ -346,7 +370,7 @@ pub mod config {
                 // xtals if they know they have them.
                 hfclk_source: HfclkSource::Internal,
                 lfclk_source: LfclkSource::InternalRC,
-                #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
+                #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
                 dcdc: DcdcConfig {
                     #[cfg(feature = "nrf52840")]
                     reg0: false,
@@ -415,7 +439,7 @@ mod consts {
     pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
 }
 
-#[cfg(not(feature = "_nrf51"))]
+#[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum WriteResult {
@@ -427,12 +451,12 @@ enum WriteResult {
     Failed,
 }
 
-#[cfg(not(feature = "_nrf51"))]
+#[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
 unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
     uicr_write_masked(address, value, 0xFFFF_FFFF)
 }
 
-#[cfg(not(feature = "_nrf51"))]
+#[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
 unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
     let curr_val = address.read_volatile();
     if curr_val & mask == value & mask {
@@ -469,6 +493,7 @@ pub fn init(config: config::Config) -> Peripherals {
     let mut needs_reset = false;
 
     // Setup debug protection.
+    #[cfg(not(feature = "_nrf54l"))] // TODO
     #[cfg(not(feature = "_nrf51"))]
     match config.debug {
         config::Debug::Allowed => {
@@ -592,15 +617,25 @@ pub fn init(config: config::Config) -> Peripherals {
     match config.hfclk_source {
         config::HfclkSource::Internal => {}
         config::HfclkSource::ExternalXtal => {
-            // Datasheet says this is likely to take 0.36ms
-            r.events_hfclkstarted().write_value(0);
-            r.tasks_hfclkstart().write_value(1);
-            while r.events_hfclkstarted().read() == 0 {}
+            #[cfg(feature = "_nrf54l")]
+            {
+                r.events_xostarted().write_value(0);
+                r.tasks_xostart().write_value(1);
+                while r.events_xostarted().read() == 0 {}
+            }
+
+            #[cfg(not(feature = "_nrf54l"))]
+            {
+                // Datasheet says this is likely to take 0.36ms
+                r.events_hfclkstarted().write_value(0);
+                r.tasks_hfclkstart().write_value(1);
+                while r.events_hfclkstarted().read() == 0 {}
+            }
         }
     }
 
     // Configure LFCLK.
-    #[cfg(not(any(feature = "_nrf51", feature = "_nrf5340", feature = "_nrf91")))]
+    #[cfg(not(any(feature = "_nrf51", feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
     match config.lfclk_source {
         config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::RC)),
         config::LfclkSource::Synthesized => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::SYNTH)),
@@ -621,6 +656,12 @@ pub fn init(config: config::Config) -> Peripherals {
         config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFRC)),
         config::LfclkSource::ExternalXtal => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFXO)),
     }
+    #[cfg(feature = "_nrf54l")]
+    match config.lfclk_source {
+        config::LfclkSource::InternalRC => r.lfclk().src().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFRC)),
+        config::LfclkSource::Synthesized => r.lfclk().src().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFSYNT)),
+        config::LfclkSource::ExternalXtal => r.lfclk().src().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFXO)),
+    }
 
     // Start LFCLK.
     // Datasheet says this could take 100us from synth source
@@ -629,7 +670,7 @@ pub fn init(config: config::Config) -> Peripherals {
     r.tasks_lfclkstart().write_value(1);
     while r.events_lfclkstarted().read() == 0 {}
 
-    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
+    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
     {
         // Setup DCDCs.
         #[cfg(feature = "nrf52840")]
@@ -663,6 +704,7 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Init GPIOTE
+    #[cfg(not(feature = "_nrf54l"))] // TODO
     #[cfg(feature = "gpiote")]
     gpiote::init(config.gpiote_interrupt_priority);
 

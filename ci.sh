@@ -70,6 +70,8 @@ cargo batch \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf5340-app-s,gpiote,time,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf5340-app-ns,gpiote,time,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf5340-net,gpiote,time,time-driver-rtc1 \
+    --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf54l15-app-s,gpiote,time,time-driver-rtc1 \
+    --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf54l15-app-ns,gpiote,time,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52840,gpiote,time \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52840,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52840,gpiote,time,time-driver-rtc1 \
@@ -197,6 +199,7 @@ cargo batch \
     --- build --release --manifest-path examples/nrf52810/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52810 \
     --- build --release --manifest-path examples/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840 \
     --- build --release --manifest-path examples/nrf5340/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf5340 \
+    --- build --release --manifest-path examples/nrf54l15/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf54l15 \
     --- build --release --manifest-path examples/nrf9160/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9160 \
     --- build --release --manifest-path examples/nrf9151/s/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9151/s \
     --- build --release --manifest-path examples/nrf9151/ns/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9151/ns \

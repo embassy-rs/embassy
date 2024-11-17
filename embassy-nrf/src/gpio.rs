@@ -23,6 +23,10 @@ pub enum Port {
     /// Port 1, only available on some MCUs.
     #[cfg(feature = "_gpio-p1")]
     Port1,
+
+    /// Port 2, only available on some MCUs.
+    #[cfg(feature = "_gpio-p2")]
+    Port2,
 }
 
 /// Pull setting for an input.
@@ -99,8 +103,83 @@ impl From<Level> for bool {
     }
 }
 
+/// Drive strength settings for a given output level.
+// These numbers match vals::Drive exactly so hopefully the compiler will unify them.
+#[cfg(feature = "_nrf54l")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum LevelDrive {
+    /// Disconnect (do not drive the output at all)
+    Disconnect = 2,
+    /// Standard
+    Standard = 0,
+    /// High drive
+    High = 1,
+    /// Extra high drive
+    ExtraHigh = 3,
+}
+
+/// Drive strength settings for an output pin.
+///
+/// This is a combination of two drive levels, used when the pin is set
+/// low and high respectively.
+#[cfg(feature = "_nrf54l")]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct OutputDrive {
+    low: LevelDrive,
+    high: LevelDrive,
+}
+
+#[cfg(feature = "_nrf54l")]
+#[allow(non_upper_case_globals)]
+impl OutputDrive {
+    /// Standard '0', standard '1'
+    pub const Standard: Self = Self {
+        low: LevelDrive::Standard,
+        high: LevelDrive::Standard,
+    };
+    /// High drive '0', standard '1'
+    pub const HighDrive0Standard1: Self = Self {
+        low: LevelDrive::High,
+        high: LevelDrive::Standard,
+    };
+    /// Standard '0', high drive '1'
+    pub const Standard0HighDrive1: Self = Self {
+        low: LevelDrive::Standard,
+        high: LevelDrive::High,
+    };
+    /// High drive '0', high 'drive '1'
+    pub const HighDrive: Self = Self {
+        low: LevelDrive::High,
+        high: LevelDrive::High,
+    };
+    /// Disconnect '0' standard '1' (normally used for wired-or connections)
+    pub const Disconnect0Standard1: Self = Self {
+        low: LevelDrive::Disconnect,
+        high: LevelDrive::Standard,
+    };
+    /// Disconnect '0', high drive '1' (normally used for wired-or connections)
+    pub const Disconnect0HighDrive1: Self = Self {
+        low: LevelDrive::Disconnect,
+        high: LevelDrive::High,
+    };
+    /// Standard '0'. disconnect '1' (also known as "open drain", normally used for wired-and connections)
+    pub const Standard0Disconnect1: Self = Self {
+        low: LevelDrive::Standard,
+        high: LevelDrive::Disconnect,
+    };
+    /// High drive '0', disconnect '1' (also known as "open drain", normally used for wired-and connections)
+    pub const HighDrive0Disconnect1: Self = Self {
+        low: LevelDrive::High,
+        high: LevelDrive::Disconnect,
+    };
+}
+
 /// Drive strength settings for an output pin.
 // These numbers match vals::Drive exactly so hopefully the compiler will unify them.
+#[cfg(not(feature = "_nrf54l"))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -185,16 +264,35 @@ impl<'d> Output<'d> {
     }
 }
 
-pub(crate) fn convert_drive(drive: OutputDrive) -> vals::Drive {
-    match drive {
-        OutputDrive::Standard => vals::Drive::S0S1,
-        OutputDrive::HighDrive0Standard1 => vals::Drive::H0S1,
-        OutputDrive::Standard0HighDrive1 => vals::Drive::S0H1,
-        OutputDrive::HighDrive => vals::Drive::H0H1,
-        OutputDrive::Disconnect0Standard1 => vals::Drive::D0S1,
-        OutputDrive::Disconnect0HighDrive1 => vals::Drive::D0H1,
-        OutputDrive::Standard0Disconnect1 => vals::Drive::S0D1,
-        OutputDrive::HighDrive0Disconnect1 => vals::Drive::H0D1,
+pub(crate) fn convert_drive(w: &mut pac::gpio::regs::PinCnf, drive: OutputDrive) {
+    #[cfg(not(feature = "_nrf54l"))]
+    {
+        let drive = match drive {
+            OutputDrive::Standard => vals::Drive::S0S1,
+            OutputDrive::HighDrive0Standard1 => vals::Drive::H0S1,
+            OutputDrive::Standard0HighDrive1 => vals::Drive::S0H1,
+            OutputDrive::HighDrive => vals::Drive::H0H1,
+            OutputDrive::Disconnect0Standard1 => vals::Drive::D0S1,
+            OutputDrive::Disconnect0HighDrive1 => vals::Drive::D0H1,
+            OutputDrive::Standard0Disconnect1 => vals::Drive::S0D1,
+            OutputDrive::HighDrive0Disconnect1 => vals::Drive::H0D1,
+        };
+        w.set_drive(drive);
+    }
+
+    #[cfg(feature = "_nrf54l")]
+    {
+        fn convert(d: LevelDrive) -> vals::Drive {
+            match d {
+                LevelDrive::Disconnect => vals::Drive::D,
+                LevelDrive::Standard => vals::Drive::S,
+                LevelDrive::High => vals::Drive::H,
+                LevelDrive::ExtraHigh => vals::Drive::E,
+            }
+        }
+
+        w.set_drive0(convert(drive.low));
+        w.set_drive0(convert(drive.high));
     }
 }
 
@@ -234,7 +332,7 @@ impl<'d> Flex<'d> {
             w.set_dir(vals::Dir::INPUT);
             w.set_input(vals::Input::CONNECT);
             w.set_pull(convert_pull(pull));
-            w.set_drive(vals::Drive::S0S1);
+            convert_drive(w, OutputDrive::Standard);
             w.set_sense(vals::Sense::DISABLED);
         });
     }
@@ -249,9 +347,10 @@ impl<'d> Flex<'d> {
             w.set_dir(vals::Dir::OUTPUT);
             w.set_input(vals::Input::DISCONNECT);
             w.set_pull(vals::Pull::DISABLED);
-            w.set_drive(convert_drive(drive));
+            convert_drive(w, drive);
             w.set_sense(vals::Sense::DISABLED);
         });
+        info!("pin_cnf: {:08x}", self.pin.conf().read().0);
     }
 
     /// Put the pin into input + output mode.
@@ -269,7 +368,7 @@ impl<'d> Flex<'d> {
             w.set_dir(vals::Dir::OUTPUT);
             w.set_input(vals::Input::CONNECT);
             w.set_pull(convert_pull(pull));
-            w.set_drive(convert_drive(drive));
+            convert_drive(w, drive);
             w.set_sense(vals::Sense::DISABLED);
         });
     }
@@ -377,6 +476,8 @@ pub(crate) trait SealedPin {
             0 => pac::P0,
             #[cfg(feature = "_gpio-p1")]
             1 => pac::P1,
+            #[cfg(feature = "_gpio-p2")]
+            2 => pac::P2,
             _ => unsafe { unreachable_unchecked() },
         }
     }
@@ -415,6 +516,8 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
             0 => Port::Port0,
             #[cfg(feature = "_gpio-p1")]
             1 => Port::Port1,
+            #[cfg(feature = "_gpio-p2")]
+            2 => Port::Port2,
             _ => unsafe { unreachable_unchecked() },
         }
     }
@@ -463,6 +566,7 @@ impl SealedPin for AnyPin {
 // ====================
 
 #[cfg(not(feature = "_nrf51"))]
+#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) trait PselBits {
     fn psel_bits(&self) -> pac::shared::regs::Psel;
 }
@@ -479,6 +583,7 @@ impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
 }
 
 #[cfg(not(feature = "_nrf51"))]
+#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) const DISCONNECTED: Psel = Psel(1 << 31);
 
 #[cfg(not(feature = "_nrf51"))]
