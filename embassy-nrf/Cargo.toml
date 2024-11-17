@@ -18,6 +18,7 @@ flavors = [
     { regex_feature = "nrf51", target = "thumbv6m-none-eabi" },
     { regex_feature = "nrf52.*", target = "thumbv7em-none-eabihf" },
     { regex_feature = "nrf53.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "nrf54.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "nrf91.*", target = "thumbv8m.main-none-eabihf" },
 ]
 
