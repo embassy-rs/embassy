@@ -133,7 +133,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             pin.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
                 w.set_input(gpiovals::Input::DISCONNECT);
-                w.set_drive(convert_drive(config.ch0_drive));
+                convert_drive(w, config.ch0_drive);
             });
         }
         if let Some(pin) = &ch1 {
@@ -141,7 +141,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             pin.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
                 w.set_input(gpiovals::Input::DISCONNECT);
-                w.set_drive(convert_drive(config.ch1_drive));
+                convert_drive(w, config.ch1_drive);
             });
         }
         if let Some(pin) = &ch2 {
@@ -149,7 +149,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             pin.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
                 w.set_input(gpiovals::Input::DISCONNECT);
-                w.set_drive(convert_drive(config.ch2_drive));
+                convert_drive(w, config.ch2_drive);
             });
         }
         if let Some(pin) = &ch3 {
@@ -157,7 +157,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             pin.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
                 w.set_input(gpiovals::Input::DISCONNECT);
-                w.set_drive(convert_drive(config.ch3_drive));
+                convert_drive(w, config.ch3_drive);
             });
         }
 
@@ -832,7 +832,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     #[inline(always)]
     pub fn set_ch0_drive(&self, drive: OutputDrive) {
         if let Some(pin) = &self.ch0 {
-            pin.conf().modify(|w| w.set_drive(convert_drive(drive)));
+            pin.conf().modify(|w| convert_drive(w, drive));
         }
     }
 
@@ -840,7 +840,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     #[inline(always)]
     pub fn set_ch1_drive(&self, drive: OutputDrive) {
         if let Some(pin) = &self.ch1 {
-            pin.conf().modify(|w| w.set_drive(convert_drive(drive)));
+            pin.conf().modify(|w| convert_drive(w, drive));
         }
     }
 
@@ -848,7 +848,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     #[inline(always)]
     pub fn set_ch2_drive(&self, drive: OutputDrive) {
         if let Some(pin) = &self.ch2 {
-            pin.conf().modify(|w| w.set_drive(convert_drive(drive)));
+            pin.conf().modify(|w| convert_drive(w, drive));
         }
     }
 
@@ -856,7 +856,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     #[inline(always)]
     pub fn set_ch3_drive(&self, drive: OutputDrive) {
         if let Some(pin) = &self.ch3 {
-            pin.conf().modify(|w| w.set_drive(convert_drive(drive)));
+            pin.conf().modify(|w| convert_drive(w, drive));
         }
     }
 }

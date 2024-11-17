@@ -173,13 +173,13 @@ impl<'d, T: Instance> Spim<'d, T> {
         if let Some(sck) = &sck {
             sck.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_drive(convert_drive(config.sck_drive))
+                convert_drive(w, config.sck_drive);
             });
         }
         if let Some(mosi) = &mosi {
             mosi.conf().write(|w| {
                 w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_drive(convert_drive(config.mosi_drive))
+                convert_drive(w, config.mosi_drive);
             });
         }
         if let Some(miso) = &miso {

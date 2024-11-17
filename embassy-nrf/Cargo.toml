@@ -83,6 +83,11 @@ nrf5340-app-s = ["_nrf5340-app", "_s"]
 nrf5340-app-ns = ["_nrf5340-app", "_ns"]
 ## nRF5340 network core
 nrf5340-net = ["_nrf5340-net"]
+## nRF54L15 application core in Secure mode
+nrf54l15-app-s = ["_nrf54l15-app", "_s"]
+## nRF54L15 application core in Non-Secure mode
+nrf54l15-app-ns = ["_nrf54l15-app", "_ns"]
+
 ## nRF9160 in Secure mode
 nrf9160-s = ["_nrf9160", "_s", "_nrf91"]
 ## nRF9160 in Non-Secure mode
@@ -103,6 +108,10 @@ nrf9161-ns = ["nrf9120-ns"]
 _nrf5340-app = ["_nrf5340", "nrf-pac/nrf5340-app"]
 _nrf5340-net = ["_nrf5340", "nrf-pac/nrf5340-net"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
+_nrf54l15-app = ["_nrf54l15", "nrf-pac/nrf54l15-app"]
+_nrf54l15 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
+_nrf54l = ["_dppi"]
+
 _nrf9160 = ["nrf-pac/nrf9160", "_dppi"]
 _nrf9120 = ["nrf-pac/nrf9120", "_dppi"]
 _nrf52 = ["_ppi"]
@@ -118,6 +127,7 @@ _ns = []
 _ppi = []
 _dppi = []
 _gpio-p1 = []
+_gpio-p2 = []
 
 # Errata workarounds
 _nrf52832_anomaly_109 = []
@@ -136,7 +146,7 @@ embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 
-nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "12e2461859acb0bfea9b2ef5cd73f1283c139ac0" }
+nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "52e3a757f06035c94291bfc42b0c03f71e4d677e" }
 
 defmt = { version = "0.3", optional = true }
 bitflags = "2.4.2"
