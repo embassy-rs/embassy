@@ -257,7 +257,9 @@ impl LsConfig {
                     w.set_lsesysen(lse_sysen);
                 });
 
-                while !bdcr().read().lsesysrdy() {}
+                if lse_sysen {
+                    while !bdcr().read().lsesysrdy() {}
+                }
             }
         }
 
