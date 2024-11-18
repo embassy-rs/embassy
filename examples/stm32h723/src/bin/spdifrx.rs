@@ -7,6 +7,7 @@
 
 use defmt::{info, trace};
 use embassy_executor::Spawner;
+use embassy_futures::select::{self, select, Either};
 use embassy_stm32::spdifrx::{self, Spdifrx};
 use embassy_stm32::{bind_interrupts, peripherals, sai};
 use grounded::uninit::GroundedArrayCell;
@@ -75,7 +76,6 @@ async fn main(_spawner: Spawner) {
         core::slice::from_raw_parts_mut(ptr, len)
     };
 
-    let mut spdif_receiver = new_spdif_receiver(&mut p.SPDIFRX1, &mut p.PD7, &mut p.DMA2_CH7, spdifrx_buffer);
     let mut sai_transmitter = new_sai_transmitter(
         &mut p.SAI4,
         &mut p.PD13,
@@ -84,32 +84,15 @@ async fn main(_spawner: Spawner) {
         &mut p.BDMA_CH0,
         sai_buffer,
     );
-
+    let mut spdif_receiver = new_spdif_receiver(&mut p.SPDIFRX1, &mut p.PD7, &mut p.DMA2_CH7, spdifrx_buffer);
     spdif_receiver.start();
 
+    let mut renew_sai = false;
     loop {
         let mut buf = [0u32; HALF_DMA_BUFFER_LENGTH];
 
-        match spdif_receiver.read_data(&mut buf).await {
-            Ok(_) => (),
-            Err(spdifrx::Error::RingbufferError(_)) => {
-                trace!("SPDIFRX ringbuffer error. Renew.");
-                drop(spdif_receiver);
-                spdif_receiver = new_spdif_receiver(&mut p.SPDIFRX1, &mut p.PD7, &mut p.DMA2_CH7, spdifrx_buffer);
-                spdif_receiver.start();
-                continue;
-            }
-            Err(spdifrx::Error::ChannelSyncError) => {
-                trace!("SPDIFRX channel sync (left/right assignment) error.");
-                continue;
-            }
-            Err(spdifrx::Error::SourceSyncError) => {
-                trace!("SPDIFRX source sync error, e.g. disconnect.");
-                continue;
-            }
-        };
-
-        if sai_transmitter.write(&buf).await.is_err() {
+        if renew_sai {
+            renew_sai = false;
             trace!("Renew SAI.");
             drop(sai_transmitter);
             sai_transmitter = new_sai_transmitter(
@@ -120,8 +103,30 @@ async fn main(_spawner: Spawner) {
                 &mut p.BDMA_CH0,
                 sai_buffer,
             );
-            sai_transmitter.start();
         }
+
+        match select(spdif_receiver.read(&mut buf), sai_transmitter.wait_write_error()).await {
+            Either::First(spdif_read_result) => match spdif_read_result {
+                Ok(_) => (),
+                Err(spdifrx::Error::RingbufferError(_)) => {
+                    trace!("SPDIFRX ringbuffer error. Renew.");
+                    drop(spdif_receiver);
+                    spdif_receiver = new_spdif_receiver(&mut p.SPDIFRX1, &mut p.PD7, &mut p.DMA2_CH7, spdifrx_buffer);
+                    spdif_receiver.start();
+                    continue;
+                }
+                Err(spdifrx::Error::ChannelSyncError) => {
+                    trace!("SPDIFRX channel sync (left/right assignment) error.");
+                    continue;
+                }
+            },
+            Either::Second(_) => {
+                renew_sai = true;
+                continue;
+            }
+        };
+
+        renew_sai = sai_transmitter.write(&buf).await.is_err();
     }
 }
 
@@ -134,7 +139,7 @@ fn new_spdif_receiver<'d>(
     dma: &'d mut peripherals::DMA2_CH7,
     buf: &'d mut [u32],
 ) -> Spdifrx<'d, peripherals::SPDIFRX1> {
-    Spdifrx::new_data_only(spdifrx, Irqs, spdifrx::Config::default(), input_pin, dma, buf)
+    Spdifrx::new(spdifrx, Irqs, spdifrx::Config::default(), input_pin, dma, buf)
 }
 
 /// Creates a new SAI4 instance for transmitting sample data.
