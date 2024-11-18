@@ -86,7 +86,6 @@ async fn main(_spawner: Spawner) {
     );
 
     spdif_receiver.start();
-    sai_transmitter.start();
 
     loop {
         let mut buf = [0u32; HALF_DMA_BUFFER_LENGTH];
