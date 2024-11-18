@@ -194,7 +194,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
             cr.set_cksen(true); // Generate a symbol clock.
 
             #[cfg(stm32h7)]
-            cr.set_cksbkpen(false); // Do not generate a backup symbol clock.
+            cr.set_cksbkpen(true); // Generate a backup symbol clock.
         });
     }
 
