@@ -379,11 +379,16 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
+        // We can get away with only checking the current time once. If the alarm fires during
+        // dequeue, the next expiration time is likely in the past and the time driver will
+        // trigger another loop.
+        #[cfg(feature = "integrated-timers")]
+        let mut now = embassy_time_driver::now();
+
         #[allow(clippy::never_loop)]
         loop {
             #[cfg(feature = "integrated-timers")]
-            self.timer_queue
-                .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
+            self.timer_queue.dequeue_expired(now, wake_task_no_pend);
 
             self.run_queue.dequeue_all(|p| {
                 let task = p.header();
@@ -422,6 +427,7 @@ impl SyncExecutor {
                 if embassy_time_driver::set_alarm(self.alarm, next_expiration) {
                     break;
                 }
+                now = next_expiration;
             }
 
             #[cfg(not(feature = "integrated-timers"))]
