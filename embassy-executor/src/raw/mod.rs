@@ -328,7 +328,7 @@ impl SyncExecutor {
         #[cfg(feature = "integrated-timers")]
         let alarm = unsafe { unwrap!(embassy_time_driver::allocate_alarm()) };
 
-        let this = Self {
+        Self {
             run_queue: RunQueue::new(),
             pender,
 
@@ -336,12 +336,12 @@ impl SyncExecutor {
             timer_queue: timer_queue::TimerQueue::new(),
             #[cfg(feature = "integrated-timers")]
             alarm,
-        };
+        }
+    }
 
+    pub(crate) unsafe fn initialize(&'static self) {
         #[cfg(feature = "integrated-timers")]
-        embassy_time_driver::set_alarm_callback(this.alarm, Self::alarm_callback, &this as *const _ as *mut ());
-
-        this
+        embassy_time_driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
     }
 
     /// Enqueue a task in the task queue
@@ -494,6 +494,15 @@ impl Executor {
         }
     }
 
+    /// Initializes the executor.
+    ///
+    /// # Safety
+    ///
+    /// This function must be called once before any other method is called.
+    pub unsafe fn initialize(&'static self) {
+        self.inner.initialize();
+    }
+
     /// Spawn a task in this executor.
     ///
     /// # Safety
@@ -517,6 +526,8 @@ impl Executor {
     /// energy.
     ///
     /// # Safety
+    ///
+    /// You must call `initialize` before calling this method.
     ///
     /// You must NOT call `poll` reentrantly on the same executor.
     ///

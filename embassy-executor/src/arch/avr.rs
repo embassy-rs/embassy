@@ -53,6 +53,10 @@ mod thread {
         ///
         /// This function never returns.
         pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
+            unsafe {
+                self.inner.initialize();
+            }
+
             init(self.inner.spawner());
 
             loop {
