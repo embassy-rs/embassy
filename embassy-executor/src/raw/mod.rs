@@ -328,7 +328,7 @@ impl SyncExecutor {
         #[cfg(feature = "integrated-timers")]
         let alarm = unsafe { unwrap!(embassy_time_driver::allocate_alarm()) };
 
-        Self {
+        let this = Self {
             run_queue: RunQueue::new(),
             pender,
 
@@ -336,7 +336,12 @@ impl SyncExecutor {
             timer_queue: timer_queue::TimerQueue::new(),
             #[cfg(feature = "integrated-timers")]
             alarm,
-        }
+        };
+
+        #[cfg(feature = "integrated-timers")]
+        embassy_time_driver::set_alarm_callback(this.alarm, Self::alarm_callback, &this as *const _ as *mut ());
+
+        this
     }
 
     /// Enqueue a task in the task queue
@@ -374,9 +379,6 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
-        #[cfg(feature = "integrated-timers")]
-        embassy_time_driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
-
         #[allow(clippy::never_loop)]
         loop {
             #[cfg(feature = "integrated-timers")]
