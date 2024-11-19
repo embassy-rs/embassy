@@ -142,8 +142,6 @@ impl Queue {
         critical_section::with(|cs| {
             let mut inner = self.inner.borrow_ref_mut(cs);
 
-            if inner.is_none() {}
-
             inner
                 .get_or_insert_with(|| {
                     let handle = unsafe { allocate_alarm() }.unwrap();
