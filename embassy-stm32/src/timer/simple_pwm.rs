@@ -356,6 +356,72 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             self.inner.enable_update_dma(false);
         }
     }
+
+    pub fn get_max_duty(&self) -> u32 {
+        self.inner.get_max_compare_value() + 1
+    }
+
+
+    pub fn enable_all_channels(&mut self) {
+        self.inner.regs_gp16().dcr().modify(|w| w.set_dba(13));
+        self.inner.regs_gp16().dcr().modify(|w| w.set_dbl(0b11));
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                self.inner.enable_channel(channel, true);
+            });
+    }
+
+    pub fn disable_all_channels(&mut self) {
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                self.inner.enable_channel(channel, false);
+            });
+    }
+
+    pub async fn waveform_up_all_channels(
+        &mut self,
+        dma: impl Peripheral<P = impl super::UpDma<T>>,
+        duty: &[u16],
+    ) {
+        into_ref!(dma);
+
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let original_update_dma_state = self.inner.get_update_dma_state();
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(true);
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr4,
+                ..Default::default()
+            };
+
+            Transfer::new_write(
+                &mut dma,
+                req,
+                duty,
+                self.inner.regs_gp16().dmar().as_ptr() as *mut _,
+                dma_transfer_option,
+            )
+            .await
+        };
+
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(false);
+        }
+    }
 }
 
 macro_rules! impl_waveform_chx {
