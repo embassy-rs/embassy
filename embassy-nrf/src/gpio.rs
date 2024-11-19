@@ -350,7 +350,6 @@ impl<'d> Flex<'d> {
             convert_drive(w, drive);
             w.set_sense(vals::Sense::DISABLED);
         });
-        info!("pin_cnf: {:08x}", self.pin.conf().read().0);
     }
 
     /// Put the pin into input + output mode.
