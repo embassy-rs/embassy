@@ -278,7 +278,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         } else {
             1u8
         };
-        self.inner.set_frequency(freq * multiplier);
+        self.inner.set_frequency_internal(freq * multiplier, 16);
     }
 
     /// Get max duty value.
