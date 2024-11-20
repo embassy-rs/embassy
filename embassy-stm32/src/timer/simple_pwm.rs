@@ -281,90 +281,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.set_frequency(freq * multiplier);
     }
 
-    /// Get max duty value.
-    ///
-    /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn max_duty_cycle(&self) -> u16 {
-        let max = self.inner.get_max_compare_value();
-        assert!(max < u16::MAX as u32);
-        max as u16 + 1
-    }
-
-    /// Generate a sequence of PWM waveform
-    ///
-    /// Note:  
-    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(
-        &mut self,
-        dma: impl Peripheral<P = impl super::UpDma<T>>,
-        channel: Channel,
-        duty: &[u16],
-    ) {
-        into_ref!(dma);
-
-        #[allow(clippy::let_unit_value)] // eg. stm32f334
-        let req = dma.request();
-
-        let original_duty_state = self.channel(channel).current_duty_cycle();
-        let original_enable_state = self.channel(channel).is_enabled();
-        let original_update_dma_state = self.inner.get_update_dma_state();
-
-        if !original_update_dma_state {
-            self.inner.enable_update_dma(true);
-        }
-
-        if !original_enable_state {
-            self.channel(channel).enable();
-        }
-
-        unsafe {
-            #[cfg(not(any(bdma, gpdma)))]
-            use crate::dma::{Burst, FifoThreshold};
-            use crate::dma::{Transfer, TransferOptions};
-
-            let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
-                fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
-                mburst: Burst::Incr8,
-                ..Default::default()
-            };
-
-            Transfer::new_write(
-                &mut dma,
-                req,
-                duty,
-                self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut _,
-                dma_transfer_option,
-            )
-            .await
-        };
-
-        // restore output compare state
-        if !original_enable_state {
-            self.channel(channel).disable();
-        }
-
-        self.channel(channel).set_duty_cycle(original_duty_state);
-
-        // Since DMA is closed before timer update event trigger DMA is turn off,
-        // this can almost always trigger a DMA FIFO error.
-        //
-        // optional TODO:
-        // clean FEIF after disable UDE
-        if !original_update_dma_state {
-            self.inner.enable_update_dma(false);
-        }
-    }
-
     pub fn get_max_duty(&self) -> u32 {
         self.inner.get_max_compare_value() + 1
     }
 
-
     pub fn enable_all_channels(&mut self) {
-        self.inner.regs_gp16().dcr().modify(|w| w.set_dba(13));
-        self.inner.regs_gp16().dcr().modify(|w| w.set_dbl(0b11));
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
             .for_each(|&channel| {
@@ -380,11 +301,27 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             });
     }
 
-    pub async fn waveform_up_all_channels(
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:  
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub async fn waveform_up(
         &mut self,
         dma: impl Peripheral<P = impl super::UpDma<T>>,
+        starting_channel: Channel,
+        ending_channel: Channel,
         duty: &[u16],
     ) {
+        let cr1_addr = self.inner.regs_gp16().cr1().as_ptr() as u32;
+        let start_ch_index = starting_channel.index();
+        let end_ch_index = ending_channel.index();
+        
+        assert!(start_ch_index <= end_ch_index);
+
+        let ccrx_addr = self.inner.regs_gp16().ccr(start_ch_index).as_ptr() as u32;
+        self.inner.regs_gp16().dcr().modify(|w| w.set_dba(((ccrx_addr - cr1_addr) / 4) as u8));
+        self.inner.regs_gp16().dcr().modify(|w| w.set_dbl((end_ch_index - start_ch_index) as u8));
+
         into_ref!(dma);
 
         #[allow(clippy::let_unit_value)] // eg. stm32f334
