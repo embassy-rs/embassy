@@ -161,6 +161,9 @@ embassy_hal_internal::peripherals! {
     EGU3,
     EGU4,
     EGU5,
+
+    // NFC
+    NFCT,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0);
