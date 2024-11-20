@@ -71,6 +71,10 @@ mod thread {
         /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
         pub fn start(&'static mut self, init: impl FnOnce(Spawner)) {
             unsafe {
+                self.inner.initialize();
+            }
+
+            unsafe {
                 let executor = &self.inner;
                 let future = Closure::new(move |_| {
                     executor.poll();

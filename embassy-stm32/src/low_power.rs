@@ -155,7 +155,9 @@ impl Executor {
                 time_driver: get_driver(),
             });
 
-            EXECUTOR.as_mut().unwrap()
+            let executor = EXECUTOR.as_mut().unwrap();
+
+            executor
         })
     }
 
@@ -241,11 +243,15 @@ impl Executor {
     ///
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
-        init(unsafe { EXECUTOR.as_mut().unwrap() }.inner.spawner());
+        let executor = unsafe { EXECUTOR.as_mut().unwrap() };
+        unsafe {
+            executor.inner.initialize();
+        }
+        init(executor.inner.spawner());
 
         loop {
             unsafe {
-                EXECUTOR.as_mut().unwrap().inner.poll();
+                executor.inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
             };

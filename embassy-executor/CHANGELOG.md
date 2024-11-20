@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- `raw::Executor` now has an `fn initialize` that must be called once before starting to poll it.
+
 ## 0.6.3 - 2024-11-12
 
 - Building with the `nightly` feature now works with the Xtensa Rust compiler 1.82.

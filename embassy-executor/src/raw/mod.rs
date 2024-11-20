@@ -339,6 +339,11 @@ impl SyncExecutor {
         }
     }
 
+    pub(crate) unsafe fn initialize(&'static self) {
+        #[cfg(feature = "integrated-timers")]
+        embassy_time_driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
+    }
+
     /// Enqueue a task in the task queue
     ///
     /// # Safety
@@ -374,9 +379,6 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
-        #[cfg(feature = "integrated-timers")]
-        embassy_time_driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
-
         #[allow(clippy::never_loop)]
         loop {
             #[cfg(feature = "integrated-timers")]
@@ -492,6 +494,15 @@ impl Executor {
         }
     }
 
+    /// Initializes the executor.
+    ///
+    /// # Safety
+    ///
+    /// This function must be called once before any other method is called.
+    pub unsafe fn initialize(&'static self) {
+        self.inner.initialize();
+    }
+
     /// Spawn a task in this executor.
     ///
     /// # Safety
@@ -515,6 +526,8 @@ impl Executor {
     /// energy.
     ///
     /// # Safety
+    ///
+    /// You must call `initialize` before calling this method.
     ///
     /// You must NOT call `poll` reentrantly on the same executor.
     ///
