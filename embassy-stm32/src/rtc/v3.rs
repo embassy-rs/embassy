@@ -139,7 +139,7 @@ impl SealedInstance for crate::peripherals::RTC {
             const EXTI_WAKEUP_LINE: usize = 17;
         }
     );
-        
+
     #[cfg(feature = "low-power")]
     cfg_if::cfg_if!(
         if #[cfg(stm32g4)] {
