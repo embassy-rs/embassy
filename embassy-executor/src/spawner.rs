@@ -62,6 +62,10 @@ pub enum SpawnError {
     /// running at a time. You may allow multiple instances to run in parallel with
     /// `#[embassy_executor::task(pool_size = 4)]`, at the cost of higher RAM usage.
     Busy,
+
+    #[cfg(feature = "alloc")]
+    /// Out of memory.
+    OOM,
 }
 
 /// Handle to spawn tasks into an executor.
@@ -124,16 +128,18 @@ impl Spawner {
     /// 1. `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
     ///     is an `async fn`, NOT a hand-written `Future`.
     /// 2. `my_async_fn` must never return (runs forever).
-    pub fn spawn_fut<F: core::future::Future + 'static, FutFn: FnOnce() -> F>(&self, future: FutFn) {
-        use alloc::boxed::Box;
-
+    pub fn spawn_fut<F: core::future::Future + 'static, FutFn: FnOnce() -> F>(&self, future: FutFn) -> Result<(), SpawnError> {
+        use alloc::alloc::{alloc, Layout};
         use crate::raw::{TaskRef, TaskStorage};
 
-        let mut boxed_task_storage = Box::<TaskStorage<F>>::new_uninit();
         let task_storage = unsafe {
-            boxed_task_storage.as_mut_ptr().write(TaskStorage::<F>::new());
-            let boxed_task_storage = boxed_task_storage.assume_init();
-            let task_storage = Box::leak(boxed_task_storage);
+            let layout = Layout::new::<TaskStorage<F>>();
+            let task_storage = alloc(layout) as *mut TaskStorage<F>;
+            if task_storage.is_null() {
+                return Err(SpawnError::OOM);
+            }
+            task_storage.write(TaskStorage::<F>::new());
+            let task_storage = &mut *task_storage;
             task_storage.raw.state.spawn();
             task_storage.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             task_storage.future.write_in_place(future);
@@ -143,6 +149,7 @@ impl Spawner {
         let task_ref = TaskRef::new(task_storage);
         let token = unsafe { SpawnToken::<F>::new(task_ref) };
         self.spawn(token).unwrap();
+        Ok(())
     }
 
     // Used by the `embassy_executor_macros::main!` macro to throw an error when spawn
@@ -222,16 +229,18 @@ impl SendSpawner {
     /// 1. `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
     ///     is an `async fn`, NOT a hand-written `Future`.
     /// 2. `my_async_fn` must never return (runs forever).
-    pub fn spawn_fut<F: core::future::Future + 'static, FutFn: (FnOnce() -> F) + Send>(&self, future: FutFn) {
-        use alloc::boxed::Box;
-
+    pub fn spawn_fut<F: core::future::Future + 'static, FutFn: (FnOnce() -> F) + Send>(&self, future: FutFn) -> Result<(), SpawnError> {
+        use alloc::alloc::{alloc, Layout};
         use crate::raw::{TaskRef, TaskStorage};
 
-        let mut boxed_task_storage = Box::<TaskStorage<F>>::new_uninit();
         let task_storage = unsafe {
-            boxed_task_storage.as_mut_ptr().write(TaskStorage::<F>::new());
-            let boxed_task_storage = boxed_task_storage.assume_init();
-            let task_storage = Box::leak(boxed_task_storage);
+            let layout = Layout::new::<TaskStorage<F>>();
+            let task_storage = alloc(layout) as *mut TaskStorage<F>;
+            if task_storage.is_null() {
+                return Err(SpawnError::OOM);
+            }
+            task_storage.write(TaskStorage::<F>::new());
+            let task_storage = &mut *task_storage;
             task_storage.raw.state.spawn();
             task_storage.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             task_storage.future.write_in_place(future);
@@ -241,6 +250,7 @@ impl SendSpawner {
         let task_ref = TaskRef::new(task_storage);
         let token = unsafe { SpawnToken::<FutFn>::new(task_ref) };
         self.spawn(token).unwrap();
+        Ok(())
     }
 
     /// Spawn a task into an executor, panicking on failure.
