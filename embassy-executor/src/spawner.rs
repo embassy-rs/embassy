@@ -119,20 +119,28 @@ impl Spawner {
     }
 
     #[cfg(feature = "alloc")]
-    /// Spawn a dynamically allocated task into an executor.
-    /// Note that the task will never deallocate, so this is only useful for tasks that run forever.
-    pub fn spawn_fut<F: core::future::Future + 'static>(&self, fut: F) {
+    /// Spawn a dynamically allocated task into the executor.
+    /// LIMITATIONS AND WARNINGS:
+    /// 1. `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
+    ///     is an `async fn`, NOT a hand-written `Future`.
+    /// 2. `my_async_fn` must never return (runs forever).
+    pub fn spawn_fut<F: core::future::Future + 'static, FutFn: FnOnce() -> F>(&self, future: FutFn) {
         use alloc::boxed::Box;
+
         use crate::raw::{TaskRef, TaskStorage};
 
-        let task_storage = TaskStorage::<F>::new();
-        unsafe {
+        let mut boxed_task_storage = Box::<TaskStorage<F>>::new_uninit();
+        let task_storage = unsafe {
+            boxed_task_storage.as_mut_ptr().write(TaskStorage::<F>::new());
+            let boxed_task_storage = boxed_task_storage.assume_init();
+            let task_storage = Box::leak(boxed_task_storage);
             task_storage.raw.state.spawn();
             task_storage.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
-            task_storage.future.write_in_place(move || fut);
-        }
-        let boxed_task_storage = Box::leak(Box::new(task_storage));
-        let task_ref = TaskRef::new(boxed_task_storage);
+            task_storage.future.write_in_place(future);
+            task_storage
+        };
+
+        let task_ref = TaskRef::new(task_storage);
         let token = unsafe { SpawnToken::<F>::new(task_ref) };
         self.spawn(token).unwrap();
     }
@@ -209,15 +217,17 @@ impl SendSpawner {
     }
 
     #[cfg(feature = "alloc")]
-    /// Spawn a dynamically allocated task into an executor.
-    /// Note that the task will never deallocate, so this is only useful for tasks that run forever.
-    /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
-    /// is an `async fn`, NOT a hand-written `Future`.
+    /// Spawn a dynamically allocated task into the executor.
+    /// LIMITATIONS AND WARNINGS:
+    /// 1. `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
+    ///     is an `async fn`, NOT a hand-written `Future`.
+    /// 2. `my_async_fn` must never return (runs forever).
     pub fn spawn_fut<F: core::future::Future + 'static, FutFn: (FnOnce() -> F) + Send>(&self, future: FutFn) {
         use alloc::boxed::Box;
+
         use crate::raw::{TaskRef, TaskStorage};
 
-        let mut boxed_task_storage = Box::<TaskStorage::<F>>::new_uninit();
+        let mut boxed_task_storage = Box::<TaskStorage<F>>::new_uninit();
         let task_storage = unsafe {
             boxed_task_storage.as_mut_ptr().write(TaskStorage::<F>::new());
             let boxed_task_storage = boxed_task_storage.assume_init();
