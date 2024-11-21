@@ -217,14 +217,18 @@ impl SendSpawner {
         use alloc::boxed::Box;
         use crate::raw::{TaskRef, TaskStorage};
 
-        let task_storage = TaskStorage::<F>::new();
-        unsafe {
+        let mut boxed_task_storage = Box::<TaskStorage::<F>>::new_uninit();
+        let task_storage = unsafe {
+            boxed_task_storage.as_mut_ptr().write(TaskStorage::<F>::new());
+            let boxed_task_storage = boxed_task_storage.assume_init();
+            let task_storage = Box::leak(boxed_task_storage);
             task_storage.raw.state.spawn();
             task_storage.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             task_storage.future.write_in_place(future);
-        }
-        let boxed_task_storage = Box::leak(Box::new(task_storage));
-        let task_ref = TaskRef::new(boxed_task_storage);
+            task_storage
+        };
+
+        let task_ref = TaskRef::new(task_storage);
         let token = unsafe { SpawnToken::<FutFn>::new(task_ref) };
         self.spawn(token).unwrap();
     }
