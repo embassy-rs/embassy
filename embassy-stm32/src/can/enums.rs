@@ -59,6 +59,14 @@ pub enum FrameCreateError {
     InvalidCanId,
 }
 
+/// Id Create Errors
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum IdCreateError {
+    /// ID was out of range for 11/28 bit identifier
+    OutOfRange
+}
+
 /// Error returned by `try_read`
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
