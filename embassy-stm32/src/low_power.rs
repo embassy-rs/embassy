@@ -80,6 +80,17 @@ foreach_interrupt! {
     };
 }
 
+// only relevant for stm32u0
+foreach_interrupt! {
+    (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
+        #[interrupt]
+        #[allow(non_snake_case)]
+        unsafe fn $irq() {
+            EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+        }
+    };
+}
+
 #[allow(dead_code)]
 pub(crate) unsafe fn on_wakeup_irq() {
     EXECUTOR.as_mut().unwrap().on_wakeup_irq();

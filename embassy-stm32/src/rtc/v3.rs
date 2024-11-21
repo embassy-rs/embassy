@@ -144,7 +144,7 @@ impl SealedInstance for crate::peripherals::RTC {
     cfg_if::cfg_if!(
         if #[cfg(stm32g4)] {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
-        } else if #[cfg(any(stm32g0))] {
+        } else if #[cfg(any(stm32g0, stm32u0))] {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
         } else if #[cfg(any(stm32l5, stm32h5, stm32u5))] {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC;
