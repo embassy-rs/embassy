@@ -21,9 +21,9 @@ pub struct Header {
 
 /// Convenience wrapper for embedded_can::Id
 #[derive(Debug, Copy, Clone)]
-pub struct Id (
+pub struct Id(
     // Wrapped ID
-    embedded_can::Id
+    embedded_can::Id,
 );
 
 impl TryFrom<u16> for Id {
@@ -31,7 +31,7 @@ impl TryFrom<u16> for Id {
 
     fn try_from(raw_id: u16) -> Result<Self, Self::Error> {
         let standard_id = embedded_can::StandardId::new(raw_id).ok_or(IdCreateError::OutOfRange)?;
-        Ok (Id { 0: standard_id.into() })
+        Ok(Id { 0: standard_id.into() })
     }
 }
 
@@ -40,12 +40,14 @@ impl TryFrom<u32> for Id {
 
     fn try_from(raw_id: u32) -> Result<Self, Self::Error> {
         let extended_id = embedded_can::ExtendedId::new(raw_id).ok_or(IdCreateError::OutOfRange)?;
-        Ok (Id { 0: extended_id.into() })
+        Ok(Id { 0: extended_id.into() })
     }
 }
 
 impl From<Id> for embedded_can::Id {
-    fn from(id: Id) -> Self { id.0 }
+    fn from(id: Id) -> Self {
+        id.0
+    }
 }
 
 #[cfg(feature = "defmt")]
@@ -71,7 +73,11 @@ impl Header {
     pub fn new(id: impl Into<embedded_can::Id>, len: u8, rtr: bool) -> Header {
         let mut flags = 0u8;
         flags.set_bit(Self::FLAG_RTR, rtr);
-        Header { id: id.into(), len, flags }
+        Header {
+            id: id.into(),
+            len,
+            flags,
+        }
     }
 
     /// Create new CAN FD Header
@@ -80,7 +86,11 @@ impl Header {
         flags.set_bit(Self::FLAG_RTR, rtr);
         flags.set_bit(Self::FLAG_FDCAN, true);
         flags.set_bit(Self::FLAG_BRS, brs);
-        Header { id: id.into(), len, flags }
+        Header {
+            id: id.into(),
+            len,
+            flags,
+        }
     }
 
     /// Return ID

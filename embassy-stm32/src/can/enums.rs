@@ -64,7 +64,7 @@ pub enum FrameCreateError {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum IdCreateError {
     /// ID was out of range for 11/28 bit identifier
-    OutOfRange
+    OutOfRange,
 }
 
 /// Error returned by `try_read`
