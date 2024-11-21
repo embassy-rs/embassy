@@ -315,12 +315,18 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         let cr1_addr = self.inner.regs_gp16().cr1().as_ptr() as u32;
         let start_ch_index = starting_channel.index();
         let end_ch_index = ending_channel.index();
-        
+
         assert!(start_ch_index <= end_ch_index);
 
         let ccrx_addr = self.inner.regs_gp16().ccr(start_ch_index).as_ptr() as u32;
-        self.inner.regs_gp16().dcr().modify(|w| w.set_dba(((ccrx_addr - cr1_addr) / 4) as u8));
-        self.inner.regs_gp16().dcr().modify(|w| w.set_dbl((end_ch_index - start_ch_index) as u8));
+        self.inner
+            .regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dba(((ccrx_addr - cr1_addr) / 4) as u8));
+        self.inner
+            .regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dbl((end_ch_index - start_ch_index) as u8));
 
         into_ref!(dma);
 
@@ -509,7 +515,7 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
-        assert!(duty <= self.max_duty_cycle() as u32);
+        assert!(duty <= self.get_max_duty() as u32);
         self.inner.set_compare_value(channel, duty)
     }
 
