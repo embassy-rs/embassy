@@ -5,6 +5,7 @@ use crate::pac::rcc::regs::Cfgr;
 pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Msirange as MSIRange, Ppre as APBPrescaler, Sw as Sysclk};
 use crate::pac::{FLASH, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -181,6 +182,9 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let rtc = config.ls.init();
+
+    let lse = config.ls.lse.map(|l| l.frequency);
+    let lsi = config.ls.lsi.then_some(LSI_FREQ);
 
     let msi = config.msi.map(|range| {
         msi_enable(range);
@@ -425,12 +429,12 @@ pub(crate) unsafe fn init(config: Config) {
         dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
 
         rtc: rtc,
+        lse: lse,
+        lsi: lsi,
 
         // TODO
         sai1_extclk: None,
         sai2_extclk: None,
-        lsi: None,
-        lse: None,
     );
 }
 
