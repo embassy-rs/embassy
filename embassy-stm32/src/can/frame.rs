@@ -68,19 +68,19 @@ impl Header {
     const FLAG_BRS: usize = 2; // Bit-rate switching, ignored for Classic CAN
 
     /// Create new CAN Header
-    pub fn new(id: embedded_can::Id, len: u8, rtr: bool) -> Header {
+    pub fn new(id: impl Into<embedded_can::Id>, len: u8, rtr: bool) -> Header {
         let mut flags = 0u8;
         flags.set_bit(Self::FLAG_RTR, rtr);
-        Header { id, len, flags }
+        Header { id: id.into(), len, flags }
     }
 
     /// Create new CAN FD Header
-    pub fn new_fd(id: embedded_can::Id, len: u8, rtr: bool, brs: bool) -> Header {
+    pub fn new_fd(id: impl Into<embedded_can::Id>, len: u8, rtr: bool, brs: bool) -> Header {
         let mut flags = 0u8;
         flags.set_bit(Self::FLAG_RTR, rtr);
         flags.set_bit(Self::FLAG_FDCAN, true);
         flags.set_bit(Self::FLAG_BRS, brs);
-        Header { id, len, flags }
+        Header { id: id.into(), len, flags }
     }
 
     /// Return ID
@@ -199,7 +199,7 @@ impl Frame {
     /// Create new extended frame
     pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new(id, raw_data.len() as u8, false), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -208,7 +208,7 @@ impl Frame {
     /// Create new standard frame
     pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new(id, raw_data.len() as u8, false), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -384,7 +384,7 @@ impl FdFrame {
     /// BRS is set to false by default
     pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new(id, raw_data.len() as u8, false), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -393,7 +393,7 @@ impl FdFrame {
     /// Create new standard frame
     pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new(id, raw_data.len() as u8, false), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
