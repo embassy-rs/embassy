@@ -9,7 +9,7 @@
 //
 // This example demonstrates how to:
 // 1. Configure multiple channel pins within a single TSC group
-// 2. Use the set_active_channels method to switch between different channels
+// 2. Use the set_active_channels_bank method to switch between sets of different channels (acquisition banks)
 // 3. Read and interpret touch values from multiple channels in the same group
 //
 // Suggested physical setup on STM32L073RZ Nucleo board:
@@ -29,7 +29,7 @@
 // - PA0 as sampling capacitor, TSC group 1 IO1 (label A0)
 // - PA1 as channel, TSC group 1 IO2 (label A1)
 // - PB3 as sampling capacitor, TSC group 5 IO1 (label D3)
-// - PB4 as channel, TSC group 5 IO2 (label D3)
+// - PB4 as channel, TSC group 5 IO2 (label D10)
 // - PB6 as channel, TSC group 5 IO3 (label D5)
 //
 // The pins have been chosen to make it easy to simply add capacitors directly onto the board and
@@ -80,7 +80,7 @@ async fn acquire_sensors(
     touch_controller: &mut Tsc<'static, peripherals::TSC, mode::Async>,
     tsc_acquisition_bank: &AcquisitionBank,
 ) {
-    touch_controller.set_active_channels_mask(tsc_acquisition_bank.mask());
+    touch_controller.set_active_channels_bank(tsc_acquisition_bank);
     touch_controller.start();
     touch_controller.pend_for_acquisition().await;
     touch_controller.discharge_io(true);
@@ -156,7 +156,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         acquire_sensors(&mut touch_controller, &bank1).await;
         let readings1 = touch_controller.get_acquisition_bank_values(&bank1);
         acquire_sensors(&mut touch_controller, &bank2).await;
-        let readings2 = touch_controller.get_acquisition_bank_values(&bank1);
+        let readings2 = touch_controller.get_acquisition_bank_values(&bank2);
 
         let mut touched_sensors_count = 0;
         for reading in readings1.iter() {

@@ -12,7 +12,7 @@
 // ## This example demonstrates how to:
 //
 // 1. Configure multiple channel pins within a single TSC group
-// 2. Use the set_active_channels method to switch between different channels
+// 2. Use the set_active_channels_bank method to switch between sets of different channels (acquisition banks)
 // 3. Read and interpret touch values from multiple channels in the same group
 //
 // ## Suggested physical setup on STM32L4R5ZI-P board:
@@ -76,7 +76,7 @@ async fn acquire_sensors(
     touch_controller: &mut Tsc<'static, peripherals::TSC, mode::Async>,
     tsc_acquisition_bank: &AcquisitionBank,
 ) {
-    touch_controller.set_active_channels_mask(tsc_acquisition_bank.mask());
+    touch_controller.set_active_channels_bank(tsc_acquisition_bank);
     touch_controller.start();
     touch_controller.pend_for_acquisition().await;
     touch_controller.discharge_io(true);
