@@ -24,7 +24,6 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        trace!("irq");
         let r = T::regs();
         let state = T::state();
 
