@@ -8,7 +8,7 @@ cortex-m = "0.7.7"
 cortex-m-rt = "0.7.0"
 critical-section = "1.1.2"
 embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
 lpc55-pac = "0.5.0"
 defmt = "0.3.8"
 
