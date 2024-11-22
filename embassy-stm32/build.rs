@@ -214,6 +214,8 @@ fn main() {
         Some("tim22") => "TIM22",
         Some("tim23") => "TIM23",
         Some("tim24") => "TIM24",
+        Some("lptim1") => "LPTIM1",
+        Some("lptim2") => "LPTIM2",
         Some("any") => {
             // Order of TIM candidators:
             // 1. 2CH -> 2CH_CMP -> GP16 -> GP32 -> ADV
@@ -236,7 +238,7 @@ fn main() {
     }
     for tim in [
         "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15", "tim20", "tim21", "tim22", "tim23",
-        "tim24",
+        "tim24", "lptim1", "lptim2",
     ] {
         cfgs.declare(format!("time_driver_{}", tim));
     }
