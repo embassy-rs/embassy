@@ -108,287 +108,287 @@ impl Otg {
     }
     #[doc = "Control and status register"]
     #[inline(always)]
-    pub const fn gotgctl(self) -> Reg<regs::Gotgctl, RW> {
+    pub fn gotgctl(self) -> Reg<regs::Gotgctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0usize) as _) }
     }
     #[doc = "Interrupt register"]
     #[inline(always)]
-    pub const fn gotgint(self) -> Reg<regs::Gotgint, RW> {
+    pub fn gotgint(self) -> Reg<regs::Gotgint, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x04usize) as _) }
     }
     #[doc = "AHB configuration register"]
     #[inline(always)]
-    pub const fn gahbcfg(self) -> Reg<regs::Gahbcfg, RW> {
+    pub fn gahbcfg(self) -> Reg<regs::Gahbcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x08usize) as _) }
     }
     #[doc = "USB configuration register"]
     #[inline(always)]
-    pub const fn gusbcfg(self) -> Reg<regs::Gusbcfg, RW> {
+    pub fn gusbcfg(self) -> Reg<regs::Gusbcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0cusize) as _) }
     }
     #[doc = "Reset register"]
     #[inline(always)]
-    pub const fn grstctl(self) -> Reg<regs::Grstctl, RW> {
+    pub fn grstctl(self) -> Reg<regs::Grstctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x10usize) as _) }
     }
     #[doc = "Core interrupt register"]
     #[inline(always)]
-    pub const fn gintsts(self) -> Reg<regs::Gintsts, RW> {
+    pub fn gintsts(self) -> Reg<regs::Gintsts, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x14usize) as _) }
     }
     #[doc = "Interrupt mask register"]
     #[inline(always)]
-    pub const fn gintmsk(self) -> Reg<regs::Gintmsk, RW> {
+    pub fn gintmsk(self) -> Reg<regs::Gintmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x18usize) as _) }
     }
     #[doc = "Receive status debug read register"]
     #[inline(always)]
-    pub const fn grxstsr(self) -> Reg<regs::Grxsts, R> {
+    pub fn grxstsr(self) -> Reg<regs::Grxsts, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x1cusize) as _) }
     }
     #[doc = "Status read and pop register"]
     #[inline(always)]
-    pub const fn grxstsp(self) -> Reg<regs::Grxsts, R> {
+    pub fn grxstsp(self) -> Reg<regs::Grxsts, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x20usize) as _) }
     }
     #[doc = "Receive FIFO size register"]
     #[inline(always)]
-    pub const fn grxfsiz(self) -> Reg<regs::Grxfsiz, RW> {
+    pub fn grxfsiz(self) -> Reg<regs::Grxfsiz, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x24usize) as _) }
     }
     #[doc = "Endpoint 0 transmit FIFO size register (device mode)"]
     #[inline(always)]
-    pub const fn dieptxf0(self) -> Reg<regs::Fsiz, RW> {
+    pub fn dieptxf0(self) -> Reg<regs::Fsiz, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x28usize) as _) }
     }
     #[doc = "Non-periodic transmit FIFO size register (host mode)"]
     #[inline(always)]
-    pub const fn hnptxfsiz(self) -> Reg<regs::Fsiz, RW> {
+    pub fn hnptxfsiz(self) -> Reg<regs::Fsiz, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x28usize) as _) }
     }
     #[doc = "Non-periodic transmit FIFO/queue status register (host mode)"]
     #[inline(always)]
-    pub const fn hnptxsts(self) -> Reg<regs::Hnptxsts, R> {
+    pub fn hnptxsts(self) -> Reg<regs::Hnptxsts, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x2cusize) as _) }
     }
     #[doc = "OTG I2C access register"]
     #[inline(always)]
-    pub const fn gi2cctl(self) -> Reg<regs::Gi2cctl, RW> {
+    pub fn gi2cctl(self) -> Reg<regs::Gi2cctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x30usize) as _) }
     }
     #[doc = "General core configuration register, for core_id 0x0000_1xxx"]
     #[inline(always)]
-    pub const fn gccfg_v1(self) -> Reg<regs::GccfgV1, RW> {
+    pub fn gccfg_v1(self) -> Reg<regs::GccfgV1, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
     }
     #[doc = "General core configuration register, for core_id 0x0000_\\[23\\]xxx"]
     #[inline(always)]
-    pub const fn gccfg_v2(self) -> Reg<regs::GccfgV2, RW> {
+    pub fn gccfg_v2(self) -> Reg<regs::GccfgV2, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
     }
     #[doc = "General core configuration register, for core_id 0x0000_5xxx"]
     #[inline(always)]
-    pub const fn gccfg_v3(self) -> Reg<regs::GccfgV3, RW> {
+    pub fn gccfg_v3(self) -> Reg<regs::GccfgV3, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x38usize) as _) }
     }
     #[doc = "Core ID register"]
     #[inline(always)]
-    pub const fn cid(self) -> Reg<regs::Cid, RW> {
+    pub fn cid(self) -> Reg<regs::Cid, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x3cusize) as _) }
     }
     #[doc = "OTG core LPM configuration register"]
     #[inline(always)]
-    pub const fn glpmcfg(self) -> Reg<regs::Glpmcfg, RW> {
+    pub fn glpmcfg(self) -> Reg<regs::Glpmcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x54usize) as _) }
     }
     #[doc = "Host periodic transmit FIFO size register"]
     #[inline(always)]
-    pub const fn hptxfsiz(self) -> Reg<regs::Fsiz, RW> {
+    pub fn hptxfsiz(self) -> Reg<regs::Fsiz, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0100usize) as _) }
     }
     #[doc = "Device IN endpoint transmit FIFO size register"]
     #[inline(always)]
-    pub const fn dieptxf(self, n: usize) -> Reg<regs::Fsiz, RW> {
+    pub fn dieptxf(self, n: usize) -> Reg<regs::Fsiz, RW> {
         assert!(n < 7usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0104usize + n * 4usize) as _) }
     }
     #[doc = "Host configuration register"]
     #[inline(always)]
-    pub const fn hcfg(self) -> Reg<regs::Hcfg, RW> {
+    pub fn hcfg(self) -> Reg<regs::Hcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0400usize) as _) }
     }
     #[doc = "Host frame interval register"]
     #[inline(always)]
-    pub const fn hfir(self) -> Reg<regs::Hfir, RW> {
+    pub fn hfir(self) -> Reg<regs::Hfir, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0404usize) as _) }
     }
     #[doc = "Host frame number/frame time remaining register"]
     #[inline(always)]
-    pub const fn hfnum(self) -> Reg<regs::Hfnum, R> {
+    pub fn hfnum(self) -> Reg<regs::Hfnum, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0408usize) as _) }
     }
     #[doc = "Periodic transmit FIFO/queue status register"]
     #[inline(always)]
-    pub const fn hptxsts(self) -> Reg<regs::Hptxsts, RW> {
+    pub fn hptxsts(self) -> Reg<regs::Hptxsts, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0410usize) as _) }
     }
     #[doc = "Host all channels interrupt register"]
     #[inline(always)]
-    pub const fn haint(self) -> Reg<regs::Haint, R> {
+    pub fn haint(self) -> Reg<regs::Haint, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0414usize) as _) }
     }
     #[doc = "Host all channels interrupt mask register"]
     #[inline(always)]
-    pub const fn haintmsk(self) -> Reg<regs::Haintmsk, RW> {
+    pub fn haintmsk(self) -> Reg<regs::Haintmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0418usize) as _) }
     }
     #[doc = "Host port control and status register"]
     #[inline(always)]
-    pub const fn hprt(self) -> Reg<regs::Hprt, RW> {
+    pub fn hprt(self) -> Reg<regs::Hprt, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0440usize) as _) }
     }
     #[doc = "Host channel characteristics register"]
     #[inline(always)]
-    pub const fn hcchar(self, n: usize) -> Reg<regs::Hcchar, RW> {
+    pub fn hcchar(self, n: usize) -> Reg<regs::Hcchar, RW> {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0500usize + n * 32usize) as _) }
     }
     #[doc = "Host channel split control register"]
     #[inline(always)]
-    pub const fn hcsplt(self, n: usize) -> Reg<u32, RW> {
+    pub fn hcsplt(self, n: usize) -> Reg<u32, RW> {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0504usize + n * 32usize) as _) }
     }
     #[doc = "Host channel interrupt register"]
     #[inline(always)]
-    pub const fn hcint(self, n: usize) -> Reg<regs::Hcint, RW> {
+    pub fn hcint(self, n: usize) -> Reg<regs::Hcint, RW> {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0508usize + n * 32usize) as _) }
     }
     #[doc = "Host channel mask register"]
     #[inline(always)]
-    pub const fn hcintmsk(self, n: usize) -> Reg<regs::Hcintmsk, RW> {
+    pub fn hcintmsk(self, n: usize) -> Reg<regs::Hcintmsk, RW> {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x050cusize + n * 32usize) as _) }
     }
     #[doc = "Host channel transfer size register"]
     #[inline(always)]
-    pub const fn hctsiz(self, n: usize) -> Reg<regs::Hctsiz, RW> {
+    pub fn hctsiz(self, n: usize) -> Reg<regs::Hctsiz, RW> {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0510usize + n * 32usize) as _) }
     }
     #[doc = "Host channel DMA address register"]
     #[inline(always)]
-    pub const fn hcdma(self, n: usize) -> Reg<u32, RW> {
+    pub fn hcdma(self, n: usize) -> Reg<u32, RW> {
         assert!(n < 12usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0514usize + n * 32usize) as _) }
     }
     #[doc = "Device configuration register"]
     #[inline(always)]
-    pub const fn dcfg(self) -> Reg<regs::Dcfg, RW> {
+    pub fn dcfg(self) -> Reg<regs::Dcfg, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0800usize) as _) }
     }
     #[doc = "Device control register"]
     #[inline(always)]
-    pub const fn dctl(self) -> Reg<regs::Dctl, RW> {
+    pub fn dctl(self) -> Reg<regs::Dctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0804usize) as _) }
     }
     #[doc = "Device status register"]
     #[inline(always)]
-    pub const fn dsts(self) -> Reg<regs::Dsts, R> {
+    pub fn dsts(self) -> Reg<regs::Dsts, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0808usize) as _) }
     }
     #[doc = "Device IN endpoint common interrupt mask register"]
     #[inline(always)]
-    pub const fn diepmsk(self) -> Reg<regs::Diepmsk, RW> {
+    pub fn diepmsk(self) -> Reg<regs::Diepmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0810usize) as _) }
     }
     #[doc = "Device OUT endpoint common interrupt mask register"]
     #[inline(always)]
-    pub const fn doepmsk(self) -> Reg<regs::Doepmsk, RW> {
+    pub fn doepmsk(self) -> Reg<regs::Doepmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0814usize) as _) }
     }
     #[doc = "Device all endpoints interrupt register"]
     #[inline(always)]
-    pub const fn daint(self) -> Reg<regs::Daint, R> {
+    pub fn daint(self) -> Reg<regs::Daint, R> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0818usize) as _) }
     }
     #[doc = "All endpoints interrupt mask register"]
     #[inline(always)]
-    pub const fn daintmsk(self) -> Reg<regs::Daintmsk, RW> {
+    pub fn daintmsk(self) -> Reg<regs::Daintmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x081cusize) as _) }
     }
     #[doc = "Device VBUS discharge time register"]
     #[inline(always)]
-    pub const fn dvbusdis(self) -> Reg<regs::Dvbusdis, RW> {
+    pub fn dvbusdis(self) -> Reg<regs::Dvbusdis, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0828usize) as _) }
     }
     #[doc = "Device VBUS pulsing time register"]
     #[inline(always)]
-    pub const fn dvbuspulse(self) -> Reg<regs::Dvbuspulse, RW> {
+    pub fn dvbuspulse(self) -> Reg<regs::Dvbuspulse, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x082cusize) as _) }
     }
     #[doc = "Device IN endpoint FIFO empty interrupt mask register"]
     #[inline(always)]
-    pub const fn diepempmsk(self) -> Reg<regs::Diepempmsk, RW> {
+    pub fn diepempmsk(self) -> Reg<regs::Diepempmsk, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0834usize) as _) }
     }
     #[doc = "Device IN endpoint control register"]
     #[inline(always)]
-    pub const fn diepctl(self, n: usize) -> Reg<regs::Diepctl, RW> {
+    pub fn diepctl(self, n: usize) -> Reg<regs::Diepctl, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0900usize + n * 32usize) as _) }
     }
     #[doc = "Device IN endpoint interrupt register"]
     #[inline(always)]
-    pub const fn diepint(self, n: usize) -> Reg<regs::Diepint, RW> {
+    pub fn diepint(self, n: usize) -> Reg<regs::Diepint, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0908usize + n * 32usize) as _) }
     }
     #[doc = "Device IN endpoint transfer size register"]
     #[inline(always)]
-    pub const fn dieptsiz(self, n: usize) -> Reg<regs::Dieptsiz, RW> {
+    pub fn dieptsiz(self, n: usize) -> Reg<regs::Dieptsiz, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0910usize + n * 32usize) as _) }
     }
     #[doc = "Device IN endpoint transmit FIFO status register"]
     #[inline(always)]
-    pub const fn dtxfsts(self, n: usize) -> Reg<regs::Dtxfsts, R> {
+    pub fn dtxfsts(self, n: usize) -> Reg<regs::Dtxfsts, R> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0918usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT endpoint control register"]
     #[inline(always)]
-    pub const fn doepctl(self, n: usize) -> Reg<regs::Doepctl, RW> {
+    pub fn doepctl(self, n: usize) -> Reg<regs::Doepctl, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b00usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT endpoint interrupt register"]
     #[inline(always)]
-    pub const fn doepint(self, n: usize) -> Reg<regs::Doepint, RW> {
+    pub fn doepint(self, n: usize) -> Reg<regs::Doepint, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b08usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT endpoint transfer size register"]
     #[inline(always)]
-    pub const fn doeptsiz(self, n: usize) -> Reg<regs::Doeptsiz, RW> {
+    pub fn doeptsiz(self, n: usize) -> Reg<regs::Doeptsiz, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b10usize + n * 32usize) as _) }
     }
     #[doc = "Device OUT/IN endpoint DMA address register"]
     #[inline(always)]
-    pub const fn doepdma(self, n: usize) -> Reg<u32, RW> {
+    pub fn doepdma(self, n: usize) -> Reg<u32, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x0b14usize + n * 32usize) as _) }
     }
     #[doc = "Power and clock gating control register"]
     #[inline(always)]
-    pub const fn pcgcctl(self) -> Reg<regs::Pcgcctl, RW> {
+    pub fn pcgcctl(self) -> Reg<regs::Pcgcctl, RW> {
         unsafe { Reg::from_ptr(self.ptr.add(0x0e00usize) as _) }
     }
     #[doc = "Device endpoint / host channel FIFO register"]
     #[inline(always)]
-    pub const fn fifo(self, n: usize) -> Reg<regs::Fifo, RW> {
+    pub fn fifo(self, n: usize) -> Reg<regs::Fifo, RW> {
         assert!(n < 16usize);
         unsafe { Reg::from_ptr(self.ptr.add(0x1000usize + n * 4096usize) as _) }
     }
