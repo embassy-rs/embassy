@@ -18,6 +18,8 @@ use embassy_usb_driver::{
     EndpointType, Event, Unsupported,
 };
 
+use crate::fmt::Bytes;
+
 pub mod otg_v1;
 
 use otg_v1::{regs, vals, Otg};
@@ -29,6 +31,8 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
     ep_count: usize,
     quirk_setup_late_cnak: bool,
 ) {
+    trace!("irq");
+
     let ints = r.gintsts().read();
     if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
         // Mask interrupts and notify `Bus` to process them
@@ -1126,7 +1130,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
 
 impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        trace!("write ep={:?} data={:?}", self.info.addr, buf);
+        trace!("write ep={:?} data={:?}", self.info.addr, Bytes(buf));
 
         if buf.len() > self.info.max_packet_size as usize {
             return Err(EndpointError::BufferOverflow);
@@ -1267,7 +1271,7 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
                         .modify(|w| w.set_cnak(true));
                 }
 
-                trace!("SETUP received: {:?}", data);
+                trace!("SETUP received: {:?}", Bytes(&data));
                 Poll::Ready(data)
             } else {
                 trace!("SETUP waiting");
@@ -1280,12 +1284,12 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
     async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
         trace!("control: data_out");
         let len = self.ep_out.read(buf).await?;
-        trace!("control: data_out read: {:?}", &buf[..len]);
+        trace!("control: data_out read: {:?}", Bytes(&buf[..len]));
         Ok(len)
     }
 
     async fn data_in(&mut self, data: &[u8], _first: bool, last: bool) -> Result<(), EndpointError> {
-        trace!("control: data_in write: {:?}", data);
+        trace!("control: data_in write: {:?}", Bytes(data));
         self.ep_in.write(data).await?;
 
         // wait for status response from host after sending the last packet
