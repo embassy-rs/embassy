@@ -27,9 +27,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let state = T::state();
 
-        let setup_late_cnak = quirk_setup_late_cnak(r);
-
-        on_interrupt_impl(r, state, T::ENDPOINT_COUNT, setup_late_cnak);
+        on_interrupt_impl(r, state, T::ENDPOINT_COUNT);
     }
 }
 
@@ -86,7 +84,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::InternalFullSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -116,16 +113,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
         dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
-        let regs = T::regs();
-
         let instance = OtgInstance {
-            regs,
+            regs: T::regs(),
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::InternalHighSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -165,8 +159,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             ulpi_d7
         );
 
-        let regs = T::regs();
-
         let instance = OtgInstance {
             regs: T::regs(),
             state: T::state(),
@@ -174,7 +166,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::ExternalFullSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -216,8 +207,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             ulpi_d7
         );
 
-        let regs = T::regs();
-
         let instance = OtgInstance {
             regs: T::regs(),
             state: T::state(),
@@ -225,7 +214,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::ExternalHighSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -577,8 +565,4 @@ fn calculate_trdt<T: Instance>(speed: Dspd) -> u8 {
         }
         _ => unimplemented!(),
     }
-}
-
-fn quirk_setup_late_cnak(r: Otg) -> bool {
-    r.cid().read().0 & 0xf000 == 0x1000
 }
