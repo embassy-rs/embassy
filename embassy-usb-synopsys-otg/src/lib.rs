@@ -242,23 +242,20 @@ unsafe impl<const EP_COUNT: usize> Sync for State<EP_COUNT> {}
 impl<const EP_COUNT: usize> State<EP_COUNT> {
     /// Create a new State.
     pub const fn new() -> Self {
-        const NEW_AW: AtomicWaker = AtomicWaker::new();
-        const NEW_BUF: UnsafeCell<*mut u8> = UnsafeCell::new(0 as _);
-        const NEW_SIZE: AtomicU16 = AtomicU16::new(EP_OUT_BUFFER_EMPTY);
-        const NEW_EP_STATE: EpState = EpState {
-            in_waker: NEW_AW,
-            out_waker: NEW_AW,
-            out_buffer: NEW_BUF,
-            out_size: NEW_SIZE,
-        };
-
         Self {
             cp_state: ControlPipeSetupState {
                 setup_data: [const { AtomicU32::new(0) }; 2],
                 setup_ready: AtomicBool::new(false),
             },
-            ep_states: [NEW_EP_STATE; EP_COUNT],
-            bus_waker: NEW_AW,
+            ep_states: [const {
+                EpState {
+                    in_waker: AtomicWaker::new(),
+                    out_waker: AtomicWaker::new(),
+                    out_buffer: UnsafeCell::new(0 as _),
+                    out_size: AtomicU16::new(EP_OUT_BUFFER_EMPTY),
+                }
+            }; EP_COUNT],
+            bus_waker: AtomicWaker::new(),
         }
     }
 }
