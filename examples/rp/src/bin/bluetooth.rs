@@ -14,7 +14,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_sync_06::blocking_mutex::raw::NoopRawMutex as NoopRawMutex06;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::{Duration, Timer};
 use static_cell::StaticCell;
 use trouble_host::advertise::{AdStructure, Advertisement, BR_EDR_NOT_SUPPORTED, LE_GENERAL_DISCOVERABLE};
@@ -66,7 +66,7 @@ async fn main(spawner: Spawner) {
     let mut ble: BleHost<'_, _> = BleHost::new(controller, host_resources);
 
     ble.set_random_address(Address::random([0xff, 0x9f, 0x1a, 0x05, 0xe4, 0xff]));
-    let mut table: AttributeTable<'_, NoopRawMutex06, 10> = AttributeTable::new();
+    let mut table: AttributeTable<'_, NoopRawMutex, 10> = AttributeTable::new();
 
     // Generic Access Service (mandatory)
     let id = b"Pico W Bluetooth";
