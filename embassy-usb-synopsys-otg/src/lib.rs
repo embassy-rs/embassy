@@ -39,6 +39,8 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
     // Handle RX
     while r.gintsts().read().rxflvl() {
         let status = r.grxstsp().read();
+        r.gintmsk().modify(|x| x.set_rxflvlm(false));
+
         trace!("=== status {:08x}", status.0);
         let ep_num = status.epnum() as usize;
         let len = status.bcnt() as usize;
@@ -66,7 +68,6 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
                     data[0..4].copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
                     data[4..8].copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
                     state.cp_state.setup_ready.store(true, Ordering::Release);
-                    state.ep_states[0].out_waker.wake();
                 } else {
                     error!("received SETUP before previous finished processing");
                     // discard FIFO
@@ -114,6 +115,8 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
             }
             x => trace!("unknown PKTSTS: {}", x.to_bits()),
         }
+
+        r.gintmsk().modify(|x| x.set_rxflvlm(true));
     }
 
     // IN endpoint interrupt
@@ -147,25 +150,24 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
         }
     }
 
-    // not needed? reception handled in rxflvl
     // OUT endpoint interrupt
-    // if ints.oepint() {
-    //     let mut ep_mask = r.daint().read().oepint();
-    //     let mut ep_num = 0;
+    if ints.oepint() {
+        let mut ep_mask = r.daint().read().oepint();
+        let mut ep_num = 0;
 
-    //     while ep_mask != 0 {
-    //         if ep_mask & 1 != 0 {
-    //             let ep_ints = r.doepint(ep_num).read();
-    //             // clear all
-    //             r.doepint(ep_num).write_value(ep_ints);
-    //             state.ep_out_wakers[ep_num].wake();
-    //             trace!("out ep={} irq val={:08x}", ep_num, ep_ints.0);
-    //         }
+        while ep_mask != 0 {
+            if ep_mask & 1 != 0 {
+                let ep_ints = r.doepint(ep_num).read();
+                // clear all
+                r.doepint(ep_num).write_value(ep_ints);
+                state.ep_states[ep_num].out_waker.wake();
+                trace!("out ep={} irq val={:08x}", ep_num, ep_ints.0);
+            }
 
-    //         ep_mask >>= 1;
-    //         ep_num += 1;
-    //     }
-    // }
+            ep_mask >>= 1;
+            ep_num += 1;
+        }
+    }
 }
 
 /// USB PHY type
@@ -628,6 +630,11 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
             w.set_xfrcm(true);
         });
 
+        // Unmask setup complete EP interrupt
+        r.doepmsk().write(|w| {
+            w.set_stupm(true);
+        });
+
         // Unmask and clear core interrupts
         self.restore_irqs();
         r.gintsts().write_value(regs::Gintsts(0xFFFF_FFFF));
@@ -739,7 +746,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
                     regs.doeptsiz(index).modify(|w| {
                         w.set_xfrsiz(ep.max_packet_size as _);
                         if index == 0 {
-                            w.set_rxdpid_stupcnt(1);
+                            w.set_rxdpid_stupcnt(3);
                         } else {
                             w.set_pktcnt(1);
                         }
@@ -751,8 +758,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         // Enable IRQs for allocated endpoints
         regs.daintmsk().modify(|w| {
             w.set_iepm(ep_irq_mask(&self.ep_in));
-            // OUT interrupts not used, handled in RXFLVL
-            // w.set_oepm(ep_irq_mask(&self.ep_out));
+            w.set_oepm(ep_irq_mask(&self.ep_out));
         });
     }
 
@@ -1255,9 +1261,9 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
                 self.setup_state.setup_ready.store(false, Ordering::Release);
 
                 // EP0 should not be controlled by `Bus` so this RMW does not need a critical section
-                // Receive 1 SETUP packet
+                // Receive up to 3 SETUP packets
                 self.regs.doeptsiz(self.ep_out.info.addr.index()).modify(|w| {
-                    w.set_rxdpid_stupcnt(1);
+                    w.set_rxdpid_stupcnt(3);
                 });
 
                 // Clear NAK to indicate we are ready to receive more data
