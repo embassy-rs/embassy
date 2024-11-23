@@ -94,6 +94,8 @@ async fn feedback_handler<'d, T: usb::Instance + 'd>(
 
         let value = value as u32;
 
+        debug!("Feedback value: {}", value);
+
         packet.push(value as u8).unwrap();
         packet.push((value >> 8) as u8).unwrap();
         packet.push((value >> 16) as u8).unwrap();
@@ -215,25 +217,24 @@ fn TIM5() {
 
     critical_section::with(|cs| {
         // Read timer counter.
-        let ticks = TIMER.borrow(cs).borrow().as_ref().unwrap().regs_gp32().cnt().read();
+        let timer = TIMER.borrow(cs).borrow().as_ref().unwrap().regs_gp32();
+
+        let status = timer.sr().read();
+
+        const CHANNEL_INDEX: usize = 0;
+        if status.ccif(CHANNEL_INDEX) {
+            let ticks = timer.ccr(CHANNEL_INDEX).read();
+
+            *FRAME_COUNT += 1;
+            if *FRAME_COUNT >= FEEDBACK_REFRESH_PERIOD.frame_count() {
+                *FRAME_COUNT = 0;
+                FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(*LAST_TICKS));
+                *LAST_TICKS = ticks;
+            }
+        };
 
         // Clear trigger interrupt flag.
-        TIMER
-            .borrow(cs)
-            .borrow_mut()
-            .as_mut()
-            .unwrap()
-            .regs_gp32()
-            .sr()
-            .modify(|r| r.set_tif(false));
-
-        // Count up frames and emit a signal, when the refresh period is reached (here, every 8 ms).
-        *FRAME_COUNT += 1;
-        if *FRAME_COUNT >= FEEDBACK_REFRESH_PERIOD.frame_count() {
-            *FRAME_COUNT = 0;
-            FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(*LAST_TICKS));
-            *LAST_TICKS = ticks;
-        }
+        timer.sr().modify(|r| r.set_tif(false));
     });
 }
 
@@ -347,8 +348,18 @@ async fn main(spawner: Spawner) {
     let mut tim5 = timer::low_level::Timer::new(p.TIM5);
     tim5.set_tick_freq(Hertz(FEEDBACK_COUNTER_TICK_RATE));
     tim5.set_trigger_source(timer::low_level::TriggerSource::ITR12); // The USB SOF signal.
-    tim5.set_slave_mode(timer::low_level::SlaveMode::TRIGGER_MODE);
-    tim5.regs_gp16().dier().modify(|r| r.set_tie(true)); // Enable the trigger interrupt.
+
+    const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
+    tim5.set_input_ti_selection(TIMER_CHANNEL, timer::low_level::InputTISelection::TRC);
+    tim5.set_input_capture_prescaler(TIMER_CHANNEL, 0);
+    tim5.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FCK_INT_N2);
+
+    // Reset all interrupt flags.
+    tim5.regs_gp32().sr().write(|r| r.0 = 0);
+
+    tim5.enable_channel(TIMER_CHANNEL, true);
+    tim5.enable_input_interrupt(TIMER_CHANNEL, true);
+
     tim5.start();
 
     TIMER.lock(|p| p.borrow_mut().replace(tim5));

@@ -222,25 +222,24 @@ fn TIM2() {
 
     critical_section::with(|cs| {
         // Read timer counter.
-        let ticks = TIMER.borrow(cs).borrow().as_ref().unwrap().regs_gp32().cnt().read();
+        let timer = TIMER.borrow(cs).borrow().as_ref().unwrap().regs_gp32();
+
+        let status = timer.sr().read();
+
+        const CHANNEL_INDEX: usize = 0;
+        if status.ccif(CHANNEL_INDEX) {
+            let ticks = timer.ccr(CHANNEL_INDEX).read();
+
+            *FRAME_COUNT += 1;
+            if *FRAME_COUNT >= FEEDBACK_REFRESH_PERIOD.frame_count() {
+                *FRAME_COUNT = 0;
+                FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(*LAST_TICKS));
+                *LAST_TICKS = ticks;
+            }
+        };
 
         // Clear trigger interrupt flag.
-        TIMER
-            .borrow(cs)
-            .borrow_mut()
-            .as_mut()
-            .unwrap()
-            .regs_gp32()
-            .sr()
-            .modify(|r| r.set_tif(false));
-
-        // Count up frames and emit a signal, when the refresh period is reached (here, every 8 ms).
-        *FRAME_COUNT += 1;
-        if *FRAME_COUNT >= FEEDBACK_REFRESH_PERIOD.frame_count() {
-            *FRAME_COUNT = 0;
-            FEEDBACK_SIGNAL.signal(ticks.wrapping_sub(*LAST_TICKS));
-            *LAST_TICKS = ticks;
-        }
+        timer.sr().modify(|r| r.set_tif(false));
     });
 }
 
@@ -355,8 +354,21 @@ async fn main(spawner: Spawner) {
     let mut tim2 = timer::low_level::Timer::new(p.TIM2);
     tim2.set_tick_freq(Hertz(FEEDBACK_COUNTER_TICK_RATE));
     tim2.set_trigger_source(timer::low_level::TriggerSource::ITR1); // The USB SOF signal.
-    tim2.set_slave_mode(timer::low_level::SlaveMode::TRIGGER_MODE);
-    tim2.regs_gp16().dier().modify(|r| r.set_tie(true)); // Enable the trigger interrupt.
+
+    const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
+    tim2.set_input_ti_selection(TIMER_CHANNEL, timer::low_level::InputTISelection::TRC);
+    tim2.set_input_capture_prescaler(TIMER_CHANNEL, 0);
+    tim2.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FCK_INT_N2);
+
+    // Reset all interrupt flags.
+    tim2.regs_gp32().sr().write(|r| r.0 = 0);
+
+    // Enable routing of SOF to the timer.
+    tim2.regs_gp32().or().write(|r| *r = 0b10 << 10);
+
+    tim2.enable_channel(TIMER_CHANNEL, true);
+    tim2.enable_input_interrupt(TIMER_CHANNEL, true);
+
     tim2.start();
 
     TIMER.lock(|p| p.borrow_mut().replace(tim2));
