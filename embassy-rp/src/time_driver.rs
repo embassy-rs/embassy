@@ -21,10 +21,6 @@ struct AlarmState {
 unsafe impl Send for AlarmState {}
 
 const ALARM_COUNT: usize = 4;
-const DUMMY_ALARM: AlarmState = AlarmState {
-    timestamp: Cell::new(0),
-    callback: Cell::new(None),
-};
 
 struct TimerDriver {
     alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
@@ -32,7 +28,10 @@ struct TimerDriver {
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
-    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), [DUMMY_ALARM; ALARM_COUNT]),
+    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), [const{AlarmState {
+        timestamp: Cell::new(0),
+        callback: Cell::new(None),
+    }}; ALARM_COUNT]),
     next_alarm: AtomicU8::new(0),
 });
 

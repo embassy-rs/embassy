@@ -22,11 +22,10 @@ use crate::pac::usbd::vals;
 use crate::util::slice_in_ram;
 use crate::{interrupt, pac, Peripheral};
 
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static BUS_WAKER: AtomicWaker = NEW_AW;
-static EP0_WAKER: AtomicWaker = NEW_AW;
-static EP_IN_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
-static EP_OUT_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
+static BUS_WAKER: AtomicWaker = AtomicWaker::new();
+static EP0_WAKER: AtomicWaker = AtomicWaker::new();
+static EP_IN_WAKERS: [AtomicWaker; 8] = [const { AtomicWaker::new() }; 8];
+static EP_OUT_WAKERS: [AtomicWaker; 8] = [const { AtomicWaker::new() }; 8];
 static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
 
 /// Interrupt handler.

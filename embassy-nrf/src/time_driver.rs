@@ -123,11 +123,10 @@ struct RtcDriver {
     alarms: Mutex<[AlarmState; ALARM_COUNT]>,
 }
 
-const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
+    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [const {AlarmState::new()}; ALARM_COUNT]),
 });
 
 impl RtcDriver {

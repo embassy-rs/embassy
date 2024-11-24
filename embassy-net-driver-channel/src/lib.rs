@@ -26,13 +26,11 @@ pub struct State<const MTU: usize, const N_RX: usize, const N_TX: usize> {
 }
 
 impl<const MTU: usize, const N_RX: usize, const N_TX: usize> State<MTU, N_RX, N_TX> {
-    const NEW_PACKET: PacketBuf<MTU> = PacketBuf::new();
-
     /// Create a new channel state.
     pub const fn new() -> Self {
         Self {
-            rx: [Self::NEW_PACKET; N_RX],
-            tx: [Self::NEW_PACKET; N_TX],
+            rx: [const { PacketBuf::new() }; N_RX],
+            tx: [const { PacketBuf::new() }; N_TX],
             inner: MaybeUninit::uninit(),
         }
     }

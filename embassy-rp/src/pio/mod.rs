@@ -1270,9 +1270,7 @@ trait SealedInstance {
 
     #[inline]
     fn wakers() -> &'static Wakers {
-        const NEW_AW: AtomicWaker = AtomicWaker::new();
-        static WAKERS: Wakers = Wakers([NEW_AW; 12]);
-
+        static WAKERS: Wakers = Wakers([const { AtomicWaker::new() }; 12]);
         &WAKERS
     }
 
