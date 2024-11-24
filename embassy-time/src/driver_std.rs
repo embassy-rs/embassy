@@ -43,7 +43,6 @@ struct TimeDriver {
     signaler: UninitCell<Signaler>,
 }
 
-const ALARM_NEW: AlarmState = AlarmState::new();
 embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
     alarm_count: AtomicU8::new(0),
 
@@ -56,7 +55,8 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
 impl TimeDriver {
     fn init(&self) {
         self.once.call_once(|| unsafe {
-            self.alarms.write(CsMutex::new(RefCell::new([ALARM_NEW; ALARM_COUNT])));
+            self.alarms
+                .write(CsMutex::new(RefCell::new([const { AlarmState::new() }; ALARM_COUNT])));
             self.zero_instant.write(StdInstant::now());
             self.signaler.write(Signaler::new());
 

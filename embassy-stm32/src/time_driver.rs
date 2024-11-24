@@ -261,13 +261,10 @@ pub(crate) struct RtcDriver {
     rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
 }
 
-#[allow(clippy::declare_interior_mutable_const)]
-const ALARM_STATE_NEW: AlarmState = AlarmState::new();
-
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
+    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [const{AlarmState::new()}; ALARM_COUNT]),
     #[cfg(feature = "low-power")]
     rtc: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
 });

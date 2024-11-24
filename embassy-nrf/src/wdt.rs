@@ -112,8 +112,7 @@ impl Watchdog {
 
         let this = Self { _private: () };
 
-        const DUMMY_HANDLE: WatchdogHandle = WatchdogHandle { index: 0 };
-        let mut handles = [DUMMY_HANDLE; N];
+        let mut handles = [const { WatchdogHandle { index: 0 } }; N];
         for i in 0..N {
             handles[i] = WatchdogHandle { index: i as u8 };
             handles[i].pet();
