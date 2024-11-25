@@ -72,7 +72,7 @@ impl State {
                 let state: u32;
                 asm!("ldrex {}, [{}]", out(reg) state, in(reg) self, options(nostack));
 
-                if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
+                if state & STATE_RUN_QUEUED != 0 {
                     asm!("clrex", options(nomem, nostack));
                     return;
                 }
