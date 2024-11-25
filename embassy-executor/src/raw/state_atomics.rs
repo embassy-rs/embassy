@@ -36,17 +36,8 @@ impl State {
     /// Mark the task as run-queued if it's spawned and isn't already run-queued. Return true on success.
     #[inline(always)]
     pub fn run_enqueue(&self) -> bool {
-        self.state
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
-                // If already scheduled, or if not started,
-                if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
-                    None
-                } else {
-                    // Mark it as scheduled
-                    Some(state | STATE_RUN_QUEUED)
-                }
-            })
-            .is_ok()
+        let prev = self.state.fetch_or(STATE_RUN_QUEUED, Ordering::AcqRel);
+        prev & (STATE_RUN_QUEUED | STATE_SPAWNED) == STATE_SPAWNED
     }
 
     /// Unmark the task as run-queued. Return whether the task is spawned.

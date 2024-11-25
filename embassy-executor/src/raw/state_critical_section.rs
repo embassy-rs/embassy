@@ -54,12 +54,9 @@ impl State {
     #[inline(always)]
     pub fn run_enqueue(&self) -> bool {
         self.update(|s| {
-            if (*s & STATE_RUN_QUEUED != 0) || (*s & STATE_SPAWNED == 0) {
-                false
-            } else {
-                *s |= STATE_RUN_QUEUED;
-                true
-            }
+            let prev = *s;
+            *s |= STATE_RUN_QUEUED;
+            prev & (STATE_RUN_QUEUED | STATE_SPAWNED) == STATE_SPAWNED
         })
     }
 
