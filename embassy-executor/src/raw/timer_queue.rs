@@ -1,74 +1,79 @@
+use core::cell::Cell;
 use core::cmp::min;
 
 use super::TaskRef;
-use crate::raw::util::SyncUnsafeCell;
+use critical_section::{CriticalSection, Mutex};
 
 pub(crate) struct TimerQueueItem {
-    next: SyncUnsafeCell<Option<TaskRef>>,
+    pub(super) next: Mutex<Cell<Option<TaskRef>>>,
 }
 
 impl TimerQueueItem {
     pub const fn new() -> Self {
         Self {
-            next: SyncUnsafeCell::new(None),
+            next: Mutex::new(Cell::new(None)),
         }
     }
 }
 
 pub(crate) struct TimerQueue {
-    head: SyncUnsafeCell<Option<TaskRef>>,
+    pub(super) head: Mutex<Cell<Option<TaskRef>>>,
 }
 
 impl TimerQueue {
     pub const fn new() -> Self {
         Self {
-            head: SyncUnsafeCell::new(None),
+            head: Mutex::new(Cell::new(None)),
         }
     }
 
     pub(crate) unsafe fn update(&self, p: TaskRef) {
         let task = p.header();
-        if task.expires_at.get() != u64::MAX {
-            if task.state.timer_enqueue() {
-                task.timer_queue_item.next.set(self.head.get());
-                self.head.set(Some(p));
+        critical_section::with(|cs| {
+            if task.expires_at.borrow(cs).get() != u64::MAX {
+                if task.state.timer_enqueue() {
+                    let prev = self.head.borrow(cs).replace(Some(p));
+                    task.timer_queue_item.next.borrow(cs).set(prev);
+                }
             }
-        }
+        });
     }
 
     pub(crate) unsafe fn next_expiration(&self) -> u64 {
         let mut res = u64::MAX;
-        self.retain(|p| {
-            let task = p.header();
-            let expires = task.expires_at.get();
-            res = min(res, expires);
-            expires != u64::MAX
+        critical_section::with(|cs| {
+            self.retain(cs, |p| {
+                let task = p.header();
+                let expires = task.expires_at.borrow(cs).get();
+                res = min(res, expires);
+                expires != u64::MAX
+            });
         });
         res
     }
 
     pub(crate) unsafe fn dequeue_expired(&self, now: u64, on_task: impl Fn(TaskRef)) {
-        self.retain(|p| {
-            let task = p.header();
-            if task.expires_at.get() <= now {
-                on_task(p);
-                false
-            } else {
-                true
-            }
+        critical_section::with(|cs| {
+            self.retain(cs, |p| {
+                let task = p.header();
+                if task.expires_at.borrow(cs).get() <= now {
+                    on_task(p);
+                    false
+                } else {
+                    true
+                }
+            });
         });
     }
 
-    pub(crate) unsafe fn retain(&self, mut f: impl FnMut(TaskRef) -> bool) {
+    unsafe fn retain(&self, cs: CriticalSection<'_>, mut f: impl FnMut(TaskRef) -> bool) {
         let mut prev = &self.head;
-        while let Some(p) = prev.get() {
+        while let Some(p) = prev.borrow(cs).get() {
             let task = p.header();
             if f(p) {
-                // Skip to next
                 prev = &task.timer_queue_item.next;
             } else {
-                // Remove it
-                prev.set(task.timer_queue_item.next.get());
+                prev.borrow(cs).set(task.timer_queue_item.next.borrow(cs).get());
                 task.state.timer_dequeue();
             }
         }
