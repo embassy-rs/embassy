@@ -2,7 +2,7 @@ use core::cell::Cell;
 
 use critical_section::Mutex;
 
-/// Task is claimed (its storage is in use)
+/// Task is claimed (it is being spawned)
 pub(crate) const STATE_CLAIMED: u32 = 1 << 0;
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 1;
@@ -69,7 +69,9 @@ impl State {
         self.update(|s| {
             let prev = *s;
             *s |= STATE_RUN_QUEUED;
-            prev & STATE_RUN_QUEUED == 0
+            // If CLAIMED is set, the task is being spawned. We don't want to pend, because we
+            // may end up adding the task to the wrong run queue.
+            prev & (STATE_RUN_QUEUED | STATE_CLAIMED) == 0
         })
     }
 
