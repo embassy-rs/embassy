@@ -256,9 +256,6 @@ impl Executor {
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
         let executor = unsafe { EXECUTOR.as_mut().unwrap() };
-        unsafe {
-            executor.inner.initialize();
-        }
         init(executor.inner.spawner());
 
         loop {

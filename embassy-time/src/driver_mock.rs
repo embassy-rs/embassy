@@ -1,7 +1,7 @@
 use core::cell::RefCell;
 
 use critical_section::Mutex as CsMutex;
-use embassy_time_driver::{AlarmHandle, Driver};
+use embassy_time_driver::Driver;
 
 use crate::{Duration, Instant};
 
@@ -60,15 +60,13 @@ impl MockDriver {
 
                 let now = inner.now.as_ticks();
 
-                inner
-                    .alarm
-                    .as_mut()
-                    .filter(|alarm| alarm.timestamp <= now)
-                    .map(|alarm| {
-                        alarm.timestamp = u64::MAX;
+                if inner.alarm.timestamp <= now {
+                    inner.alarm.timestamp = u64::MAX;
 
-                        (alarm.callback, alarm.ctx)
-                    })
+                    Some((inner.alarm.callback, inner.alarm.ctx))
+                } else {
+                    None
+                }
             })
         };
 
@@ -76,68 +74,48 @@ impl MockDriver {
             (callback)(ctx);
         }
     }
-}
 
-impl Driver for MockDriver {
-    fn now(&self) -> u64 {
-        critical_section::with(|cs| self.0.borrow_ref(cs).now).as_ticks()
-    }
-
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
+    /// Configures a callback to be called when the alarm fires.
+    pub fn set_alarm_callback(&self, callback: fn(*mut ()), ctx: *mut ()) {
         critical_section::with(|cs| {
             let mut inner = self.0.borrow_ref_mut(cs);
 
-            if inner.alarm.is_some() {
-                None
-            } else {
-                inner.alarm.replace(AlarmState::new());
-
-                Some(AlarmHandle::new(0))
-            }
-        })
-    }
-
-    fn set_alarm_callback(&self, _alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        critical_section::with(|cs| {
-            let mut inner = self.0.borrow_ref_mut(cs);
-
-            let Some(alarm) = inner.alarm.as_mut() else {
-                panic!("Alarm not allocated");
-            };
-
-            alarm.callback = callback;
-            alarm.ctx = ctx;
+            inner.alarm.callback = callback;
+            inner.alarm.ctx = ctx;
         });
     }
 
-    fn set_alarm(&self, _alarm: AlarmHandle, timestamp: u64) -> bool {
+    /// Sets the alarm to fire at the specified timestamp.
+    pub fn set_alarm(&self, timestamp: u64) -> bool {
         critical_section::with(|cs| {
             let mut inner = self.0.borrow_ref_mut(cs);
 
             if timestamp <= inner.now.as_ticks() {
                 false
             } else {
-                let Some(alarm) = inner.alarm.as_mut() else {
-                    panic!("Alarm not allocated");
-                };
-
-                alarm.timestamp = timestamp;
+                inner.alarm.timestamp = timestamp;
                 true
             }
         })
     }
 }
 
+impl Driver for MockDriver {
+    fn now(&self) -> u64 {
+        critical_section::with(|cs| self.0.borrow_ref(cs).now).as_ticks()
+    }
+}
+
 struct InnerMockDriver {
     now: Instant,
-    alarm: Option<AlarmState>,
+    alarm: AlarmState,
 }
 
 impl InnerMockDriver {
     const fn new() -> Self {
         Self {
             now: Instant::from_ticks(0),
-            alarm: None,
+            alarm: AlarmState::new(),
         }
     }
 }
@@ -189,8 +167,7 @@ mod tests {
         setup();
 
         let driver = MockDriver::get();
-        let alarm = unsafe { AlarmHandle::new(0) };
-        assert_eq!(false, driver.set_alarm(alarm, driver.now()));
+        assert_eq!(false, driver.set_alarm(driver.now()));
     }
 
     #[test]
@@ -199,23 +176,11 @@ mod tests {
         setup();
 
         let driver = MockDriver::get();
-        let alarm = unsafe { driver.allocate_alarm() }.expect("No alarms available");
         static mut CALLBACK_CALLED: bool = false;
-        let ctx = &mut () as *mut ();
-        driver.set_alarm_callback(alarm, |_| unsafe { CALLBACK_CALLED = true }, ctx);
-        driver.set_alarm(alarm, driver.now() + 1);
+        driver.set_alarm_callback(|_| unsafe { CALLBACK_CALLED = true }, core::ptr::null_mut());
+        driver.set_alarm(driver.now() + 1);
         assert_eq!(false, unsafe { CALLBACK_CALLED });
         driver.advance(Duration::from_secs(1));
         assert_eq!(true, unsafe { CALLBACK_CALLED });
-    }
-
-    #[test]
-    #[serial]
-    fn test_allocate_alarm() {
-        setup();
-
-        let driver = MockDriver::get();
-        assert!(unsafe { driver.allocate_alarm() }.is_some());
-        assert!(unsafe { driver.allocate_alarm() }.is_none());
     }
 }

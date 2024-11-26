@@ -42,29 +42,6 @@ defmt-timestamp-uptime-tus = ["defmt"]
 ## Create a `MockDriver` that can be manually advanced for testing purposes.
 mock-driver = ["tick-hz-1_000_000"]
 
-#! ### Generic Queue
-
-## Create a global, generic queue that can be used with any executor.
-## To use this you must have a time driver provided.
-generic-queue = []
-
-#! The following features set how many timers are used for the generic queue. At most one
-#! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
-#!
-#! When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
-#! end user to pick.
-
-## Generic Queue with 8 timers
-generic-queue-8 = ["generic-queue"]
-## Generic Queue with 16 timers
-generic-queue-16 = ["generic-queue"]
-## Generic Queue with 32 timers
-generic-queue-32 = ["generic-queue"]
-## Generic Queue with 64 timers
-generic-queue-64 = ["generic-queue"]
-## Generic Queue with 128 timers
-generic-queue-128 = ["generic-queue"]
-
 #! ### Tick Rate
 #!
 #! At most 1 `tick-*` feature can be enabled. If none is enabled, a default of 1MHz is used.
@@ -419,7 +396,6 @@ embedded-hal-async = { version = "1.0" }
 futures-util = { version = "0.3.17", default-features = false }
 critical-section = "1.1"
 cfg-if = "1.0.0"
-heapless = "0.8"
 
 document-features = "0.2.7"
 

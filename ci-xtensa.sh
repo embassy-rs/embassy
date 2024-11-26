@@ -24,7 +24,9 @@ cargo batch \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target xtensa-esp32-none-elf --features arch-spin,executor-thread \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target xtensa-esp32-none-elf --features arch-spin,executor-thread,integrated-timers \
     --- build --release --manifest-path embassy-sync/Cargo.toml --target xtensa-esp32s2-none-elf --features defmt \
-    --- build --release --manifest-path embassy-time/Cargo.toml --target xtensa-esp32s2-none-elf --features defmt,defmt-timestamp-uptime,generic-queue-8,mock-driver \
+    --- build --release --manifest-path embassy-time/Cargo.toml --target xtensa-esp32s2-none-elf --features defmt,defmt-timestamp-uptime,mock-driver \
+    --- build --release --manifest-path embassy-time-queue-driver/Cargo.toml --target xtensa-esp32s2-none-elf --features integrated-timers \
+    --- build --release --manifest-path embassy-time-queue-driver/Cargo.toml --target xtensa-esp32s2-none-elf --features generic-queue-8 \
     --- build --release --manifest-path embassy-net/Cargo.toml --target xtensa-esp32-none-elf --features defmt,tcp,udp,dns,proto-ipv4,medium-ethernet,packet-trace \
     --- build --release --manifest-path embassy-net/Cargo.toml --target xtensa-esp32-none-elf --features defmt,tcp,udp,dns,proto-ipv4,multicast,medium-ethernet \
     --- build --release --manifest-path embassy-net/Cargo.toml --target xtensa-esp32-none-elf --features defmt,tcp,udp,dns,dhcpv4,medium-ethernet \
