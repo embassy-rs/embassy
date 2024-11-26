@@ -109,9 +109,12 @@ pub(crate) unsafe fn init(config: Config) {
             None
         }
         Some(hse) => {
-            match hse.mode {
-                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
-                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+            #[cfg(not(feature = "unchecked-overclocking"))]
+            {
+                match hse.mode {
+                    HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
+                    HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+                }
             }
 
             RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
@@ -126,14 +129,16 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::HSE => unwrap!(hse),
         _ => unreachable!(),
     };
-
+    #[cfg(not(feature = "unchecked-overclocking"))]
     assert!(max::SYSCLK.contains(&sys));
 
     // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
     let hclk = sys / config.ahb_pre;
+    #[cfg(not(feature = "unchecked-overclocking"))]
     assert!(max::HCLK.contains(&hclk));
 
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
+    #[cfg(not(feature = "unchecked-overclocking"))]
     assert!(max::PCLK.contains(&pclk1));
 
     let latency = match hclk.0 {

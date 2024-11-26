@@ -138,6 +138,10 @@ trustzone-secure = []
 ## There are no plans to make this stable.
 unstable-pac = []
 
+## Enable this feature to disable the overclocking check.
+## DO NOT ENABLE THIS FEATURE UNLESS YOU KNOW WHAT YOU'RE DOING.
+unchecked-overclocking = []
+
 #! ## Time
 
 ## Enables additional driver features that depend on embassy-time

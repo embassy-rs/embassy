@@ -157,9 +157,12 @@ pub(crate) unsafe fn init(config: Config) {
             None
         }
         Some(hse) => {
-            match hse.mode {
-                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
-                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+            #[cfg(not(feature = "unchecked-overclocking"))]
+            {
+                match hse.mode {
+                    HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
+                    HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+                }
             }
 
             RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
@@ -192,7 +195,9 @@ pub(crate) unsafe fn init(config: Config) {
             PllSource::HSI48 => (Pllsrc::HSI48_DIV_PREDIV, unwrap!(hsi48)),
         };
         let in_freq = src_freq / pll.prediv;
+        #[cfg(not(feature = "unchecked-overclocking"))]
         assert!(max::PLL_IN.contains(&in_freq));
+        #[cfg(not(feature = "unchecked-overclocking"))]
         let out_freq = in_freq * pll.mul;
         assert!(max::PLL_OUT.contains(&out_freq));
 
@@ -238,15 +243,16 @@ pub(crate) unsafe fn init(config: Config) {
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk, config.apb2_pre);
     #[cfg(stm32f0)]
     let (pclk2, pclk2_tim) = (pclk1, pclk1_tim);
-
+    #[cfg(not(feature = "unchecked-overclocking"))]
     assert!(max::HCLK.contains(&hclk));
+    #[cfg(not(feature = "unchecked-overclocking"))]
     assert!(max::PCLK1.contains(&pclk1));
-    #[cfg(not(stm32f0))]
+    #[cfg(all(not(feature = "unchecked-overclocking"), not(stm32f0)))]
     assert!(max::PCLK2.contains(&pclk2));
 
     #[cfg(stm32f1)]
     let adc = pclk2 / config.adc_pre;
-    #[cfg(stm32f1)]
+    #[cfg(all(not(feature = "unchecked-overclocking"), stm32f1))]
     assert!(max::ADC.contains(&adc));
 
     // Set latency based on HCLK frquency
