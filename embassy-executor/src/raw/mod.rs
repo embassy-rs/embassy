@@ -30,6 +30,10 @@ use core::ptr::NonNull;
 use core::task::{Context, Poll};
 
 #[cfg(feature = "integrated-timers")]
+use core::cell::Cell;
+#[cfg(feature = "integrated-timers")]
+use critical_section::Mutex;
+#[cfg(feature = "integrated-timers")]
 use embassy_time_driver::AlarmHandle;
 #[cfg(feature = "rtos-trace")]
 use rtos_trace::trace;
@@ -48,7 +52,7 @@ pub(crate) struct TaskHeader {
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     #[cfg(feature = "integrated-timers")]
-    pub(crate) expires_at: SyncUnsafeCell<u64>,
+    pub(crate) expires_at: Mutex<Cell<u64>>,
     #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
@@ -121,7 +125,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 poll_fn: SyncUnsafeCell::new(None),
 
                 #[cfg(feature = "integrated-timers")]
-                expires_at: SyncUnsafeCell::new(0),
+                expires_at: Mutex::new(Cell::new(0)),
                 #[cfg(feature = "integrated-timers")]
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
             },
@@ -162,7 +166,9 @@ impl<F: Future + 'static> TaskStorage<F> {
                 this.raw.state.despawn();
 
                 #[cfg(feature = "integrated-timers")]
-                this.raw.expires_at.set(u64::MAX);
+                critical_section::with(|cs| {
+                    this.raw.expires_at.borrow(cs).set(u64::MAX);
+                });
             }
             Poll::Pending => {}
         }
@@ -363,6 +369,12 @@ impl SyncExecutor {
     #[cfg(feature = "integrated-timers")]
     fn alarm_callback(ctx: *mut ()) {
         let this: &Self = unsafe { &*(ctx as *const Self) };
+
+        unsafe {
+            this.timer_queue
+                .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
+        }
+
         this.pender.pend();
     }
 
@@ -379,17 +391,16 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
+        //trace!("poll");
         #[allow(clippy::never_loop)]
         loop {
-            #[cfg(feature = "integrated-timers")]
-            self.timer_queue
-                .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
-
             self.run_queue.dequeue_all(|p| {
                 let task = p.header();
 
                 #[cfg(feature = "integrated-timers")]
-                task.expires_at.set(u64::MAX);
+                critical_section::with(|cs| {
+                    task.expires_at.borrow(cs).set(u64::MAX);
+                });
 
                 if !task.state.run_dequeue() {
                     // If task is not running, ignore it. This can happen in the following scenario:
@@ -421,6 +432,11 @@ impl SyncExecutor {
                 let next_expiration = self.timer_queue.next_expiration();
                 if embassy_time_driver::set_alarm(self.alarm, next_expiration) {
                     break;
+                } else {
+                    // Time driver did not schedule the alarm,
+                    // so we need to dequeue expired timers manually.
+                    self.timer_queue
+                        .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
                 }
             }
 
@@ -584,10 +600,10 @@ impl embassy_time_queue_driver::TimerQueue for TimerQueue {
     fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
         let task = waker::task_from_waker(waker);
         let task = task.header();
-        unsafe {
-            let expires_at = task.expires_at.get();
-            task.expires_at.set(expires_at.min(at));
-        }
+        critical_section::with(|cs| {
+            let expires_at = task.expires_at.borrow(cs).get();
+            task.expires_at.borrow(cs).set(expires_at.min(at));
+        });
     }
 }
 
