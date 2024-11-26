@@ -20,6 +20,39 @@ categories = [
 # This is especially common when mixing crates from crates.io and git.
 links = "embassy-time-queue"
 
+[dependencies]
+critical-section = "1.2.0"
+heapless = "0.8"
+embassy-executor = { version = "0.6.3", path = "../embassy-executor", optional = true }
+embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver" }
+
+[features]
+#! ### Generic Queue
+
+## Use the executor-integrated `embassy-time` timer queue. The timer items are stored inside
+## the task headers, so you do not need to set a capacity for the queue.
+## To use this you must have a time driver provided.
+##
+## If this feature is not enabled, a generic queue is available with a configurable capacity.
+integrated-timers = ["embassy-executor/integrated-timers"]
+
+#! The following features set how many timers are used for the generic queue. At most one
+#! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
+#!
+#! When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
+#! end user to pick.
+
+## Generic Queue with 8 timers
+generic-queue-8 = []
+## Generic Queue with 16 timers
+generic-queue-16 = []
+## Generic Queue with 32 timers
+generic-queue-32 = []
+## Generic Queue with 64 timers
+generic-queue-64 = []
+## Generic Queue with 128 timers
+generic-queue-128 = []
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-queue-driver-v$VERSION/embassy-time-queue-driver/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time-queue-driver/src/"

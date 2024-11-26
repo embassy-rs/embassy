@@ -40,9 +40,6 @@ fn setup() -> (&'static Executor, Trace) {
     let trace = Trace::new();
     let context = Box::leak(Box::new(trace.clone())) as *mut _ as *mut ();
     let executor = &*Box::leak(Box::new(Executor::new(context)));
-    unsafe {
-        executor.initialize();
-    }
 
     (executor, trace)
 }

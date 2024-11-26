@@ -54,4 +54,9 @@ impl<T> SyncUnsafeCell<T> {
     {
         *self.value.get()
     }
+
+    #[cfg(feature = "integrated-timers")]
+    pub unsafe fn replace(&self, value: T) -> T {
+        core::mem::replace(&mut *self.value.get(), value)
+    }
 }
