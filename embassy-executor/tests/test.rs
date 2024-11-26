@@ -176,12 +176,12 @@ fn waking_after_completion_does_not_poll() {
     assert_eq!(
         trace.get(),
         &[
-            "pend",              // spawning a task pends the executor
-            "poll task1",        //
-            "pend",              // manual wake, gets cleared by poll
-            "pend",              // manual wake, single pend for two wakes
-            "pend",              // respawning a task pends the executor
-            "poll task1",        //
+            "pend",       // spawning a task pends the executor
+            "poll task1", //
+            "pend",       // manual wake, gets cleared by poll
+            "pend",       // manual wake, single pend for two wakes
+            "pend",       // respawning a task pends the executor
+            "poll task1", //
         ]
     )
 }
@@ -230,17 +230,20 @@ fn waking_with_old_waker_after_respawn() {
     assert_eq!(
         trace.get(),
         &[
-            "pend",              // spawning a task pends the executor
-            "yield_now",         //
-            "pend",              // yield_now wakes the task
-            "poll task1",        //
-            "pend",              // task self-wakes
+            "pend",       // spawning a task pends the executor
+            "yield_now",  //
+            "pend",       // yield_now wakes the task
+            "poll task1", //
+            "pend",       // task self-wakes
         ]
     );
 
     // Can respawn task on another executor
     let (other_executor, other_trace) = setup();
-    other_executor.spawner().spawn(task1(other_trace.clone(), waker)).unwrap();
+    other_executor
+        .spawner()
+        .spawn(task1(other_trace.clone(), waker))
+        .unwrap();
 
     unsafe { other_executor.poll() }; // just run to the yield_now
     waker.wake(); // trigger old waker registration
@@ -251,21 +254,21 @@ fn waking_with_old_waker_after_respawn() {
     assert_eq!(
         trace.get(),
         &[
-            "pend",              // spawning a task pends the executor
-            "yield_now",         //
-            "pend",              // yield_now wakes the task
-            "poll task1",        //
-            "pend",              // task self-wakes
+            "pend",       // spawning a task pends the executor
+            "yield_now",  //
+            "pend",       // yield_now wakes the task
+            "poll task1", //
+            "pend",       // task self-wakes
         ]
     );
 
     assert_eq!(
         other_trace.get(),
         &[
-            "pend",              // spawning a task pends the executor
-            "yield_now",         //
-            "pend",              // manual wake, gets cleared by poll
-            "poll task1",        //
+            "pend",       // spawning a task pends the executor
+            "yield_now",  //
+            "pend",       // manual wake, gets cleared by poll
+            "poll task1", //
         ]
     );
 }
