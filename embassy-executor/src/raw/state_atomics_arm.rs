@@ -8,7 +8,7 @@ pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 16;
 
 #[repr(C, align(4))]
 pub(crate) struct State {
-    /// Task is claimed (its storage is in use)
+    /// Task is claimed (it is being spawned)
     claimed: AtomicBool,
     /// Task is spawned (has a future)
     spawned: AtomicBool,
@@ -72,7 +72,7 @@ impl State {
                 let state: u32;
                 asm!("ldrex {}, [{}]", out(reg) state, in(reg) self, options(nostack));
 
-                if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
+                if state & (STATE_RUN_QUEUED | STATE_CLAIMED) != 0 {
                     asm!("clrex", options(nomem, nostack));
                     return false;
                 }
