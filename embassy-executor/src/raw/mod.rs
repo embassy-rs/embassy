@@ -189,9 +189,9 @@ pub struct AvailableTask<F: Future + 'static> {
 impl<F: Future + 'static> AvailableTask<F> {
     /// Try to claim a [`TaskStorage`].
     ///
-    /// This function returns `None` if a task has already been spawned and has not finished running.
+    /// This function returns `None` if a task has already been claimed and has not finished running.
     pub fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
-        task.raw.state.spawn().then(|| Self { task })
+        task.raw.state.claim().then(|| Self { task })
     }
 
     fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
@@ -368,6 +368,7 @@ impl SyncExecutor {
 
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
         task.header().executor.set(Some(self));
+        task.header().state.mark_spawned();
 
         #[cfg(feature = "rtos-trace")]
         trace::task_new(task.as_ptr() as u32);

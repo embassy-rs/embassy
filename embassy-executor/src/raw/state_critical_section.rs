@@ -2,13 +2,15 @@ use core::cell::Cell;
 
 use critical_section::Mutex;
 
+/// Task is claimed (its storage is in use)
+pub(crate) const STATE_CLAIMED: u32 = 1 << 0;
 /// Task is spawned (has a future)
-pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
+pub(crate) const STATE_SPAWNED: u32 = 1 << 1;
 /// Task is in the executor run queue
-pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
+pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 2;
 /// Task is in the executor timer queue
 #[cfg(feature = "integrated-timers")]
-pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
+pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 3;
 
 pub(crate) struct State {
     state: Mutex<Cell<u32>>,
@@ -31,12 +33,12 @@ impl State {
         })
     }
 
-    /// If task is idle, mark it as spawned + run_queued and return true.
+    /// If task is idle, mark it as claimed and return true.
     #[inline(always)]
-    pub fn spawn(&self) -> bool {
+    pub fn claim(&self) -> bool {
         self.update(|s| {
             if *s == 0 {
-                *s = STATE_SPAWNED | STATE_RUN_QUEUED;
+                *s = STATE_CLAIMED;
                 true
             } else {
                 false
@@ -44,10 +46,21 @@ impl State {
         })
     }
 
+    /// Mark a claimed task ready to run.
+    ///
+    /// # Safety
+    ///
+    /// The task must be claimed, its executor must be configured. This function must
+    /// not be called when the task is already spawned.
+    #[inline(always)]
+    pub unsafe fn mark_spawned(&self) {
+        self.update(|s| *s = STATE_SPAWNED | STATE_RUN_QUEUED);
+    }
+
     /// Unmark the task as spawned.
     #[inline(always)]
     pub fn despawn(&self) {
-        self.update(|s| *s &= !STATE_SPAWNED);
+        self.update(|s| *s &= !(STATE_SPAWNED | STATE_CLAIMED));
     }
 
     /// Mark the task as run-queued if it's spawned and isn't already run-queued. Return true on success.
