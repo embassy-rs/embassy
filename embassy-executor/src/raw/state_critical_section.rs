@@ -69,7 +69,7 @@ impl State {
         self.update(|s| {
             let prev = *s;
             *s |= STATE_RUN_QUEUED;
-            prev & (STATE_RUN_QUEUED | STATE_SPAWNED) == STATE_SPAWNED
+            prev & STATE_RUN_QUEUED == 0
         })
     }
 

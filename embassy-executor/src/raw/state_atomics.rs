@@ -50,7 +50,7 @@ impl State {
     #[inline(always)]
     pub fn run_enqueue(&self) -> bool {
         let prev = self.state.fetch_or(STATE_RUN_QUEUED, Ordering::AcqRel);
-        prev & (STATE_RUN_QUEUED | STATE_SPAWNED) == STATE_SPAWNED
+        prev & STATE_RUN_QUEUED == 0
     }
 
     /// Unmark the task as run-queued. Return whether the task is spawned.
