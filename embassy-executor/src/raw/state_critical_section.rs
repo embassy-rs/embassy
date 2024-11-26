@@ -67,11 +67,11 @@ impl State {
     #[inline(always)]
     pub fn run_enqueue(&self) -> bool {
         self.update(|s| {
-            let prev = *s;
-            *s |= STATE_RUN_QUEUED;
             // If CLAIMED is set, the task is being spawned. We don't want to pend, because we
             // may end up adding the task to the wrong run queue.
-            prev & (STATE_RUN_QUEUED | STATE_CLAIMED) == 0
+            let ok = *s & (STATE_RUN_QUEUED | STATE_CLAIMED) == 0;
+            *s |= STATE_RUN_QUEUED;
+            ok
         })
     }
 
