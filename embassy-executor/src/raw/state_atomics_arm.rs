@@ -35,15 +35,9 @@ impl State {
     /// If task is idle, mark it as claimed and return true.
     #[inline(always)]
     pub fn claim(&self) -> bool {
-        compiler_fence(Ordering::Release);
-
-        let r = self
-            .claimed
-            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok();
-
-        compiler_fence(Ordering::Acquire);
-        r
+        self.as_u32()
+            .compare_exchange(0, STATE_CLAIMED, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
     }
 
     /// Mark a claimed task ready to run.
