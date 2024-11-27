@@ -1019,6 +1019,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         }
     }
 
+    /// Determine whether the SAI DMA is running.
+    pub fn is_running(&mut self) -> bool {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => buffer.is_running(),
+            RingBuffer::Readable(buffer) => buffer.is_running(),
+        }
+    }
+
     /// Write data to the SAI ringbuffer.
     ///
     /// The first write starts the DMA after filling the ring buffer with the provided data.
