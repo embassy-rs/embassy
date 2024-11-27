@@ -237,6 +237,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk, config.apb2_pre);
+    rcc_assert!(max::PCLK.contains(&pclk1));
     rcc_assert!(max::PCLK.contains(&pclk2));
 
     // Configure Core Boost mode ([RM0440] p234 – inverted because setting r1mode to 0 enables boost mode!)
