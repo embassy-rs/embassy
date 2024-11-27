@@ -227,6 +227,7 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::PLL1_R => unwrap!(pll.pll_r),
         _ => unreachable!(),
     };
+
     rcc_assert!(max::SYSCLK.contains(&sys));
 
     // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.

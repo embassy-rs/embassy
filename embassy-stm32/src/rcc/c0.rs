@@ -126,6 +126,7 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::HSE => unwrap!(hse),
         _ => unreachable!(),
     };
+
     rcc_assert!(max::SYSCLK.contains(&sys));
 
     // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
@@ -133,7 +134,7 @@ pub(crate) unsafe fn init(config: Config) {
     rcc_assert!(max::HCLK.contains(&hclk));
 
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
-    rcc_assert(max::PCLK.contains(&pclk1));
+    rcc_assert!(max::PCLK.contains(&pclk1));
 
     let latency = match hclk.0 {
         ..=24_000_000 => Latency::WS0,

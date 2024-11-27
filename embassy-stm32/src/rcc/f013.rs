@@ -238,6 +238,7 @@ pub(crate) unsafe fn init(config: Config) {
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk, config.apb2_pre);
     #[cfg(stm32f0)]
     let (pclk2, pclk2_tim) = (pclk1, pclk1_tim);
+
     rcc_assert!(max::HCLK.contains(&hclk));
     rcc_assert!(max::PCLK1.contains(&pclk1));
     #[cfg(not(stm32f0))]
