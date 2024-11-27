@@ -139,12 +139,9 @@ pub(crate) unsafe fn init(config: Config) {
             None
         }
         Some(hse) => {
-            #[cfg(not(feature = "unchecked-overclocking"))]
-            {
-                match hse.mode {
-                    HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
-                    HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
-                }
+            match hse.mode {
+                HseMode::Bypass => rcc_assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => rcc_assert!(max::HSE_OSC.contains(&hse.freq)),
             }
 
             RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
@@ -172,11 +169,9 @@ pub(crate) unsafe fn init(config: Config) {
             while RCC.cr().read().pllrdy() {}
 
             let in_freq = src_freq / pll_config.prediv;
-            #[cfg(not(feature = "unchecked-overclocking"))]
-            assert!(max::PLL_IN.contains(&in_freq));
+            rcc_assert!(max::PLL_IN.contains(&in_freq));
             let internal_freq = in_freq * pll_config.mul;
-            #[cfg(not(feature = "unchecked-overclocking"))]
-            assert!(max::PLL_VCO.contains(&internal_freq));
+            rcc_assert!(max::PLL_VCO.contains(&internal_freq));
 
             RCC.pllcfgr().write(|w| {
                 w.set_plln(pll_config.mul);
@@ -190,8 +185,7 @@ pub(crate) unsafe fn init(config: Config) {
                     w.set_pllpen(true);
                 });
                 let freq = internal_freq / div_p;
-                #[cfg(not(feature = "unchecked-overclocking"))]
-                assert!(max::PLL_P.contains(&freq));
+                rcc_assert!(max::PLL_P.contains(&freq));
                 freq
             });
 
@@ -201,8 +195,7 @@ pub(crate) unsafe fn init(config: Config) {
                     w.set_pllqen(true);
                 });
                 let freq = internal_freq / div_q;
-                #[cfg(not(feature = "unchecked-overclocking"))]
-                assert!(max::PLL_Q.contains(&freq));
+                rcc_assert!(max::PLL_Q.contains(&freq));
                 freq
             });
 
@@ -212,8 +205,7 @@ pub(crate) unsafe fn init(config: Config) {
                     w.set_pllren(true);
                 });
                 let freq = internal_freq / div_r;
-                #[cfg(not(feature = "unchecked-overclocking"))]
-                assert!(max::PLL_R.contains(&freq));
+                rcc_assert!(max::PLL_R.contains(&freq));
                 freq
             });
 
@@ -235,17 +227,14 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::PLL1_R => unwrap!(pll.pll_r),
         _ => unreachable!(),
     };
-    #[cfg(not(feature = "unchecked-overclocking"))]
-    assert!(max::SYSCLK.contains(&sys));
+    rcc_assert!(max::SYSCLK.contains(&sys));
 
     // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
     let hclk = sys / config.ahb_pre;
-    #[cfg(not(feature = "unchecked-overclocking"))]
-    assert!(max::HCLK.contains(&hclk));
+    rcc_assert!(max::HCLK.contains(&hclk));
 
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
-    #[cfg(not(feature = "unchecked-overclocking"))]
-    assert!(max::PCLK.contains(&pclk1));
+    rcc_assert!(max::PCLK.contains(&pclk1));
 
     let latency = match (config.voltage_range, hclk.0) {
         (VoltageRange::RANGE1, ..=24_000_000) => Latency::WS0,
