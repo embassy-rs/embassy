@@ -418,10 +418,6 @@ impl SyncExecutor {
 
                 #[cfg(feature = "rtos-trace")]
                 trace::task_exec_end();
-
-                // Enqueue or update into timer_queue
-                #[cfg(feature = "integrated-timers")]
-                self.timer_queue.update(p);
             });
 
             #[cfg(feature = "integrated-timers")]
@@ -598,10 +594,9 @@ struct TimerQueue;
 impl embassy_time_queue_driver::TimerQueue for TimerQueue {
     fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
         let task = waker::task_from_waker(waker);
-        let task = task.header();
         unsafe {
-            let expires_at = task.next_expiration.get();
-            task.next_expiration.set(expires_at.min(at));
+            let executor = task.header().executor.get().unwrap_unchecked();
+            executor.timer_queue.update(task, at);
         }
     }
 }
