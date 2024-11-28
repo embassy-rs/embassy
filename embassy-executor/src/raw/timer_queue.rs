@@ -30,15 +30,14 @@ impl TimerQueue {
 
     pub(crate) unsafe fn update(&self, p: TaskRef) {
         let task = p.header();
-        critical_section::with(|cs| {
-            task.expires_at.borrow(cs).set(task.next_expiration.get());
-            if task.next_expiration.get() != u64::MAX {
+        if task.next_expiration.get() != u64::MAX {
+            critical_section::with(|cs| {
                 if task.state.timer_enqueue() {
                     let prev = self.head.borrow(cs).replace(Some(p));
                     task.timer_queue_item.next.borrow(cs).set(prev);
                 }
-            }
-        });
+            });
+        }
     }
 
     pub(crate) unsafe fn next_expiration(&self) -> u64 {
@@ -46,7 +45,8 @@ impl TimerQueue {
         critical_section::with(|cs| {
             self.retain(cs, |p| {
                 let task = p.header();
-                let expires = task.expires_at.borrow(cs).get();
+                let expires = task.next_expiration.get();
+                task.expires_at.borrow(cs).set(expires);
                 res = min(res, expires);
                 expires != u64::MAX
             });
