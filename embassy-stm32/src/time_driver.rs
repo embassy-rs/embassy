@@ -75,14 +75,6 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM1, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim1)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
     (TIM2, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim2)]
         #[cfg(feature = "rt")]
@@ -123,14 +115,6 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM8, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim8)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
     (TIM9, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim9)]
         #[cfg(feature = "rt")]
@@ -149,14 +133,6 @@ foreach_interrupt! {
     };
     (TIM15, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim15)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM20, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim20)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
