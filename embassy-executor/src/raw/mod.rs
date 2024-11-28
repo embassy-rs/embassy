@@ -170,7 +170,12 @@ impl<F: Future + 'static> TaskStorage<F> {
                 this.raw.state.despawn();
 
                 #[cfg(feature = "integrated-timers")]
-                this.raw.next_expiration.set(u64::MAX);
+                this.raw
+                    .executor
+                    .get()
+                    .unwrap_unchecked()
+                    .timer_queue
+                    .notify_task_exited(p);
             }
             Poll::Pending => {}
         }
@@ -407,6 +412,8 @@ impl SyncExecutor {
                     //   - While task is being polled, it gets woken. It gets placed in the queue.
                     //   - Task poll finishes, returning done=true
                     //   - RUNNING bit is cleared, but the task is already in the queue.
+                    #[cfg(feature = "integrated-timers")]
+                    self.timer_queue.notify_task_exited(p);
                     return;
                 }
 
