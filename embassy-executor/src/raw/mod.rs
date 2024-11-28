@@ -397,9 +397,6 @@ impl SyncExecutor {
         self.run_queue.dequeue_all(|p| {
             let task = p.header();
 
-            #[cfg(feature = "integrated-timers")]
-            self.timer_queue.notify_task_started(p);
-
             if !task.state.run_dequeue() {
                 // If task is not running, ignore it. This can happen in the following scenario:
                 //   - Task gets dequeued, poll starts
@@ -408,6 +405,9 @@ impl SyncExecutor {
                 //   - RUNNING bit is cleared, but the task is already in the queue.
                 return;
             }
+
+            #[cfg(feature = "integrated-timers")]
+            self.timer_queue.notify_task_started(p);
 
             #[cfg(feature = "rtos-trace")]
             trace::task_exec_begin(p.as_ptr() as u32);
