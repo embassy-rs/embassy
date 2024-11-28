@@ -54,8 +54,6 @@ pub(crate) struct TaskHeader {
     #[cfg(feature = "integrated-timers")]
     pub(crate) expires_at: Mutex<Cell<u64>>,
     #[cfg(feature = "integrated-timers")]
-    pub(crate) next_expiration: SyncUnsafeCell<u64>,
-    #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
 
@@ -128,8 +126,6 @@ impl<F: Future + 'static> TaskStorage<F> {
 
                 #[cfg(feature = "integrated-timers")]
                 expires_at: Mutex::new(Cell::new(0)),
-                #[cfg(feature = "integrated-timers")]
-                next_expiration: SyncUnsafeCell::new(0),
                 #[cfg(feature = "integrated-timers")]
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
             },
@@ -402,7 +398,7 @@ impl SyncExecutor {
             let task = p.header();
 
             #[cfg(feature = "integrated-timers")]
-            task.next_expiration.set(u64::MAX);
+            self.timer_queue.notify_task_started(p);
 
             if !task.state.run_dequeue() {
                 // If task is not running, ignore it. This can happen in the following scenario:
