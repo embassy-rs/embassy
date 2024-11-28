@@ -1,11 +1,12 @@
 use core::cell::Cell;
 use core::cmp::min;
 
-use super::TaskRef;
 use critical_section::{CriticalSection, Mutex};
 
+use super::TaskRef;
+
 pub(crate) struct TimerQueueItem {
-    pub(super) next: Mutex<Cell<Option<TaskRef>>>,
+    next: Mutex<Cell<Option<TaskRef>>>,
 }
 
 impl TimerQueueItem {
@@ -17,7 +18,7 @@ impl TimerQueueItem {
 }
 
 pub(crate) struct TimerQueue {
-    pub(super) head: Mutex<Cell<Option<TaskRef>>>,
+    head: Mutex<Cell<Option<TaskRef>>>,
 }
 
 impl TimerQueue {
@@ -30,7 +31,8 @@ impl TimerQueue {
     pub(crate) unsafe fn update(&self, p: TaskRef) {
         let task = p.header();
         critical_section::with(|cs| {
-            if task.expires_at.borrow(cs).get() != u64::MAX {
+            task.expires_at.borrow(cs).set(task.next_expiration.get());
+            if task.next_expiration.get() != u64::MAX {
                 if task.state.timer_enqueue() {
                     let prev = self.head.borrow(cs).replace(Some(p));
                     task.timer_queue_item.next.borrow(cs).set(prev);
