@@ -109,8 +109,7 @@ impl TimerQueue {
     }
 
     unsafe fn dispatch(&self, cs: CriticalSection<'_>, cb: fn(TaskRef)) {
-        // If this is already in the past, set_alarm might return false
-        // In that case do another poll loop iteration.
+        // If this is already in the past, set_alarm might return false.
         let next_expiration = self.next_expiration(cs);
         if !embassy_time_driver::set_alarm(self.alarm, next_expiration) {
             // Time driver did not schedule the alarm,
