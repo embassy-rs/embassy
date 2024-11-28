@@ -32,24 +32,31 @@ impl TimerQueue {
 
     pub(crate) unsafe fn notify_task_exited(&self, p: TaskRef) {
         let task = p.header();
-        task.next_expiration.set(u64::MAX);
         critical_section::with(|cs| {
+            task.expires_at.borrow(cs).set(u64::MAX);
             self.dispatch(cs, super::wake_task);
+        });
+    }
+
+    pub(crate) unsafe fn notify_task_started(&self, p: TaskRef) {
+        let task = p.header();
+        critical_section::with(|cs| {
+            task.expires_at.borrow(cs).set(u64::MAX);
         });
     }
 
     pub(crate) unsafe fn update(&self, p: TaskRef, at: u64) {
         let task = p.header();
-        if at < task.next_expiration.get() {
-            task.next_expiration.set(at);
-            critical_section::with(|cs| {
+        critical_section::with(|cs| {
+            if at < task.expires_at.borrow(cs).get() {
+                task.expires_at.borrow(cs).set(at);
                 if task.state.timer_enqueue() {
                     let prev = self.head.borrow(cs).replace(Some(p));
                     task.timer_queue_item.next.borrow(cs).set(prev);
                 }
                 self.dispatch(cs, super::wake_task);
-            });
-        }
+            }
+        });
     }
 
     unsafe fn dequeue_expired_internal(&self, now: u64, cs: CriticalSection<'_>, on_task: fn(TaskRef)) -> bool {
@@ -93,8 +100,7 @@ impl TimerQueue {
 
         self.retain(cs, |p| {
             let task = p.header();
-            let expires = task.next_expiration.get();
-            task.expires_at.borrow(cs).set(expires);
+            let expires = task.expires_at.borrow(cs).get();
             res = min(res, expires);
             expires != u64::MAX
         });
