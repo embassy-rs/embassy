@@ -3,7 +3,7 @@ use core::cmp::min;
 
 use critical_section::{CriticalSection, Mutex};
 
-use super::TaskRef;
+use super::{AlarmHandle, TaskRef};
 
 pub(crate) struct TimerQueueItem {
     next: Mutex<Cell<Option<TaskRef>>>,
@@ -19,14 +19,14 @@ impl TimerQueueItem {
 
 pub(crate) struct TimerQueue {
     head: Mutex<Cell<Option<TaskRef>>>,
-    rescan: Mutex<Cell<bool>>,
+    alarm: AlarmHandle,
 }
 
 impl TimerQueue {
-    pub const fn new() -> Self {
+    pub const fn new(alarm: AlarmHandle) -> Self {
         Self {
             head: Mutex::new(Cell::new(None)),
-            rescan: Mutex::new(Cell::new(true)),
+            alarm,
         }
     }
 
@@ -34,7 +34,7 @@ impl TimerQueue {
         let task = p.header();
         task.next_expiration.set(u64::MAX);
         critical_section::with(|cs| {
-            self.rescan.borrow(cs).set(true);
+            self.dispatch(cs, super::wake_task);
         });
     }
 
@@ -43,48 +43,34 @@ impl TimerQueue {
         if at < task.next_expiration.get() {
             task.next_expiration.set(at);
             critical_section::with(|cs| {
-                self.rescan.borrow(cs).set(true);
                 if task.state.timer_enqueue() {
                     let prev = self.head.borrow(cs).replace(Some(p));
                     task.timer_queue_item.next.borrow(cs).set(prev);
                 }
+                self.dispatch(cs, super::wake_task);
             });
         }
     }
 
-    pub(crate) unsafe fn next_expiration(&self) -> u64 {
-        let mut res = u64::MAX;
-        critical_section::with(|cs| {
-            let rescan = self.rescan.borrow(cs).replace(false);
-            if !rescan {
-                return;
+    unsafe fn dequeue_expired_internal(&self, now: u64, cs: CriticalSection<'_>, on_task: fn(TaskRef)) -> bool {
+        let mut changed = false;
+        self.retain(cs, |p| {
+            let task = p.header();
+            if task.expires_at.borrow(cs).get() <= now {
+                on_task(p);
+                changed = true;
+                false
+            } else {
+                true
             }
-            self.retain(cs, |p| {
-                let task = p.header();
-                let expires = task.next_expiration.get();
-                task.expires_at.borrow(cs).set(expires);
-                res = min(res, expires);
-                expires != u64::MAX
-            });
         });
-        res
+        changed
     }
 
-    pub(crate) unsafe fn dequeue_expired(&self, now: u64, on_task: impl Fn(TaskRef)) {
+    pub(crate) unsafe fn dequeue_expired(&self, now: u64, on_task: fn(TaskRef)) {
         critical_section::with(|cs| {
-            let mut changed = false;
-            self.retain(cs, |p| {
-                let task = p.header();
-                if task.expires_at.borrow(cs).get() <= now {
-                    on_task(p);
-                    changed = true;
-                    false
-                } else {
-                    true
-                }
-            });
-            if changed {
-                self.rescan.borrow(cs).set(true);
+            if self.dequeue_expired_internal(now, cs, on_task) {
+                self.dispatch(cs, on_task);
             }
         });
     }
@@ -99,6 +85,31 @@ impl TimerQueue {
                 prev.borrow(cs).set(task.timer_queue_item.next.borrow(cs).get());
                 task.state.timer_dequeue();
             }
+        }
+    }
+
+    unsafe fn next_expiration(&self, cs: CriticalSection<'_>) -> u64 {
+        let mut res = u64::MAX;
+
+        self.retain(cs, |p| {
+            let task = p.header();
+            let expires = task.next_expiration.get();
+            task.expires_at.borrow(cs).set(expires);
+            res = min(res, expires);
+            expires != u64::MAX
+        });
+
+        res
+    }
+
+    unsafe fn dispatch(&self, cs: CriticalSection<'_>, cb: fn(TaskRef)) {
+        // If this is already in the past, set_alarm might return false
+        // In that case do another poll loop iteration.
+        let next_expiration = self.next_expiration(cs);
+        if !embassy_time_driver::set_alarm(self.alarm, next_expiration) {
+            // Time driver did not schedule the alarm,
+            // so we need to dequeue expired timers manually.
+            self.dequeue_expired_internal(embassy_time_driver::now(), cs, cb);
         }
     }
 }

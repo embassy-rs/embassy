@@ -346,7 +346,7 @@ impl SyncExecutor {
             pender,
 
             #[cfg(feature = "integrated-timers")]
-            timer_queue: timer_queue::TimerQueue::new(),
+            timer_queue: timer_queue::TimerQueue::new(alarm),
             #[cfg(feature = "integrated-timers")]
             alarm,
         }
@@ -398,55 +398,30 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
-        #[allow(clippy::never_loop)]
-        loop {
-            self.run_queue.dequeue_all(|p| {
-                let task = p.header();
-
-                #[cfg(feature = "integrated-timers")]
-                task.next_expiration.set(u64::MAX);
-
-                if !task.state.run_dequeue() {
-                    // If task is not running, ignore it. This can happen in the following scenario:
-                    //   - Task gets dequeued, poll starts
-                    //   - While task is being polled, it gets woken. It gets placed in the queue.
-                    //   - Task poll finishes, returning done=true
-                    //   - RUNNING bit is cleared, but the task is already in the queue.
-                    #[cfg(feature = "integrated-timers")]
-                    self.timer_queue.notify_task_exited(p);
-                    return;
-                }
-
-                #[cfg(feature = "rtos-trace")]
-                trace::task_exec_begin(p.as_ptr() as u32);
-
-                // Run the task
-                task.poll_fn.get().unwrap_unchecked()(p);
-
-                #[cfg(feature = "rtos-trace")]
-                trace::task_exec_end();
-            });
+        self.run_queue.dequeue_all(|p| {
+            let task = p.header();
 
             #[cfg(feature = "integrated-timers")]
-            {
-                // If this is already in the past, set_alarm might return false
-                // In that case do another poll loop iteration.
-                let next_expiration = self.timer_queue.next_expiration();
-                if embassy_time_driver::set_alarm(self.alarm, next_expiration) {
-                    break;
-                } else {
-                    // Time driver did not schedule the alarm,
-                    // so we need to dequeue expired timers manually.
-                    self.timer_queue
-                        .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
-                }
+            task.next_expiration.set(u64::MAX);
+
+            if !task.state.run_dequeue() {
+                // If task is not running, ignore it. This can happen in the following scenario:
+                //   - Task gets dequeued, poll starts
+                //   - While task is being polled, it gets woken. It gets placed in the queue.
+                //   - Task poll finishes, returning done=true
+                //   - RUNNING bit is cleared, but the task is already in the queue.
+                return;
             }
 
-            #[cfg(not(feature = "integrated-timers"))]
-            {
-                break;
-            }
-        }
+            #[cfg(feature = "rtos-trace")]
+            trace::task_exec_begin(p.as_ptr() as u32);
+
+            // Run the task
+            task.poll_fn.get().unwrap_unchecked()(p);
+
+            #[cfg(feature = "rtos-trace")]
+            trace::task_exec_end();
+        });
 
         #[cfg(feature = "rtos-trace")]
         trace::system_idle();
