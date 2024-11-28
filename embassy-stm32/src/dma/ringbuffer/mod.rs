@@ -252,9 +252,13 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     /// Write elements directly to the buffer.
+    ///
+    /// Data is aligned towards the end of the buffer.
     pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
+        let start = self.cap() - buf.len();
+
         for (i, data) in buf.iter().enumerate() {
-            self.write_buf(i, *data)
+            self.write_buf(start + i, *data)
         }
         let written = buf.len().min(self.cap());
         Ok((written, self.cap() - written))
