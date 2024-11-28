@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Async TCP/IP network stack for embedded systems"
@@ -68,7 +68,7 @@ multicast = ["smoltcp/multicast"]
 defmt = { version = "0.3.8", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { git="https://github.com/smoltcp-rs/smoltcp", rev="fe0b4d102253465850cd1cf39cd33d4721a4a8d5", default-features = false, features = [
+smoltcp = { version = "0.12.0", default-features = false, features = [
   "socket",
   "async",
 ] }
