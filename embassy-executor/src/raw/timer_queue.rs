@@ -28,9 +28,10 @@ impl TimerQueue {
         }
     }
 
-    pub(crate) unsafe fn update(&self, p: TaskRef) {
+    pub(crate) unsafe fn update(&self, p: TaskRef, at: u64) {
         let task = p.header();
-        if task.next_expiration.get() != u64::MAX {
+        if at < task.next_expiration.get() {
+            task.next_expiration.set(at);
             critical_section::with(|cs| {
                 if task.state.timer_enqueue() {
                     let prev = self.head.borrow(cs).replace(Some(p));
