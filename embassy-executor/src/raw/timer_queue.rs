@@ -30,45 +30,63 @@ impl TimerQueue {
 
     pub(crate) unsafe fn notify_task_exited(&self, p: TaskRef) {
         let task = p.header();
+
+        // Trigger removal from the timer queue.
         task.expires_at.set(u64::MAX);
         self.dispatch(super::wake_task);
     }
 
-    pub(crate) unsafe fn notify_task_started(&self, p: TaskRef) {
+    pub(crate) unsafe fn schedule(&self, p: TaskRef, at: u64) {
         let task = p.header();
-        task.expires_at.set(u64::MAX);
-    }
+        let update = if task.state.timer_enqueue() {
+            // Not in the queue, add it and update.
+            let prev = self.head.replace(Some(p));
+            task.timer_queue_item.next.set(prev);
 
-    pub(crate) unsafe fn update(&self, p: TaskRef, at: u64) {
-        let task = p.header();
-        if at < task.expires_at.get() {
+            true
+        } else {
+            // Expiration is sooner than previously set, update.
+            at < task.expires_at.get()
+        };
+
+        if update {
             task.expires_at.set(at);
-            if task.state.timer_enqueue() {
-                let prev = self.head.replace(Some(p));
-                task.timer_queue_item.next.set(prev);
-            }
             self.dispatch(super::wake_task);
         }
     }
 
-    unsafe fn dequeue_expired_internal(&self, now: u64, on_task: fn(TaskRef)) -> bool {
-        let mut changed = false;
-        self.retain(|p| {
-            let task = p.header();
-            if task.expires_at.get() <= now {
-                on_task(p);
-                changed = true;
-                false
-            } else {
-                true
+    pub(crate) unsafe fn dispatch(&self, on_task: fn(TaskRef)) {
+        loop {
+            let now = embassy_time_driver::now();
+
+            let mut next_expiration = u64::MAX;
+
+            self.retain(|p| {
+                let task = p.header();
+                let expires = task.expires_at.get();
+
+                if expires <= now {
+                    // Timer expired, process task.
+                    on_task(p);
+                    false
+                } else {
+                    // Timer didn't yet expire, or never expires.
+                    next_expiration = min(next_expiration, expires);
+                    expires != u64::MAX
+                }
+            });
+
+            if self.update_alarm(next_expiration) {
+                break;
             }
-        });
-        changed
+        }
     }
 
-    pub(crate) unsafe fn dequeue_expired(&self, now: u64, on_task: fn(TaskRef)) {
-        if self.dequeue_expired_internal(now, on_task) {
-            self.dispatch(on_task);
+    fn update_alarm(&self, next_alarm: u64) -> bool {
+        if next_alarm == u64::MAX {
+            true
+        } else {
+            embassy_time_driver::set_alarm(self.alarm, next_alarm)
         }
     }
 
@@ -82,29 +100,6 @@ impl TimerQueue {
                 prev.set(task.timer_queue_item.next.get());
                 task.state.timer_dequeue();
             }
-        }
-    }
-
-    unsafe fn next_expiration(&self) -> u64 {
-        let mut res = u64::MAX;
-
-        self.retain(|p| {
-            let task = p.header();
-            let expires = task.expires_at.get();
-            res = min(res, expires);
-            expires != u64::MAX
-        });
-
-        res
-    }
-
-    unsafe fn dispatch(&self, cb: fn(TaskRef)) {
-        // If this is already in the past, set_alarm might return false.
-        let next_expiration = self.next_expiration();
-        if !embassy_time_driver::set_alarm(self.alarm, next_expiration) {
-            // Time driver did not schedule the alarm,
-            // so we need to dequeue expired timers manually.
-            self.dequeue_expired_internal(embassy_time_driver::now(), cb);
         }
     }
 }

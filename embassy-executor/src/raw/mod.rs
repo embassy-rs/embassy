@@ -167,13 +167,8 @@ impl<F: Future + 'static> TaskStorage<F> {
 
                 #[cfg(feature = "integrated-timers")]
                 critical_section::with(|cs| {
-                    this.raw
-                        .executor
-                        .get()
-                        .unwrap_unchecked()
-                        .timer_queue
-                        .borrow(cs)
-                        .notify_task_exited(p);
+                    let executor = this.raw.executor.get().unwrap_unchecked();
+                    executor.timer_queue.borrow(cs).notify_task_exited(p);
                 });
             }
             Poll::Pending => {}
@@ -377,9 +372,7 @@ impl SyncExecutor {
         let this: &Self = unsafe { &*(ctx as *const Self) };
 
         critical_section::with(|cs| unsafe {
-            this.timer_queue
-                .borrow(cs)
-                .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
+            this.timer_queue.borrow(cs).dispatch(wake_task_no_pend);
         });
 
         this.pender.pend();
@@ -409,11 +402,6 @@ impl SyncExecutor {
                 //   - RUNNING bit is cleared, but the task is already in the queue.
                 return;
             }
-
-            #[cfg(feature = "integrated-timers")]
-            critical_section::with(|cs| {
-                self.timer_queue.borrow(cs).notify_task_started(p);
-            });
 
             #[cfg(feature = "rtos-trace")]
             trace::task_exec_begin(p.as_ptr() as u32);
@@ -579,9 +567,9 @@ impl embassy_time_queue_driver::TimerQueue for TimerQueue {
     fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
         let task = waker::task_from_waker(waker);
         unsafe {
-            let executor = task.header().executor.get().unwrap_unchecked();
             critical_section::with(|cs| {
-                executor.timer_queue.borrow(cs).update(task, at);
+                let executor = task.header().executor.get().unwrap_unchecked();
+                executor.timer_queue.borrow(cs).schedule(task, at);
             });
         }
     }
