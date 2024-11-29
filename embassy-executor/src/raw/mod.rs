@@ -22,8 +22,6 @@ pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
-#[cfg(feature = "integrated-timers")]
-use core::cell::Cell;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem;
@@ -51,8 +49,10 @@ pub(crate) struct TaskHeader {
     pub(crate) executor: SyncUnsafeCell<Option<&'static SyncExecutor>>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
+    // The following fields are conceptually owned by the executor's timer queue and should not
+    // be accessed outside of that.
     #[cfg(feature = "integrated-timers")]
-    pub(crate) expires_at: Mutex<Cell<u64>>,
+    pub(crate) expires_at: SyncUnsafeCell<u64>,
     #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
@@ -125,7 +125,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 poll_fn: SyncUnsafeCell::new(None),
 
                 #[cfg(feature = "integrated-timers")]
-                expires_at: Mutex::new(Cell::new(0)),
+                expires_at: SyncUnsafeCell::new(0),
                 #[cfg(feature = "integrated-timers")]
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
             },
@@ -166,12 +166,15 @@ impl<F: Future + 'static> TaskStorage<F> {
                 this.raw.state.despawn();
 
                 #[cfg(feature = "integrated-timers")]
-                this.raw
-                    .executor
-                    .get()
-                    .unwrap_unchecked()
-                    .timer_queue
-                    .notify_task_exited(p);
+                critical_section::with(|cs| {
+                    this.raw
+                        .executor
+                        .get()
+                        .unwrap_unchecked()
+                        .timer_queue
+                        .borrow(cs)
+                        .notify_task_exited(p);
+                });
             }
             Poll::Pending => {}
         }
@@ -327,7 +330,7 @@ pub(crate) struct SyncExecutor {
     pender: Pender,
 
     #[cfg(feature = "integrated-timers")]
-    pub(crate) timer_queue: timer_queue::TimerQueue,
+    pub(crate) timer_queue: Mutex<timer_queue::TimerQueue>,
     #[cfg(feature = "integrated-timers")]
     alarm: AlarmHandle,
 }
@@ -342,7 +345,7 @@ impl SyncExecutor {
             pender,
 
             #[cfg(feature = "integrated-timers")]
-            timer_queue: timer_queue::TimerQueue::new(alarm),
+            timer_queue: Mutex::new(timer_queue::TimerQueue::new(alarm)),
             #[cfg(feature = "integrated-timers")]
             alarm,
         }
@@ -373,10 +376,11 @@ impl SyncExecutor {
     fn alarm_callback(ctx: *mut ()) {
         let this: &Self = unsafe { &*(ctx as *const Self) };
 
-        unsafe {
+        critical_section::with(|cs| unsafe {
             this.timer_queue
+                .borrow(cs)
                 .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
-        }
+        });
 
         this.pender.pend();
     }
@@ -407,7 +411,9 @@ impl SyncExecutor {
             }
 
             #[cfg(feature = "integrated-timers")]
-            self.timer_queue.notify_task_started(p);
+            critical_section::with(|cs| {
+                self.timer_queue.borrow(cs).notify_task_started(p);
+            });
 
             #[cfg(feature = "rtos-trace")]
             trace::task_exec_begin(p.as_ptr() as u32);
@@ -574,7 +580,9 @@ impl embassy_time_queue_driver::TimerQueue for TimerQueue {
         let task = waker::task_from_waker(waker);
         unsafe {
             let executor = task.header().executor.get().unwrap_unchecked();
-            executor.timer_queue.update(task, at);
+            critical_section::with(|cs| {
+                executor.timer_queue.borrow(cs).update(task, at);
+            });
         }
     }
 }
