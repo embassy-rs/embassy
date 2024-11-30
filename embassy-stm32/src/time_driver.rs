@@ -414,7 +414,10 @@ impl RtcDriver {
             let alarm_handle = unsafe { AlarmHandle::new(i as u8) };
             let alarm = self.get_alarm(cs, alarm_handle);
 
-            self.set_alarm(alarm_handle, alarm.timestamp.get());
+            if !self.set_alarm(alarm_handle, alarm.timestamp.get()) {
+                // If the alarm timestamp has passed, we need to trigger it
+                self.trigger_alarm(i, cs);
+            }
         }
     }
 
