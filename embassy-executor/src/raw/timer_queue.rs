@@ -1,7 +1,8 @@
+//! Timer queue.
 use core::cmp::min;
 
 use super::util::SyncUnsafeCell;
-use super::{AlarmHandle, TaskRef};
+use super::TaskRef;
 
 pub(crate) struct TimerQueueItem {
     next: SyncUnsafeCell<Option<TaskRef>>,
@@ -15,79 +16,57 @@ impl TimerQueueItem {
     }
 }
 
-pub(crate) struct TimerQueue {
+/// A timer queue, with items integrated into tasks.
+pub struct TimerQueue {
     head: SyncUnsafeCell<Option<TaskRef>>,
-    alarm: AlarmHandle,
 }
 
 impl TimerQueue {
-    pub const fn new(alarm: AlarmHandle) -> Self {
+    /// Creates a new timer queue.
+    pub const fn new() -> Self {
         Self {
             head: SyncUnsafeCell::new(None),
-            alarm,
         }
     }
 
-    pub(crate) unsafe fn notify_task_exited(&self, p: TaskRef) {
+    /// Schedules a task to run at a specific time, and returns whether any changes were made.
+    pub unsafe fn schedule_wake(&self, p: TaskRef, at: u64) -> bool {
         let task = p.header();
-
-        // Trigger removal from the timer queue.
-        task.expires_at.set(u64::MAX);
-        self.dispatch(super::wake_task);
-    }
-
-    pub(crate) unsafe fn schedule(&self, p: TaskRef, at: u64) {
-        let task = p.header();
-        let update = if task.state.timer_enqueue() {
-            // Not in the queue, add it and update.
+        if task.state.timer_enqueue() {
+            // If not in the queue, add it and update.
             let prev = self.head.replace(Some(p));
             task.timer_queue_item.next.set(prev);
-
-            true
+        } else if at <= task.expires_at.get() {
+            // If expiration is sooner than previously set, update.
         } else {
-            // Expiration is sooner than previously set, update.
-            at < task.expires_at.get()
-        };
-
-        if update {
-            task.expires_at.set(at);
-            self.dispatch(super::wake_task);
+            // Task need not to be updated.
+            return false;
         }
+
+        task.expires_at.set(at);
+        true
     }
 
-    pub(crate) unsafe fn dispatch(&self, on_task: fn(TaskRef)) {
-        loop {
-            let now = embassy_time_driver::now();
+    /// Dequeues expired timers and returns the next alarm time.
+    pub unsafe fn next_expiration(&self, now: u64, on_task: fn(TaskRef)) -> u64 {
+        let mut next_expiration = u64::MAX;
 
-            let mut next_expiration = u64::MAX;
+        self.retain(|p| {
+            let task = p.header();
+            let expires = task.expires_at.get();
 
-            self.retain(|p| {
-                let task = p.header();
-                let expires = task.expires_at.get();
-
-                if expires <= now {
-                    // Timer expired, process task.
-                    on_task(p);
-                    false
-                } else {
-                    // Timer didn't yet expire, or never expires.
-                    next_expiration = min(next_expiration, expires);
-                    expires != u64::MAX
-                }
-            });
-
-            if self.update_alarm(next_expiration) {
-                break;
+            if expires <= now {
+                // Timer expired, process task.
+                on_task(p);
+                false
+            } else {
+                // Timer didn't yet expire, or never expires.
+                next_expiration = min(next_expiration, expires);
+                expires != u64::MAX
             }
-        }
-    }
+        });
 
-    fn update_alarm(&self, next_alarm: u64) -> bool {
-        if next_alarm == u64::MAX {
-            true
-        } else {
-            embassy_time_driver::set_alarm(self.alarm, next_alarm)
-        }
+        next_expiration
     }
 
     unsafe fn retain(&self, mut f: impl FnMut(TaskRef) -> bool) {

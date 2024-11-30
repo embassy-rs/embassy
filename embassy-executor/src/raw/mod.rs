@@ -17,7 +17,7 @@ mod run_queue;
 mod state;
 
 #[cfg(feature = "integrated-timers")]
-mod timer_queue;
+pub mod timer_queue;
 pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
@@ -29,10 +29,6 @@ use core::pin::Pin;
 use core::ptr::NonNull;
 use core::task::{Context, Poll};
 
-#[cfg(feature = "integrated-timers")]
-use critical_section::Mutex;
-#[cfg(feature = "integrated-timers")]
-use embassy_time_driver::AlarmHandle;
 #[cfg(feature = "rtos-trace")]
 use rtos_trace::trace;
 
@@ -82,6 +78,12 @@ impl TaskRef {
 
     pub(crate) fn header(self) -> &'static TaskHeader {
         unsafe { self.ptr.as_ref() }
+    }
+
+    /// Returns a reference to the executor that the task is currently running on.
+    #[cfg(feature = "integrated-timers")]
+    pub unsafe fn executor(self) -> Option<&'static Executor> {
+        core::mem::transmute(self.header().executor.get())
     }
 
     /// The returned pointer is valid for the entire TaskStorage.
@@ -164,12 +166,6 @@ impl<F: Future + 'static> TaskStorage<F> {
             Poll::Ready(_) => {
                 this.future.drop_in_place();
                 this.raw.state.despawn();
-
-                #[cfg(feature = "integrated-timers")]
-                critical_section::with(|cs| {
-                    let executor = this.raw.executor.get().unwrap_unchecked();
-                    executor.timer_queue.borrow(cs).notify_task_exited(p);
-                });
             }
             Poll::Pending => {}
         }
@@ -323,32 +319,14 @@ impl Pender {
 pub(crate) struct SyncExecutor {
     run_queue: RunQueue,
     pender: Pender,
-
-    #[cfg(feature = "integrated-timers")]
-    pub(crate) timer_queue: Mutex<timer_queue::TimerQueue>,
-    #[cfg(feature = "integrated-timers")]
-    alarm: AlarmHandle,
 }
 
 impl SyncExecutor {
     pub(crate) fn new(pender: Pender) -> Self {
-        #[cfg(feature = "integrated-timers")]
-        let alarm = unsafe { unwrap!(embassy_time_driver::allocate_alarm()) };
-
         Self {
             run_queue: RunQueue::new(),
             pender,
-
-            #[cfg(feature = "integrated-timers")]
-            timer_queue: Mutex::new(timer_queue::TimerQueue::new(alarm)),
-            #[cfg(feature = "integrated-timers")]
-            alarm,
         }
-    }
-
-    pub(crate) unsafe fn initialize(&'static self) {
-        #[cfg(feature = "integrated-timers")]
-        embassy_time_driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
     }
 
     /// Enqueue a task in the task queue
@@ -365,17 +343,6 @@ impl SyncExecutor {
         if self.run_queue.enqueue(task) {
             self.pender.pend();
         }
-    }
-
-    #[cfg(feature = "integrated-timers")]
-    fn alarm_callback(ctx: *mut ()) {
-        let this: &Self = unsafe { &*(ctx as *const Self) };
-
-        critical_section::with(|cs| unsafe {
-            this.timer_queue.borrow(cs).dispatch(wake_task_no_pend);
-        });
-
-        this.pender.pend();
     }
 
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
@@ -477,15 +444,6 @@ impl Executor {
         }
     }
 
-    /// Initializes the executor.
-    ///
-    /// # Safety
-    ///
-    /// This function must be called once before any other method is called.
-    pub unsafe fn initialize(&'static self) {
-        self.inner.initialize();
-    }
-
     /// Spawn a task in this executor.
     ///
     /// # Safety
@@ -558,25 +516,6 @@ pub fn wake_task_no_pend(task: TaskRef) {
         }
     }
 }
-
-#[cfg(feature = "integrated-timers")]
-struct TimerQueue;
-
-#[cfg(feature = "integrated-timers")]
-impl embassy_time_queue_driver::TimerQueue for TimerQueue {
-    fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
-        let task = waker::task_from_waker(waker);
-        unsafe {
-            critical_section::with(|cs| {
-                let executor = task.header().executor.get().unwrap_unchecked();
-                executor.timer_queue.borrow(cs).schedule(task, at);
-            });
-        }
-    }
-}
-
-#[cfg(feature = "integrated-timers")]
-embassy_time_queue_driver::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
 
 #[cfg(all(feature = "rtos-trace", feature = "integrated-timers"))]
 const fn gcd(a: u64, b: u64) -> u64 {

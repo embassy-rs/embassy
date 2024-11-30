@@ -1,10 +1,8 @@
-use core::cell::RefCell;
+//! A generic timer queue.
+
 use core::cmp::{min, Ordering};
 use core::task::Waker;
 
-use critical_section::Mutex;
-use embassy_time_driver::{allocate_alarm, set_alarm, set_alarm_callback, AlarmHandle};
-use embassy_time_queue_driver::TimerQueue;
 use heapless::Vec;
 
 use crate::Instant;
@@ -54,13 +52,19 @@ impl Ord for Timer {
     }
 }
 
-struct InnerQueue {
+/// A timer queue with a pre-determined capacity.
+pub struct Queue {
     queue: Vec<Timer, QUEUE_SIZE>,
-    alarm: AlarmHandle,
 }
 
-impl InnerQueue {
-    fn schedule_wake(&mut self, at: Instant, waker: &Waker) {
+impl Queue {
+    /// Creates a new timer queue.
+    pub const fn new() -> Self {
+        Self { queue: Vec::new() }
+    }
+
+    /// Schedules a task to run at a specific time, and returns whether any changes were made.
+    pub fn schedule_wake(&mut self, at: Instant, waker: &Waker) -> bool {
         self.queue
             .iter_mut()
             .find(|timer| timer.waker.will_wake(waker))
@@ -87,90 +91,28 @@ impl InnerQueue {
         // dispatch all timers that are already due
         //
         // Then update the alarm if necessary
-        self.dispatch();
+        true
     }
 
-    fn dispatch(&mut self) {
-        loop {
-            let now = Instant::now();
+    /// Dequeues expired timers and returns the next alarm time.
+    pub fn next_expiration(&mut self, now: Instant) -> Instant {
+        let mut next_alarm = Instant::MAX;
 
-            let mut next_alarm = Instant::MAX;
-
-            let mut i = 0;
-            while i < self.queue.len() {
-                let timer = &self.queue[i];
-                if timer.at <= now {
-                    let timer = self.queue.swap_remove(i);
-                    timer.waker.wake();
-                } else {
-                    next_alarm = min(next_alarm, timer.at);
-                    i += 1;
-                }
-            }
-
-            if self.update_alarm(next_alarm) {
-                break;
+        let mut i = 0;
+        while i < self.queue.len() {
+            let timer = &self.queue[i];
+            if timer.at <= now {
+                let timer = self.queue.swap_remove(i);
+                timer.waker.wake();
+            } else {
+                next_alarm = min(next_alarm, timer.at);
+                i += 1;
             }
         }
-    }
 
-    fn update_alarm(&mut self, next_alarm: Instant) -> bool {
-        if next_alarm == Instant::MAX {
-            true
-        } else {
-            set_alarm(self.alarm, next_alarm.as_ticks())
-        }
-    }
-
-    fn handle_alarm(&mut self) {
-        self.dispatch();
+        next_alarm
     }
 }
-
-struct Queue {
-    inner: Mutex<RefCell<Option<InnerQueue>>>,
-}
-
-impl Queue {
-    const fn new() -> Self {
-        Self {
-            inner: Mutex::new(RefCell::new(None)),
-        }
-    }
-
-    fn schedule_wake(&'static self, at: Instant, waker: &Waker) {
-        critical_section::with(|cs| {
-            let mut inner = self.inner.borrow_ref_mut(cs);
-
-            inner
-                .get_or_insert_with(|| {
-                    let handle = unsafe { allocate_alarm() }.unwrap();
-                    set_alarm_callback(handle, Self::handle_alarm_callback, self as *const _ as _);
-                    InnerQueue {
-                        queue: Vec::new(),
-                        alarm: handle,
-                    }
-                })
-                .schedule_wake(at, waker)
-        });
-    }
-
-    fn handle_alarm(&self) {
-        critical_section::with(|cs| self.inner.borrow_ref_mut(cs).as_mut().unwrap().handle_alarm())
-    }
-
-    fn handle_alarm_callback(ctx: *mut ()) {
-        unsafe { (ctx as *const Self).as_ref().unwrap() }.handle_alarm();
-    }
-}
-
-impl TimerQueue for Queue {
-    fn schedule_wake(&'static self, at: u64, waker: &Waker) {
-        Queue::schedule_wake(self, Instant::from_ticks(at), waker);
-    }
-}
-
-embassy_time_queue_driver::timer_queue_impl!(static QUEUE: Queue = Queue::new());
 
 #[cfg(test)]
 #[cfg(feature = "mock-driver")]
