@@ -7,25 +7,6 @@ use heapless::Vec;
 
 use crate::Instant;
 
-#[cfg(feature = "generic-queue-8")]
-const QUEUE_SIZE: usize = 8;
-#[cfg(feature = "generic-queue-16")]
-const QUEUE_SIZE: usize = 16;
-#[cfg(feature = "generic-queue-32")]
-const QUEUE_SIZE: usize = 32;
-#[cfg(feature = "generic-queue-64")]
-const QUEUE_SIZE: usize = 64;
-#[cfg(feature = "generic-queue-128")]
-const QUEUE_SIZE: usize = 128;
-#[cfg(not(any(
-    feature = "generic-queue-8",
-    feature = "generic-queue-16",
-    feature = "generic-queue-32",
-    feature = "generic-queue-64",
-    feature = "generic-queue-128"
-)))]
-const QUEUE_SIZE: usize = 64;
-
 #[derive(Debug)]
 struct Timer {
     at: Instant,
@@ -53,11 +34,11 @@ impl Ord for Timer {
 }
 
 /// A timer queue with a pre-determined capacity.
-pub struct Queue {
+pub struct Queue<const QUEUE_SIZE: usize> {
     queue: Vec<Timer, QUEUE_SIZE>,
 }
 
-impl Queue {
+impl<const QUEUE_SIZE: usize> Queue<QUEUE_SIZE> {
     /// Creates a new timer queue.
     pub const fn new() -> Self {
         Self { queue: Vec::new() }
