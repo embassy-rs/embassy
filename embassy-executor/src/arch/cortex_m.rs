@@ -207,9 +207,6 @@ mod interrupt {
             }
 
             let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
-            unsafe {
-                executor.initialize();
-            }
 
             unsafe { NVIC::unmask(irq) }
 
