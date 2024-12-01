@@ -91,6 +91,8 @@ unsafe fn on_interrupt(r: Regs, s: &'static State) {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Number of data bits
 pub enum DataBits {
+    /// 7 Data Bits
+    DataBits7,
     /// 8 Data Bits
     DataBits8,
     /// 9 Data Bits
@@ -134,6 +136,8 @@ pub enum ConfigError {
     BaudrateTooHigh,
     /// Rx or Tx not enabled
     RxOrTxNotEnabled,
+    /// Data bits and parity combination not supported
+    DataParityNotSupported,
 }
 
 #[non_exhaustive]
@@ -1617,31 +1621,66 @@ fn configure(
             w.set_re(enable_rx);
         }
 
-        // configure word size
-        // if using odd or even parity it must be configured to 9bits
-        w.set_m0(if config.parity != Parity::ParityNone {
-            trace!("USART: m0: vals::M0::BIT9");
-            vals::M0::BIT9
-        } else {
-            trace!("USART: m0: vals::M0::BIT8");
-            vals::M0::BIT8
-        });
-        // configure parity
-        w.set_pce(config.parity != Parity::ParityNone);
-        w.set_ps(match config.parity {
-            Parity::ParityOdd => {
-                trace!("USART: set_ps: vals::Ps::ODD");
-                vals::Ps::ODD
+        // configure word size and parity, since the parity bit is inserted into the MSB position,
+        // it increases the effective word size
+        match (config.parity, config.data_bits) {
+            (Parity::ParityNone, DataBits::DataBits8) => {
+                trace!("USART: m0: 8 data bits, no parity");
+                w.set_m0(vals::M0::BIT8);
+                #[cfg(any(usart_v3, usart_v4))]
+                w.set_m1(vals::M1::M0);
+                w.set_pce(false);
             }
-            Parity::ParityEven => {
-                trace!("USART: set_ps: vals::Ps::EVEN");
-                vals::Ps::EVEN
+            (Parity::ParityNone, DataBits::DataBits9) => {
+                trace!("USART: m0: 9 data bits, no parity");
+                w.set_m0(vals::M0::BIT9);
+                #[cfg(any(usart_v3, usart_v4))]
+                w.set_m1(vals::M1::M0);
+                w.set_pce(false);
+            }
+            #[cfg(any(usart_v3, usart_v4))]
+            (Parity::ParityNone, DataBits::DataBits7) => {
+                trace!("USART: m0: 7 data bits, no parity");
+                w.set_m0(vals::M0::BIT8);
+                w.set_m1(vals::M1::BIT7);
+                w.set_pce(false);
+            }
+            (Parity::ParityEven, DataBits::DataBits8) => {
+                trace!("USART: m0: 8 data bits, even parity");
+                w.set_m0(vals::M0::BIT9);
+                #[cfg(any(usart_v3, usart_v4))]
+                w.set_m1(vals::M1::M0);
+                w.set_pce(true);
+                w.set_ps(vals::Ps::EVEN);
+            }
+            (Parity::ParityEven, DataBits::DataBits7) => {
+                trace!("USART: m0: 7 data bits, even parity");
+                w.set_m0(vals::M0::BIT8);
+                #[cfg(any(usart_v3, usart_v4))]
+                w.set_m1(vals::M1::M0);
+                w.set_pce(true);
+                w.set_ps(vals::Ps::EVEN);
+            }
+            (Parity::ParityOdd, DataBits::DataBits8) => {
+                trace!("USART: m0: 8 data bits, odd parity");
+                w.set_m0(vals::M0::BIT9);
+                #[cfg(any(usart_v3, usart_v4))]
+                w.set_m1(vals::M1::M0);
+                w.set_pce(true);
+                w.set_ps(vals::Ps::ODD);
+            }
+            (Parity::ParityOdd, DataBits::DataBits7) => {
+                trace!("USART: m0: 7 data bits, odd parity");
+                w.set_m0(vals::M0::BIT8);
+                #[cfg(any(usart_v3, usart_v4))]
+                w.set_m1(vals::M1::M0);
+                w.set_pce(true);
+                w.set_ps(vals::Ps::ODD);
             }
             _ => {
-                trace!("USART: set_ps: vals::Ps::EVEN");
-                vals::Ps::EVEN
+                return Err(ConfigError::DataParityNotSupported);
             }
-        });
+        }
         #[cfg(not(usart_v1))]
         w.set_over8(vals::Over8::from_bits(over8 as _));
         #[cfg(usart_v4)]
@@ -1649,7 +1688,9 @@ fn configure(
             trace!("USART: set_fifoen: true (usart_v4)");
             w.set_fifoen(true);
         }
-    });
+
+        Ok(())
+    })?;
 
     Ok(())
 }
