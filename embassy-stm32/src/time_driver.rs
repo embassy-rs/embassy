@@ -410,11 +410,14 @@ impl RtcDriver {
         regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
 
         // Now, recompute all alarms
-        for i in 0..ALARM_COUNT {
+        for i in 0..self.alarm_count.load(Ordering::Relaxed) as usize {
             let alarm_handle = unsafe { AlarmHandle::new(i as u8) };
             let alarm = self.get_alarm(cs, alarm_handle);
 
-            self.set_alarm(alarm_handle, alarm.timestamp.get());
+            if !self.set_alarm(alarm_handle, alarm.timestamp.get()) {
+                // If the alarm timestamp has passed, we need to trigger it
+                self.trigger_alarm(i, cs);
+            }
         }
     }
 
