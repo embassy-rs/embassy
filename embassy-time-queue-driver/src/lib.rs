@@ -8,15 +8,26 @@
 //! - Implement [`TimerQueue`] for it
 //! - Register it as the global timer queue with [`timer_queue_impl`](crate::timer_queue_impl).
 //!
+//! ### Design choices
+//!
+//! If you are providing an embassy-executor implementation besides a timer queue, you can choose to
+//! expose the `embassy-executor/integrated-timers` feature in your implementation. This feature
+//! stores timer items in the tasks themselves, so you don't need a fixed-size queue or dynamic
+//! memory allocation.
+//!
+//! To implement the `TimerQueue` trait, you can use the `queue_generic` module from the
+//! `embassy-time` crate, or the `raw::timer_queue` module from the `embassy-executor` crate.
+//! These modules contain queue implementations which you can wrap and tailor to your needs.
+//!
 //! ## Example
 //!
 //! ```
 //! use core::task::Waker;
 //!
 //! use embassy_time::Instant;
-//! use embassy_time::queue::{TimerQueue};
+//! use embassy_time::queue::TimerQueue;
 //!
-//! struct MyTimerQueue{}; // not public!
+//! struct MyTimerQueue {}; // not public!
 //!
 //! impl TimerQueue for MyTimerQueue {
 //!     fn schedule_wake(&'static self, at: u64, waker: &Waker) {

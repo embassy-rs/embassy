@@ -29,7 +29,10 @@ impl TimerQueue {
         }
     }
 
-    /// Schedules a task to run at a specific time, and returns whether any changes were made.
+    /// Schedules a task to run at a specific time.
+    ///
+    /// Returns whether the task was scheduled. `false` means the task was already
+    /// scheduled to wake at an earlier time.
     pub unsafe fn schedule_wake(&self, p: TaskRef, at: u64) -> bool {
         let task = p.header();
         if task.state.timer_enqueue() {
@@ -39,7 +42,7 @@ impl TimerQueue {
         } else if at <= task.expires_at.get() {
             // If expiration is sooner than previously set, update.
         } else {
-            // Task need not to be updated.
+            // Task does not need to be updated.
             return false;
         }
 
@@ -48,6 +51,9 @@ impl TimerQueue {
     }
 
     /// Dequeues expired timers and returns the next alarm time.
+    ///
+    /// The provided callback will be called for each expired task. Tasks that never expire
+    /// will be removed, but the callback will not be called.
     pub unsafe fn next_expiration(&self, now: u64, on_task: fn(TaskRef)) -> u64 {
         let mut next_expiration = u64::MAX;
 
