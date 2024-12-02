@@ -195,7 +195,7 @@ fn main() {
                 .to_ascii_lowercase(),
         ),
         Err(GetOneError::None) => None,
-        Err(GetOneError::Multiple) => panic!("Multiple stm32xx Cargo features enabled"),
+        Err(GetOneError::Multiple) => panic!("Multiple time-driver-xxx Cargo features enabled"),
     };
 
     let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
