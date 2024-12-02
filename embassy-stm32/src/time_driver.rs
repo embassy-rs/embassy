@@ -523,7 +523,7 @@ type RawQueue = embassy_executor::raw::timer_queue::TimerQueue;
 
 #[cfg(not(feature = "integrated-timers"))]
 struct RawQueue {
-    inner: core::cell::RefCell<embassy_time_queue_driver::queue_generic::Queue<64>>,
+    inner: core::cell::RefCell<embassy_time_queue_driver::queue_generic::Queue>,
 }
 
 #[cfg(not(feature = "integrated-timers"))]

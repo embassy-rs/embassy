@@ -5,6 +5,8 @@ use core::task::Waker;
 
 use heapless::Vec;
 
+pub use implem::Queue;
+
 #[derive(Debug)]
 struct Timer {
     at: u64,
@@ -31,12 +33,11 @@ impl Ord for Timer {
     }
 }
 
-/// A timer queue with a pre-determined capacity.
-pub struct Queue<const QUEUE_SIZE: usize> {
+struct QueueImpl<const QUEUE_SIZE: usize> {
     queue: Vec<Timer, QUEUE_SIZE>,
 }
 
-impl<const QUEUE_SIZE: usize> Queue<QUEUE_SIZE> {
+impl<const QUEUE_SIZE: usize> QueueImpl<QUEUE_SIZE> {
     /// Creates a new timer queue.
     pub const fn new() -> Self {
         Self { queue: Vec::new() }
@@ -90,5 +91,82 @@ impl<const QUEUE_SIZE: usize> Queue<QUEUE_SIZE> {
         }
 
         next_alarm
+    }
+}
+
+#[cfg(not(feature = "generic-queue-const-generic"))]
+mod implem {
+    #[cfg(feature = "generic-queue-8")]
+    const QUEUE_SIZE: usize = 8;
+    #[cfg(feature = "generic-queue-16")]
+    const QUEUE_SIZE: usize = 16;
+    #[cfg(feature = "generic-queue-32")]
+    const QUEUE_SIZE: usize = 32;
+    #[cfg(feature = "generic-queue-64")]
+    const QUEUE_SIZE: usize = 64;
+    #[cfg(feature = "generic-queue-128")]
+    const QUEUE_SIZE: usize = 128;
+    #[cfg(not(any(
+        feature = "generic-queue-8",
+        feature = "generic-queue-16",
+        feature = "generic-queue-32",
+        feature = "generic-queue-64",
+        feature = "generic-queue-128"
+    )))]
+    const QUEUE_SIZE: usize = 64;
+
+    use super::*;
+
+    /// A timer queue with a pre-determined capacity.
+    pub struct Queue {
+        queue: QueueImpl<QUEUE_SIZE>,
+    }
+
+    impl Queue {
+        /// Creates a new timer queue.
+        pub const fn new() -> Self {
+            Self {
+                queue: QueueImpl::new(),
+            }
+        }
+
+        /// Schedules a task to run at a specific time, and returns whether any changes were made.
+        pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
+            self.queue.schedule_wake(at, waker)
+        }
+
+        /// Dequeues expired timers and returns the next alarm time.
+        pub fn next_expiration(&mut self, now: u64) -> u64 {
+            self.queue.next_expiration(now)
+        }
+    }
+}
+
+#[cfg(feature = "generic-queue-const-generic")]
+mod implem {
+    use super::*;
+
+    /// A timer queue with a pre-determined capacity.
+    pub struct Queue<const QUEUE_SIZE: usize> {
+        queue: QueueImpl<QUEUE_SIZE>,
+    }
+
+    impl<const QUEUE_SIZE: usize> Queue<QUEUE_SIZE> {
+        /// Creates a new timer queue.
+        pub const fn new() -> Self {
+            Self {
+                queue: QueueImpl::new(),
+            }
+        }
+
+        /// Schedules a task to run at a specific time, and returns whether any changes were made.
+        pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
+            self.queue.schedule_wake(at, waker)
+        }
+
+        /// Dequeues expired timers and returns the next alarm time.
+        pub fn next_expiration(&mut self, now: u64) -> u64 {
+            self.queue.next_expiration(now)
+        }
     }
 }
