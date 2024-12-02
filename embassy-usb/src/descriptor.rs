@@ -352,7 +352,7 @@ pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
     [
         10,   // bLength
         0x06, // bDescriptorType
-        0x10,
+        config.bcd_usb as u8,
         (config.bcd_usb as u16 >> 8) as u8, // bcdUSB
         config.device_class,                // bDeviceClass
         config.device_sub_class,            // bDeviceSubClass
