@@ -37,6 +37,9 @@
 //!
 //! embassy_time_queue_driver::timer_queue_impl!(static QUEUE: MyTimerQueue = MyTimerQueue{});
 //! ```
+
+pub mod queue_generic;
+
 use core::task::Waker;
 
 /// Timer queue

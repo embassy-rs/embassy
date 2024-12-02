@@ -523,25 +523,23 @@ type RawQueue = embassy_executor::raw::timer_queue::TimerQueue;
 
 #[cfg(not(feature = "integrated-timers"))]
 struct RawQueue {
-    inner: core::cell::RefCell<embassy_time::queue_generic::Queue<64>>,
+    inner: core::cell::RefCell<embassy_time_queue_driver::queue_generic::Queue<64>>,
 }
 
 #[cfg(not(feature = "integrated-timers"))]
 impl RawQueue {
     const fn new() -> Self {
         Self {
-            inner: core::cell::RefCell::new(embassy_time::queue_generic::Queue::new()),
+            inner: core::cell::RefCell::new(embassy_time_queue_driver::queue_generic::Queue::new()),
         }
     }
 
     fn schedule_wake(&self, waker: &core::task::Waker, at: u64) -> bool {
-        self.inner
-            .borrow_mut()
-            .schedule_wake(embassy_time::Instant::from_ticks(at), waker)
+        self.inner.borrow_mut().schedule_wake(at, waker)
     }
 
-    fn next_expiration(&self, now: embassy_time::Instant) -> u64 {
-        self.inner.borrow_mut().next_expiration(now).as_ticks()
+    fn next_expiration(&self, now: u64) -> u64 {
+        self.inner.borrow_mut().next_expiration(now)
     }
 }
 
@@ -589,7 +587,7 @@ fn dequeue(q: &RawQueue, now: u64) -> u64 {
     let next = unsafe { q.next_expiration(now, embassy_executor::raw::wake_task) };
 
     #[cfg(not(feature = "integrated-timers"))]
-    let next = q.next_expiration(embassy_time::Instant::from_ticks(now));
+    let next = q.next_expiration(now);
 
     next
 }
