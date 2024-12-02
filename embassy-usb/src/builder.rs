@@ -17,7 +17,7 @@ pub struct Config<'a> {
 
     /// Device BCD USB version.
     ///
-    /// Default: `0x02` ("2.1")
+    /// Default: `0x0210` ("2.1")
     pub bcd_usb: u16,
 
     /// Device class code assigned by USB.org. Set to `0xff` for vendor-specific
@@ -113,7 +113,7 @@ impl<'a> Config<'a> {
             vendor_id: vid,
             product_id: pid,
             device_release: 0x0010,
-            bcd_usb: 0x02,
+            bcd_usb: 0x0210,
             manufacturer: None,
             product: None,
             serial_number: None,
