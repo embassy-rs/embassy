@@ -38,7 +38,7 @@
 //! # Example
 //!
 //! ```
-//! use embassy_time_driver::{Driver, AlarmHandle};
+//! use embassy_time_driver::Driver;
 //!
 //! struct MyDriver{} // not public!
 //!
