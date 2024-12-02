@@ -3,15 +3,24 @@
 // Credit: taken from `rp-hal` (also licensed Apache+MIT)
 // https://github.com/rp-rs/rp-hal/blob/main/rp235x-hal/src/rom_data.rs
 
-/// The ways in which we can fail to read OTP
+use crate::rom_data::otp_access;
+
+/// The ways in which we can fail to access OTP
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// The user passed an invalid index to a function.
     InvalidIndex,
     /// The hardware refused to let us read this word, probably due to
-    /// read lock set earlier in the boot process.
+    /// read or write lock set earlier in the boot process.
     InvalidPermissions,
+    /// Modification is impossible based on current state; e.g.
+    /// attempted to clear an OTP bit.
+    UnsupportedModification,
+    /// Value being written is bigger than 24 bits allowed for raw writes.
+    Overflow,
+    /// An unexpected failure that contains the exact return code
+    UnexpectedFailure(i32),
 }
 
 /// OTP read address, using automatic Error Correction.
@@ -33,6 +42,9 @@ pub const NUM_ROWS_PER_PAGE: usize = 64;
 
 /// How many rows in OTP (post error-correction)
 pub const NUM_ROWS: usize = NUM_PAGES * NUM_ROWS_PER_PAGE;
+
+/// 24bit mask for raw writes
+pub const RAW_WRITE_BIT_MASK: u32 = 0x00FF_FFFF;
 
 /// Read one ECC protected word from the OTP
 pub fn read_ecc_word(row: usize) -> Result<u16, Error> {
@@ -70,6 +82,61 @@ pub fn read_raw_word(row: usize) -> Result<u32, Error> {
         Err(Error::InvalidPermissions)
     } else {
         Ok(value)
+    }
+}
+/// Write one raw word to the OTP
+///
+/// 24 bit value will be written to the OTP
+pub fn write_raw_word(row: usize, data: u32) -> Result<(), Error> {
+    if data > RAW_WRITE_BIT_MASK {
+        return Err(Error::Overflow);
+    }
+    if row >= NUM_ROWS {
+        return Err(Error::InvalidIndex);
+    }
+    let row_with_write_bit = row | 0x00010000;
+    // # Safety
+    //
+    // We checked this row was in range already.
+    let result = unsafe { otp_access(data.to_le_bytes().as_mut_ptr(), 4, row_with_write_bit as u32) };
+    if result == 0 {
+        Ok(())
+    } else {
+        // 5.4.3. API Function Return Codes
+        let error = match result {
+            -4 => Error::InvalidPermissions,
+            -18 => Error::UnsupportedModification,
+            _ => Error::UnexpectedFailure(result),
+        };
+        Err(error)
+    }
+}
+
+/// Write one raw word to the OTP with ECC
+///
+/// 16 bit value will be written + ECC
+pub fn write_ecc_word(row: usize, data: u16) -> Result<(), Error> {
+    if row >= NUM_ROWS {
+        return Err(Error::InvalidIndex);
+    }
+    let row_with_write_and_ecc_bit = row | 0x00030000;
+
+    // # Safety
+    //
+    // We checked this row was in range already.
+
+    let result = unsafe { otp_access(data.to_le_bytes().as_mut_ptr(), 2, row_with_write_and_ecc_bit as u32) };
+    if result == 0 {
+        Ok(())
+    } else {
+        // 5.4.3. API Function Return Codes
+        // 5.4.3. API Function Return Codes
+        let error = match result {
+            -4 => Error::InvalidPermissions,
+            -18 => Error::UnsupportedModification,
+            _ => Error::UnexpectedFailure(result),
+        };
+        Err(error)
     }
 }
 
