@@ -539,6 +539,11 @@ impl<'d, M: Mode> UartTx<'d, M> {
     pub fn send_break(&self) {
         send_break(&self.info.regs);
     }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        set_baudrate(self.info, self.kernel_clock, baudrate)
+    }
 }
 
 /// Wait until transmission complete
@@ -1014,6 +1019,11 @@ impl<'d, M: Mode> UartRx<'d, M> {
         }
         Ok(())
     }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        set_baudrate(self.info, self.kernel_clock, baudrate)
+    }
 }
 
 impl<'d, M: Mode> Drop for UartTx<'d, M> {
@@ -1455,6 +1465,13 @@ impl<'d, M: Mode> Uart<'d, M> {
     pub fn send_break(&self) {
         self.tx.send_break();
     }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        self.tx.set_baudrate(baudrate)?;
+        self.rx.set_baudrate(baudrate)?;
+        Ok(())
+    }
 }
 
 fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ConfigError> {
@@ -1470,20 +1487,33 @@ fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), 
     Ok(())
 }
 
-fn configure(
-    info: &Info,
-    kernel_clock: Hertz,
-    config: &Config,
-    enable_rx: bool,
-    enable_tx: bool,
-) -> Result<(), ConfigError> {
-    let r = info.regs;
-    let kind = info.kind;
+fn calculate_brr(baud: u32, pclk: u32, presc: u32, mul: u32) -> u32 {
+    // The calculation to be done to get the BRR is `mul * pclk / presc / baud`
+    // To do this in 32-bit only we can't multiply `mul` and `pclk`
+    let clock = pclk / presc;
 
-    if !enable_rx && !enable_tx {
-        return Err(ConfigError::RxOrTxNotEnabled);
-    }
+    // The mul is applied as the last operation to prevent overflow
+    let brr = clock / baud * mul;
 
+    // The BRR calculation will be a bit off because of integer rounding.
+    // Because we multiplied our inaccuracy with mul, our rounding now needs to be in proportion to mul.
+    let rounding = ((clock % baud) * mul + (baud / 2)) / baud;
+
+    brr + rounding
+}
+
+fn set_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result<(), ConfigError> {
+    info.interrupt.disable();
+
+    set_usart_baudrate(info, kernel_clock, baudrate)?;
+
+    info.interrupt.unpend();
+    unsafe { info.interrupt.enable() };
+
+    Ok(())
+}
+
+fn find_and_set_brr(r: Regs, kind: Kind, kernel_clock: Hertz, baudrate: u32) -> Result<bool, ConfigError> {
     #[cfg(not(usart_v4))]
     static DIVS: [(u16, ()); 1] = [(1, ())];
 
@@ -1515,31 +1545,14 @@ fn configure(
         }
     };
 
-    fn calculate_brr(baud: u32, pclk: u32, presc: u32, mul: u32) -> u32 {
-        // The calculation to be done to get the BRR is `mul * pclk / presc / baud`
-        // To do this in 32-bit only we can't multiply `mul` and `pclk`
-        let clock = pclk / presc;
-
-        // The mul is applied as the last operation to prevent overflow
-        let brr = clock / baud * mul;
-
-        // The BRR calculation will be a bit off because of integer rounding.
-        // Because we multiplied our inaccuracy with mul, our rounding now needs to be in proportion to mul.
-        let rounding = ((clock % baud) * mul + (baud / 2)) / baud;
-
-        brr + rounding
-    }
-
-    // UART must be disabled during configuration.
-    r.cr1().modify(|w| {
-        w.set_ue(false);
-    });
-
+    let mut found_brr = None;
     #[cfg(not(usart_v1))]
     let mut over8 = false;
-    let mut found_brr = None;
+    #[cfg(usart_v1)]
+    let over8 = false;
+
     for &(presc, _presc_val) in &DIVS {
-        let brr = calculate_brr(config.baudrate, kernel_clock.0, presc as u32, mul);
+        let brr = calculate_brr(baudrate, kernel_clock.0, presc as u32, mul);
         trace!(
             "USART: presc={}, div=0x{:08x} (mantissa = {}, fraction = {})",
             presc,
@@ -1570,18 +1583,70 @@ fn configure(
         }
     }
 
-    let brr = found_brr.ok_or(ConfigError::BaudrateTooLow)?;
+    match found_brr {
+        Some(brr) => {
+            #[cfg(not(usart_v1))]
+            let oversampling = if over8 { "8 bit" } else { "16 bit" };
+            #[cfg(usart_v1)]
+            let oversampling = "default";
+            trace!(
+                "Using {} oversampling, desired baudrate: {}, actual baudrate: {}",
+                oversampling,
+                baudrate,
+                kernel_clock.0 / brr * mul
+            );
+            Ok(over8)
+        }
+        None => Err(ConfigError::BaudrateTooLow),
+    }
+}
+
+fn set_usart_baudrate(info: &Info, kernel_clock: Hertz, baudrate: u32) -> Result<(), ConfigError> {
+    let r = info.regs;
+    r.cr1().modify(|w| {
+        // disable uart
+        w.set_ue(false);
+    });
 
     #[cfg(not(usart_v1))]
-    let oversampling = if over8 { "8 bit" } else { "16 bit" };
+    let over8 = find_and_set_brr(r, info.kind, kernel_clock, baudrate)?;
     #[cfg(usart_v1)]
-    let oversampling = "default";
-    trace!(
-        "Using {} oversampling, desired baudrate: {}, actual baudrate: {}",
-        oversampling,
-        config.baudrate,
-        kernel_clock.0 / brr * mul
-    );
+    let _over8 = find_and_set_brr(r, info.kind, kernel_clock, baudrate)?;
+
+    r.cr1().modify(|w| {
+        // enable uart
+        w.set_ue(true);
+
+        #[cfg(not(usart_v1))]
+        w.set_over8(vals::Over8::from_bits(over8 as _));
+    });
+
+    Ok(())
+}
+
+fn configure(
+    info: &Info,
+    kernel_clock: Hertz,
+    config: &Config,
+    enable_rx: bool,
+    enable_tx: bool,
+) -> Result<(), ConfigError> {
+    let r = info.regs;
+    let kind = info.kind;
+
+    if !enable_rx && !enable_tx {
+        return Err(ConfigError::RxOrTxNotEnabled);
+    }
+
+    // UART must be disabled during configuration.
+    r.cr1().modify(|w| {
+        w.set_ue(false);
+    });
+
+    #[cfg(not(usart_v1))]
+    let over8 = find_and_set_brr(r, kind, kernel_clock, config.baudrate)?;
+    #[cfg(usart_v1)]
+    let _over8 = find_and_set_brr(r, kind, kernel_clock, config.baudrate)?;
 
     r.cr2().write(|w| {
         w.set_stop(match config.stop_bits {
