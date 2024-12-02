@@ -4,7 +4,6 @@ use core::cmp::{min, Ordering};
 use core::task::Waker;
 
 use heapless::Vec;
-
 pub use implem::Queue;
 
 #[derive(Debug)]
