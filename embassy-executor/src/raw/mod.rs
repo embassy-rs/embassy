@@ -347,6 +347,8 @@ impl SyncExecutor {
 
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
         task.header().executor.set(Some(self));
+
+        // Must be called after the executor has been updated
         task.header().state.mark_spawned();
 
         #[cfg(feature = "rtos-trace")]
