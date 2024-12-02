@@ -8,6 +8,13 @@ use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Handler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START};
 
 #[derive(Debug, Copy, Clone)]
+/// Allows Configuring the Bcd USB version below 2.1
+pub enum BcdUsbVersion {
+    Two = 0x0200,
+    TwoOne = 0x0210,
+}
+
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 /// Configuration used when creating [`UsbDevice`].
@@ -18,7 +25,7 @@ pub struct Config<'a> {
     /// Device BCD USB version.
     ///
     /// Default: `0x0210` ("2.1")
-    pub bcd_usb: u16,
+    pub bcd_usb: BcdUsbVersion,
 
     /// Device class code assigned by USB.org. Set to `0xff` for vendor-specific
     /// devices that do not conform to any class.
@@ -113,7 +120,7 @@ impl<'a> Config<'a> {
             vendor_id: vid,
             product_id: pid,
             device_release: 0x0010,
-            bcd_usb: 0x0210,
+            bcd_usb: BcdUsbVersion::TwoOne,
             manufacturer: None,
             product: None,
             serial_number: None,

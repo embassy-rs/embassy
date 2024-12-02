@@ -326,11 +326,11 @@ pub(crate) fn device_descriptor(config: &Config) -> [u8; 18] {
         18,   // bLength
         0x01, // bDescriptorType
         config.bcd_usb as u8,
-        (config.bcd_usb >> 8) as u8, // bcdUSB
-        config.device_class,         // bDeviceClass
-        config.device_sub_class,     // bDeviceSubClass
-        config.device_protocol,      // bDeviceProtocol
-        config.max_packet_size_0,    // bMaxPacketSize0
+        (config.bcd_usb as u16 >> 8) as u8, // bcdUSB
+        config.device_class,                // bDeviceClass
+        config.device_sub_class,            // bDeviceSubClass
+        config.device_protocol,             // bDeviceProtocol
+        config.max_packet_size_0,           // bMaxPacketSize0
         config.vendor_id as u8,
         (config.vendor_id >> 8) as u8, // idVendor
         config.product_id as u8,
@@ -353,13 +353,13 @@ pub(crate) fn device_qualifier_descriptor(config: &Config) -> [u8; 10] {
         10,   // bLength
         0x06, // bDescriptorType
         0x10,
-        (config.bcd_usb >> 8) as u8, // bcdUSB
-        config.device_class,         // bDeviceClass
-        config.device_sub_class,     // bDeviceSubClass
-        config.device_protocol,      // bDeviceProtocol
-        config.max_packet_size_0,    // bMaxPacketSize0
-        1,                           // bNumConfigurations
-        0,                           // Reserved
+        (config.bcd_usb as u16 >> 8) as u8, // bcdUSB
+        config.device_class,                // bDeviceClass
+        config.device_sub_class,            // bDeviceSubClass
+        config.device_protocol,             // bDeviceProtocol
+        config.max_packet_size_0,           // bMaxPacketSize0
+        1,                                  // bNumConfigurations
+        0,                                  // Reserved
     ]
 }
 
