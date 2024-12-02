@@ -325,7 +325,7 @@ pub(crate) fn device_descriptor(config: &Config) -> [u8; 18] {
     [
         18,   // bLength
         0x01, // bDescriptorType
-        0x10,
+        config.bcd_usb as u8,
         (config.bcd_usb >> 8) as u8, // bcdUSB
         config.device_class,         // bDeviceClass
         config.device_sub_class,     // bDeviceSubClass
