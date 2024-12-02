@@ -2,7 +2,7 @@ use stm32_metapac::flash::vals::Latency;
 
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv,
-    Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
+    Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,Pllsaidivq as PllSaiQ
 };
 #[cfg(any(stm32f4, stm32f7))]
 use crate::pac::PWR;
@@ -90,7 +90,9 @@ pub struct Config {
     pub plli2s: Option<Pll>,
     #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
     pub pllsai: Option<Pll>,
-
+    #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+    pub pllsai_divdivq: PllSaiQ,
+    
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
@@ -116,7 +118,9 @@ impl Default for Config {
             plli2s: None,
             #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
             pllsai: None,
-
+            #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+            pllsai_divdivq: PllSaiQ::DIV1,
+            
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
@@ -188,11 +192,19 @@ pub(crate) unsafe fn init(config: Config) {
         source: config.pll_src,
     };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
+    
     #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
     let plli2s = init_pll(PllInstance::Plli2s, config.plli2s, &pll_input);
     #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
-    let pllsai = init_pll(PllInstance::Pllsai, config.pllsai, &pll_input);
-
+    let mut pllsai = init_pll(PllInstance::Pllsai, config.pllsai, &pll_input);
+    #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+    RCC.dckcfgr().modify(|w| w.set_pllsaidivq(config.pllsai_divdivq));
+    pllsai.q = match pllsai.q {
+        Some(q) => {
+            Some(q/ (1 + config.pllsai_divdivq.to_bits()))
+        },
+        None => {None}
+    };
     // Configure sysclk
     let sys = match config.sys {
         Sysclk::HSI => unwrap!(hsi),
