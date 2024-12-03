@@ -6,8 +6,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
+use crate::gpio::{convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::ppi::{Event, Task};
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
@@ -47,6 +46,8 @@ pub enum Error {
 }
 
 const MAX_SEQUENCE_LEN: usize = 32767;
+/// The used pwm clock frequency
+pub const PWM_CLK_HZ: u32 = 16_000_000;
 
 impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Create a new 1-channel PWM
@@ -127,19 +128,23 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
         if let Some(pin) = &ch0 {
             pin.set_low();
-            pin.conf().write(|w| w.dir().output());
+            pin.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.ch0_drive)));
         }
         if let Some(pin) = &ch1 {
             pin.set_low();
-            pin.conf().write(|w| w.dir().output());
+            pin.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.ch1_drive)));
         }
         if let Some(pin) = &ch2 {
             pin.set_low();
-            pin.conf().write(|w| w.dir().output());
+            pin.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.ch2_drive)));
         }
         if let Some(pin) = &ch3 {
             pin.set_low();
-            pin.conf().write(|w| w.dir().output());
+            pin.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.ch3_drive)));
         }
 
         r.psel.out[0].write(|w| unsafe { w.bits(ch0.psel_bits()) });
@@ -318,6 +323,14 @@ pub struct Config {
     pub prescaler: Prescaler,
     /// How a sequence is read from RAM and is spread to the compare register
     pub sequence_load: SequenceLoad,
+    /// Drive strength for the channel 0 line.
+    pub ch0_drive: OutputDrive,
+    /// Drive strength for the channel 1 line.
+    pub ch1_drive: OutputDrive,
+    /// Drive strength for the channel 2 line.
+    pub ch2_drive: OutputDrive,
+    /// Drive strength for the channel 3 line.
+    pub ch3_drive: OutputDrive,
 }
 
 impl Default for Config {
@@ -327,6 +340,10 @@ impl Default for Config {
             max_duty: 1000,
             prescaler: Prescaler::Div16,
             sequence_load: SequenceLoad::Common,
+            ch0_drive: OutputDrive::Standard,
+            ch1_drive: OutputDrive::Standard,
+            ch2_drive: OutputDrive::Standard,
+            ch3_drive: OutputDrive::Standard,
         }
     }
 }
@@ -367,7 +384,7 @@ impl<'s> Sequence<'s> {
 }
 
 /// A single sequence that can be started and stopped.
-/// Takes at one sequence along with its configuration.
+/// Takes one sequence along with its configuration.
 #[non_exhaustive]
 pub struct SingleSequencer<'d, 's, T: Instance> {
     sequencer: Sequencer<'d, 's, T>,
@@ -442,7 +459,7 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
             return Err(Error::SequenceTimesAtLeastOne);
         }
 
-        let _ = self.stop();
+        self.stop();
 
         let r = T::regs();
 
@@ -505,7 +522,7 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
 
 impl<'d, 's, T: Instance> Drop for Sequencer<'d, 's, T> {
     fn drop(&mut self) {
-        let _ = self.stop();
+        self.stop();
     }
 }
 
@@ -695,7 +712,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         // Enable
         r.enable.write(|w| w.enable().enabled());
 
-        r.seq0.ptr.write(|w| unsafe { w.bits((&pwm.duty).as_ptr() as u32) });
+        r.seq0.ptr.write(|w| unsafe { w.bits((pwm.duty).as_ptr() as u32) });
 
         r.seq0.cnt.write(|w| unsafe { w.bits(4) });
         r.seq0.refresh.write(|w| unsafe { w.bits(0) });
@@ -713,6 +730,13 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         pwm
     }
 
+    /// Returns the enable state of the pwm counter
+    #[inline(always)]
+    pub fn is_enabled(&self) -> bool {
+        let r = T::regs();
+        r.enable.read().enable().bit_is_set()
+    }
+
     /// Enables the PWM generator.
     #[inline(always)]
     pub fn enable(&self) {
@@ -727,6 +751,11 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.enable.write(|w| w.enable().disabled());
     }
 
+    /// Returns the current duty of the channel
+    pub fn duty(&self, channel: usize) -> u16 {
+        self.duty[channel]
+    }
+
     /// Sets duty cycle (15 bit) for a PWM channel.
     pub fn set_duty(&mut self, channel: usize, duty: u16) {
         let r = T::regs();
@@ -734,7 +763,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         self.duty[channel] = duty & 0x7FFF;
 
         // reload ptr in case self was moved
-        r.seq0.ptr.write(|w| unsafe { w.bits((&self.duty).as_ptr() as u32) });
+        r.seq0.ptr.write(|w| unsafe { w.bits((self.duty).as_ptr() as u32) });
 
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
@@ -746,7 +775,9 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         // defensive wait until waveform is loaded after seqstart so set_duty
         // can't be called again while dma is still reading
-        while r.events_seqend[0].read().bits() == 0 {}
+        if self.is_enabled() {
+            while r.events_seqend[0].read().bits() == 0 {}
+        }
     }
 
     /// Sets the PWM clock prescaler.
@@ -788,7 +819,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Sets the PWM output frequency.
     #[inline(always)]
     pub fn set_period(&self, freq: u32) {
-        let clk = 16_000_000u32 >> (self.prescaler() as u8);
+        let clk = PWM_CLK_HZ >> (self.prescaler() as u8);
         let duty = clk / freq;
         self.set_max_duty(duty.min(32767) as u16);
     }
@@ -796,9 +827,41 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Returns the PWM output frequency.
     #[inline(always)]
     pub fn period(&self) -> u32 {
-        let clk = 16_000_000u32 >> (self.prescaler() as u8);
+        let clk = PWM_CLK_HZ >> (self.prescaler() as u8);
         let max_duty = self.max_duty() as u32;
         clk / max_duty
+    }
+
+    /// Sets the PWM-Channel0 output drive strength
+    #[inline(always)]
+    pub fn set_ch0_drive(&self, drive: OutputDrive) {
+        if let Some(pin) = &self.ch0 {
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
+        }
+    }
+
+    /// Sets the PWM-Channel1 output drive strength
+    #[inline(always)]
+    pub fn set_ch1_drive(&self, drive: OutputDrive) {
+        if let Some(pin) = &self.ch1 {
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
+        }
+    }
+
+    /// Sets the PWM-Channel2 output drive strength
+    #[inline(always)]
+    pub fn set_ch2_drive(&self, drive: OutputDrive) {
+        if let Some(pin) = &self.ch2 {
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
+        }
+    }
+
+    /// Sets the PWM-Channel3 output drive strength
+    #[inline(always)]
+    pub fn set_ch3_drive(&self, drive: OutputDrive) {
+        if let Some(pin) = &self.ch3 {
+            pin.conf().modify(|_, w| w.drive().variant(convert_drive(drive)));
+        }
     }
 }
 
@@ -831,23 +894,20 @@ impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use super::*;
-
-    pub trait Instance {
-        fn regs() -> &'static pac::pwm0::RegisterBlock;
-    }
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::pwm0::RegisterBlock;
 }
 
 /// PWM peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_pwm {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::pwm::sealed::Instance for peripherals::$type {
+        impl crate::pwm::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::pwm0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }

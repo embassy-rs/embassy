@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::{assert_eq, *};
@@ -9,7 +8,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{Async, Config, Error, Instance, InterruptHandler, Parity, Uart, UartRx};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -28,16 +27,16 @@ async fn read1<const N: usize>(uart: &mut UartRx<'_, impl Instance, Async>) -> R
     Ok(buf)
 }
 
-async fn send(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: Option<bool>) {
+async fn send(pin: &mut Output<'_>, v: u8, parity: Option<bool>) {
     pin.set_low();
-    Timer::after(Duration::from_millis(1)).await;
+    Timer::after_millis(1).await;
     for i in 0..8 {
         if v & (1 << i) == 0 {
             pin.set_low();
         } else {
             pin.set_high();
         }
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
     }
     if let Some(b) = parity {
         if b {
@@ -45,10 +44,10 @@ async fn send(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: O
         } else {
             pin.set_low();
         }
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
     }
     pin.set_high();
-    Timer::after(Duration::from_millis(1)).await;
+    Timer::after_millis(1).await;
 }
 
 #[embassy_executor::main]
@@ -105,7 +104,7 @@ async fn main(_spawner: Spawner) {
         // new data is accepted, latest overrunning byte first
         assert_eq!(read(&mut uart).await, Ok([3]));
         uart.blocking_write(&[8, 9]).unwrap();
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
         assert_eq!(read(&mut uart).await, Ok([8, 9]));
     }
 
@@ -161,7 +160,7 @@ async fn main(_spawner: Spawner) {
         config.parity = Parity::ParityEven;
         let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
 
-        async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: u32) {
+        async fn chr(pin: &mut Output<'_>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
         }
 
@@ -206,7 +205,7 @@ async fn main(_spawner: Spawner) {
         config.baudrate = 1000;
         let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
 
-        async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, good: bool) {
+        async fn chr(pin: &mut Output<'_>, v: u8, good: bool) {
             if good {
                 send(pin, v, None).await;
             } else {

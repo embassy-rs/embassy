@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -41,7 +40,6 @@ async fn main(spawner: Spawner) {
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
         - Select "Start Wireless Stack".
         - Disconnect from the device.
-        - In the examples folder for stm32wb, modify the memory.x file to match your target device.
         - Run this example.
 
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.

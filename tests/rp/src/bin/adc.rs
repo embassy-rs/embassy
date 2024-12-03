@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::*;
@@ -93,6 +92,7 @@ async fn main(_spawner: Spawner) {
         adc.read_many(
             &mut Channel::new_pin(&mut p.PIN_29, Pull::Down),
             &mut low,
+            1,
             &mut p.DMA_CH0,
         )
         .await
@@ -100,12 +100,18 @@ async fn main(_spawner: Spawner) {
         adc.read_many(
             &mut Channel::new_pin(&mut p.PIN_29, Pull::None),
             &mut none,
+            1,
             &mut p.DMA_CH0,
         )
         .await
         .unwrap();
-        adc.read_many_raw(&mut Channel::new_pin(&mut p.PIN_29, Pull::Up), &mut up, &mut p.DMA_CH0)
-            .await;
+        adc.read_many_raw(
+            &mut Channel::new_pin(&mut p.PIN_29, Pull::Up),
+            &mut up,
+            1,
+            &mut p.DMA_CH0,
+        )
+        .await;
         defmt::assert!(low.iter().zip(none.iter()).all(|(l, n)| *l >> 4 < *n as u16));
         defmt::assert!(up.iter().all(|s| s.good()));
         defmt::assert!(none.iter().zip(up.iter()).all(|(n, u)| (*n as u16) < u.value()));
@@ -115,6 +121,7 @@ async fn main(_spawner: Spawner) {
         adc.read_many(
             &mut Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR),
             &mut temp,
+            1,
             &mut p.DMA_CH0,
         )
         .await
@@ -122,6 +129,19 @@ async fn main(_spawner: Spawner) {
         let temp = temp.map(convert_to_celsius);
         defmt::assert!(temp.iter().all(|t| *t > 0.0));
         defmt::assert!(temp.iter().all(|t| *t < 60.0));
+    }
+    {
+        let mut multi = [0u16; 2];
+        let mut channels = [
+            Channel::new_pin(&mut p.PIN_26, Pull::Up),
+            Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR),
+        ];
+        adc.read_many_multichannel(&mut channels, &mut multi, 1, &mut p.DMA_CH0)
+            .await
+            .unwrap();
+        defmt::assert!(multi[0] > 3_000);
+        let temp = convert_to_celsius(multi[1]);
+        defmt::assert!(temp > 0.0 && temp < 60.0);
     }
 
     info!("Test OK");

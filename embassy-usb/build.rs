@@ -70,9 +70,11 @@ fn main() {
 
                     // envvars take priority.
                     if !cfg.seen_env {
-                        if cfg.seen_feature {
-                            panic!("multiple values set for feature {}: {} and {}", name, cfg.value, value);
-                        }
+                        assert!(
+                            !cfg.seen_feature,
+                            "multiple values set for feature {}: {} and {}",
+                            name, cfg.value, value
+                        );
 
                         cfg.value = value;
                         cfg.seen_feature = true;

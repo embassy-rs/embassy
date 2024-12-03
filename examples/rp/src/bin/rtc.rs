@@ -2,12 +2,11 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::rtc::{DateTime, DayOfWeek, Rtc};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -31,7 +30,7 @@ async fn main(_spawner: Spawner) {
         rtc.set_datetime(now).unwrap();
     }
 
-    Timer::after(Duration::from_millis(20000)).await;
+    Timer::after_millis(20000).await;
 
     if let Ok(dt) = rtc.now() {
         info!(
@@ -41,6 +40,6 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("Reboot.");
-    Timer::after(Duration::from_millis(200)).await;
+    Timer::after_millis(200).await;
     cortex_m::peripheral::SCB::sys_reset();
 }

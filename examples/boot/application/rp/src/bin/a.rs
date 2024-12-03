@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::cell::RefCell;
 
@@ -37,11 +36,11 @@ async fn main(_s: Spawner) {
     let flash = Flash::<_, _, FLASH_SIZE>::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
 
-    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
     let mut aligned = AlignedBuffer([0; 1]);
     let mut updater = BlockingFirmwareUpdater::new(config, &mut aligned.0);
 
-    Timer::after(Duration::from_secs(5)).await;
+    Timer::after_secs(5).await;
     watchdog.feed();
     led.set_high();
     let mut offset = 0;
@@ -61,7 +60,7 @@ async fn main(_s: Spawner) {
     watchdog.feed();
     defmt::info!("firmware written, marking update");
     updater.mark_updated().unwrap();
-    Timer::after(Duration::from_secs(2)).await;
+    Timer::after_secs(2).await;
     led.set_low();
     defmt::info!("update marked, resetting");
     cortex_m::peripheral::SCB::sys_reset();

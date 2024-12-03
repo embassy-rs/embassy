@@ -1,13 +1,12 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::unwrap;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -22,9 +21,9 @@ static CHANNEL: StaticCell<Channel<NoopRawMutex, LedState, 1>> = StaticCell::new
 async fn send_task(sender: Sender<'static, NoopRawMutex, LedState, 1>) {
     loop {
         sender.send(LedState::On).await;
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
         sender.send(LedState::Off).await;
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
     }
 }
 

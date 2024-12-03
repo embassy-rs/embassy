@@ -3,12 +3,11 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
 use embassy_executor::Executor;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -16,7 +15,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn run1() {
     loop {
         info!("BIG INFREQUENT TICK");
-        Timer::after(Duration::from_ticks(64000)).await;
+        Timer::after_ticks(64000).await;
     }
 }
 
@@ -24,7 +23,7 @@ async fn run1() {
 async fn run2() {
     loop {
         info!("tick");
-        Timer::after(Duration::from_ticks(13000)).await;
+        Timer::after_ticks(13000).await;
     }
 }
 

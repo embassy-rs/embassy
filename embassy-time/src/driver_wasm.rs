@@ -4,10 +4,9 @@ use std::mem::MaybeUninit;
 use std::ptr;
 use std::sync::{Mutex, Once};
 
+use embassy_time_driver::{AlarmHandle, Driver};
 use wasm_bindgen::prelude::*;
 use wasm_timer::Instant as StdInstant;
-
-use crate::driver::{AlarmHandle, Driver};
 
 const ALARM_COUNT: usize = 4;
 
@@ -42,7 +41,7 @@ struct TimeDriver {
 }
 
 const ALARM_NEW: AlarmState = AlarmState::new();
-crate::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
+embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
     alarm_count: AtomicU8::new(0),
     once: Once::new(),
     alarms: UninitCell::uninit(),

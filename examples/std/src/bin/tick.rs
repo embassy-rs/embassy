@@ -1,14 +1,12 @@
-#![feature(type_alias_impl_trait)]
-
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use log::*;
 
 #[embassy_executor::task]
 async fn run() {
     loop {
         info!("tick");
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
     }
 }
 

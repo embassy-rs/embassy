@@ -5,11 +5,11 @@ use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-pub const fn is_default_layout() -> bool {
+pub(crate) const fn is_default_layout() -> bool {
     true
 }
 
-pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
+pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
@@ -28,17 +28,23 @@ pub(crate) unsafe fn lock() {
 pub(crate) unsafe fn unlock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     {
-        pac::FLASH.keyr().write(|w| w.set_keyr(0x4567_0123));
-        pac::FLASH.keyr().write(|w| w.set_keyr(0xCDEF_89AB));
+        if pac::FLASH.cr().read().lock() {
+            pac::FLASH.keyr().write_value(0x4567_0123);
+            pac::FLASH.keyr().write_value(0xCDEF_89AB);
+        }
     }
 
     #[cfg(any(flash_l0, flash_l1))]
     {
-        pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x89ABCDEF));
-        pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x02030405));
+        if pac::FLASH.pecr().read().pelock() {
+            pac::FLASH.pekeyr().write_value(0x89AB_CDEF);
+            pac::FLASH.pekeyr().write_value(0x0203_0405);
+        }
 
-        pac::FLASH.prgkeyr().write(|w| w.set_prgkeyr(0x8C9DAEBF));
-        pac::FLASH.prgkeyr().write(|w| w.set_prgkeyr(0x13141516));
+        if pac::FLASH.pecr().read().prglock() {
+            pac::FLASH.prgkeyr().write_value(0x8C9D_AEBF);
+            pac::FLASH.prgkeyr().write_value(0x1314_1516);
+        }
     }
 }
 
@@ -57,7 +63,7 @@ pub(crate) unsafe fn disable_blocking_write() {
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     let mut address = start_address;
     for val in buf.chunks(4) {
-        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
         address += val.len() as u32;
 
         // prevents parallelism errors
@@ -114,7 +120,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
 pub(crate) unsafe fn clear_all_err() {
     // read and write back the same value.
-    // This clears all "write 0 to clear" bits.
+    // This clears all "write 1 to clear" bits.
     pac::FLASH.sr().modify(|_| {});
 }
 

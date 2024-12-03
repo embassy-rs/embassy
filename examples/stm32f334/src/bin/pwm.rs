@@ -1,24 +1,37 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::hrtim::*;
 use embassy_stm32::time::{khz, mhz};
 use embassy_stm32::Config;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut config: Config = Default::default();
-    config.rcc.sysclk = Some(mhz(64));
-    config.rcc.hclk = Some(mhz(64));
-    config.rcc.pclk1 = Some(mhz(32));
-    config.rcc.pclk2 = Some(mhz(64));
+    let mut config = Config::default();
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: mhz(8),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.pll = Some(Pll {
+            src: PllSource::HSE,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL9,
+        });
+        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV2;
+        config.rcc.apb2_pre = APBPrescaler::DIV1;
 
+        config.rcc.mux.hrtim1sw = embassy_stm32::rcc::mux::Timsw::PLL1_P;
+    }
     let p = embassy_stm32::init(config);
+
     info!("Hello World!");
 
     let ch1 = PwmPin::new_cha(p.PA8);
@@ -46,7 +59,7 @@ async fn main(_spawner: Spawner) {
     //        .setr(0)
     //        .modify(|w| w.set_sst(Activeeffect::SETACTIVE));
     //
-    //    Timer::after(Duration::from_millis(500)).await;
+    //    Timer::after_millis(500).await;
     //
     //    embassy_stm32::pac::HRTIM1
     //        .tim(0)
@@ -63,7 +76,7 @@ async fn main(_spawner: Spawner) {
 
     buck_converter.start();
 
-    Timer::after(Duration::from_millis(500)).await;
+    Timer::after_millis(500).await;
 
     info!("end program");
 

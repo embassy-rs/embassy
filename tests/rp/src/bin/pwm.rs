@@ -1,13 +1,12 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::{assert, assert_eq, assert_ne, *};
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::pwm::{Config, InputMode, Pwm};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -29,7 +28,7 @@ async fn main(_spawner: Spawner) {
 
     // Test free-running clock
     {
-        let pwm = Pwm::new_free(&mut p.PWM_CH3, cfg.clone());
+        let pwm = Pwm::new_free(&mut p.PWM_SLICE3, cfg.clone());
         cortex_m::asm::delay(125);
         let ctr = pwm.counter();
         assert!(ctr > 0);
@@ -47,28 +46,28 @@ async fn main(_spawner: Spawner) {
         // Test output from A
         {
             let pin1 = Input::new(&mut p9, Pull::None);
-            let _pwm = Pwm::new_output_a(&mut p.PWM_CH3, &mut p6, cfg.clone());
-            Timer::after(Duration::from_millis(1)).await;
+            let _pwm = Pwm::new_output_a(&mut p.PWM_SLICE3, &mut p6, cfg.clone());
+            Timer::after_millis(1).await;
             assert_eq!(pin1.is_low(), invert_a);
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after_millis(5).await;
             assert_eq!(pin1.is_high(), invert_a);
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after_millis(5).await;
             assert_eq!(pin1.is_low(), invert_a);
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after_millis(5).await;
             assert_eq!(pin1.is_high(), invert_a);
         }
 
         // Test output from B
         {
             let pin2 = Input::new(&mut p11, Pull::None);
-            let _pwm = Pwm::new_output_b(&mut p.PWM_CH3, &mut p7, cfg.clone());
-            Timer::after(Duration::from_millis(1)).await;
+            let _pwm = Pwm::new_output_b(&mut p.PWM_SLICE3, &mut p7, cfg.clone());
+            Timer::after_millis(1).await;
             assert_ne!(pin2.is_low(), invert_a);
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after_millis(5).await;
             assert_ne!(pin2.is_high(), invert_a);
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after_millis(5).await;
             assert_ne!(pin2.is_low(), invert_a);
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after_millis(5).await;
             assert_ne!(pin2.is_high(), invert_a);
         }
 
@@ -76,17 +75,17 @@ async fn main(_spawner: Spawner) {
         {
             let pin1 = Input::new(&mut p9, Pull::None);
             let pin2 = Input::new(&mut p11, Pull::None);
-            let _pwm = Pwm::new_output_ab(&mut p.PWM_CH3, &mut p6, &mut p7, cfg.clone());
-            Timer::after(Duration::from_millis(1)).await;
+            let _pwm = Pwm::new_output_ab(&mut p.PWM_SLICE3, &mut p6, &mut p7, cfg.clone());
+            Timer::after_millis(1).await;
             assert_eq!(pin1.is_low(), invert_a);
             assert_ne!(pin2.is_low(), invert_a);
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after_millis(5).await;
             assert_eq!(pin1.is_high(), invert_a);
             assert_ne!(pin2.is_high(), invert_a);
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after_millis(5).await;
             assert_eq!(pin1.is_low(), invert_a);
             assert_ne!(pin2.is_low(), invert_a);
-            Timer::after(Duration::from_millis(5)).await;
+            Timer::after_millis(5).await;
             assert_eq!(pin1.is_high(), invert_a);
             assert_ne!(pin2.is_high(), invert_a);
         }
@@ -95,47 +94,87 @@ async fn main(_spawner: Spawner) {
     // Test level-gated
     {
         let mut pin2 = Output::new(&mut p11, Level::Low);
-        let pwm = Pwm::new_input(&mut p.PWM_CH3, &mut p7, InputMode::Level, cfg.clone());
+        let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, Pull::None, InputMode::Level, cfg.clone());
         assert_eq!(pwm.counter(), 0);
-        Timer::after(Duration::from_millis(5)).await;
+        Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);
         pin2.set_high();
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
         pin2.set_low();
         let ctr = pwm.counter();
         assert!(ctr >= 1000);
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
         assert_eq!(pwm.counter(), ctr);
     }
 
     // Test rising-gated
     {
         let mut pin2 = Output::new(&mut p11, Level::Low);
-        let pwm = Pwm::new_input(&mut p.PWM_CH3, &mut p7, InputMode::RisingEdge, cfg.clone());
+        let pwm = Pwm::new_input(
+            &mut p.PWM_SLICE3,
+            &mut p7,
+            Pull::None,
+            InputMode::RisingEdge,
+            cfg.clone(),
+        );
         assert_eq!(pwm.counter(), 0);
-        Timer::after(Duration::from_millis(5)).await;
+        Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);
         pin2.set_high();
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
         pin2.set_low();
         assert_eq!(pwm.counter(), 1);
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
         assert_eq!(pwm.counter(), 1);
     }
 
     // Test falling-gated
     {
         let mut pin2 = Output::new(&mut p11, Level::High);
-        let pwm = Pwm::new_input(&mut p.PWM_CH3, &mut p7, InputMode::FallingEdge, cfg.clone());
+        let pwm = Pwm::new_input(
+            &mut p.PWM_SLICE3,
+            &mut p7,
+            Pull::None,
+            InputMode::FallingEdge,
+            cfg.clone(),
+        );
         assert_eq!(pwm.counter(), 0);
-        Timer::after(Duration::from_millis(5)).await;
+        Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);
         pin2.set_low();
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
         pin2.set_high();
         assert_eq!(pwm.counter(), 1);
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
         assert_eq!(pwm.counter(), 1);
+    }
+
+    // pull-down
+    {
+        let pin2 = Input::new(&mut p11, Pull::None);
+        Pwm::new_input(
+            &mut p.PWM_SLICE3,
+            &mut p7,
+            Pull::Down,
+            InputMode::FallingEdge,
+            cfg.clone(),
+        );
+        Timer::after_millis(1).await;
+        assert!(pin2.is_low());
+    }
+
+    // pull-up
+    {
+        let pin2 = Input::new(&mut p11, Pull::None);
+        Pwm::new_input(
+            &mut p.PWM_SLICE3,
+            &mut p7,
+            Pull::Up,
+            InputMode::FallingEdge,
+            cfg.clone(),
+        );
+        Timer::after_millis(1).await;
+        assert!(pin2.is_high());
     }
 
     info!("Test OK");

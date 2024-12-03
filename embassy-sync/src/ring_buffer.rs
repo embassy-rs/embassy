@@ -3,7 +3,7 @@ use core::ops::Range;
 pub struct RingBuffer<const N: usize> {
     start: usize,
     end: usize,
-    empty: bool,
+    full: bool,
 }
 
 impl<const N: usize> RingBuffer<N> {
@@ -11,13 +11,13 @@ impl<const N: usize> RingBuffer<N> {
         Self {
             start: 0,
             end: 0,
-            empty: true,
+            full: false,
         }
     }
 
     pub fn push_buf(&mut self) -> Range<usize> {
-        if self.start == self.end && !self.empty {
-            trace!("  ringbuf: push_buf empty");
+        if self.is_full() {
+            trace!("  ringbuf: push_buf full");
             return 0..0;
         }
 
@@ -38,11 +38,11 @@ impl<const N: usize> RingBuffer<N> {
         }
 
         self.end = self.wrap(self.end + n);
-        self.empty = false;
+        self.full = self.start == self.end;
     }
 
     pub fn pop_buf(&mut self) -> Range<usize> {
-        if self.empty {
+        if self.is_empty() {
             trace!("  ringbuf: pop_buf empty");
             return 0..0;
         }
@@ -64,20 +64,20 @@ impl<const N: usize> RingBuffer<N> {
         }
 
         self.start = self.wrap(self.start + n);
-        self.empty = self.start == self.end;
+        self.full = false;
     }
 
     pub fn is_full(&self) -> bool {
-        self.start == self.end && !self.empty
+        self.full
     }
 
     pub fn is_empty(&self) -> bool {
-        self.empty
+        self.start == self.end && !self.full
     }
 
     #[allow(unused)]
     pub fn len(&self) -> usize {
-        if self.empty {
+        if self.is_empty() {
             0
         } else if self.start < self.end {
             self.end - self.start
@@ -89,7 +89,7 @@ impl<const N: usize> RingBuffer<N> {
     pub fn clear(&mut self) {
         self.start = 0;
         self.end = 0;
-        self.empty = true;
+        self.full = false;
     }
 
     fn wrap(&self, n: usize) -> usize {

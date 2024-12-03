@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use core::ptr;
 
 use embassy_stm32::ipcc::Ipcc;
@@ -13,7 +12,7 @@ use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, evt};
 
 pub struct Ble {
-    phantom: PhantomData<Ble>,
+    _private: (),
 }
 
 impl Ble {
@@ -29,7 +28,7 @@ impl Ble {
             });
         }
 
-        Self { phantom: PhantomData }
+        Self { _private: () }
     }
     /// `HW_IPCC_BLE_EvtNot`
     pub async fn tl_read(&self) -> EvtBox<Self> {

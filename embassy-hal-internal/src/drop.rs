@@ -1,16 +1,20 @@
+//! Types for controlling when drop is invoked.
 use core::mem;
 use core::mem::MaybeUninit;
 
-#[must_use = "to delay the drop handler invokation to the end of the scope"]
+/// A type to delay the drop handler invocation.
+#[must_use = "to delay the drop handler invocation to the end of the scope"]
 pub struct OnDrop<F: FnOnce()> {
     f: MaybeUninit<F>,
 }
 
 impl<F: FnOnce()> OnDrop<F> {
+    /// Create a new instance.
     pub fn new(f: F) -> Self {
         Self { f: MaybeUninit::new(f) }
     }
 
+    /// Prevent drop handler from running.
     pub fn defuse(self) {
         mem::forget(self)
     }
@@ -34,6 +38,7 @@ pub struct DropBomb {
 }
 
 impl DropBomb {
+    /// Create a new instance.
     pub fn new() -> Self {
         Self { _private: () }
     }

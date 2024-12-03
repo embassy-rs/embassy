@@ -4,13 +4,16 @@ use crate::fmt::Bytes;
 macro_rules! impl_bytes {
     ($t:ident) => {
         impl $t {
+            /// Bytes consumed by this type.
             pub const SIZE: usize = core::mem::size_of::<Self>();
 
+            /// Convert to byte array.
             #[allow(unused)]
             pub fn to_bytes(&self) -> [u8; Self::SIZE] {
                 unsafe { core::mem::transmute(*self) }
             }
 
+            /// Create from byte array.
             #[allow(unused)]
             pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> &Self {
                 let alignment = core::mem::align_of::<Self>();
@@ -23,6 +26,7 @@ macro_rules! impl_bytes {
                 unsafe { core::mem::transmute(bytes) }
             }
 
+            /// Create from mutable byte array.
             #[allow(unused)]
             pub fn from_bytes_mut(bytes: &mut [u8; Self::SIZE]) -> &mut Self {
                 let alignment = core::mem::align_of::<Self>();
@@ -204,6 +208,7 @@ pub struct EthernetHeader {
 }
 
 impl EthernetHeader {
+    /// Swap endianness.
     pub fn byteswap(&mut self) {
         self.ether_type = self.ether_type.to_be();
     }
@@ -472,19 +477,64 @@ impl ScanResults {
 #[repr(C, packed(2))]
 #[non_exhaustive]
 pub struct BssInfo {
+    /// Version.
     pub version: u32,
+    /// Length.
     pub length: u32,
+    /// BSSID.
     pub bssid: [u8; 6],
+    /// Beacon period.
     pub beacon_period: u16,
+    /// Capability.
     pub capability: u16,
+    /// SSID length.
     pub ssid_len: u8,
+    /// SSID.
     pub ssid: [u8; 32],
+    reserved1: [u8; 1],
+    /// Number of rates in the rates field.
+    pub rateset_count: u32,
+    /// Rates in 500kpbs units.
+    pub rates: [u8; 16],
+    /// Channel specification.
+    pub chanspec: u16,
+    /// Announcement traffic indication message.
+    pub atim_window: u16,
+    /// Delivery traffic indication message.
+    pub dtim_period: u8,
+    reserved2: [u8; 1],
+    /// Receive signal strength (in dbM).
+    pub rssi: i16,
+    /// Received noise (in dbM).
+    pub phy_noise: i8,
+    /// 802.11n capability.
+    pub n_cap: u8,
+    reserved3: [u8; 2],
+    /// 802.11n BSS capabilities.
+    pub nbss_cap: u32,
+    /// 802.11n control channel number.
+    pub ctl_ch: u8,
+    reserved4: [u8; 3],
+    reserved32: [u32; 1],
+    /// Flags.
+    pub flags: u8,
+    /// VHT capability.
+    pub vht_cap: u8,
+    reserved5: [u8; 2],
+    /// 802.11n BSS required MCS.
+    pub basic_mcs: [u8; 16],
+    /// Information Elements (IE) offset.
+    pub ie_offset: u16,
+    /// Length of Information Elements (IE) in bytes.
+    pub ie_length: u32,
+    /// Average signal-to-noise (SNR) ratio during frame reception.
+    pub snr: i16,
     // there will be more stuff here
 }
 impl_bytes!(BssInfo);
 
 impl BssInfo {
-    pub fn parse(packet: &mut [u8]) -> Option<&mut Self> {
+    pub(crate) fn parse(packet: &mut [u8]) -> Option<&mut Self> {
         if packet.len() < BssInfo::SIZE {
             return None;
         }

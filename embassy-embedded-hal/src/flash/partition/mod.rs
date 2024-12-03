@@ -2,16 +2,14 @@
 
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
-#[cfg(feature = "nightly")]
 mod asynch;
 mod blocking;
 
-#[cfg(feature = "nightly")]
 pub use asynch::Partition;
 pub use blocking::BlockingPartition;
 
 /// Partition error
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error<T> {
     /// The requested flash area is outside the partition

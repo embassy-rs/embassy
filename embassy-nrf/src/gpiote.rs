@@ -7,18 +7,21 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin};
+use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::InterruptExt;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, pac, peripherals};
 
+#[cfg(feature = "nrf51")]
+/// Amount of GPIOTE channels in the chip.
+const CHANNEL_COUNT: usize = 4;
+#[cfg(not(feature = "_nrf51"))]
 /// Amount of GPIOTE channels in the chip.
 const CHANNEL_COUNT: usize = 8;
 
-#[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+#[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
 const PIN_COUNT: usize = 48;
-#[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
+#[cfg(not(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
 const PIN_COUNT: usize = 32;
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -50,9 +53,9 @@ pub enum OutputChannelPolarity {
 
 fn regs() -> &'static pac::gpiote::RegisterBlock {
     cfg_if::cfg_if! {
-        if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s"))] {
+        if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s", feature="nrf9120-s"))] {
             unsafe { &*pac::GPIOTE0::ptr() }
-        } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns"))] {
+        } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns", feature="nrf9120-ns"))] {
             unsafe { &*pac::GPIOTE1::ptr() }
         } else {
             unsafe { &*pac::GPIOTE::ptr() }
@@ -61,24 +64,28 @@ fn regs() -> &'static pac::gpiote::RegisterBlock {
 }
 
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
-    #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
-    let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
-    #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
-    let ports = unsafe { &[&*pac::P0::ptr()] };
+    // no latched GPIO detect in nrf51.
+    #[cfg(not(feature = "_nrf51"))]
+    {
+        #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
+        let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
+        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
+        let ports = unsafe { &[&*pac::P0::ptr()] };
 
-    for &p in ports {
-        // Enable latched detection
-        p.detectmode.write(|w| w.detectmode().ldetect());
-        // Clear latch
-        p.latch.write(|w| unsafe { w.bits(0xFFFFFFFF) })
+        for &p in ports {
+            // Enable latched detection
+            p.detectmode.write(|w| w.detectmode().ldetect());
+            // Clear latch
+            p.latch.write(|w| unsafe { w.bits(0xFFFFFFFF) })
+        }
     }
 
     // Enable interrupts
-    #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+    #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s", feature = "nrf9120-s"))]
     let irq = interrupt::GPIOTE0;
-    #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+    #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns", feature = "nrf9120-ns"))]
     let irq = interrupt::GPIOTE1;
-    #[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
+    #[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "nrf5340-net"))]
     let irq = interrupt::GPIOTE;
 
     irq.unpend();
@@ -86,25 +93,24 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     unsafe { irq.enable() };
 
     let g = regs();
-    g.events_port.write(|w| w);
     g.intenset.write(|w| w.port().set());
 }
 
-#[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+#[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s", feature = "nrf9120-s"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE0() {
     unsafe { handle_gpiote_interrupt() };
 }
 
-#[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+#[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns", feature = "nrf9120-ns"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE1() {
     unsafe { handle_gpiote_interrupt() };
 }
 
-#[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
+#[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "nrf5340-net"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE() {
@@ -124,11 +130,31 @@ unsafe fn handle_gpiote_interrupt() {
     if g.events_port.read().bits() != 0 {
         g.events_port.write(|w| w);
 
-        #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+        #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
         let ports = &[&*pac::P0::ptr(), &*pac::P1::ptr()];
-        #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
+        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
         let ports = &[&*pac::P0::ptr()];
+        #[cfg(feature = "_nrf51")]
+        let ports = unsafe { &[&*pac::GPIO::ptr()] };
 
+        #[cfg(feature = "_nrf51")]
+        for (port, &p) in ports.iter().enumerate() {
+            let inp = p.in_.read().bits();
+            for pin in 0..32 {
+                let fired = match p.pin_cnf[pin as usize].read().sense().variant() {
+                    Some(pac::gpio::pin_cnf::SENSE_A::HIGH) => inp & (1 << pin) != 0,
+                    Some(pac::gpio::pin_cnf::SENSE_A::LOW) => inp & (1 << pin) == 0,
+                    _ => false,
+                };
+
+                if fired {
+                    PORT_WAKERS[port * 32 + pin as usize].wake();
+                    p.pin_cnf[pin as usize].modify(|_, w| w.sense().disabled());
+                }
+            }
+        }
+
+        #[cfg(not(feature = "_nrf51"))]
         for (port, &p) in ports.iter().enumerate() {
             let bits = p.latch.read().bits();
             for pin in BitIter(bits) {
@@ -140,8 +166,10 @@ unsafe fn handle_gpiote_interrupt() {
     }
 }
 
+#[cfg(not(feature = "_nrf51"))]
 struct BitIter(u32);
 
+#[cfg(not(feature = "_nrf51"))]
 impl Iterator for BitIter {
     type Item = u32;
 
@@ -157,12 +185,12 @@ impl Iterator for BitIter {
 }
 
 /// GPIOTE channel driver in input mode
-pub struct InputChannel<'d, C: Channel, T: GpioPin> {
-    ch: PeripheralRef<'d, C>,
-    pin: Input<'d, T>,
+pub struct InputChannel<'d> {
+    ch: PeripheralRef<'d, AnyChannel>,
+    pin: Input<'d>,
 }
 
-impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
+impl<'d> Drop for InputChannel<'d> {
     fn drop(&mut self) {
         let g = regs();
         let num = self.ch.number();
@@ -171,9 +199,9 @@ impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
     }
 }
 
-impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
+impl<'d> InputChannel<'d> {
     /// Create a new GPIOTE input channel driver.
-    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = impl Channel> + 'd, pin: Input<'d>, polarity: InputChannelPolarity) -> Self {
         into_ref!(ch);
 
         let g = regs();
@@ -186,7 +214,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
                 InputChannelPolarity::None => w.mode().event().polarity().none(),
                 InputChannelPolarity::Toggle => w.mode().event().polarity().toggle(),
             };
-            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
             w.port().bit(match pin.pin.pin.port() {
                 crate::gpio::Port::Port0 => false,
                 crate::gpio::Port::Port1 => true,
@@ -196,7 +224,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 
         g.events_in[num].reset();
 
-        InputChannel { ch, pin }
+        InputChannel { ch: ch.map_into(), pin }
     }
 
     /// Asynchronously wait for an event in this channel.
@@ -228,12 +256,12 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 }
 
 /// GPIOTE channel driver in output mode
-pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
-    ch: PeripheralRef<'d, C>,
-    _pin: Output<'d, T>,
+pub struct OutputChannel<'d> {
+    ch: PeripheralRef<'d, AnyChannel>,
+    _pin: Output<'d>,
 }
 
-impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
+impl<'d> Drop for OutputChannel<'d> {
     fn drop(&mut self) {
         let g = regs();
         let num = self.ch.number();
@@ -242,9 +270,9 @@ impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
     }
 }
 
-impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
+impl<'d> OutputChannel<'d> {
     /// Create a new GPIOTE output channel driver.
-    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = impl Channel> + 'd, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
         into_ref!(ch);
         let g = regs();
         let num = ch.number();
@@ -260,7 +288,7 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
                 OutputChannelPolarity::Clear => w.polarity().hi_to_lo(),
                 OutputChannelPolarity::Toggle => w.polarity().toggle(),
             };
-            #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+            #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
             w.port().bit(match pin.pin.pin.port() {
                 crate::gpio::Port::Port0 => false,
                 crate::gpio::Port::Port1 => true,
@@ -268,7 +296,10 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
             unsafe { w.psel().bits(pin.pin.pin.pin()) }
         });
 
-        OutputChannel { ch, _pin: pin }
+        OutputChannel {
+            ch: ch.map_into(),
+            _pin: pin,
+        }
     }
 
     /// Triggers the OUT task (does the action as configured with task_out_polarity, defaults to Toggle).
@@ -349,7 +380,7 @@ impl<'a> Future for PortInputFuture<'a> {
     }
 }
 
-impl<'d, T: GpioPin> Input<'d, T> {
+impl<'d> Input<'d> {
     /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.wait_for_high().await
@@ -376,7 +407,7 @@ impl<'d, T: GpioPin> Input<'d, T> {
     }
 }
 
-impl<'d, T: GpioPin> Flex<'d, T> {
+impl<'d> Flex<'d> {
     /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().high());
@@ -414,14 +445,13 @@ impl<'d, T: GpioPin> Flex<'d, T> {
 
 // =======================
 
-mod sealed {
-    pub trait Channel {}
-}
+trait SealedChannel {}
 
 /// GPIOTE channel trait.
 ///
 /// Implemented by all GPIOTE channels.
-pub trait Channel: sealed::Channel + Sized {
+#[allow(private_bounds)]
+pub trait Channel: SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Get the channel number.
     fn number(&self) -> usize;
 
@@ -446,7 +476,7 @@ pub struct AnyChannel {
     number: u8,
 }
 impl_peripheral!(AnyChannel);
-impl sealed::Channel for AnyChannel {}
+impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> usize {
         self.number as usize
@@ -455,10 +485,16 @@ impl Channel for AnyChannel {
 
 macro_rules! impl_channel {
     ($type:ident, $number:expr) => {
-        impl sealed::Channel for peripherals::$type {}
+        impl SealedChannel for peripherals::$type {}
         impl Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number as usize
+            }
+        }
+
+        impl From<peripherals::$type> for AnyChannel {
+            fn from(val: peripherals::$type) -> Self {
+                Channel::degrade(val)
             }
         }
     };
@@ -468,9 +504,13 @@ impl_channel!(GPIOTE_CH0, 0);
 impl_channel!(GPIOTE_CH1, 1);
 impl_channel!(GPIOTE_CH2, 2);
 impl_channel!(GPIOTE_CH3, 3);
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(GPIOTE_CH4, 4);
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(GPIOTE_CH5, 5);
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(GPIOTE_CH6, 6);
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(GPIOTE_CH7, 7);
 
 // ====================
@@ -478,7 +518,7 @@ impl_channel!(GPIOTE_CH7, 7);
 mod eh02 {
     use super::*;
 
-    impl<'d, C: Channel, T: GpioPin> embedded_hal_02::digital::v2::InputPin for InputChannel<'d, C, T> {
+    impl<'d> embedded_hal_02::digital::v2::InputPin for InputChannel<'d> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -491,70 +531,60 @@ mod eh02 {
     }
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
+impl<'d> embedded_hal_1::digital::ErrorType for InputChannel<'d> {
+    type Error = Infallible;
+}
 
-    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::ErrorType for InputChannel<'d, C, T> {
-        type Error = Infallible;
+impl<'d> embedded_hal_1::digital::InputPin for InputChannel<'d> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.pin.is_high())
     }
 
-    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::InputPin for InputChannel<'d, C, T> {
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_high())
-        }
-
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_low())
-        }
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.pin.is_low())
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eha {
-    use super::*;
-
-    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_high().await)
-        }
-
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_low().await)
-        }
-
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_rising_edge().await)
-        }
-
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_falling_edge().await)
-        }
-
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_any_edge().await)
-        }
+impl<'d> embedded_hal_async::digital::Wait for Input<'d> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_high().await)
     }
 
-    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Flex<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_high().await)
-        }
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_low().await)
+    }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_low().await)
-        }
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_rising_edge().await)
+    }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_rising_edge().await)
-        }
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_falling_edge().await)
+    }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_falling_edge().await)
-        }
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_any_edge().await)
+    }
+}
 
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_any_edge().await)
-        }
+impl<'d> embedded_hal_async::digital::Wait for Flex<'d> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_high().await)
+    }
+
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_low().await)
+    }
+
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_rising_edge().await)
+    }
+
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_falling_edge().await)
+    }
+
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_any_edge().await)
     }
 }

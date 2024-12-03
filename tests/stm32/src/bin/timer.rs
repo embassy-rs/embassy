@@ -1,13 +1,12 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 #[path = "../common.rs"]
 mod common;
 
 use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Instant, Timer};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -15,7 +14,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let start = Instant::now();
-    Timer::after(Duration::from_millis(100)).await;
+    Timer::after_millis(100).await;
     let end = Instant::now();
     let ms = (end - start).as_millis();
     info!("slept for {} ms", ms);

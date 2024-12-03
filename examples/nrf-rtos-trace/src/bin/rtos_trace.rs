@@ -1,12 +1,11 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::future::poll_fn;
 use core::task::Poll;
 
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Instant, Timer};
 #[cfg(feature = "log")]
 use log::*;
 use panic_probe as _;
@@ -34,7 +33,7 @@ async fn run1() {
         info!("DING DONG");
         #[cfg(not(feature = "log"))]
         rtos_trace::trace::marker(13);
-        Timer::after(Duration::from_ticks(16000)).await;
+        Timer::after_ticks(16000).await;
     }
 }
 

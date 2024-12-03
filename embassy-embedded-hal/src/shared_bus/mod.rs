@@ -3,9 +3,7 @@ use core::fmt::Debug;
 
 use embedded_hal_1::{i2c, spi};
 
-#[cfg(feature = "nightly")]
 pub mod asynch;
-
 pub mod blocking;
 
 /// Error returned by I2C device implementations in this crate.
@@ -14,6 +12,8 @@ pub mod blocking;
 pub enum I2cDeviceError<BUS> {
     /// An operation on the inner I2C bus failed.
     I2c(BUS),
+    /// Configuration of the inner I2C bus failed.
+    Config,
 }
 
 impl<BUS> i2c::Error for I2cDeviceError<BUS>
@@ -23,6 +23,7 @@ where
     fn kind(&self) -> i2c::ErrorKind {
         match self {
             Self::I2c(e) => e.kind(),
+            Self::Config => i2c::ErrorKind::Other,
         }
     }
 }
@@ -36,8 +37,10 @@ pub enum SpiDeviceError<BUS, CS> {
     Spi(BUS),
     /// Setting the value of the Chip Select (CS) pin failed.
     Cs(CS),
-    /// DelayUs operations are not supported when the `time` Cargo feature is not enabled.
-    DelayUsNotSupported,
+    /// Delay operations are not supported when the `time` Cargo feature is not enabled.
+    DelayNotSupported,
+    /// The SPI bus could not be configured.
+    Config,
 }
 
 impl<BUS, CS> spi::Error for SpiDeviceError<BUS, CS>
@@ -49,7 +52,8 @@ where
         match self {
             Self::Spi(e) => e.kind(),
             Self::Cs(_) => spi::ErrorKind::Other,
-            Self::DelayUsNotSupported => spi::ErrorKind::Other,
+            Self::DelayNotSupported => spi::ErrorKind::Other,
+            Self::Config => spi::ErrorKind::Other,
         }
     }
 }

@@ -1,160 +1,65 @@
-use core::sync::atomic::{AtomicU8, Ordering};
-
-use embedded_hal_02::blocking::delay::DelayUs;
-use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
+#[allow(unused)]
+use pac::adc::vals::{Adcaldif, Adstp, Boost, Difsel, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
+use super::{
+    blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
+};
+use crate::dma::Transfer;
 use crate::time::Hertz;
-use crate::{pac, Peripheral};
+use crate::{pac, rcc, Peripheral};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-// NOTE: Vrefint/Temperature/Vbat are only available on ADC3 on H7, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
-pub struct VrefInt;
-impl<T: Instance> InternalChannel<T> for VrefInt {}
-impl<T: Instance> super::sealed::InternalChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        19
-    }
-}
+/// Max single ADC operation clock frequency
+#[cfg(stm32g4)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(60);
+#[cfg(stm32h7)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 
-pub struct Temperature;
-impl<T: Instance> InternalChannel<T> for Temperature {}
-impl<T: Instance> super::sealed::InternalChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        18
-    }
-}
-
-pub struct Vbat;
-impl<T: Instance> InternalChannel<T> for Vbat {}
-impl<T: Instance> super::sealed::InternalChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        // TODO this should be 14 for H7a/b/35
-        17
-    }
-}
-
-static ADC12_ENABLE_COUNTER: AtomicU8 = AtomicU8::new(0);
+#[cfg(stm32g4)]
+const VREF_CHANNEL: u8 = 18;
+#[cfg(stm32g4)]
+const TEMP_CHANNEL: u8 = 16;
 
 #[cfg(stm32h7)]
-foreach_peripheral!(
-    (adc, ADC1) => {
-        impl crate::rcc::sealed::RccPeripheral for crate::peripherals::ADC1 {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| {
-                    match unsafe { crate::rcc::get_freqs() }.adc {
-                        Some(ck) => ck,
-                        None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
-                    }
-                })
-            }
+const VREF_CHANNEL: u8 = 19;
+#[cfg(stm32h7)]
+const TEMP_CHANNEL: u8 = 18;
 
-            fn enable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(true))
-                });
-                ADC12_ENABLE_COUNTER.fetch_add(1, Ordering::SeqCst);
-            }
+// TODO this should be 14 for H7a/b/35
+const VBAT_CHANNEL: u8 = 17;
 
-            fn disable() {
-                if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| {
-                        crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(false));
-                    })
-                }
-                ADC12_ENABLE_COUNTER.fetch_sub(1, Ordering::SeqCst);
-            }
+// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
+/// Internal voltage reference channel.
+pub struct VrefInt;
+impl<T: Instance> AdcChannel<T> for VrefInt {}
+impl<T: Instance> SealedAdcChannel<T> for VrefInt {
+    fn channel(&self) -> u8 {
+        VREF_CHANNEL
+    }
+}
 
-            fn reset() {
-                if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| {
-                        crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(true));
-                        crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(false));
-                    });
-                }
-            }
-        }
+/// Internal temperature channel.
+pub struct Temperature;
+impl<T: Instance> AdcChannel<T> for Temperature {}
+impl<T: Instance> SealedAdcChannel<T> for Temperature {
+    fn channel(&self) -> u8 {
+        TEMP_CHANNEL
+    }
+}
 
-        impl crate::rcc::RccPeripheral for crate::peripherals::ADC1 {}
-    };
-    (adc, ADC2) => {
-        impl crate::rcc::sealed::RccPeripheral for crate::peripherals::ADC2 {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| {
-                    match unsafe { crate::rcc::get_freqs() }.adc {
-                        Some(ck) => ck,
-                        None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
-                    }
-                })
-            }
-
-            fn enable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(true))
-                });
-                ADC12_ENABLE_COUNTER.fetch_add(1, Ordering::SeqCst);
-            }
-
-            fn disable() {
-                if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| {
-                        crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(false));
-                    })
-                }
-                ADC12_ENABLE_COUNTER.fetch_sub(1, Ordering::SeqCst);
-            }
-
-            fn reset() {
-                if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| {
-                        crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(true));
-                        crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(false));
-                    });
-                }
-            }
-        }
-
-        impl crate::rcc::RccPeripheral for crate::peripherals::ADC2 {}
-    };
-    (adc, ADC3) => {
-        impl crate::rcc::sealed::RccPeripheral for crate::peripherals::ADC3 {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| {
-                    match unsafe { crate::rcc::get_freqs() }.adc {
-                        Some(ck) => ck,
-                        None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
-                    }
-                })
-            }
-
-            fn enable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb4enr().modify(|w| w.set_adc3en(true))
-                });
-            }
-
-            fn disable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb4enr().modify(|w| w.set_adc3en(false));
-                })
-            }
-
-            fn reset() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb4rstr().modify(|w| w.set_adc3rst(true));
-                    crate::pac::RCC.ahb4rstr().modify(|w| w.set_adc3rst(false));
-                });
-            }
-        }
-
-        impl crate::rcc::RccPeripheral for crate::peripherals::ADC3 {}
-    };
-);
+/// Internal battery voltage channel.
+pub struct Vbat;
+impl<T: Instance> AdcChannel<T> for Vbat {}
+impl<T: Instance> SealedAdcChannel<T> for Vbat {
+    fn channel(&self) -> u8 {
+        VBAT_CHANNEL
+    }
+}
 
 // NOTE (unused): The prescaler enum closely copies the hardware capabilities,
 // but high prescaling doesn't make a lot of sense in the current implementation and is ommited.
@@ -176,7 +81,7 @@ enum Prescaler {
 
 impl Prescaler {
     fn from_ker_ck(frequency: Hertz) -> Self {
-        let raw_prescaler = frequency.0 / 50_000_000;
+        let raw_prescaler = frequency.0 / MAX_ADC_CLK_FREQ.0;
         match raw_prescaler {
             0 => Self::NotDivided,
             1 => Self::DividedBy2,
@@ -224,11 +129,26 @@ impl Prescaler {
     }
 }
 
+/// Number of samples used for averaging.
+pub enum Averaging {
+    Disabled,
+    Samples2,
+    Samples4,
+    Samples8,
+    Samples16,
+    Samples32,
+    Samples64,
+    Samples128,
+    Samples256,
+    Samples512,
+    Samples1024,
+}
+
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
+    /// Create a new ADC driver.
+    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         embassy_hal_internal::into_ref!(adc);
-        T::enable();
-        T::reset();
+        rcc::enable_and_reset::<T>();
 
         let prescaler = Prescaler::from_ker_ck(T::frequency());
 
@@ -237,29 +157,32 @@ impl<'d, T: Instance> Adc<'d, T> {
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
         info!("ADC frequency set to {} Hz", frequency.0);
 
-        if frequency > Hertz::mhz(50) {
-            panic!("Maximal allowed frequency for the ADC is 50 MHz and it varies with different packages, refer to ST docs for more information.");
+        if frequency > MAX_ADC_CLK_FREQ {
+            panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
         }
-        let boost = if frequency < Hertz::khz(6_250) {
-            Boost::LT6_25
-        } else if frequency < Hertz::khz(12_500) {
-            Boost::LT12_5
-        } else if frequency < Hertz::mhz(25) {
-            Boost::LT25
-        } else {
-            Boost::LT50
-        };
-        T::regs().cr().modify(|w| w.set_boost(boost));
 
+        #[cfg(stm32h7)]
+        {
+            let boost = if frequency < Hertz::khz(6_250) {
+                Boost::LT6_25
+            } else if frequency < Hertz::khz(12_500) {
+                Boost::LT12_5
+            } else if frequency < Hertz::mhz(25) {
+                Boost::LT25
+            } else {
+                Boost::LT50
+            };
+            T::regs().cr().modify(|w| w.set_boost(boost));
+        }
         let mut s = Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         };
-        s.power_up(delay);
+        s.power_up();
         s.configure_differential_inputs();
 
         s.calibrate();
-        delay.delay_us(1);
+        blocking_delay_us(1);
 
         s.enable();
         s.configure();
@@ -267,13 +190,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         s
     }
 
-    fn power_up(&mut self, delay: &mut impl DelayUs<u16>) {
+    fn power_up(&mut self) {
         T::regs().cr().modify(|reg| {
             reg.set_deeppwd(false);
             reg.set_advregen(true);
         });
 
-        delay.delay_us(10);
+        blocking_delay_us(10);
     }
 
     fn configure_differential_inputs(&mut self) {
@@ -310,6 +233,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
     }
 
+    /// Enable reading the voltage reference internal channel.
     pub fn enable_vrefint(&self) -> VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
@@ -318,6 +242,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         VrefInt {}
     }
 
+    /// Enable reading the temperature internal channel.
     pub fn enable_temperature(&self) -> Temperature {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
@@ -326,6 +251,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature {}
     }
 
+    /// Enable reading the vbat internal channel.
     pub fn enable_vbat(&self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbaten(true);
@@ -334,12 +260,42 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
+    /// Set the ADC sample time.
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
         self.sample_time = sample_time;
     }
 
+    /// Get the ADC sample time.
+    pub fn sample_time(&self) -> SampleTime {
+        self.sample_time
+    }
+
+    /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
+    }
+
+    /// Set hardware averaging.
+    pub fn set_averaging(&mut self, averaging: Averaging) {
+        let (enable, samples, right_shift) = match averaging {
+            Averaging::Disabled => (false, 0, 0),
+            Averaging::Samples2 => (true, 1, 1),
+            Averaging::Samples4 => (true, 3, 2),
+            Averaging::Samples8 => (true, 7, 3),
+            Averaging::Samples16 => (true, 15, 4),
+            Averaging::Samples32 => (true, 31, 5),
+            Averaging::Samples64 => (true, 63, 6),
+            Averaging::Samples128 => (true, 127, 7),
+            Averaging::Samples256 => (true, 255, 8),
+            Averaging::Samples512 => (true, 511, 9),
+            Averaging::Samples1024 => (true, 1023, 10),
+        };
+
+        T::regs().cfgr2().modify(|reg| {
+            reg.set_rovse(enable);
+            reg.set_osvr(samples);
+            reg.set_ovss(right_shift);
+        })
     }
 
     /// Perform a single conversion.
@@ -361,30 +317,149 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().0 as u16
     }
 
-    pub fn read<P>(&mut self, pin: &mut P) -> u16
-    where
-        P: AdcPin<T>,
-        P: crate::gpio::sealed::Pin,
-    {
-        pin.set_as_analog();
-
-        self.read_channel(pin.channel())
+    /// Read an ADC channel.
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        self.read_channel(channel)
     }
 
-    pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        self.read_channel(channel.channel())
+    /// Read one or multiple ADC channels using DMA.
+    ///
+    /// `sequence` iterator and `readings` must have the same length.
+    ///
+    /// Example
+    /// ```rust,ignore
+    /// use embassy_stm32::adc::{Adc, AdcChannel}
+    ///
+    /// let mut adc = Adc::new(p.ADC1);
+    /// let mut adc_pin0 = p.PA0.degrade_adc();
+    /// let mut adc_pin2 = p.PA2.degrade_adc();
+    /// let mut measurements = [0u16; 2];
+    ///
+    /// adc.read_async(
+    ///     p.DMA2_CH0,
+    ///     [
+    ///         (&mut *adc_pin0, SampleTime::CYCLES112),
+    ///         (&mut *adc_pin2, SampleTime::CYCLES112),
+    ///     ]
+    ///     .into_iter(),
+    ///     &mut measurements,
+    /// )
+    /// .await;
+    /// defmt::info!("measurements: {}", measurements);
+    /// ```
+    pub async fn read(
+        &mut self,
+        rx_dma: &mut impl RxDma<T>,
+        sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
+        readings: &mut [u16],
+    ) {
+        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
+        assert!(
+            sequence.len() == readings.len(),
+            "Sequence length must be equal to readings length"
+        );
+        assert!(
+            sequence.len() <= 16,
+            "Asynchronous read sequence cannot be more than 16 in length"
+        );
+
+        // Ensure no conversions are ongoing
+        Self::cancel_conversions();
+
+        // Set sequence length
+        T::regs().sqr1().modify(|w| {
+            w.set_l(sequence.len() as u8 - 1);
+        });
+
+        // Configure channels and ranks
+        for (i, (channel, sample_time)) in sequence.enumerate() {
+            Self::configure_channel(channel, sample_time);
+            match i {
+                0..=3 => {
+                    T::regs().sqr1().modify(|w| {
+                        w.set_sq(i, channel.channel());
+                    });
+                }
+                4..=8 => {
+                    T::regs().sqr2().modify(|w| {
+                        w.set_sq(i - 4, channel.channel());
+                    });
+                }
+                9..=13 => {
+                    T::regs().sqr3().modify(|w| {
+                        w.set_sq(i - 9, channel.channel());
+                    });
+                }
+                14..=15 => {
+                    T::regs().sqr4().modify(|w| {
+                        w.set_sq(i - 14, channel.channel());
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        // Set continuous mode with oneshot dma.
+        // Clear overrun flag before starting transfer.
+
+        T::regs().isr().modify(|reg| {
+            reg.set_ovr(true);
+        });
+        T::regs().cfgr().modify(|reg| {
+            reg.set_cont(true);
+            reg.set_dmngt(Dmngt::DMA_ONESHOT);
+        });
+
+        let request = rx_dma.request();
+        let transfer = unsafe {
+            Transfer::new_read(
+                rx_dma,
+                request,
+                T::regs().dr().as_ptr() as *mut u16,
+                readings,
+                Default::default(),
+            )
+        };
+
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        // Wait for conversion sequence to finish.
+        transfer.await;
+
+        // Ensure conversions are finished.
+        Self::cancel_conversions();
+
+        // Reset configuration.
+        T::regs().cfgr().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_dmngt(Dmngt::from_bits(0));
+        });
     }
 
-    fn read_channel(&mut self, channel: u8) -> u16 {
-        // Configure channel
-        Self::set_channel_sample_time(channel, self.sample_time);
+    fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
+        channel.setup();
 
-        T::regs().cfgr2().modify(|w| w.set_lshift(0));
-        T::regs()
-            .pcsel()
-            .write(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
-        T::regs().sqr1().write(|reg| {
-            reg.set_sq(0, channel);
+        let channel = channel.channel();
+
+        Self::set_channel_sample_time(channel, sample_time);
+
+        #[cfg(stm32h7)]
+        {
+            T::regs().cfgr2().modify(|w| w.set_lshift(0));
+            T::regs()
+                .pcsel()
+                .modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+        }
+    }
+
+    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        Self::configure_channel(channel, self.sample_time);
+
+        T::regs().sqr1().modify(|reg| {
+            reg.set_sq(0, channel.channel());
             reg.set_l(0);
         });
 
@@ -397,6 +472,15 @@ impl<'d, T: Instance> Adc<'d, T> {
             T::regs().smpr(0).modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
             T::regs().smpr(1).modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
+        }
+    }
+
+    fn cancel_conversions() {
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(Adstp::STOP);
+            });
+            while T::regs().cr().read().adstart() {}
         }
     }
 }

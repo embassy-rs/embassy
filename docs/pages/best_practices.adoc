@@ -1,0 +1,55 @@
+= Best Practices
+
+Over time, a couple of best practices have emerged. The following list should serve as a guideline for developers writing embedded software in _Rust_, especially in the context of the _Embassy_ framework.
+
+== Passing Buffers by Reference
+It may be tempting to pass arrays or wrappers, like link:https://docs.rs/heapless/latest/heapless/[`heapless::Vec`],
+to a function or return one just like you would with a `std::Vec`. However, in most embedded applications you don't
+want to spend resources on an allocator and end up placing buffers on the stack. This, however, can easily blow up
+your stack if you are not careful.
+
+Consider the following example:
+[,rust]
+----
+fn process_buffer(mut buf: [u8; 1024]) -> [u8; 1024] {
+    // do stuff and return new buffer
+    for elem in buf.iter_mut() {
+        *elem = 0;
+    }
+    buf
+}
+
+pub fn main() -> () {
+    let buf = [1u8; 1024];
+    let buf_new = process_buffer(buf);
+    // do stuff with buf_new
+    ()
+}
+----
+When calling `process_buffer` in your program, a copy of the buffer you pass to the function will be created,
+consuming another 1024 bytes.
+After the processing, another 1024 byte buffer will be placed on the stack to be returned to the caller.
+(You can check the assembly, there will be two memcopy operations, e.g., `bl __aeabi_memcpy` when compiling for a Cortex-M processor.)
+
+*Possible Solution:*
+
+Pass the data by reference and not by value on both, the way in and the way out.
+For example, you could return a slice of the input buffer as the output.
+Requiring the lifetime of the input slice and the output slice to be the same, the memory safetly of this procedure will be enforced by the compiler.
+
+[,rust]
+----
+fn process_buffer<'a>(buf: &'a mut [u8]) -> &'a mut[u8] {
+    for elem in buf.iter_mut() {
+        *elem = 0;
+    }
+    buf
+}
+
+pub fn main() -> () {
+    let mut buf = [1u8; 1024];
+    let buf_new = process_buffer(&mut buf);
+    // do stuff with buf_new
+    ()
+}
+----

@@ -9,6 +9,9 @@ pub const FLASH_SIZE: usize = 192 * 1024;
 pub const RESET_PIN: u32 = 21;
 pub const APPROTECT_MIN_BUILD_CODE: u8 = b'E';
 
+// Part of workaround for #2951.
+pub(crate) type TimerRegisterBlock = pac::timer0::RegisterBlock;
+
 embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
@@ -135,6 +138,13 @@ embassy_hal_internal::peripherals! {
 
     // PDM
     PDM,
+
+    // Radio
+    RADIO,
+
+    // EGU
+    EGU0,
+    EGU1,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
@@ -234,6 +244,11 @@ impl_saadc_input!(P0_28, ANALOG_INPUT4);
 impl_saadc_input!(P0_29, ANALOG_INPUT5);
 impl_saadc_input!(P0_30, ANALOG_INPUT6);
 impl_saadc_input!(P0_31, ANALOG_INPUT7);
+
+impl_radio!(RADIO, RADIO, RADIO);
+
+impl_egu!(EGU0, EGU0, SWI0_EGU0);
+impl_egu!(EGU1, EGU1, SWI1_EGU1);
 
 embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,

@@ -1,9 +1,8 @@
-#![allow(incomplete_features)]
 #![deny(unused_must_use)]
 
 use core::task::Context;
 
-use embassy_net_driver::{Capabilities, HardwareAddress, LinkState, Medium};
+use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
@@ -60,24 +59,15 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
         let mut caps = Capabilities::default();
         caps.max_transmission_unit = MTU;
         // caps.max_burst_size = Some(self.tx.len());
-
-        caps.medium = Medium::Ieee802154;
         caps
     }
 
     fn link_state(&mut self, _cx: &mut Context) -> LinkState {
-        //        if self.phy.poll_link(&mut self.station_management, cx) {
-        //            LinkState::Up
-        //        } else {
-        //            LinkState::Down
-        //        }
-
         LinkState::Down
     }
 
     fn hardware_address(&self) -> HardwareAddress {
         // self.mac_addr
-
         HardwareAddress::Ieee802154([0; 8])
     }
 }

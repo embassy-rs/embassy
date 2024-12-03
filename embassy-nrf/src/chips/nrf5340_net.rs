@@ -7,9 +7,12 @@ pub mod pac {
 
     pub use nrf5340_net_pac::NVIC_PRIO_BITS;
 
+    #[cfg(feature="rt")]
+    #[doc(no_inline)]
+    pub use nrf5340_net_pac::interrupt;
+
     #[doc(no_inline)]
     pub use nrf5340_net_pac::{
-        interrupt,
         Interrupt,
         Peripherals,
 
@@ -100,7 +103,7 @@ pub mod pac {
         VREQCTRL_NS as VREQCTRL,
         WDT_NS as WDT,
     };
-    
+
 }
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
@@ -108,6 +111,9 @@ pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 pub const FLASH_SIZE: usize = 256 * 1024;
+
+// Part of workaround for #2951.
+pub(crate) type TimerRegisterBlock = pac::timer0::RegisterBlock;
 
 embassy_hal_internal::peripherals! {
     // RTC
@@ -245,6 +251,12 @@ embassy_hal_internal::peripherals! {
     P1_13,
     P1_14,
     P1_15,
+
+    // Radio
+    RADIO,
+
+    // EGU
+    EGU0,
 }
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);
@@ -341,6 +353,10 @@ impl_ppi_channel!(PPI_CH28, 28 => configurable);
 impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
+
+impl_radio!(RADIO, RADIO, RADIO);
+
+impl_egu!(EGU0, EGU0, EGU0);
 
 embassy_hal_internal::interrupt_mod!(
     CLOCK_POWER,

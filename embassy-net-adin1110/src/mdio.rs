@@ -32,12 +32,14 @@ enum Reg13Op {
     PostReadIncAddr = 0b10 << 14,
     Read = 0b11 << 14,
 }
+
 /// `MdioBus` trait
 /// Driver needs to implement the Clause 22
 /// Optional Clause 45 is the device supports this.
 ///
-/// Claus 45 methodes are bases on <https://www.ieee802.org/3/efm/public/nov02/oam/pannell_oam_1_1102.pdf>
+/// Clause 45 methodes are bases on <https://www.ieee802.org/3/efm/public/nov02/oam/pannell_oam_1_1102.pdf>
 pub trait MdioBus {
+    /// Error type.
     type Error;
 
     /// Read, Clause 22
@@ -87,89 +89,89 @@ pub trait MdioBus {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use core::convert::Infallible;
+#[cfg(test)]
+mod tests {
+    use core::convert::Infallible;
 
-//     use super::{MdioBus, PhyAddr, RegC22, RegVal};
+    use super::{MdioBus, PhyAddr, RegC22, RegVal};
 
-//     #[derive(Debug, PartialEq, Eq)]
-//     enum A {
-//         Read(PhyAddr, RegC22),
-//         Write(PhyAddr, RegC22, RegVal),
-//     }
+    #[derive(Debug, PartialEq, Eq)]
+    enum A {
+        Read(PhyAddr, RegC22),
+        Write(PhyAddr, RegC22, RegVal),
+    }
 
-//     struct MockMdioBus(Vec<A>);
+    struct MockMdioBus(Vec<A>);
 
-//     impl MockMdioBus {
-//         pub fn clear(&mut self) {
-//             self.0.clear();
-//         }
-//     }
+    impl MockMdioBus {
+        pub fn clear(&mut self) {
+            self.0.clear();
+        }
+    }
 
-//     impl MdioBus for MockMdioBus {
-//         type Error = Infallible;
+    impl MdioBus for MockMdioBus {
+        type Error = Infallible;
 
-//         fn write_cl22(
-//             &mut self,
-//             phy_id: super::PhyAddr,
-//             reg: super::RegC22,
-//             reg_val: super::RegVal,
-//         ) -> Result<(), Self::Error> {
-//             self.0.push(A::Write(phy_id, reg, reg_val));
-//             Ok(())
-//         }
+        async fn write_cl22(
+            &mut self,
+            phy_id: super::PhyAddr,
+            reg: super::RegC22,
+            reg_val: super::RegVal,
+        ) -> Result<(), Self::Error> {
+            self.0.push(A::Write(phy_id, reg, reg_val));
+            Ok(())
+        }
 
-//         fn read_cl22(
-//             &mut self,
-//             phy_id: super::PhyAddr,
-//             reg: super::RegC22,
-//         ) -> Result<super::RegVal, Self::Error> {
-//             self.0.push(A::Read(phy_id, reg));
-//             Ok(0)
-//         }
-//     }
+        async fn read_cl22(
+            &mut self,
+            phy_id: super::PhyAddr,
+            reg: super::RegC22,
+        ) -> Result<super::RegVal, Self::Error> {
+            self.0.push(A::Read(phy_id, reg));
+            Ok(0)
+        }
+    }
 
-//     #[test]
-//     fn read_test() {
-//         let mut mdiobus = MockMdioBus(Vec::with_capacity(20));
+    #[futures_test::test]
+    async fn read_test() {
+        let mut mdiobus = MockMdioBus(Vec::with_capacity(20));
 
-//         mdiobus.clear();
-//         mdiobus.read_cl22(0x01, 0x00).unwrap();
-//         assert_eq!(mdiobus.0, vec![A::Read(0x01, 0x00)]);
+        mdiobus.clear();
+        mdiobus.read_cl22(0x01, 0x00).await.unwrap();
+        assert_eq!(mdiobus.0, vec![A::Read(0x01, 0x00)]);
 
-//         mdiobus.clear();
-//         mdiobus.read_cl45(0x01, (0xBB, 0x1234)).unwrap();
-//         assert_eq!(
-//             mdiobus.0,
-//             vec![
-//                 #[allow(clippy::identity_op)]
-//                 A::Write(0x01, 13, (0b00 << 14) | 27),
-//                 A::Write(0x01, 14, 0x1234),
-//                 A::Write(0x01, 13, (0b11 << 14) | 27),
-//                 A::Read(0x01, 14)
-//             ]
-//         );
-//     }
+        mdiobus.clear();
+        mdiobus.read_cl45(0x01, (0xBB, 0x1234)).await.unwrap();
+        assert_eq!(
+            mdiobus.0,
+            vec![
+                #[allow(clippy::identity_op)]
+                A::Write(0x01, 13, (0b00 << 14) | 27),
+                A::Write(0x01, 14, 0x1234),
+                A::Write(0x01, 13, (0b11 << 14) | 27),
+                A::Read(0x01, 14)
+            ]
+        );
+    }
 
-//     #[test]
-//     fn write_test() {
-//         let mut mdiobus = MockMdioBus(Vec::with_capacity(20));
+    #[futures_test::test]
+    async fn write_test() {
+        let mut mdiobus = MockMdioBus(Vec::with_capacity(20));
 
-//         mdiobus.clear();
-//         mdiobus.write_cl22(0x01, 0x00, 0xABCD).unwrap();
-//         assert_eq!(mdiobus.0, vec![A::Write(0x01, 0x00, 0xABCD)]);
+        mdiobus.clear();
+        mdiobus.write_cl22(0x01, 0x00, 0xABCD).await.unwrap();
+        assert_eq!(mdiobus.0, vec![A::Write(0x01, 0x00, 0xABCD)]);
 
-//         mdiobus.clear();
-//         mdiobus.write_cl45(0x01, (0xBB, 0x1234), 0xABCD).unwrap();
-//         assert_eq!(
-//             mdiobus.0,
-//             vec![
-//                 A::Write(0x01, 13, 27),
-//                 A::Write(0x01, 14, 0x1234),
-//                 A::Write(0x01, 13, (0b01 << 14) | 27),
-//                 A::Write(0x01, 14, 0xABCD)
-//             ]
-//         );
-//     }
-// }
+        mdiobus.clear();
+        mdiobus.write_cl45(0x01, (0xBB, 0x1234), 0xABCD).await.unwrap();
+        assert_eq!(
+            mdiobus.0,
+            vec![
+                A::Write(0x01, 13, 27),
+                A::Write(0x01, 14, 0x1234),
+                A::Write(0x01, 13, (0b01 << 14) | 27),
+                A::Write(0x01, 14, 0xABCD)
+            ]
+        );
+    }
+}

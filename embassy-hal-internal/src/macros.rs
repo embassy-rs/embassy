@@ -1,3 +1,4 @@
+/// Types for the peripheral singletons.
 #[macro_export]
 macro_rules! peripherals_definition {
     ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
@@ -29,6 +30,7 @@ macro_rules! peripherals_definition {
     };
 }
 
+/// Define the peripherals struct.
 #[macro_export]
 macro_rules! peripherals_struct {
     ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
@@ -48,17 +50,23 @@ macro_rules! peripherals_struct {
             ///Returns all the peripherals *once*
             #[inline]
             pub(crate) fn take() -> Self {
+                critical_section::with(Self::take_with_cs)
+            }
 
+            ///Returns all the peripherals *once*
+            #[inline]
+            pub(crate) fn take_with_cs(_cs: critical_section::CriticalSection) -> Self {
                 #[no_mangle]
                 static mut _EMBASSY_DEVICE_PERIPHERALS: bool = false;
 
-                critical_section::with(|_| unsafe {
+                // safety: OK because we're inside a CS.
+                unsafe {
                     if _EMBASSY_DEVICE_PERIPHERALS {
                         panic!("init called more than once!")
                     }
                     _EMBASSY_DEVICE_PERIPHERALS = true;
                     Self::steal()
-                })
+                }
             }
         }
 
@@ -81,6 +89,7 @@ macro_rules! peripherals_struct {
     };
 }
 
+/// Defining peripheral type.
 #[macro_export]
 macro_rules! peripherals {
     ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
@@ -99,6 +108,7 @@ macro_rules! peripherals {
     };
 }
 
+/// Convenience converting into reference.
 #[macro_export]
 macro_rules! into_ref {
     ($($name:ident),*) => {
@@ -108,6 +118,7 @@ macro_rules! into_ref {
     }
 }
 
+/// Implement the peripheral trait.
 #[macro_export]
 macro_rules! impl_peripheral {
     ($type:ident) => {

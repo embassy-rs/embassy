@@ -1,10 +1,11 @@
+#![cfg_attr(not(test), no_std)]
 #![deny(clippy::pedantic)]
-#![feature(async_fn_in_trait)]
-#![cfg_attr(not(any(test, feature = "std")), no_std)]
+#![allow(async_fn_in_trait)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 // must go first!
 mod fmt;
@@ -20,18 +21,20 @@ pub use crc32::ETH_FCS;
 use crc8::crc8;
 use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::{Error, Operation, SpiDevice};
 use heapless::Vec;
 pub use mdio::MdioBus;
-pub use phy::{Phy10BaseT1x, RegsC22, RegsC45};
-pub use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
+pub use phy::Phy10BaseT1x;
+use phy::{RegsC22, RegsC45};
+use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 
 use crate::fmt::Bytes;
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity, SpiHeader};
 
+/// ADIN1110 intern PHY ID
 pub const PHYID: u32 = 0x0283_BC91;
 
 /// Error values ADIN1110
@@ -53,7 +56,9 @@ pub enum AdinError<E> {
     MDIO_ACC_TIMEOUT,
 }
 
+/// Type alias `Result` type with `AdinError` as error type.
 pub type AEResult<T, SPIError> = core::result::Result<T, AdinError<SPIError>>;
+
 /// Internet PHY address
 pub const MDIO_PHY_ADDR: u8 = 0x01;
 
@@ -104,6 +109,7 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
     }
 }
 
+/// ADIN1110 embassy-net driver
 #[derive(Debug)]
 pub struct ADIN1110<SPI> {
     /// SPI bus
@@ -116,6 +122,7 @@ pub struct ADIN1110<SPI> {
 }
 
 impl<SPI: SpiDevice> ADIN1110<SPI> {
+    /// Create a new ADIN1110 instance.
     pub fn new(spi: SPI, spi_crc: bool, append_fcs_on_tx: bool) -> Self {
         Self {
             spi,
@@ -124,6 +131,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         }
     }
 
+    /// Read a SPI register
     pub async fn read_reg(&mut self, reg: sr) -> AEResult<u32, SPI::Error> {
         let mut tx_buf = Vec::<u8, 16>::new();
 
@@ -162,6 +170,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         Ok(value)
     }
 
+    /// Write a SPI register
     pub async fn write_reg(&mut self, reg: sr, value: u32) -> AEResult<(), SPI::Error> {
         let mut tx_buf = Vec::<u8, 16>::new();
 
@@ -427,9 +436,9 @@ impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<SPI> {
     }
 }
 
-/// Background runner for the ADIN110.
+/// Background runner for the ADIN1110.
 ///
-/// You must call `.run()` in a background task for the ADIN1100 to operate.
+/// You must call `.run()` in a background task for the ADIN1110 to operate.
 pub struct Runner<'d, SPI, INT, RST> {
     mac: ADIN1110<SPI>,
     ch: ch::Runner<'d, MTU>,
@@ -439,6 +448,7 @@ pub struct Runner<'d, SPI, INT, RST> {
 }
 
 impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
+    /// Run the driver.
     #[allow(clippy::too_many_lines)]
     pub async fn run(mut self) -> ! {
         loop {
@@ -602,12 +612,12 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     reset.set_low().unwrap();
 
     // Wait t1: 20-43mS
-    Timer::after(Duration::from_millis(30)).await;
+    Timer::after_millis(30).await;
 
     reset.set_high().unwrap();
 
     // Wait t3: 50mS
-    Timer::after(Duration::from_millis(50)).await;
+    Timer::after_millis(50).await;
 
     // Create device
     let mut mac = ADIN1110::new(spi_dev, spi_crc, append_fcs_on_tx);
@@ -721,7 +731,7 @@ mod tests {
     use core::convert::Infallible;
 
     use embedded_hal_1::digital::{ErrorType, OutputPin};
-    use embedded_hal_async::delay::DelayUs;
+    use embedded_hal_async::delay::DelayNs;
     use embedded_hal_bus::spi::ExclusiveDevice;
     use embedded_hal_mock::common::Generic;
     use embedded_hal_mock::eh1::spi::{Mock as SpiMock, Transaction as SpiTransaction};
@@ -752,7 +762,11 @@ mod tests {
     // see https://github.com/rust-embedded/embedded-hal/pull/462#issuecomment-1560014426
     struct MockDelay {}
 
-    impl DelayUs for MockDelay {
+    impl DelayNs for MockDelay {
+        async fn delay_ns(&mut self, _ns: u32) {
+            todo!()
+        }
+
         async fn delay_us(&mut self, _us: u32) {
             todo!()
         }
@@ -763,19 +777,19 @@ mod tests {
     }
 
     struct TestHarnass {
-        spe: ADIN1110<ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay>>,
-        spi: Generic<SpiTransaction>,
+        spe: ADIN1110<ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay>>,
+        spi: Generic<SpiTransaction<u8>>,
     }
 
     impl TestHarnass {
-        pub fn new(expectations: &[SpiTransaction], spi_crc: bool, append_fcs_on_tx: bool) -> Self {
+        pub fn new(expectations: &[SpiTransaction<u8>], spi_crc: bool, append_fcs_on_tx: bool) -> Self {
             let cs = CsPinMock::default();
             let delay = MockDelay {};
             let spi = SpiMock::new(expectations);
-            let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay> =
+            let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay> =
                 ExclusiveDevice::new(spi.clone(), cs, delay);
             let spe: ADIN1110<
-                ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay>,
+                ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay>,
             > = ADIN1110::new(spi_dev, spi_crc, append_fcs_on_tx);
 
             Self { spe, spi }

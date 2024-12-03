@@ -4,7 +4,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::info;
 use embassy_executor::Spawner;
@@ -24,7 +23,7 @@ async fn main(_spawner: Spawner) {
 
     // Set the LED high for 2 seconds so we know when we're about to start the watchdog
     led.set_high();
-    Timer::after(Duration::from_secs(2)).await;
+    Timer::after_secs(2).await;
 
     // Set to watchdog to reset if it's not fed within 1.05 seconds, and start it
     watchdog.start(Duration::from_millis(1_050));
@@ -33,9 +32,9 @@ async fn main(_spawner: Spawner) {
     // Blink once a second for 5 seconds, feed the watchdog timer once a second to avoid a reset
     for _ in 1..=5 {
         led.set_low();
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after_millis(500).await;
         led.set_high();
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after_millis(500).await;
         info!("Feeding watchdog");
         watchdog.feed();
     }
@@ -45,8 +44,8 @@ async fn main(_spawner: Spawner) {
     // The processor should reset in 1.05 seconds.
     loop {
         led.set_low();
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
         led.set_high();
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
     }
 }

@@ -1,16 +1,51 @@
+//! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
 use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 
-use crate::gpio::sealed::AFType;
-use crate::gpio::{Pull, Speed};
-use crate::Peripheral;
+use crate::gpio::{AfType, OutputType, Pull, Speed};
+use crate::{rcc, Peripheral};
 
+/// FMC driver
 pub struct Fmc<'d, T: Instance> {
     peri: PhantomData<&'d mut T>,
 }
 
 unsafe impl<'d, T> Send for Fmc<'d, T> where T: Instance {}
+
+impl<'d, T> Fmc<'d, T>
+where
+    T: Instance,
+{
+    /// Create a raw FMC instance.
+    ///
+    /// **Note:** This is currently used to provide access to some basic FMC functions
+    /// for manual configuration for memory types that stm32-fmc does not support.
+    pub fn new_raw(_instance: impl Peripheral<P = T> + 'd) -> Self {
+        Self { peri: PhantomData }
+    }
+
+    /// Enable the FMC peripheral and reset it.
+    pub fn enable(&mut self) {
+        rcc::enable_and_reset::<T>();
+    }
+
+    /// Enable the memory controller on applicable chips.
+    pub fn memory_controller_enable(&mut self) {
+        // fmc v1 and v2 does not have the fmcen bit
+        // fsmc v1, v2 and v3 does not have the fmcen bit
+        // This is a "not" because it is expected that all future versions have this bit
+        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fmc_v4)))]
+        T::REGS.bcr1().modify(|r| r.set_fmcen(true));
+        #[cfg(any(fmc_v4))]
+        T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
+    }
+
+    /// Get the kernel clock currently in use for this FMC instance.
+    pub fn source_clock_hz(&self) -> u32 {
+        <T as crate::rcc::SealedRccPeripheral>::frequency().0
+    }
+}
 
 unsafe impl<'d, T> stm32_fmc::FmcPeripheral for Fmc<'d, T>
 where
@@ -19,20 +54,21 @@ where
     const REGISTERS: *const () = T::REGS.as_ptr() as *const _;
 
     fn enable(&mut self) {
-        <T as crate::rcc::sealed::RccPeripheral>::enable();
-        <T as crate::rcc::sealed::RccPeripheral>::reset();
+        rcc::enable_and_reset::<T>();
     }
 
     fn memory_controller_enable(&mut self) {
         // fmc v1 and v2 does not have the fmcen bit
         // fsmc v1, v2 and v3 does not have the fmcen bit
         // This is a "not" because it is expected that all future versions have this bit
-        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fsmc_v2x3, fsmc_v3x1)))]
+        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fmc_v4)))]
         T::REGS.bcr1().modify(|r| r.set_fmcen(true));
+        #[cfg(any(fmc_v4))]
+        T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
     }
 
     fn source_clock_hz(&self) -> u32 {
-        <T as crate::rcc::sealed::RccPeripheral>::frequency().0
+        <T as crate::rcc::SealedRccPeripheral>::frequency().0
     }
 }
 
@@ -40,8 +76,7 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         into_ref!($($pin),*);
         $(
-            $pin.set_as_af_pull($pin.af_num(), AFType::OutputPushPull, Pull::Up);
-            $pin.set_speed(Speed::VeryHigh);
+            $pin.set_as_af($pin.af_num(), AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
         )*
     };
 }
@@ -55,6 +90,7 @@ macro_rules! fmc_sdram_constructor {
         nbl: [$(($nbl_pin_name:ident: $nbl_signal:ident)),*],
         ctrl: [$(($ctrl_pin_name:ident: $ctrl_signal:ident)),*]
     )) => {
+        /// Create a new FMC instance.
         pub fn $name<CHIP: stm32_fmc::SdramChip>(
             _instance: impl Peripheral<P = T> + 'd,
             $($addr_pin_name: impl Peripheral<P = impl $addr_signal<T>> + 'd),*,
@@ -124,6 +160,26 @@ impl<'d, T: Instance> Fmc<'d, T> {
         ]
     ));
 
+    fmc_sdram_constructor!(sdram_a13bits_d32bits_4banks_bank1: (
+        bank: stm32_fmc::SdramTargetBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE0Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE0Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
     fmc_sdram_constructor!(sdram_a12bits_d16bits_4banks_bank2: (
         bank: stm32_fmc::SdramTargetBank::Bank2,
         addr: [
@@ -161,19 +217,39 @@ impl<'d, T: Instance> Fmc<'d, T> {
             (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
         ]
     ));
+
+    fmc_sdram_constructor!(sdram_a13bits_d32bits_4banks_bank2: (
+        bank: stm32_fmc::SdramTargetBank::Bank2,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
 }
 
-pub(crate) mod sealed {
-    pub trait Instance: crate::rcc::sealed::RccPeripheral {
-        const REGS: crate::pac::fmc::Fmc;
-    }
+trait SealedInstance: crate::rcc::RccPeripheral {
+    const REGS: crate::pac::fmc::Fmc;
 }
 
-pub trait Instance: sealed::Instance + 'static {}
+/// FMC instance trait.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + 'static {}
 
 foreach_peripheral!(
     (fmc, $inst:ident) => {
-        impl crate::fmc::sealed::Instance for crate::peripherals::$inst {
+        impl crate::fmc::SealedInstance for crate::peripherals::$inst {
             const REGS: crate::pac::fmc::Fmc = crate::pac::$inst;
         }
         impl crate::fmc::Instance for crate::peripherals::$inst {}

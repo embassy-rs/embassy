@@ -1,3 +1,4 @@
+//! I2C driver.
 use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
@@ -6,13 +7,12 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::i2c;
 
-use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{interrupt, pac, peripherals, Peripheral};
 
 /// I2C error abort reason
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AbortReason {
     /// A bus operation was not acknowledged, e.g. due to the addressed device
@@ -21,11 +21,14 @@ pub enum AbortReason {
     NoAcknowledge,
     /// The arbitration was lost, e.g. electrical problems with the clock signal
     ArbitrationLoss,
+    /// Transmit ended with data still in fifo
+    TxNotEmpty(u16),
+    /// Other reason.
     Other(u32),
 }
 
 /// I2C error
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// I2C abort with error
@@ -40,9 +43,23 @@ pub enum Error {
     AddressReserved(u16),
 }
 
+/// I2C Config error
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ConfigError {
+    /// Max i2c speed is 1MHz
+    FrequencyTooHigh,
+    /// The sys clock is too slow to support given frequency
+    ClockTooSlow,
+    /// The sys clock is too fast to support given frequency
+    ClockTooFast,
+}
+
+/// I2C config.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// Frequency.
     pub frequency: u32,
 }
 
@@ -52,13 +69,16 @@ impl Default for Config {
     }
 }
 
-const FIFO_SIZE: u8 = 16;
+/// Size of I2C FIFO.
+pub const FIFO_SIZE: u8 = 16;
 
+/// I2C driver.
 pub struct I2c<'d, T: Instance, M: Mode> {
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
 impl<'d, T: Instance> I2c<'d, T, Blocking> {
+    /// Create a new driver instance in blocking mode.
     pub fn new_blocking(
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
@@ -71,6 +91,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
 }
 
 impl<'d, T: Instance> I2c<'d, T, Async> {
+    /// Create a new driver instance in async mode.
     pub fn new_async(
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
@@ -291,17 +312,36 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         }
     }
 
-    pub async fn read_async(&mut self, addr: u16, buffer: &mut [u8]) -> Result<(), Error> {
-        Self::setup(addr)?;
-        self.read_async_internal(buffer, false, true).await
+    /// Read from address into buffer asynchronously.
+    pub async fn read_async(&mut self, addr: impl Into<u16>, buffer: &mut [u8]) -> Result<(), Error> {
+        Self::setup(addr.into())?;
+        self.read_async_internal(buffer, true, true).await
     }
 
-    pub async fn write_async(&mut self, addr: u16, bytes: impl IntoIterator<Item = u8>) -> Result<(), Error> {
-        Self::setup(addr)?;
+    /// Write to address from buffer asynchronously.
+    pub async fn write_async(
+        &mut self,
+        addr: impl Into<u16>,
+        bytes: impl IntoIterator<Item = u8>,
+    ) -> Result<(), Error> {
+        Self::setup(addr.into())?;
         self.write_async_internal(bytes, true).await
+    }
+
+    /// Write to address from bytes and read from address into buffer asynchronously.
+    pub async fn write_read_async(
+        &mut self,
+        addr: impl Into<u16>,
+        bytes: impl IntoIterator<Item = u8>,
+        buffer: &mut [u8],
+    ) -> Result<(), Error> {
+        Self::setup(addr.into())?;
+        self.write_async_internal(bytes, false).await?;
+        self.read_async_internal(buffer, true, true).await
     }
 }
 
+/// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
@@ -316,6 +356,22 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
+pub(crate) fn set_up_i2c_pin<P, T>(pin: &P)
+where
+    P: core::ops::Deref<Target = T>,
+    T: crate::gpio::Pin,
+{
+    pin.gpio().ctrl().write(|w| w.set_funcsel(3));
+    pin.pad_ctrl().write(|w| {
+        w.set_schmitt(true);
+        w.set_slewfast(false);
+        w.set_ie(true);
+        w.set_od(false);
+        w.set_pue(true);
+        w.set_pde(false);
+    });
+}
+
 impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     fn new_inner(
         _peri: impl Peripheral<P = T> + 'd,
@@ -325,51 +381,31 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     ) -> Self {
         into_ref!(_peri);
 
-        assert!(config.frequency <= 1_000_000);
-        assert!(config.frequency > 0);
-
-        let p = T::regs();
-
         let reset = T::reset();
         crate::reset::reset(reset);
         crate::reset::unreset_wait(reset);
 
-        p.ic_enable().write(|w| w.set_enable(false));
-
-        // Select controller mode & speed
-        p.ic_con().modify(|w| {
-            // Always use "fast" mode (<= 400 kHz, works fine for standard
-            // mode too)
-            w.set_speed(i2c::vals::Speed::FAST);
-            w.set_master_mode(true);
-            w.set_ic_slave_disable(true);
-            w.set_ic_restart_en(true);
-            w.set_tx_empty_ctrl(true);
-        });
-
-        // Set FIFO watermarks to 1 to make things simpler. This is encoded
-        // by a register value of 0.
-        p.ic_tx_tl().write(|w| w.set_tx_tl(0));
-        p.ic_rx_tl().write(|w| w.set_rx_tl(0));
-
         // Configure SCL & SDA pins
-        scl.gpio().ctrl().write(|w| w.set_funcsel(3));
-        sda.gpio().ctrl().write(|w| w.set_funcsel(3));
+        set_up_i2c_pin(&scl);
+        set_up_i2c_pin(&sda);
 
-        scl.pad_ctrl().write(|w| {
-            w.set_schmitt(true);
-            w.set_ie(true);
-            w.set_od(false);
-            w.set_pue(true);
-            w.set_pde(false);
-        });
-        sda.pad_ctrl().write(|w| {
-            w.set_schmitt(true);
-            w.set_ie(true);
-            w.set_od(false);
-            w.set_pue(true);
-            w.set_pde(false);
-        });
+        let mut me = Self { phantom: PhantomData };
+
+        if let Err(e) = me.set_config_inner(&config) {
+            panic!("Error configuring i2c: {:?}", e);
+        }
+
+        me
+    }
+
+    fn set_config_inner(&mut self, config: &Config) -> Result<(), ConfigError> {
+        if config.frequency > 1_000_000 {
+            return Err(ConfigError::FrequencyTooHigh);
+        }
+
+        let p = T::regs();
+
+        p.ic_enable().write(|w| w.set_enable(false));
 
         // Configure baudrate
 
@@ -383,10 +419,12 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         let hcnt = period - lcnt; // and 2/5 (40%) of the period high
 
         // Check for out-of-range divisors:
-        assert!(hcnt <= 0xffff);
-        assert!(lcnt <= 0xffff);
-        assert!(hcnt >= 8);
-        assert!(lcnt >= 8);
+        if hcnt > 0xffff || lcnt > 0xffff {
+            return Err(ConfigError::ClockTooFast);
+        }
+        if hcnt < 8 || lcnt < 8 {
+            return Err(ConfigError::ClockTooSlow);
+        }
 
         // Per I2C-bus specification a device in standard or fast mode must
         // internally provide a hold time of at least 300ns for the SDA
@@ -399,14 +437,19 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             ((clk_base * 3) / 10_000_000) + 1
         } else {
             // fast mode plus requires a clk_base > 32MHz
-            assert!(clk_base >= 32_000_000);
+            if clk_base <= 32_000_000 {
+                return Err(ConfigError::ClockTooSlow);
+            }
 
             // sda_tx_hold_count = clk_base [cycles/s] * 120ns * (1s /
             // 1e9ns) Reduce 120/1e9 to 3/25e6 to avoid numbers that don't
             // fit in uint. Add 1 to avoid division truncation.
             ((clk_base * 3) / 25_000_000) + 1
         };
-        assert!(sda_tx_hold_count <= lcnt - 2);
+
+        if sda_tx_hold_count > lcnt - 2 {
+            return Err(ConfigError::ClockTooSlow);
+        }
 
         p.ic_fs_scl_hcnt().write(|w| w.set_ic_fs_scl_hcnt(hcnt as u16));
         p.ic_fs_scl_lcnt().write(|w| w.set_ic_fs_scl_lcnt(lcnt as u16));
@@ -415,10 +458,9 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         p.ic_sda_hold()
             .modify(|w| w.set_ic_sda_tx_hold(sda_tx_hold_count as u16));
 
-        // Enable I2C block
         p.ic_enable().write(|w| w.set_enable(true));
 
-        Self { phantom: PhantomData }
+        Ok(())
     }
 
     fn setup(addr: u16) -> Result<(), Error> {
@@ -556,18 +598,21 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     // Blocking public API
     // =========================
 
-    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
+    /// Read from address into buffer blocking caller until done.
+    pub fn blocking_read(&mut self, address: impl Into<u16>, read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.read_blocking_internal(read, true, true)
         // Automatic Stop
     }
 
-    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+    /// Write to address from buffer blocking caller until done.
+    pub fn blocking_write(&mut self, address: impl Into<u16>, write: &[u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.write_blocking_internal(write, true)
     }
 
-    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    /// Write to address from bytes and read from address into buffer blocking caller until done.
+    pub fn blocking_write_read(&mut self, address: impl Into<u16>, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.write_blocking_internal(write, false)?;
         self.read_blocking_internal(read, true, true)
@@ -575,220 +620,201 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     }
 }
 
-mod eh02 {
-    use super::*;
+impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, T, M> {
+    type Error = Error;
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, T, M> {
-        type Error = Error;
-
-        fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_read(address, buffer)
-        }
+    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(address, buffer)
     }
+}
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, T, M> {
-        type Error = Error;
+impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, T, M> {
+    type Error = Error;
 
-        fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(address, bytes)
-        }
+    fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(address, bytes)
     }
+}
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T, M> {
-        type Error = Error;
+impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T, M> {
+    type Error = Error;
 
-        fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_write_read(address, bytes, buffer)
-        }
+    fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(address, bytes, buffer)
     }
+}
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, T, M> {
-        type Error = Error;
+impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, T, M> {
+    type Error = Error;
 
-        fn exec(
-            &mut self,
-            address: u8,
-            operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
-        ) -> Result<(), Self::Error> {
-            Self::setup(address.into())?;
-            for i in 0..operations.len() {
-                let last = i == operations.len() - 1;
-                match &mut operations[i] {
-                    embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
-                        self.read_blocking_internal(buf, false, last)?
-                    }
-                    embedded_hal_02::blocking::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
+    fn exec(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        Self::setup(address.into())?;
+        for i in 0..operations.len() {
+            let last = i == operations.len() - 1;
+            match &mut operations[i] {
+                embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
+                    self.read_blocking_internal(buf, false, last)?
                 }
+                embedded_hal_02::blocking::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
             }
-            Ok(())
+        }
+        Ok(())
+    }
+}
+
+impl embedded_hal_1::i2c::Error for Error {
+    fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
+        match *self {
+            Self::Abort(AbortReason::ArbitrationLoss) => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
+            Self::Abort(AbortReason::NoAcknowledge) => {
+                embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
+            }
+            Self::Abort(AbortReason::TxNotEmpty(_)) => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::Abort(AbortReason::Other(_)) => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::InvalidReadBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::InvalidWriteBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::AddressOutOfRange(_) => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::AddressReserved(_) => embedded_hal_1::i2c::ErrorKind::Other,
         }
     }
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
+impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, T, M> {
+    type Error = Error;
+}
 
-    impl embedded_hal_1::i2c::Error for Error {
-        fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
-            match *self {
-                Self::Abort(AbortReason::ArbitrationLoss) => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
-                Self::Abort(AbortReason::NoAcknowledge) => {
-                    embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
-                }
-                Self::Abort(AbortReason::Other(_)) => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::InvalidReadBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::InvalidWriteBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::AddressOutOfRange(_) => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::AddressReserved(_) => embedded_hal_1::i2c::ErrorKind::Other,
-            }
-        }
+impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
+    fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(address, read)
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, T, M> {
-        type Error = Error;
+    fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(address, write)
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
-        fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_read(address, read)
-        }
+    fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(address, write, read)
+    }
 
-        fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(address, write)
-        }
-
-        fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_write_read(address, write, read)
-        }
-
-        fn transaction(
-            &mut self,
-            address: u8,
-            operations: &mut [embedded_hal_1::i2c::Operation<'_>],
-        ) -> Result<(), Self::Error> {
-            Self::setup(address.into())?;
-            for i in 0..operations.len() {
-                let last = i == operations.len() - 1;
-                match &mut operations[i] {
-                    embedded_hal_1::i2c::Operation::Read(buf) => self.read_blocking_internal(buf, false, last)?,
-                    embedded_hal_1::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
-                }
+    fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        Self::setup(address.into())?;
+        for i in 0..operations.len() {
+            let last = i == operations.len() - 1;
+            match &mut operations[i] {
+                embedded_hal_1::i2c::Operation::Read(buf) => self.read_blocking_internal(buf, false, last)?,
+                embedded_hal_1::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
             }
-            Ok(())
         }
+        Ok(())
     }
 }
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod nightly {
-    use embedded_hal_1::i2c::Operation;
-    use embedded_hal_async::i2c::AddressMode;
 
-    use super::*;
+impl<'d, A, T> embedded_hal_async::i2c::I2c<A> for I2c<'d, T, Async>
+where
+    A: embedded_hal_async::i2c::AddressMode + Into<u16> + 'static,
+    T: Instance + 'd,
+{
+    async fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.read_async(address, read).await
+    }
 
-    impl<'d, A, T> embedded_hal_async::i2c::I2c<A> for I2c<'d, T, Async>
-    where
-        A: AddressMode + Into<u16> + 'static,
-        T: Instance + 'd,
-    {
-        async fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
-            let addr: u16 = address.into();
+    async fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
+        self.write_async(address, write.iter().copied()).await
+    }
 
+    async fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.write_read_async(address, write.iter().copied(), read).await
+    }
+
+    async fn transaction(
+        &mut self,
+        address: A,
+        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        use embedded_hal_1::i2c::Operation;
+
+        let addr: u16 = address.into();
+
+        if !operations.is_empty() {
             Self::setup(addr)?;
-            self.read_async_internal(read, false, true).await
         }
+        let mut iterator = operations.iter_mut();
 
-        async fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
-            let addr: u16 = address.into();
+        while let Some(op) = iterator.next() {
+            let last = iterator.len() == 0;
 
-            Self::setup(addr)?;
-            self.write_async_internal(write.iter().copied(), true).await
-        }
-
-        async fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-            let addr: u16 = address.into();
-
-            Self::setup(addr)?;
-            self.write_async_internal(write.iter().cloned(), false).await?;
-            self.read_async_internal(read, false, true).await
-        }
-
-        async fn transaction(&mut self, address: A, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
-            let addr: u16 = address.into();
-
-            if operations.len() > 0 {
-                Self::setup(addr)?;
-            }
-            let mut iterator = operations.iter_mut();
-
-            while let Some(op) = iterator.next() {
-                let last = iterator.len() == 0;
-
-                match op {
-                    Operation::Read(buffer) => {
-                        self.read_async_internal(buffer, false, last).await?;
-                    }
-                    Operation::Write(buffer) => {
-                        self.write_async_internal(buffer.into_iter().cloned(), last).await?;
-                    }
+            match op {
+                Operation::Read(buffer) => {
+                    self.read_async_internal(buffer, false, last).await?;
+                }
+                Operation::Write(buffer) => {
+                    self.write_async_internal(buffer.iter().cloned(), last).await?;
                 }
             }
-            Ok(())
         }
+        Ok(())
     }
 }
 
-fn i2c_reserved_addr(addr: u16) -> bool {
-    (addr & 0x78) == 0 || (addr & 0x78) == 0x78
-}
+impl<'d, T: Instance, M: Mode> embassy_embedded_hal::SetConfig for I2c<'d, T, M> {
+    type Config = Config;
+    type ConfigError = ConfigError;
 
-mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
-
-    use crate::interrupt;
-
-    pub trait Instance {
-        const TX_DREQ: u8;
-        const RX_DREQ: u8;
-
-        type Interrupt: interrupt::typelevel::Interrupt;
-
-        fn regs() -> crate::pac::i2c::I2c;
-        fn reset() -> crate::pac::resets::regs::Peripherals;
-        fn waker() -> &'static AtomicWaker;
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config_inner(config)
     }
-
-    pub trait Mode {}
-
-    pub trait SdaPin<T: Instance> {}
-    pub trait SclPin<T: Instance> {}
 }
 
-pub trait Mode: sealed::Mode {}
+/// Check if address is reserved.
+pub fn i2c_reserved_addr(addr: u16) -> bool {
+    ((addr & 0x78) == 0 || (addr & 0x78) == 0x78) && addr != 0
+}
+
+pub(crate) trait SealedInstance {
+    fn regs() -> crate::pac::i2c::I2c;
+    fn reset() -> crate::pac::resets::regs::Peripherals;
+    fn waker() -> &'static AtomicWaker;
+}
+
+trait SealedMode {}
+
+/// Driver mode.
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
 
 macro_rules! impl_mode {
     ($name:ident) => {
-        impl sealed::Mode for $name {}
+        impl SealedMode for $name {}
         impl Mode for $name {}
     };
 }
 
+/// Blocking mode.
 pub struct Blocking;
+/// Async mode.
 pub struct Async;
 
 impl_mode!(Blocking);
 impl_mode!(Async);
 
-pub trait Instance: sealed::Instance {}
+/// I2C instance.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {
+    /// Interrupt for this peripheral.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 macro_rules! impl_instance {
-    ($type:ident, $irq:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
-        impl sealed::Instance for peripherals::$type {
-            const TX_DREQ: u8 = $tx_dreq;
-            const RX_DREQ: u8 = $rx_dreq;
-
-            type Interrupt = crate::interrupt::typelevel::$irq;
-
+    ($type:ident, $irq:ident, $reset:ident) => {
+        impl SealedInstance for peripherals::$type {
             #[inline]
             fn regs() -> pac::i2c::I2c {
                 pac::$type
@@ -808,19 +834,22 @@ macro_rules! impl_instance {
                 &WAKER
             }
         }
-        impl Instance for peripherals::$type {}
+        impl Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
     };
 }
 
-impl_instance!(I2C0, I2C0_IRQ, set_i2c0, 32, 33);
-impl_instance!(I2C1, I2C1_IRQ, set_i2c1, 34, 35);
+impl_instance!(I2C0, I2C0_IRQ, set_i2c0);
+impl_instance!(I2C1, I2C1_IRQ, set_i2c1);
 
-pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + crate::gpio::Pin {}
-pub trait SclPin<T: Instance>: sealed::SclPin<T> + crate::gpio::Pin {}
+/// SDA pin.
+pub trait SdaPin<T: Instance>: crate::gpio::Pin {}
+/// SCL pin.
+pub trait SclPin<T: Instance>: crate::gpio::Pin {}
 
 macro_rules! impl_pin {
     ($pin:ident, $instance:ident, $function:ident) => {
-        impl sealed::$function<peripherals::$instance> for peripherals::$pin {}
         impl $function<peripherals::$instance> for peripherals::$pin {}
     };
 }

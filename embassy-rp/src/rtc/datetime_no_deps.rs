@@ -3,7 +3,7 @@ use crate::pac::rtc::regs::{Rtc0, Rtc1, Setup0, Setup1};
 /// Errors regarding the [`DateTime`] and [`DateTimeFilter`] structs.
 ///
 /// [`DateTimeFilter`]: struct.DateTimeFilter.html
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     /// The [DateTime] contains an invalid year value. Must be between `0..=4095`.
     InvalidYear,

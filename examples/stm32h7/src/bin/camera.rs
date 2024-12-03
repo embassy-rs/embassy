@@ -1,15 +1,14 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use embassy_executor::Spawner;
 use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
-use embassy_stm32::time::{khz, mhz};
+use embassy_stm32::rcc::{Mco, Mco1Source, McoPrescaler};
+use embassy_stm32::time::khz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use ov7725::*;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -19,24 +18,38 @@ const HEIGHT: usize = 100;
 static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
 
 bind_interrupts!(struct Irqs {
-    I2C1_EV => i2c::InterruptHandler<peripherals::I2C1>;
+    I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     DCMI => dcmi::InterruptHandler<peripherals::DCMI>;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(400));
-    config.rcc.hclk = Some(mhz(400));
-    config.rcc.pll1.q_ck = Some(mhz(100));
-    config.rcc.pclk1 = Some(mhz(100));
-    config.rcc.pclk2 = Some(mhz(100));
-    config.rcc.pclk3 = Some(mhz(100));
-    config.rcc.pclk4 = Some(mhz(100));
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.csi = true;
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI,
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV8), // 100mhz
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.voltage_scale = VoltageScale::Scale1;
+    }
     let p = embassy_stm32::init(config);
 
     defmt::info!("Hello World!");
-    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, McoClock::Divided(3));
+    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, McoPrescaler::DIV3);
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
     let cam_i2c = I2c::new(
@@ -65,19 +78,19 @@ async fn main(_spawner: Spawner) {
     );
 
     defmt::info!("attempting capture");
-    defmt::unwrap!(dcmi.capture(unsafe { &mut FRAME }).await);
+    defmt::unwrap!(dcmi.capture(unsafe { &mut *core::ptr::addr_of_mut!(FRAME) }).await);
 
-    defmt::info!("captured frame: {:x}", unsafe { &FRAME });
+    defmt::info!("captured frame: {:x}", unsafe { &*core::ptr::addr_of!(FRAME) });
 
     defmt::info!("main loop running");
     loop {
         defmt::info!("high");
         led.set_high();
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after_millis(500).await;
 
         defmt::info!("low");
         led.set_low();
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after_millis(500).await;
     }
 }
 
@@ -86,7 +99,7 @@ mod ov7725 {
 
     use defmt::Format;
     use embassy_stm32::rcc::{Mco, McoInstance};
-    use embassy_time::{Duration, Timer};
+    use embassy_time::Timer;
     use embedded_hal_async::i2c::I2c;
 
     #[repr(u8)]
@@ -171,7 +184,7 @@ mod ov7725 {
 
     const CAM_ADDR: u8 = 0x21;
 
-    #[derive(Format)]
+    #[derive(Format, PartialEq, Eq)]
     pub enum Error<I2cError: Format> {
         I2c(I2cError),
     }
@@ -197,9 +210,9 @@ mod ov7725 {
         }
 
         pub async fn init(&mut self) -> Result<(), Error<Bus::Error>> {
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
             self.reset_regs().await?;
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
             self.set_pixformat().await?;
             self.set_resolution().await?;
             Ok(())

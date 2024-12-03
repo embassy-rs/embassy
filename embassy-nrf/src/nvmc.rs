@@ -60,23 +60,23 @@ impl<'d> Nvmc<'d> {
         while p.ready.read().ready().is_busy() {}
     }
 
-    #[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340")))]
+    #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340")))]
     fn wait_ready_write(&mut self) {
         self.wait_ready();
     }
 
-    #[cfg(any(feature = "_nrf9160", feature = "_nrf5340"))]
+    #[cfg(any(feature = "_nrf91", feature = "_nrf5340"))]
     fn wait_ready_write(&mut self) {
         let p = Self::regs();
         while p.readynext.read().readynext().is_busy() {}
     }
 
-    #[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340")))]
+    #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340")))]
     fn erase_page(&mut self, page_addr: u32) {
         Self::regs().erasepage().write(|w| unsafe { w.bits(page_addr) });
     }
 
-    #[cfg(any(feature = "_nrf9160", feature = "_nrf5340"))]
+    #[cfg(any(feature = "_nrf91", feature = "_nrf5340"))]
     fn erase_page(&mut self, page_addr: u32) {
         let first_page_word = page_addr as *mut u32;
         unsafe {
@@ -160,7 +160,7 @@ impl<'d> NorFlash for Nvmc<'d> {
         if offset as usize + bytes.len() > FLASH_SIZE {
             return Err(Error::OutOfBounds);
         }
-        if offset as usize % 4 != 0 || bytes.len() as usize % 4 != 0 {
+        if offset as usize % 4 != 0 || bytes.len() % 4 != 0 {
             return Err(Error::Unaligned);
         }
 

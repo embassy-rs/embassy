@@ -2,13 +2,12 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::flash::{Async, ERASE_SIZE, FLASH_BASE};
 use embassy_rp::peripherals::FLASH;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 const ADDR_OFFSET: u32 = 0x100000;
@@ -23,7 +22,7 @@ async fn main(_spawner: Spawner) {
     // defmt RTT header. Reading that header might touch flash memory, which
     // interferes with flash write operations.
     // https://github.com/knurling-rs/defmt/pull/683
-    Timer::after(Duration::from_millis(10)).await;
+    Timer::after_millis(10).await;
 
     let mut flash = embassy_rp::flash::Flash::<_, Async, FLASH_SIZE>::new(p.FLASH, p.DMA_CH0);
 

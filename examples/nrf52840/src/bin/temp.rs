@@ -1,12 +1,11 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_nrf::temp::Temp;
 use embassy_nrf::{bind_interrupts, temp};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -21,6 +20,6 @@ async fn main(_spawner: Spawner) {
     loop {
         let value = temp.read().await;
         info!("temperature: {}℃", value.to_num::<u16>());
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
     }
 }

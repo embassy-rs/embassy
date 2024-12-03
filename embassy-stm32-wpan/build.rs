@@ -18,9 +18,22 @@ fn main() {
     // stm32wb tl_mbox link sections
 
     let out_file = out_dir.join("tl_mbox.x").to_string_lossy().to_string();
-    fs::write(out_file, fs::read_to_string("tl_mbox.x.in").unwrap()).unwrap();
+    let in_file;
+    if env::var_os("CARGO_FEATURE_EXTENDED").is_some() {
+        if env::vars()
+            .map(|(a, _)| a)
+            .any(|x| x.starts_with("CARGO_FEATURE_STM32WB1"))
+        {
+            in_file = "tl_mbox_extended_wb1.x.in";
+        } else {
+            in_file = "tl_mbox_extended_wbx5.x.in";
+        }
+    } else {
+        in_file = "tl_mbox.x.in";
+    }
+    fs::write(out_file, fs::read_to_string(in_file).unwrap()).unwrap();
     println!("cargo:rustc-link-search={}", out_dir.display());
-    println!("cargo:rerun-if-changed=tl_mbox.x.in");
+    println!("cargo:rerun-if-changed={}", in_file);
 }
 
 enum GetOneError {

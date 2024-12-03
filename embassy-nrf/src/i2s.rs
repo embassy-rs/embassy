@@ -6,16 +6,17 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem::size_of;
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2s::RegisterBlock;
-use crate::util::{slice_in_ram_or, slice_ptr_parts};
+use crate::util::slice_in_ram_or;
 use crate::{interrupt, Peripheral, EASY_DMA_SIZE};
 
 /// Type alias for `MultiBuffering` with 2 buffers.
@@ -1027,9 +1028,8 @@ impl<T: Instance> Device<T> {
     }
 
     fn validated_dma_parts<S>(buffer_ptr: *const [S]) -> Result<(u32, u32), Error> {
-        let (ptr, len) = slice_ptr_parts(buffer_ptr);
-        let ptr = ptr as u32;
-        let bytes_len = len * size_of::<S>();
+        let ptr = buffer_ptr as *const S as u32;
+        let bytes_len = buffer_ptr.len() * size_of::<S>();
         let maxcnt = (bytes_len / size_of::<u32>()) as u32;
 
         trace!("PTR={}, MAXCNT={}", ptr, maxcnt);
@@ -1140,50 +1140,45 @@ impl<S: Sample, const NB: usize, const NS: usize> MultiBuffering<S, NB, NS> {
     }
 }
 
-pub(crate) mod sealed {
-    use core::sync::atomic::AtomicBool;
+/// Peripheral static state
+pub(crate) struct State {
+    started: AtomicBool,
+    rx_waker: AtomicWaker,
+    tx_waker: AtomicWaker,
+    stop_waker: AtomicWaker,
+}
 
-    use embassy_sync::waitqueue::AtomicWaker;
-
-    /// Peripheral static state
-    pub struct State {
-        pub started: AtomicBool,
-        pub rx_waker: AtomicWaker,
-        pub tx_waker: AtomicWaker,
-        pub stop_waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                started: AtomicBool::new(false),
-                rx_waker: AtomicWaker::new(),
-                tx_waker: AtomicWaker::new(),
-                stop_waker: AtomicWaker::new(),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            started: AtomicBool::new(false),
+            rx_waker: AtomicWaker::new(),
+            tx_waker: AtomicWaker::new(),
+            stop_waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static crate::pac::i2s::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static crate::pac::i2s::RegisterBlock;
+    fn state() -> &'static State;
+}
+
 /// I2S peripheral instance.
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_i2s {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::i2s::sealed::Instance for peripherals::$type {
+        impl crate::i2s::SealedInstance for peripherals::$type {
             fn regs() -> &'static crate::pac::i2s::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::i2s::sealed::State {
-                static STATE: crate::i2s::sealed::State = crate::i2s::sealed::State::new();
+            fn state() -> &'static crate::i2s::State {
+                static STATE: crate::i2s::State = crate::i2s::State::new();
                 &STATE
             }
         }

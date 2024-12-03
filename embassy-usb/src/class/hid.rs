@@ -37,7 +37,7 @@ pub struct Config<'d> {
     pub report_descriptor: &'d [u8],
 
     /// Handler for control requests.
-    pub request_handler: Option<&'d dyn RequestHandler>,
+    pub request_handler: Option<&'d mut dyn RequestHandler>,
 
     /// Configures how frequently the host should poll for reading/writing HID reports.
     ///
@@ -63,7 +63,7 @@ pub enum ReportId {
 }
 
 impl ReportId {
-    fn try_from(value: u16) -> Result<Self, ()> {
+    const fn try_from(value: u16) -> Result<Self, ()> {
         match value >> 8 {
             1 => Ok(ReportId::In(value as u8)),
             2 => Ok(ReportId::Out(value as u8)),
@@ -79,9 +79,15 @@ pub struct State<'d> {
     out_report_offset: AtomicUsize,
 }
 
+impl<'d> Default for State<'d> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'d> State<'d> {
     /// Create a new `State`.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         State {
             control: MaybeUninit::uninit(),
             out_report_offset: AtomicUsize::new(0),
@@ -148,7 +154,7 @@ fn build<'d, D: Driver<'d>>(
 }
 
 impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWriter<'d, D, READ_N, WRITE_N> {
-    /// Creates a new HidReaderWriter.
+    /// Creates a new `HidReaderWriter`.
     ///
     /// This will allocate one IN and one OUT endpoints. If you only need writing (sending)
     /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
@@ -171,7 +177,7 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
     }
 
     /// Waits for both IN and OUT endpoints to be enabled.
-    pub async fn ready(&mut self) -> () {
+    pub async fn ready(&mut self) {
         self.reader.ready().await;
         self.writer.ready().await;
     }
@@ -224,7 +230,7 @@ pub enum ReadError {
 
 impl From<EndpointError> for ReadError {
     fn from(val: EndpointError) -> Self {
-        use EndpointError::*;
+        use EndpointError::{BufferOverflow, Disabled};
         match val {
             BufferOverflow => ReadError::BufferOverflow,
             Disabled => ReadError::Disabled,
@@ -251,17 +257,16 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     }
 
     /// Waits for the interrupt in endpoint to be enabled.
-    pub async fn ready(&mut self) -> () {
-        self.ep_in.wait_enabled().await
+    pub async fn ready(&mut self) {
+        self.ep_in.wait_enabled().await;
     }
 
     /// Writes an input report by serializing the given report structure.
     #[cfg(feature = "usbd-hid")]
     pub async fn write_serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
         let mut buf: [u8; N] = [0; N];
-        let size = match serialize(&mut buf, r) {
-            Ok(size) => size,
-            Err(_) => return Err(EndpointError::BufferOverflow),
+        let Ok(size) = serialize(&mut buf, r) else {
+            return Err(EndpointError::BufferOverflow);
         };
         self.write(&buf[0..size]).await
     }
@@ -286,15 +291,15 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
 
 impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     /// Waits for the interrupt out endpoint to be enabled.
-    pub async fn ready(&mut self) -> () {
-        self.ep_out.wait_enabled().await
+    pub async fn ready(&mut self) {
+        self.ep_out.wait_enabled().await;
     }
 
     /// Delivers output reports from the Interrupt Out pipe to `handler`.
     ///
     /// If `use_report_ids` is true, the first byte of the report will be used as
     /// the `ReportId` value. Otherwise the `ReportId` value will be 0.
-    pub async fn run<T: RequestHandler>(mut self, use_report_ids: bool, handler: &T) -> ! {
+    pub async fn run<T: RequestHandler>(mut self, use_report_ids: bool, handler: &mut T) -> ! {
         let offset = self.offset.load(Ordering::Acquire);
         assert!(offset == 0);
         let mut buf = [0; N];
@@ -344,9 +349,8 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
                         if size < max_packet_size || total == N {
                             self.offset.store(0, Ordering::Release);
                             break;
-                        } else {
-                            self.offset.store(total, Ordering::Release);
                         }
+                        self.offset.store(total, Ordering::Release);
                     }
                     Err(err) => {
                         self.offset.store(0, Ordering::Release);
@@ -374,13 +378,13 @@ pub trait RequestHandler {
     /// Reads the value of report `id` into `buf` returning the size.
     ///
     /// Returns `None` if `id` is invalid or no data is available.
-    fn get_report(&self, id: ReportId, buf: &mut [u8]) -> Option<usize> {
+    fn get_report(&mut self, id: ReportId, buf: &mut [u8]) -> Option<usize> {
         let _ = (id, buf);
         None
     }
 
     /// Sets the value of report `id` to `data`.
-    fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
+    fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
         let _ = (id, data);
         OutResponse::Rejected
     }
@@ -390,7 +394,7 @@ pub trait RequestHandler {
     /// If `id` is `None`, get the idle rate for all reports. Returning `None`
     /// will reject the control request. Any duration at or above 1.024 seconds
     /// or below 4ms will be returned as an indefinite idle rate.
-    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
+    fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
         let _ = id;
         None
     }
@@ -399,7 +403,7 @@ pub trait RequestHandler {
     ///
     /// If `id` is `None`, set the idle rate of all input reports to `dur`. If
     /// an indefinite duration is requested, `dur` will be set to `u32::MAX`.
-    fn set_idle_ms(&self, id: Option<ReportId>, duration_ms: u32) {
+    fn set_idle_ms(&mut self, id: Option<ReportId>, duration_ms: u32) {
         let _ = (id, duration_ms);
     }
 }
@@ -407,7 +411,7 @@ pub trait RequestHandler {
 struct Control<'d> {
     if_num: InterfaceNumber,
     report_descriptor: &'d [u8],
-    request_handler: Option<&'d dyn RequestHandler>,
+    request_handler: Option<&'d mut dyn RequestHandler>,
     out_report_offset: &'d AtomicUsize,
     hid_descriptor: [u8; 9],
 }
@@ -416,7 +420,7 @@ impl<'d> Control<'d> {
     fn new(
         if_num: InterfaceNumber,
         report_descriptor: &'d [u8],
-        request_handler: Option<&'d dyn RequestHandler>,
+        request_handler: Option<&'d mut dyn RequestHandler>,
         out_report_offset: &'d AtomicUsize,
     ) -> Self {
         Control {
@@ -464,16 +468,16 @@ impl<'d> Handler for Control<'d> {
         trace!("HID control_out {:?} {=[u8]:x}", req, data);
         match req.request {
             HID_REQ_SET_IDLE => {
-                if let Some(handler) = self.request_handler {
+                if let Some(handler) = self.request_handler.as_mut() {
                     let id = req.value as u8;
-                    let id = (id != 0).then(|| ReportId::In(id));
+                    let id = (id != 0).then_some(ReportId::In(id));
                     let dur = u32::from(req.value >> 8);
                     let dur = if dur == 0 { u32::MAX } else { 4 * dur };
                     handler.set_idle_ms(id, dur);
                 }
                 Some(OutResponse::Accepted)
             }
-            HID_REQ_SET_REPORT => match (ReportId::try_from(req.value), self.request_handler) {
+            HID_REQ_SET_REPORT => match (ReportId::try_from(req.value), self.request_handler.as_mut()) {
                 (Ok(id), Some(handler)) => Some(handler.set_report(id, data)),
                 _ => Some(OutResponse::Rejected),
             },
@@ -509,7 +513,7 @@ impl<'d> Handler for Control<'d> {
                 match req.request {
                     HID_REQ_GET_REPORT => {
                         let size = match ReportId::try_from(req.value) {
-                            Ok(id) => self.request_handler.and_then(|x| x.get_report(id, buf)),
+                            Ok(id) => self.request_handler.as_mut().and_then(|x| x.get_report(id, buf)),
                             Err(_) => None,
                         };
 
@@ -520,9 +524,9 @@ impl<'d> Handler for Control<'d> {
                         }
                     }
                     HID_REQ_GET_IDLE => {
-                        if let Some(handler) = self.request_handler {
+                        if let Some(handler) = self.request_handler.as_mut() {
                             let id = req.value as u8;
-                            let id = (id != 0).then(|| ReportId::In(id));
+                            let id = (id != 0).then_some(ReportId::In(id));
                             if let Some(dur) = handler.get_idle_ms(id) {
                                 let dur = u8::try_from(dur / 4).unwrap_or(0);
                                 buf[0] = dur;

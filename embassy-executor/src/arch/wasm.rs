@@ -8,8 +8,7 @@ mod thread {
 
     use core::marker::PhantomData;
 
-    #[cfg(feature = "nightly")]
-    pub use embassy_macros::main_wasm as main;
+    pub use embassy_executor_macros::main_wasm as main;
     use js_sys::Promise;
     use wasm_bindgen::prelude::*;
 
@@ -73,9 +72,10 @@ mod thread {
         pub fn start(&'static mut self, init: impl FnOnce(Spawner)) {
             unsafe {
                 let executor = &self.inner;
-                self.ctx.closure.write(Closure::new(move |_| {
+                let future = Closure::new(move |_| {
                     executor.poll();
-                }));
+                });
+                self.ctx.closure.write_in_place(|| future);
                 init(self.inner.spawner());
             }
         }

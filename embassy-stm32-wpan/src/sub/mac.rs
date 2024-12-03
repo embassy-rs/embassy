@@ -1,5 +1,4 @@
 use core::future::poll_fn;
-use core::marker::PhantomData;
 use core::ptr;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
@@ -21,12 +20,12 @@ static MAC_WAKER: AtomicWaker = AtomicWaker::new();
 static MAC_EVT_OUT: AtomicBool = AtomicBool::new(false);
 
 pub struct Mac {
-    phantom: PhantomData<Mac>,
+    _private: (),
 }
 
 impl Mac {
     pub(crate) fn new() -> Self {
-        Self { phantom: PhantomData }
+        Self { _private: () }
     }
 
     /// `HW_IPCC_MAC_802_15_4_EvtNot`

@@ -7,14 +7,13 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::UART1;
 use embassy_rp::uart::{Async, Config, InterruptHandler, UartRx, UartTx};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -35,7 +34,7 @@ async fn main(spawner: Spawner) {
         let data = [1u8, 2, 3, 4, 5, 6, 7, 8];
         info!("TX {:?}", data);
         uart_tx.write(&data).await.unwrap();
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
     }
 }
 

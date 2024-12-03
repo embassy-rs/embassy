@@ -20,6 +20,7 @@ pub struct PeripheralRef<'a, T> {
 }
 
 impl<'a, T> PeripheralRef<'a, T> {
+    /// Create a new reference to a peripheral.
     #[inline]
     pub fn new(inner: T) -> Self {
         Self {
@@ -82,13 +83,6 @@ impl<'a, T> Deref for PeripheralRef<'a, T> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl<'a, T> DerefMut for PeripheralRef<'a, T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
     }
 }
 
@@ -169,6 +163,15 @@ where
 
     #[inline]
     unsafe fn clone_unchecked(&self) -> Self::P {
-        self.deref().clone_unchecked()
+        T::Target::clone_unchecked(self)
+    }
+}
+
+impl<'b, T: Peripheral> Peripheral for PeripheralRef<'_, T> {
+    type P = T::P;
+
+    #[inline]
+    unsafe fn clone_unchecked(&self) -> Self::P {
+        T::clone_unchecked(self)
     }
 }

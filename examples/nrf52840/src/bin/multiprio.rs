@@ -55,14 +55,13 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
 use embassy_executor::{Executor, InterruptExecutor};
 use embassy_nrf::interrupt;
 use embassy_nrf::interrupt::{InterruptExt, Priority};
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Instant, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -70,7 +69,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn run_high() {
     loop {
         info!("        [high] tick!");
-        Timer::after(Duration::from_ticks(27374)).await;
+        Timer::after_ticks(27374).await;
     }
 }
 
@@ -81,13 +80,13 @@ async fn run_med() {
         info!("    [med] Starting long computation");
 
         // Spin-wait to simulate a long CPU computation
-        cortex_m::asm::delay(32_000_000); // ~1 second
+        embassy_time::block_for(embassy_time::Duration::from_secs(1)); // ~1 second
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
         info!("    [med] done in {} ms", ms);
 
-        Timer::after(Duration::from_ticks(23421)).await;
+        Timer::after_ticks(23421).await;
     }
 }
 
@@ -98,13 +97,13 @@ async fn run_low() {
         info!("[low] Starting long computation");
 
         // Spin-wait to simulate a long CPU computation
-        cortex_m::asm::delay(64_000_000); // ~2 seconds
+        embassy_time::block_for(embassy_time::Duration::from_secs(2)); // ~2 seconds
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
         info!("[low] done in {} ms", ms);
 
-        Timer::after(Duration::from_ticks(32983)).await;
+        Timer::after_ticks(32983).await;
     }
 }
 

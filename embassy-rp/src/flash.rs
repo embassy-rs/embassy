@@ -1,3 +1,4 @@
+//! Flash driver.
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
@@ -13,9 +14,10 @@ use crate::dma::{AnyChannel, Channel, Transfer};
 use crate::pac;
 use crate::peripherals::FLASH;
 
+/// Flash base address.
 pub const FLASH_BASE: *const u32 = 0x10000000 as _;
 
-// If running from RAM, we might have no boot2. Use bootrom `flash_enter_cmd_xip` instead.
+/// If running from RAM, we might have no boot2. Use bootrom `flash_enter_cmd_xip` instead.
 // TODO: when run-from-ram is set, completely skip the "pause cores and jumpp to RAM" dance.
 pub const USE_BOOT2: bool = !cfg!(feature = "run-from-ram");
 
@@ -24,10 +26,15 @@ pub const USE_BOOT2: bool = !cfg!(feature = "run-from-ram");
 // These limitations are currently enforced because of using the
 // RP2040 boot-rom flash functions, that are optimized for flash compatibility
 // rather than performance.
+/// Flash page size.
 pub const PAGE_SIZE: usize = 256;
+/// Flash write size.
 pub const WRITE_SIZE: usize = 1;
+/// Flash read size.
 pub const READ_SIZE: usize = 1;
+/// Flash erase size.
 pub const ERASE_SIZE: usize = 4096;
+/// Flash DMA read size.
 pub const ASYNC_READ_SIZE: usize = 4;
 
 /// Error type for NVMC operations.
@@ -38,7 +45,9 @@ pub enum Error {
     OutOfBounds,
     /// Unaligned operation or using unaligned buffers.
     Unaligned,
+    /// Accessed from the wrong core.
     InvalidCore,
+    /// Other error
     Other,
 }
 
@@ -96,12 +105,18 @@ impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, '
     }
 }
 
+/// Flash driver.
 pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
     dma: Option<PeripheralRef<'d, AnyChannel>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
 impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SIZE> {
+    /// Blocking read.
+    ///
+    /// The offset and buffer must be aligned.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         trace!(
             "Reading from 0x{:x} to 0x{:x}",
@@ -116,10 +131,14 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
         Ok(())
     }
 
+    /// Flash capacity.
     pub fn capacity(&self) -> usize {
         FLASH_SIZE
     }
 
+    /// Blocking erase.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         check_erase(self, from, to)?;
 
@@ -131,11 +150,16 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 
         let len = to - from;
 
-        unsafe { self.in_ram(|| ram_helpers::flash_range_erase(from, len))? };
+        unsafe { in_ram(|| ram_helpers::flash_range_erase(from, len))? };
 
         Ok(())
     }
 
+    /// Blocking write.
+    ///
+    /// The offset and buffer must be aligned.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         check_write(self, offset, bytes.len())?;
 
@@ -156,7 +180,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 
             let unaligned_offset = offset as usize - start;
 
-            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
+            unsafe { in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
         }
 
         let remaining_len = bytes.len() - start_padding;
@@ -174,12 +198,12 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
             if bytes.as_ptr() as usize >= 0x2000_0000 {
                 let aligned_data = &bytes[start_padding..end_padding];
 
-                unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data))? }
+                unsafe { in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data))? }
             } else {
                 for chunk in bytes[start_padding..end_padding].chunks_exact(PAGE_SIZE) {
                     let mut ram_buf = [0xFF_u8; PAGE_SIZE];
                     ram_buf.copy_from_slice(chunk);
-                    unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, &ram_buf))? }
+                    unsafe { in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, &ram_buf))? }
                     aligned_offset += PAGE_SIZE;
                 }
             }
@@ -194,47 +218,15 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 
             let unaligned_offset = end_offset - (PAGE_SIZE - rem_offset);
 
-            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
+            unsafe { in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
         }
 
-        Ok(())
-    }
-
-    /// Make sure to uphold the contract points with rp2040-flash.
-    /// - interrupts must be disabled
-    /// - DMA must not access flash memory
-    unsafe fn in_ram(&mut self, operation: impl FnOnce()) -> Result<(), Error> {
-        // Make sure we're running on CORE0
-        let core_id: u32 = pac::SIO.cpuid().read();
-        if core_id != 0 {
-            return Err(Error::InvalidCore);
-        }
-
-        // Make sure CORE1 is paused during the entire duration of the RAM function
-        crate::multicore::pause_core1();
-
-        critical_section::with(|_| {
-            // Wait for all DMA channels in flash to finish before ram operation
-            const SRAM_LOWER: u32 = 0x2000_0000;
-            for n in 0..crate::dma::CHANNEL_COUNT {
-                let ch = crate::pac::DMA.ch(n);
-                while ch.read_addr().read() < SRAM_LOWER && ch.ctrl_trig().read().busy() {}
-            }
-            // Wait for completion of any background reads
-            while pac::XIP_CTRL.stream_ctr().read().0 > 0 {}
-
-            // Run our flash operation in RAM
-            operation();
-        });
-
-        // Resume CORE1 execution
-        crate::multicore::resume_core1();
         Ok(())
     }
 
     /// Read SPI flash unique ID
     pub fn blocking_unique_id(&mut self, uid: &mut [u8]) -> Result<(), Error> {
-        unsafe { self.in_ram(|| ram_helpers::flash_unique_id(uid))? };
+        unsafe { in_ram(|| ram_helpers::flash_unique_id(uid))? };
         Ok(())
     }
 
@@ -242,7 +234,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
     pub fn blocking_jedec_id(&mut self) -> Result<u32, Error> {
         let mut jedec = None;
         unsafe {
-            self.in_ram(|| {
+            in_ram(|| {
                 jedec.replace(ram_helpers::flash_jedec_id());
             })?;
         };
@@ -251,6 +243,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 }
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE> {
+    /// Create a new flash driver in blocking mode.
     pub fn new_blocking(_flash: impl Peripheral<P = T> + 'd) -> Self {
         Self {
             dma: None,
@@ -260,6 +253,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE
 }
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
+    /// Create a new flash driver in async mode.
     pub fn new(_flash: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = impl Channel> + 'd) -> Self {
         into_ref!(dma);
         Self {
@@ -268,6 +262,11 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         }
     }
 
+    /// Start a background read operation.
+    ///
+    /// The offset and buffer must be aligned.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub fn background_read<'a>(
         &'a mut self,
         offset: u32,
@@ -311,6 +310,11 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         })
     }
 
+    /// Async read.
+    ///
+    /// The offset and buffer must be aligned.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         use core::mem::MaybeUninit;
 
@@ -322,9 +326,9 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         // If the destination address is already aligned, then we can just DMA directly
         if (bytes.as_ptr() as u32) % 4 == 0 {
             // Safety: alignment and size have been checked for compatibility
-            let mut buf: &mut [u32] =
+            let buf: &mut [u32] =
                 unsafe { core::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut u32, bytes.len() / 4) };
-            self.background_read(offset, &mut buf)?.await;
+            self.background_read(offset, buf)?.await;
             return Ok(());
         }
 
@@ -370,6 +374,11 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ReadNorFlash for Flash<'
 
 impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, M, FLASH_SIZE> {}
 
+impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::MultiwriteNorFlash
+    for Flash<'d, T, Async, FLASH_SIZE>
+{
+}
+
 impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, M, FLASH_SIZE> {
     const WRITE_SIZE: usize = WRITE_SIZE;
 
@@ -384,7 +393,6 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::ReadNorFlash
     for Flash<'d, T, Async, FLASH_SIZE>
 {
@@ -399,7 +407,6 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::NorFlash
     for Flash<'d, T, Async, FLASH_SIZE>
 {
@@ -418,8 +425,6 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
 
 #[allow(dead_code)]
 mod ram_helpers {
-    use core::marker::PhantomData;
-
     use super::*;
     use crate::rom_data;
 
@@ -620,18 +625,18 @@ mod ram_helpers {
             "movs r3, #0", // r3 = 0
             "ldr r4, [{ptrs}, #8]",
             "cmp r4, #0",
-            "beq 1f",
+            "beq 2f",
             "blx r4", // flash_range_erase(addr, len, 1 << 31, 0)
-            "1:",
+            "2:",
 
             "mov r0, r8", // r0 = addr
             "mov r1, r9", // r0 = data
             "mov r2, r10", // r2 = len
             "ldr r4, [{ptrs}, #12]",
             "cmp r4, #0",
-            "beq 1f",
+            "beq 2f",
             "blx r4", // flash_range_program(addr, data, len);
-            "1:",
+            "2:",
 
             "ldr r4, [{ptrs}, #16]",
             "blx r4", // flash_flush_cache();
@@ -797,12 +802,12 @@ mod ram_helpers {
             "adds r2, 0x60", // &DR
             "ldr r0, [r3, #0]", // cmd_addr
             "ldr r1, [r3, #4]", // cmd_addr_len
-            "10:",
+            "3:",
             "ldrb r3, [r0]",
             "strb r3, [r2]", // DR
             "adds r0, #1",
             "subs r1, #1",
-            "bne 10b",
+            "bne 3b",
 
             // Skip any dummy cycles
             "mov r3, r10", // cmd
@@ -871,25 +876,61 @@ mod ram_helpers {
     }
 }
 
-mod sealed {
-    pub trait Instance {}
-    pub trait Mode {}
+/// Make sure to uphold the contract points with rp2040-flash.
+/// - interrupts must be disabled
+/// - DMA must not access flash memory
+pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
+    // Make sure we're running on CORE0
+    let core_id: u32 = pac::SIO.cpuid().read();
+    if core_id != 0 {
+        return Err(Error::InvalidCore);
+    }
+
+    // Make sure CORE1 is paused during the entire duration of the RAM function
+    crate::multicore::pause_core1();
+
+    critical_section::with(|_| {
+        // Wait for all DMA channels in flash to finish before ram operation
+        const SRAM_LOWER: u32 = 0x2000_0000;
+        for n in 0..crate::dma::CHANNEL_COUNT {
+            let ch = crate::pac::DMA.ch(n);
+            while ch.read_addr().read() < SRAM_LOWER && ch.ctrl_trig().read().busy() {}
+        }
+        // Wait for completion of any background reads
+        while pac::XIP_CTRL.stream_ctr().read().0 > 0 {}
+
+        // Run our flash operation in RAM
+        operation();
+    });
+
+    // Resume CORE1 execution
+    crate::multicore::resume_core1();
+    Ok(())
 }
 
-pub trait Instance: sealed::Instance {}
-pub trait Mode: sealed::Mode {}
+trait SealedInstance {}
+trait SealedMode {}
 
-impl sealed::Instance for FLASH {}
+/// Flash instance.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {}
+/// Flash mode.
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
+
+impl SealedInstance for FLASH {}
 impl Instance for FLASH {}
 
 macro_rules! impl_mode {
     ($name:ident) => {
-        impl sealed::Mode for $name {}
+        impl SealedMode for $name {}
         impl Mode for $name {}
     };
 }
 
+/// Flash blocking mode.
 pub struct Blocking;
+/// Flash async mode.
 pub struct Async;
 
 impl_mode!(Blocking);

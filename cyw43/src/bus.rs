@@ -1,5 +1,5 @@
 use embassy_futures::yield_now;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
@@ -51,9 +51,9 @@ where
     pub async fn init(&mut self) {
         // Reset
         self.pwr.set_low().unwrap();
-        Timer::after(Duration::from_millis(20)).await;
+        Timer::after_millis(20).await;
         self.pwr.set_high().unwrap();
-        Timer::after(Duration::from_millis(250)).await;
+        Timer::after_millis(250).await;
 
         while self
             .read32_swapped(REG_BUS_TEST_RO)

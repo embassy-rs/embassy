@@ -1,11 +1,10 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::pwm::{Prescaler, SimplePwm};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 // for i in range(1024): print(int((math.sin(i/512*math.pi)*0.4+0.5)**2*32767), ', ', end='')
@@ -84,6 +83,6 @@ async fn main(_spawner: Spawner) {
         pwm.set_duty(1, DUTY[(i + 256) % 1024]);
         pwm.set_duty(2, DUTY[(i + 512) % 1024]);
         pwm.set_duty(3, DUTY[(i + 768) % 1024]);
-        Timer::after(Duration::from_millis(3)).await;
+        Timer::after_millis(3).await;
     }
 }

@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::time::Duration;
 
@@ -13,17 +12,18 @@ use embassy_stm32_wpan::hci::event::command::{CommandComplete, ReturnParameters}
 use embassy_stm32_wpan::hci::host::uart::{Packet, UartHci};
 use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
 use embassy_stm32_wpan::hci::types::AdvertisingType;
-use embassy_stm32_wpan::hci::vendor::stm32wb::command::gap::{
+use embassy_stm32_wpan::hci::vendor::command::gap::{
     AddressType, AuthenticationRequirements, DiscoverableParameters, GapCommands, IoCapability, LocalName, Pin, Role,
     SecureConnectionSupport,
 };
-use embassy_stm32_wpan::hci::vendor::stm32wb::command::gatt::{
+use embassy_stm32_wpan::hci::vendor::command::gatt::{
     AddCharacteristicParameters, AddServiceParameters, CharacteristicEvent, CharacteristicPermission,
     CharacteristicProperty, EncryptionKeySize, GattCommands, ServiceType, UpdateCharacteristicValueParameters, Uuid,
     WriteResponseParameters,
 };
-use embassy_stm32_wpan::hci::vendor::stm32wb::command::hal::{ConfigData, HalCommands, PowerLevel};
-use embassy_stm32_wpan::hci::vendor::stm32wb::event::{self, AttributeHandle, Stm32Wb5xEvent};
+use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
+use embassy_stm32_wpan::hci::vendor::event::command::VendorReturnParameters;
+use embassy_stm32_wpan::hci::vendor::event::{self, AttributeHandle, VendorEvent};
 use embassy_stm32_wpan::hci::{BdAddr, Event};
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::ble::Ble;
@@ -44,7 +44,7 @@ async fn main(_spawner: Spawner) {
 
         - Obtain a NUCLEO-STM32WB55 from your preferred supplier.
         - Download and Install STM32CubeProgrammer.
-        - Download stm32wb5x_FUS_fw.bin, stm32wb5x_BLE_Stack_full_fw.bin, and Release_Notes.html from
+        - Download stm32wb5x_FUS_fw.bin, stm32wb5x_BLE_Mac_802_15_4_fw.bin, and Release_Notes.html from
           gh:STMicroelectronics/STM32CubeWB@2234d97/Projects/STM32WB_Copro_Wireless_Binaries/STM32WB5x
         - Open STM32CubeProgrammer
         - On the right-hand pane, click "firmware upgrade" to upgrade the st-link firmware.
@@ -53,11 +53,10 @@ async fn main(_spawner: Spawner) {
         - In the Release_Notes.html, find the memory address that corresponds to your device for the stm32wb5x_FUS_fw.bin file
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
         - Once complete, in the Release_Notes.html, find the memory address that corresponds to your device for the
-          stm32wb5x_BLE_Stack_full_fw.bin file. It should not be the same memory address.
+          stm32wb5x_BLE_Mac_802_15_4_fw.bin file. It should not be the same memory address.
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
         - Select "Start Wireless Stack".
         - Disconnect from the device.
-        - In the examples folder for stm32wb, modify the memory.x file to match your target device.
         - Run this example.
 
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
@@ -191,11 +190,11 @@ async fn main(_spawner: Spawner) {
                     mbox.ble_subsystem.set_discoverable(&discovery_params).await.unwrap();
                 }
                 Event::Vendor(vendor_event) => match vendor_event {
-                    Stm32Wb5xEvent::AttReadPermitRequest(read_req) => {
+                    VendorEvent::AttReadPermitRequest(read_req) => {
                         defmt::info!("read request received {}, allowing", read_req);
                         mbox.ble_subsystem.allow_read(read_req.conn_handle).await
                     }
-                    Stm32Wb5xEvent::AttWritePermitRequest(write_req) => {
+                    VendorEvent::AttWritePermitRequest(write_req) => {
                         defmt::info!("write request received {}, allowing", write_req);
                         mbox.ble_subsystem
                             .write_response(&WriteResponseParameters {
@@ -207,7 +206,7 @@ async fn main(_spawner: Spawner) {
                             .await
                             .unwrap()
                     }
-                    Stm32Wb5xEvent::GattAttributeModified(attribute) => {
+                    VendorEvent::GattAttributeModified(attribute) => {
                         defmt::info!("{}", ble_context);
                         if attribute.attr_handle.0 == ble_context.chars.notify.0 + 2 {
                             if attribute.data()[0] == 0x01 {
@@ -334,7 +333,7 @@ async fn gatt_add_service(ble_subsystem: &mut Ble, uuid: Uuid) -> Result<Attribu
 
     if let Ok(Packet::Event(Event::CommandComplete(CommandComplete {
         return_params:
-            ReturnParameters::Vendor(event::command::ReturnParameters::GattAddService(event::command::GattService {
+            ReturnParameters::Vendor(VendorReturnParameters::GattAddService(event::command::GattService {
                 service_handle,
                 ..
             })),
@@ -371,11 +370,10 @@ async fn gatt_add_char(
 
     if let Ok(Packet::Event(Event::CommandComplete(CommandComplete {
         return_params:
-            ReturnParameters::Vendor(event::command::ReturnParameters::GattAddCharacteristic(
-                event::command::GattCharacteristic {
-                    characteristic_handle, ..
-                },
-            )),
+            ReturnParameters::Vendor(VendorReturnParameters::GattAddCharacteristic(event::command::GattCharacteristic {
+                characteristic_handle,
+                ..
+            })),
         ..
     }))) = response
     {

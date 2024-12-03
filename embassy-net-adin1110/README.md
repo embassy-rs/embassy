@@ -21,7 +21,7 @@ APL can be used in [`intrinsic safety applications/explosion hazardous areas`](h
 
 ## Supported SPI modes
 
-`ADIN1110` supports two SPI modes. `Generic` and [`OPEN Alliance 10BASE-T1x MAC-PHY serial interface`](https://opensig.org/download/document/OPEN_Alliance_10BASET1x_MAC-PHY_Serial_Interface_V1.1.pdf)
+`ADIN1110` supports two SPI modes. `Generic` and [`OPEN Alliance 10BASE-T1x MAC-PHY serial interface`](https://opensig.org/wp-content/uploads/2023/12/OPEN_Alliance_10BASET1x_MAC-PHY_Serial_Interface_V1.1.pdf)
 
 Both modes support with and without additional CRC.
 Currently only `Generic` SPI with or without CRC is supported.
@@ -76,13 +76,3 @@ Summary:
   Size/request: 289 B
   Size/sec:     51.11 KiB
 ```
-
-## License
-
-This work is licensed under either of
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
-  http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.

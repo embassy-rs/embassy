@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 #![macro_use]
-#![feature(type_alias_impl_trait)]
 
 use embassy_boot_nrf::{FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
@@ -51,7 +50,7 @@ async fn main(_spawner: Spawner) {
     let nvmc = Nvmc::new(p.NVMC);
     let nvmc = Mutex::new(BlockingAsync::new(nvmc));
 
-    let config = FirmwareUpdaterConfig::from_linkerfile(&nvmc);
+    let config = FirmwareUpdaterConfig::from_linkerfile(&nvmc, &nvmc);
     let mut magic = [0; 4];
     let mut updater = FirmwareUpdater::new(config, &mut magic);
     loop {

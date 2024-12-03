@@ -5,10 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+## 0.3.2 - 2024-08-05
+
+- Implement with_timeout()/with_deadline() method style call on Future
+- Add collapse_debuginfo to fmt.rs macros. 
+
+## 0.3.1 - 2024-01-11
+
+- Add with\_deadline convenience function and example
+- Implement Clone for Delay
+- Make Ticker::next Send+Sync
+- Add timestamp features
+
+## 0.3.0 - 2024-01-11
+
+- Update `embedded-hal-async` to `1.0.0`
+- Update `embedded-hal v1` to `1.0.0`
+- Split the time driver to a separate `embassy-time-driver` crate.
+
+## 0.2.0 - 2023-12-04
+
+- Added tick rates in multiples of 10 kHz
+- Remove nightly and unstable-traits features in preparation for 1.75.
+- Update heapless to 0.8.
+
+## 0.1.5 - 2023-10-16
+
+- Added `links` key to Cargo.toml, to prevent multiple copies of this crate in the same binary.
+  Needed because different copies might get different tick rates, causing
+  wrong delays if the time driver is using one copy and user code is using another.
+  This is especially common when mixing crates from crates.io and git.
+
+## 0.1.4 - 2023-10-12
+
+- Added more tick rates
+
 ## 0.1.3 - 2023-08-28
 
-- Update `embedded-hal-async` to `1.0.0-rc.1`
-- Update `embedded-hal v1` to `1.0.0-rc.1`
+- Update `embedded-hal-async` to `1.0.0-rc.2`
+- Update `embedded-hal v1` to `1.0.0-rc.2`
 
 ## 0.1.2 - 2023-07-05
 

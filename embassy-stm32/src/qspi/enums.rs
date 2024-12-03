@@ -1,3 +1,5 @@
+//! Enums used in QSPI configuration.
+
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub(crate) enum QspiMode {
@@ -18,12 +20,17 @@ impl Into<u8> for QspiMode {
     }
 }
 
+/// QSPI lane width
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub enum QspiWidth {
+    /// None
     NONE,
+    /// Single lane
     SING,
+    /// Dual lanes
     DUAL,
+    /// Quad lanes
     QUAD,
 }
 
@@ -38,6 +45,27 @@ impl Into<u8> for QspiWidth {
     }
 }
 
+/// Flash bank selection
+#[allow(dead_code)]
+#[derive(Copy, Clone)]
+pub enum FlashSelection {
+    /// Bank 1
+    Flash1,
+    /// Bank 2
+    Flash2,
+}
+
+impl Into<bool> for FlashSelection {
+    fn into(self) -> bool {
+        match self {
+            FlashSelection::Flash1 => false,
+            FlashSelection::Flash2 => true,
+        }
+    }
+}
+
+/// QSPI memory size.
+#[allow(missing_docs)]
 #[derive(Copy, Clone)]
 pub enum MemorySize {
     _1KiB,
@@ -97,11 +125,16 @@ impl Into<u8> for MemorySize {
     }
 }
 
+/// QSPI Address size
 #[derive(Copy, Clone)]
 pub enum AddressSize {
+    /// 8-bit address
     _8Bit,
+    /// 16-bit address
     _16Bit,
+    /// 24-bit address
     _24bit,
+    /// 32-bit address
     _32bit,
 }
 
@@ -116,8 +149,10 @@ impl Into<u8> for AddressSize {
     }
 }
 
+/// Time the Chip Select line stays high.
+#[allow(missing_docs)]
 #[derive(Copy, Clone)]
-pub enum ChipSelectHightTime {
+pub enum ChipSelectHighTime {
     _1Cycle,
     _2Cycle,
     _3Cycle,
@@ -128,21 +163,23 @@ pub enum ChipSelectHightTime {
     _8Cycle,
 }
 
-impl Into<u8> for ChipSelectHightTime {
+impl Into<u8> for ChipSelectHighTime {
     fn into(self) -> u8 {
         match self {
-            ChipSelectHightTime::_1Cycle => 0,
-            ChipSelectHightTime::_2Cycle => 1,
-            ChipSelectHightTime::_3Cycle => 2,
-            ChipSelectHightTime::_4Cycle => 3,
-            ChipSelectHightTime::_5Cycle => 4,
-            ChipSelectHightTime::_6Cycle => 5,
-            ChipSelectHightTime::_7Cycle => 6,
-            ChipSelectHightTime::_8Cycle => 7,
+            ChipSelectHighTime::_1Cycle => 0,
+            ChipSelectHighTime::_2Cycle => 1,
+            ChipSelectHighTime::_3Cycle => 2,
+            ChipSelectHighTime::_4Cycle => 3,
+            ChipSelectHighTime::_5Cycle => 4,
+            ChipSelectHighTime::_6Cycle => 5,
+            ChipSelectHighTime::_7Cycle => 6,
+            ChipSelectHighTime::_8Cycle => 7,
         }
     }
 }
 
+/// FIFO threshold.
+#[allow(missing_docs)]
 #[derive(Copy, Clone)]
 pub enum FIFOThresholdLevel {
     _1Bytes,
@@ -218,6 +255,8 @@ impl Into<u8> for FIFOThresholdLevel {
     }
 }
 
+/// Dummy cycle count
+#[allow(missing_docs)]
 #[derive(Copy, Clone)]
 pub enum DummyCycles {
     _0,

@@ -1,14 +1,17 @@
 //! CDC-ACM class implementation, aka Serial over USB.
 
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
+use core::future::poll_fn;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::Poll;
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
+use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use crate::types::*;
+use crate::types::InterfaceNumber;
 use crate::{Builder, Handler};
 
 /// This should be used as `device_class` when building the `UsbDevice`.
@@ -36,12 +39,18 @@ pub struct State<'a> {
     shared: ControlShared,
 }
 
+impl<'a> Default for State<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> State<'a> {
     /// Create a new `State`.
     pub fn new() -> Self {
         Self {
             control: MaybeUninit::uninit(),
-            shared: Default::default(),
+            shared: ControlShared::default(),
         }
     }
 }
@@ -52,9 +61,9 @@ impl<'a> State<'a> {
 /// writing USB packets with no intermediate buffers, but it will not act like a stream-like serial
 /// port. The following constraints must be followed if you use this class directly:
 ///
-/// - `read_packet` must be called with a buffer large enough to hold max_packet_size bytes.
-/// - `write_packet` must not be called with a buffer larger than max_packet_size bytes.
-/// - If you write a packet that is exactly max_packet_size bytes long, it won't be processed by the
+/// - `read_packet` must be called with a buffer large enough to hold `max_packet_size` bytes.
+/// - `write_packet` must not be called with a buffer larger than `max_packet_size` bytes.
+/// - If you write a packet that is exactly `max_packet_size` bytes long, it won't be processed by the
 ///   host operating system until a subsequent shorter packet is sent. A zero-length packet (ZLP)
 ///   can be sent if there is no other data to send. This is because USB bulk transactions must be
 ///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
@@ -76,6 +85,9 @@ struct ControlShared {
     line_coding: CriticalSectionMutex<Cell<LineCoding>>,
     dtr: AtomicBool,
     rts: AtomicBool,
+
+    waker: RefCell<WakerRegistration>,
+    changed: AtomicBool,
 }
 
 impl Default for ControlShared {
@@ -89,7 +101,24 @@ impl Default for ControlShared {
                 parity_type: ParityType::None,
                 data_rate: 8_000,
             })),
+            waker: RefCell::new(WakerRegistration::new()),
+            changed: AtomicBool::new(false),
         }
+    }
+}
+
+impl ControlShared {
+    async fn changed(&self) {
+        poll_fn(|cx| {
+            if self.changed.load(Ordering::Relaxed) {
+                self.changed.store(false, Ordering::Relaxed);
+                Poll::Ready(())
+            } else {
+                self.waker.borrow_mut().register(cx.waker());
+                Poll::Pending
+            }
+        })
+        .await;
     }
 }
 
@@ -105,6 +134,9 @@ impl<'d> Handler for Control<'d> {
         shared.line_coding.lock(|x| x.set(LineCoding::default()));
         shared.dtr.store(false, Ordering::Relaxed);
         shared.rts.store(false, Ordering::Relaxed);
+
+        shared.changed.store(true, Ordering::Relaxed);
+        shared.waker.borrow_mut().wake();
     }
 
     fn control_out(&mut self, req: control::Request, data: &[u8]) -> Option<OutResponse> {
@@ -127,8 +159,12 @@ impl<'d> Handler for Control<'d> {
                     parity_type: data[5].into(),
                     data_bits: data[6],
                 };
-                self.shared().line_coding.lock(|x| x.set(coding));
+                let shared = self.shared();
+                shared.line_coding.lock(|x| x.set(coding));
                 debug!("Set line coding to: {:?}", coding);
+
+                shared.changed.store(true, Ordering::Relaxed);
+                shared.waker.borrow_mut().wake();
 
                 Some(OutResponse::Accepted)
             }
@@ -140,6 +176,9 @@ impl<'d> Handler for Control<'d> {
                 shared.dtr.store(dtr, Ordering::Relaxed);
                 shared.rts.store(rts, Ordering::Relaxed);
                 debug!("Set dtr {}, rts {}", dtr, rts);
+
+                shared.changed.store(true, Ordering::Relaxed);
+                shared.waker.borrow_mut().wake();
 
                 Some(OutResponse::Accepted)
             }
@@ -158,7 +197,7 @@ impl<'d> Handler for Control<'d> {
             // REQ_GET_ENCAPSULATED_COMMAND is not really supported - it will be rejected below.
             REQ_GET_LINE_CODING if req.length == 7 => {
                 debug!("Sending line coding");
-                let coding = self.shared().line_coding.lock(|x| x.get());
+                let coding = self.shared().line_coding.lock(Cell::get);
                 assert!(buf.len() >= 7);
                 buf[0..4].copy_from_slice(&coding.data_rate.to_le_bytes());
                 buf[4] = coding.stop_bits as u8;
@@ -172,8 +211,8 @@ impl<'d> Handler for Control<'d> {
 }
 
 impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
-    /// Creates a new CdcAcmClass with the provided UsbBus and max_packet_size in bytes. For
-    /// full-speed devices, max_packet_size has to be one of 8, 16, 32 or 64.
+    /// Creates a new CdcAcmClass with the provided UsbBus and `max_packet_size` in bytes. For
+    /// full-speed devices, `max_packet_size` has to be one of 8, 16, 32 or 64.
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, max_packet_size: u16) -> Self {
         assert!(builder.control_buf_len() >= 7);
 
@@ -208,7 +247,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             &[
                 CDC_TYPE_UNION, // bDescriptorSubtype
                 comm_if.into(), // bControlInterface
-                data_if.into(), // bSubordinateInterface
+                data_if,        // bSubordinateInterface
             ],
         );
 
@@ -249,7 +288,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
     /// Gets the current line coding. The line coding contains information that's mainly relevant
     /// for USB to UART serial port emulators, and can be ignored if not relevant.
     pub fn line_coding(&self) -> LineCoding {
-        self.control.line_coding.lock(|x| x.get())
+        self.control.line_coding.lock(Cell::get)
     }
 
     /// Gets the DTR (data terminal ready) state
@@ -274,7 +313,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
 
     /// Waits for the USB host to enable this interface
     pub async fn wait_connection(&mut self) {
-        self.read_ep.wait_enabled().await
+        self.read_ep.wait_enabled().await;
     }
 
     /// Split the class into a sender and receiver.
@@ -291,6 +330,38 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
                 control: self.control,
             },
         )
+    }
+
+    /// Split the class into sender, receiver and control
+    ///
+    /// Allows concurrently sending and receiving packets whilst monitoring for
+    /// control changes (dtr, rts)
+    pub fn split_with_control(self) -> (Sender<'d, D>, Receiver<'d, D>, ControlChanged<'d>) {
+        (
+            Sender {
+                write_ep: self.write_ep,
+                control: self.control,
+            },
+            Receiver {
+                read_ep: self.read_ep,
+                control: self.control,
+            },
+            ControlChanged { control: self.control },
+        )
+    }
+}
+
+/// CDC ACM Control status change monitor
+///
+/// You can obtain a `ControlChanged` with [`CdcAcmClass::split_with_control`]
+pub struct ControlChanged<'d> {
+    control: &'d ControlShared,
+}
+
+impl<'d> ControlChanged<'d> {
+    /// Return a future for when the control settings change
+    pub async fn control_changed(&self) {
+        self.control.changed().await;
     }
 }
 
@@ -312,7 +383,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
     /// Gets the current line coding. The line coding contains information that's mainly relevant
     /// for USB to UART serial port emulators, and can be ignored if not relevant.
     pub fn line_coding(&self) -> LineCoding {
-        self.control.line_coding.lock(|x| x.get())
+        self.control.line_coding.lock(Cell::get)
     }
 
     /// Gets the DTR (data terminal ready) state
@@ -332,7 +403,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 
     /// Waits for the USB host to enable this interface
     pub async fn wait_connection(&mut self) {
-        self.write_ep.wait_enabled().await
+        self.write_ep.wait_enabled().await;
     }
 }
 
@@ -354,7 +425,7 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
     /// Gets the current line coding. The line coding contains information that's mainly relevant
     /// for USB to UART serial port emulators, and can be ignored if not relevant.
     pub fn line_coding(&self) -> LineCoding {
-        self.control.line_coding.lock(|x| x.get())
+        self.control.line_coding.lock(Cell::get)
     }
 
     /// Gets the DTR (data terminal ready) state
@@ -368,13 +439,14 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
     }
 
     /// Reads a single packet from the OUT endpoint.
+    /// Must be called with a buffer large enough to hold max_packet_size bytes.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
         self.read_ep.read(data).await
     }
 
     /// Waits for the USB host to enable this interface
     pub async fn wait_connection(&mut self) {
-        self.read_ep.wait_enabled().await
+        self.read_ep.wait_enabled().await;
     }
 }
 
@@ -448,17 +520,17 @@ impl LineCoding {
     }
 
     /// Gets the number of data bits for UART communication.
-    pub fn data_bits(&self) -> u8 {
+    pub const fn data_bits(&self) -> u8 {
         self.data_bits
     }
 
     /// Gets the parity type for UART communication.
-    pub fn parity_type(&self) -> ParityType {
+    pub const fn parity_type(&self) -> ParityType {
         self.parity_type
     }
 
     /// Gets the data rate in bits per second for UART communication.
-    pub fn data_rate(&self) -> u32 {
+    pub const fn data_rate(&self) -> u32 {
         self.data_rate
     }
 }

@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -18,13 +17,11 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hi!");
 
-    static mut TX_BUFFER: [u8; 8] = [0; 8];
-    static mut RX_BUFFER: [u8; 256] = [0; 256];
-
     let mut config = Config::default();
     config.baudrate = 9600;
-
-    let mut usart = unsafe { BufferedUart::new(p.USART2, Irqs, p.PA3, p.PA2, &mut TX_BUFFER, &mut RX_BUFFER, config) };
+    let mut tx_buf = [0u8; 256];
+    let mut rx_buf = [0u8; 256];
+    let mut usart = BufferedUart::new(p.USART2, Irqs, p.PA3, p.PA2, &mut tx_buf, &mut rx_buf, config).unwrap();
 
     usart.write_all(b"Hello Embassy World!\r\n").await.unwrap();
     info!("wrote Hello, starting echo");

@@ -9,7 +9,7 @@ mod app {
     use defmt::info;
     use embassy_nrf::gpio::{Level, Output, OutputDrive};
     use embassy_nrf::peripherals;
-    use embassy_time::{Duration, Timer};
+    use embassy_time::Timer;
 
     #[shared]
     struct Shared {}
@@ -34,10 +34,10 @@ mod app {
         loop {
             info!("off!");
             led.set_high();
-            Timer::after(Duration::from_millis(300)).await;
+            Timer::after_millis(300).await;
             info!("on!");
             led.set_low();
-            Timer::after(Duration::from_millis(300)).await;
+            Timer::after_millis(300).await;
         }
     }
 }

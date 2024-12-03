@@ -7,7 +7,7 @@
 pub struct InterfaceNumber(pub u8);
 
 impl InterfaceNumber {
-    pub(crate) fn new(index: u8) -> InterfaceNumber {
+    pub(crate) const fn new(index: u8) -> InterfaceNumber {
         InterfaceNumber(index)
     }
 }
@@ -25,7 +25,7 @@ impl From<InterfaceNumber> for u8 {
 pub struct StringIndex(pub u8);
 
 impl StringIndex {
-    pub(crate) fn new(index: u8) -> StringIndex {
+    pub(crate) const fn new(index: u8) -> StringIndex {
         StringIndex(index)
     }
 }

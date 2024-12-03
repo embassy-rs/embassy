@@ -30,9 +30,9 @@ impl Config {
     pub fn try_new(_wdt: &peripherals::WDT) -> Option<Self> {
         let r = unsafe { &*WDT::ptr() };
 
-        #[cfg(not(feature = "_nrf9160"))]
+        #[cfg(not(feature = "_nrf91"))]
         let runstatus = r.runstatus.read().runstatus().bit();
-        #[cfg(feature = "_nrf9160")]
+        #[cfg(feature = "_nrf91")]
         let runstatus = r.runstatus.read().runstatuswdt().bit();
 
         if runstatus {
@@ -83,9 +83,9 @@ impl Watchdog {
         let crv = config.timeout_ticks.max(MIN_TICKS);
         let rren = (1u32 << N) - 1;
 
-        #[cfg(not(feature = "_nrf9160"))]
+        #[cfg(not(feature = "_nrf91"))]
         let runstatus = r.runstatus.read().runstatus().bit();
-        #[cfg(feature = "_nrf9160")]
+        #[cfg(feature = "_nrf91")]
         let runstatus = r.runstatus.read().runstatuswdt().bit();
 
         if runstatus {

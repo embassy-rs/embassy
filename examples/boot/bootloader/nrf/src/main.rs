@@ -31,7 +31,7 @@ fn main() -> ! {
     let flash = WatchdogFlash::start(Nvmc::new(p.NVMC), p.WDT, wdt_config);
     let flash = Mutex::new(RefCell::new(flash));
 
-    let config = BootLoaderConfig::from_linkerfile_blocking(&flash);
+    let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);
     let active_offset = config.active.offset();
     let bl: BootLoader = BootLoader::prepare(config);
 

@@ -57,7 +57,6 @@ impl<'d> Temp<'d> {
     /// ```no_run
     /// use embassy_nrf::{bind_interrupts, temp};
     /// use embassy_nrf::temp::Temp;
-    /// use embassy_time::{Duration, Timer};
     ///
     /// bind_interrupts!(struct Irqs {
     ///     TEMP => temp::InterruptHandler;
@@ -84,7 +83,7 @@ impl<'d> Temp<'d> {
         let value = poll_fn(|cx| {
             WAKER.register(cx.waker());
             if t.events_datardy.read().bits() == 0 {
-                return Poll::Pending;
+                Poll::Pending
             } else {
                 t.events_datardy.reset();
                 let raw = t.temp.read().bits();

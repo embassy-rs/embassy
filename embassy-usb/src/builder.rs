@@ -1,17 +1,16 @@
 use heapless::Vec;
 
-use crate::config::*;
+use crate::config::MAX_HANDLER_COUNT;
 use crate::descriptor::{BosWriter, DescriptorWriter};
 use crate::driver::{Driver, Endpoint, EndpointType};
-#[cfg(feature = "msos-descriptor")]
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
-use crate::types::*;
+use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Handler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-/// Configuration used when creating [UsbDevice].
+/// Configuration used when creating [`UsbDevice`].
 pub struct Config<'a> {
     pub(crate) vendor_id: u16,
     pub(crate) product_id: u16,
@@ -39,11 +38,12 @@ pub struct Config<'a> {
 
     /// Maximum packet size in bytes for the control endpoint 0.
     ///
-    /// Valid values are 8, 16, 32 and 64. There's generally no need to change this from the default
-    /// value of 8 bytes unless a class uses control transfers for sending large amounts of data, in
-    /// which case using a larger packet size may be more efficient.
+    /// Valid values depend on the speed at which the bus is enumerated.
+    /// - low speed: 8
+    /// - full speed: 8, 16, 32, or 64
+    /// - high speed: 64
     ///
-    /// Default: 8 bytes
+    /// Default: 64 bytes
     pub max_packet_size_0: u8,
 
     /// Manufacturer name string descriptor.
@@ -99,7 +99,7 @@ pub struct Config<'a> {
 
 impl<'a> Config<'a> {
     /// Create default configuration with the provided vid and pid values.
-    pub fn new(vid: u16, pid: u16) -> Self {
+    pub const fn new(vid: u16, pid: u16) -> Self {
         Self {
             device_class: 0x00,
             device_sub_class: 0x00,
@@ -129,11 +129,9 @@ pub struct Builder<'d, D: Driver<'d>> {
     driver: D,
     next_string_index: u8,
 
-    device_descriptor: DescriptorWriter<'d>,
     config_descriptor: DescriptorWriter<'d>,
     bos_descriptor: BosWriter<'d>,
 
-    #[cfg(feature = "msos-descriptor")]
     msos_descriptor: MsOsDescriptorWriter<'d>,
 }
 
@@ -146,10 +144,9 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     pub fn new(
         driver: D,
         config: Config<'d>,
-        device_descriptor_buf: &'d mut [u8],
         config_descriptor_buf: &'d mut [u8],
         bos_descriptor_buf: &'d mut [u8],
-        #[cfg(feature = "msos-descriptor")] msos_descriptor_buf: &'d mut [u8],
+        msos_descriptor_buf: &'d mut [u8],
         control_buf: &'d mut [u8],
     ) -> Self {
         // Magic values specified in USB-IF ECN on IADs.
@@ -159,20 +156,19 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             panic!("if composite_with_iads is set, you must set device_class = 0xEF, device_sub_class = 0x02, device_protocol = 0x01");
         }
 
-        if config.max_power > 500 {
-            panic!("The maximum allowed value for `max_power` is 500mA");
-        }
+        assert!(
+            config.max_power <= 500,
+            "The maximum allowed value for `max_power` is 500mA"
+        );
 
         match config.max_packet_size_0 {
             8 | 16 | 32 | 64 => {}
             _ => panic!("invalid max_packet_size_0, the allowed values are 8, 16, 32 or 64"),
         }
 
-        let mut device_descriptor = DescriptorWriter::new(device_descriptor_buf);
         let mut config_descriptor = DescriptorWriter::new(config_descriptor_buf);
         let mut bos_descriptor = BosWriter::new(DescriptorWriter::new(bos_descriptor_buf));
 
-        device_descriptor.device(&config);
         config_descriptor.configuration(&config);
         bos_descriptor.bos();
 
@@ -184,28 +180,23 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             control_buf,
             next_string_index: STRING_INDEX_CUSTOM_START,
 
-            device_descriptor,
             config_descriptor,
             bos_descriptor,
 
-            #[cfg(feature = "msos-descriptor")]
             msos_descriptor: MsOsDescriptorWriter::new(msos_descriptor_buf),
         }
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
     pub fn build(mut self) -> UsbDevice<'d, D> {
-        #[cfg(feature = "msos-descriptor")]
         let msos_descriptor = self.msos_descriptor.build(&mut self.bos_descriptor);
 
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 
         // Log the number of allocator bytes actually used in descriptor buffers
-        info!("USB: device_descriptor used: {}", self.device_descriptor.position());
         info!("USB: config_descriptor used: {}", self.config_descriptor.position());
         info!("USB: bos_descriptor used: {}", self.bos_descriptor.writer.position());
-        #[cfg(feature = "msos-descriptor")]
         info!("USB: msos_descriptor used: {}", msos_descriptor.len());
         info!("USB: control_buf size: {}", self.control_buf.len());
 
@@ -213,13 +204,11 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             self.driver,
             self.config,
             self.handlers,
-            self.device_descriptor.into_buf(),
             self.config_descriptor.into_buf(),
             self.bos_descriptor.writer.into_buf(),
+            msos_descriptor,
             self.interfaces,
             self.control_buf,
-            #[cfg(feature = "msos-descriptor")]
-            msos_descriptor,
         )
     }
 
@@ -250,7 +239,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             builder: self,
             iface_count_index,
 
-            #[cfg(feature = "msos-descriptor")]
             first_interface,
         }
     }
@@ -260,12 +248,11 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     /// The Handler is called on some USB bus events, and to handle all control requests not already
     /// handled by the USB stack.
     pub fn handler(&mut self, handler: &'d mut dyn Handler) {
-        if self.handlers.push(handler).is_err() {
-            panic!(
-                "embassy-usb: handler list full. Increase the `max_handler_count` compile-time setting. Current value: {}",
-                MAX_HANDLER_COUNT
-            )
-        }
+        assert!(
+            self.handlers.push(handler).is_ok(),
+            "embassy-usb: handler list full. Increase the `max_handler_count` compile-time setting. Current value: {}",
+            MAX_HANDLER_COUNT
+        );
     }
 
     /// Allocates a new string index.
@@ -275,7 +262,6 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         StringIndex::new(index)
     }
 
-    #[cfg(feature = "msos-descriptor")]
     /// Add an MS OS 2.0 Descriptor Set.
     ///
     /// Panics if called more than once.
@@ -283,13 +269,11 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         self.msos_descriptor.header(windows_version, vendor_code);
     }
 
-    #[cfg(feature = "msos-descriptor")]
     /// Add an MS OS 2.0 Device Level Feature Descriptor.
     pub fn msos_feature<T: DeviceLevelDescriptor>(&mut self, desc: T) {
         self.msos_descriptor.device_feature(desc);
     }
 
-    #[cfg(feature = "msos-descriptor")]
     /// Gets the underlying [`MsOsDescriptorWriter`] to allow adding subsets and features for classes that
     /// do not add their own.
     pub fn msos_writer(&mut self) -> &mut MsOsDescriptorWriter<'d> {
@@ -306,13 +290,11 @@ pub struct FunctionBuilder<'a, 'd, D: Driver<'d>> {
     builder: &'a mut Builder<'d, D>,
     iface_count_index: Option<usize>,
 
-    #[cfg(feature = "msos-descriptor")]
     first_interface: InterfaceNumber,
 }
 
 impl<'a, 'd, D: Driver<'d>> Drop for FunctionBuilder<'a, 'd, D> {
     fn drop(&mut self) {
-        #[cfg(feature = "msos-descriptor")]
         self.builder.msos_descriptor.end_function();
     }
 }
@@ -332,12 +314,10 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
             num_alt_settings: 0,
         };
 
-        if self.builder.interfaces.push(iface).is_err() {
-            panic!(
-                "embassy-usb: interface list full. Increase the `max_interface_count` compile-time setting. Current value: {}",
-                MAX_INTERFACE_COUNT
-            )
-        }
+        assert!(self.builder.interfaces.push(iface).is_ok(),
+            "embassy-usb: interface list full. Increase the `max_interface_count` compile-time setting. Current value: {}",
+            MAX_INTERFACE_COUNT
+        );
 
         InterfaceBuilder {
             builder: self.builder,
@@ -346,7 +326,6 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
         }
     }
 
-    #[cfg(feature = "msos-descriptor")]
     /// Add an MS OS 2.0 Function Level Feature Descriptor.
     pub fn msos_feature<T: FunctionLevelDescriptor>(&mut self, desc: T) {
         if !self.builder.msos_descriptor.is_in_config_subset() {
@@ -357,7 +336,6 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
             self.builder.msos_descriptor.function(self.first_interface);
         }
 
-        #[cfg(feature = "msos-descriptor")]
         self.builder.msos_descriptor.function_feature(desc);
     }
 }
@@ -371,7 +349,7 @@ pub struct InterfaceBuilder<'a, 'd, D: Driver<'d>> {
 
 impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
     /// Get the interface number.
-    pub fn interface_number(&self) -> InterfaceNumber {
+    pub const fn interface_number(&self) -> InterfaceNumber {
         self.interface_number
     }
 
@@ -422,12 +400,12 @@ pub struct InterfaceAltBuilder<'a, 'd, D: Driver<'d>> {
 
 impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Get the interface number.
-    pub fn interface_number(&self) -> InterfaceNumber {
+    pub const fn interface_number(&self) -> InterfaceNumber {
         self.interface_number
     }
 
     /// Get the alternate setting number.
-    pub fn alt_setting_number(&self) -> u8 {
+    pub const fn alt_setting_number(&self) -> u8 {
         self.alt_setting_number
     }
 
@@ -436,7 +414,12 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn descriptor(&mut self, descriptor_type: u8, descriptor: &[u8]) {
-        self.builder.config_descriptor.write(descriptor_type, descriptor)
+        self.builder.config_descriptor.write(descriptor_type, descriptor);
+    }
+
+    /// Add a custom Binary Object Store (BOS) descriptor to this alternate setting.
+    pub fn bos_capability(&mut self, capability_type: u8, capability: &[u8]) {
+        self.builder.bos_descriptor.capability(capability_type, capability);
     }
 
     fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {

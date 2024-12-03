@@ -8,13 +8,14 @@ use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use pac::spis0::config::ORDER_A as BitOrder;
 
-use crate::chip::FORCE_COPY_BUFFER_SIZE;
-use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, AnyPin, Pin as GpioPin};
+use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::gpio::{self, AnyPin, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
-use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
+use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac, Peripheral};
 
 /// SPIS error
@@ -36,6 +37,9 @@ pub struct Config {
     /// SPI mode
     pub mode: Mode,
 
+    /// Bit order
+    pub bit_order: BitOrder,
+
     /// Overread character.
     ///
     /// If the master keeps clocking the bus after all the bytes in the TX buffer have
@@ -56,6 +60,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             mode: MODE_0,
+            bit_order: BitOrder::MSB_FIRST,
             orc: 0x00,
             def: 0x00,
             auto_acquire: true,
@@ -105,7 +110,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         Self::new_inner(
             spis,
             cs.map_into(),
-            sck.map_into(),
+            Some(sck.map_into()),
             Some(miso.map_into()),
             Some(mosi.map_into()),
             config,
@@ -122,7 +127,14 @@ impl<'d, T: Instance> Spis<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, miso);
-        Self::new_inner(spis, cs.map_into(), sck.map_into(), Some(miso.map_into()), None, config)
+        Self::new_inner(
+            spis,
+            cs.map_into(),
+            Some(sck.map_into()),
+            Some(miso.map_into()),
+            None,
+            config,
+        )
     }
 
     /// Create a new SPIS driver, capable of RX only (MOSI only).
@@ -135,28 +147,49 @@ impl<'d, T: Instance> Spis<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, mosi);
-        Self::new_inner(spis, cs.map_into(), sck.map_into(), None, Some(mosi.map_into()), config)
+        Self::new_inner(
+            spis,
+            cs.map_into(),
+            Some(sck.map_into()),
+            None,
+            Some(mosi.map_into()),
+            config,
+        )
+    }
+
+    /// Create a new SPIS driver, capable of TX only (MISO only) without SCK pin.
+    pub fn new_txonly_nosck(
+        spis: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        cs: impl Peripheral<P = impl GpioPin> + 'd,
+        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cs, miso);
+        Self::new_inner(spis, cs.map_into(), None, Some(miso.map_into()), None, config)
     }
 
     fn new_inner(
         spis: impl Peripheral<P = T> + 'd,
         cs: PeripheralRef<'d, AnyPin>,
-        sck: PeripheralRef<'d, AnyPin>,
+        sck: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         compiler_fence(Ordering::SeqCst);
 
-        into_ref!(spis, cs, sck);
+        into_ref!(spis, cs);
 
         let r = T::regs();
 
         // Configure pins.
-        sck.conf().write(|w| w.input().connect().drive().h0h1());
-        r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
         cs.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.csn.write(|w| unsafe { w.bits(cs.psel_bits()) });
+        if let Some(sck) = &sck {
+            sck.conf().write(|w| w.input().connect().drive().h0h1());
+            r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
+        }
         if let Some(mosi) = &mosi {
             mosi.conf().write(|w| w.input().connect().drive().h0h1());
             r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
@@ -169,47 +202,10 @@ impl<'d, T: Instance> Spis<'d, T> {
         // Enable SPIS instance.
         r.enable.write(|w| w.enable().enabled());
 
-        // Configure mode.
-        let mode = config.mode;
-        r.config.write(|w| {
-            match mode {
-                MODE_0 => {
-                    w.order().msb_first();
-                    w.cpol().active_high();
-                    w.cpha().leading();
-                }
-                MODE_1 => {
-                    w.order().msb_first();
-                    w.cpol().active_high();
-                    w.cpha().trailing();
-                }
-                MODE_2 => {
-                    w.order().msb_first();
-                    w.cpol().active_low();
-                    w.cpha().leading();
-                }
-                MODE_3 => {
-                    w.order().msb_first();
-                    w.cpol().active_low();
-                    w.cpha().trailing();
-                }
-            }
+        let mut spis = Self { _p: spis };
 
-            w
-        });
-
-        // Set over-read character.
-        let orc = config.orc;
-        r.orc.write(|w| unsafe { w.orc().bits(orc) });
-
-        // Set default character.
-        let def = config.def;
-        r.def.write(|w| unsafe { w.def().bits(def) });
-
-        // Configure auto-acquire on 'transfer end' event.
-        if config.auto_acquire {
-            r.shorts.write(|w| w.end_acquire().bit(true));
-        }
+        // Apply runtime peripheral configuration
+        Self::set_config(&mut spis, &config).unwrap();
 
         // Disable all events interrupts.
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -217,7 +213,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _p: spis }
+        spis
     }
 
     fn prepare(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
@@ -230,14 +226,18 @@ impl<'d, T: Instance> Spis<'d, T> {
         let r = T::regs();
 
         // Set up the DMA write.
-        let (ptr, len) = slice_ptr_parts(tx);
-        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
-        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+        if tx.len() > EASY_DMA_SIZE {
+            return Err(Error::TxBufferTooLong);
+        }
+        r.txd.ptr.write(|w| unsafe { w.ptr().bits(tx as *const u8 as _) });
+        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx.len() as _) });
 
         // Set up the DMA read.
-        let (ptr, len) = slice_ptr_parts_mut(rx);
-        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
-        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+        if rx.len() > EASY_DMA_SIZE {
+            return Err(Error::RxBufferTooLong);
+        }
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(rx as *mut u8 as _) });
+        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx.len() as _) });
 
         // Reset end event.
         r.events_end.reset();
@@ -454,43 +454,38 @@ impl<'d, T: Instance> Drop for Spis<'d, T> {
     }
 }
 
-pub(crate) mod sealed {
-    use embassy_sync::waitqueue::AtomicWaker;
+pub(crate) struct State {
+    waker: AtomicWaker,
+}
 
-    use super::*;
-
-    pub struct State {
-        pub waker: AtomicWaker,
-    }
-
-    impl State {
-        pub const fn new() -> Self {
-            Self {
-                waker: AtomicWaker::new(),
-            }
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
         }
-    }
-
-    pub trait Instance {
-        fn regs() -> &'static pac::spis0::RegisterBlock;
-        fn state() -> &'static State;
     }
 }
 
+pub(crate) trait SealedInstance {
+    fn regs() -> &'static pac::spis0::RegisterBlock;
+    fn state() -> &'static State;
+}
+
 /// SPIS peripheral instance
-pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_spis {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::spis::sealed::Instance for peripherals::$type {
+        impl crate::spis::SealedInstance for peripherals::$type {
             fn regs() -> &'static pac::spis0::RegisterBlock {
                 unsafe { &*pac::$pac_type::ptr() }
             }
-            fn state() -> &'static crate::spis::sealed::State {
-                static STATE: crate::spis::sealed::State = crate::spis::sealed::State::new();
+            fn state() -> &'static crate::spis::State {
+                static STATE: crate::spis::State = crate::spis::State::new();
                 &STATE
             }
         }
@@ -504,29 +499,30 @@ macro_rules! impl_spis {
 
 impl<'d, T: Instance> SetConfig for Spis<'d, T> {
     type Config = Config;
-    fn set_config(&mut self, config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         let r = T::regs();
         // Configure mode.
         let mode = config.mode;
         r.config.write(|w| {
             match mode {
                 MODE_0 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().leading();
                 }
                 MODE_1 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().trailing();
                 }
                 MODE_2 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().leading();
                 }
                 MODE_3 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().trailing();
                 }
@@ -546,5 +542,7 @@ impl<'d, T: Instance> SetConfig for Spis<'d, T> {
         // Configure auto-acquire on 'transfer end' event.
         let auto_acquire = config.auto_acquire;
         r.shorts.write(|w| w.end_acquire().bit(auto_acquire));
+
+        Ok(())
     }
 }

@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -15,7 +14,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let mut usart = Uart::new(p.USART1, p.PB7, p.PB6, Irqs, p.DMA1_CH2, p.DMA1_CH3, Config::default());
+    let mut usart = Uart::new(p.USART1, p.PB7, p.PB6, Irqs, p.DMA1_CH2, p.DMA1_CH3, Config::default()).unwrap();
 
     usart.write(b"Hello Embassy World!\r\n").await.unwrap();
     info!("wrote Hello, starting echo");

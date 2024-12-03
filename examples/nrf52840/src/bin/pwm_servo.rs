@@ -1,11 +1,10 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::pwm::{Prescaler, SimplePwm};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -19,29 +18,29 @@ async fn main(_spawner: Spawner) {
     pwm.set_max_duty(2500);
     info!("pwm initialized!");
 
-    Timer::after(Duration::from_millis(5000)).await;
+    Timer::after_millis(5000).await;
 
     // 1ms 0deg (1/.008=125), 1.5ms 90deg (1.5/.008=187.5), 2ms 180deg (2/.008=250),
     loop {
         info!("45 deg");
         // poor mans inverting, subtract our value from max_duty
         pwm.set_duty(0, 2500 - 156);
-        Timer::after(Duration::from_millis(5000)).await;
+        Timer::after_millis(5000).await;
 
         info!("90 deg");
         pwm.set_duty(0, 2500 - 187);
-        Timer::after(Duration::from_millis(5000)).await;
+        Timer::after_millis(5000).await;
 
         info!("135 deg");
         pwm.set_duty(0, 2500 - 218);
-        Timer::after(Duration::from_millis(5000)).await;
+        Timer::after_millis(5000).await;
 
         info!("180 deg");
         pwm.set_duty(0, 2500 - 250);
-        Timer::after(Duration::from_millis(5000)).await;
+        Timer::after_millis(5000).await;
 
         info!("0 deg");
         pwm.set_duty(0, 2500 - 125);
-        Timer::after(Duration::from_millis(5000)).await;
+        Timer::after_millis(5000).await;
     }
 }

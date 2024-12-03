@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use core::ptr;
 
 use crate::cmd::CmdPacket;
@@ -12,7 +11,7 @@ use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
 pub struct Sys {
-    phantom: PhantomData<Sys>,
+    _private: (),
 }
 
 impl Sys {
@@ -27,7 +26,7 @@ impl Sys {
             });
         }
 
-        Self { phantom: PhantomData }
+        Self { _private: () }
     }
 
     /// Returns CPU2 wireless firmware information (if present).

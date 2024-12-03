@@ -2,16 +2,15 @@
 //!
 //! # Example (nrf52)
 //!
-//! ```rust
-//! use embassy_embedded_hal::shared_bus::i2c::I2cDevice;
+//! ```rust,ignore
+//! use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 //! use embassy_sync::mutex::Mutex;
-//! use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+//! use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 //!
-//! static I2C_BUS: StaticCell<Mutex::<ThreadModeRawMutex, Twim<TWISPI0>>> = StaticCell::new();
+//! static I2C_BUS: StaticCell<Mutex<NoopRawMutex, Twim<TWISPI0>>> = StaticCell::new();
 //! let config = twim::Config::default();
-//! let irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-//! let i2c = Twim::new(p.TWISPI0, irq, p.P0_03, p.P0_04, config);
-//! let i2c_bus = Mutex::<ThreadModeRawMutex, _>::new(i2c);
+//! let i2c = Twim::new(p.TWISPI0, Irqs, p.P0_03, p.P0_04, config);
+//! let i2c_bus = Mutex::new(i2c);
 //! let i2c_bus = I2C_BUS.init(i2c_bus);
 //!
 //! // Device 1, using embedded-hal-async compatible driver for QMC5883L compass
@@ -107,6 +106,11 @@ impl<'a, M: RawMutex, BUS: SetConfig> I2cDeviceWithConfig<'a, M, BUS> {
     pub fn new(bus: &'a Mutex<M, BUS>, config: BUS::Config) -> Self {
         Self { bus, config }
     }
+
+    /// Change the device's config at runtime
+    pub fn set_config(&mut self, config: BUS::Config) {
+        self.config = config;
+    }
 }
 
 impl<'a, M, BUS> i2c::ErrorType for I2cDeviceWithConfig<'a, M, BUS>
@@ -125,14 +129,14 @@ where
 {
     async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
+        bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
         bus.read(address, buffer).await.map_err(I2cDeviceError::I2c)?;
         Ok(())
     }
 
     async fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
+        bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
         bus.write(address, bytes).await.map_err(I2cDeviceError::I2c)?;
         Ok(())
     }
@@ -144,7 +148,7 @@ where
         rd_buffer: &mut [u8],
     ) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
+        bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
         bus.write_read(address, wr_buffer, rd_buffer)
             .await
             .map_err(I2cDeviceError::I2c)?;
@@ -153,7 +157,7 @@ where
 
     async fn transaction(&mut self, address: u8, operations: &mut [i2c::Operation<'_>]) -> Result<(), Self::Error> {
         let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
+        bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
         bus.transaction(address, operations)
             .await
             .map_err(I2cDeviceError::I2c)?;

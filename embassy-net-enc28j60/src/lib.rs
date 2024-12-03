@@ -17,9 +17,8 @@ mod phy;
 mod traits;
 
 use core::cmp;
-use core::convert::TryInto;
 
-use embassy_net_driver::{Capabilities, HardwareAddress, LinkState, Medium};
+use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_time::Duration;
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::{Operation, SpiDevice};
@@ -194,10 +193,15 @@ where
         self.bit_field_set(common::Register::ECON1, common::ECON1::mask().rxen());
     }
 
+    /// Returns the device's MAC address
+    pub fn address(&self) -> [u8; 6] {
+        self.mac_addr
+    }
+
     /// Flushes the transmit buffer, ensuring all pending transmissions have completed
     /// NOTE: The returned packet *must* be `read` or `ignore`-d, otherwise this method will always
     /// return `None` on subsequent invocations
-    pub fn receive<'a>(&mut self, buf: &'a mut [u8]) -> Option<&'a mut [u8]> {
+    pub fn receive(&mut self, buf: &mut [u8]) -> Option<usize> {
         if self.pending_packets() == 0 {
             // Errata #6: we can't rely on PKTIF so we check PKTCNT
             return None;
@@ -241,7 +245,7 @@ where
 
         self.next_packet = next_packet;
 
-        Some(&mut buf[..len as usize])
+        Some(len as usize)
     }
 
     fn wait_tx_ready(&mut self) {
@@ -640,11 +644,10 @@ where
         Self: 'a;
 
     fn receive(&mut self, cx: &mut core::task::Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let rx_buf = unsafe { &mut RX_BUF };
-        let tx_buf = unsafe { &mut TX_BUF };
-        if let Some(pkt) = self.receive(rx_buf) {
-            let n = pkt.len();
-            Some((RxToken { buf: &mut pkt[..n] }, TxToken { buf: tx_buf, eth: self }))
+        let rx_buf = unsafe { &mut *core::ptr::addr_of_mut!(RX_BUF) };
+        let tx_buf = unsafe { &mut *core::ptr::addr_of_mut!(TX_BUF) };
+        if let Some(n) = self.receive(rx_buf) {
+            Some((RxToken { buf: &mut rx_buf[..n] }, TxToken { buf: tx_buf, eth: self }))
         } else {
             cx.waker().wake_by_ref();
             None
@@ -652,7 +655,7 @@ where
     }
 
     fn transmit(&mut self, _cx: &mut core::task::Context) -> Option<Self::TxToken<'_>> {
-        let tx_buf = unsafe { &mut TX_BUF };
+        let tx_buf = unsafe { &mut *core::ptr::addr_of_mut!(TX_BUF) };
         Some(TxToken { buf: tx_buf, eth: self })
     }
 
@@ -667,7 +670,6 @@ where
     fn capabilities(&self) -> Capabilities {
         let mut caps = Capabilities::default();
         caps.max_transmission_unit = MTU;
-        caps.medium = Medium::Ethernet;
         caps
     }
 

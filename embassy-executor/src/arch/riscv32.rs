@@ -8,8 +8,7 @@ mod thread {
     use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, Ordering};
 
-    #[cfg(feature = "nightly")]
-    pub use embassy_macros::main_riscv as main;
+    pub use embassy_executor_macros::main_riscv as main;
 
     use crate::{raw, Spawner};
 

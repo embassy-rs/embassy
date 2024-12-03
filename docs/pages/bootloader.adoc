@@ -1,0 +1,96 @@
+= Bootloader
+
+`embassy-boot` a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
+
+The bootloader can be used either as a library or be flashed directly if you are happy with the default configuration and capabilities.
+
+By design, the bootloader does not provide any network capabilities. Networking capabilities for fetching new firmware can be provided by the user application, using the bootloader as a library for updating the firmware, or by using the bootloader as a library and adding this capability yourself.
+
+The bootloader supports both internal and external flash by relying on the `embedded-storage` traits. The bootloader optionally supports the verification of firmware that has been digitally signed (recommended).
+
+
+== Hardware support
+
+The bootloader supports
+
+* nRF52 with and without softdevice
+* STM32 L4, WB, WL, L1, L0, F3, F7 and H7
+* Raspberry Pi: RP2040
+
+In general, the bootloader works on any platform that implements the `embedded-storage` traits for its internal flash, but may require custom initialization code to work.
+
+== Design
+
+image::bootloader_flash.png[Bootloader flash layout]
+
+The bootloader divides the storage into 4 main partitions, configurable when creating the bootloader
+instance or via linker scripts:
+
+* BOOTLOADER - Where the bootloader is placed. The bootloader itself consumes about 8kB of flash, but if you need to debug it and have space available, increasing this to 24kB will allow you to run the bootloader with probe-rs.
+* ACTIVE - Where the main application is placed. The bootloader will attempt to load the application at the start of this partition. This partition is only written to by the bootloader. The size required for this partition depends on the size of your application.
+* DFU - Where the application-to-be-swapped is placed. This partition is written to by the application. This partition must be at least 1 page bigger than the ACTIVE partition, since the swap algorithm uses the extra space to ensure power safe copy of data:
++
+Partition Size~dfu~= Partition Size~active~+ Page Size~active~
++
+All values are specified in bytes.
+
+* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped. When the new firmware has been written to the DFU partition, a magic field is written to instruct the bootloader that the partitions should be swapped. This partition must be able to store a magic field as well as the partition swap progress. The partition size given by:
++
+Partition Size~state~ = Write Size~state~ + (2 × Partition Size~active~ / Page Size~active~)
++
+All values are specified in bytes.
+
+The partitions for ACTIVE (+BOOTLOADER), DFU and BOOTLOADER_STATE may be placed in separate flash. The page size used by the bootloader is determined by the lowest common multiple of the ACTIVE and DFU page sizes.
+The BOOTLOADER_STATE partition must be big enough to store one word per page in the ACTIVE and DFU partitions combined.
+
+The bootloader has a platform-agnostic part, which implements the power fail safe swapping algorithm given the boundaries set by the partitions. The platform-specific part is a minimal shim that provides additional functionality such as watchdogs or supporting the nRF52 softdevice.
+
+NOTE: The linker scripts for the application and bootloader look similar, but the FLASH region must point to the BOOTLOADER partition for the bootloader, and the ACTIVE partition for the application.
+
+=== FirmwareUpdater
+
+The `FirmwareUpdater` is an object for conveniently flashing firmware to the DFU partition and subsequently marking it as being ready for swapping with the active partition on the next reset. Its principle methods are `write_firmware`, which is called once per the size of the flash "write block" (typically 4KiB), and `mark_updated`, which is the final call.
+
+=== Verification
+
+The bootloader supports the verification of firmware that has been flashed to the DFU partition. Verification requires that firmware has been signed digitally using link:https://ed25519.cr.yp.to/[`ed25519`] signatures. With verification enabled, the `FirmwareUpdater::verify_and_mark_updated` method is called in place of `mark_updated`. A public key and signature are required, along with the actual length of the firmware that has been flashed. If verification fails then the firmware will not be marked as updated and therefore be rejected.
+
+Signatures are normally conveyed with the firmware to be updated and not written to flash. How signatures are provided is a firmware responsibility.
+
+To enable verification use either the `ed25519-dalek` or `ed25519-salty` features when depending on the `embassy-boot` crate. We recommend `ed25519-salty` at this time due to its small size.
+
+==== Tips on keys and signing with ed25519
+
+Ed25519 is a public key signature system where you are responsible for keeping the private key secure. We recommend embedding the *public* key in your program so that it can be easily passed to `verify_and_mark_updated`. An example declaration of the public key in your firmware:
+
+[source, rust]
+----
+static PUBLIC_SIGNING_KEY: &[u8] = include_bytes!("key.pub");
+----
+
+Signatures are often conveyed along with firmware by appending them.
+
+Ed25519 keys can be generated by a variety of tools. We recommend link:https://man.openbsd.org/signify[`signify`] as it is in wide use to sign and verify OpenBSD distributions, and is straightforward to use.
+
+The following set of Bash commands can be used to generate public and private keys on Unix platforms, and also generate a local `key.pub` file with the `signify` file headers removed. Declare a `SECRETS_DIR` environment variable in a secure location.
+
+[source, bash]
+----
+signify -G -n -p $SECRETS_DIR/key.pub -s $SECRETS_DIR/key.sec
+tail -n1 $SECRETS_DIR/key.pub | base64 -d -i - | dd ibs=10 skip=1 > key.pub
+chmod 700 $SECRETS_DIR/key.sec
+export SECRET_SIGNING_KEY=$(tail -n1 $SECRETS_DIR/key.sec)
+----
+
+Then, to sign your firmware given a declaration of `FIRMWARE_DIR` and a firmware filename of `myfirmware`:
+
+[source, bash]
+----
+shasum -a 512 -b $FIRMWARE_DIR/myfirmware > $SECRETS_DIR/message.txt
+cat $SECRETS_DIR/message.txt | dd ibs=128 count=1 | xxd -p -r > $SECRETS_DIR/message.txt
+signify -S -s $SECRETS_DIR/key.sec -m $SECRETS_DIR/message.txt -x $SECRETS_DIR/message.txt.sig
+cp $FIRMWARE_DIR/myfirmware $FIRMWARE_DIR/myfirmware+signed
+tail -n1 $SECRETS_DIR/message.txt.sig | base64 -d -i - | dd ibs=10 skip=1 >> $FIRMWARE_DIR/myfirmware+signed
+----
+
+Remember, guard the `$SECRETS_DIR/key.sec` key as compromising it means that another party can sign your firmware.

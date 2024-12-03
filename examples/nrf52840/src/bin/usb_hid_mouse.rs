@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::mem;
 
@@ -10,7 +9,7 @@ use embassy_futures::join::join;
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config};
@@ -44,19 +43,17 @@ async fn main(_spawner: Spawner) {
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
-    let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
-    let request_handler = MyRequestHandler {};
+    let mut request_handler = MyRequestHandler {};
 
     let mut state = State::new();
 
     let mut builder = Builder::new(
         driver,
         config,
-        &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut msos_descriptor,
@@ -66,7 +63,7 @@ async fn main(_spawner: Spawner) {
     // Create classes on the builder.
     let config = embassy_usb::class::hid::Config {
         report_descriptor: MouseReport::desc(),
-        request_handler: Some(&request_handler),
+        request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
     };
@@ -83,7 +80,7 @@ async fn main(_spawner: Spawner) {
     let hid_fut = async {
         let mut y: i8 = 5;
         loop {
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
 
             y = -y;
             let report = MouseReport {
@@ -108,21 +105,21 @@ async fn main(_spawner: Spawner) {
 struct MyRequestHandler {}
 
 impl RequestHandler for MyRequestHandler {
-    fn get_report(&self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
+    fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         info!("Get report for {:?}", id);
         None
     }
 
-    fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
+    fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
         info!("Set report for {:?}: {=[u8]}", id, data);
         OutResponse::Accepted
     }
 
-    fn set_idle_ms(&self, id: Option<ReportId>, dur: u32) {
+    fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
         info!("Set idle rate for {:?} to {:?}", id, dur);
     }
 
-    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
+    fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
         info!("Get idle rate for {:?}", id);
         None
     }

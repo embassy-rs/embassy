@@ -1,17 +1,16 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
-#[cfg(feature = "defmt-rtt")]
+#[cfg(feature = "defmt")]
 use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use panic_reset as _;
 
 #[cfg(feature = "skip-include")]
@@ -25,14 +24,13 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(BlockingAsync::new(flash));
 
-    let button = Input::new(p.PB2, Pull::Up);
-    let mut button = ExtiInput::new(button, p.EXTI2);
+    let mut button = ExtiInput::new(p.PB2, p.EXTI2, Pull::Up);
 
     let mut led = Output::new(p.PB5, Level::Low, Speed::Low);
 
     led.set_high();
 
-    let config = FirmwareUpdaterConfig::from_linkerfile(&flash);
+    let config = FirmwareUpdaterConfig::from_linkerfile(&flash, &flash);
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     let mut updater = FirmwareUpdater::new(config, &mut magic.0);
     button.wait_for_falling_edge().await;
@@ -46,6 +44,6 @@ async fn main(_spawner: Spawner) {
 
     updater.mark_updated().await.unwrap();
     led.set_low();
-    Timer::after(Duration::from_secs(1)).await;
+    Timer::after_secs(1).await;
     cortex_m::peripheral::SCB::sys_reset();
 }

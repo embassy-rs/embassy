@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -21,7 +20,7 @@ but can be surely changed for your needs.
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
+    config.rcc.sys = embassy_stm32::rcc::Sysclk::HSE;
     let p = embassy_stm32::init(config);
 
     defmt::info!("Starting system");
@@ -33,10 +32,10 @@ async fn main(_spawner: Spawner) {
     config2.baudrate = 9600;
 
     //RX/TX connected to USB/UART Bridge on LoRa-E5 mini v1.0
-    let mut usart1 = Uart::new(p.USART1, p.PB7, p.PB6, Irqs, p.DMA1_CH3, p.DMA1_CH4, config1);
+    let mut usart1 = Uart::new(p.USART1, p.PB7, p.PB6, Irqs, p.DMA1_CH3, p.DMA1_CH4, config1).unwrap();
 
     //RX1/TX1 (LPUART) on LoRa-E5 mini v1.0
-    let mut usart2 = Uart::new(p.LPUART1, p.PC0, p.PC1, Irqs, p.DMA1_CH5, p.DMA1_CH6, config2);
+    let mut usart2 = Uart::new(p.LPUART1, p.PC0, p.PC1, Irqs, p.DMA1_CH5, p.DMA1_CH6, config2).unwrap();
 
     unwrap!(usart1.write(b"Hello Embassy World!\r\n").await);
     unwrap!(usart2.write(b"Hello Embassy World!\r\n").await);

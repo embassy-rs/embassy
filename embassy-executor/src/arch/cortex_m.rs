@@ -51,8 +51,7 @@ mod thread {
     use core::arch::asm;
     use core::marker::PhantomData;
 
-    #[cfg(feature = "nightly")]
-    pub use embassy_macros::main_cortex_m as main;
+    pub use embassy_executor_macros::main_cortex_m as main;
 
     use crate::{raw, Spawner};
 
@@ -115,12 +114,12 @@ mod thread {
 pub use interrupt::*;
 #[cfg(feature = "executor-interrupt")]
 mod interrupt {
-    use core::cell::UnsafeCell;
+    use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;
 
-    use atomic_polyfill::{AtomicBool, Ordering};
     use cortex_m::interrupt::InterruptNumber;
     use cortex_m::peripheral::NVIC;
+    use critical_section::Mutex;
 
     use crate::raw;
 
@@ -146,7 +145,7 @@ mod interrupt {
     /// It is somewhat more complex to use, it's recommended to use the thread-mode
     /// [`Executor`] instead, if it works for your use case.
     pub struct InterruptExecutor {
-        started: AtomicBool,
+        started: Mutex<Cell<bool>>,
         executor: UnsafeCell<MaybeUninit<raw::Executor>>,
     }
 
@@ -158,7 +157,7 @@ mod interrupt {
         #[inline]
         pub const fn new() -> Self {
             Self {
-                started: AtomicBool::new(false),
+                started: Mutex::new(Cell::new(false)),
                 executor: UnsafeCell::new(MaybeUninit::uninit()),
             }
         }
@@ -167,7 +166,8 @@ mod interrupt {
         ///
         /// # Safety
         ///
-        /// You MUST call this from the interrupt handler, and from nowhere else.
+        /// - You MUST call this from the interrupt handler, and from nowhere else.
+        /// - You must not call this before calling `start()`.
         pub unsafe fn on_interrupt(&'static self) {
             let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
             executor.poll();
@@ -196,11 +196,7 @@ mod interrupt {
         /// do it after.
         ///
         pub fn start(&'static self, irq: impl InterruptNumber) -> crate::SendSpawner {
-            if self
-                .started
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-            {
+            if critical_section::with(|cs| self.started.borrow(cs).replace(true)) {
                 panic!("InterruptExecutor::start() called multiple times on the same executor.");
             }
 
@@ -222,10 +218,10 @@ mod interrupt {
         /// This returns a [`SendSpawner`] you can use to spawn tasks on this
         /// executor.
         ///
-        /// This MUST only be called on an executor that has already been spawned.
+        /// This MUST only be called on an executor that has already been started.
         /// The function will panic otherwise.
         pub fn spawner(&'static self) -> crate::SendSpawner {
-            if !self.started.load(Ordering::Acquire) {
+            if !critical_section::with(|cs| self.started.borrow(cs).get()) {
                 panic!("InterruptExecutor::spawner() called on uninitialized executor.");
             }
             let executor = unsafe { (&*self.executor.get()).assume_init_ref() };

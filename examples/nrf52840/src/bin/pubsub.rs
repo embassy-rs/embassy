@@ -1,12 +1,11 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::unwrap;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 /// Create the message bus. It has a queue of 4, supports 3 subscribers and 1 publisher
@@ -39,7 +38,7 @@ async fn main(spawner: Spawner) {
 
     let mut index = 0;
     loop {
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after_millis(500).await;
 
         let message = match index % 3 {
             0 => Message::A,
@@ -81,7 +80,7 @@ async fn fast_logger(mut messages: Subscriber<'static, ThreadModeRawMutex, Messa
 async fn slow_logger(mut messages: DynSubscriber<'static, Message>) {
     loop {
         // Do some work
-        Timer::after(Duration::from_millis(2000)).await;
+        Timer::after_millis(2000).await;
 
         // If the publisher has used the `publish_immediate` function, then we may receive a lag message here
         let message = messages.next_message().await;
@@ -98,7 +97,7 @@ async fn slow_logger(mut messages: DynSubscriber<'static, Message>) {
 async fn slow_logger_pure(mut messages: DynSubscriber<'static, Message>) {
     loop {
         // Do some work
-        Timer::after(Duration::from_millis(2000)).await;
+        Timer::after_millis(2000).await;
 
         // Instead of receiving lags here, we just ignore that and read the next message
         let message = messages.next_message_pure().await;

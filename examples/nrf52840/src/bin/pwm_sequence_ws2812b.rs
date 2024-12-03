@@ -1,13 +1,12 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::pwm::{
     Config, Prescaler, SequenceConfig, SequenceLoad, SequencePwm, SingleSequenceMode, SingleSequencer,
 };
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 // WS2812B LED light demonstration. Drives just one light.
@@ -52,7 +51,7 @@ async fn main(_spawner: Spawner) {
         let sequences = SingleSequencer::new(&mut pwm, &seq_words, seq_config.clone());
         unwrap!(sequences.start(SingleSequenceMode::Times(1)));
 
-        Timer::after(Duration::from_millis(50)).await;
+        Timer::after_millis(50).await;
 
         if bit_value == T0H {
             if color_bit == 20 {

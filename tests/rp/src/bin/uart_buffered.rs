@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::{assert_eq, panic, *};
@@ -9,7 +8,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config, Error, Instance, Parity};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_io_async::{Read, ReadExactError, Write};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -37,16 +36,16 @@ async fn read1<const N: usize>(uart: &mut BufferedUartRx<'_, impl Instance>) -> 
     }
 }
 
-async fn send(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: Option<bool>) {
+async fn send(pin: &mut Output<'_>, v: u8, parity: Option<bool>) {
     pin.set_low();
-    Timer::after(Duration::from_millis(1)).await;
+    Timer::after_millis(1).await;
     for i in 0..8 {
         if v & (1 << i) == 0 {
             pin.set_low();
         } else {
             pin.set_high();
         }
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
     }
     if let Some(b) = parity {
         if b {
@@ -54,10 +53,10 @@ async fn send(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: O
         } else {
             pin.set_low();
         }
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
     }
     pin.set_high();
-    Timer::after(Duration::from_millis(1)).await;
+    Timer::after_millis(1).await;
 }
 
 #[embassy_executor::main]
@@ -162,7 +161,7 @@ async fn main(_spawner: Spawner) {
         let rx_buf = &mut [0u8; 16];
         let mut uart = BufferedUartRx::new(&mut uart, Irqs, &mut rx, rx_buf, config);
 
-        async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: u32) {
+        async fn chr(pin: &mut Output<'_>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
         }
 
@@ -209,7 +208,7 @@ async fn main(_spawner: Spawner) {
         let rx_buf = &mut [0u8; 16];
         let mut uart = BufferedUartRx::new(&mut uart, Irqs, &mut rx, rx_buf, config);
 
-        async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, good: bool) {
+        async fn chr(pin: &mut Output<'_>, v: u8, good: bool) {
             if good {
                 send(pin, v, None).await;
             } else {

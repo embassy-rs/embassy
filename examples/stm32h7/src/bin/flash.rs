@@ -1,11 +1,10 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_stm32::flash::Flash;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -16,7 +15,7 @@ async fn main(_spawner: Spawner) {
     const ADDR: u32 = 0; // This is the offset into bank 2, the absolute address is 0x8_0000
 
     // wait a bit before accessing the flash
-    Timer::after(Duration::from_millis(300)).await;
+    Timer::after_millis(300).await;
 
     let mut f = Flash::new_blocking(p.FLASH).into_blocking_regions().bank2_region;
 

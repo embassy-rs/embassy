@@ -2,7 +2,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 #[path = "../common.rs"]
 mod common;
 
@@ -10,15 +9,14 @@ use chrono::{NaiveDate, NaiveDateTime};
 use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::RtcClockSource;
+use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = config();
-
-    config.rcc.rtc = Some(RtcClockSource::LSI);
+    config.rcc.ls = LsConfig::default_lse();
 
     let p = embassy_stm32::init(config);
     info!("Hello World!");
@@ -33,12 +31,12 @@ async fn main(_spawner: Spawner) {
     rtc.set_datetime(now.into()).expect("datetime not set");
 
     info!("Waiting 5 seconds");
-    Timer::after(Duration::from_millis(5000)).await;
+    Timer::after_millis(5000).await;
 
     let then: NaiveDateTime = rtc.now().unwrap().into();
     let seconds = (then - now).num_seconds();
 
-    defmt::info!("measured = {}", seconds);
+    info!("measured = {}", seconds);
 
     assert!(seconds > 3 && seconds < 7);
 

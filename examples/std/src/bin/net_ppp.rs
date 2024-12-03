@@ -7,8 +7,7 @@
 //!     ping 192.168.7.10
 //!     nc 192.168.7.10 1234
 
-#![feature(type_alias_impl_trait)]
-#![feature(async_fn_in_trait, impl_trait_projections)]
+#![allow(async_fn_in_trait)]
 
 #[path = "../serial_port.rs"]
 mod serial_port;
@@ -25,7 +24,7 @@ use heapless::Vec;
 use log::*;
 use nix::sys::termios;
 use rand_core::{OsRng, RngCore};
-use static_cell::{make_static, StaticCell};
+use static_cell::StaticCell;
 
 use crate::serial_port::SerialPort;
 
@@ -88,7 +87,8 @@ async fn main_task(spawner: Spawner) {
     let port = SerialPort::new(opts.device.as_str(), baudrate).unwrap();
 
     // Init network device
-    let state = make_static!(embassy_net_ppp::State::<4, 4>::new());
+    static STATE: StaticCell<embassy_net_ppp::State<4, 4>> = StaticCell::new();
+    let state = STATE.init(embassy_net_ppp::State::<4, 4>::new());
     let (device, runner) = embassy_net_ppp::new(state);
 
     // Generate random seed
@@ -97,11 +97,13 @@ async fn main_task(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*make_static!(Stack::new(
+    static STACK: StaticCell<Stack<embassy_net_ppp::Device<'static>>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let stack = &*STACK.init(Stack::new(
         device,
         Config::default(), // don't configure IP yet
-        make_static!(StackResources::<3>::new()),
-        seed
+        RESOURCES.init(StackResources::<3>::new()),
+        seed,
     ));
 
     // Launch network task

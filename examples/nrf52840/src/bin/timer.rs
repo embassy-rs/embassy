@@ -1,17 +1,16 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 async fn run1() {
     loop {
         info!("BIG INFREQUENT TICK");
-        Timer::after(Duration::from_ticks(64000)).await;
+        Timer::after_ticks(64000).await;
     }
 }
 
@@ -19,7 +18,7 @@ async fn run1() {
 async fn run2() {
     loop {
         info!("tick");
-        Timer::after(Duration::from_ticks(13000)).await;
+        Timer::after_ticks(13000).await;
     }
 }
 

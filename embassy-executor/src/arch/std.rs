@@ -8,8 +8,7 @@ mod thread {
     use std::marker::PhantomData;
     use std::sync::{Condvar, Mutex};
 
-    #[cfg(feature = "nightly")]
-    pub use embassy_macros::main_std as main;
+    pub use embassy_executor_macros::main_std as main;
 
     use crate::{raw, Spawner};
 

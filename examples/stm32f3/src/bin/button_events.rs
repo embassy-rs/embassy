@@ -8,26 +8,24 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
-use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
-use embassy_stm32::peripherals::PA0;
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{with_timeout, Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 struct Leds<'a> {
-    leds: [Output<'a, AnyPin>; 8],
+    leds: [Output<'a>; 8],
     direction: i8,
     current_led: usize,
 }
 
 impl<'a> Leds<'a> {
-    fn new(pins: [Output<'a, AnyPin>; 8]) -> Self {
+    fn new(pins: [Output<'a>; 8]) -> Self {
         Self {
             leds: pins,
             direction: 1,
@@ -65,11 +63,11 @@ impl<'a> Leds<'a> {
             for led in &mut self.leds {
                 led.set_high();
             }
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
             for led in &mut self.leds {
                 led.set_low();
             }
-            Timer::after(Duration::from_millis(200)).await;
+            Timer::after_millis(200).await;
         }
     }
 
@@ -101,18 +99,17 @@ static CHANNEL: Channel<ThreadModeRawMutex, ButtonEvent, 4> = Channel::new();
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let button = Input::new(p.PA0, Pull::Down);
-    let button = ExtiInput::new(button, p.EXTI0);
+    let button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Down);
     info!("Press the USER button...");
     let leds = [
-        Output::new(p.PE9.degrade(), Level::Low, Speed::Low),
-        Output::new(p.PE10.degrade(), Level::Low, Speed::Low),
-        Output::new(p.PE11.degrade(), Level::Low, Speed::Low),
-        Output::new(p.PE12.degrade(), Level::Low, Speed::Low),
-        Output::new(p.PE13.degrade(), Level::Low, Speed::Low),
-        Output::new(p.PE14.degrade(), Level::Low, Speed::Low),
-        Output::new(p.PE15.degrade(), Level::Low, Speed::Low),
-        Output::new(p.PE8.degrade(), Level::Low, Speed::Low),
+        Output::new(p.PE9, Level::Low, Speed::Low),
+        Output::new(p.PE10, Level::Low, Speed::Low),
+        Output::new(p.PE11, Level::Low, Speed::Low),
+        Output::new(p.PE12, Level::Low, Speed::Low),
+        Output::new(p.PE13, Level::Low, Speed::Low),
+        Output::new(p.PE14, Level::Low, Speed::Low),
+        Output::new(p.PE15, Level::Low, Speed::Low),
+        Output::new(p.PE8, Level::Low, Speed::Low),
     ];
     let leds = Leds::new(leds);
 
@@ -128,7 +125,7 @@ async fn led_blinker(mut leds: Leds<'static>) {
 }
 
 #[embassy_executor::task]
-async fn button_waiter(mut button: ExtiInput<'static, PA0>) {
+async fn button_waiter(mut button: ExtiInput<'static>) {
     const DOUBLE_CLICK_DELAY: u64 = 250;
     const HOLD_DELAY: u64 = 1000;
 
