@@ -507,6 +507,7 @@ impl StateInner {
         if data.is_empty() {
             msg.data = ptr::null_mut();
             msg.data_len = 0;
+            self.send_message_raw(msg)
         } else {
             assert!(data.len() <= TX_BUF_SIZE);
             let buf_idx = self.find_free_tx_buf().ok_or(NoFreeBufs)?;
@@ -517,10 +518,15 @@ impl StateInner {
             self.tx_buf_used[buf_idx] = true;
 
             fence(Ordering::SeqCst); // synchronize copy_nonoverlapping (non-volatile) with volatile writes below.
+            if let Err(e) = self.send_message_raw(msg) {
+                msg.data = ptr::null_mut();
+                msg.data_len = 0;
+                self.tx_buf_used[buf_idx] = false;
+                Err(e)
+            } else {
+                Ok(())
+            }
         }
-
-        // TODO free data buf if send_message_raw fails.
-        self.send_message_raw(msg)
     }
 
     fn send_message_raw(&mut self, msg: &Message) -> Result<(), NoFreeBufs> {
