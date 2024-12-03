@@ -12,7 +12,9 @@ use crate::{Handler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUS
 #[non_exhaustive]
 /// Allows Configuring the Bcd USB version below 2.1
 pub enum UsbVersion {
+    /// Usb version 2.0
     Two = 0x0200,
+    /// Usb version 2.1
     TwoOne = 0x0210,
 }
 
