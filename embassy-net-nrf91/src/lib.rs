@@ -209,6 +209,7 @@ async fn new_internal<'a>(
 
         tx_seq_no: 0,
         tx_buf_used: [false; TX_BUF_COUNT],
+        tx_waker: WakerRegistration::new(),
 
         trace_chans: Vec::new(),
         trace_check: PointerChecker {
@@ -311,6 +312,7 @@ struct StateInner {
 
     tx_seq_no: u16,
     tx_buf_used: [bool; TX_BUF_COUNT],
+    tx_waker: WakerRegistration,
 
     trace_chans: Vec<TraceChannelInfo, TRACE_CHANNEL_COUNT>,
     trace_check: PointerChecker,
@@ -522,6 +524,7 @@ impl StateInner {
                 msg.data = ptr::null_mut();
                 msg.data_len = 0;
                 self.tx_buf_used[buf_idx] = false;
+                self.tx_waker.wake();
                 Err(e)
             } else {
                 Ok(())
@@ -586,6 +589,7 @@ impl StateInner {
             );
         }
         self.tx_buf_used[idx] = false;
+        self.tx_waker.wake();
     }
 
     fn handle_data(&mut self, msg: &Message, ch: &mut ch::Runner<MTU>) {
@@ -761,10 +765,22 @@ impl<'a> Control<'a> {
             state.next_req_serial = state.next_req_serial.wrapping_add(1);
         }
 
+        drop(state); // don't borrow state across awaits.
+
         msg.param[0..4].copy_from_slice(&req_serial.to_le_bytes());
-        unwrap!(state.send_message(msg, req_data));
+
+        poll_fn(|cx| {
+            let mut state = self.state.borrow_mut();
+            state.tx_waker.register(cx.waker());
+            match state.send_message(msg, req_data) {
+                Ok(_) => Poll::Ready(()),
+                Err(NoFreeBufs) => Poll::Pending,
+            }
+        })
+        .await;
 
         // Setup the pending request state.
+        let mut state = self.state.borrow_mut();
         let (req_slot_idx, req_slot) = state
             .requests
             .iter_mut()
