@@ -102,6 +102,7 @@ macro_rules! interrupt_mod {
                     #[allow(non_camel_case_types)]
                     #[doc=stringify!($irqs)]
                     #[doc=" typelevel interrupt."]
+                    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
                     pub enum $irqs {}
                     impl SealedInterrupt for $irqs{}
                     impl Interrupt for $irqs {
