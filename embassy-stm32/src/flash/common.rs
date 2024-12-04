@@ -244,6 +244,8 @@ impl<MODE> embedded_storage::nor_flash::NorFlash for Flash<'_, MODE> {
     }
 }
 
+impl<MODE> embedded_storage::nor_flash::MultiwriteNorFlash for Flash<'_, MODE> {}
+
 foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl<MODE> crate::_generated::flash_regions::$type_name<'_, MODE> {
@@ -302,5 +304,8 @@ foreach_flash_region! {
                 self.blocking_erase(from, to)
             }
         }
+
+        impl embedded_storage::nor_flash::MultiwriteNorFlash for crate::_generated::flash_regions::$type_name<'_, Blocking> {}
+
     };
 }
