@@ -25,7 +25,7 @@ features = ["defmt", "std"]
 
 [features]
 std = ["tick-hz-1_000_000", "critical-section/std", "embassy-time-queue-driver/generic-queue"]
-wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000"]
+wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "embassy-time-queue-driver/generic-queue"]
 
 ## Display the time since startup next to defmt log messages.
 ## At most 1 `defmt-timestamp-uptime-*` feature can be used.

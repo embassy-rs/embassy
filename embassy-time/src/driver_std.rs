@@ -21,17 +21,17 @@ impl AlarmState {
 
 struct TimeDriver {
     once: Once,
-    // The STD Driver implementation requires the alarms' mutex to be reentrant, which the STD Mutex isn't
+    // The STD Driver implementation requires the alarm's mutex to be reentrant, which the STD Mutex isn't
     // Fortunately, mutexes based on the `critical-section` crate are reentrant, because the critical sections
     // themselves are reentrant
-    alarms: UninitCell<CsMutex<RefCell<AlarmState>>>,
+    alarm: UninitCell<CsMutex<RefCell<AlarmState>>>,
     zero_instant: UninitCell<StdInstant>,
     signaler: UninitCell<Signaler>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
     once: Once::new(),
-    alarms: UninitCell::uninit(),
+    alarm: UninitCell::uninit(),
     zero_instant: UninitCell::uninit(),
     signaler: UninitCell::uninit(),
 });
@@ -39,7 +39,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
 impl TimeDriver {
     fn init(&self) {
         self.once.call_once(|| unsafe {
-            self.alarms
+            self.alarm
                 .write(CsMutex::new(RefCell::new(const { AlarmState::new() })));
             self.zero_instant.write(StdInstant::now());
             self.signaler.write(Signaler::new());
@@ -54,7 +54,7 @@ impl TimeDriver {
             let now = DRIVER.now();
 
             let next_alarm = critical_section::with(|cs| {
-                let mut alarm = unsafe { DRIVER.alarms.as_ref() }.borrow_ref_mut(cs);
+                let mut alarm = unsafe { DRIVER.alarm.as_ref() }.borrow_ref_mut(cs);
                 if alarm.timestamp <= now {
                     alarm.timestamp = u64::MAX;
 
@@ -75,7 +75,7 @@ impl TimeDriver {
     fn set_alarm(&self, timestamp: u64) -> bool {
         self.init();
         critical_section::with(|cs| {
-            let mut alarm = unsafe { self.alarms.as_ref() }.borrow_ref_mut(cs);
+            let mut alarm = unsafe { self.alarm.as_ref() }.borrow_ref_mut(cs);
             alarm.timestamp = timestamp;
             unsafe { self.signaler.as_ref() }.signal();
         });
