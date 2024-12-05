@@ -26,9 +26,19 @@ fn common_init<T: Instance>() {
     // Clock might not be exact 48Mhz due to rounding errors in PLL calculation, or if the user
     // has tight clock restrictions due to something else (like audio).
     #[cfg(not(stm32h7rs))]
+    #[cfg(not(all(stm32u5, peri_usb_otg_hs)))]
     if freq.0.abs_diff(48_000_000) > 120_000 {
         panic!(
             "USB clock should be 48Mhz but is {} Hz. Please double-check your RCC settings.",
+            freq.0
+        )
+    }
+
+    // For OTG-HS on STM32U5 only the 32MHz clock is fast enough (Table 762, Sect 73.14.4)
+    #[cfg(all(stm32u5, peri_usb_otg_hs))]
+    if freq.0.abs_diff(32_000_000) > 120_000 {
+        panic!(
+            "USB clock should be 32Mhz but is {} Hz. Please double-check your RCC settings.",
             freq.0
         )
     }
@@ -90,6 +100,16 @@ fn common_init<T: Instance>() {
 
         // Wait for USB power to stabilize
         while !crate::pac::PWR.svmsr().read().vddusbrdy() {}
+
+        // Now set up transceiver power if it's a OTG-HS
+        #[cfg(peri_usb_otg_hs)]
+        {
+            crate::pac::PWR.vosr().modify(|w| {
+                w.set_usbpwren(true);
+                w.set_usbboosten(true);
+            });
+            while !crate::pac::PWR.vosr().read().usbboostrdy() {}
+        }
     }
 
     T::Interrupt::unpend();
