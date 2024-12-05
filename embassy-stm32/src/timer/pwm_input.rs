@@ -10,7 +10,8 @@ use crate::Peripheral;
 
 /// PWM Input driver.
 pub struct PwmInput<'d, T: GeneralInstance4Channel> {
-    channel: Channel,
+    ch_period: Channel,
+    ch_width: Channel,
     inner: Timer<'d, T>,
 }
 
@@ -43,7 +44,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         Self::new_inner(tim, freq, Channel::Ch2, Channel::Ch1)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, ch1: Channel, ch2: Channel) -> Self {
+    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, ch_period: Channel, ch_width: Channel) -> Self {
         let mut inner = Timer::new(tim);
 
         inner.set_counting_mode(CountingMode::EdgeAlignedUp);
@@ -53,13 +54,13 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.6
         // or ST RM0008 (STM32F103) chapter 15.3.6 Input capture mode
-        inner.set_input_ti_selection(ch1, InputTISelection::Normal);
-        inner.set_input_capture_mode(ch1, InputCaptureMode::Rising);
+        inner.set_input_ti_selection(ch_period, InputTISelection::Normal);
+        inner.set_input_capture_mode(ch_period, InputCaptureMode::Rising);
 
-        inner.set_input_ti_selection(ch2, InputTISelection::Alternate);
-        inner.set_input_capture_mode(ch2, InputCaptureMode::Falling);
+        inner.set_input_ti_selection(ch_width, InputTISelection::Alternate);
+        inner.set_input_capture_mode(ch_width, InputCaptureMode::Falling);
 
-        inner.set_trigger_source(match ch1 {
+        inner.set_trigger_source(match ch_period {
             Channel::Ch1 => TriggerSource::TI1FP1,
             Channel::Ch2 => TriggerSource::TI2FP2,
             _ => panic!("Invalid channel for PWM input"),
@@ -69,7 +70,11 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
         // Must call the `enable` function after
 
-        Self { channel: ch1, inner }
+        Self {
+            ch_period,
+            ch_width,
+            inner,
+        }
     }
 
     /// Enable the given channel.
@@ -91,16 +96,12 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
     /// Get the period tick count
     pub fn get_period_ticks(&self) -> u32 {
-        self.inner.get_capture_value(self.channel)
+        self.inner.get_capture_value(self.ch_period)
     }
 
     /// Get the pulse width tick count
     pub fn get_width_ticks(&self) -> u32 {
-        self.inner.get_capture_value(match self.channel {
-            Channel::Ch1 => Channel::Ch2,
-            Channel::Ch2 => Channel::Ch1,
-            _ => panic!("Invalid channel for PWM input"),
-        })
+        self.inner.get_capture_value(self.ch_width)
     }
 
     /// Get the duty cycle in 100%
