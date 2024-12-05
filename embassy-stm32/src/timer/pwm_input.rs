@@ -2,9 +2,11 @@
 
 use embassy_hal_internal::into_ref;
 
+use super::ll_async::TimerEventFuture;
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
-use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
+use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel, InterruptHandler};
 use crate::gpio::{AfType, Pull};
+use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -21,6 +23,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         tim: impl Peripheral<P = T> + 'd,
         pin: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
         pull: Pull,
+        _irq: impl Binding<T::UpdateInterrupt, InterruptHandler<T>> + 'd,
         freq: Hertz,
     ) -> Self {
         into_ref!(pin);
@@ -70,6 +73,9 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
         // Must call the `enable` function after
 
+        T::CaptureCompareInterrupt::unpend();
+        unsafe { T::CaptureCompareInterrupt::enable() };
+
         Self {
             ch_period,
             ch_width,
@@ -111,5 +117,25 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
             return 0.;
         }
         100. * (self.get_width_ticks() as f32) / (period as f32)
+    }
+
+    /// Asynchronously wait until the pin sees a rising edge (period measurement).
+    pub async fn wait_for_rising_edge(&self) -> u32 {
+        self.inner.clear_input_interrupt(self.ch_period);
+        self.inner.enable_input_interrupt(self.ch_period, true);
+
+        // Rising edge is always on the main channel
+        let future: TimerEventFuture<T> = TimerEventFuture::new(self.ch_period.into());
+        future.await
+    }
+
+    /// Asynchronously wait until the pin sees a falling edge (width measurement).
+    pub async fn wait_for_falling_edge(&self) -> u32 {
+        // Falling edge is always on the alternate channel
+        self.inner.clear_input_interrupt(self.ch_width);
+        self.inner.enable_input_interrupt(self.ch_width, true);
+
+        let future: TimerEventFuture<T> = TimerEventFuture::new(self.ch_width.into());
+        future.await
     }
 }
