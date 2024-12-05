@@ -49,6 +49,9 @@ gpiote = []
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
 time-driver-rtc1 = ["_time-driver"]
 
+## Enables executor-integrated timer queues.
+integrated-timers = ["dep:embassy-executor", "_time-driver"]
+
 ## Allow using the NFC pins as regular GPIO pins (P0_09/P0_10 on nRF52, P0_02/P0_03 on nRF53)
 nfc-pins-as-gpio = []
 
@@ -119,7 +122,7 @@ _nrf52 = ["_ppi"]
 _nrf51 = ["_ppi"]
 _nrf91 = []
 
-_time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768"]
+_time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768", "dep:embassy-time-queue-driver"]
 
 # trustzone state.
 _s = []
@@ -134,7 +137,9 @@ _gpio-p2 = []
 _nrf52832_anomaly_109 = []
 
 [dependencies]
+embassy-executor = { version = "0.6.3", path = "../embassy-executor", optional = true }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-driver = { version = "0.1", path = "../embassy-time-queue-driver", optional = true }
 embassy-time = { version = "0.3.2", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.6.1", path = "../embassy-sync" }
 embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
