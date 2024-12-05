@@ -28,7 +28,7 @@ async fn blinky(led: peripherals::PB2) {
 }
 
 bind_interrupts!(struct Irqs {
-    TIM2 => timer::CaptureCompareInterruptHandler<peripherals::TIM2>;
+    TIM2 => timer::InterruptHandler<peripherals::TIM2>;
 });
 
 #[embassy_executor::main]

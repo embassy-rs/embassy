@@ -29,7 +29,7 @@ async fn blinky(led: peripherals::PC13) {
 }
 
 bind_interrupts!(struct Irqs {
-    TIM2 => timer::CaptureCompareInterruptHandler<peripherals::TIM2>;
+    TIM2 => timer::InterruptHandler<peripherals::TIM2>;
 });
 
 #[embassy_executor::main]
@@ -44,9 +44,7 @@ async fn main(spawner: Spawner) {
 
     loop {
         info!("wait for rising edge");
-        ic.wait_for_rising_edge(Channel::Ch3).await;
-
-        let capture_value = ic.get_capture_value(Channel::Ch3);
+        let capture_value = ic.wait_for_rising_edge(Channel::Ch3).await;
         info!("new capture! {}", capture_value);
     }
 }
