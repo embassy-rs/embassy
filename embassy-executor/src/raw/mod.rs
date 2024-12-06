@@ -83,7 +83,9 @@ impl TaskRef {
     /// Returns a reference to the executor that the task is currently running on.
     #[cfg(feature = "integrated-timers")]
     pub unsafe fn executor(self) -> Option<&'static Executor> {
-        core::mem::transmute(self.header().executor.get())
+        // Transmute so that we can expose the executor, without exposing the
+        // private `SyncExecutor` type.
+        mem::transmute(self.header().executor.get())
     }
 
     /// The returned pointer is valid for the entire TaskStorage.

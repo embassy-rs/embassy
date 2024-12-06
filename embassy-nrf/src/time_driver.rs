@@ -114,7 +114,7 @@ struct RtcDriver {
 
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), const {AlarmState::new()}),
+    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
 });
 
 impl RtcDriver {

@@ -22,9 +22,9 @@ struct TimerDriver {
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
-    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), const{ AlarmState {
+    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState {
         timestamp: Cell::new(0),
-    }}),
+    }),
 });
 
 impl Driver for TimerDriver {
