@@ -315,9 +315,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         #[cfg(all(stm32u5, peri_usb_otg_hs))]
         {
-            // Only the 32MHz clock is suitable here, which the magic number represents
             crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                w.set_clksel(11);
                 w.set_en(true);
             });
 
