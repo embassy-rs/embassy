@@ -328,7 +328,9 @@ impl<'d> NfcT<'d> {
 
             if r.events_error().read() != 0 {
                 trace!("Got error?");
-                warn!("errors: {:08x}", r.errorstatus().read().0);
+                let errs = r.errorstatus().read();
+                r.errorstatus().write(|w| w.0 = 0xFFFF_FFFF);
+                trace!("errors: {:08x}", errs.0);
                 r.events_error().write_value(0);
                 return Poll::Ready(Err(Error::RxError));
             }
@@ -382,7 +384,9 @@ impl<'d> NfcT<'d> {
             if r.events_rxerror().read() != 0 {
                 trace!("RXerror got in recv frame, should be back in idle state");
                 r.events_rxerror().write_value(0);
-                warn!("errors: {:08x}", r.errorstatus().read().0);
+                let errs = r.framestatus().rx().read();
+                r.framestatus().rx().write(|w| w.0 = 0xFFFF_FFFF);
+                trace!("errors: {:08x}", errs.0);
                 return Poll::Ready(Err(Error::RxError));
             }
 
