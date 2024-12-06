@@ -215,6 +215,12 @@ impl<'d> NfcT<'d> {
             r.framedelaymode().write(|w| {
                 w.set_framedelaymode(vals::Framedelaymode::WINDOW_GRID);
             });
+            r.framedelaymin().write(|w| {
+                w.set_framedelaymin(1152);
+            });
+            r.framedelaymax().write(|w| {
+                w.set_framedelaymax(0xFFFF); // max
+            });
 
             info!("waiting for field");
             poll_fn(|cx| {
@@ -258,12 +264,6 @@ impl<'d> NfcT<'d> {
             if r.events_fieldlost().read() != 0 {
                 continue;
             }
-
-            // TODO: add support for "window" frame delay, which is technically
-            // needed to be compliant with iso14443-4
-            r.framedelaymode().write(|w| {
-                w.set_framedelaymode(vals::Framedelaymode::FREE_RUN);
-            });
 
             // disable autocoll
             #[cfg(not(feature = "nrf52832"))]
@@ -328,7 +328,9 @@ impl<'d> NfcT<'d> {
 
             if r.events_error().read() != 0 {
                 trace!("Got error?");
-                warn!("errors: {:08x}", r.errorstatus().read().0);
+                let errs = r.errorstatus().read();
+                r.errorstatus().write(|w| w.0 = 0xFFFF_FFFF);
+                trace!("errors: {:08x}", errs.0);
                 r.events_error().write_value(0);
                 return Poll::Ready(Err(Error::RxError));
             }
@@ -382,7 +384,9 @@ impl<'d> NfcT<'d> {
             if r.events_rxerror().read() != 0 {
                 trace!("RXerror got in recv frame, should be back in idle state");
                 r.events_rxerror().write_value(0);
-                warn!("errors: {:08x}", r.errorstatus().read().0);
+                let errs = r.framestatus().rx().read();
+                r.framestatus().rx().write(|w| w.0 = 0xFFFF_FFFF);
+                trace!("errors: {:08x}", errs.0);
                 return Poll::Ready(Err(Error::RxError));
             }
 
