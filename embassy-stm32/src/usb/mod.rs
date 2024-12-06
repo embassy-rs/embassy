@@ -16,6 +16,7 @@ fn common_init<T: Instance>() {
 
     // On the H7RS, the USBPHYC embeds a PLL accepting one of the input frequencies listed below and providing 48MHz to OTG_FS and 60MHz to OTG_HS internally
     #[cfg(stm32h7rs)]
+    #[cfg(all(stm32u5, peri_usb_otg_hs))]
     if ![16_000_000, 19_200_000, 20_000_000, 24_000_000, 26_000_000, 32_000_000].contains(&freq.0) {
         panic!(
             "USB clock should be one of 16, 19.2, 20, 24, 26, 32Mhz but is {} Hz. Please double-check your RCC settings.",
@@ -30,15 +31,6 @@ fn common_init<T: Instance>() {
     if freq.0.abs_diff(48_000_000) > 120_000 {
         panic!(
             "USB clock should be 48Mhz but is {} Hz. Please double-check your RCC settings.",
-            freq.0
-        )
-    }
-
-    // For OTG-HS on STM32U5 only the 32MHz clock is fast enough (Table 762, Sect 73.14.4)
-    #[cfg(all(stm32u5, peri_usb_otg_hs))]
-    if freq.0.abs_diff(32_000_000) > 120_000 {
-        panic!(
-            "USB clock should be 32Mhz but is {} Hz. Please double-check your RCC settings.",
             freq.0
         )
     }
