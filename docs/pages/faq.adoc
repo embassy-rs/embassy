@@ -385,3 +385,49 @@ async fn idle() {
     loop { embassy_futures::yield_now().await; }
 }
 ----
+
+== Why is my bootloader restarting in loop?
+
+== Troubleshooting Bootloader Restart Loops
+
+If your bootloader restarts in a loop, there could be multiple reasons. Here are some things to check:
+
+=== Validate the `memory.x` File
+The bootloader performs critical checks when creating partitions using the addresses defined in `memory.x`. Ensure the following assertions hold true:
+
+[source,rust]
+----
+const {
+    core::assert!(Self::PAGE_SIZE % ACTIVE::WRITE_SIZE as u32 == 0);
+    core::assert!(Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32 == 0);
+    core::assert!(Self::PAGE_SIZE % DFU::WRITE_SIZE as u32 == 0);
+    core::assert!(Self::PAGE_SIZE % DFU::ERASE_SIZE as u32 == 0);
+}
+
+// Ensure enough progress pages to store copy progress
+assert_eq!(0, Self::PAGE_SIZE % aligned_buf.len() as u32);
+assert!(aligned_buf.len() >= STATE::WRITE_SIZE);
+assert_eq!(0, aligned_buf.len() % ACTIVE::WRITE_SIZE);
+assert_eq!(0, aligned_buf.len() % DFU::WRITE_SIZE);
+----
+
+If any of these assertions fail, the bootloader will likely restart in a loop. This failure might not log any messages (e.g., when using `defmt`). Confirm that your `memory.x` file and flash memory align with these requirements.
+
+=== Handling Panic Logging
+Some panic errors might log messages, but certain microcontrollers reset before the message is fully printed. To ensure panic messages are logged, add a delay using no-operation (NOP) instructions before the reset:
+
+[source,rust]
+----
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    for _ in 0..10_000_000 {
+        cortex_m::asm::nop();
+    }
+    cortex_m::asm::udf();
+}
+----
+
+=== Feed the watchdog
+
+
+Some `embassy-boot` implementations (like `embassy-boot-nrf` and `embassy-boot-rp`) rely on a watchdog timer to detect application failure. The bootloader will restart if your application code does not properly feed the watchdog timer. Make sure to feed it correctly.
