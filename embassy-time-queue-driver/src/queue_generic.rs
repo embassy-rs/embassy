@@ -1,10 +1,11 @@
 //! A generic timer queue. Time queue drivers may use this to simplify their implementation.
 
+use core::cell::RefCell;
 use core::cmp::{min, Ordering};
 use core::task::Waker;
 
 use heapless::Vec;
-pub use implem::Queue;
+pub use implem::{Queue, RefCellQueue};
 
 #[derive(Debug)]
 struct Timer {
@@ -139,6 +140,30 @@ mod implem {
             self.queue.next_expiration(now)
         }
     }
+
+    /// A simple wrapper around a `Queue` to provide interior mutability.
+    pub struct RefCellQueue {
+        inner: RefCell<Queue>,
+    }
+
+    impl RefCellQueue {
+        /// Creates a new timer queue.
+        pub const fn new() -> Self {
+            Self {
+                inner: RefCell::new(Queue::new()),
+            }
+        }
+
+        /// Schedules a task to run at a specific time, and returns whether any changes were made.
+        pub fn schedule_wake(&self, waker: &core::task::Waker, at: u64) -> bool {
+            self.inner.borrow_mut().schedule_wake(at, waker)
+        }
+
+        /// Dequeues expired timers and returns the next alarm time.
+        pub fn next_expiration(&self, now: u64) -> u64 {
+            self.inner.borrow_mut().next_expiration(now)
+        }
+    }
 }
 
 #[cfg(feature = "generic-queue-const-generic")]
@@ -166,6 +191,30 @@ mod implem {
         /// Dequeues expired timers and returns the next alarm time.
         pub fn next_expiration(&mut self, now: u64) -> u64 {
             self.queue.next_expiration(now)
+        }
+    }
+
+    /// A simple wrapper around a `Queue` to provide interior mutability.
+    pub struct RefCellQueue<const QUEUE_SIZE: usize> {
+        inner: RefCell<Queue<QUEUE_SIZE>>,
+    }
+
+    impl<const QUEUE_SIZE: usize> RefCellQueue<QUEUE_SIZE> {
+        /// Creates a new timer queue.
+        pub const fn new() -> Self {
+            Self {
+                inner: RefCell::new(Queue::new()),
+            }
+        }
+
+        /// Schedules a task to run at a specific time, and returns whether any changes were made.
+        pub fn schedule_wake(&self, waker: &core::task::Waker, at: u64) -> bool {
+            self.inner.borrow_mut().schedule_wake(at, waker)
+        }
+
+        /// Dequeues expired timers and returns the next alarm time.
+        pub fn next_expiration(&self, now: u64) -> u64 {
+            self.inner.borrow_mut().next_expiration(now)
         }
     }
 }

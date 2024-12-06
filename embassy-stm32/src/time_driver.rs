@@ -522,26 +522,7 @@ pub(crate) fn init(cs: CriticalSection) {
 type RawQueue = embassy_executor::raw::timer_queue::TimerQueue;
 
 #[cfg(not(feature = "integrated-timers"))]
-struct RawQueue {
-    inner: core::cell::RefCell<embassy_time_queue_driver::queue_generic::Queue>,
-}
-
-#[cfg(not(feature = "integrated-timers"))]
-impl RawQueue {
-    const fn new() -> Self {
-        Self {
-            inner: core::cell::RefCell::new(embassy_time_queue_driver::queue_generic::Queue::new()),
-        }
-    }
-
-    fn schedule_wake(&self, waker: &core::task::Waker, at: u64) -> bool {
-        self.inner.borrow_mut().schedule_wake(at, waker)
-    }
-
-    fn next_expiration(&self, now: u64) -> u64 {
-        self.inner.borrow_mut().next_expiration(now)
-    }
-}
+type RawQueue = embassy_time_queue_driver::queue_generic::RefCellQueue;
 
 struct TimerQueueDriver {
     inner: Mutex<CriticalSectionRawMutex, RawQueue>,
