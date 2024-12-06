@@ -119,7 +119,7 @@ embassy_time_queue_driver::timer_queue_impl!(static TIMER_QUEUE_DRIVER: TimerQue
 impl embassy_time_queue_driver::TimerQueue for TimerQueueDriver {
     fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
         let q = self.inner.lock().unwrap();
-        if q.schedule_wake(waker, at) {
+        if q.schedule_wake(at, waker) {
             self.arm_alarm(at);
         }
     }

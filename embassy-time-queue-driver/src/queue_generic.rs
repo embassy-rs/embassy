@@ -155,7 +155,7 @@ mod implem {
         }
 
         /// Schedules a task to run at a specific time, and returns whether any changes were made.
-        pub fn schedule_wake(&self, waker: &core::task::Waker, at: u64) -> bool {
+        pub fn schedule_wake(&self, at: u64, waker: &core::task::Waker) -> bool {
             self.inner.borrow_mut().schedule_wake(at, waker)
         }
 
@@ -208,7 +208,7 @@ mod implem {
         }
 
         /// Schedules a task to run at a specific time, and returns whether any changes were made.
-        pub fn schedule_wake(&self, waker: &core::task::Waker, at: u64) -> bool {
+        pub fn schedule_wake(&self, at: u64, waker: &core::task::Waker) -> bool {
             self.inner.borrow_mut().schedule_wake(at, waker)
         }
 

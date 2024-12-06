@@ -33,7 +33,7 @@ impl TimerQueue {
     ///
     /// Returns whether the task was scheduled. `false` means the task was already
     /// scheduled to wake at an earlier time.
-    pub unsafe fn schedule_wake(&self, p: TaskRef, at: u64) -> bool {
+    pub unsafe fn schedule_wake(&self, at: u64, p: TaskRef) -> bool {
         let task = p.header();
         if task.state.timer_enqueue() {
             // If not in the queue, add it and update.
