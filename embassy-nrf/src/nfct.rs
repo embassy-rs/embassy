@@ -215,6 +215,12 @@ impl<'d> NfcT<'d> {
             r.framedelaymode().write(|w| {
                 w.set_framedelaymode(vals::Framedelaymode::WINDOW_GRID);
             });
+            r.framedelaymin().write(|w| {
+                w.set_framedelaymin(1152);
+            });
+            r.framedelaymax().write(|w| {
+                w.set_framedelaymax(0xFFFF); // max
+            });
 
             info!("waiting for field");
             poll_fn(|cx| {
@@ -258,12 +264,6 @@ impl<'d> NfcT<'d> {
             if r.events_fieldlost().read() != 0 {
                 continue;
             }
-
-            // TODO: add support for "window" frame delay, which is technically
-            // needed to be compliant with iso14443-4
-            r.framedelaymode().write(|w| {
-                w.set_framedelaymode(vals::Framedelaymode::FREE_RUN);
-            });
 
             // disable autocoll
             #[cfg(not(feature = "nrf52832"))]
