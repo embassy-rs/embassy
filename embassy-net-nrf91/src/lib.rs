@@ -198,6 +198,7 @@ async fn new_internal<'a>(
         cb,
         requests: [const { None }; REQ_COUNT],
         next_req_serial: 0x12345678,
+        net_fd: None,
 
         rx_control_list: ptr::null_mut(),
         rx_data_list: ptr::null_mut(),
@@ -304,6 +305,8 @@ struct StateInner {
     cb: *mut ControlBlock,
     requests: [Option<PendingRequest>; REQ_COUNT],
     next_req_serial: u32,
+
+    net_fd: Option<u32>,
 
     rx_control_list: *mut List,
     rx_data_list: *mut List,
@@ -885,6 +888,8 @@ impl<'a> Control<'a> {
         assert_eq!(status, 0);
         assert_eq!(msg.param_len, 16);
         let fd = u32::from_le_bytes(msg.param[12..16].try_into().unwrap());
+        self.state.borrow_mut().net_fd.replace(fd);
+
         trace!("got FD: {}", fd);
         fd
     }
@@ -924,16 +929,17 @@ impl<'a> Runner<'a> {
             state.poll(&mut self.trace_writer, &mut self.ch);
 
             if let Poll::Ready(buf) = self.ch.poll_tx_buf(cx) {
-                let fd = 128u32; // TODO unhardcode
-                let mut msg: Message = unsafe { mem::zeroed() };
-                msg.channel = 2; // data
-                msg.id = 0x7006_0004; // IP send
-                msg.param_len = 12;
-                msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
-                if let Err(e) = state.send_message(&mut msg, buf) {
-                    warn!("tx failed: {:?}", e);
+                if let Some(fd) = state.net_fd {
+                    let mut msg: Message = unsafe { mem::zeroed() };
+                    msg.channel = 2; // data
+                    msg.id = 0x7006_0004; // IP send
+                    msg.param_len = 12;
+                    msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
+                    if let Err(e) = state.send_message(&mut msg, buf) {
+                        warn!("tx failed: {:?}", e);
+                    }
+                    self.ch.tx_done();
                 }
-                self.ch.tx_done();
             }
 
             Poll::Pending
