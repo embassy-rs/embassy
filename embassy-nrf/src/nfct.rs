@@ -212,14 +212,12 @@ impl<'d> NfcT<'d> {
             #[cfg(not(feature = "nrf52832"))]
             r.autocolresconfig().write(|w| w.0 = 0b10);
 
+            // framedelaymax=4096 is needed to make it work with phones from
+            // a certain company named after some fruit.
+            r.framedelaymin().write(|w| w.set_framedelaymin(1152));
+            r.framedelaymax().write(|w| w.set_framedelaymax(4096));
             r.framedelaymode().write(|w| {
                 w.set_framedelaymode(vals::Framedelaymode::WINDOW_GRID);
-            });
-            r.framedelaymin().write(|w| {
-                w.set_framedelaymin(1152);
-            });
-            r.framedelaymax().write(|w| {
-                w.set_framedelaymax(0xFFFF); // max
             });
 
             info!("waiting for field");
@@ -268,6 +266,17 @@ impl<'d> NfcT<'d> {
             // disable autocoll
             #[cfg(not(feature = "nrf52832"))]
             r.autocolresconfig().write(|w| w.0 = 0b11u32);
+
+            // once anticoll is done, set framedelaymax to the maximum possible.
+            // this gives the firmware as much time as possible to reply.
+            // higher layer still has to reply faster than the FWT it specifies in the iso14443-4 ATS,
+            // but that's not our concern.
+            //
+            // nrf52832 field is 16bit instead of 20bit. this seems to force a too short timeout, maybe it's a SVD bug?
+            #[cfg(not(feature = "nrf52832"))]
+            r.framedelaymax().write(|w| w.set_framedelaymax(0xF_FFFF));
+            #[cfg(feature = "nrf52832")]
+            r.framedelaymax().write(|w| w.set_framedelaymax(0xFFFF));
 
             return;
         }
