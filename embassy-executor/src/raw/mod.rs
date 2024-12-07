@@ -411,15 +411,6 @@ impl SyncExecutor {
         self.run_queue.dequeue_all(|p| {
             let task = p.header();
 
-            if !task.state.run_dequeue() {
-                // If task is not running, ignore it. This can happen in the following scenario:
-                //   - Task gets dequeued, poll starts
-                //   - While task is being polled, it gets woken. It gets placed in the queue.
-                //   - Task poll finishes, returning done=true
-                //   - RUNNING bit is cleared, but the task is already in the queue.
-                return;
-            }
-
             #[cfg(feature = "trace")]
             trace::task_exec_begin(self, &p);
 

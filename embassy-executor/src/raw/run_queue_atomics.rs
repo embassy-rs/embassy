@@ -81,7 +81,16 @@ impl RunQueue {
             // safety: there are no concurrent accesses to `next`
             next = unsafe { task.header().run_queue_item.next.get() };
 
-            on_task(task);
+            let run_task = task.header().state.run_dequeue();
+
+            if run_task {
+                // If task is not running, ignore it. This can happen in the following scenario:
+                //   - Task gets dequeued, poll starts
+                //   - While task is being polled, it gets woken. It gets placed in the queue.
+                //   - Task poll finishes, returning done=true
+                //   - RUNNING bit is cleared, but the task is already in the queue.
+                on_task(task);
+            }
         }
     }
 }
