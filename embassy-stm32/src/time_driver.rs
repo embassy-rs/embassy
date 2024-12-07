@@ -536,7 +536,7 @@ impl embassy_time_queue_driver::TimerQueue for TimerQueueDriver {
         let waker = embassy_executor::raw::task_from_waker(waker);
         self.inner.lock(|q| {
             if q.schedule_wake(at, waker) {
-                self.arm_alarm(at);
+                self.dispatch();
             }
         });
     }
