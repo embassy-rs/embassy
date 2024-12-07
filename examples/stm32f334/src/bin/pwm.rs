@@ -57,14 +57,14 @@ async fn main(_spawner: Spawner) {
     //    embassy_stm32::pac::HRTIM1
     //        .tim(0)
     //        .setr(0)
-    //        .modify(|w| w.set_sst(Activeeffect::SETACTIVE));
+    //        .modify(|w| w.set_sst(true));
     //
     //    Timer::after_millis(500).await;
     //
     //    embassy_stm32::pac::HRTIM1
     //        .tim(0)
     //        .rstr(0)
-    //        .modify(|w| w.set_srt(Inactiveeffect::SETINACTIVE));
+    //        .modify(|w| w.set_srt(true));
 
     let max_duty = buck_converter.get_max_compare_value();
 
