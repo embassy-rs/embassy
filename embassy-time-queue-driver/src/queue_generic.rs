@@ -49,7 +49,12 @@ impl<const QUEUE_SIZE: usize> QueueImpl<QUEUE_SIZE> {
             .iter_mut()
             .find(|timer| timer.waker.will_wake(waker))
             .map(|timer| {
-                timer.at = min(timer.at, at);
+                if timer.at > at {
+                    timer.at = at;
+                    true
+                } else {
+                    false
+                }
             })
             .unwrap_or_else(|| {
                 let mut timer = Timer {
@@ -65,13 +70,9 @@ impl<const QUEUE_SIZE: usize> QueueImpl<QUEUE_SIZE> {
 
                     self.queue.pop().unwrap().waker.wake();
                 }
-            });
 
-        // Don't wait for the alarm callback to trigger and directly
-        // dispatch all timers that are already due
-        //
-        // Then update the alarm if necessary
-        true
+                true
+            })
     }
 
     /// Dequeues expired timers and returns the next alarm time.
