@@ -1,6 +1,6 @@
 use core::cell::Cell;
 
-use critical_section::Mutex;
+use critical_section::{CriticalSection, Mutex};
 
 /// Task is claimed (it is being spawned)
 pub(crate) const STATE_CLAIMED: u32 = 1 << 0;
@@ -24,13 +24,15 @@ impl State {
     }
 
     fn update<R>(&self, f: impl FnOnce(&mut u32) -> R) -> R {
-        critical_section::with(|cs| {
-            let s = self.state.borrow(cs);
-            let mut val = s.get();
-            let r = f(&mut val);
-            s.set(val);
-            r
-        })
+        critical_section::with(|cs| self.update_with_cs(cs, f))
+    }
+
+    fn update_with_cs<R>(&self, cs: CriticalSection<'_>, f: impl FnOnce(&mut u32) -> R) -> R {
+        let s = self.state.borrow(cs);
+        let mut val = s.get();
+        let r = f(&mut val);
+        s.set(val);
+        r
     }
 
     /// If task is idle, mark it as claimed and return true.
@@ -83,8 +85,8 @@ impl State {
 
     /// Unmark the task as run-queued.
     #[inline(always)]
-    pub fn run_dequeue(&self) {
-        self.update(|s| *s &= !STATE_RUN_QUEUED);
+    pub fn run_dequeue(&self, cs: CriticalSection<'_>) {
+        self.update_with_cs(cs, |s| *s &= !STATE_RUN_QUEUED);
     }
 
     /// Mark the task as timer-queued. Return whether it was newly queued (i.e. not queued before)
