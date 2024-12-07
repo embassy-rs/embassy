@@ -92,6 +92,14 @@ impl TaskRef {
     }
 }
 
+fn despawn_task<F: Future + 'static>(p: TaskRef) {
+    unsafe {
+        let this = &*p.as_ptr().cast::<TaskStorage<F>>();
+        this.future.drop_in_place();
+        this.raw.state.despawn();
+    }
+}
+
 /// Raw storage in which a task can be spawned.
 ///
 /// This struct holds the necessary memory to spawn one task whose future is `F`.
@@ -164,8 +172,15 @@ impl<F: Future + 'static> TaskStorage<F> {
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
-                this.future.drop_in_place();
-                this.raw.state.despawn();
+                // Enqueue one more time, so that we can clear any pending wakeups.
+                #[cfg(feature = "integrated-timers")]
+                embassy_time_queue_driver::schedule_wake(0, &waker);
+                #[cfg(not(feature = "integrated-timers"))]
+                waker.wake_by_ref();
+
+                // Mark `CLAIMED` to prevent enqueueing it again during/before `despawn_task`.
+                this.raw.state.prepare_despawn();
+                this.raw.poll_fn.set(Some(despawn_task::<F>));
             }
             Poll::Pending => {}
         }
@@ -363,15 +378,6 @@ impl SyncExecutor {
     pub(crate) unsafe fn poll(&'static self) {
         self.run_queue.dequeue_all(|p| {
             let task = p.header();
-
-            if !task.state.run_dequeue() {
-                // If task is not running, ignore it. This can happen in the following scenario:
-                //   - Task gets dequeued, poll starts
-                //   - While task is being polled, it gets woken. It gets placed in the queue.
-                //   - Task poll finishes, returning done=true
-                //   - RUNNING bit is cleared, but the task is already in the queue.
-                return;
-            }
 
             #[cfg(feature = "rtos-trace")]
             trace::task_exec_begin(p.as_ptr() as u32);

@@ -68,6 +68,7 @@ impl RunQueue {
             // safety: we know if the task is enqueued, no one else will touch the `next` pointer.
             let cs = unsafe { CriticalSection::new() };
             next = task.header().run_queue_item.next.borrow(cs).get();
+            task.header().state.run_dequeue();
 
             on_task(task);
         }

@@ -57,6 +57,12 @@ impl State {
         self.update(|s| *s = STATE_SPAWNED | STATE_RUN_QUEUED);
     }
 
+    /// Mark a spawned task `CLAIMED` to prevent enqueueing it again in a run queue.
+    #[inline(always)]
+    pub fn prepare_despawn(&self) {
+        self.update(|s| *s |= STATE_CLAIMED);
+    }
+
     /// Unmark the task as spawned.
     #[inline(always)]
     pub fn despawn(&self) {
@@ -75,14 +81,10 @@ impl State {
         })
     }
 
-    /// Unmark the task as run-queued. Return whether the task is spawned.
+    /// Unmark the task as run-queued.
     #[inline(always)]
-    pub fn run_dequeue(&self) -> bool {
-        self.update(|s| {
-            let ok = *s & STATE_SPAWNED != 0;
-            *s &= !STATE_RUN_QUEUED;
-            ok
-        })
+    pub fn run_dequeue(&self) {
+        self.update(|s| *s &= !STATE_RUN_QUEUED);
     }
 
     /// Mark the task as timer-queued. Return whether it was newly queued (i.e. not queued before)
