@@ -1,11 +1,10 @@
 use core::cell::Cell;
-use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
-use core::{mem, ptr};
+use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
-use embassy_time_driver::{AlarmHandle, Driver};
+use embassy_time_driver::Driver;
 
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
@@ -94,11 +93,6 @@ mod test {
 
 struct AlarmState {
     timestamp: Cell<u64>,
-
-    // This is really a Option<(fn(*mut ()), *mut ())>
-    // but fn pointers aren't allowed in const yet
-    callback: Cell<*const ()>,
-    ctx: Cell<*mut ()>,
 }
 
 unsafe impl Send for AlarmState {}
@@ -107,26 +101,20 @@ impl AlarmState {
     const fn new() -> Self {
         Self {
             timestamp: Cell::new(u64::MAX),
-            callback: Cell::new(ptr::null()),
-            ctx: Cell::new(ptr::null_mut()),
         }
     }
 }
 
-const ALARM_COUNT: usize = 3;
-
 struct RtcDriver {
     /// Number of 2^23 periods elapsed since boot.
     period: AtomicU32,
-    alarm_count: AtomicU8,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarms: Mutex<[AlarmState; ALARM_COUNT]>,
+    alarms: Mutex<AlarmState>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
-    alarm_count: AtomicU8::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [const {AlarmState::new()}; ALARM_COUNT]),
+    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
 });
 
 impl RtcDriver {
@@ -169,13 +157,12 @@ impl RtcDriver {
             self.next_period();
         }
 
-        for n in 0..ALARM_COUNT {
-            if r.events_compare(n).read() == 1 {
-                r.events_compare(n).write_value(0);
-                critical_section::with(|cs| {
-                    self.trigger_alarm(n, cs);
-                })
-            }
+        let n = 0;
+        if r.events_compare(n).read() == 1 {
+            r.events_compare(n).write_value(0);
+            critical_section::with(|cs| {
+                self.trigger_alarm(cs);
+            });
         }
     }
 
@@ -186,75 +173,33 @@ impl RtcDriver {
             self.period.store(period, Ordering::Relaxed);
             let t = (period as u64) << 23;
 
-            for n in 0..ALARM_COUNT {
-                let alarm = &self.alarms.borrow(cs)[n];
-                let at = alarm.timestamp.get();
+            let n = 0;
+            let alarm = &self.alarms.borrow(cs);
+            let at = alarm.timestamp.get();
 
-                if at < t + 0xc00000 {
-                    // just enable it. `set_alarm` has already set the correct CC val.
-                    r.intenset().write(|w| w.0 = compare_n(n));
-                }
+            if at < t + 0xc00000 {
+                // just enable it. `set_alarm` has already set the correct CC val.
+                r.intenset().write(|w| w.0 = compare_n(n));
             }
         })
     }
 
-    fn get_alarm<'a>(&'a self, cs: CriticalSection<'a>, alarm: AlarmHandle) -> &'a AlarmState {
-        // safety: we're allowed to assume the AlarmState is created by us, and
-        // we never create one that's out of bounds.
-        unsafe { self.alarms.borrow(cs).get_unchecked(alarm.id() as usize) }
-    }
-
-    fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
+    fn trigger_alarm(&self, cs: CriticalSection) {
+        let n = 0;
         let r = rtc();
         r.intenclr().write(|w| w.0 = compare_n(n));
 
-        let alarm = &self.alarms.borrow(cs)[n];
+        let alarm = &self.alarms.borrow(cs);
         alarm.timestamp.set(u64::MAX);
 
         // Call after clearing alarm, so the callback can set another alarm.
-
-        // safety:
-        // - we can ignore the possiblity of `f` being unset (null) because of the safety contract of `allocate_alarm`.
-        // - other than that we only store valid function pointers into alarm.callback
-        let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
-        f(alarm.ctx.get());
-    }
-}
-
-impl Driver for RtcDriver {
-    fn now(&self) -> u64 {
-        // `period` MUST be read before `counter`, see comment at the top for details.
-        let period = self.period.load(Ordering::Relaxed);
-        compiler_fence(Ordering::Acquire);
-        let counter = rtc().counter().read().0;
-        calc_now(period, counter)
+        TIMER_QUEUE_DRIVER.dispatch();
     }
 
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        critical_section::with(|_| {
-            let id = self.alarm_count.load(Ordering::Relaxed);
-            if id < ALARM_COUNT as u8 {
-                self.alarm_count.store(id + 1, Ordering::Relaxed);
-                Some(AlarmHandle::new(id))
-            } else {
-                None
-            }
-        })
-    }
-
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+    fn set_alarm(&self, timestamp: u64) -> bool {
         critical_section::with(|cs| {
-            let alarm = self.get_alarm(cs, alarm);
-
-            alarm.callback.set(callback as *const ());
-            alarm.ctx.set(ctx);
-        })
-    }
-
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        critical_section::with(|cs| {
-            let n = alarm.id() as _;
-            let alarm = self.get_alarm(cs, alarm);
+            let n = 0;
+            let alarm = &self.alarms.borrow(cs);
             alarm.timestamp.set(timestamp);
 
             let r = rtc();
@@ -304,6 +249,16 @@ impl Driver for RtcDriver {
     }
 }
 
+impl Driver for RtcDriver {
+    fn now(&self) -> u64 {
+        // `period` MUST be read before `counter`, see comment at the top for details.
+        let period = self.period.load(Ordering::Relaxed);
+        compiler_fence(Ordering::Acquire);
+        let counter = rtc().counter().read().0;
+        calc_now(period, counter)
+    }
+}
+
 #[cfg(feature = "_nrf54l")]
 #[cfg(feature = "rt")]
 #[interrupt]
@@ -320,4 +275,59 @@ fn RTC1() {
 
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     DRIVER.init(irq_prio)
+}
+
+#[cfg(feature = "integrated-timers")]
+type RawQueue = embassy_executor::raw::timer_queue::TimerQueue;
+
+#[cfg(not(feature = "integrated-timers"))]
+type RawQueue = embassy_time_queue_driver::queue_generic::RefCellQueue;
+
+struct TimerQueueDriver {
+    inner: Mutex<RawQueue>,
+}
+
+embassy_time_queue_driver::timer_queue_impl!(static TIMER_QUEUE_DRIVER: TimerQueueDriver = TimerQueueDriver::new());
+
+impl embassy_time_queue_driver::TimerQueue for TimerQueueDriver {
+    fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
+        #[cfg(feature = "integrated-timers")]
+        let waker = embassy_executor::raw::task_from_waker(waker);
+        self.inner.lock(|q| {
+            if q.schedule_wake(at, waker) {
+                self.dispatch();
+            }
+        });
+    }
+}
+
+impl TimerQueueDriver {
+    const fn new() -> Self {
+        Self {
+            inner: Mutex::new(RawQueue::new()),
+        }
+    }
+
+    pub fn dispatch(&self) {
+        let now = DRIVER.now();
+        let next_expiration = self.inner.lock(|q| dequeue(q, now));
+        self.arm_alarm(next_expiration);
+    }
+
+    fn arm_alarm(&self, mut next_expiration: u64) {
+        while !DRIVER.set_alarm(next_expiration) {
+            // next_expiration is in the past, dequeue and find a new expiration
+            next_expiration = self.inner.lock(|q| dequeue(q, next_expiration));
+        }
+    }
+}
+
+fn dequeue(q: &RawQueue, now: u64) -> u64 {
+    #[cfg(feature = "integrated-timers")]
+    let next = unsafe { q.next_expiration(now, embassy_executor::raw::wake_task) };
+
+    #[cfg(not(feature = "integrated-timers"))]
+    let next = q.next_expiration(now);
+
+    next
 }

@@ -1,12 +1,14 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
+/// Task is claimed (it is being spawned)
+pub(crate) const STATE_CLAIMED: u32 = 1 << 0;
 /// Task is spawned (has a future)
-pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
+pub(crate) const STATE_SPAWNED: u32 = 1 << 1;
 /// Task is in the executor run queue
-pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
+pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 2;
 /// Task is in the executor timer queue
 #[cfg(feature = "integrated-timers")]
-pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
+pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 3;
 
 pub(crate) struct State {
     state: AtomicU32,
@@ -19,41 +21,50 @@ impl State {
         }
     }
 
-    /// If task is idle, mark it as spawned + run_queued and return true.
+    /// If task is idle, mark it as claimed and return true.
     #[inline(always)]
-    pub fn spawn(&self) -> bool {
+    pub fn claim(&self) -> bool {
         self.state
-            .compare_exchange(0, STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(0, STATE_CLAIMED, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
+    }
+
+    /// Mark a claimed task ready to run.
+    ///
+    /// # Safety
+    ///
+    /// The task must be claimed, its executor must be configured. This function must
+    /// not be called when the task is already spawned.
+    #[inline(always)]
+    pub unsafe fn mark_spawned(&self) {
+        self.state.store(STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::Release);
+    }
+
+    /// Mark a spawned task `CLAIMED` to prevent enqueueing it again in a run queue.
+    #[inline(always)]
+    pub fn prepare_despawn(&self) {
+        self.state.fetch_or(STATE_CLAIMED, Ordering::AcqRel);
     }
 
     /// Unmark the task as spawned.
     #[inline(always)]
     pub fn despawn(&self) {
-        self.state.fetch_and(!STATE_SPAWNED, Ordering::AcqRel);
+        self.state.fetch_and(!(STATE_SPAWNED | STATE_CLAIMED), Ordering::AcqRel);
     }
 
     /// Mark the task as run-queued if it's spawned and isn't already run-queued. Return true on success.
     #[inline(always)]
     pub fn run_enqueue(&self) -> bool {
-        self.state
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
-                // If already scheduled, or if not started,
-                if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
-                    None
-                } else {
-                    // Mark it as scheduled
-                    Some(state | STATE_RUN_QUEUED)
-                }
-            })
-            .is_ok()
+        let prev = self.state.fetch_or(STATE_RUN_QUEUED, Ordering::AcqRel);
+        // If CLAIMED is set, the task is being spawned. We don't want to pend, because we
+        // may end up adding the task to the wrong run queue.
+        prev & (STATE_RUN_QUEUED | STATE_CLAIMED) == 0
     }
 
-    /// Unmark the task as run-queued. Return whether the task is spawned.
+    /// Unmark the task as run-queued.
     #[inline(always)]
-    pub fn run_dequeue(&self) -> bool {
-        let state = self.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
-        state & STATE_SPAWNED != 0
+    pub fn run_dequeue(&self) {
+        self.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
     }
 
     /// Mark the task as timer-queued. Return whether it was newly queued (i.e. not queued before)
