@@ -39,7 +39,7 @@ impl TimerQueue {
         unsafe {
             let task = p.header();
             let item = &task.timer_queue_item;
-            if task.state.timer_enqueue() {
+            if item.next.get().is_none() {
                 // If not in the queue, add it and update.
                 let prev = self.head.replace(Some(p));
                 item.next.set(prev);
@@ -93,7 +93,7 @@ impl TimerQueue {
                 } else {
                     // Remove it
                     prev.set(item.next.get());
-                    task.state.timer_dequeue();
+                    item.next.set(None);
                 }
             }
         }
