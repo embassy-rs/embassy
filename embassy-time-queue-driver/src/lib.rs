@@ -22,9 +22,9 @@
 //! );
 //! ```
 //!
-//! You can also use the `queue_generic` or the `embassy_executor::raw::timer_queue` modules to
-//! implement your own timer queue. These modules contain queue implementations which you can wrap
-//! and tailor to your needs.
+//! You can also use the `queue_generic` or the `queue_integrated` modules to implement your own
+//! timer queue. These modules contain queue implementations which you can wrap and tailor to
+//! your needs.
 //!
 //! If you are providing an embassy-executor implementation besides a timer queue, you can choose to
 //! expose the `integrated-timers` feature in your implementation. This feature stores timer items
@@ -49,7 +49,10 @@
 //! embassy_time_queue_driver::timer_queue_impl!(static QUEUE: MyTimerQueue = MyTimerQueue{});
 //! ```
 
+#[cfg(not(feature = "integrated-timers"))]
 pub mod queue_generic;
+#[cfg(feature = "integrated-timers")]
+pub mod queue_integrated;
 
 use core::cell::RefCell;
 use core::task::Waker;
@@ -89,7 +92,7 @@ macro_rules! timer_queue_impl {
 }
 
 #[cfg(feature = "integrated-timers")]
-type InnerQueue = embassy_executor::raw::timer_queue::TimerQueue;
+type InnerQueue = queue_integrated::TimerQueue;
 
 #[cfg(not(feature = "integrated-timers"))]
 type InnerQueue = queue_generic::Queue;
