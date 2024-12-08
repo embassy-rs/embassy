@@ -49,13 +49,13 @@
 //! embassy_time_queue_driver::timer_queue_impl!(static QUEUE: MyTimerQueue = MyTimerQueue{});
 //! ```
 
-#[cfg(not(feature = "integrated-timers"))]
+#[cfg(feature = "_generic-queue")]
 pub mod queue_generic;
-#[cfg(feature = "integrated-timers")]
+#[cfg(not(feature = "_generic-queue"))]
 pub mod queue_integrated;
 
-#[cfg(feature = "integrated-timers")]
+#[cfg(not(feature = "_generic-queue"))]
 pub use queue_integrated::Queue;
 
-#[cfg(not(feature = "integrated-timers"))]
+#[cfg(feature = "_generic-queue")]
 pub use queue_generic::Queue;

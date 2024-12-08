@@ -16,7 +16,6 @@ mod run_queue;
 #[cfg_attr(not(target_has_atomic = "8"), path = "state_critical_section.rs")]
 mod state;
 
-#[cfg(feature = "integrated-timers")]
 pub mod timer_queue;
 pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
@@ -46,7 +45,6 @@ pub(crate) struct TaskHeader {
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
-    #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
 
@@ -78,13 +76,11 @@ impl TaskRef {
     }
 
     /// Returns a reference to the executor that the task is currently running on.
-    #[cfg(feature = "integrated-timers")]
     pub unsafe fn executor(self) -> Option<&'static Executor> {
         self.header().executor.get().map(|e| Executor::wrap(e))
     }
 
     /// Returns a reference to the timer queue item.
-    #[cfg(feature = "integrated-timers")]
     pub fn timer_queue_item(&self) -> &'static timer_queue::TimerQueueItem {
         &self.header().timer_queue_item
     }
@@ -129,7 +125,6 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
 
-                #[cfg(feature = "integrated-timers")]
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
             },
             future: UninitCell::uninit(),
@@ -518,28 +513,23 @@ pub fn wake_task_no_pend(task: TaskRef) {
     }
 }
 
-#[cfg(all(feature = "rtos-trace", feature = "integrated-timers"))]
-const fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
-}
-
 #[cfg(feature = "rtos-trace")]
 impl rtos_trace::RtosTraceOSCallbacks for Executor {
     fn task_list() {
         // We don't know what tasks exist, so we can't send them.
     }
-    #[cfg(feature = "integrated-timers")]
+
     fn time() -> u64 {
+        const fn gcd(a: u64, b: u64) -> u64 {
+            if b == 0 {
+                a
+            } else {
+                gcd(b, a % b)
+            }
+        }
+
         const GCD_1M: u64 = gcd(embassy_time_driver::TICK_HZ, 1_000_000);
         embassy_time_driver::now() * (1_000_000 / GCD_1M) / (embassy_time_driver::TICK_HZ / GCD_1M)
-    }
-    #[cfg(not(feature = "integrated-timers"))]
-    fn time() -> u64 {
-        0
     }
 }
 
