@@ -54,6 +54,8 @@
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
+use core::task::Waker;
+
 mod tick;
 
 /// Ticks per second of the global timebase.
@@ -74,15 +76,25 @@ pub trait Driver: Send + Sync + 'static {
     ///   you MUST extend them to 64-bit, for example by counting overflows in software,
     ///   or chaining multiple timers together.
     fn now(&self) -> u64;
+
+    /// Schedules a waker to be awoken at moment `at`.
+    /// If this moment is in the past, the waker might be awoken immediately.
+    fn schedule_wake(&self, at: u64, waker: &Waker);
 }
 
 extern "Rust" {
     fn _embassy_time_now() -> u64;
+    fn _embassy_time_schedule_wake(at: u64, waker: &Waker);
 }
 
 /// See [`Driver::now`]
 pub fn now() -> u64 {
     unsafe { _embassy_time_now() }
+}
+
+/// Schedule the given waker to be woken at `at`.
+pub fn schedule_wake(at: u64, waker: &Waker) {
+    unsafe { _embassy_time_schedule_wake(at, waker) }
 }
 
 /// Set the time Driver implementation.
@@ -96,6 +108,11 @@ macro_rules! time_driver_impl {
         #[no_mangle]
         fn _embassy_time_now() -> u64 {
             <$t as $crate::Driver>::now(&$name)
+        }
+
+        #[no_mangle]
+        fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker) {
+            <$t as $crate::Driver>::schedule_wake(&$name, at, waker);
         }
     };
 }
