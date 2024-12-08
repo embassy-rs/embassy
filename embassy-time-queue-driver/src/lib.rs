@@ -51,16 +51,15 @@
 
 use core::task::Waker;
 
-#[cfg(not(feature = "integrated-timers"))]
+#[cfg(feature = "_generic-queue")]
 pub mod queue_generic;
-#[cfg(feature = "integrated-timers")]
+#[cfg(not(feature = "_generic-queue"))]
 pub mod queue_integrated;
 
-#[cfg(feature = "integrated-timers")]
-pub use queue_integrated::Queue;
-
-#[cfg(not(feature = "integrated-timers"))]
+#[cfg(feature = "_generic-queue")]
 pub use queue_generic::Queue;
+#[cfg(not(feature = "_generic-queue"))]
+pub use queue_integrated::Queue;
 
 extern "Rust" {
     fn _embassy_time_schedule_wake(at: u64, waker: &Waker);

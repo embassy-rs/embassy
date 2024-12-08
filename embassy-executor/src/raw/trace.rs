@@ -61,28 +61,22 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
     rtos_trace::trace::system_idle();
 }
 
-#[cfg(all(feature = "rtos-trace", feature = "integrated-timers"))]
-const fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
-}
-
 #[cfg(feature = "rtos-trace")]
 impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
     fn task_list() {
         // We don't know what tasks exist, so we can't send them.
     }
-    #[cfg(feature = "integrated-timers")]
     fn time() -> u64 {
+        const fn gcd(a: u64, b: u64) -> u64 {
+            if b == 0 {
+                a
+            } else {
+                gcd(b, a % b)
+            }
+        }
+
         const GCD_1M: u64 = gcd(embassy_time_driver::TICK_HZ, 1_000_000);
         embassy_time_driver::now() * (1_000_000 / GCD_1M) / (embassy_time_driver::TICK_HZ / GCD_1M)
-    }
-    #[cfg(not(feature = "integrated-timers"))]
-    fn time() -> u64 {
-        0
     }
 }
 

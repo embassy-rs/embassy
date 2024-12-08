@@ -1,13 +1,11 @@
 use core::arch::asm;
 use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 
-#[cfg(feature = "integrated-timers")]
 use super::timer_queue::TimerEnqueueOperation;
 
 // Must be kept in sync with the layout of `State`!
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 8;
-#[cfg(feature = "integrated-timers")]
 pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 16;
 
 #[repr(C, align(4))]
@@ -93,7 +91,6 @@ impl State {
     }
 
     /// Mark the task as timer-queued. Return whether it can be enqueued.
-    #[cfg(feature = "integrated-timers")]
     #[inline(always)]
     pub fn timer_enqueue(&self) -> TimerEnqueueOperation {
         if self
@@ -116,7 +113,6 @@ impl State {
     }
 
     /// Unmark the task as timer-queued.
-    #[cfg(feature = "integrated-timers")]
     #[inline(always)]
     pub fn timer_dequeue(&self) {
         self.timer_queued.store(false, Ordering::Relaxed);

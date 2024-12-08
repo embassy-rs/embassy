@@ -2,7 +2,6 @@ use core::cell::Cell;
 
 use critical_section::Mutex;
 
-#[cfg(feature = "integrated-timers")]
 use super::timer_queue::TimerEnqueueOperation;
 
 /// Task is spawned (has a future)
@@ -10,7 +9,6 @@ pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
 pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
 /// Task is in the executor timer queue
-#[cfg(feature = "integrated-timers")]
 pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 
 pub(crate) struct State {
@@ -77,7 +75,6 @@ impl State {
     }
 
     /// Mark the task as timer-queued. Return whether it can be enqueued.
-    #[cfg(feature = "integrated-timers")]
     #[inline(always)]
     pub fn timer_enqueue(&self) -> TimerEnqueueOperation {
         self.update(|s| {
@@ -93,7 +90,6 @@ impl State {
     }
 
     /// Unmark the task as timer-queued.
-    #[cfg(feature = "integrated-timers")]
     #[inline(always)]
     pub fn timer_dequeue(&self) {
         self.update(|s| *s &= !STATE_TIMER_QUEUED);
