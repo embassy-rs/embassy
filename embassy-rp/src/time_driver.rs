@@ -1,10 +1,11 @@
 //! Timer driver.
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 
+use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time_driver::Driver;
-use embassy_time_queue_driver::GlobalTimerQueue;
+use embassy_time_queue_driver::Queue;
 #[cfg(feature = "rp2040")]
 use pac::TIMER;
 #[cfg(feature = "_rp235x")]
@@ -20,12 +21,14 @@ unsafe impl Send for AlarmState {}
 
 struct TimerDriver {
     alarms: Mutex<CriticalSectionRawMutex, AlarmState>,
+    queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
     alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState {
         timestamp: Cell::new(0),
     }),
+    queue: Mutex::new(RefCell::new(Queue::new()))
 });
 
 impl Driver for TimerDriver {
@@ -39,34 +42,45 @@ impl Driver for TimerDriver {
             }
         }
     }
+
+    fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
+        critical_section::with(|cs| {
+            let mut queue = self.queue.borrow(cs).borrow_mut();
+
+            if queue.schedule_wake(at, waker) {
+                let mut next = queue.next_expiration(self.now());
+                while !self.set_alarm(cs, next) {
+                    next = queue.next_expiration(self.now());
+                }
+            }
+        })
+    }
 }
 
 impl TimerDriver {
-    fn set_alarm(&self, timestamp: u64) -> bool {
+    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
         let n = 0;
-        critical_section::with(|cs| {
-            let alarm = &self.alarms.borrow(cs);
-            alarm.timestamp.set(timestamp);
+        let alarm = &self.alarms.borrow(cs);
+        alarm.timestamp.set(timestamp);
 
-            // Arm it.
-            // Note that we're not checking the high bits at all. This means the irq may fire early
-            // if the alarm is more than 72 minutes (2^32 us) in the future. This is OK, since on irq fire
-            // it is checked if the alarm time has passed.
-            TIMER.alarm(n).write_value(timestamp as u32);
+        // Arm it.
+        // Note that we're not checking the high bits at all. This means the irq may fire early
+        // if the alarm is more than 72 minutes (2^32 us) in the future. This is OK, since on irq fire
+        // it is checked if the alarm time has passed.
+        TIMER.alarm(n).write_value(timestamp as u32);
 
-            let now = self.now();
-            if timestamp <= now {
-                // If alarm timestamp has passed the alarm will not fire.
-                // Disarm the alarm and return `false` to indicate that.
-                TIMER.armed().write(|w| w.set_armed(1 << n));
+        let now = self.now();
+        if timestamp <= now {
+            // If alarm timestamp has passed the alarm will not fire.
+            // Disarm the alarm and return `false` to indicate that.
+            TIMER.armed().write(|w| w.set_armed(1 << n));
 
-                alarm.timestamp.set(u64::MAX);
+            alarm.timestamp.set(u64::MAX);
 
-                false
-            } else {
-                true
-            }
-        })
+            false
+        } else {
+            true
+        }
     }
 
     fn check_alarm(&self) {
@@ -75,7 +89,7 @@ impl TimerDriver {
             let alarm = &self.alarms.borrow(cs);
             let timestamp = alarm.timestamp.get();
             if timestamp <= self.now() {
-                self.trigger_alarm()
+                self.trigger_alarm(cs)
             } else {
                 // Not elapsed, arm it again.
                 // This can happen if it was set more than 2^32 us in the future.
@@ -87,8 +101,11 @@ impl TimerDriver {
         TIMER.intr().write(|w| w.set_alarm(n, true));
     }
 
-    fn trigger_alarm(&self) {
-        TIMER_QUEUE_DRIVER.dispatch();
+    fn trigger_alarm(&self, cs: CriticalSection) {
+        let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
+        while !self.set_alarm(cs, next) {
+            next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
+        }
     }
 }
 
@@ -125,8 +142,3 @@ fn TIMER_IRQ_0() {
 fn TIMER0_IRQ_0() {
     DRIVER.check_alarm()
 }
-
-embassy_time_queue_driver::timer_queue_impl!(
-    static TIMER_QUEUE_DRIVER: GlobalTimerQueue
-        = GlobalTimerQueue::new(|next_expiration| DRIVER.set_alarm(next_expiration))
-);

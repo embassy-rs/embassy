@@ -1,11 +1,11 @@
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::Driver;
-use embassy_time_queue_driver::GlobalTimerQueue;
+use embassy_time_queue_driver::Queue;
 
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
@@ -111,11 +111,13 @@ struct RtcDriver {
     period: AtomicU32,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
     alarms: Mutex<AlarmState>,
+    queue: Mutex<RefCell<Queue>>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarms: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
+    queue: Mutex::new(RefCell::new(Queue::new())),
 });
 
 impl RtcDriver {
@@ -194,59 +196,60 @@ impl RtcDriver {
         alarm.timestamp.set(u64::MAX);
 
         // Call after clearing alarm, so the callback can set another alarm.
-        TIMER_QUEUE_DRIVER.dispatch();
+        let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
+        while !self.set_alarm(cs, next) {
+            next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
+        }
     }
 
-    fn set_alarm(&self, timestamp: u64) -> bool {
-        critical_section::with(|cs| {
-            let n = 0;
-            let alarm = &self.alarms.borrow(cs);
-            alarm.timestamp.set(timestamp);
+    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
+        let n = 0;
+        let alarm = &self.alarms.borrow(cs);
+        alarm.timestamp.set(timestamp);
 
-            let r = rtc();
+        let r = rtc();
 
-            let t = self.now();
-            if timestamp <= t {
-                // If alarm timestamp has passed the alarm will not fire.
-                // Disarm the alarm and return `false` to indicate that.
-                r.intenclr().write(|w| w.0 = compare_n(n));
+        let t = self.now();
+        if timestamp <= t {
+            // If alarm timestamp has passed the alarm will not fire.
+            // Disarm the alarm and return `false` to indicate that.
+            r.intenclr().write(|w| w.0 = compare_n(n));
 
-                alarm.timestamp.set(u64::MAX);
+            alarm.timestamp.set(u64::MAX);
 
-                return false;
-            }
+            return false;
+        }
 
-            // If it hasn't triggered yet, setup it in the compare channel.
+        // If it hasn't triggered yet, setup it in the compare channel.
 
-            // Write the CC value regardless of whether we're going to enable it now or not.
-            // This way, when we enable it later, the right value is already set.
+        // Write the CC value regardless of whether we're going to enable it now or not.
+        // This way, when we enable it later, the right value is already set.
 
-            // nrf52 docs say:
-            //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
-            // To workaround this, we never write a timestamp smaller than N+3.
-            // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
-            //
-            // It is impossible for rtc to tick more than once because
-            //  - this code takes less time than 1 tick
-            //  - it runs with interrupts disabled so nothing else can preempt it.
-            //
-            // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
-            // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
-            // and we don't do that here.
-            let safe_timestamp = timestamp.max(t + 3);
-            r.cc(n).write(|w| w.set_compare(safe_timestamp as u32 & 0xFFFFFF));
+        // nrf52 docs say:
+        //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
+        // To workaround this, we never write a timestamp smaller than N+3.
+        // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
+        //
+        // It is impossible for rtc to tick more than once because
+        //  - this code takes less time than 1 tick
+        //  - it runs with interrupts disabled so nothing else can preempt it.
+        //
+        // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
+        // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
+        // and we don't do that here.
+        let safe_timestamp = timestamp.max(t + 3);
+        r.cc(n).write(|w| w.set_compare(safe_timestamp as u32 & 0xFFFFFF));
 
-            let diff = timestamp - t;
-            if diff < 0xc00000 {
-                r.intenset().write(|w| w.0 = compare_n(n));
-            } else {
-                // If it's too far in the future, don't setup the compare channel yet.
-                // It will be setup later by `next_period`.
-                r.intenclr().write(|w| w.0 = compare_n(n));
-            }
+        let diff = timestamp - t;
+        if diff < 0xc00000 {
+            r.intenset().write(|w| w.0 = compare_n(n));
+        } else {
+            // If it's too far in the future, don't setup the compare channel yet.
+            // It will be setup later by `next_period`.
+            r.intenclr().write(|w| w.0 = compare_n(n));
+        }
 
-            true
-        })
+        true
     }
 }
 
@@ -257,6 +260,19 @@ impl Driver for RtcDriver {
         compiler_fence(Ordering::Acquire);
         let counter = rtc().counter().read().0;
         calc_now(period, counter)
+    }
+
+    fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
+        critical_section::with(|cs| {
+            let mut queue = self.queue.borrow(cs).borrow_mut();
+
+            if queue.schedule_wake(at, waker) {
+                let mut next = queue.next_expiration(self.now());
+                while !self.set_alarm(cs, next) {
+                    next = queue.next_expiration(self.now());
+                }
+            }
+        })
     }
 }
 
@@ -277,8 +293,3 @@ fn RTC1() {
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     DRIVER.init(irq_prio)
 }
-
-embassy_time_queue_driver::timer_queue_impl!(
-    static TIMER_QUEUE_DRIVER: GlobalTimerQueue
-        = GlobalTimerQueue::new(|next_expiration| DRIVER.set_alarm(next_expiration))
-);
