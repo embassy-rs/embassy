@@ -83,6 +83,12 @@ impl TaskRef {
         self.header().executor.get().map(|e| Executor::wrap(e))
     }
 
+    /// Returns a reference to the timer queue item.
+    #[cfg(feature = "integrated-timers")]
+    pub fn timer_queue_item(&self) -> &'static timer_queue::TimerQueueItem {
+        &self.header().timer_queue_item
+    }
+
     /// The returned pointer is valid for the entire TaskStorage.
     pub(crate) fn as_ptr(self) -> *const TaskHeader {
         self.ptr.as_ptr()

@@ -4,13 +4,14 @@ use core::cmp::min;
 use super::util::SyncUnsafeCell;
 use super::TaskRef;
 
-pub(crate) struct TimerQueueItem {
+/// An item in the timer queue.
+pub struct TimerQueueItem {
     next: SyncUnsafeCell<Option<TaskRef>>,
     expires_at: SyncUnsafeCell<u64>,
 }
 
 impl TimerQueueItem {
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             next: SyncUnsafeCell::new(None),
             expires_at: SyncUnsafeCell::new(0),
@@ -37,8 +38,7 @@ impl TimerQueue {
     /// a new alarm for that time.
     pub fn schedule_wake(&mut self, at: u64, p: TaskRef) -> bool {
         unsafe {
-            let task = p.header();
-            let item = &task.timer_queue_item;
+            let item = p.timer_queue_item();
             if item.next.get().is_none() {
                 // If not in the queue, add it and update.
                 let prev = self.head.replace(Some(p));
@@ -63,8 +63,7 @@ impl TimerQueue {
         let mut next_expiration = u64::MAX;
 
         self.retain(|p| {
-            let task = p.header();
-            let item = &task.timer_queue_item;
+            let item = p.timer_queue_item();
             let expires = unsafe { item.expires_at.get() };
 
             if expires <= now {
@@ -85,8 +84,7 @@ impl TimerQueue {
         unsafe {
             let mut prev = &self.head;
             while let Some(p) = prev.get() {
-                let task = p.header();
-                let item = &task.timer_queue_item;
+                let item = p.timer_queue_item();
                 if f(p) {
                     // Skip to next
                     prev = &item.next;
