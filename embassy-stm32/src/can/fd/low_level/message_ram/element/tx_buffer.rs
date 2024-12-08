@@ -4,6 +4,8 @@
 #![allow(non_snake_case)]
 #![allow(unused)]
 
+use volatile_register::RW;
+
 use super::common::{BRS_R, DLC_R, ESI_R, FDF_R, ID_R, RTR_R, XTD_R};
 use super::enums::{
     BitRateSwitching, DataLength, ErrorStateIndicator, Event, EventControl, FrameFormat, IdType,
@@ -11,12 +13,31 @@ use super::enums::{
 };
 use super::generic;
 
+#[repr(C)]
+pub(crate) struct TxBufferElement {
+    pub(crate) header: TxBufferElementHeader,
+    pub(crate) data: [RW<u32>; 16],
+}
+impl TxBufferElement {
+    pub(crate) fn reset(&mut self) {
+        self.header.reset();
+        for byte in self.data.iter_mut() {
+            unsafe { byte.write(0) };
+        }
+    }
+}
+pub(crate) type TxBufferElementHeader = generic::Reg<TxBufferElementHeaderType, _TxBufferElement>;
+pub(crate) type TxBufferElementHeaderType = [u32; 2];
+pub(crate) struct _TxBufferElement;
+impl generic::Readable for TxBufferElementHeader {}
+impl generic::Writable for TxBufferElementHeader {}
+
 #[doc = "Reader of register TxBufferElement"]
-pub(crate) type R = generic::R<super::TxBufferElementHeaderType, super::TxBufferElementHeader>;
+pub(crate) type R = generic::R<TxBufferElementHeaderType, TxBufferElementHeader>;
 #[doc = "Writer for register TxBufferElement"]
-pub(crate) type W = generic::W<super::TxBufferElementHeaderType, super::TxBufferElementHeader>;
-impl generic::ResetValue for super::TxBufferElementHeader {
-    type Type = super::TxBufferElementHeaderType;
+pub(crate) type W = generic::W<TxBufferElementHeaderType, TxBufferElementHeader>;
+impl generic::ResetValue for TxBufferElementHeader {
+    type Type = TxBufferElementHeaderType;
 
     #[allow(dead_code)]
     #[inline(always)]
@@ -132,7 +153,7 @@ impl<'a> ID_W<'a> {
     #[doc = r"Writes raw bits to the field"]
     #[inline(always)]
     #[allow(dead_code)]
-    pub unsafe fn bits(self, value: u32) -> &'a mut W {
+    pub fn bits(self, value: u32) -> &'a mut W {
         self.w.bits[0] = (self.w.bits[0] & !(0x1FFFFFFF)) | ((value as u32) & 0x1FFFFFFF);
         self.w
     }
@@ -264,7 +285,7 @@ impl<'a> EFC_W<'a> {
     }
 }
 
-struct Marker(u8);
+pub(crate) struct Marker(u8);
 impl From<Event> for Marker {
     fn from(e: Event) -> Marker {
         match e {
@@ -283,13 +304,14 @@ pub(crate) struct MM_W<'a> {
 impl<'a> MM_W<'a> {
     #[doc = r"Writes raw bits to the field"]
     #[inline(always)]
-    pub unsafe fn bits(self, value: u8) -> &'a mut W {
-        self.w.bits[1] = (self.w.bits[1] & !(0x7F << 24)) | (((value as u32) & 0x7F) << 24);
+    pub fn bits(self, value: u8) -> &'a mut W {
+        self.w.bits[1] = (self.w.bits[1] & !(0xff << 24)) | (((value as u32) & 0xff) << 24);
         self.w
     }
 
-    fn set_message_marker(self, mm: Marker) -> &'a mut W {
-        unsafe { self.bits(mm.0) }
+    #[inline(always)]
+    pub fn set_message_marker(self, mm: Marker) -> &'a mut W {
+        self.bits(mm.0)
     }
 }
 
