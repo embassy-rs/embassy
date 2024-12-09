@@ -19,7 +19,7 @@ impl TimerQueueItem {
     pub(crate) const fn new() -> Self {
         Self {
             next: Cell::new(None),
-            expires_at: Cell::new(0),
+            expires_at: Cell::new(u64::MAX),
         }
     }
 }
