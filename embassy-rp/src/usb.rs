@@ -251,7 +251,7 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
-        //let x = regs.istr().read().0;
+        //let x = regs.intr().read().0;
         //trace!("USB IRQ: {:08x}", x);
 
         let ints = regs.ints().read();
@@ -397,6 +397,19 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
             if siestatus.suspended() && intrstatus.dev_suspend() {
                 regs.sie_status().write(|w| w.set_suspended(true));
+
+                for i in 1..EP_COUNT {
+                    T::dpram().ep_in_control(i - 1).modify(|w| w.set_enable(false));
+                    T::dpram().ep_out_control(i - 1).modify(|w| w.set_enable(false));
+                }
+
+                for w in &EP_IN_WAKERS {
+                    w.wake()
+                }
+                for w in &EP_OUT_WAKERS {
+                    w.wake()
+                }
+
                 return Poll::Ready(Event::Suspend);
             }
 
@@ -567,14 +580,17 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let index = self.info.addr.index();
         let val = poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
+            let ctrl_val = T::dpram().ep_out_control(index - 1).read();
             let val = T::dpram().ep_out_buffer_control(index).read();
-            if val.available(0) {
+            if !ctrl_val.enable() {
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else if val.available(0) {
                 Poll::Pending
             } else {
-                Poll::Ready(val)
+                Poll::Ready(Ok(val))
             }
         })
-        .await;
+        .await?;
 
         let rx_len = val.length(0) as usize;
         if rx_len > buf.len() {
@@ -611,14 +627,17 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         let index = self.info.addr.index();
         let val = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
+            let ctrl_val = T::dpram().ep_in_control(index - 1).read();
             let val = T::dpram().ep_in_buffer_control(index).read();
-            if val.available(0) {
+            if !ctrl_val.enable() {
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else if val.available(0) {
                 Poll::Pending
             } else {
-                Poll::Ready(val)
+                Poll::Ready(Ok(val))
             }
         })
-        .await;
+        .await?;
 
         self.buf.write(buf);
 
