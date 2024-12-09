@@ -18,6 +18,8 @@ mod state;
 
 #[cfg(feature = "integrated-timers")]
 mod timer_queue;
+#[cfg(feature = "trace")]
+mod trace;
 pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
@@ -31,8 +33,6 @@ use core::task::{Context, Poll};
 
 #[cfg(feature = "integrated-timers")]
 use embassy_time_driver::AlarmHandle;
-#[cfg(feature = "rtos-trace")]
-use rtos_trace::trace;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
@@ -347,8 +347,8 @@ impl SyncExecutor {
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
     unsafe fn enqueue(&self, task: TaskRef) {
-        #[cfg(feature = "rtos-trace")]
-        trace::task_ready_begin(task.as_ptr() as u32);
+        #[cfg(feature = "trace")]
+        trace::task_ready_begin(self, &task);
 
         if self.run_queue.enqueue(task) {
             self.pender.pend();
@@ -364,8 +364,8 @@ impl SyncExecutor {
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
         task.header().executor.set(Some(self));
 
-        #[cfg(feature = "rtos-trace")]
-        trace::task_new(task.as_ptr() as u32);
+        #[cfg(feature = "trace")]
+        trace::task_new(self, &task);
 
         self.enqueue(task);
     }
@@ -398,14 +398,14 @@ impl SyncExecutor {
                     return;
                 }
 
-                #[cfg(feature = "rtos-trace")]
-                trace::task_exec_begin(p.as_ptr() as u32);
+                #[cfg(feature = "trace")]
+                trace::task_exec_begin(self, &p);
 
                 // Run the task
                 task.poll_fn.get().unwrap_unchecked()(p);
 
-                #[cfg(feature = "rtos-trace")]
-                trace::task_exec_end();
+                #[cfg(feature = "trace")]
+                trace::task_exec_end(self, &p);
 
                 // Enqueue or update into timer_queue
                 #[cfg(feature = "integrated-timers")]
@@ -428,8 +428,8 @@ impl SyncExecutor {
             }
         }
 
-        #[cfg(feature = "rtos-trace")]
-        trace::system_idle();
+        #[cfg(feature = "trace")]
+        trace::executor_idle(self)
     }
 }
 
@@ -580,31 +580,3 @@ impl embassy_time_queue_driver::TimerQueue for TimerQueue {
 
 #[cfg(feature = "integrated-timers")]
 embassy_time_queue_driver::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
-
-#[cfg(all(feature = "rtos-trace", feature = "integrated-timers"))]
-const fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
-}
-
-#[cfg(feature = "rtos-trace")]
-impl rtos_trace::RtosTraceOSCallbacks for Executor {
-    fn task_list() {
-        // We don't know what tasks exist, so we can't send them.
-    }
-    #[cfg(feature = "integrated-timers")]
-    fn time() -> u64 {
-        const GCD_1M: u64 = gcd(embassy_time_driver::TICK_HZ, 1_000_000);
-        embassy_time_driver::now() * (1_000_000 / GCD_1M) / (embassy_time_driver::TICK_HZ / GCD_1M)
-    }
-    #[cfg(not(feature = "integrated-timers"))]
-    fn time() -> u64 {
-        0
-    }
-}
-
-#[cfg(feature = "rtos-trace")]
-rtos_trace::global_os_callbacks! {Executor}
