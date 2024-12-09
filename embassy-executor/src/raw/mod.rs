@@ -41,6 +41,67 @@ pub use self::waker::task_from_waker;
 use super::SpawnToken;
 
 /// Raw task header for use in task pointers.
+///
+/// A task can be in one of the following states:
+///
+/// - Not spawned: the task is ready to spawn.
+/// - `CLAIMED`: the task is currently being spawned. The task will not be added
+///    to any run queues in this state, except by the executor that transitions it out of
+///    the `CLAIMED` state.
+/// - `SPAWNED`: the task is currently running.
+/// - `RUN_ENQUEUED`: the task is enqueued to be polled. Note that the task may be `!SPAWNED`.
+///    In this case, the `RUN_ENQUEUED` state will be cleared when the task is next polled, without
+///    polling the task's future.
+/// - `TIMER_ENQUEUED`: the task is currently enqueued in the timer queue. When its expiration is
+///    due, the task will be enqueued in the run queue.
+///
+/// A task's complete life cycle is as follows:
+///
+/// ```text
+///        ┌────────────────────────────────────────────────────────┐
+///       11                                                        │
+///    ┌───┴────────┐   ┌────────────────────────┐   ┌──────────────▼───────────┐
+/// ┌─►│Not spawned │◄14┤Not spawned|Run enqueued│◄12┤Not spawned|Timer enqueued│
+/// │  │            │   │                        │   │                          │
+/// │  └─────┬──────┘   └──────▲────┬───▲────────┘   └──────────────────────────┘
+/// │        1                 │    15  │
+/// │        │                 │    │   │
+/// │  ┌─────▼──────┐          │    │   │  ┌───────────────────────────────────────┐
+/// │  │  Claimed   │          │    │   └16┤Not spawned|Run enqueued|Timer enqueued│
+/// │  │            │          │    └─────►│                                       │
+/// │  └─────┬──────┘          │           └───────────────────────────────────────┘
+/// │        2                 │
+/// │        │    ┌────────────┘
+/// │        │    13
+/// │  ┌─────▼────┴─────────┐                  ┌───────────────────────────────────┐
+/// │  │Spawned|Run enqueued├8────────────────►│Spawned|Run enqueued|Timer enqueued│
+/// │  │                    │◄────────────────9┤                                   │
+/// │  └─────┬▲───▲─────────┘                  └───────────────────▲───────────────┘
+/// │        3│   └─────────────────────────────────────┐          │
+/// │        │4                                         7          10
+/// │  ┌─────▼┴─────┐                                  ┌┴──────────┴──────────┐
+/// └─5┤  Spawned   ├6────────────────────────────────►│Spawned|Timer enqueued│
+///    │            │                                  │                      │
+///    └────────────┘                                  └──────────────────────┘
+/// ```
+///
+/// Transitions:
+/// - 1: Task is claimed for spawning - `AvailableTask::claim -> Executor::spawn`
+/// - 2: Task has finished spawning - `Executor::spawn`
+/// - 3: During poll - `RunQueue::dequeue_all -> State::run_dequeue`
+/// - 4: Task wakes itself, waker wakes task - `Waker::wake -> wake_task -> State::run_enqueue`
+/// - 5: Task exits - `TaskStorage::poll -> Poll::Ready`
+/// - 6: Task schedules itself - `TimerQueue::schedule_wake -> TimerQueue::update`
+/// - 7: Timer queue is processed - `TimerQueue::dequeue_expired -> wake_task_no_pend -> State::run_enqueue`
+/// - 8: `schedule_wake -> State::update` enqueues the task in the timer queue.
+/// - 9: Timer queue is processed - `TimerQueue::dequeue_expired -> wake_task_no_pend` ->  task is already RUN_ENQUEUED.
+/// - 10: A waker wakes a task that is in the timer queue. `Waker::wake -> wake_task -> State::run_enqueue`
+/// - 11: A race condition happens: A task exits, then a different thread calls its `schedule_wake`, then the task calls its `TimerQueue::update`
+/// - 12: Timer queue is processed - `TimerQueue::dequeue_expired -> wake_task_no_pend -> State::run_enqueue`
+/// - 13: A run-queued task exits - `TaskStorage::poll -> Poll::Ready`
+/// - 14: During poll - `State::run_dequeue`, task is then ignored.
+/// - 15: A race condition happens between the task clearing its `expires_at` value and another thread calling `schedule_wake`.
+/// - 16: Timer queue is processed - `TimerQueue::dequeue_expired -> wake_task_no_pend` -> task is already RUN_ENQUEUED.
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
@@ -162,6 +223,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 this.raw.state.despawn();
 
                 #[cfg(feature = "integrated-timers")]
+                // FIXME: There is a data race between `TimerQueue::schedule_wake` and this line.
                 this.raw.expires_at.set(u64::MAX);
             }
             Poll::Pending => {}
@@ -189,9 +251,9 @@ pub struct AvailableTask<F: Future + 'static> {
 impl<F: Future + 'static> AvailableTask<F> {
     /// Try to claim a [`TaskStorage`].
     ///
-    /// This function returns `None` if a task has already been spawned and has not finished running.
+    /// This function returns `None` if a task has already been claimed and has not finished running.
     pub fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
-        task.raw.state.spawn().then(|| Self { task })
+        task.raw.state.claim().then(|| Self { task })
     }
 
     fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
@@ -369,6 +431,9 @@ impl SyncExecutor {
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
         task.header().executor.set(Some(self));
 
+        // Must be called after the executor has been updated
+        task.header().state.mark_spawned();
+
         #[cfg(feature = "rtos-trace")]
         trace::task_new(task.as_ptr() as u32);
 
@@ -389,6 +454,7 @@ impl SyncExecutor {
                 let task = p.header();
 
                 #[cfg(feature = "integrated-timers")]
+                // FIXME: There is a data race between `TimerQueue::schedule_wake` and this line.
                 task.expires_at.set(u64::MAX);
 
                 if !task.state.run_dequeue() {
