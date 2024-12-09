@@ -98,9 +98,6 @@ mod thread {
         ///
         /// This function never returns.
         pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
-            unsafe {
-                self.inner.initialize();
-            }
             init(self.inner.spawner());
 
             loop {
@@ -210,9 +207,6 @@ mod interrupt {
             }
 
             let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
-            unsafe {
-                executor.initialize();
-            }
 
             unsafe { NVIC::unmask(irq) }
 

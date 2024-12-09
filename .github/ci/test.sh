@@ -17,7 +17,7 @@ cargo test --manifest-path ./embassy-futures/Cargo.toml
 cargo test --manifest-path ./embassy-sync/Cargo.toml
 cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml
 cargo test --manifest-path ./embassy-hal-internal/Cargo.toml
-cargo test --manifest-path ./embassy-time/Cargo.toml --features generic-queue,mock-driver
+cargo test --manifest-path ./embassy-time/Cargo.toml --features mock-driver
 cargo test --manifest-path ./embassy-time-driver/Cargo.toml
 
 cargo test --manifest-path ./embassy-boot/Cargo.toml

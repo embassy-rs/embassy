@@ -60,14 +60,13 @@ impl State {
     #[cfg(feature = "integrated-timers")]
     #[inline(always)]
     pub fn timer_enqueue(&self) -> bool {
-        let old_state = self.state.fetch_or(STATE_TIMER_QUEUED, Ordering::AcqRel);
-        old_state & STATE_TIMER_QUEUED == 0
+        self.state.fetch_or(STATE_TIMER_QUEUED, Ordering::Relaxed) & STATE_TIMER_QUEUED == 0
     }
 
     /// Unmark the task as timer-queued.
     #[cfg(feature = "integrated-timers")]
     #[inline(always)]
     pub fn timer_dequeue(&self) {
-        self.state.fetch_and(!STATE_TIMER_QUEUED, Ordering::AcqRel);
+        self.state.fetch_and(!STATE_TIMER_QUEUED, Ordering::Relaxed);
     }
 }
