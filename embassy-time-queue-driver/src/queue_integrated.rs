@@ -21,15 +21,14 @@ impl TimerQueue {
     /// a new alarm for that time.
     pub fn schedule_wake(&mut self, at: u64, p: TaskRef) -> bool {
         let item = p.timer_queue_item();
-        if at <= item.expires_at.get() {
+        if unsafe { p.timer_enqueue() } {
+            // If not in the queue, add it and update.
+            let prev = self.head.replace(Some(p));
+            item.next.set(prev);
+            item.expires_at.set(at);
+            true
+        } else if at <= item.expires_at.get() {
             // If expiration is sooner than previously set, update.
-
-            if item.expires_at.get() == u64::MAX {
-                // If not in the queue, add it and update.
-                let prev = self.head.replace(Some(p));
-                item.next.set(prev);
-            }
-
             item.expires_at.set(at);
             true
         } else {
@@ -73,7 +72,7 @@ impl TimerQueue {
             } else {
                 // Remove it
                 prev.set(item.next.get());
-                item.expires_at.set(u64::MAX);
+                unsafe { p.timer_dequeue() };
             }
         }
     }
