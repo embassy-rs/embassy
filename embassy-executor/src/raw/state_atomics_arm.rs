@@ -11,8 +11,9 @@ pub(crate) struct State {
     spawned: AtomicBool,
     /// Task is in the executor run queue
     run_queued: AtomicBool,
+    /// Task is in the executor timer queue
+    timer_queued: AtomicBool,
     pad: AtomicBool,
-    pad2: AtomicBool,
 }
 
 impl State {
@@ -20,8 +21,8 @@ impl State {
         Self {
             spawned: AtomicBool::new(false),
             run_queued: AtomicBool::new(false),
+            timer_queued: AtomicBool::new(false),
             pad: AtomicBool::new(false),
-            pad2: AtomicBool::new(false),
         }
     }
 
@@ -84,5 +85,19 @@ impl State {
         let r = self.spawned.load(Ordering::Relaxed);
         self.run_queued.store(false, Ordering::Relaxed);
         r
+    }
+
+    /// Mark the task as timer-queued. Return whether it was newly queued (i.e. not queued before)
+    #[cfg(feature = "integrated-timers")]
+    #[inline(always)]
+    pub fn timer_enqueue(&self) -> bool {
+        !self.timer_queued.swap(true, Ordering::Relaxed)
+    }
+
+    /// Unmark the task as timer-queued.
+    #[cfg(feature = "integrated-timers")]
+    #[inline(always)]
+    pub fn timer_dequeue(&self) {
+        self.timer_queued.store(false, Ordering::Relaxed);
     }
 }
