@@ -50,7 +50,7 @@ pub(crate) struct TaskHeader {
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct TaskRef {
     ptr: NonNull<TaskHeader>,
 }
@@ -72,6 +72,16 @@ impl TaskRef {
         }
     }
 
+    /// # Safety
+    ///
+    /// The result of this function must only be compared
+    /// for equality, or stored, but not used.
+    pub const unsafe fn dangling() -> Self {
+        Self {
+            ptr: NonNull::dangling(),
+        }
+    }
+
     pub(crate) fn header(self) -> &'static TaskHeader {
         unsafe { self.ptr.as_ref() }
     }
@@ -86,6 +96,30 @@ impl TaskRef {
     #[cfg(feature = "integrated-timers")]
     pub fn timer_queue_item(&self) -> &'static timer_queue::TimerQueueItem {
         &self.header().timer_queue_item
+    }
+
+    /// Mark the task as timer-queued. Return whether it was newly queued (i.e. not queued before)
+    ///
+    /// Entering this state prevents the task from being respawned while in a timer queue.
+    ///
+    /// Safety:
+    ///
+    /// This functions should only be called by the timer queue implementation, before
+    /// enqueueing the timer item.
+    #[cfg(feature = "integrated-timers")]
+    pub unsafe fn timer_enqueue(&self) -> timer_queue::TimerEnqueueOperation {
+        self.header().state.timer_enqueue()
+    }
+
+    /// Unmark the task as timer-queued.
+    ///
+    /// Safety:
+    ///
+    /// This functions should only be called by the timer queue implementation, after the task has
+    /// been removed from the timer queue.
+    #[cfg(feature = "integrated-timers")]
+    pub unsafe fn timer_dequeue(&self) {
+        self.header().state.timer_dequeue()
     }
 
     /// The returned pointer is valid for the entire TaskStorage.

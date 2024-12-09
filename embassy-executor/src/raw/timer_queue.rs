@@ -7,6 +7,9 @@ use super::TaskRef;
 /// An item in the timer queue.
 pub struct TimerQueueItem {
     /// The next item in the queue.
+    ///
+    /// If this field contains `Some`, the item is in the queue. The last item in the queue has a
+    /// value of `Some(dangling_pointer)`
     pub next: Cell<Option<TaskRef>>,
 
     /// The time at which this item expires.
@@ -19,7 +22,17 @@ impl TimerQueueItem {
     pub(crate) const fn new() -> Self {
         Self {
             next: Cell::new(None),
-            expires_at: Cell::new(0),
+            expires_at: Cell::new(u64::MAX),
         }
     }
+}
+
+/// The operation to perform after `timer_enqueue` is called.
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TimerEnqueueOperation {
+    /// Enqueue the task.
+    Enqueue,
+    /// Update the task's expiration time.
+    Ignore,
 }

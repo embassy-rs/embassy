@@ -24,16 +24,21 @@ impl TimerQueue {
         if item.next.get().is_none() {
             // If not in the queue, add it and update.
             let prev = self.head.replace(Some(p));
-            item.next.set(prev);
+            item.next.set(if prev.is_none() {
+                Some(unsafe { TaskRef::dangling() })
+            } else {
+                prev
+            });
+            item.expires_at.set(at);
+            true
         } else if at <= item.expires_at.get() {
             // If expiration is sooner than previously set, update.
+            item.expires_at.set(at);
+            true
         } else {
             // Task does not need to be updated.
-            return false;
+            false
         }
-
-        item.expires_at.set(at);
-        true
     }
 
     /// Dequeues expired timers and returns the next alarm time.
@@ -64,6 +69,10 @@ impl TimerQueue {
     fn retain(&self, mut f: impl FnMut(TaskRef) -> bool) {
         let mut prev = &self.head;
         while let Some(p) = prev.get() {
+            if unsafe { p == TaskRef::dangling() } {
+                // prev was the last item, stop
+                break;
+            }
             let item = p.timer_queue_item();
             if f(p) {
                 // Skip to next
@@ -72,6 +81,7 @@ impl TimerQueue {
                 // Remove it
                 prev.set(item.next.get());
                 item.next.set(None);
+                unsafe { p.timer_dequeue() };
             }
         }
     }
