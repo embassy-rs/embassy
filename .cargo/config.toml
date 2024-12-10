@@ -1,0 +1,3 @@
+[registries]
+crates-io = { index = "https://github.com/rust-lang/crates.io-index" }
+globus = { index = "sparse+https://globus.jfrog.io/artifactory/api/cargo/globus-cargo-local/index/" }
