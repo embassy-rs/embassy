@@ -185,6 +185,7 @@ where
         let mut rx_buf = [0u8; MAX_SPI_BUFFER_SIZE];
 
         loop {
+            info!("[esp] loop");
             self.handshake.wait_for_high().await.unwrap();
 
             let ioctl = self.shared.ioctl_wait_pending();
