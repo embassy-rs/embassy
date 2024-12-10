@@ -210,6 +210,9 @@ embassy_hal_internal::peripherals! {
     QDEC0,
     QDEC1,
 
+    // RESET
+    RESET,
+
     // GPIOTE
     GPIOTE_CH0,
     GPIOTE_CH1,
@@ -452,6 +455,8 @@ impl_ppi_channel!(PPI_CH28, 28 => configurable);
 impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
+
+impl_reset!(RESET, RESET);
 
 impl_saadc_input!(P0_13, ANALOG_INPUT0);
 impl_saadc_input!(P0_14, ANALOG_INPUT1);
