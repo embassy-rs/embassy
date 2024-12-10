@@ -73,6 +73,18 @@ extern "Rust" {
 
 /// Schedule the given waker to be woken at `at`.
 pub fn schedule_wake(at: u64, waker: &Waker) {
+    #[cfg(feature = "integrated-timers")]
+    {
+        // The very first thing we must do, before we even access the timer queue, is to
+        // mark the task a TIMER_QUEUED. This ensures that the task that is being scheduled
+        // can not be respawn while we are accessing the timer queue.
+        let task = embassy_executor::raw::task_from_waker(waker);
+        if unsafe { task.timer_enqueue() } == embassy_executor::raw::timer_queue::TimerEnqueueOperation::Ignore {
+            // We are not allowed to enqueue the task in the timer queue. This is because the
+            // task is not spawned, and so it makes no sense to schedule it.
+            return;
+        }
+    }
     unsafe { _embassy_time_schedule_wake(at, waker) }
 }
 

@@ -50,7 +50,7 @@ pub(crate) struct TaskHeader {
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct TaskRef {
     ptr: NonNull<TaskHeader>,
 }
@@ -69,6 +69,16 @@ impl TaskRef {
     pub(crate) unsafe fn from_ptr(ptr: *const TaskHeader) -> Self {
         Self {
             ptr: NonNull::new_unchecked(ptr as *mut TaskHeader),
+        }
+    }
+
+    /// # Safety
+    ///
+    /// The result of this function must only be compared
+    /// for equality, or stored, but not used.
+    pub const unsafe fn dangling() -> Self {
+        Self {
+            ptr: NonNull::dangling(),
         }
     }
 
@@ -97,7 +107,7 @@ impl TaskRef {
     /// This functions should only be called by the timer queue implementation, before
     /// enqueueing the timer item.
     #[cfg(feature = "integrated-timers")]
-    pub unsafe fn timer_enqueue(&self) -> bool {
+    pub unsafe fn timer_enqueue(&self) -> timer_queue::TimerEnqueueOperation {
         self.header().state.timer_enqueue()
     }
 
