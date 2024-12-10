@@ -2,6 +2,9 @@ use core::cell::Cell;
 
 use critical_section::Mutex;
 
+#[cfg(feature = "integrated-timers")]
+use super::timer_queue::TimerEnqueueOperation;
+
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
@@ -73,14 +76,19 @@ impl State {
         })
     }
 
-    /// Mark the task as timer-queued. Return whether it was newly queued (i.e. not queued before)
+    /// Mark the task as timer-queued. Return whether it can be enqueued.
     #[cfg(feature = "integrated-timers")]
     #[inline(always)]
-    pub fn timer_enqueue(&self) -> bool {
+    pub fn timer_enqueue(&self) -> TimerEnqueueOperation {
         self.update(|s| {
-            let ok = *s & STATE_TIMER_QUEUED == 0;
-            *s |= STATE_TIMER_QUEUED;
-            ok
+            // FIXME: we need to split SPAWNED into two phases, to prevent enqueueing a task that is
+            // just being spawned, because its executor pointer may still be changing.
+            if *s & STATE_SPAWNED == STATE_SPAWNED {
+                *s |= STATE_TIMER_QUEUED;
+                TimerEnqueueOperation::Enqueue
+            } else {
+                TimerEnqueueOperation::Ignore
+            }
         })
     }
 

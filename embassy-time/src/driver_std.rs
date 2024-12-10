@@ -1,53 +1,38 @@
-use core::sync::atomic::{AtomicU8, Ordering};
 use std::cell::{RefCell, UnsafeCell};
 use std::mem::MaybeUninit;
 use std::sync::{Condvar, Mutex, Once};
 use std::time::{Duration as StdDuration, Instant as StdInstant};
-use std::{mem, ptr, thread};
+use std::{ptr, thread};
 
 use critical_section::Mutex as CsMutex;
-use embassy_time_driver::{AlarmHandle, Driver};
-
-const ALARM_COUNT: usize = 4;
+use embassy_time_driver::Driver;
+use embassy_time_queue_driver::GlobalTimerQueue;
 
 struct AlarmState {
     timestamp: u64,
-
-    // This is really a Option<(fn(*mut ()), *mut ())>
-    // but fn pointers aren't allowed in const yet
-    callback: *const (),
-    ctx: *mut (),
 }
 
 unsafe impl Send for AlarmState {}
 
 impl AlarmState {
     const fn new() -> Self {
-        Self {
-            timestamp: u64::MAX,
-            callback: ptr::null(),
-            ctx: ptr::null_mut(),
-        }
+        Self { timestamp: u64::MAX }
     }
 }
 
 struct TimeDriver {
-    alarm_count: AtomicU8,
-
     once: Once,
-    // The STD Driver implementation requires the alarms' mutex to be reentrant, which the STD Mutex isn't
+    // The STD Driver implementation requires the alarm's mutex to be reentrant, which the STD Mutex isn't
     // Fortunately, mutexes based on the `critical-section` crate are reentrant, because the critical sections
     // themselves are reentrant
-    alarms: UninitCell<CsMutex<RefCell<[AlarmState; ALARM_COUNT]>>>,
+    alarm: UninitCell<CsMutex<RefCell<AlarmState>>>,
     zero_instant: UninitCell<StdInstant>,
     signaler: UninitCell<Signaler>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
-    alarm_count: AtomicU8::new(0),
-
     once: Once::new(),
-    alarms: UninitCell::uninit(),
+    alarm: UninitCell::uninit(),
     zero_instant: UninitCell::uninit(),
     signaler: UninitCell::uninit(),
 });
@@ -55,8 +40,8 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
 impl TimeDriver {
     fn init(&self) {
         self.once.call_once(|| unsafe {
-            self.alarms
-                .write(CsMutex::new(RefCell::new([const { AlarmState::new() }; ALARM_COUNT])));
+            self.alarm
+                .write(CsMutex::new(RefCell::new(const { AlarmState::new() })));
             self.zero_instant.write(StdInstant::now());
             self.signaler.write(Signaler::new());
 
@@ -70,36 +55,13 @@ impl TimeDriver {
             let now = DRIVER.now();
 
             let next_alarm = critical_section::with(|cs| {
-                let alarms = unsafe { DRIVER.alarms.as_ref() }.borrow(cs);
-                loop {
-                    let pending = alarms
-                        .borrow_mut()
-                        .iter_mut()
-                        .find(|alarm| alarm.timestamp <= now)
-                        .map(|alarm| {
-                            alarm.timestamp = u64::MAX;
+                let mut alarm = unsafe { DRIVER.alarm.as_ref() }.borrow_ref_mut(cs);
+                if alarm.timestamp <= now {
+                    alarm.timestamp = u64::MAX;
 
-                            (alarm.callback, alarm.ctx)
-                        });
-
-                    if let Some((callback, ctx)) = pending {
-                        // safety:
-                        // - we can ignore the possiblity of `f` being unset (null) because of the safety contract of `allocate_alarm`.
-                        // - other than that we only store valid function pointers into alarm.callback
-                        let f: fn(*mut ()) = unsafe { mem::transmute(callback) };
-                        f(ctx);
-                    } else {
-                        // No alarm due
-                        break;
-                    }
+                    TIMER_QUEUE_DRIVER.dispatch();
                 }
-
-                alarms
-                    .borrow()
-                    .iter()
-                    .map(|alarm| alarm.timestamp)
-                    .min()
-                    .unwrap_or(u64::MAX)
+                alarm.timestamp
             });
 
             // Ensure we don't overflow
@@ -110,6 +72,17 @@ impl TimeDriver {
             unsafe { DRIVER.signaler.as_ref() }.wait_until(until);
         }
     }
+
+    fn set_alarm(&self, timestamp: u64) -> bool {
+        self.init();
+        critical_section::with(|cs| {
+            let mut alarm = unsafe { self.alarm.as_ref() }.borrow_ref_mut(cs);
+            alarm.timestamp = timestamp;
+            unsafe { self.signaler.as_ref() }.signal();
+        });
+
+        true
+    }
 }
 
 impl Driver for TimeDriver {
@@ -118,43 +91,6 @@ impl Driver for TimeDriver {
 
         let zero = unsafe { self.zero_instant.read() };
         StdInstant::now().duration_since(zero).as_micros() as u64
-    }
-
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self.alarm_count.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-            if x < ALARM_COUNT as u8 {
-                Some(x + 1)
-            } else {
-                None
-            }
-        });
-
-        match id {
-            Ok(id) => Some(AlarmHandle::new(id)),
-            Err(_) => None,
-        }
-    }
-
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        self.init();
-        critical_section::with(|cs| {
-            let mut alarms = unsafe { self.alarms.as_ref() }.borrow_ref_mut(cs);
-            let alarm = &mut alarms[alarm.id() as usize];
-            alarm.callback = callback as *const ();
-            alarm.ctx = ctx;
-        });
-    }
-
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        self.init();
-        critical_section::with(|cs| {
-            let mut alarms = unsafe { self.alarms.as_ref() }.borrow_ref_mut(cs);
-            let alarm = &mut alarms[alarm.id() as usize];
-            alarm.timestamp = timestamp;
-            unsafe { self.signaler.as_ref() }.signal();
-        });
-
-        true
     }
 }
 
@@ -228,3 +164,8 @@ impl<T: Copy> UninitCell<T> {
         ptr::read(self.as_mut_ptr())
     }
 }
+
+embassy_time_queue_driver::timer_queue_impl!(
+    static TIMER_QUEUE_DRIVER: GlobalTimerQueue
+        = GlobalTimerQueue::new(|next_expiration| DRIVER.set_alarm(next_expiration))
+);

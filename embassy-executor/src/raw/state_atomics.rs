@@ -1,5 +1,8 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
+#[cfg(feature = "integrated-timers")]
+use super::timer_queue::TimerEnqueueOperation;
+
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
@@ -56,18 +59,33 @@ impl State {
         state & STATE_SPAWNED != 0
     }
 
-    /// Mark the task as timer-queued. Return whether it was newly queued (i.e. not queued before)
+    /// Mark the task as timer-queued. Return whether it can be enqueued.
     #[cfg(feature = "integrated-timers")]
     #[inline(always)]
-    pub fn timer_enqueue(&self) -> bool {
-        let old_state = self.state.fetch_or(STATE_TIMER_QUEUED, Ordering::AcqRel);
-        old_state & STATE_TIMER_QUEUED == 0
+    pub fn timer_enqueue(&self) -> TimerEnqueueOperation {
+        if self
+            .state
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
+                // If not started, ignore it
+                if state & STATE_SPAWNED == 0 {
+                    None
+                } else {
+                    // Mark it as enqueued
+                    Some(state | STATE_TIMER_QUEUED)
+                }
+            })
+            .is_ok()
+        {
+            TimerEnqueueOperation::Enqueue
+        } else {
+            TimerEnqueueOperation::Ignore
+        }
     }
 
     /// Unmark the task as timer-queued.
     #[cfg(feature = "integrated-timers")]
     #[inline(always)]
     pub fn timer_dequeue(&self) {
-        self.state.fetch_and(!STATE_TIMER_QUEUED, Ordering::AcqRel);
+        self.state.fetch_and(!STATE_TIMER_QUEUED, Ordering::Relaxed);
     }
 }
