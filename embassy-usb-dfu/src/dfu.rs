@@ -189,7 +189,7 @@ pub fn usb_dfu<'d, D: Driver<'d>, DFU: NorFlash, STATE: NorFlash, RST: Reset, co
     builder: &mut Builder<'d, D>,
     handler: &'d mut Control<'d, DFU, STATE, RST, BLOCK_SIZE>,
 ) {
-    let mut func = builder.function(0x00, 0x00, 0x00);
+    let mut func = builder.function(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU);
     let mut iface = func.interface();
     let mut alt = iface.alt_setting(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU, None);
     alt.descriptor(
