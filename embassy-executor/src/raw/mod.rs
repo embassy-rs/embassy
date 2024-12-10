@@ -38,7 +38,7 @@ use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
-use super::SpawnToken;
+use super::{SpawnError, SpawnToken};
 
 /// Raw task header for use in task pointers.
 ///
@@ -423,13 +423,23 @@ impl SyncExecutor {
         this.pender.pend();
     }
 
-    pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
-        task.header().executor.set(Some(self));
+    pub(super) unsafe fn spawn(&'static self, task: TaskRef) -> Result<(), SpawnError> {
+        let executor = &task.header().executor;
+
+        #[cfg(feature = "integrated-timers")]
+        if let Some(executor) = executor.get() {
+            if core::ptr::from_ref(executor) != self {
+                return Err(SpawnError::BoundToDifferentExecutor);
+            }
+        }
+
+        executor.set(Some(self));
 
         #[cfg(feature = "rtos-trace")]
         trace::task_new(task.as_ptr() as u32);
 
         self.enqueue(task);
+        Ok(())
     }
 
     /// # Safety
@@ -570,7 +580,7 @@ impl Executor {
     /// It is OK to use `unsafe` to call this from a thread that's not the executor thread.
     /// In this case, the task's Future must be Send. This is because this is effectively
     /// sending the task to the executor thread.
-    pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
+    pub(super) unsafe fn spawn(&'static self, task: TaskRef) -> Result<(), SpawnError> {
         self.inner.spawn(task)
     }
 
@@ -613,9 +623,6 @@ pub fn wake_task(task: TaskRef) {
     let header = task.header();
     if header.state.run_enqueue() {
         // We have just marked the task as scheduled, so enqueue it.
-        // FIXME: there is currently a data race between re-spawning a task and waking it using an
-        // old waker. If the task is being spawned on a different executor, then reading and writing
-        // the executor field may happen concurrently.
         unsafe {
             let executor = header.executor.get().unwrap_unchecked();
             executor.enqueue(task);
@@ -630,9 +637,6 @@ pub fn wake_task_no_pend(task: TaskRef) {
     let header = task.header();
     if header.state.run_enqueue() {
         // We have just marked the task as scheduled, so enqueue it.
-        // FIXME: there is currently a data race between re-spawning a task and waking it using an
-        // old waker. If the task is being spawned on a different executor, then reading and writing
-        // the executor field may happen concurrently.
         unsafe {
             let executor = header.executor.get().unwrap_unchecked();
             executor.run_queue.enqueue(task);

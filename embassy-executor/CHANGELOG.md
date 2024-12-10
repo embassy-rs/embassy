@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- `integrated-timers` disallows respawning a task on an other executor.
+- `Executor::spawn` is now fallible.
 - `raw::Executor` now has an `fn initialize` that must be called once before starting to poll it.
 
 ## 0.6.3 - 2024-11-12

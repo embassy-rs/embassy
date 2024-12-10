@@ -59,6 +59,13 @@ pub enum SpawnError {
     /// running at a time. You may allow multiple instances to run in parallel with
     /// `#[embassy_executor::task(pool_size = 4)]`, at the cost of higher RAM usage.
     Busy,
+
+    /// The task has already been assigned to an executor and can't be moved.
+    ///
+    /// When integrated timers are enabled, tasks must not move between executors. If you need
+    /// to move a task between executors
+    #[cfg(feature = "integrated-timers")]
+    BoundToDifferentExecutor,
 }
 
 /// Handle to spawn tasks into an executor.
@@ -107,10 +114,7 @@ impl Spawner {
         mem::forget(token);
 
         match task {
-            Some(task) => {
-                unsafe { self.executor.spawn(task) };
-                Ok(())
-            }
+            Some(task) => unsafe { self.executor.spawn(task) },
             None => Err(SpawnError::Busy),
         }
     }
@@ -178,10 +182,7 @@ impl SendSpawner {
         mem::forget(token);
 
         match header {
-            Some(header) => {
-                unsafe { self.executor.spawn(header) };
-                Ok(())
-            }
+            Some(header) => unsafe { self.executor.spawn(header) },
             None => Err(SpawnError::Busy),
         }
     }
