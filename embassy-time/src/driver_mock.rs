@@ -1,7 +1,8 @@
-use core::cell::RefCell;
+use core::{cell::RefCell, task::Waker};
 
 use critical_section::Mutex as CsMutex;
 use embassy_time_driver::Driver;
+use embassy_time_queue_driver::Queue;
 
 use crate::{Duration, Instant};
 
@@ -52,50 +53,27 @@ impl MockDriver {
     /// Advances the time by the specified [`Duration`].
     /// Calling any alarm callbacks that are due.
     pub fn advance(&self, duration: Duration) {
-        let notify = {
-            critical_section::with(|cs| {
-                let mut inner = self.0.borrow_ref_mut(cs);
+        critical_section::with(|cs| {
+            let inner = &mut *self.0.borrow_ref_mut(cs);
 
-                inner.now += duration;
-
-                let now = inner.now.as_ticks();
-
-                if inner.alarm.timestamp <= now {
-                    inner.alarm.timestamp = u64::MAX;
-
-                    Some((inner.alarm.callback, inner.alarm.ctx))
-                } else {
-                    None
-                }
-            })
-        };
-
-        if let Some((callback, ctx)) = notify {
-            (callback)(ctx);
-        }
+            inner.now += duration;
+            // wake expired tasks.
+            inner.queue.next_expiration(inner.now.as_ticks());
+        })
     }
 
-    /// Configures a callback to be called when the alarm fires.
-    pub fn set_alarm_callback(&self, callback: fn(*mut ()), ctx: *mut ()) {
-        critical_section::with(|cs| {
-            let mut inner = self.0.borrow_ref_mut(cs);
-
-            inner.alarm.callback = callback;
-            inner.alarm.ctx = ctx;
-        });
+impl Driver for MockDriver {
+    fn now(&self) -> u64 {
+        critical_section::with(|cs| self.0.borrow_ref(cs).now).as_ticks()
     }
 
-    /// Sets the alarm to fire at the specified timestamp.
-    pub fn set_alarm(&self, timestamp: u64) -> bool {
+    fn schedule_wake(&self, at: u64, waker: &Waker) {
         critical_section::with(|cs| {
-            let mut inner = self.0.borrow_ref_mut(cs);
-
-            if timestamp <= inner.now.as_ticks() {
-                false
-            } else {
-                inner.alarm.timestamp = timestamp;
-                true
-            }
+            let inner = &mut *self.0.borrow_ref_mut(cs);
+            // enqueue it
+            inner.queue.schedule_wake(at, waker);
+            // wake it if it's in the past.
+            inner.queue.next_expiration(inner.now.as_ticks());
         })
     }
 }
@@ -108,40 +86,23 @@ impl Driver for MockDriver {
 
 struct InnerMockDriver {
     now: Instant,
-    alarm: AlarmState,
+    queue: Queue,
 }
 
 impl InnerMockDriver {
     const fn new() -> Self {
         Self {
             now: Instant::from_ticks(0),
-            alarm: AlarmState::new(),
+            queue: Queue::new(),
         }
     }
 }
-
-struct AlarmState {
-    timestamp: u64,
-    callback: fn(*mut ()),
-    ctx: *mut (),
-}
-
-impl AlarmState {
-    const fn new() -> Self {
-        Self {
-            timestamp: u64::MAX,
-            callback: Self::noop,
-            ctx: core::ptr::null_mut(),
-        }
-    }
-
-    fn noop(_ctx: *mut ()) {}
-}
-
-unsafe impl Send for AlarmState {}
 
 #[cfg(test)]
 mod tests {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    use std::{sync::Arc, task::Wake};
+
     use serial_test::serial;
 
     use super::*;
@@ -163,24 +124,25 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_set_alarm_not_in_future() {
+    fn test_schedule_wake() {
         setup();
 
-        let driver = MockDriver::get();
-        assert_eq!(false, driver.set_alarm(driver.now()));
-    }
+        static CALLBACK_CALLED: AtomicBool = AtomicBool::new(false);
 
-    #[test]
-    #[serial]
-    fn test_alarm() {
-        setup();
+        struct MockWaker;
+
+        impl Wake for MockWaker {
+            fn wake(self: Arc<Self>) {
+                CALLBACK_CALLED.store(true, Ordering::Relaxed);
+            }
+        }
+        let waker = Arc::new(MockWaker).into();
 
         let driver = MockDriver::get();
-        static mut CALLBACK_CALLED: bool = false;
-        driver.set_alarm_callback(|_| unsafe { CALLBACK_CALLED = true }, core::ptr::null_mut());
-        driver.set_alarm(driver.now() + 1);
-        assert_eq!(false, unsafe { CALLBACK_CALLED });
+
+        driver.schedule_wake(driver.now() + 1, &waker);
+        assert_eq!(false, CALLBACK_CALLED.load(Ordering::Relaxed));
         driver.advance(Duration::from_secs(1));
-        assert_eq!(true, unsafe { CALLBACK_CALLED });
+        assert_eq!(true, CALLBACK_CALLED.load(Ordering::Relaxed));
     }
 }

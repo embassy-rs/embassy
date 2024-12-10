@@ -1,14 +1,12 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-#[cfg(feature = "integrated-timers")]
 use super::timer_queue::TimerEnqueueOperation;
 
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
 pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
-/// Task is in the executor timer queue
-#[cfg(feature = "integrated-timers")]
+/// Task is in the timer queue
 pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 
 pub(crate) struct State {
@@ -60,7 +58,6 @@ impl State {
     }
 
     /// Mark the task as timer-queued. Return whether it can be enqueued.
-    #[cfg(feature = "integrated-timers")]
     #[inline(always)]
     pub fn timer_enqueue(&self) -> TimerEnqueueOperation {
         if self
@@ -83,7 +80,6 @@ impl State {
     }
 
     /// Unmark the task as timer-queued.
-    #[cfg(feature = "integrated-timers")]
     #[inline(always)]
     pub fn timer_dequeue(&self) {
         self.state.fetch_and(!STATE_TIMER_QUEUED, Ordering::Relaxed);

@@ -368,3 +368,4 @@ tick-hz-5_242_880_000 = []
 
 [dependencies]
 document-features = "0.2.7"
+embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver" }

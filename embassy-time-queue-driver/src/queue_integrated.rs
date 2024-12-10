@@ -1,15 +1,16 @@
 //! Timer queue operations.
 use core::cell::Cell;
 use core::cmp::min;
+use core::task::Waker;
 
 use embassy_executor::raw::TaskRef;
 
 /// A timer queue, with items integrated into tasks.
-pub struct TimerQueue {
+pub struct Queue {
     head: Cell<Option<TaskRef>>,
 }
 
-impl TimerQueue {
+impl Queue {
     /// Creates a new timer queue.
     pub const fn new() -> Self {
         Self { head: Cell::new(None) }
@@ -19,11 +20,12 @@ impl TimerQueue {
     ///
     /// If this function returns `true`, the called should find the next expiration time and set
     /// a new alarm for that time.
-    pub fn schedule_wake(&mut self, at: u64, p: TaskRef) -> bool {
-        let item = p.timer_queue_item();
+    pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
+        let task = embassy_executor::raw::task_from_waker(waker);
+        let item = task.timer_queue_item();
         if item.next.get().is_none() {
             // If not in the queue, add it and update.
-            let prev = self.head.replace(Some(p));
+            let prev = self.head.replace(Some(task));
             item.next.set(if prev.is_none() {
                 Some(unsafe { TaskRef::dangling() })
             } else {

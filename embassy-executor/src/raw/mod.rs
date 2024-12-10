@@ -16,7 +16,6 @@ mod run_queue;
 #[cfg_attr(not(target_has_atomic = "8"), path = "state_critical_section.rs")]
 mod state;
 
-#[cfg(feature = "integrated-timers")]
 pub mod timer_queue;
 #[cfg(feature = "trace")]
 mod trace;
@@ -45,7 +44,6 @@ pub(crate) struct TaskHeader {
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
-    #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
 
@@ -87,13 +85,11 @@ impl TaskRef {
     }
 
     /// Returns a reference to the executor that the task is currently running on.
-    #[cfg(feature = "integrated-timers")]
     pub unsafe fn executor(self) -> Option<&'static Executor> {
         self.header().executor.get().map(|e| Executor::wrap(e))
     }
 
     /// Returns a reference to the timer queue item.
-    #[cfg(feature = "integrated-timers")]
     pub fn timer_queue_item(&self) -> &'static timer_queue::TimerQueueItem {
         &self.header().timer_queue_item
     }
@@ -106,7 +102,6 @@ impl TaskRef {
     ///
     /// This functions should only be called by the timer queue implementation, before
     /// enqueueing the timer item.
-    #[cfg(feature = "integrated-timers")]
     pub unsafe fn timer_enqueue(&self) -> timer_queue::TimerEnqueueOperation {
         self.header().state.timer_enqueue()
     }
@@ -117,7 +112,6 @@ impl TaskRef {
     ///
     /// This functions should only be called by the timer queue implementation, after the task has
     /// been removed from the timer queue.
-    #[cfg(feature = "integrated-timers")]
     pub unsafe fn timer_dequeue(&self) {
         self.header().state.timer_dequeue()
     }
@@ -162,7 +156,6 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
 
-                #[cfg(feature = "integrated-timers")]
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
             },
             future: UninitCell::uninit(),
