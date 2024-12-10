@@ -1,9 +1,13 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::rcc::vals::Otghssel;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Msirange, Msirange as MSIRange, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::rcc::vals::{Hseext, Msirgsel, Pllmboost, Pllrge};
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
@@ -294,6 +298,31 @@ pub(crate) unsafe fn init(config: Config) {
     let (pclk3, _) = super::util::calc_pclk(hclk, config.apb3_pre);
 
     let rtc = config.ls.init();
+
+    #[cfg(all(stm32u5, peri_usb_otg_hs))]
+    let usb_refck = match config.mux.otghssel {
+        Otghssel::HSE => hse,
+        Otghssel::HSE_DIV_2 => hse.map(|hse_val| hse_val / 2u8),
+        Otghssel::PLL1_P => pll1.p,
+        Otghssel::PLL1_P_DIV_2 => pll1.p.map(|pll1p_val| pll1p_val / 2u8),
+    };
+    #[cfg(all(stm32u5, peri_usb_otg_hs))]
+    let usb_refck_sel = match usb_refck {
+        Some(clk_val) => match clk_val {
+            Hertz(16_000_000) => Usbrefcksel::MHZ16,
+            Hertz(19_200_000) => Usbrefcksel::MHZ19_2,
+            Hertz(20_000_000) => Usbrefcksel::MHZ20,
+            Hertz(24_000_000) => Usbrefcksel::MHZ24,
+            Hertz(26_000_000) => Usbrefcksel::MHZ26,
+            Hertz(32_000_000) => Usbrefcksel::MHZ32,
+            _ => panic!("cannot select OTG_HS reference clock with source frequency of {} Hz, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+        },
+        None => Usbrefcksel::MHZ24,
+    };
+    #[cfg(all(stm32u5, peri_usb_otg_hs))]
+    SYSCFG.otghsphycr().modify(|w| {
+        w.set_clksel(usb_refck_sel);
+    });
 
     let lse = config.ls.lse.map(|l| l.frequency);
     let lsi = config.ls.lsi.then_some(LSI_FREQ);
