@@ -194,6 +194,7 @@ where
 
             match select4(ioctl, tx, ev, hb).await {
                 Either4::First(PendingIoctl { buf, req_len }) => {
+                    info!("[esp] first");
                     tx_buf[12..24].copy_from_slice(b"\x01\x08\x00ctrlResp\x02");
                     tx_buf[24..26].copy_from_slice(&(req_len as u16).to_le_bytes());
                     tx_buf[26..][..req_len].copy_from_slice(&unsafe { &*buf }[..req_len]);
@@ -213,6 +214,7 @@ where
                     tx_buf[0..12].copy_from_slice(&header.to_bytes());
                 }
                 Either4::Second(packet) => {
+                    info!("[esp] second");
                     tx_buf[12..][..packet.len()].copy_from_slice(packet);
 
                     let mut header = PayloadHeader {
@@ -232,9 +234,11 @@ where
                     self.ch.tx_done();
                 }
                 Either4::Third(()) => {
+                    info!("[esp] third");
                     tx_buf[..PayloadHeader::SIZE].fill(0);
                 }
                 Either4::Fourth(()) => {
+                    info!("[esp] fourth");
                     panic!("heartbeat from esp32 stopped")
                 }
             }
