@@ -8,13 +8,19 @@ use super::common::{ESFEC_R, ESFT_R};
 use super::enums::{FilterElementConfig, FilterType};
 use super::generic;
 
+pub(crate) type ExtendedFilterType = [u32; 2];
+pub(crate) type ExtendedFilter = generic::Reg<ExtendedFilterType, _ExtendedFilter>;
+pub(crate) struct _ExtendedFilter;
+impl generic::Readable for ExtendedFilter {}
+impl generic::Writable for ExtendedFilter {}
+
 #[doc = "Reader of register ExtendedFilter"]
-pub(crate) type R = generic::R<super::ExtendedFilterType, super::ExtendedFilter>;
+pub(crate) type R = generic::R<ExtendedFilterType, ExtendedFilter>;
 #[doc = "Writer for register ExtendedFilter"]
-pub(crate) type W = generic::W<super::ExtendedFilterType, super::ExtendedFilter>;
+pub(crate) type W = generic::W<ExtendedFilterType, ExtendedFilter>;
 #[doc = "Register ExtendedFilter `reset()`'s"]
-impl generic::ResetValue for super::ExtendedFilter {
-    type Type = super::ExtendedFilterType;
+impl generic::ResetValue for ExtendedFilter {
+    type Type = ExtendedFilterType;
     #[inline(always)]
     fn reset_value() -> Self::Type {
         // Sets filter element to Disabled

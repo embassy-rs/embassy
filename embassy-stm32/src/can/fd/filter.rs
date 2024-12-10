@@ -3,8 +3,7 @@
 
 use embedded_can::{ExtendedId, StandardId};
 
-use crate::can::fd::message_ram;
-pub use crate::can::fd::message_ram::{EXTENDED_FILTER_MAX, STANDARD_FILTER_MAX};
+use super::low_level::message_ram;
 
 /// A Standard Filter
 pub type StandardFilter = Filter<StandardId, u16>;
@@ -25,7 +24,7 @@ impl Default for ExtendedFilter {
 impl StandardFilter {
     /// Accept all messages in FIFO 0
     pub fn accept_all_into_fifo0() -> StandardFilter {
-        StandardFilter {
+        StandardFilter::Queue {
             filter: FilterType::BitMask { filter: 0x0, mask: 0x0 },
             action: Action::StoreInFifo0,
         }
@@ -33,7 +32,7 @@ impl StandardFilter {
 
     /// Accept all messages in FIFO 1
     pub fn accept_all_into_fifo1() -> StandardFilter {
-        StandardFilter {
+        StandardFilter::Queue {
             filter: FilterType::BitMask { filter: 0x0, mask: 0x0 },
             action: Action::StoreInFifo1,
         }
@@ -41,7 +40,7 @@ impl StandardFilter {
 
     /// Reject all messages
     pub fn reject_all() -> StandardFilter {
-        StandardFilter {
+        StandardFilter::Queue {
             filter: FilterType::BitMask { filter: 0x0, mask: 0x0 },
             action: Action::Reject,
         }
@@ -49,7 +48,7 @@ impl StandardFilter {
 
     /// Disable the filter
     pub fn disable() -> StandardFilter {
-        StandardFilter {
+        StandardFilter::Queue {
             filter: FilterType::Disabled,
             action: Action::Disable,
         }
@@ -59,7 +58,7 @@ impl StandardFilter {
 impl ExtendedFilter {
     /// Accept all messages in FIFO 0
     pub fn accept_all_into_fifo0() -> ExtendedFilter {
-        ExtendedFilter {
+        ExtendedFilter::Queue {
             filter: FilterType::BitMask { filter: 0x0, mask: 0x0 },
             action: Action::StoreInFifo0,
         }
@@ -67,7 +66,7 @@ impl ExtendedFilter {
 
     /// Accept all messages in FIFO 1
     pub fn accept_all_into_fifo1() -> ExtendedFilter {
-        ExtendedFilter {
+        ExtendedFilter::Queue {
             filter: FilterType::BitMask { filter: 0x0, mask: 0x0 },
             action: Action::StoreInFifo1,
         }
@@ -75,7 +74,7 @@ impl ExtendedFilter {
 
     /// Reject all messages
     pub fn reject_all() -> ExtendedFilter {
-        ExtendedFilter {
+        ExtendedFilter::Queue {
             filter: FilterType::BitMask { filter: 0x0, mask: 0x0 },
             action: Action::Reject,
         }
@@ -83,7 +82,7 @@ impl ExtendedFilter {
 
     /// Disable the filter
     pub fn disable() -> ExtendedFilter {
-        ExtendedFilter {
+        ExtendedFilter::Queue {
             filter: FilterType::Disabled,
             action: Action::Disable,
         }
@@ -118,7 +117,7 @@ where
     /// Filter is disabled
     Disabled,
 }
-impl<ID, UNIT> From<FilterType<ID, UNIT>> for message_ram::enums::FilterType
+impl<ID, UNIT> From<FilterType<ID, UNIT>> for message_ram::FilterType
 where
     ID: Copy + Clone + core::fmt::Debug,
     UNIT: Copy + Clone + core::fmt::Debug,
@@ -152,7 +151,7 @@ pub enum Action {
     /// Flag a matching message as a High Priority message and store it in FIFO 1
     FlagHighPrioAndStoreInFifo1 = 0b110,
 }
-impl From<Action> for message_ram::enums::FilterElementConfig {
+impl From<Action> for message_ram::FilterElementConfig {
     fn from(a: Action) -> Self {
         match a {
             Action::Disable => Self::DisableFilterElement,
@@ -166,158 +165,52 @@ impl From<Action> for message_ram::enums::FilterElementConfig {
     }
 }
 
+/// The destination for a buffer type filter.
+#[derive(Clone, Copy, Debug)]
+pub enum BufferDestination {
+    /// Message into the given dedicated Rx buffer index
+    DedicatedBuffer(u8),
+    // /// Debug message A
+    // DebugA,
+    // /// Debug message B
+    // DebugB,
+    // /// Debug message C
+    // DebugC,
+}
+
 /// Filter
 #[derive(Clone, Copy, Debug)]
-pub struct Filter<ID, UNIT>
+pub enum Filter<ID, UNIT>
 where
     ID: Copy + Clone + core::fmt::Debug,
     UNIT: Copy + Clone + core::fmt::Debug,
 {
-    /// How to match an incoming message
-    pub filter: FilterType<ID, UNIT>,
-    /// What to do with a matching message
-    pub action: Action,
-}
-
-/// Standard Filter Slot
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum StandardFilterSlot {
-    /// 0
-    _0 = 0,
-    /// 1
-    _1 = 1,
-    /// 2
-    _2 = 2,
-    /// 3
-    _3 = 3,
-    /// 4
-    _4 = 4,
-    /// 5
-    _5 = 5,
-    /// 6
-    _6 = 6,
-    /// 7
-    _7 = 7,
-    /// 8
-    _8 = 8,
-    /// 9
-    _9 = 9,
-    /// 10
-    _10 = 10,
-    /// 11
-    _11 = 11,
-    /// 12
-    _12 = 12,
-    /// 13
-    _13 = 13,
-    /// 14
-    _14 = 14,
-    /// 15
-    _15 = 15,
-    /// 16
-    _16 = 16,
-    /// 17
-    _17 = 17,
-    /// 18
-    _18 = 18,
-    /// 19
-    _19 = 19,
-    /// 20
-    _20 = 20,
-    /// 21
-    _21 = 21,
-    /// 22
-    _22 = 22,
-    /// 23
-    _23 = 23,
-    /// 24
-    _24 = 24,
-    /// 25
-    _25 = 25,
-    /// 26
-    _26 = 26,
-    /// 27
-    _27 = 27,
-}
-impl From<u8> for StandardFilterSlot {
-    fn from(u: u8) -> Self {
-        match u {
-            0 => StandardFilterSlot::_0,
-            1 => StandardFilterSlot::_1,
-            2 => StandardFilterSlot::_2,
-            3 => StandardFilterSlot::_3,
-            4 => StandardFilterSlot::_4,
-            5 => StandardFilterSlot::_5,
-            6 => StandardFilterSlot::_6,
-            7 => StandardFilterSlot::_7,
-            8 => StandardFilterSlot::_8,
-            9 => StandardFilterSlot::_9,
-            10 => StandardFilterSlot::_10,
-            11 => StandardFilterSlot::_11,
-            12 => StandardFilterSlot::_12,
-            13 => StandardFilterSlot::_13,
-            14 => StandardFilterSlot::_14,
-            15 => StandardFilterSlot::_15,
-            16 => StandardFilterSlot::_16,
-            17 => StandardFilterSlot::_17,
-            18 => StandardFilterSlot::_18,
-            19 => StandardFilterSlot::_19,
-            20 => StandardFilterSlot::_20,
-            21 => StandardFilterSlot::_21,
-            22 => StandardFilterSlot::_22,
-            23 => StandardFilterSlot::_23,
-            24 => StandardFilterSlot::_24,
-            25 => StandardFilterSlot::_25,
-            26 => StandardFilterSlot::_26,
-            27 => StandardFilterSlot::_27,
-            _ => panic!("Standard Filter Slot Too High!"),
-        }
-    }
-}
-
-/// Extended Filter Slot
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum ExtendedFilterSlot {
-    /// 0
-    _0 = 0,
-    /// 1
-    _1 = 1,
-    /// 2
-    _2 = 2,
-    /// 3
-    _3 = 3,
-    /// 4
-    _4 = 4,
-    /// 5
-    _5 = 5,
-    /// 6
-    _6 = 6,
-    /// 7
-    _7 = 7,
-}
-impl From<u8> for ExtendedFilterSlot {
-    fn from(u: u8) -> Self {
-        match u {
-            0 => ExtendedFilterSlot::_0,
-            1 => ExtendedFilterSlot::_1,
-            2 => ExtendedFilterSlot::_2,
-            3 => ExtendedFilterSlot::_3,
-            4 => ExtendedFilterSlot::_4,
-            5 => ExtendedFilterSlot::_5,
-            6 => ExtendedFilterSlot::_6,
-            7 => ExtendedFilterSlot::_7,
-            _ => panic!("Extended Filter Slot Too High!"), // Should be unreachable
-        }
-    }
+    /// Filter which directs the message to a FIFO based on
+    /// filter logic.
+    Queue {
+        /// How to match an incoming message
+        filter: FilterType<ID, UNIT>,
+        /// What to do with a matching message
+        action: Action,
+    },
+    /// Filter which directs a specific message ID to a dedicated
+    /// Rx buffer.
+    DedicatedBuffer {
+        /// The CAN ID of the message to match
+        id: ID,
+        /// The destination buffer index
+        destination: BufferDestination,
+        // Dont support TTCAN for now, we don't support event pin stuff
+    },
 }
 
 /// Enum over both Standard and Extended Filter ID's
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum FilterId {
     /// Standard Filter Slots
-    Standard(StandardFilterSlot),
+    Standard(u8),
     /// Extended Filter Slots
-    Extended(ExtendedFilterSlot),
+    Extended(u8),
 }
 
 pub(crate) trait ActivateFilter<ID, UNIT>
@@ -331,49 +224,90 @@ where
 
 impl ActivateFilter<StandardId, u16> for message_ram::StandardFilter {
     fn activate(&mut self, f: Filter<StandardId, u16>) {
-        let sft = f.filter.into();
+        match f {
+            Filter::Queue { filter, action } => {
+                let sft = filter.into();
+                let (sfid1, sfid2) = match filter {
+                    FilterType::Range { to, from } => (to.as_raw(), from.as_raw()),
+                    FilterType::DedicatedSingle(id) => (id.as_raw(), id.as_raw()),
+                    FilterType::DedicatedDual(id1, id2) => (id1.as_raw(), id2.as_raw()),
+                    FilterType::BitMask { filter, mask } => (filter, mask),
+                    FilterType::Disabled => (0x0, 0x0),
+                };
+                let sfec = action.into();
+                self.write(|w| {
+                    unsafe { w.sfid1().bits(sfid1).sfid2().bits(sfid2) }
+                        .sft()
+                        .set_filter_type(sft)
+                        .sfec()
+                        .set_filter_element_config(sfec)
+                });
+            }
+            Filter::DedicatedBuffer { id, destination } => {
+                self.write(|w| {
+                    w.sfec()
+                        .set_filter_element_config(message_ram::FilterElementConfig::StoreInRxBuffer);
+                    // Doesn't matter
+                    w.sft().set_filter_type(message_ram::FilterType::RangeFilter);
 
-        let (sfid1, sfid2) = match f.filter {
-            FilterType::Range { to, from } => (to.as_raw(), from.as_raw()),
-            FilterType::DedicatedSingle(id) => (id.as_raw(), id.as_raw()),
-            FilterType::DedicatedDual(id1, id2) => (id1.as_raw(), id2.as_raw()),
-            FilterType::BitMask { filter, mask } => (filter, mask),
-            FilterType::Disabled => (0x0, 0x0),
-        };
-        let sfec = f.action.into();
-        self.write(|w| {
-            unsafe { w.sfid1().bits(sfid1).sfid2().bits(sfid2) }
-                .sft()
-                .set_filter_type(sft)
-                .sfec()
-                .set_filter_element_config(sfec)
-        });
+                    unsafe { w.sfid1().bits(id.as_raw()) };
+
+                    let (buf_idx, store_flag) = match destination {
+                        BufferDestination::DedicatedBuffer(buf_idx) => (buf_idx, 0),
+                        // BufferDestination::DebugA => (0, 1),
+                        // BufferDestination::DebugB => (0, 2),
+                        // BufferDestination::DebugC => (0, 3),
+                    };
+                    let sfid2_bits = (buf_idx as u16 & 0b111111) | (store_flag << 9);
+                    unsafe { w.sfid2().bits(sfid2_bits) };
+                    w
+                });
+            }
+        }
     }
-    // fn read(&self) -> Filter<StandardId, u16> {
-    //     todo!()
-    // }
 }
 impl ActivateFilter<ExtendedId, u32> for message_ram::ExtendedFilter {
     fn activate(&mut self, f: Filter<ExtendedId, u32>) {
-        let eft = f.filter.into();
+        match f {
+            Filter::Queue { filter, action } => {
+                let eft = filter.into();
 
-        let (efid1, efid2) = match f.filter {
-            FilterType::Range { to, from } => (to.as_raw(), from.as_raw()),
-            FilterType::DedicatedSingle(id) => (id.as_raw(), id.as_raw()),
-            FilterType::DedicatedDual(id1, id2) => (id1.as_raw(), id2.as_raw()),
-            FilterType::BitMask { filter, mask } => (filter, mask),
-            FilterType::Disabled => (0x0, 0x0),
-        };
-        let efec = f.action.into();
-        self.write(|w| {
-            unsafe { w.efid1().bits(efid1).efid2().bits(efid2) }
-                .eft()
-                .set_filter_type(eft)
-                .efec()
-                .set_filter_element_config(efec)
-        });
+                let (efid1, efid2) = match filter {
+                    FilterType::Range { to, from } => (to.as_raw(), from.as_raw()),
+                    FilterType::DedicatedSingle(id) => (id.as_raw(), id.as_raw()),
+                    FilterType::DedicatedDual(id1, id2) => (id1.as_raw(), id2.as_raw()),
+                    FilterType::BitMask { filter, mask } => (filter, mask),
+                    FilterType::Disabled => (0x0, 0x0),
+                };
+                let efec = action.into();
+                self.write(|w| {
+                    unsafe { w.efid1().bits(efid1).efid2().bits(efid2) }
+                        .eft()
+                        .set_filter_type(eft)
+                        .efec()
+                        .set_filter_element_config(efec)
+                });
+            }
+            Filter::DedicatedBuffer { id, destination } => {
+                self.write(|w| {
+                    w.efec()
+                        .set_filter_element_config(message_ram::FilterElementConfig::StoreInRxBuffer);
+                    // Doesn't matter
+                    w.eft().set_filter_type(message_ram::FilterType::RangeFilter);
+
+                    unsafe { w.efid1().bits(id.as_raw()) };
+
+                    let (buf_idx, store_flag) = match destination {
+                        BufferDestination::DedicatedBuffer(buf_idx) => (buf_idx, 0),
+                        // BufferDestination::DebugA => (0, 1),
+                        // BufferDestination::DebugB => (0, 2),
+                        // BufferDestination::DebugC => (0, 3),
+                    };
+                    let efid2_bits = (buf_idx as u32 & 0b111111) | (store_flag << 9);
+                    unsafe { w.efid2().bits(efid2_bits) };
+                    w
+                });
+            }
+        }
     }
-    // fn read(&self) -> Filter<ExtendedId, u32> {
-    //     todo!()
-    // }
 }
