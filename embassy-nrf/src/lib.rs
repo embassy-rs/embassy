@@ -126,6 +126,9 @@ pub mod qspi;
 #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
 pub mod radio;
 #[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(feature = "_nrf5340")]
+pub mod reset;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
 #[cfg(not(feature = "_nrf54l"))] // TODO
