@@ -180,7 +180,7 @@ pub struct Config {
 impl Config {
     /// IPv4 configuration with static addressing.
     #[cfg(feature = "proto-ipv4")]
-    pub fn ipv4_static(config: StaticConfigV4) -> Self {
+    pub const fn ipv4_static(config: StaticConfigV4) -> Self {
         Self {
             ipv4: ConfigV4::Static(config),
             #[cfg(feature = "proto-ipv6")]
@@ -190,7 +190,7 @@ impl Config {
 
     /// IPv6 configuration with static addressing.
     #[cfg(feature = "proto-ipv6")]
-    pub fn ipv6_static(config: StaticConfigV6) -> Self {
+    pub const fn ipv6_static(config: StaticConfigV6) -> Self {
         Self {
             #[cfg(feature = "proto-ipv4")]
             ipv4: ConfigV4::None,
@@ -206,7 +206,7 @@ impl Config {
     /// let _cfg = Config::dhcpv4(Default::default());
     /// ```
     #[cfg(feature = "dhcpv4")]
-    pub fn dhcpv4(config: DhcpConfig) -> Self {
+    pub const fn dhcpv4(config: DhcpConfig) -> Self {
         Self {
             ipv4: ConfigV4::Dhcp(config),
             #[cfg(feature = "proto-ipv6")]
