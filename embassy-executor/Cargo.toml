@@ -33,8 +33,8 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.2", optional = true }
 
-embassy-executor-macros = { version = "0.4.0", path = "../embassy-executor-macros" }
-embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver", optional = true }
+embassy-executor-macros = { version = "0.4.0", registry = "globus", path = "../embassy-executor-macros" }
+embassy-time-driver = { version = "0.1.0", registry = "globus", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver", optional = true }
 critical-section = "1.1"
 
