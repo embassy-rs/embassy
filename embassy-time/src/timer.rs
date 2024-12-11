@@ -157,7 +157,7 @@ impl Future for Timer {
         if self.yielded_once && self.expires_at <= Instant::now() {
             Poll::Ready(())
         } else {
-            embassy_time_queue_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
+            embassy_time_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
             self.yielded_once = true;
             Poll::Pending
         }
@@ -238,7 +238,7 @@ impl Ticker {
                 self.expires_at += dur;
                 Poll::Ready(())
             } else {
-                embassy_time_queue_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
+                embassy_time_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
                 Poll::Pending
             }
         })
@@ -255,7 +255,7 @@ impl Stream for Ticker {
             self.expires_at += dur;
             Poll::Ready(Some(()))
         } else {
-            embassy_time_queue_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
+            embassy_time_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
             Poll::Pending
         }
     }
