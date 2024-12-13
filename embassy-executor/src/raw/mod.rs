@@ -192,7 +192,17 @@ impl<F: Future + 'static> TaskStorage<F> {
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
                 this.future.drop_in_place();
+
+                // Mark this task to be timer queued, to prevent re-queueing it.
+                this.raw.state.timer_enqueue();
+
+                // Now mark the task as not spawned, so that
+                // - it can be spawned again once it has been removed from the timer queue
+                // - it can not be timer-queued again
                 this.raw.state.despawn();
+
+                // Schedule the task by hand in the past, so it runs immediately.
+                unsafe { _embassy_time_schedule_wake(0, &waker) }
             }
             Poll::Pending => {}
         }
@@ -209,6 +219,10 @@ impl<F: Future + 'static> TaskStorage<F> {
 
         assert_sync(self)
     }
+}
+
+extern "Rust" {
+    fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker);
 }
 
 /// An uninitialized [`TaskStorage`].
