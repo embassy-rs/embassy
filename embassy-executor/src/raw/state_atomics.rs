@@ -2,6 +2,15 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use super::timer_queue::TimerEnqueueOperation;
 
+pub(crate) struct Token(());
+
+/// Creates a token and passes it to the closure.
+///
+/// This is a no-op replacement for `CriticalSection::with` because we don't need any locking.
+pub(crate) fn locked(f: impl FnOnce(Token)) {
+    f(Token(()));
+}
+
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
@@ -34,10 +43,12 @@ impl State {
         self.state.fetch_and(!STATE_SPAWNED, Ordering::AcqRel);
     }
 
-    /// Mark the task as run-queued if it's spawned and isn't already run-queued. Return true on success.
+    /// Mark the task as run-queued if it's spawned and isn't already run-queued. Run the given
+    /// function if the task was successfully marked.
     #[inline(always)]
-    pub fn run_enqueue(&self) -> bool {
-        self.state
+    pub fn run_enqueue(&self, f: impl FnOnce(Token)) {
+        if self
+            .state
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
                 // If already scheduled, or if not started,
                 if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
@@ -48,6 +59,9 @@ impl State {
                 }
             })
             .is_ok()
+        {
+            locked(f);
+        }
     }
 
     /// Unmark the task as run-queued. Return whether the task is spawned.

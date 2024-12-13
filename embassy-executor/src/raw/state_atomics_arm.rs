@@ -3,6 +3,15 @@ use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 
 use super::timer_queue::TimerEnqueueOperation;
 
+pub(crate) struct Token(());
+
+/// Creates a token and passes it to the closure.
+///
+/// This is a no-op replacement for `CriticalSection::with` because we don't need any locking.
+pub(crate) fn locked(f: impl FnOnce(Token)) {
+    f(Token(()));
+}
+
 // Must be kept in sync with the layout of `State`!
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 8;
@@ -57,9 +66,10 @@ impl State {
         self.spawned.store(false, Ordering::Relaxed);
     }
 
-    /// Mark the task as run-queued if it's spawned and isn't already run-queued. Return true on success.
+    /// Mark the task as run-queued if it's spawned and isn't already run-queued. Run the given
+    /// function if the task was successfully marked.
     #[inline(always)]
-    pub fn run_enqueue(&self) -> bool {
+    pub fn run_enqueue(&self, f: impl FnOnce(Token)) {
         unsafe {
             loop {
                 let state: u32;
@@ -67,14 +77,15 @@ impl State {
 
                 if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
                     asm!("clrex", options(nomem, nostack));
-                    return false;
+                    return;
                 }
 
                 let outcome: usize;
                 let new_state = state | STATE_RUN_QUEUED;
                 asm!("strex {}, {}, [{}]", out(reg) outcome, in(reg) new_state, in(reg) self, options(nostack));
                 if outcome == 0 {
-                    return true;
+                    locked(f);
+                    return;
                 }
             }
         }

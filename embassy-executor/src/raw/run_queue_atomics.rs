@@ -45,7 +45,7 @@ impl RunQueue {
     ///
     /// `item` must NOT be already enqueued in any queue.
     #[inline(always)]
-    pub(crate) unsafe fn enqueue(&self, task: TaskRef) -> bool {
+    pub(crate) unsafe fn enqueue(&self, task: TaskRef, _: super::state::Token) -> bool {
         let mut was_empty = false;
 
         self.head
