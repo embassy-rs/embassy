@@ -26,7 +26,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let r = T::regs();
         let state = T::state();
-
         on_interrupt_impl(r, state, T::ENDPOINT_COUNT);
     }
 }
@@ -103,15 +102,18 @@ impl<'d, T: Instance> Driver<'d, T> {
     pub fn new_hs(
         _peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        _dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+        _dm: impl Peripheral<P = impl DmPin<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(dp, dm);
-
-        dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        // For STM32U5 High speed pins need to be left in analog mode
+        #[cfg(not(all(stm32u5, peri_usb_otg_hs)))]
+        {
+            into_ref!(_dp, _dm);
+            _dp.set_as_af(_dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            _dm.set_as_af(_dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        }
 
         let instance = OtgInstance {
             regs: T::regs(),
@@ -310,6 +312,20 @@ impl<'d, T: Instance> Bus<'d, T> {
                 w.set_usb_otg_hslpen(true);
             });
         });
+
+        #[cfg(all(stm32u5, peri_usb_otg_hs))]
+        {
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
+            });
+
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb2enr1().modify(|w| {
+                    w.set_usb_otg_hsen(true);
+                    w.set_usb_otg_hs_phyen(true);
+                });
+            });
+        }
 
         let r = T::regs();
         let core_id = r.cid().read().0;
