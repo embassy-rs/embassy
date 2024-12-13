@@ -107,6 +107,9 @@ pub mod nvmc;
 ))]
 pub mod pdm;
 #[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(feature = "nrf52840")]
+pub mod power;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod ppi;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(
