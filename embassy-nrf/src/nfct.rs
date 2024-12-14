@@ -18,7 +18,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use vals::{Bitframesdd as SddPat, Discardmode as DiscardMode};
 
 use crate::interrupt::InterruptExt;
-use crate::pac::{nfct::vals, NFCT};
+use crate::pac::nfct::vals;
+use crate::pac::NFCT;
 use crate::peripherals::NFCT;
 use crate::util::slice_in_ram;
 use crate::{interrupt, pac, Peripheral};
