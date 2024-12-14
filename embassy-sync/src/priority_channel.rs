@@ -72,17 +72,6 @@ where
         self.channel.poll_ready_to_send(cx)
     }
 
-    /// Removes the elements from the channel that satisfy the predicate.
-    ///
-    /// See [`PriorityChannel::remove_if()`]
-    pub fn remove_if<F>(&self, predicate: F)
-    where
-        F: Fn(&T) -> bool,
-        T: Clone,
-    {
-        self.channel.remove_if(predicate)
-    }
-
     /// Returns the maximum number of elements the channel can hold.
     ///
     /// See [`PriorityChannel::capacity()`]
