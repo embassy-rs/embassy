@@ -1068,26 +1068,8 @@ mod _embedded_io {
         type Error = Error;
     }
 
-    impl<'d, U: Instance> embedded_io_async::ErrorType for UarteRx<'d, U> {
-        type Error = Error;
-    }
-
     impl<'d, U: Instance> embedded_io_async::ErrorType for UarteTx<'d, U> {
         type Error = Error;
-    }
-
-    impl<'d, U: Instance> embedded_io_async::Read for Uarte<'d, U> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-            self.read(buf).await?;
-            Ok(buf.len())
-        }
-    }
-
-    impl<'d: 'd, U: Instance> embedded_io_async::Read for UarteRx<'d, U> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-            self.read(buf).await?;
-            Ok(buf.len())
-        }
     }
 
     impl<'d, U: Instance> embedded_io_async::Write for Uarte<'d, U> {
