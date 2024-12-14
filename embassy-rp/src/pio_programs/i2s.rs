@@ -51,6 +51,7 @@ impl<'a, P: Instance, const S: usize> PioI2sOut<'a, P, S> {
         data_pin: impl PioPin,
         bit_clock_pin: impl PioPin,
         lr_clock_pin: impl PioPin,
+        sysclk_frequency: u32,
         sample_rate: u32,
         bit_depth: u32,
         channels: u32,
@@ -67,7 +68,7 @@ impl<'a, P: Instance, const S: usize> PioI2sOut<'a, P, S> {
             cfg.use_program(&program.prg, &[&bit_clock_pin, &left_right_clock_pin]);
             cfg.set_out_pins(&[&data_pin]);
             let clock_frequency = sample_rate * bit_depth * channels;
-            cfg.clock_divider = (125_000_000. / clock_frequency as f64 / 2.).to_fixed();
+            cfg.clock_divider = (sysclk_frequency as f64 / clock_frequency as f64 / 2.).to_fixed();
             cfg.shift_out = ShiftConfig {
                 threshold: 32,
                 direction: ShiftDirection::Left,
