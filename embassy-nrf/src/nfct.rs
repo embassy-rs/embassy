@@ -18,7 +18,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use vals::{Bitframesdd as SddPat, Discardmode as DiscardMode};
 
 use crate::interrupt::InterruptExt;
-use crate::pac::nfct::vals;
+use crate::pac::{nfct::vals, NFCT};
 use crate::peripherals::NFCT;
 use crate::util::slice_in_ram;
 use crate::{interrupt, pac, Peripheral};
@@ -419,4 +419,9 @@ impl<'d> NfcT<'d> {
         buf[..n].copy_from_slice(&self.rx_buf[..n]);
         Ok(n)
     }
+}
+
+/// Wake the system if there if an NFC field close to the antenna
+pub fn wake_on_nfc_sense() {
+    NFCT.tasks_sense().write_value(0x01);
 }

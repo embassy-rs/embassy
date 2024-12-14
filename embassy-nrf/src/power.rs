@@ -14,9 +14,3 @@ pub fn set_system_off() {
     #[cfg(any(feature = "nrf9160-s", feature = "nrf9160-ns"))]
     REGULATORS.systemoff().write(|w| w.set_systemoff(true));
 }
-
-/// Wake the system if there if an NFC field close to the nrf52840's antenna
-#[cfg(feature = "nrf52840")]
-pub fn wake_on_nfc_sense() {
-    NFCT.tasks_sense().write_value(0x01);
-}
