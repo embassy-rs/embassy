@@ -1551,9 +1551,26 @@ fn main() {
                             quote!(())
                         };
 
+                        let mut remap = quote!();
+                        for remap_info in ch.remap {
+                            let peripheral = format_ident!("{}", remap_info.peripheral);
+                            let register = format_ident!("{}", remap_info.register.to_lowercase());
+                            let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
+
+                            let value = if remap_info.value.contains("true") || remap_info.value.contains("false") {
+                                let value = format_ident!("{}", remap_info.value);
+                                quote!(#value)
+                            } else {
+                                let value = remap_info.value.parse::<u8>().unwrap();
+                                quote!(#value.into())
+                            };
+
+                            remap.extend(quote!(crate::pac::#peripheral.#register().modify(|w| w.#setter(#value));));
+                        }
+
                         let channel = format_ident!("{}", channel);
                         g.extend(quote! {
-                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                            dma_trait_impl!(#tr, #peri, #channel, #request, {#remap});
                         });
                     }
                 }
