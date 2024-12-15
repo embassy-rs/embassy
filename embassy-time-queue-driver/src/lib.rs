@@ -8,7 +8,7 @@
 //! `embassy-executor` and your HAL does not configure a generic queue by itself.
 //!
 //! As a HAL implementer, you need to depend on this crate if you want to implement a time driver,
-//! but how you should do so is documented in [`embassy_time_driver`].
+//! but how you should do so is documented in `embassy-time-driver`.
 
 use core::task::Waker;
 
