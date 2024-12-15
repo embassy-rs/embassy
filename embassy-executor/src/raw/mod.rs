@@ -94,13 +94,14 @@ impl TaskRef {
         &self.header().timer_queue_item
     }
 
-    /// Mark the task as timer-queued. Return whether it was newly queued (i.e. not queued before)
+    /// Mark the task as timer-queued. Return whether it should be actually enqueued
+    /// using `_embassy_time_schedule_wake`.
     ///
     /// Entering this state prevents the task from being respawned while in a timer queue.
     ///
     /// Safety:
     ///
-    /// This functions should only be called by the timer queue implementation, before
+    /// This functions should only be called by the timer queue driver, before
     /// enqueueing the timer item.
     pub unsafe fn timer_enqueue(&self) -> timer_queue::TimerEnqueueOperation {
         self.header().state.timer_enqueue()
@@ -193,16 +194,24 @@ impl<F: Future + 'static> TaskStorage<F> {
             Poll::Ready(_) => {
                 this.future.drop_in_place();
 
-                // Mark this task to be timer queued, to prevent re-queueing it.
-                this.raw.state.timer_enqueue();
+                // Mark this task to be timer queued.
+                // We're splitting the enqueue in two parts, so that we can change task state
+                // to something that prevent re-queueing.
+                let op = this.raw.state.timer_enqueue();
 
                 // Now mark the task as not spawned, so that
                 // - it can be spawned again once it has been removed from the timer queue
                 // - it can not be timer-queued again
+                // We must do this before scheduling the wake, to prevent the task from being
+                // dequeued by the time driver while it's still SPAWNED.
                 this.raw.state.despawn();
 
-                // Schedule the task by hand in the past, so it runs immediately.
-                unsafe { _embassy_time_schedule_wake(0, &waker) }
+                // Now let's finish enqueueing. While we shouldn't get an `Ignore` here, it's
+                // better to be safe.
+                if op == timer_queue::TimerEnqueueOperation::Enqueue {
+                    // Schedule the task in the past, so it gets dequeued ASAP.
+                    unsafe { _embassy_time_schedule_wake(0, &waker) }
+                }
             }
             Poll::Pending => {}
         }
