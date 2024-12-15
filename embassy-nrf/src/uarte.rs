@@ -1047,3 +1047,42 @@ mod eh02 {
         }
     }
 }
+
+mod _embedded_io {
+    use super::*;
+
+    impl embedded_io_async::Error for Error {
+        fn kind(&self) -> embedded_io_async::ErrorKind {
+            match *self {
+                Error::BufferTooLong => embedded_io_async::ErrorKind::InvalidInput,
+                Error::BufferNotInRAM => embedded_io_async::ErrorKind::Unsupported,
+                Error::Framing => embedded_io_async::ErrorKind::InvalidData,
+                Error::Parity => embedded_io_async::ErrorKind::InvalidData,
+                Error::Overrun => embedded_io_async::ErrorKind::OutOfMemory,
+                Error::Break => embedded_io_async::ErrorKind::ConnectionAborted,
+            }
+        }
+    }
+
+    impl<'d, U: Instance> embedded_io_async::ErrorType for Uarte<'d, U> {
+        type Error = Error;
+    }
+
+    impl<'d, U: Instance> embedded_io_async::ErrorType for UarteTx<'d, U> {
+        type Error = Error;
+    }
+
+    impl<'d, U: Instance> embedded_io_async::Write for Uarte<'d, U> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.write(buf).await?;
+            Ok(buf.len())
+        }
+    }
+
+    impl<'d: 'd, U: Instance> embedded_io_async::Write for UarteTx<'d, U> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.write(buf).await?;
+            Ok(buf.len())
+        }
+    }
+}
