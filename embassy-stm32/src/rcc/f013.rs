@@ -229,6 +229,9 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::HSI => unwrap!(hsi),
         Sysclk::HSE => unwrap!(hse),
         Sysclk::PLL1_P => unwrap!(pll),
+        #[cfg(crs)]
+        Sysclk::HSI48 => unwrap!(hsi48),
+        #[cfg(not(crs))]
         _ => unreachable!(),
     };
 
