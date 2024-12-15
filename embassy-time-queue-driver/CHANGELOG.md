@@ -7,9 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- Added `integrated-timers` and `generic-queue-N` features
-- Added `queue_generic` module which contains `Queue` (configured via the `generic-queue-N` features) and  `ConstGenericQueue<SIZE>`.
-- Added `GenericTimerQueue` and `GlobalTimerQueue` structs that can be used to implement timer queues.
+- Added `generic-queue-N` features.
+- Added `embassy_time_queue_driver::Queue` struct which uses integrated or a generic storage (configured using `generic-queue-N`).
 
 ## 0.1.0 - 2024-01-11
 

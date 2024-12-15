@@ -17,25 +17,7 @@
 //! Otherwise, don’t enable any `tick-hz-*` feature to let the user configure the tick rate themselves by
 //! enabling a feature on `embassy-time`.
 //!
-//! # Linkage details
-//!
-//! Instead of the usual "trait + generic params" approach, calls from embassy to the driver are done via `extern` functions.
-//!
-//! `embassy` internally defines the driver function as `extern "Rust" { fn _embassy_time_now() -> u64; }` and calls it.
-//! The driver crate defines the function as `#[no_mangle] fn _embassy_time_now() -> u64`. The linker will resolve the
-//! calls from the `embassy` crate to call into the driver crate.
-//!
-//! If there is none or multiple drivers in the crate tree, linking will fail.
-//!
-//! This method has a few key advantages for something as foundational as timekeeping:
-//!
-//! - The time driver is available everywhere easily, without having to thread the implementation
-//!   through generic parameters. This is especially helpful for libraries.
-//! - It means comparing `Instant`s will always make sense: if there were multiple drivers
-//!   active, one could compare an `Instant` from driver A to an `Instant` from driver B, which
-//!   would yield incorrect results.
-//!
-//! # Example
+//! ### Example
 //!
 //! ```
 //! use core::task::Waker;
@@ -56,6 +38,65 @@
 //!
 //! embassy_time_driver::time_driver_impl!(static DRIVER: MyDriver = MyDriver{});
 //! ```
+//!
+//! ## Implementing the timer queue
+//!
+//! The simplest (but suboptimal) way to implement a timer queue is to define a single queue in the
+//! time driver. Declare a field protected by an appropriate mutex (e.g. `critical_section::Mutex`).
+//!
+//! Then, you'll need to adapt the `schedule_wake` method to use this queue.
+//!
+//! ```ignore
+//! use core::cell::RefCell;
+//! use core::task::Waker;
+//!
+//! use embassy_time_queue_driver::Queue;
+//! use embassy_time_driver::Driver;
+//!
+//! struct MyDriver {
+//!     timer_queue: critical_section::Mutex<RefCell<Queue>>,
+//! }
+//!
+//! impl MyDriver {
+//!    fn set_alarm(&self, cs: &CriticalSection, at: u64) -> bool {
+//!        todo!()
+//!    }
+//! }
+//!
+//! impl Driver for MyDriver {
+//!     // fn now(&self) -> u64 { ... }
+//!
+//!     fn schedule_wake(&self, at: u64, waker: &Waker) {
+//!         critical_section::with(|cs| {
+//!             let mut queue = self.queue.borrow(cs).borrow_mut();
+//!             if queue.schedule_wake(at, waker) {
+//!                 let mut next = queue.next_expiration(self.now());
+//!                 while !self.set_alarm(cs, next) {
+//!                     next = queue.next_expiration(self.now());
+//!                 }
+//!             }
+//!         });
+//!     }
+//! }
+//! ```
+//!
+//! # Linkage details
+//!
+//! Instead of the usual "trait + generic params" approach, calls from embassy to the driver are done via `extern` functions.
+//!
+//! `embassy` internally defines the driver function as `extern "Rust" { fn _embassy_time_now() -> u64; }` and calls it.
+//! The driver crate defines the function as `#[no_mangle] fn _embassy_time_now() -> u64`. The linker will resolve the
+//! calls from the `embassy` crate to call into the driver crate.
+//!
+//! If there is none or multiple drivers in the crate tree, linking will fail.
+//!
+//! This method has a few key advantages for something as foundational as timekeeping:
+//!
+//! - The time driver is available everywhere easily, without having to thread the implementation
+//!   through generic parameters. This is especially helpful for libraries.
+//! - It means comparing `Instant`s will always make sense: if there were multiple drivers
+//!   active, one could compare an `Instant` from driver A to an `Instant` from driver B, which
+//!   would yield incorrect results.
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
