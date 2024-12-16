@@ -45,6 +45,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 embassy-sync = { version = "0.6.1", path = "../embassy-sync" }
 embassy-time = { version = "0.3.2", path = "../embassy-time", optional = true }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-driver = { version = "0.1", path = "../embassy-time-queue-driver", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = {version = "0.2.0", path = "../embassy-embedded-hal", default-features = false }
@@ -149,7 +150,7 @@ time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
-_time-driver = ["dep:embassy-time-driver", "time"]
+_time-driver = ["dep:embassy-time-driver", "time", "dep:embassy-time-queue-driver"]
 
 ## Use any time driver
 time-driver-any = ["_time-driver"]

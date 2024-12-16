@@ -40,7 +40,7 @@ critical-section-impl = ["critical-section/restore-state-u8"]
 unstable-pac = []
 
 ## Enable the timer for use with `embassy-time` with a 1MHz tick rate.
-time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
+time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000", "dep:embassy-time-queue-driver"]
 
 ## Enable ROM function cache. This will store the address of a ROM function when first used, improving performance of subsequent calls.
 rom-func-cache = []
@@ -110,6 +110,7 @@ binary-info = ["rt", "dep:rp-binary-info", "rp-binary-info?/binary-info"]
 [dependencies]
 embassy-sync = { version = "0.6.1", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-driver = { version = "0.1", path = "../embassy-time-queue-driver", optional = true }
 embassy-time = { version = "0.3.2", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }

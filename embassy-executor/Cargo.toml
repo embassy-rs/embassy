@@ -35,7 +35,6 @@ rtos-trace = { version = "0.1.3", optional = true }
 
 embassy-executor-macros = { version = "0.6.2", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver", optional = true }
 critical-section = "1.1"
 
 document-features = "0.2.7"
@@ -67,9 +66,6 @@ nightly = ["embassy-executor-macros/nightly"]
 # See: https://github.com/embassy-rs/embassy/pull/1263
 turbowakers = []
 
-## Use the executor-integrated `embassy-time` timer queue.
-integrated-timers = ["dep:embassy-time-driver", "dep:embassy-time-queue-driver"]
-
 #! ### Architecture
 _arch = [] # some arch was picked
 ## std
@@ -94,7 +90,7 @@ executor-interrupt = []
 ## Enable tracing support (adds some overhead)
 trace = []
 ## Enable support for rtos-trace framework
-rtos-trace = ["dep:rtos-trace", "trace"]
+rtos-trace = ["dep:rtos-trace", "trace", "dep:embassy-time-driver"]
 
 #! ### Task Arena Size
 #! Sets the [task arena](#task-arena) size. Necessary if you’re not using `nightly`.

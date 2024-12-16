@@ -16,8 +16,7 @@ mod run_queue;
 #[cfg_attr(not(target_has_atomic = "8"), path = "state_critical_section.rs")]
 mod state;
 
-#[cfg(feature = "integrated-timers")]
-mod timer_queue;
+pub mod timer_queue;
 #[cfg(feature = "trace")]
 mod trace;
 pub(crate) mod util;
@@ -30,9 +29,6 @@ use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
 use core::task::{Context, Poll};
-
-#[cfg(feature = "integrated-timers")]
-use embassy_time_driver::AlarmHandle;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
@@ -47,14 +43,12 @@ pub(crate) struct TaskHeader {
     pub(crate) executor: SyncUnsafeCell<Option<&'static SyncExecutor>>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
-    #[cfg(feature = "integrated-timers")]
-    pub(crate) expires_at: SyncUnsafeCell<u64>,
-    #[cfg(feature = "integrated-timers")]
+    /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct TaskRef {
     ptr: NonNull<TaskHeader>,
 }
@@ -76,8 +70,51 @@ impl TaskRef {
         }
     }
 
+    /// # Safety
+    ///
+    /// The result of this function must only be compared
+    /// for equality, or stored, but not used.
+    pub const unsafe fn dangling() -> Self {
+        Self {
+            ptr: NonNull::dangling(),
+        }
+    }
+
     pub(crate) fn header(self) -> &'static TaskHeader {
         unsafe { self.ptr.as_ref() }
+    }
+
+    /// Returns a reference to the executor that the task is currently running on.
+    pub unsafe fn executor(self) -> Option<&'static Executor> {
+        self.header().executor.get().map(|e| Executor::wrap(e))
+    }
+
+    /// Returns a reference to the timer queue item.
+    pub fn timer_queue_item(&self) -> &'static timer_queue::TimerQueueItem {
+        &self.header().timer_queue_item
+    }
+
+    /// Mark the task as timer-queued. Return whether it should be actually enqueued
+    /// using `_embassy_time_schedule_wake`.
+    ///
+    /// Entering this state prevents the task from being respawned while in a timer queue.
+    ///
+    /// Safety:
+    ///
+    /// This functions should only be called by the timer queue driver, before
+    /// enqueueing the timer item.
+    pub unsafe fn timer_enqueue(&self) -> timer_queue::TimerEnqueueOperation {
+        self.header().state.timer_enqueue()
+    }
+
+    /// Unmark the task as timer-queued.
+    ///
+    /// Safety:
+    ///
+    /// This functions should only be called by the timer queue implementation, after the task has
+    /// been removed from the timer queue.
+    pub unsafe fn timer_dequeue(&self) {
+        self.header().state.timer_dequeue()
     }
 
     /// The returned pointer is valid for the entire TaskStorage.
@@ -120,9 +157,6 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
 
-                #[cfg(feature = "integrated-timers")]
-                expires_at: SyncUnsafeCell::new(0),
-                #[cfg(feature = "integrated-timers")]
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
             },
             future: UninitCell::uninit(),
@@ -159,10 +193,25 @@ impl<F: Future + 'static> TaskStorage<F> {
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
                 this.future.drop_in_place();
+
+                // Mark this task to be timer queued.
+                // We're splitting the enqueue in two parts, so that we can change task state
+                // to something that prevent re-queueing.
+                let op = this.raw.state.timer_enqueue();
+
+                // Now mark the task as not spawned, so that
+                // - it can be spawned again once it has been removed from the timer queue
+                // - it can not be timer-queued again
+                // We must do this before scheduling the wake, to prevent the task from being
+                // dequeued by the time driver while it's still SPAWNED.
                 this.raw.state.despawn();
 
-                #[cfg(feature = "integrated-timers")]
-                this.raw.expires_at.set(u64::MAX);
+                // Now let's finish enqueueing. While we shouldn't get an `Ignore` here, it's
+                // better to be safe.
+                if op == timer_queue::TimerEnqueueOperation::Enqueue {
+                    // Schedule the task in the past, so it gets dequeued ASAP.
+                    unsafe { _embassy_time_schedule_wake(0, &waker) }
+                }
             }
             Poll::Pending => {}
         }
@@ -179,6 +228,10 @@ impl<F: Future + 'static> TaskStorage<F> {
 
         assert_sync(self)
     }
+}
+
+extern "Rust" {
+    fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker);
 }
 
 /// An uninitialized [`TaskStorage`].
@@ -316,32 +369,14 @@ impl Pender {
 pub(crate) struct SyncExecutor {
     run_queue: RunQueue,
     pender: Pender,
-
-    #[cfg(feature = "integrated-timers")]
-    pub(crate) timer_queue: timer_queue::TimerQueue,
-    #[cfg(feature = "integrated-timers")]
-    alarm: AlarmHandle,
 }
 
 impl SyncExecutor {
     pub(crate) fn new(pender: Pender) -> Self {
-        #[cfg(feature = "integrated-timers")]
-        let alarm = unsafe { unwrap!(embassy_time_driver::allocate_alarm()) };
-
         Self {
             run_queue: RunQueue::new(),
             pender,
-
-            #[cfg(feature = "integrated-timers")]
-            timer_queue: timer_queue::TimerQueue::new(),
-            #[cfg(feature = "integrated-timers")]
-            alarm,
         }
-    }
-
-    pub(crate) unsafe fn initialize(&'static self) {
-        #[cfg(feature = "integrated-timers")]
-        embassy_time_driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
     }
 
     /// Enqueue a task in the task queue
@@ -360,12 +395,6 @@ impl SyncExecutor {
         }
     }
 
-    #[cfg(feature = "integrated-timers")]
-    fn alarm_callback(ctx: *mut ()) {
-        let this: &Self = unsafe { &*(ctx as *const Self) };
-        this.pender.pend();
-    }
-
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
         task.header().executor.set(Some(self));
 
@@ -379,56 +408,27 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
-        #[allow(clippy::never_loop)]
-        loop {
-            #[cfg(feature = "integrated-timers")]
-            self.timer_queue
-                .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
+        self.run_queue.dequeue_all(|p| {
+            let task = p.header();
 
-            self.run_queue.dequeue_all(|p| {
-                let task = p.header();
-
-                #[cfg(feature = "integrated-timers")]
-                task.expires_at.set(u64::MAX);
-
-                if !task.state.run_dequeue() {
-                    // If task is not running, ignore it. This can happen in the following scenario:
-                    //   - Task gets dequeued, poll starts
-                    //   - While task is being polled, it gets woken. It gets placed in the queue.
-                    //   - Task poll finishes, returning done=true
-                    //   - RUNNING bit is cleared, but the task is already in the queue.
-                    return;
-                }
-
-                #[cfg(feature = "trace")]
-                trace::task_exec_begin(self, &p);
-
-                // Run the task
-                task.poll_fn.get().unwrap_unchecked()(p);
-
-                #[cfg(feature = "trace")]
-                trace::task_exec_end(self, &p);
-
-                // Enqueue or update into timer_queue
-                #[cfg(feature = "integrated-timers")]
-                self.timer_queue.update(p);
-            });
-
-            #[cfg(feature = "integrated-timers")]
-            {
-                // If this is already in the past, set_alarm might return false
-                // In that case do another poll loop iteration.
-                let next_expiration = self.timer_queue.next_expiration();
-                if embassy_time_driver::set_alarm(self.alarm, next_expiration) {
-                    break;
-                }
+            if !task.state.run_dequeue() {
+                // If task is not running, ignore it. This can happen in the following scenario:
+                //   - Task gets dequeued, poll starts
+                //   - While task is being polled, it gets woken. It gets placed in the queue.
+                //   - Task poll finishes, returning done=true
+                //   - RUNNING bit is cleared, but the task is already in the queue.
+                return;
             }
 
-            #[cfg(not(feature = "integrated-timers"))]
-            {
-                break;
-            }
-        }
+            #[cfg(feature = "trace")]
+            trace::task_exec_begin(self, &p);
+
+            // Run the task
+            task.poll_fn.get().unwrap_unchecked()(p);
+
+            #[cfg(feature = "trace")]
+            trace::task_exec_end(self, &p);
+        });
 
         #[cfg(feature = "trace")]
         trace::executor_idle(self)
@@ -492,15 +492,6 @@ impl Executor {
             inner: SyncExecutor::new(Pender(context)),
             _not_sync: PhantomData,
         }
-    }
-
-    /// Initializes the executor.
-    ///
-    /// # Safety
-    ///
-    /// This function must be called once before any other method is called.
-    pub unsafe fn initialize(&'static self) {
-        self.inner.initialize();
     }
 
     /// Spawn a task in this executor.
@@ -575,21 +566,3 @@ pub fn wake_task_no_pend(task: TaskRef) {
         }
     }
 }
-
-#[cfg(feature = "integrated-timers")]
-struct TimerQueue;
-
-#[cfg(feature = "integrated-timers")]
-impl embassy_time_queue_driver::TimerQueue for TimerQueue {
-    fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
-        let task = waker::task_from_waker(waker);
-        let task = task.header();
-        unsafe {
-            let expires_at = task.expires_at.get();
-            task.expires_at.set(expires_at.min(at));
-        }
-    }
-}
-
-#[cfg(feature = "integrated-timers")]
-embassy_time_queue_driver::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
