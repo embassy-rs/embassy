@@ -386,11 +386,11 @@ impl SyncExecutor {
     /// - `task` must be set up to run in this executor.
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
-    unsafe fn enqueue(&self, task: TaskRef) {
+    unsafe fn enqueue(&self, task: TaskRef, l: state::Token) {
         #[cfg(feature = "trace")]
         trace::task_ready_begin(self, &task);
 
-        if self.run_queue.enqueue(task) {
+        if self.run_queue.enqueue(task, l) {
             self.pender.pend();
         }
     }
@@ -401,7 +401,9 @@ impl SyncExecutor {
         #[cfg(feature = "trace")]
         trace::task_new(self, &task);
 
-        self.enqueue(task);
+        state::locked(|l| {
+            self.enqueue(task, l);
+        })
     }
 
     /// # Safety
@@ -544,13 +546,13 @@ impl Executor {
 /// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
 pub fn wake_task(task: TaskRef) {
     let header = task.header();
-    if header.state.run_enqueue() {
+    header.state.run_enqueue(|l| {
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
             let executor = header.executor.get().unwrap_unchecked();
-            executor.enqueue(task);
+            executor.enqueue(task, l);
         }
-    }
+    });
 }
 
 /// Wake a task by `TaskRef` without calling pend.
@@ -558,11 +560,11 @@ pub fn wake_task(task: TaskRef) {
 /// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
 pub fn wake_task_no_pend(task: TaskRef) {
     let header = task.header();
-    if header.state.run_enqueue() {
+    header.state.run_enqueue(|l| {
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
             let executor = header.executor.get().unwrap_unchecked();
-            executor.run_queue.enqueue(task);
+            executor.run_queue.enqueue(task, l);
         }
-    }
+    });
 }

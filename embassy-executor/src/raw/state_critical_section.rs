@@ -1,6 +1,7 @@
 use core::cell::Cell;
 
-use critical_section::Mutex;
+pub(crate) use critical_section::{with as locked, CriticalSection as Token};
+use critical_section::{CriticalSection, Mutex};
 
 use super::timer_queue::TimerEnqueueOperation;
 
@@ -23,13 +24,15 @@ impl State {
     }
 
     fn update<R>(&self, f: impl FnOnce(&mut u32) -> R) -> R {
-        critical_section::with(|cs| {
-            let s = self.state.borrow(cs);
-            let mut val = s.get();
-            let r = f(&mut val);
-            s.set(val);
-            r
-        })
+        critical_section::with(|cs| self.update_with_cs(cs, f))
+    }
+
+    fn update_with_cs<R>(&self, cs: CriticalSection<'_>, f: impl FnOnce(&mut u32) -> R) -> R {
+        let s = self.state.borrow(cs);
+        let mut val = s.get();
+        let r = f(&mut val);
+        s.set(val);
+        r
     }
 
     /// If task is idle, mark it as spawned + run_queued and return true.
@@ -51,17 +54,22 @@ impl State {
         self.update(|s| *s &= !STATE_SPAWNED);
     }
 
-    /// Mark the task as run-queued if it's spawned and isn't already run-queued. Return true on success.
+    /// Mark the task as run-queued if it's spawned and isn't already run-queued. Run the given
+    /// function if the task was successfully marked.
     #[inline(always)]
-    pub fn run_enqueue(&self) -> bool {
-        self.update(|s| {
-            if (*s & STATE_RUN_QUEUED != 0) || (*s & STATE_SPAWNED == 0) {
-                false
-            } else {
-                *s |= STATE_RUN_QUEUED;
-                true
+    pub fn run_enqueue(&self, f: impl FnOnce(Token)) {
+        critical_section::with(|cs| {
+            if self.update_with_cs(cs, |s| {
+                if (*s & STATE_RUN_QUEUED != 0) || (*s & STATE_SPAWNED == 0) {
+                    false
+                } else {
+                    *s |= STATE_RUN_QUEUED;
+                    true
+                }
+            }) {
+                f(cs);
             }
-        })
+        });
     }
 
     /// Unmark the task as run-queued. Return whether the task is spawned.
