@@ -96,29 +96,6 @@ impl TaskRef {
         &self.header().timer_queue_item
     }
 
-    /// Mark the task as timer-queued. Return whether it should be actually enqueued
-    /// using `_embassy_time_schedule_wake`.
-    ///
-    /// Entering this state prevents the task from being respawned while in a timer queue.
-    ///
-    /// Safety:
-    ///
-    /// This functions should only be called by the timer queue driver, before
-    /// enqueueing the timer item.
-    pub unsafe fn timer_enqueue(&self) -> timer_queue::TimerEnqueueOperation {
-        self.header().state.timer_enqueue()
-    }
-
-    /// Unmark the task as timer-queued.
-    ///
-    /// Safety:
-    ///
-    /// This functions should only be called by the timer queue implementation, after the task has
-    /// been removed from the timer queue.
-    pub unsafe fn timer_dequeue(&self) {
-        self.header().state.timer_dequeue()
-    }
-
     /// The returned pointer is valid for the entire TaskStorage.
     pub(crate) fn as_ptr(self) -> *const TaskHeader {
         self.ptr.as_ptr()

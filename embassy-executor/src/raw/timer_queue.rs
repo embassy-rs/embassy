@@ -71,14 +71,3 @@ impl TimerQueueItem {
         }
     }
 }
-
-/// The operation to perform after `timer_enqueue` is called.
-#[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[must_use]
-pub enum TimerEnqueueOperation {
-    /// Enqueue the task (or update its expiration time).
-    Enqueue,
-    /// The task must not be enqueued in the timer queue.
-    Ignore,
-}
