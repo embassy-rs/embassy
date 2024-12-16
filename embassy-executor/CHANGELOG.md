@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - embassy-executor no longer provides an `embassy-time-queue-driver` implementation
 - Added `TaskRef::executor` to obtain a reference to a task's executor
 - integrated-timers are no longer processed when polling the executor.
+- Added the option to store data in timer queue items
 
 ## 0.6.3 - 2024-11-12
 
