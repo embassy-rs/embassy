@@ -1,8 +1,6 @@
 use core::arch::asm;
 use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 
-use super::timer_queue::TimerEnqueueOperation;
-
 #[derive(Clone, Copy)]
 pub(crate) struct Token(());
 
@@ -16,7 +14,6 @@ pub(crate) fn locked<R>(f: impl FnOnce(Token) -> R) -> R {
 // Must be kept in sync with the layout of `State`!
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 8;
-pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 16;
 
 #[repr(C, align(4))]
 pub(crate) struct State {
@@ -24,9 +21,8 @@ pub(crate) struct State {
     spawned: AtomicBool,
     /// Task is in the executor run queue
     run_queued: AtomicBool,
-    /// Task is in the executor timer queue
-    timer_queued: AtomicBool,
     pad: AtomicBool,
+    pad2: AtomicBool,
 }
 
 impl State {
@@ -34,8 +30,8 @@ impl State {
         Self {
             spawned: AtomicBool::new(false),
             run_queued: AtomicBool::new(false),
-            timer_queued: AtomicBool::new(false),
             pad: AtomicBool::new(false),
+            pad2: AtomicBool::new(false),
         }
     }
 
@@ -100,33 +96,5 @@ impl State {
         let r = self.spawned.load(Ordering::Relaxed);
         self.run_queued.store(false, Ordering::Relaxed);
         r
-    }
-
-    /// Mark the task as timer-queued. Return whether it can be enqueued.
-    #[inline(always)]
-    pub fn timer_enqueue(&self) -> TimerEnqueueOperation {
-        if self
-            .as_u32()
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
-                // If not started, ignore it
-                if state & STATE_SPAWNED == 0 {
-                    None
-                } else {
-                    // Mark it as enqueued
-                    Some(state | STATE_TIMER_QUEUED)
-                }
-            })
-            .is_ok()
-        {
-            TimerEnqueueOperation::Enqueue
-        } else {
-            TimerEnqueueOperation::Ignore
-        }
-    }
-
-    /// Unmark the task as timer-queued.
-    #[inline(always)]
-    pub fn timer_dequeue(&self) {
-        self.timer_queued.store(false, Ordering::Relaxed);
     }
 }
