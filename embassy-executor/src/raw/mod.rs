@@ -28,6 +28,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::{Context, Poll};
 
 use self::run_queue::{RunQueue, RunQueueItem};
@@ -40,7 +41,7 @@ use super::SpawnToken;
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
-    pub(crate) executor: SyncUnsafeCell<Option<&'static SyncExecutor>>,
+    pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
@@ -86,7 +87,8 @@ impl TaskRef {
 
     /// Returns a reference to the executor that the task is currently running on.
     pub unsafe fn executor(self) -> Option<&'static Executor> {
-        self.header().executor.get().map(|e| Executor::wrap(e))
+        let executor = self.header().executor.load(Ordering::Relaxed);
+        executor.as_ref().map(|e| Executor::wrap(e))
     }
 
     /// Returns a reference to the timer queue item.
@@ -153,7 +155,7 @@ impl<F: Future + 'static> TaskStorage<F> {
             raw: TaskHeader {
                 state: State::new(),
                 run_queue_item: RunQueueItem::new(),
-                executor: SyncUnsafeCell::new(None),
+                executor: AtomicPtr::new(core::ptr::null_mut()),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
 
@@ -396,7 +398,9 @@ impl SyncExecutor {
     }
 
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
-        task.header().executor.set(Some(self));
+        task.header()
+            .executor
+            .store((self as *const Self).cast_mut(), Ordering::Relaxed);
 
         #[cfg(feature = "trace")]
         trace::task_new(self, &task);
@@ -549,7 +553,7 @@ pub fn wake_task(task: TaskRef) {
     header.state.run_enqueue(|l| {
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
-            let executor = header.executor.get().unwrap_unchecked();
+            let executor = header.executor.load(Ordering::Relaxed).as_ref().unwrap_unchecked();
             executor.enqueue(task, l);
         }
     });
@@ -563,7 +567,7 @@ pub fn wake_task_no_pend(task: TaskRef) {
     header.state.run_enqueue(|l| {
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
-            let executor = header.executor.get().unwrap_unchecked();
+            let executor = header.executor.load(Ordering::Relaxed).as_ref().unwrap_unchecked();
             executor.run_queue.enqueue(task, l);
         }
     });

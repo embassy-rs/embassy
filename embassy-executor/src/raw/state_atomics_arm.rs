@@ -3,13 +3,14 @@ use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 
 use super::timer_queue::TimerEnqueueOperation;
 
+#[derive(Clone, Copy)]
 pub(crate) struct Token(());
 
 /// Creates a token and passes it to the closure.
 ///
 /// This is a no-op replacement for `CriticalSection::with` because we don't need any locking.
-pub(crate) fn locked(f: impl FnOnce(Token)) {
-    f(Token(()));
+pub(crate) fn locked<R>(f: impl FnOnce(Token) -> R) -> R {
+    f(Token(()))
 }
 
 // Must be kept in sync with the layout of `State`!
