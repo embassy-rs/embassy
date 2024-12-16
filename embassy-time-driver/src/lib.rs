@@ -46,6 +46,9 @@
 //!
 //! Then, you'll need to adapt the `schedule_wake` method to use this queue.
 //!
+//! Note that if you are using multiple queues, you will need to ensure that a single timer
+//! queue item is only ever enqueued into a single queue at a time.
+//!
 //! ```ignore
 //! use core::cell::RefCell;
 //! use core::task::Waker;
