@@ -52,8 +52,7 @@ impl State {
 
     /// Unmark the task as run-queued. Return whether the task is spawned.
     #[inline(always)]
-    pub fn run_dequeue(&self) -> bool {
-        let state = self.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
-        state & STATE_SPAWNED != 0
+    pub fn run_dequeue(&self) {
+        self.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
     }
 }

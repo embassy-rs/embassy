@@ -202,16 +202,29 @@ impl<F: Future + 'static> TaskStorage<F> {
         }
     }
 
+    unsafe fn poll_to_despawn(p: TaskRef) {
+        // The task's future has already been dropped, we just mark it as `!SPAWNED`.
+        let this = &*p.as_ptr().cast::<TaskStorage<F>>();
+        this.raw.state.despawn();
+    }
+
     unsafe fn poll(p: TaskRef) {
-        let this = &*(p.as_ptr() as *const TaskStorage<F>);
+        let this = &*p.as_ptr().cast::<TaskStorage<F>>();
 
         let future = Pin::new_unchecked(this.future.as_mut());
         let waker = waker::from_task(p);
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
+                waker.wake_by_ref();
+
+                // As the future has finished and this function will not be called
+                // again, we can safely drop the future here.
                 this.future.drop_in_place();
-                this.raw.state.despawn();
+
+                // We replace the poll_fn with a despawn function, so that the task is cleaned up
+                // when the executor polls it next.
+                this.raw.poll_fn.set(Some(Self::poll_to_despawn));
             }
             Poll::Pending => {}
         }

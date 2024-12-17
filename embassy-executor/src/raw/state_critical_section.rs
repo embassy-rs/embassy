@@ -67,11 +67,7 @@ impl State {
 
     /// Unmark the task as run-queued. Return whether the task is spawned.
     #[inline(always)]
-    pub fn run_dequeue(&self) -> bool {
-        self.update(|s| {
-            let ok = *s & STATE_SPAWNED != 0;
-            *s &= !STATE_RUN_QUEUED;
-            ok
-        })
+    pub fn run_dequeue(&self, cs: CriticalSection<'_>) {
+        self.update_with_cs(cs, |s| *s &= !STATE_RUN_QUEUED)
     }
 }

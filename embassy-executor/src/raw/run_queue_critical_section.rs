@@ -63,19 +63,12 @@ impl RunQueue {
             // If the task re-enqueues itself, the `next` pointer will get overwritten.
             // Therefore, first read the next pointer, and only then process the task.
 
-            let run_task = critical_section::with(|cs| {
+            critical_section::with(|cs| {
                 next = task.header().run_queue_item.next.borrow(cs).get();
-                task.header().state.run_dequeue(cs)
+                task.header().state.run_dequeue(cs);
             });
 
-            if run_task {
-                // If task is not running, ignore it. This can happen in the following scenario:
-                //   - Task gets dequeued, poll starts
-                //   - While task is being polled, it gets woken. It gets placed in the queue.
-                //   - Task poll finishes, returning done=true
-                //   - RUNNING bit is cleared, but the task is already in the queue.
-                on_task(task);
-            }
+            on_task(task);
         }
     }
 }
