@@ -81,6 +81,7 @@ impl RunQueue {
             // safety: there are no concurrent accesses to `next`
             next = unsafe { task.header().run_queue_item.next.get() };
 
+            task.header().state.run_dequeue();
             on_task(task);
         }
     }

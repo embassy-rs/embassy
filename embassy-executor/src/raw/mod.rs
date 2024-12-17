@@ -50,33 +50,32 @@ use super::SpawnToken;
 /// A task's complete life cycle is as follows:
 ///
 /// ```text
-///    ┌────────────┐   ┌────────────────────────┐
-/// ┌─►│Not spawned │◄─6┤Not spawned|Run enqueued│
-/// │  │            ├7─►│                        │
-/// │  └─────┬──────┘   └──────▲─────────────────┘
-/// │        1                 │
-/// │        │    ┌────────────┘
-/// │        │    5
-/// │  ┌─────▼────┴─────────┐
-/// │  │Spawned|Run enqueued│
-/// │  │                    │
-/// │  └─────┬▲─────────────┘
-/// │        2│
-/// │        │3
-/// │  ┌─────▼┴─────┐
-/// └─4┤  Spawned   │
-///    │            │
-///    └────────────┘
+/// ┌────────────┐   ┌────────────────────────┐
+/// │Not spawned │◄─5┤Not spawned|Run enqueued│
+/// │            ├6─►│                        │
+/// └─────┬──────┘   └──────▲─────────────────┘
+///       1                 │
+///       │    ┌────────────┘
+///       │    4
+/// ┌─────▼────┴─────────┐
+/// │Spawned|Run enqueued│
+/// │                    │
+/// └─────┬▲─────────────┘
+///       2│
+///       │3
+/// ┌─────▼┴─────┐
+/// │  Spawned   │
+/// │            │
+/// └────────────┘
 /// ```
 ///
 /// Transitions:
 /// - 1: Task is spawned - `AvailableTask::claim -> Executor::spawn`
 /// - 2: During poll - `RunQueue::dequeue_all -> State::run_dequeue`
-/// - 3: Task wakes itself, waker wakes task - `Waker::wake -> wake_task -> State::run_enqueue`
-/// - 4: Task exits - `TaskStorage::poll -> Poll::Ready`
-/// - 5: A run-queued task exits - `TaskStorage::poll -> Poll::Ready`
-/// - 6: Task is dequeued and then ignored via `State::run_dequeue`
-/// - 7: A task is waken when it is not spawned - `wake_task -> State::run_enqueue`
+/// - 3: Task wakes itself, waker wakes task, or task exits - `Waker::wake -> wake_task -> State::run_enqueue`
+/// - 4: A run-queued task exits - `TaskStorage::poll -> Poll::Ready`
+/// - 5: Task is dequeued. The task's future is not polled, because exiting the task replaces its `poll_fn`.
+/// - 6: A task is waken when it is not spawned - `wake_task -> State::run_enqueue`
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
@@ -162,6 +161,10 @@ pub struct TaskStorage<F: Future + 'static> {
     future: UninitCell<F>, // Valid if STATE_SPAWNED
 }
 
+unsafe fn poll_exited(_p: TaskRef) {
+    // Nothing to do, the task is already !SPAWNED and dequeued.
+}
+
 impl<F: Future + 'static> TaskStorage<F> {
     const NEW: Self = Self::new();
 
@@ -203,14 +206,23 @@ impl<F: Future + 'static> TaskStorage<F> {
     }
 
     unsafe fn poll(p: TaskRef) {
-        let this = &*(p.as_ptr() as *const TaskStorage<F>);
+        let this = &*p.as_ptr().cast::<TaskStorage<F>>();
 
         let future = Pin::new_unchecked(this.future.as_mut());
         let waker = waker::from_task(p);
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
+                // As the future has finished and this function will not be called
+                // again, we can safely drop the future here.
                 this.future.drop_in_place();
+
+                // We replace the poll_fn with a despawn function, so that the task is cleaned up
+                // when the executor polls it next.
+                this.raw.poll_fn.set(Some(poll_exited));
+
+                // Make sure we despawn last, so that other threads can only spawn the task
+                // after we're done with it.
                 this.raw.state.despawn();
             }
             Poll::Pending => {}
@@ -410,15 +422,6 @@ impl SyncExecutor {
     pub(crate) unsafe fn poll(&'static self) {
         self.run_queue.dequeue_all(|p| {
             let task = p.header();
-
-            if !task.state.run_dequeue() {
-                // If task is not running, ignore it. This can happen in the following scenario:
-                //   - Task gets dequeued, poll starts
-                //   - While task is being polled, it gets woken. It gets placed in the queue.
-                //   - Task poll finishes, returning done=true
-                //   - RUNNING bit is cleared, but the task is already in the queue.
-                return;
-            }
 
             #[cfg(feature = "trace")]
             trace::task_exec_begin(self, &p);

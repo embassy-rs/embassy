@@ -75,11 +75,9 @@ impl State {
 
     /// Unmark the task as run-queued. Return whether the task is spawned.
     #[inline(always)]
-    pub fn run_dequeue(&self) -> bool {
+    pub fn run_dequeue(&self) {
         compiler_fence(Ordering::Release);
 
-        let r = self.spawned.load(Ordering::Relaxed);
         self.run_queued.store(false, Ordering::Relaxed);
-        r
     }
 }

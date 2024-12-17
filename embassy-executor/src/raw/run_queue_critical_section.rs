@@ -63,9 +63,10 @@ impl RunQueue {
             // If the task re-enqueues itself, the `next` pointer will get overwritten.
             // Therefore, first read the next pointer, and only then process the task.
 
-            // safety: we know if the task is enqueued, no one else will touch the `next` pointer.
-            let cs = unsafe { CriticalSection::new() };
-            next = task.header().run_queue_item.next.borrow(cs).get();
+            critical_section::with(|cs| {
+                next = task.header().run_queue_item.next.borrow(cs).get();
+                task.header().state.run_dequeue(cs);
+            });
 
             on_task(task);
         }
