@@ -285,7 +285,7 @@ trait SealedInstance {
     const BACKUP_REGISTER_COUNT: usize;
 
     #[cfg(feature = "low-power")]
-    #[cfg(not(stm32u5))]
+    #[cfg(not(any(stm32u5, stm32u0)))]
     const EXTI_WAKEUP_LINE: usize;
 
     #[cfg(feature = "low-power")]

@@ -119,15 +119,12 @@ const USBRAM_ALIGN: usize = 2;
 #[cfg(any(usbram_32_2048, usbram_32_1024))]
 const USBRAM_ALIGN: usize = 4;
 
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static BUS_WAKER: AtomicWaker = NEW_AW;
+static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP0_SETUP: AtomicBool = AtomicBool::new(false);
 
-const NEW_CTR_TRIGGERED: AtomicBool = AtomicBool::new(false);
-static CTR_TRIGGERED: [AtomicBool; EP_COUNT] = [NEW_CTR_TRIGGERED; EP_COUNT];
-
-static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
-static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
+static CTR_TRIGGERED: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
+static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
+static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
 static IRQ_SUSPEND: AtomicBool = AtomicBool::new(false);
 static IRQ_RESUME: AtomicBool = AtomicBool::new(false);

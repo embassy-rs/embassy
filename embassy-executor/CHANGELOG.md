@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- embassy-executor no longer provides an `embassy-time-queue-driver` implementation
+- Added `TaskRef::executor` to obtain a reference to a task's executor
+- integrated-timers are no longer processed when polling the executor.
+
 ## 0.6.3 - 2024-11-12
 
 - Building with the `nightly` feature now works with the Xtensa Rust compiler 1.82.

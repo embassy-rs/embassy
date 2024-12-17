@@ -52,14 +52,16 @@ impl PinInterrupt {
     }
 }
 
-const NEW_PIN_INTERRUPT: PinInterrupt = PinInterrupt {
-    assigned: false,
-    waker: AtomicWaker::new(),
-    at_fault: false,
-};
 const INTERUPT_COUNT: usize = 8;
-static PIN_INTERRUPTS: Mutex<RefCell<[PinInterrupt; INTERUPT_COUNT]>> =
-    Mutex::new(RefCell::new([NEW_PIN_INTERRUPT; INTERUPT_COUNT]));
+static PIN_INTERRUPTS: Mutex<RefCell<[PinInterrupt; INTERUPT_COUNT]>> = Mutex::new(RefCell::new(
+    [const {
+        PinInterrupt {
+            assigned: false,
+            waker: AtomicWaker::new(),
+            at_fault: false,
+        }
+    }; INTERUPT_COUNT],
+));
 
 fn next_available_interrupt() -> Option<usize> {
     critical_section::with(|cs| {

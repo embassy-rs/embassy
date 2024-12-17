@@ -86,6 +86,14 @@ pub mod gpiote;
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
 #[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(any(
+    feature = "nrf52832",
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf5340-app"
+))]
+pub mod nfct;
+#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod nvmc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
@@ -98,6 +106,9 @@ pub mod nvmc;
     feature = "_nrf91",
 ))]
 pub mod pdm;
+#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(any(feature = "nrf52840", feature = "nrf9160-s", feature = "nrf9160-ns"))]
+pub mod power;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod ppi;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -117,6 +128,9 @@ pub mod qspi;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
 pub mod radio;
+#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(feature = "_nrf5340")]
+pub mod reset;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;

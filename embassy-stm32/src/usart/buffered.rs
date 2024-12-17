@@ -12,8 +12,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(not(any(usart_v1, usart_v2)))]
 use super::DePin;
 use super::{
-    clear_interrupt_flags, configure, rdr, reconfigure, send_break, sr, tdr, Config, ConfigError, CtsPin, Error, Info,
-    Instance, Regs, RtsPin, RxPin, TxPin,
+    clear_interrupt_flags, configure, rdr, reconfigure, send_break, set_baudrate, sr, tdr, Config, ConfigError, CtsPin,
+    Error, Info, Instance, Regs, RtsPin, RxPin, TxPin,
 };
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::{self, InterruptExt};
@@ -441,6 +441,13 @@ impl<'d> BufferedUart<'d> {
     pub fn send_break(&self) {
         self.tx.send_break()
     }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        self.tx.set_baudrate(baudrate)?;
+        self.rx.set_baudrate(baudrate)?;
+        Ok(())
+    }
 }
 
 impl<'d> BufferedUartRx<'d> {
@@ -535,6 +542,11 @@ impl<'d> BufferedUartRx<'d> {
 
         Ok(())
     }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        set_baudrate(self.info, self.kernel_clock, baudrate)
+    }
 }
 
 impl<'d> BufferedUartTx<'d> {
@@ -624,6 +636,11 @@ impl<'d> BufferedUartTx<'d> {
     /// Send break character
     pub fn send_break(&self) {
         send_break(&self.info.regs);
+    }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        set_baudrate(self.info, self.kernel_clock, baudrate)
     }
 }
 

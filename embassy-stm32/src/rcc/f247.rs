@@ -170,8 +170,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
         Some(hse) => {
             match hse.mode {
-                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
-                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+                HseMode::Bypass => rcc_assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => rcc_assert!(max::HSE_OSC.contains(&hse.freq)),
             }
 
             RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
@@ -205,10 +205,10 @@ pub(crate) unsafe fn init(config: Config) {
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk, config.apb2_pre);
 
-    assert!(max::SYSCLK.contains(&sys));
-    assert!(max::HCLK.contains(&hclk));
-    assert!(max::PCLK1.contains(&pclk1));
-    assert!(max::PCLK2.contains(&pclk2));
+    rcc_assert!(max::SYSCLK.contains(&sys));
+    rcc_assert!(max::HCLK.contains(&hclk));
+    rcc_assert!(max::PCLK1.contains(&pclk1));
+    rcc_assert!(max::PCLK2.contains(&pclk2));
 
     let rtc = config.ls.init();
 

@@ -13,18 +13,16 @@ use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-
 #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
 pub(crate) const BANK0_PIN_COUNT: usize = 30;
 #[cfg(feature = "rp235xb")]
 pub(crate) const BANK0_PIN_COUNT: usize = 48;
 
-static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [NEW_AW; BANK0_PIN_COUNT];
+static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [const { AtomicWaker::new() }; BANK0_PIN_COUNT];
 #[cfg(feature = "qspi-as-gpio")]
 const QSPI_PIN_COUNT: usize = 6;
 #[cfg(feature = "qspi-as-gpio")]
-static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [NEW_AW; QSPI_PIN_COUNT];
+static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [const { AtomicWaker::new() }; QSPI_PIN_COUNT];
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]

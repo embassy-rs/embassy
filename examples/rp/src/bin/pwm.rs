@@ -48,10 +48,14 @@ async fn pwm_set_dutycycle(slice2: PWM_SLICE2, pin4: PIN_4) {
     // If we aim for a specific frequency, here is how we can calculate the top value.
     // The top value sets the period of the PWM cycle, so a counter goes from 0 to top and then wraps around to 0.
     // Every such wraparound is one PWM cycle. So here is how we get 25KHz:
+    let desired_freq_hz = 25_000;
+    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
+    let divider = 16u8;
+    let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
+
     let mut c = Config::default();
-    let pwm_freq = 25_000; // Hz, our desired frequency
-    let clock_freq = embassy_rp::clocks::clk_sys_freq();
-    c.top = (clock_freq / pwm_freq) as u16 - 1;
+    c.top = period;
+    c.divider = divider.into();
 
     let mut pwm = Pwm::new_output_a(slice2, pin4, c.clone());
 

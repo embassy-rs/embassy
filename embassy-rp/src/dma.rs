@@ -212,8 +212,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
 pub(crate) const CHANNEL_COUNT: usize = 12;
 #[cfg(feature = "_rp235x")]
 pub(crate) const CHANNEL_COUNT: usize = 16;
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
+static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [const { AtomicWaker::new() }; CHANNEL_COUNT];
 
 trait SealedChannel {}
 trait SealedWord {}

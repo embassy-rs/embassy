@@ -59,10 +59,9 @@ struct State {
 
 impl State {
     const fn new() -> Self {
-        const NEW_AW: AtomicWaker = AtomicWaker::new();
         Self {
-            up_waker: NEW_AW,
-            cc_waker: [NEW_AW; 4],
+            up_waker: AtomicWaker::new(),
+            cc_waker: [const { AtomicWaker::new() }; 4],
         }
     }
 }
