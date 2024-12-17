@@ -38,6 +38,44 @@ pub use self::waker::task_from_waker;
 use super::SpawnToken;
 
 /// Raw task header for use in task pointers.
+///
+/// A task can be in one of the following states:
+///
+/// - Not spawned: the task is ready to spawn.
+/// - `SPAWNED`: the task is currently spawned and may be running.
+/// - `RUN_ENQUEUED`: the task is enqueued to be polled. Note that the task may be `!SPAWNED`.
+///    In this case, the `RUN_ENQUEUED` state will be cleared when the task is next polled, without
+///    polling the task's future.
+///
+/// A task's complete life cycle is as follows:
+///
+/// ```text
+///    ┌────────────┐   ┌────────────────────────┐
+/// ┌─►│Not spawned │◄─6┤Not spawned|Run enqueued│
+/// │  │            │   │                        │
+/// │  └─────┬──────┘   └──────▲─────────────────┘
+/// │        1                 │
+/// │        │    ┌────────────┘
+/// │        │    5
+/// │  ┌─────▼────┴─────────┐
+/// │  │Spawned|Run enqueued│
+/// │  │                    │
+/// │  └─────┬▲─────────────┘
+/// │        2│
+/// │        │3
+/// │  ┌─────▼┴─────┐
+/// └─4┤  Spawned   │
+///    │            │
+///    └────────────┘
+/// ```
+///
+/// Transitions:
+/// - 1: Task is spawned - `AvailableTask::claim -> Executor::spawn`
+/// - 2: During poll - `RunQueue::dequeue_all -> State::run_dequeue`
+/// - 3: Task wakes itself, waker wakes task - `Waker::wake -> wake_task -> State::run_enqueue`
+/// - 4: Task exits - `TaskStorage::poll -> Poll::Ready`
+/// - 5: A run-queued task exits - `TaskStorage::poll -> Poll::Ready`
+/// - 6: Task is dequeued and then ignored via `State::run_dequeue`
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
