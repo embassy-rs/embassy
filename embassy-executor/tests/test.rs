@@ -69,7 +69,6 @@ fn executor_task() {
         &[
             "pend",       // spawning a task pends the executor
             "poll task1", // poll only once.
-            "pend",       // task is done, wakes itself to exit
         ]
     )
 }
@@ -180,7 +179,6 @@ fn waking_after_completion_does_not_poll() {
             "pend",       // manual wake, single pend for two wakes
             "pend",       // respawning a task pends the executor
             "poll task1", //
-            "pend",       // task is done, wakes itself to exit
         ]
     )
 }
@@ -268,7 +266,6 @@ fn waking_with_old_waker_after_respawn() {
             "yield_now",  //
             "pend",       // manual wake, gets cleared by poll
             "poll task1", //
-            "pend",       // task is done, wakes itself to exit
         ]
     );
 }

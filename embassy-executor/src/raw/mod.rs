@@ -215,8 +215,6 @@ impl<F: Future + 'static> TaskStorage<F> {
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
-                waker.wake_by_ref();
-
                 // As the future has finished and this function will not be called
                 // again, we can safely drop the future here.
                 this.future.drop_in_place();
@@ -224,6 +222,10 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // We replace the poll_fn with a despawn function, so that the task is cleaned up
                 // when the executor polls it next.
                 this.raw.poll_fn.set(Some(poll_to_despawn));
+
+                // Make sure we despawn last, so that other threads can only spawn the task
+                // after we're done with it.
+                this.raw.state.despawn();
             }
             Poll::Pending => {}
         }
