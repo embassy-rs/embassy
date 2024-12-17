@@ -520,7 +520,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     }
 
     /// Function used to control or configure the target device without data transfer
-    pub async fn command(&mut self, command: &TransferConfig) -> Result<(), OspiError> {
+    pub fn blocking_command(&mut self, command: &TransferConfig) -> Result<(), OspiError> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 

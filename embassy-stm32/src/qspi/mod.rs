@@ -148,7 +148,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     }
 
     /// Do a QSPI command.
-    pub fn command(&mut self, transaction: TransferConfig) {
+    pub fn blocking_command(&mut self, transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
