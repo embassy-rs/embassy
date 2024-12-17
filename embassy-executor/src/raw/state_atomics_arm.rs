@@ -1,4 +1,3 @@
-use core::arch::asm;
 use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
 
 #[derive(Clone, Copy)]
@@ -67,24 +66,10 @@ impl State {
     /// function if the task was successfully marked.
     #[inline(always)]
     pub fn run_enqueue(&self, f: impl FnOnce(Token)) {
-        unsafe {
-            loop {
-                let state: u32;
-                asm!("ldrex {}, [{}]", out(reg) state, in(reg) self, options(nostack));
+        let old = self.run_queued.swap(true, Ordering::AcqRel);
 
-                if state & STATE_RUN_QUEUED != 0 {
-                    asm!("clrex", options(nomem, nostack));
-                    return;
-                }
-
-                let outcome: usize;
-                let new_state = state | STATE_RUN_QUEUED;
-                asm!("strex {}, {}, [{}]", out(reg) outcome, in(reg) new_state, in(reg) self, options(nostack));
-                if outcome == 0 {
-                    locked(f);
-                    return;
-                }
-            }
+        if !old {
+            locked(f);
         }
     }
 
