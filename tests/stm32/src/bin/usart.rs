@@ -11,7 +11,7 @@ use embassy_time::{block_for, Duration, Instant};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let p = init();
     info!("Hello World!");
 
     // Arduino pins D0 and D1
@@ -33,6 +33,13 @@ async fn main(_spawner: Spawner) {
         let mut buf = [0; 2];
         usart.blocking_read(&mut buf).unwrap();
         assert_eq!(buf, data);
+
+        // Test flush doesn't hang.
+        usart.blocking_write(&data).unwrap();
+        usart.blocking_flush().unwrap();
+
+        // Test flush doesn't hang if there's nothing to flush
+        usart.blocking_flush().unwrap();
     }
 
     // Test error handling with with an overflow error

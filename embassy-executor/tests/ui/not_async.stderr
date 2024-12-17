@@ -1,0 +1,5 @@
+error: task functions must be async
+ --> tests/ui/not_async.rs:6:1
+  |
+6 | fn task() {}
+  | ^^^^^^^^^

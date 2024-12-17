@@ -5,16 +5,16 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 //use crate::gpio::{AnyPin, SealedPin};
-use crate::gpio::{AFType, AnyPin, Pull, Speed};
-use crate::rcc::RccPeripheral;
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// Performs a busy-wait delay for a specified number of microseconds.
 pub fn blocking_delay_ms(ms: u32) {
-    #[cfg(time)]
-    embassy_time::block_for(embassy_time::Duration::from_millis(ms));
-    #[cfg(not(time))]
-    cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 1_000 * ms);
+    #[cfg(feature = "time")]
+    embassy_time::block_for(embassy_time::Duration::from_millis(ms as u64));
+    #[cfg(not(feature = "time"))]
+    cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 1_000 * ms);
 }
 
 /// PacketTypes extracted from CubeMX
@@ -77,11 +77,10 @@ impl<'d, T: Instance> DsiHost<'d, T> {
     pub fn new(_peri: impl Peripheral<P = T> + 'd, te: impl Peripheral<P = impl TePin<T>> + 'd) -> Self {
         into_ref!(te);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         // Set Tearing Enable pin according to CubeMx example
-        te.set_as_af_pull(te.af_num(), AFType::OutputPushPull, Pull::None);
-        te.set_speed(Speed::Low);
+        te.set_as_af(te.af_num(), AfType::output(OutputType::PushPull, Speed::Low));
         /*
                 T::regs().wcr().modify(|w| {
                     w.set_dsien(true);
@@ -388,7 +387,8 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
 /// Possible Error Types for DSI HOST
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Waiting for FIFO empty flag timed out
     FifoTimeout,
@@ -407,7 +407,7 @@ impl<'d, T: Instance> Drop for DsiHost<'d, T> {
 }
 
 trait SealedInstance: crate::rcc::SealedRccPeripheral {
-    fn regs() -> &'static crate::pac::dsihost::Dsihost;
+    fn regs() -> crate::pac::dsihost::Dsihost;
 }
 
 /// DSI instance trait.
@@ -419,8 +419,8 @@ pin_trait!(TePin, Instance);
 foreach_peripheral!(
     (dsihost, $inst:ident) => {
         impl crate::dsihost::SealedInstance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::dsihost::Dsihost {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::dsihost::Dsihost {
+                crate::pac::$inst
             }
         }
 

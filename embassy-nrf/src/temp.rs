@@ -19,8 +19,8 @@ pub struct InterruptHandler {
 
 impl interrupt::typelevel::Handler<interrupt::typelevel::TEMP> for InterruptHandler {
     unsafe fn on_interrupt() {
-        let r = unsafe { &*pac::TEMP::PTR };
-        r.intenclr.write(|w| w.datardy().clear());
+        let r = pac::TEMP;
+        r.intenclr().write(|w| w.set_datardy(true));
         WAKER.wake();
     }
 }
@@ -72,21 +72,21 @@ impl<'d> Temp<'d> {
         // In case the future is dropped, stop the task and reset events.
         let on_drop = OnDrop::new(|| {
             let t = Self::regs();
-            t.tasks_stop.write(|w| unsafe { w.bits(1) });
-            t.events_datardy.reset();
+            t.tasks_stop().write_value(1);
+            t.events_datardy().write_value(0);
         });
 
         let t = Self::regs();
-        t.intenset.write(|w| w.datardy().set());
-        unsafe { t.tasks_start.write(|w| w.bits(1)) };
+        t.intenset().write(|w| w.set_datardy(true));
+        t.tasks_start().write_value(1);
 
         let value = poll_fn(|cx| {
             WAKER.register(cx.waker());
-            if t.events_datardy.read().bits() == 0 {
+            if t.events_datardy().read() == 0 {
                 Poll::Pending
             } else {
-                t.events_datardy.reset();
-                let raw = t.temp.read().bits();
+                t.events_datardy().write_value(0);
+                let raw = t.temp().read();
                 Poll::Ready(I30F2::from_bits(raw as i32))
             }
         })
@@ -95,7 +95,7 @@ impl<'d> Temp<'d> {
         value
     }
 
-    fn regs() -> &'static pac::temp::RegisterBlock {
-        unsafe { &*pac::TEMP::ptr() }
+    fn regs() -> pac::temp::Temp {
+        pac::TEMP
     }
 }

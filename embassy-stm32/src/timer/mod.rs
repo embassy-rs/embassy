@@ -2,12 +2,14 @@
 
 use core::marker::PhantomData;
 
+use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
 pub mod input_capture;
 pub mod low_level;
+pub mod pwm_input;
 pub mod qei;
 pub mod simple_pwm;
 
@@ -57,15 +59,14 @@ struct State {
 
 impl State {
     const fn new() -> Self {
-        const NEW_AW: AtomicWaker = AtomicWaker::new();
         Self {
-            up_waker: NEW_AW,
-            cc_waker: [NEW_AW; 4],
+            up_waker: AtomicWaker::new(),
+            cc_waker: [const { AtomicWaker::new() }; 4],
         }
     }
 }
 
-trait SealedInstance: RccPeripheral {
+trait SealedInstance: RccPeripheral + Peripheral<P = Self> {
     /// Async state for this timer
     fn state() -> &'static State;
 }

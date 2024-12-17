@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater};
+use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterError};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
 use embassy_usb::driver::Driver;
 use embassy_usb::{Builder, Handler};
@@ -19,6 +19,7 @@ pub struct Control<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_S
     state: State,
     status: Status,
     offset: usize,
+    buf: AlignedBuffer<BLOCK_SIZE>,
     _rst: PhantomData<RST>,
 }
 
@@ -31,6 +32,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Co
             state: State::DfuIdle,
             status: Status::Ok,
             offset: 0,
+            buf: AlignedBuffer([0; BLOCK_SIZE]),
             _rst: PhantomData,
         }
     }
@@ -39,6 +41,20 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Co
         self.offset = 0;
         self.state = State::DfuIdle;
         self.status = Status::Ok;
+    }
+}
+
+impl From<FirmwareUpdaterError> for Status {
+    fn from(e: FirmwareUpdaterError) -> Self {
+        match e {
+            FirmwareUpdaterError::Flash(e) => match e {
+                NorFlashErrorKind::NotAligned => Status::ErrWrite,
+                NorFlashErrorKind::OutOfBounds => Status::ErrAddress,
+                _ => Status::ErrUnknown,
+            },
+            FirmwareUpdaterError::Signature(_) => Status::ErrVerify,
+            FirmwareUpdaterError::BadState => Status::ErrUnknown,
+        }
     }
 }
 
@@ -51,65 +67,67 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
         data: &[u8],
     ) -> Option<embassy_usb::control::OutResponse> {
         if (req.request_type, req.recipient) != (RequestType::Class, Recipient::Interface) {
+            debug!("Unknown out request: {:?}", req);
             return None;
         }
         match Request::try_from(req.request) {
             Ok(Request::Abort) => {
+                info!("Abort requested");
                 self.reset_state();
                 Some(OutResponse::Accepted)
             }
             Ok(Request::Dnload) if self.attrs.contains(DfuAttributes::CAN_DOWNLOAD) => {
                 if req.value == 0 {
+                    info!("Download starting");
                     self.state = State::Download;
                     self.offset = 0;
                 }
 
-                let mut buf = AlignedBuffer([0; BLOCK_SIZE]);
-                buf.as_mut()[..data.len()].copy_from_slice(data);
+                if self.state != State::Download {
+                    error!("Unexpected DNLOAD while chip is waiting for a GETSTATUS");
+                    self.status = Status::ErrUnknown;
+                    self.state = State::Error;
+                    return Some(OutResponse::Rejected);
+                }
 
-                if req.length == 0 {
+                if data.len() > BLOCK_SIZE {
+                    error!("USB data len exceeded block size");
+                    self.status = Status::ErrUnknown;
+                    self.state = State::Error;
+                    return Some(OutResponse::Rejected);
+                }
+
+                debug!("Copying {} bytes to buffer", data.len());
+                self.buf.as_mut()[..data.len()].copy_from_slice(data);
+
+                let final_transfer = req.length == 0;
+                if final_transfer {
+                    debug!("Receiving final transfer");
+
                     match self.updater.mark_updated() {
                         Ok(_) => {
                             self.status = Status::Ok;
                             self.state = State::ManifestSync;
+                            info!("Update complete");
                         }
                         Err(e) => {
+                            error!("Error completing update: {}", e);
                             self.state = State::Error;
-                            match e {
-                                embassy_boot::FirmwareUpdaterError::Flash(e) => match e {
-                                    NorFlashErrorKind::NotAligned => self.status = Status::ErrWrite,
-                                    NorFlashErrorKind::OutOfBounds => self.status = Status::ErrAddress,
-                                    _ => self.status = Status::ErrUnknown,
-                                },
-                                embassy_boot::FirmwareUpdaterError::Signature(_) => self.status = Status::ErrVerify,
-                                embassy_boot::FirmwareUpdaterError::BadState => self.status = Status::ErrUnknown,
-                            }
+                            self.status = e.into();
                         }
                     }
                 } else {
-                    if self.state != State::Download {
-                        // Unexpected DNLOAD while chip is waiting for a GETSTATUS
-                        self.status = Status::ErrUnknown;
-                        self.state = State::Error;
-                        return Some(OutResponse::Rejected);
-                    }
-                    match self.updater.write_firmware(self.offset, buf.as_ref()) {
+                    debug!("Writing {} bytes at {}", data.len(), self.offset);
+                    match self.updater.write_firmware(self.offset, self.buf.as_ref()) {
                         Ok(_) => {
                             self.status = Status::Ok;
                             self.state = State::DlSync;
                             self.offset += data.len();
                         }
                         Err(e) => {
+                            error!("Error writing firmware: {:?}", e);
                             self.state = State::Error;
-                            match e {
-                                embassy_boot::FirmwareUpdaterError::Flash(e) => match e {
-                                    NorFlashErrorKind::NotAligned => self.status = Status::ErrWrite,
-                                    NorFlashErrorKind::OutOfBounds => self.status = Status::ErrAddress,
-                                    _ => self.status = Status::ErrUnknown,
-                                },
-                                embassy_boot::FirmwareUpdaterError::Signature(_) => self.status = Status::ErrVerify,
-                                embassy_boot::FirmwareUpdaterError::BadState => self.status = Status::ErrUnknown,
-                            }
+                            self.status = e.into();
                         }
                     }
                 }
@@ -118,6 +136,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
             }
             Ok(Request::Detach) => Some(OutResponse::Accepted), // Device is already in DFU mode
             Ok(Request::ClrStatus) => {
+                info!("Clear status requested");
                 self.reset_state();
                 Some(OutResponse::Accepted)
             }
@@ -131,6 +150,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
         buf: &'a mut [u8],
     ) -> Option<embassy_usb::control::InResponse<'a>> {
         if (req.request_type, req.recipient) != (RequestType::Class, Recipient::Interface) {
+            debug!("Unknown in request: {:?}", req);
             return None;
         }
         match Request::try_from(req.request) {
@@ -169,7 +189,7 @@ pub fn usb_dfu<'d, D: Driver<'d>, DFU: NorFlash, STATE: NorFlash, RST: Reset, co
     builder: &mut Builder<'d, D>,
     handler: &'d mut Control<'d, DFU, STATE, RST, BLOCK_SIZE>,
 ) {
-    let mut func = builder.function(0x00, 0x00, 0x00);
+    let mut func = builder.function(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU);
     let mut iface = func.interface();
     let mut alt = iface.alt_setting(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU, None);
     alt.descriptor(

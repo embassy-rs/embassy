@@ -17,8 +17,7 @@ use crate::dma::NoDma;
 use crate::dma::Transfer;
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::HASH;
-use crate::rcc::SealedRccPeripheral;
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals, rcc, Peripheral};
 
 #[cfg(hash_v1)]
 const NUM_CONTEXT_REGS: usize = 51;
@@ -130,7 +129,7 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
         dma: impl Peripheral<P = D> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        HASH::enable_and_reset();
+        rcc::enable_and_reset::<HASH>();
         into_ref!(peripheral, dma);
         let instance = Self {
             _peripheral: peripheral,

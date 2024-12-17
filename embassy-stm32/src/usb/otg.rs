@@ -10,10 +10,10 @@ use embassy_usb_synopsys_otg::{
     PhyType, State,
 };
 
-use crate::gpio::AFType;
+use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::{RccPeripheral, SealedRccPeripheral};
+use crate::rcc::{self, RccPeripheral};
 
 const MAX_EP_COUNT: usize = 9;
 
@@ -24,13 +24,9 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        trace!("irq");
         let r = T::regs();
         let state = T::state();
-
-        let setup_late_cnak = quirk_setup_late_cnak(r);
-
-        on_interrupt_impl(r, state, T::ENDPOINT_COUNT, setup_late_cnak);
+        on_interrupt_impl(r, state, T::ENDPOINT_COUNT);
     }
 }
 
@@ -39,9 +35,7 @@ macro_rules! config_ulpi_pins {
         into_ref!($($pin),*);
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                #[cfg(gpio_v2)]
-                $pin.set_speed(crate::gpio::Speed::VeryHigh);
+                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -77,8 +71,8 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         into_ref!(dp, dm);
 
-        dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
-        dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
+        dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         let regs = T::regs();
 
@@ -89,7 +83,91 @@ impl<'d, T: Instance> Driver<'d, T> {
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::InternalFullSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
+            calculate_trdt_fn: calculate_trdt::<T>,
+        };
+
+        Self {
+            inner: OtgDriver::new(ep_out_buffer, instance, config),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Initializes USB OTG peripheral with internal High-Speed PHY.
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
+    /// Must be large enough to fit all OUT endpoint max packet sizes.
+    /// Endpoint allocation will fail if it is too small.
+    pub fn new_hs(
+        _peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+        _dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        ep_out_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        // For STM32U5 High speed pins need to be left in analog mode
+        #[cfg(not(all(stm32u5, peri_usb_otg_hs)))]
+        {
+            into_ref!(_dp, _dm);
+            _dp.set_as_af(_dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            _dm.set_as_af(_dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        }
+
+        let instance = OtgInstance {
+            regs: T::regs(),
+            state: T::state(),
+            fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
+            endpoint_count: T::ENDPOINT_COUNT,
+            phy_type: PhyType::InternalHighSpeed,
+            calculate_trdt_fn: calculate_trdt::<T>,
+        };
+
+        Self {
+            inner: OtgDriver::new(ep_out_buffer, instance, config),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Initializes USB OTG peripheral with external Full-speed PHY (usually, a High-speed PHY in Full-speed mode).
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
+    /// Must be large enough to fit all OUT endpoint max packet sizes.
+    /// Endpoint allocation will fail if it is too small.
+    pub fn new_fs_ulpi(
+        _peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
+        ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
+        ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,
+        ulpi_stp: impl Peripheral<P = impl UlpiStpPin<T>> + 'd,
+        ulpi_d0: impl Peripheral<P = impl UlpiD0Pin<T>> + 'd,
+        ulpi_d1: impl Peripheral<P = impl UlpiD1Pin<T>> + 'd,
+        ulpi_d2: impl Peripheral<P = impl UlpiD2Pin<T>> + 'd,
+        ulpi_d3: impl Peripheral<P = impl UlpiD3Pin<T>> + 'd,
+        ulpi_d4: impl Peripheral<P = impl UlpiD4Pin<T>> + 'd,
+        ulpi_d5: impl Peripheral<P = impl UlpiD5Pin<T>> + 'd,
+        ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
+        ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
+        ep_out_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        config_ulpi_pins!(
+            ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4, ulpi_d5, ulpi_d6,
+            ulpi_d7
+        );
+
+        let instance = OtgInstance {
+            regs: T::regs(),
+            state: T::state(),
+            fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
+            endpoint_count: T::ENDPOINT_COUNT,
+            phy_type: PhyType::ExternalFullSpeed,
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -131,8 +209,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             ulpi_d7
         );
 
-        let regs = T::regs();
-
         let instance = OtgInstance {
             regs: T::regs(),
             state: T::state(),
@@ -140,7 +216,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::ExternalHighSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -225,6 +300,33 @@ impl<'d, T: Instance> Bus<'d, T> {
             }
         });
 
+        #[cfg(stm32h7rs)]
+        critical_section::with(|_| {
+            let rcc = crate::pac::RCC;
+            rcc.ahb1enr().modify(|w| {
+                w.set_usbphycen(true);
+                w.set_usb_otg_hsen(true);
+            });
+            rcc.ahb1lpenr().modify(|w| {
+                w.set_usbphyclpen(true);
+                w.set_usb_otg_hslpen(true);
+            });
+        });
+
+        #[cfg(all(stm32u5, peri_usb_otg_hs))]
+        {
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
+            });
+
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb2enr1().modify(|w| {
+                    w.set_usb_otg_hsen(true);
+                    w.set_usb_otg_hs_phyen(true);
+                });
+            });
+        }
+
         let r = T::regs();
         let core_id = r.cid().read().0;
         trace!("Core id {:08x}", core_id);
@@ -239,6 +341,7 @@ impl<'d, T: Instance> Bus<'d, T> {
         match core_id {
             0x0000_1200 | 0x0000_1100 => self.inner.config_v1(),
             0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => self.inner.config_v2v3(),
+            0x0000_5000 => self.inner.config_v5(),
             _ => unimplemented!("Unknown USB core id {:X}", core_id),
         }
     }
@@ -246,7 +349,7 @@ impl<'d, T: Instance> Bus<'d, T> {
     fn disable(&mut self) {
         T::Interrupt::disable();
 
-        <T as SealedRccPeripheral>::disable();
+        rcc::disable::<T>();
         self.inited = false;
 
         #[cfg(stm32l4)]
@@ -454,7 +557,7 @@ fn calculate_trdt<T: Instance>(speed: Dspd) -> u8 {
     match speed {
         Dspd::HIGH_SPEED => {
             // From RM0431 (F72xx), RM0090 (F429), RM0390 (F446)
-            if ahb_freq >= 30_000_000 {
+            if ahb_freq >= 30_000_000 || cfg!(stm32h7rs) {
                 0x9
             } else {
                 panic!("AHB frequency is too low")
@@ -478,8 +581,4 @@ fn calculate_trdt<T: Instance>(speed: Dspd) -> u8 {
         }
         _ => unimplemented!(),
     }
-}
-
-fn quirk_setup_late_cnak(r: Otg) -> bool {
-    r.cid().read().0 & 0xf000 == 0x1000
 }

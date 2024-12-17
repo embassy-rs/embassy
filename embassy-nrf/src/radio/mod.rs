@@ -20,8 +20,8 @@ pub mod ieee802154;
 use core::marker::PhantomData;
 
 use embassy_sync::waitqueue::AtomicWaker;
-use pac::radio::state::STATE_A as RadioState;
-pub use pac::radio::txpower::TXPOWER_A as TxPower;
+use pac::radio::vals::State as RadioState;
+pub use pac::radio::vals::Txpower as TxPower;
 
 use crate::{interrupt, pac, Peripheral};
 
@@ -52,7 +52,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
         // clear all interrupts
-        r.intenclr.write(|w| w.bits(0xffff_ffff));
+        r.intenclr().write(|w| w.0 = 0xffff_ffff);
         s.event_waker.wake();
     }
 }
@@ -70,15 +70,15 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static crate::pac::radio::RegisterBlock;
+    fn regs() -> crate::pac::radio::Radio;
     fn state() -> &'static State;
 }
 
 macro_rules! impl_radio {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::radio::SealedInstance for peripherals::$type {
-            fn regs() -> &'static pac::radio::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> crate::pac::radio::Radio {
+                pac::$pac_type
             }
 
             fn state() -> &'static crate::radio::State {
@@ -100,9 +100,6 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
 }
 
 /// Get the state of the radio
-pub(crate) fn state(radio: &pac::radio::RegisterBlock) -> RadioState {
-    match radio.state.read().state().variant() {
-        Some(state) => state,
-        None => unreachable!(),
-    }
+pub(crate) fn state(radio: pac::radio::Radio) -> RadioState {
+    radio.state().read().state()
 }

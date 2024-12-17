@@ -15,14 +15,25 @@ use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
 
 use crate::chip::Chip;
+pub use crate::device::InitError;
 use crate::device::WiznetDevice;
 
+// If you change this update the docs of State
 const MTU: usize = 1514;
 
 /// Type alias for the embassy-net driver.
 pub type Device<'d> = embassy_net_driver_channel::Device<'d, MTU>;
 
 /// Internal state for the embassy-net integration.
+///
+/// The two generic arguments `N_RX` and `N_TX` set the size of the receive and
+/// send packet queue. With a the ethernet MTU of _1514_ this takes up `N_RX +
+/// NTX * 1514` bytes. While setting these both to 1 is the minimum this might
+/// hurt performance as a packet can not be received while processing another.
+///
+/// # Warning
+/// On devices with a small amount of ram (think ~64k) watch out with the size
+/// of there parameters. They will quickly use too much RAM.
 pub struct State<const N_RX: usize, const N_TX: usize> {
     ch_state: ch::State<MTU, N_RX, N_TX>,
 }
@@ -95,7 +106,7 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, C: Chip, SPI: SpiDevi
     spi_dev: SPI,
     int: INT,
     mut reset: RST,
-) -> (Device<'a>, Runner<'a, C, SPI, INT, RST>) {
+) -> Result<(Device<'a>, Runner<'a, C, SPI, INT, RST>), InitError<SPI::Error>> {
     // Reset the chip.
     reset.set_low().ok();
     // Ensure the reset is registered.
@@ -106,10 +117,11 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, C: Chip, SPI: SpiDevi
     // Slowest is w5100s which is 100ms, so let's just wait that.
     Timer::after_millis(100).await;
 
-    let mac = WiznetDevice::new(spi_dev, mac_addr).await.unwrap();
+    let mac = WiznetDevice::new(spi_dev, mac_addr).await?;
 
     let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ethernet(mac_addr));
-    (
+
+    Ok((
         device,
         Runner {
             ch: runner,
@@ -117,5 +129,5 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, C: Chip, SPI: SpiDevi
             int,
             _reset: reset,
         },
-    )
+    ))
 }

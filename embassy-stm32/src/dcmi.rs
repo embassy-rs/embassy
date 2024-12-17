@@ -7,9 +7,9 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::Transfer;
-use crate::gpio::{AFType, Speed};
+use crate::gpio::{AfType, Pull};
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -109,8 +109,7 @@ macro_rules! config_pins {
         into_ref!($($pin),*);
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AFType::Input);
-                $pin.set_speed(Speed::VeryHigh);
+                $pin.set_as_af($pin.af_num(), AfType::input(Pull::None));
             )*
         })
     };
@@ -350,7 +349,7 @@ where
         use_embedded_synchronization: bool,
         edm: u8,
     ) -> Self {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         peri.regs().cr().modify(|r| {
             r.set_cm(true); // disable continuous mode (snapshot mode)

@@ -62,7 +62,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     let mut res = None;
     let mut address = start_address;
     for val in buf.chunks(4) {
-        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
         address += val.len() as u32;
 
         res = Some(blocking_wait_ready(bank));
@@ -71,7 +71,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
                 w.set_eop(true);
             }
         });
-        if res.unwrap().is_err() {
+        if unwrap!(res).is_err() {
             break;
         }
     }
@@ -82,7 +82,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 
     bank.cr().write(|w| w.set_pg(false));
 
-    res.unwrap()
+    unwrap!(res)
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {

@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use super::{ExtendedId, Fifo, FilterOwner, Id, Instance, MasterInstance, StandardId};
+use super::{ExtendedId, Fifo, Id, StandardId};
 
 const F32_RTR: u32 = 0b010; // set the RTR bit to match remote frames
 const F32_IDE: u32 = 0b100; // set the IDE bit to match extended identifiers
@@ -210,24 +210,24 @@ impl From<Mask32> for BankConfig {
 }
 
 /// Interface to the filter banks of a CAN peripheral.
-pub struct MasterFilters<'a, I: FilterOwner> {
+pub struct MasterFilters<'a> {
     /// Number of assigned filter banks.
     ///
     /// On chips with splittable filter banks, this value can be dynamic.
     bank_count: u8,
-    _can: PhantomData<&'a mut I>,
-    canregs: crate::pac::can::Can,
+    _phantom: PhantomData<&'a ()>,
+    info: &'static crate::can::Info,
 }
 
 // NOTE: This type mutably borrows the CAN instance and has unique access to the registers while it
 // exists.
-impl<I: FilterOwner> MasterFilters<'_, I> {
-    pub(crate) unsafe fn new(canregs: crate::pac::can::Can) -> Self {
+impl MasterFilters<'_> {
+    pub(crate) unsafe fn new(info: &'static crate::can::Info) -> Self {
         // Enable initialization mode.
-        canregs.fmr().modify(|reg| reg.set_finit(true));
+        info.regs.0.fmr().modify(|reg| reg.set_finit(true));
 
         // Read the filter split value.
-        let bank_count = canregs.fmr().read().can2sb();
+        let bank_count = info.regs.0.fmr().read().can2sb();
 
         // (Reset value of CAN2SB is 0x0E, 14, which, in devices with 14 filter banks, assigns all
         // of them to the master peripheral, and in devices with 28, assigns them 50/50 to
@@ -235,8 +235,8 @@ impl<I: FilterOwner> MasterFilters<'_, I> {
 
         Self {
             bank_count,
-            _can: PhantomData,
-            canregs,
+            _phantom: PhantomData,
+            info,
         }
     }
 
@@ -244,7 +244,7 @@ impl<I: FilterOwner> MasterFilters<'_, I> {
         FilterBanks {
             start_idx: 0,
             bank_count: self.bank_count,
-            canregs: self.canregs,
+            info: self.info,
         }
     }
 
@@ -291,49 +291,49 @@ impl<I: FilterOwner> MasterFilters<'_, I> {
     }
 }
 
-impl<I: MasterInstance> MasterFilters<'_, I> {
+impl MasterFilters<'_> {
     /// Sets the index at which the filter banks owned by the slave peripheral start.
     pub fn set_split(&mut self, split_index: u8) -> &mut Self {
-        assert!(split_index <= I::NUM_FILTER_BANKS);
-        self.canregs.fmr().modify(|reg| reg.set_can2sb(split_index));
+        assert!(split_index <= self.info.num_filter_banks);
+        self.info.regs.0.fmr().modify(|reg| reg.set_can2sb(split_index));
         self.bank_count = split_index;
         self
     }
 
     /// Accesses the filters assigned to the slave peripheral.
-    pub fn slave_filters(&mut self) -> SlaveFilters<'_, I> {
+    pub fn slave_filters(&mut self) -> SlaveFilters<'_> {
         // NB: This mutably borrows `self`, so it has full access to the filter bank registers.
         SlaveFilters {
             start_idx: self.bank_count,
-            bank_count: I::NUM_FILTER_BANKS - self.bank_count,
-            _can: PhantomData,
-            canregs: self.canregs,
+            bank_count: self.info.num_filter_banks - self.bank_count,
+            _phantom: PhantomData,
+            info: self.info,
         }
     }
 }
 
-impl<I: FilterOwner> Drop for MasterFilters<'_, I> {
+impl Drop for MasterFilters<'_> {
     #[inline]
     fn drop(&mut self) {
         // Leave initialization mode.
-        self.canregs.fmr().modify(|regs| regs.set_finit(false));
+        self.info.regs.0.fmr().modify(|regs| regs.set_finit(false));
     }
 }
 
 /// Interface to the filter banks assigned to a slave peripheral.
-pub struct SlaveFilters<'a, I: Instance> {
+pub struct SlaveFilters<'a> {
     start_idx: u8,
     bank_count: u8,
-    _can: PhantomData<&'a mut I>,
-    canregs: crate::pac::can::Can,
+    _phantom: PhantomData<&'a ()>,
+    info: &'static crate::can::Info,
 }
 
-impl<I: Instance> SlaveFilters<'_, I> {
+impl SlaveFilters<'_> {
     fn banks_imm(&self) -> FilterBanks {
         FilterBanks {
             start_idx: self.start_idx,
             bank_count: self.bank_count,
-            canregs: self.canregs,
+            info: self.info,
         }
     }
 
@@ -377,14 +377,14 @@ impl<I: Instance> SlaveFilters<'_, I> {
 struct FilterBanks {
     start_idx: u8,
     bank_count: u8,
-    canregs: crate::pac::can::Can,
+    info: &'static crate::can::Info,
 }
 
 impl FilterBanks {
     fn clear(&mut self) {
         let mask = filter_bitmask(self.start_idx, self.bank_count);
 
-        self.canregs.fa1r().modify(|reg| {
+        self.info.regs.0.fa1r().modify(|reg| {
             for i in 0..28usize {
                 if (0x01u32 << i) & mask != 0 {
                     reg.set_fact(i, false);
@@ -399,7 +399,11 @@ impl FilterBanks {
 
     fn disable(&mut self, index: u8) {
         self.assert_bank_index(index);
-        self.canregs.fa1r().modify(|reg| reg.set_fact(index as usize, false))
+        self.info
+            .regs
+            .0
+            .fa1r()
+            .modify(|reg| reg.set_fact(index as usize, false))
     }
 
     fn enable(&mut self, index: u8, fifo: Fifo, config: BankConfig) {
@@ -407,11 +411,11 @@ impl FilterBanks {
 
         // Configure mode.
         let mode = matches!(config, BankConfig::List16(_) | BankConfig::List32(_));
-        self.canregs.fm1r().modify(|reg| reg.set_fbm(index as usize, mode));
+        self.info.regs.0.fm1r().modify(|reg| reg.set_fbm(index as usize, mode));
 
         // Configure scale.
         let scale = matches!(config, BankConfig::List32(_) | BankConfig::Mask32(_));
-        self.canregs.fs1r().modify(|reg| reg.set_fsc(index as usize, scale));
+        self.info.regs.0.fs1r().modify(|reg| reg.set_fsc(index as usize, scale));
 
         // Configure filter register.
         let (fxr1, fxr2);
@@ -433,12 +437,12 @@ impl FilterBanks {
                 fxr2 = a.mask;
             }
         };
-        let bank = self.canregs.fb(index as usize);
+        let bank = self.info.regs.0.fb(index as usize);
         bank.fr1().write(|w| w.0 = fxr1);
         bank.fr2().write(|w| w.0 = fxr2);
 
         // Assign to the right FIFO
-        self.canregs.ffa1r().modify(|reg| {
+        self.info.regs.0.ffa1r().modify(|reg| {
             reg.set_ffa(
                 index as usize,
                 match fifo {
@@ -449,7 +453,7 @@ impl FilterBanks {
         });
 
         // Set active.
-        self.canregs.fa1r().modify(|reg| reg.set_fact(index as usize, true))
+        self.info.regs.0.fa1r().modify(|reg| reg.set_fact(index as usize, true))
     }
 }
 

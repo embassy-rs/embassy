@@ -43,7 +43,7 @@ where
     }
 
     fn create_partition<T: NorFlash>(mutex: &Mutex<NoopRawMutex, T>) -> Partition<NoopRawMutex, T> {
-        Partition::new(mutex, 0, mutex.try_lock().unwrap().capacity() as u32)
+        Partition::new(mutex, 0, unwrap!(mutex.try_lock()).capacity() as u32)
     }
 }
 

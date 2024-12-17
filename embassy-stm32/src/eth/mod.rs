@@ -42,11 +42,9 @@ pub struct PacketQueue<const TX: usize, const RX: usize> {
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// Create a new packet queue.
     pub const fn new() -> Self {
-        const NEW_TDES: TDes = TDes::new();
-        const NEW_RDES: RDes = RDes::new();
         Self {
-            tx_desc: [NEW_TDES; TX],
-            rx_desc: [NEW_RDES; RX],
+            tx_desc: [const { TDes::new() }; TX],
+            rx_desc: [const { RDes::new() }; RX],
             tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
             rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
         }
@@ -74,8 +72,14 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d, T: Instance, P: PHY> embassy_net_driver::Driver for Ethernet<'d, T, P> {
-    type RxToken<'a> = RxToken<'a, 'd> where Self: 'a;
-    type TxToken<'a> = TxToken<'a, 'd> where Self: 'a;
+    type RxToken<'a>
+        = RxToken<'a, 'd>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = TxToken<'a, 'd>
+    where
+        Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         WAKER.register(cx.waker());
@@ -175,6 +179,20 @@ pub unsafe trait PHY {
     fn phy_init<S: StationManagement>(&mut self, sm: &mut S);
     /// Poll link to see if it is up and FD with 100Mbps
     fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool;
+}
+
+impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
+    /// Directly expose the SMI interface used by the Ethernet driver.
+    ///
+    /// This can be used to for example configure special PHY registers for compliance testing.
+    ///
+    /// # Safety
+    ///
+    /// Revert any temporary PHY register changes such as to enable test modes before handing
+    /// the Ethernet device over to the networking stack otherwise things likely won't work.
+    pub unsafe fn station_management(&mut self) -> &mut impl StationManagement {
+        &mut self.station_management
+    }
 }
 
 trait SealedInstance {

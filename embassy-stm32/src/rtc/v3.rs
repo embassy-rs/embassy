@@ -97,7 +97,7 @@ impl super::Rtc {
 
     pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
     where
-        F: FnOnce(&crate::pac::rtc::Rtc) -> R,
+        F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
         let r = RTC::regs();
         // Disable write protection.
@@ -112,7 +112,7 @@ impl super::Rtc {
             while !r.icsr().read().initf() {}
         }
 
-        let result = f(&r);
+        let result = f(r);
 
         if init_mode {
             r.icsr().modify(|w| w.set_init(false)); // Exits init mode
@@ -133,17 +133,25 @@ impl SealedInstance for crate::peripherals::RTC {
     cfg_if::cfg_if!(
         if #[cfg(stm32g4)] {
             const EXTI_WAKEUP_LINE: usize = 20;
-            type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
         } else if #[cfg(stm32g0)] {
             const EXTI_WAKEUP_LINE: usize = 19;
-            type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
         } else if #[cfg(any(stm32l5, stm32h5))] {
             const EXTI_WAKEUP_LINE: usize = 17;
+        }
+    );
+
+    #[cfg(feature = "low-power")]
+    cfg_if::cfg_if!(
+        if #[cfg(stm32g4)] {
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+        } else if #[cfg(any(stm32g0, stm32u0))] {
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
+        } else if #[cfg(any(stm32l5, stm32h5, stm32u5))] {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC;
         }
     );
 
-    fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
+    fn read_backup_register(_rtc: Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]
         if register < Self::BACKUP_REGISTER_COUNT {
             //Some(rtc.bkpr()[register].read().bits())
@@ -153,7 +161,7 @@ impl SealedInstance for crate::peripherals::RTC {
         }
     }
 
-    fn write_backup_register(_rtc: &Rtc, register: usize, _value: u32) {
+    fn write_backup_register(_rtc: Rtc, register: usize, _value: u32) {
         if register < Self::BACKUP_REGISTER_COUNT {
             // RTC3 backup registers come from the TAMP peripheral, not RTC. Not() even in the L412 PAC
             //self.rtc.bkpr()[register].write(|w| w.bits(value))

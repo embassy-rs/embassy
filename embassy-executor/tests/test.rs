@@ -40,6 +40,7 @@ fn setup() -> (&'static Executor, Trace) {
     let trace = Trace::new();
     let context = Box::leak(Box::new(trace.clone())) as *mut _ as *mut ();
     let executor = &*Box::leak(Box::new(Executor::new(context)));
+
     (executor, trace)
 }
 
@@ -149,3 +150,7 @@ fn executor_task_cfg_args() {
         let (_, _, _) = (a, b, c);
     }
 }
+
+// We need this for the test to compile, even though we don't want to use timers at the moment.
+#[no_mangle]
+fn _embassy_time_schedule_wake(_at: u64, _waker: &core::task::Waker) {}

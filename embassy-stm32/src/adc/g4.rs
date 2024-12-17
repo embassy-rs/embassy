@@ -1,10 +1,17 @@
 #[allow(unused)]
+#[cfg(stm32h7)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
+#[allow(unused)]
+#[cfg(stm32g4)]
+use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
 use pac::adccommon::vals::Presc;
+use stm32_metapac::adc::vals::{Adstp, Dmacfg, Dmaen};
 
-use super::{blocking_delay_us, Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
+use super::{blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime};
+use crate::adc::SealedAdcChannel;
+use crate::dma::Transfer;
 use crate::time::Hertz;
-use crate::{pac, Peripheral};
+use crate::{pac, rcc, Peripheral};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -33,8 +40,8 @@ const VBAT_CHANNEL: u8 = 17;
 // NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
 /// Internal voltage reference channel.
 pub struct VrefInt;
-impl<T: Instance> InternalChannel<T> for VrefInt {}
-impl<T: Instance> super::SealedInternalChannel<T> for VrefInt {
+impl<T: Instance> AdcChannel<T> for VrefInt {}
+impl<T: Instance> super::SealedAdcChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
         VREF_CHANNEL
     }
@@ -42,8 +49,8 @@ impl<T: Instance> super::SealedInternalChannel<T> for VrefInt {
 
 /// Internal temperature channel.
 pub struct Temperature;
-impl<T: Instance> InternalChannel<T> for Temperature {}
-impl<T: Instance> super::SealedInternalChannel<T> for Temperature {
+impl<T: Instance> AdcChannel<T> for Temperature {}
+impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
     fn channel(&self) -> u8 {
         TEMP_CHANNEL
     }
@@ -51,8 +58,8 @@ impl<T: Instance> super::SealedInternalChannel<T> for Temperature {
 
 /// Internal battery voltage channel.
 pub struct Vbat;
-impl<T: Instance> InternalChannel<T> for Vbat {}
-impl<T: Instance> super::SealedInternalChannel<T> for Vbat {
+impl<T: Instance> AdcChannel<T> for Vbat {}
+impl<T: Instance> super::SealedAdcChannel<T> for Vbat {
     fn channel(&self) -> u8 {
         VBAT_CHANNEL
     }
@@ -130,7 +137,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
         embassy_hal_internal::into_ref!(adc);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         let prescaler = Prescaler::from_ker_ck(T::frequency());
 
@@ -187,10 +194,24 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     fn enable(&mut self) {
-        T::regs().isr().write(|w| w.set_adrdy(true));
-        T::regs().cr().modify(|w| w.set_aden(true));
-        while !T::regs().isr().read().adrdy() {}
-        T::regs().isr().write(|w| w.set_adrdy(true));
+        // Make sure bits are off
+        while T::regs().cr().read().addis() {
+            // spin
+        }
+
+        if !T::regs().cr().read().aden() {
+            // Enable ADC
+            T::regs().isr().modify(|reg| {
+                reg.set_adrdy(true);
+            });
+            T::regs().cr().modify(|reg| {
+                reg.set_aden(true);
+            });
+
+            while !T::regs().isr().read().adrdy() {
+                // spin
+            }
+        }
     }
 
     fn configure(&mut self) {
@@ -228,6 +249,68 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
+    /// Enable differential channel.
+    /// Caution:
+    /// : When configuring the channel “i” in differential input mode, its negative input voltage VINN[i]
+    /// is connected to another channel. As a consequence, this channel is no longer usable in
+    /// single-ended mode or in differential mode and must never be configured to be converted.
+    /// Some channels are shared between ADC1/ADC2/ADC3/ADC4/ADC5: this can make the
+    /// channel on the other ADC unusable. The only exception is when ADC master and the slave
+    /// operate in interleaved mode.
+    #[cfg(stm32g4)]
+    pub fn set_differential_channel(&mut self, ch: usize, enable: bool) {
+        T::regs().cr().modify(|w| w.set_aden(false)); // disable adc
+        T::regs().difsel().modify(|w| {
+            w.set_difsel(
+                ch,
+                if enable {
+                    Difsel::DIFFERENTIAL
+                } else {
+                    Difsel::SINGLEENDED
+                },
+            );
+        });
+        T::regs().cr().modify(|w| w.set_aden(true));
+    }
+
+    #[cfg(stm32g4)]
+    pub fn set_differential(&mut self, channel: &mut impl AdcChannel<T>, enable: bool) {
+        self.set_differential_channel(channel.channel() as usize, enable);
+    }
+
+    /// Set oversampling shift.
+    #[cfg(stm32g4)]
+    pub fn set_oversampling_shift(&mut self, shift: u8) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovss(shift));
+    }
+
+    /// Set oversampling ratio.
+    #[cfg(stm32g4)]
+    pub fn set_oversampling_ratio(&mut self, ratio: u8) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovsr(ratio));
+    }
+
+    /// Enable oversampling in regular mode.
+    #[cfg(stm32g4)]
+    pub fn enable_regular_oversampling_mode(&mut self, mode: Rovsm, trig_mode: Trovs, enable: bool) {
+        T::regs().cfgr2().modify(|reg| reg.set_trovs(trig_mode));
+        T::regs().cfgr2().modify(|reg| reg.set_rovsm(mode));
+        T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
+    }
+
+    // Reads that are not implemented as INJECTED in "blocking_read"
+    // #[cfg(stm32g4)]
+    // pub fn enalble_injected_oversampling_mode(&mut self, enable: bool) {
+    //     T::regs().cfgr2().modify(|reg| reg.set_jovse(enable));
+    // }
+
+    // #[cfg(stm32g4)]
+    // pub fn enable_oversampling_regular_injected_mode(&mut self, enable: bool) {
+    //     // the regularoversampling mode is forced to resumed mode (ROVSM bit ignored),
+    //     T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
+    //     T::regs().cfgr2().modify(|reg| reg.set_jovse(enable));
+    // }
+
     /// Set the ADC sample time.
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
         self.sample_time = sample_time;
@@ -258,35 +341,149 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Read an ADC pin.
-    pub fn read<P>(&mut self, pin: &mut P) -> u16
-    where
-        P: AdcPin<T>,
-        P: crate::gpio::Pin,
-    {
-        pin.set_as_analog();
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        channel.setup();
 
-        self.read_channel(pin.channel())
+        self.read_channel(channel)
     }
 
-    /// Read an ADC internal channel.
-    pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        self.read_channel(channel.channel())
+    /// Read one or multiple ADC channels using DMA.
+    ///
+    /// `sequence` iterator and `readings` must have the same length.
+    ///
+    /// Example
+    /// ```rust,ignore
+    /// use embassy_stm32::adc::{Adc, AdcChannel}
+    ///
+    /// let mut adc = Adc::new(p.ADC1);
+    /// let mut adc_pin0 = p.PA0.degrade_adc();
+    /// let mut adc_pin1 = p.PA1.degrade_adc();
+    /// let mut measurements = [0u16; 2];
+    ///
+    /// adc.read_async(
+    ///     p.DMA1_CH2,
+    ///     [
+    ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
+    ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
+    ///     ]
+    ///     .into_iter(),
+    ///     &mut measurements,
+    /// )
+    /// .await;
+    /// defmt::info!("measurements: {}", measurements);
+    /// ```
+    pub async fn read(
+        &mut self,
+        rx_dma: &mut impl RxDma<T>,
+        sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
+        readings: &mut [u16],
+    ) {
+        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
+        assert!(
+            sequence.len() == readings.len(),
+            "Sequence length must be equal to readings length"
+        );
+        assert!(
+            sequence.len() <= 16,
+            "Asynchronous read sequence cannot be more than 16 in length"
+        );
+
+        // Ensure no conversions are ongoing and ADC is enabled.
+        Self::cancel_conversions();
+        self.enable();
+
+        // Set sequence length
+        T::regs().sqr1().modify(|w| {
+            w.set_l(sequence.len() as u8 - 1);
+        });
+
+        // Configure channels and ranks
+        for (_i, (channel, sample_time)) in sequence.enumerate() {
+            Self::configure_channel(channel, sample_time);
+
+            match _i {
+                0..=3 => {
+                    T::regs().sqr1().modify(|w| {
+                        w.set_sq(_i, channel.channel());
+                    });
+                }
+                4..=8 => {
+                    T::regs().sqr2().modify(|w| {
+                        w.set_sq(_i - 4, channel.channel());
+                    });
+                }
+                9..=13 => {
+                    T::regs().sqr3().modify(|w| {
+                        w.set_sq(_i - 9, channel.channel());
+                    });
+                }
+                14..=15 => {
+                    T::regs().sqr4().modify(|w| {
+                        w.set_sq(_i - 14, channel.channel());
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        // Set continuous mode with oneshot dma.
+        // Clear overrun flag before starting transfer.
+        T::regs().isr().modify(|reg| {
+            reg.set_ovr(true);
+        });
+
+        T::regs().cfgr().modify(|reg| {
+            reg.set_discen(false);
+            reg.set_cont(true);
+            reg.set_dmacfg(Dmacfg::ONESHOT);
+            reg.set_dmaen(Dmaen::ENABLE);
+        });
+
+        let request = rx_dma.request();
+        let transfer = unsafe {
+            Transfer::new_read(
+                rx_dma,
+                request,
+                T::regs().dr().as_ptr() as *mut u16,
+                readings,
+                Default::default(),
+            )
+        };
+
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        // Wait for conversion sequence to finish.
+        transfer.await;
+
+        // Ensure conversions are finished.
+        Self::cancel_conversions();
+
+        // Reset configuration.
+        T::regs().cfgr().modify(|reg| {
+            reg.set_cont(false);
+        });
     }
 
-    fn read_channel(&mut self, channel: u8) -> u16 {
+    fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
         // Configure channel
-        Self::set_channel_sample_time(channel, self.sample_time);
+        Self::set_channel_sample_time(channel.channel(), sample_time);
+    }
 
+    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        Self::configure_channel(channel, self.sample_time);
         #[cfg(stm32h7)]
         {
             T::regs().cfgr2().modify(|w| w.set_lshift(0));
             T::regs()
                 .pcsel()
-                .write(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+                .write(|w| w.set_pcsel(channel.channel() as _, Pcsel::PRESELECTED));
         }
 
         T::regs().sqr1().write(|reg| {
-            reg.set_sq(0, channel);
+            reg.set_sq(0, channel.channel());
             reg.set_l(0);
         });
 
@@ -299,6 +496,15 @@ impl<'d, T: Instance> Adc<'d, T> {
             T::regs().smpr().modify(|reg| reg.set_smp(ch as _, sample_time));
         } else {
             T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
+        }
+    }
+
+    fn cancel_conversions() {
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(Adstp::STOP);
+            });
+            while T::regs().cr().read().adstart() {}
         }
     }
 }

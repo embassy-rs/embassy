@@ -14,13 +14,18 @@ mod test_flash;
 
 // The expected value of the flash after an erase
 // TODO: Use the value provided by NorFlash when available
+#[cfg(not(feature = "flash-erase-zero"))]
 pub(crate) const STATE_ERASE_VALUE: u8 = 0xFF;
+#[cfg(feature = "flash-erase-zero")]
+pub(crate) const STATE_ERASE_VALUE: u8 = 0x00;
+
 pub use boot_loader::{BootError, BootLoader, BootLoaderConfig};
 pub use firmware_updater::{
     BlockingFirmwareState, BlockingFirmwareUpdater, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig,
     FirmwareUpdaterError,
 };
 
+pub(crate) const REVERT_MAGIC: u8 = 0xC0;
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
 pub(crate) const SWAP_MAGIC: u8 = 0xF0;
 pub(crate) const DFU_DETACH_MAGIC: u8 = 0xE0;
@@ -33,8 +38,28 @@ pub enum State {
     Boot,
     /// Bootloader has swapped the active partition with the dfu partition and will attempt boot.
     Swap,
+    /// Bootloader has reverted the active partition with the dfu partition and will attempt boot.
+    Revert,
     /// Application has received a request to reboot into DFU mode to apply an update.
     DfuDetach,
+}
+
+impl<T> From<T> for State
+where
+    T: AsRef<[u8]>,
+{
+    fn from(magic: T) -> State {
+        let magic = magic.as_ref();
+        if !magic.iter().any(|&b| b != SWAP_MAGIC) {
+            State::Swap
+        } else if !magic.iter().any(|&b| b != REVERT_MAGIC) {
+            State::Revert
+        } else if !magic.iter().any(|&b| b != DFU_DETACH_MAGIC) {
+            State::DfuDetach
+        } else {
+            State::Boot
+        }
+    }
 }
 
 /// Buffer aligned to 32 byte boundary, largest known alignment requirement for embassy-boot.
@@ -152,6 +177,9 @@ mod tests {
 
         // Running again should cause a revert
         assert_eq!(State::Swap, bootloader.prepare_boot(&mut page).unwrap());
+
+        // Next time we know it was reverted
+        assert_eq!(State::Revert, bootloader.prepare_boot(&mut page).unwrap());
 
         let mut read_buf = [0; FIRMWARE_SIZE];
         flash.active().read(0, &mut read_buf).unwrap();

@@ -10,15 +10,15 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::*;
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AFType, AnyPin, Pull, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::quadspi::Quadspi as Regs;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// QSPI transfer configuration.
 pub struct TransferConfig {
-    /// Instraction width (IMODE)
+    /// Instruction width (IMODE)
     pub iwidth: QspiWidth,
     /// Address width (ADMODE)
     pub awidth: QspiWidth,
@@ -102,7 +102,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     ) -> Self {
         into_ref!(peri);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         while T::REGS.sr().read().busy() {}
 
@@ -202,6 +202,21 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     }
 
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
+        match (transaction.address, transaction.awidth) {
+            (Some(_), QspiWidth::NONE) => panic!("QSPI address can't be sent with an address width of NONE"),
+            (Some(_), _) => {}
+            (None, QspiWidth::NONE) => {}
+            (None, _) => panic!("QSPI address is not set, so the address width should be NONE"),
+        }
+
+        match (data_len, transaction.dwidth) {
+            (Some(0), _) => panic!("QSPI data must be at least one byte"),
+            (Some(_), QspiWidth::NONE) => panic!("QSPI data can't be sent with a data width of NONE"),
+            (Some(_), _) => {}
+            (None, QspiWidth::NONE) => {}
+            (None, _) => panic!("QSPI data is empty, so the data width should be NONE"),
+        }
+
         T::REGS.fcr().modify(|v| {
             v.set_csmf(true);
             v.set_ctcf(true);
@@ -248,12 +263,15 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             config,
             FlashSelection::Flash1,
@@ -273,12 +291,15 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             config,
             FlashSelection::Flash2,
@@ -301,12 +322,15 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             new_dma!(dma),
             config,
             FlashSelection::Flash1,
@@ -327,12 +351,15 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             new_dma!(dma),
             config,
             FlashSelection::Flash2,
@@ -341,6 +368,21 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
     /// Blocking read data, using DMA.
     pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        let transfer = self.start_read_transfer(transaction, buf);
+        transfer.blocking_wait();
+    }
+
+    /// Async read data, using DMA.
+    pub async fn read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        let transfer = self.start_read_transfer(transaction, buf);
+        transfer.await;
+    }
+
+    fn start_read_transfer<'a>(
+        &'a mut self,
+        transaction: TransferConfig,
+        buf: &'a mut [u8],
+    ) -> crate::dma::Transfer<'a> {
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
         T::REGS.ccr().modify(|v| {
@@ -361,12 +403,22 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
-
-        transfer.blocking_wait();
+        transfer
     }
 
     /// Blocking write data, using DMA.
     pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig) {
+        let transfer = self.start_write_transfer(transaction, buf);
+        transfer.blocking_wait();
+    }
+
+    /// Async write data, using DMA.
+    pub async fn write_dma(&mut self, buf: &[u8], transaction: TransferConfig) {
+        let transfer = self.start_write_transfer(transaction, buf);
+        transfer.await;
+    }
+
+    fn start_write_transfer<'a>(&'a mut self, transaction: TransferConfig, buf: &'a [u8]) -> crate::dma::Transfer<'a> {
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
         T::REGS.ccr().modify(|v| {
@@ -383,8 +435,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
-
-        transfer.blocking_wait();
+        transfer
     }
 }
 

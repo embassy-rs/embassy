@@ -33,6 +33,7 @@ pub struct Hse {
 /// Use this struct to configure the PLL source, input frequency, multiplication factor, and output
 /// dividers. Be sure to keep check the datasheet for your specific part for the appropriate
 /// frequency ranges for each of these settings.
+#[derive(Clone, Copy)]
 pub struct Pll {
     /// PLL Source clock selection.
     pub source: PllSource,
@@ -55,6 +56,7 @@ pub struct Pll {
 
 /// Clocks configutation
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Config {
     /// HSI Enable
     pub hsi: bool,
@@ -116,17 +118,18 @@ pub struct PllFreq {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // Turn on the HSI
+    RCC.cr().modify(|w| w.set_hsion(true));
+    while !RCC.cr().read().hsirdy() {}
+
+    // Use the HSI clock as system clock during the actual clock setup
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
+    while RCC.cfgr().read().sws() != Sysclk::HSI {}
+
     // Configure HSI
     let hsi = match config.hsi {
-        false => {
-            RCC.cr().modify(|w| w.set_hsion(false));
-            None
-        }
-        true => {
-            RCC.cr().modify(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
-            Some(HSI_FREQ)
-        }
+        false => None,
+        true => Some(HSI_FREQ),
     };
 
     // Configure HSE
@@ -137,8 +140,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
         Some(hse) => {
             match hse.mode {
-                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
-                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+                HseMode::Bypass => rcc_assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => rcc_assert!(max::HSE_OSC.contains(&hse.freq)),
             }
 
             RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
@@ -166,10 +169,9 @@ pub(crate) unsafe fn init(config: Config) {
             while RCC.cr().read().pllrdy() {}
 
             let in_freq = src_freq / pll_config.prediv;
-            assert!(max::PLL_IN.contains(&in_freq));
+            rcc_assert!(max::PLL_IN.contains(&in_freq));
             let internal_freq = in_freq * pll_config.mul;
-
-            assert!(max::PLL_VCO.contains(&internal_freq));
+            rcc_assert!(max::PLL_VCO.contains(&internal_freq));
 
             RCC.pllcfgr().write(|w| {
                 w.set_plln(pll_config.mul);
@@ -183,7 +185,7 @@ pub(crate) unsafe fn init(config: Config) {
                     w.set_pllpen(true);
                 });
                 let freq = internal_freq / div_p;
-                assert!(max::PLL_P.contains(&freq));
+                rcc_assert!(max::PLL_P.contains(&freq));
                 freq
             });
 
@@ -193,7 +195,7 @@ pub(crate) unsafe fn init(config: Config) {
                     w.set_pllqen(true);
                 });
                 let freq = internal_freq / div_q;
-                assert!(max::PLL_Q.contains(&freq));
+                rcc_assert!(max::PLL_Q.contains(&freq));
                 freq
             });
 
@@ -203,7 +205,7 @@ pub(crate) unsafe fn init(config: Config) {
                     w.set_pllren(true);
                 });
                 let freq = internal_freq / div_r;
-                assert!(max::PLL_R.contains(&freq));
+                rcc_assert!(max::PLL_R.contains(&freq));
                 freq
             });
 
@@ -226,14 +228,14 @@ pub(crate) unsafe fn init(config: Config) {
         _ => unreachable!(),
     };
 
-    assert!(max::SYSCLK.contains(&sys));
+    rcc_assert!(max::SYSCLK.contains(&sys));
 
     // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
     let hclk = sys / config.ahb_pre;
-    assert!(max::HCLK.contains(&hclk));
+    rcc_assert!(max::HCLK.contains(&hclk));
 
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
-    assert!(max::PCLK.contains(&pclk1));
+    rcc_assert!(max::PCLK.contains(&pclk1));
 
     let latency = match (config.voltage_range, hclk.0) {
         (VoltageRange::RANGE1, ..=24_000_000) => Latency::WS0,
@@ -259,6 +261,12 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_hpre(config.ahb_pre);
         w.set_ppre(config.apb1_pre);
     });
+    while RCC.cfgr().read().sws() != config.sys {}
+
+    // Disable HSI if not used
+    if !config.hsi {
+        RCC.cr().modify(|w| w.set_hsion(false));
+    }
 
     if config.low_power_run {
         assert!(sys <= Hertz(2_000_000));

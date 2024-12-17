@@ -8,7 +8,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use crate::dma::NoDma;
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 mod tsel;
@@ -131,7 +131,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     ) -> Self {
         into_ref!(dma, pin);
         pin.set_as_analog();
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         let mut dac = Self {
             phantom: PhantomData,
             dma,
@@ -157,7 +157,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
     pub fn new_internal(_peri: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = DMA> + 'd) -> Self {
         into_ref!(dma);
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         let mut dac = Self {
             phantom: PhantomData,
             dma,
@@ -356,7 +356,7 @@ impl_dma_methods!(2, DacDma2);
 
 impl<'d, T: Instance, const N: u8, DMA> Drop for DacChannel<'d, T, N, DMA> {
     fn drop(&mut self) {
-        T::disable();
+        rcc::disable::<T>();
     }
 }
 
@@ -400,8 +400,8 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
         pin_ch2.set_as_analog();
 
         // Enable twice to increment the DAC refcount for each channel.
-        T::enable_and_reset();
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset::<T>();
 
         let mut ch1 = DacCh1 {
             phantom: PhantomData,
@@ -444,8 +444,8 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
     ) -> Self {
         into_ref!(dma_ch1, dma_ch2);
         // Enable twice to increment the DAC refcount for each channel.
-        T::enable_and_reset();
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset::<T>();
 
         let mut ch1 = DacCh1 {
             phantom: PhantomData,
@@ -508,7 +508,7 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
 }
 
 trait SealedInstance {
-    fn regs() -> &'static crate::pac::dac::Dac;
+    fn regs() -> crate::pac::dac::Dac;
 }
 
 /// DAC instance.
@@ -523,8 +523,8 @@ pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 foreach_peripheral!(
     (dac, $inst:ident) => {
         impl crate::dac::SealedInstance for peripherals::$inst {
-            fn regs() -> &'static crate::pac::dac::Dac {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::dac::Dac {
+                crate::pac::$inst
             }
         }
 

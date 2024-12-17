@@ -109,6 +109,11 @@ impl<'d, M: Mode> I2c<'d, M> {
             timeout.check()?;
         }
 
+        // Wait for the bus to be free
+        while info.regs.isr().read().busy() {
+            timeout.check()?;
+        }
+
         let reload = if reload {
             i2c::vals::Reload::NOTCOMPLETED
         } else {
@@ -668,12 +673,6 @@ impl<'d> I2c<'d, Async> {
         let _ = addr;
         let _ = operations;
         todo!()
-    }
-}
-
-impl<'d, M: Mode> Drop for I2c<'d, M> {
-    fn drop(&mut self) {
-        self.info.enable_bit.disable();
     }
 }
 

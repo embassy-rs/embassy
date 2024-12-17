@@ -8,7 +8,7 @@ use stm32_metapac::syscfg::vals::EthSelPhy;
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
-use crate::gpio::{AFType, AnyPin, SealedPin as _, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
 use crate::interrupt::InterruptExt;
 use crate::pac::ETH;
 use crate::rcc::SealedRccPeripheral;
@@ -56,8 +56,8 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                $pin.set_speed(Speed::VeryHigh);
+                // TODO: shouldn't some pins be configured as inputs?
+                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -191,6 +191,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             w.set_dm(true);
             // TODO: Carrier sense ? ECRSFD
         });
+
+        // Disable multicast filter
+        mac.macpfr().modify(|w| w.set_pm(true));
 
         // Note: Writing to LR triggers synchronisation of both LR and HR into the MAC core,
         // so the LR write must happen after the HR write.

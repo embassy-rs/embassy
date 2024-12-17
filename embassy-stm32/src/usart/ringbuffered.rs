@@ -1,26 +1,35 @@
 use core::future::poll_fn;
-use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
+use embassy_hal_internal::PeripheralRef;
+use embedded_io_async::ReadReady;
 use futures_util::future::{select, Either};
 
-use super::{clear_interrupt_flags, rdr, reconfigure, sr, BasicInstance, Config, ConfigError, Error, UartRx};
+use super::{
+    clear_interrupt_flags, rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx,
+};
 use crate::dma::ReadableRingBuffer;
+use crate::gpio::{AnyPin, SealedPin as _};
 use crate::mode::Async;
+use crate::time::Hertz;
 use crate::usart::{Regs, Sr};
 
 /// Rx-only Ring-buffered UART Driver
 ///
 /// Created with [UartRx::into_ring_buffered]
-pub struct RingBufferedUartRx<'d, T: BasicInstance> {
-    _phantom: PhantomData<T>,
+pub struct RingBufferedUartRx<'d> {
+    info: &'static Info,
+    state: &'static State,
+    kernel_clock: Hertz,
+    rx: Option<PeripheralRef<'d, AnyPin>>,
+    rts: Option<PeripheralRef<'d, AnyPin>>,
     ring_buf: ReadableRingBuffer<'d, u8>,
 }
 
-impl<'d, T: BasicInstance> SetConfig for RingBufferedUartRx<'d, T> {
+impl<'d> SetConfig for RingBufferedUartRx<'d> {
     type Config = Config;
     type ConfigError = ConfigError;
 
@@ -29,11 +38,11 @@ impl<'d, T: BasicInstance> SetConfig for RingBufferedUartRx<'d, T> {
     }
 }
 
-impl<'d, T: BasicInstance> UartRx<'d, T, Async> {
+impl<'d> UartRx<'d, Async> {
     /// Turn the `UartRx` into a buffered uart which can continously receive in the background
     /// without the possibility of losing bytes. The `dma_buf` is a buffer registered to the
     /// DMA controller, and must be large enough to prevent overflows.
-    pub fn into_ring_buffered(mut self, dma_buf: &'d mut [u8]) -> RingBufferedUartRx<'d, T> {
+    pub fn into_ring_buffered(mut self, dma_buf: &'d mut [u8]) -> RingBufferedUartRx<'d> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
         let opts = Default::default();
@@ -43,50 +52,42 @@ impl<'d, T: BasicInstance> UartRx<'d, T, Async> {
         let request = rx_dma.request;
         let rx_dma = unsafe { rx_dma.channel.clone_unchecked() };
 
-        let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+        let info = self.info;
+        let state = self.state;
+        let kernel_clock = self.kernel_clock;
+        let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rdr(info.regs), dma_buf, opts) };
+        let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
+        let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
         // Don't disable the clock
         mem::forget(self);
 
         RingBufferedUartRx {
-            _phantom: PhantomData,
+            info,
+            state,
+            kernel_clock,
+            rx,
+            rts,
             ring_buf,
         }
     }
 }
 
-impl<'d, T: BasicInstance> RingBufferedUartRx<'d, T> {
-    /// Clear the ring buffer and start receiving in the background
-    pub fn start(&mut self) -> Result<(), Error> {
-        // Clear the ring buffer so that it is ready to receive data
-        self.ring_buf.clear();
-
-        self.setup_uart();
-
-        Ok(())
-    }
-
-    fn stop(&mut self, err: Error) -> Result<usize, Error> {
-        self.teardown_uart();
-
-        Err(err)
-    }
-
-    /// Cleanly stop and reconfigure the driver
+impl<'d> RingBufferedUartRx<'d> {
+    /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        self.teardown_uart();
-        reconfigure::<T>(config)
+        reconfigure(self.info, self.kernel_clock, config)
     }
 
-    /// Start uart background receive
-    fn setup_uart(&mut self) {
-        // fence before starting DMA.
+    /// Configure and start the DMA backed UART receiver
+    ///
+    /// Note: This is also done automatically by [`read()`] if required.
+    pub fn start_uart(&mut self) {
+        // Clear the buffer so that it is ready to receive data
         compiler_fence(Ordering::SeqCst);
-
-        // start the dma controller
         self.ring_buf.start();
 
-        let r = T::regs();
+        let r = self.info.regs;
         // clear all interrupts and DMA Rx Request
         r.cr1().modify(|w| {
             // disable RXNE interrupt
@@ -104,11 +105,11 @@ impl<'d, T: BasicInstance> RingBufferedUartRx<'d, T> {
         });
     }
 
-    /// Stop uart background receive
-    fn teardown_uart(&mut self) {
-        self.ring_buf.request_stop();
+    /// Stop DMA backed UART receiver
+    fn stop_uart(&mut self) {
+        self.ring_buf.request_pause();
 
-        let r = T::regs();
+        let r = self.info.regs;
         // clear all interrupts and DMA Rx Request
         r.cr1().modify(|w| {
             // disable RXNE interrupt
@@ -137,14 +138,16 @@ impl<'d, T: BasicInstance> RingBufferedUartRx<'d, T> {
     /// Receive in the background is terminated if an error is returned.
     /// It must then manually be started again by calling `start()` or by re-calling `read()`.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        let r = T::regs();
+        let r = self.info.regs;
 
-        // Start background receive if it was not already started
+        // Start DMA and Uart if it was not already started,
+        // otherwise check for errors in status register.
+        let sr = clear_idle_flag(r);
         if !r.cr3().read().dmar() {
-            self.start()?;
+            self.start_uart();
+        } else {
+            check_for_errors(sr)?;
         }
-
-        check_for_errors(clear_idle_flag(T::regs()))?;
 
         loop {
             match self.ring_buf.read(buf) {
@@ -153,14 +156,16 @@ impl<'d, T: BasicInstance> RingBufferedUartRx<'d, T> {
                     return Ok(len);
                 }
                 Err(_) => {
-                    return self.stop(Error::Overrun);
+                    self.stop_uart();
+                    return Err(Error::Overrun);
                 }
             }
 
             match self.wait_for_data_or_idle().await {
                 Ok(_) => {}
                 Err(err) => {
-                    return self.stop(err);
+                    self.stop_uart();
+                    return Err(err);
                 }
             }
         }
@@ -169,6 +174,27 @@ impl<'d, T: BasicInstance> RingBufferedUartRx<'d, T> {
     /// Wait for uart idle or dma half-full or full
     async fn wait_for_data_or_idle(&mut self) -> Result<(), Error> {
         compiler_fence(Ordering::SeqCst);
+
+        // Future which completes when idle line is detected
+        let s = self.state;
+        let uart = poll_fn(|cx| {
+            s.rx_waker.register(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            // Critical section is needed so that IDLE isn't set after
+            // our read but before we clear it.
+            let sr = critical_section::with(|_| clear_idle_flag(self.info.regs));
+
+            check_for_errors(sr)?;
+
+            if sr.idle() {
+                // Idle line is detected
+                Poll::Ready(Ok(()))
+            } else {
+                Poll::Pending
+            }
+        });
 
         let mut dma_init = false;
         // Future which completes when there is dma is half full or full
@@ -184,41 +210,27 @@ impl<'d, T: BasicInstance> RingBufferedUartRx<'d, T> {
             status
         });
 
-        // Future which completes when idle line is detected
-        let uart = poll_fn(|cx| {
-            let s = T::state();
-            s.rx_waker.register(cx.waker());
-
-            compiler_fence(Ordering::SeqCst);
-
-            // Critical section is needed so that IDLE isn't set after
-            // our read but before we clear it.
-            let sr = critical_section::with(|_| clear_idle_flag(T::regs()));
-
-            check_for_errors(sr)?;
-
-            if sr.idle() {
-                // Idle line is detected
-                Poll::Ready(Ok(()))
-            } else {
-                Poll::Pending
-            }
-        });
-
-        match select(dma, uart).await {
-            Either::Left(((), _)) => Ok(()),
-            Either::Right((result, _)) => result,
+        match select(uart, dma).await {
+            Either::Left((result, _)) => result,
+            Either::Right(((), _)) => Ok(()),
         }
     }
-}
 
-impl<T: BasicInstance> Drop for RingBufferedUartRx<'_, T> {
-    fn drop(&mut self) {
-        self.teardown_uart();
-
-        T::disable();
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        set_baudrate(self.info, self.kernel_clock, baudrate)
     }
 }
+
+impl Drop for RingBufferedUartRx<'_> {
+    fn drop(&mut self) {
+        self.stop_uart();
+        self.rx.as_ref().map(|x| x.set_as_disconnected());
+        self.rts.as_ref().map(|x| x.set_as_disconnected());
+        super::drop_tx_rx(self.info, self.state);
+    }
+}
+
 /// Return an error result if the Sr register has errors
 fn check_for_errors(s: Sr) -> Result<(), Error> {
     if s.pe() {
@@ -249,18 +261,29 @@ fn clear_idle_flag(r: Regs) -> Sr {
     sr
 }
 
-impl<T> embedded_io_async::ErrorType for RingBufferedUartRx<'_, T>
-where
-    T: BasicInstance,
-{
+impl embedded_io_async::ErrorType for RingBufferedUartRx<'_> {
     type Error = Error;
 }
 
-impl<T> embedded_io_async::Read for RingBufferedUartRx<'_, T>
-where
-    T: BasicInstance,
-{
+impl embedded_io_async::Read for RingBufferedUartRx<'_> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.read(buf).await
+    }
+}
+
+impl ReadReady for RingBufferedUartRx<'_> {
+    fn read_ready(&mut self) -> Result<bool, Self::Error> {
+        let len = self.ring_buf.len().map_err(|e| match e {
+            crate::dma::ringbuffer::Error::Overrun => Self::Error::Overrun,
+            crate::dma::ringbuffer::Error::DmaUnsynced => {
+                error!(
+                    "Ringbuffer error: DmaUNsynced, driver implementation is 
+                    probably bugged please open an issue"
+                );
+                // we report this as overrun since its recoverable in the same way
+                Self::Error::Overrun
+            }
+        })?;
+        Ok(len > 0)
     }
 }

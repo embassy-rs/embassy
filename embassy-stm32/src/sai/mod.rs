@@ -9,13 +9,13 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use crate::dma::word;
 #[cfg(not(gpdma))]
 use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer};
-use crate::gpio::{AFType, AnyPin, SealedPin as _};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::pac::sai::{vals, Sai as Regs};
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// SAI error
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// `write` called on a SAI in receive mode.
@@ -27,8 +27,14 @@ pub enum Error {
 }
 
 #[cfg(not(gpdma))]
-impl From<ringbuffer::OverrunError> for Error {
-    fn from(_: ringbuffer::OverrunError) -> Self {
+impl From<ringbuffer::Error> for Error {
+    fn from(#[allow(unused)] err: ringbuffer::Error) -> Self {
+        #[cfg(feature = "defmt")]
+        {
+            if err == ringbuffer::Error::DmaUnsynced {
+                defmt::error!("Ringbuffer broken invariants detected!");
+            }
+        }
         Self::Overrun
     }
 }
@@ -656,17 +662,17 @@ fn dr<W: word::Word>(w: crate::pac::sai::Sai, sub_block: WhichSubBlock) -> *mut 
 }
 
 // return the type for (sd, sck)
-fn get_af_types(mode: Mode, tx_rx: TxRx) -> (AFType, AFType) {
+fn get_af_types(mode: Mode, tx_rx: TxRx) -> (AfType, AfType) {
     (
         //sd is defined by tx/rx mode
         match tx_rx {
-            TxRx::Transmitter => AFType::OutputPushPull,
-            TxRx::Receiver => AFType::Input,
+            TxRx::Transmitter => AfType::output(OutputType::PushPull, Speed::VeryHigh),
+            TxRx::Receiver => AfType::input(Pull::Down), // Ensure mute level when no input is connected.
         },
         //clocks (mclk, sck and fs) are defined by master/slave
         match mode {
-            Mode::Master => AFType::OutputPushPull,
-            Mode::Slave => AFType::Input,
+            Mode::Master => AfType::output(OutputType::PushPull, Speed::VeryHigh),
+            Mode::Slave => AfType::input(Pull::Down), // Ensure no clocks when no input is connected.
         },
     )
 }
@@ -722,7 +728,7 @@ pub struct SubBlock<'d, T, S: SubBlockInstance> {
 /// You can then create a [`Sai`] driver for each each half.
 pub fn split_subblocks<'d, T: Instance>(peri: impl Peripheral<P = T> + 'd) -> (SubBlock<'d, T, A>, SubBlock<'d, T, B>) {
     into_ref!(peri);
-    T::enable_and_reset();
+    rcc::enable_and_reset::<T>();
 
     (
         SubBlock {
@@ -768,9 +774,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         into_ref!(mclk);
 
         let (_sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
-
         mclk.set_as_af(mclk.af_num(), ck_af_type);
-        mclk.set_speed(crate::gpio::Speed::VeryHigh);
 
         if config.master_clock_divider == MasterClockDivider::MasterClockDisabled {
             config.master_clock_divider = MasterClockDivider::Div1;
@@ -796,12 +800,8 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
 
         let (sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
         sd.set_as_af(sd.af_num(), sd_af_type);
-        sd.set_speed(crate::gpio::Speed::VeryHigh);
-
         sck.set_as_af(sck.af_num(), ck_af_type);
-        sck.set_speed(crate::gpio::Speed::VeryHigh);
         fs.set_as_af(fs.af_num(), ck_af_type);
-        fs.set_speed(crate::gpio::Speed::VeryHigh);
 
         let sub_block = S::WHICH;
         let request = dma.request();
@@ -834,9 +834,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         into_ref!(dma, peri, sd);
 
         let (sd_af_type, _ck_af_type) = get_af_types(config.mode, config.tx_rx);
-
         sd.set_as_af(sd.af_num(), sd_af_type);
-        sd.set_speed(crate::gpio::Speed::VeryHigh);
 
         let sub_block = S::WHICH;
         let request = dma.request();
@@ -863,11 +861,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         ring_buffer: RingBuffer<'d, W>,
         config: Config,
     ) -> Self {
+        let ch = T::REGS.ch(sub_block as usize);
+
         #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
         {
-            let ch = T::REGS.ch(sub_block as usize);
             ch.cr1().modify(|w| w.set_saien(false));
         }
+
+        ch.cr2().modify(|w| w.set_fflush(true));
 
         #[cfg(any(sai_v4_2pdm, sai_v4_4pdm))]
         {
@@ -890,7 +891,6 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
 
         #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
         {
-            let ch = T::REGS.ch(sub_block as usize);
             ch.cr1().modify(|w| {
                 w.set_mode(config.mode.mode(if Self::is_transmitter(&ring_buffer) {
                     TxRx::Transmitter
@@ -958,13 +958,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     }
 
     /// Start the SAI driver.
-    pub fn start(&mut self) {
+    ///
+    /// Only receivers can be started. Transmitters are started on the first writing operation.
+    pub fn start(&mut self) -> Result<(), Error> {
         match self.ring_buffer {
-            RingBuffer::Writable(ref mut rb) => {
-                rb.start();
-            }
+            RingBuffer::Writable(_) => Err(Error::NotAReceiver),
             RingBuffer::Readable(ref mut rb) => {
                 rb.start();
+                Ok(())
             }
         }
     }
@@ -978,15 +979,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
 
     /// Reset SAI operation.
     pub fn reset() {
-        T::enable_and_reset();
-    }
-
-    /// Flush.
-    pub fn flush(&mut self) {
-        let ch = T::REGS.ch(self.sub_block as usize);
-        ch.cr1().modify(|w| w.set_saien(false));
-        ch.cr2().modify(|w| w.set_fflush(true));
-        ch.cr1().modify(|w| w.set_saien(true));
+        rcc::enable_and_reset::<T>();
     }
 
     /// Enable or disable mute.
@@ -995,7 +988,41 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         ch.cr2().modify(|w| w.set_mute(value));
     }
 
+    /// Determine the mute state of the receiver.
+    ///
+    /// Clears the mute state flag in the status register.
+    pub fn is_muted(&self) -> Result<bool, Error> {
+        match &self.ring_buffer {
+            RingBuffer::Readable(_) => {
+                let ch = T::REGS.ch(self.sub_block as usize);
+                let mute_state = ch.sr().read().mutedet();
+                ch.clrfr().write(|w| w.set_cmutedet(true));
+                Ok(mute_state)
+            }
+            _ => Err(Error::NotAReceiver),
+        }
+    }
+
+    /// Wait until any SAI write error occurs.
+    ///
+    /// One useful application for this is stopping playback as soon as the SAI
+    /// experiences an overrun of the ring buffer. Then, instead of letting
+    /// the SAI peripheral play the last written buffer over and over again, SAI
+    /// can be muted or dropped instead.
+    pub async fn wait_write_error(&mut self) -> Result<(), Error> {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => {
+                buffer.wait_write_error().await?;
+                Ok(())
+            }
+            _ => return Err(Error::NotATransmitter),
+        }
+    }
+
     /// Write data to the SAI ringbuffer.
+    ///
+    /// The first write starts the DMA after filling the ring buffer with the provided data.
+    /// This ensures that the DMA does not run before data is available in the ring buffer.
     ///
     /// This appends the data to the buffer and returns immediately. The
     /// data will be transmitted in the background.
@@ -1004,7 +1031,12 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => {
-                buffer.write_exact(data).await?;
+                if buffer.is_running() {
+                    buffer.write_exact(data).await?;
+                } else {
+                    buffer.write_immediate(data)?;
+                    buffer.start();
+                }
                 Ok(())
             }
             _ => return Err(Error::NotATransmitter),
@@ -1032,6 +1064,7 @@ impl<'d, T: Instance, W: word::Word> Drop for Sai<'d, T, W> {
     fn drop(&mut self) {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr1().modify(|w| w.set_saien(false));
+        ch.cr2().modify(|w| w.set_fflush(true));
         self.fs.as_ref().map(|x| x.set_as_disconnected());
         self.sd.as_ref().map(|x| x.set_as_disconnected());
         self.sck.as_ref().map(|x| x.set_as_disconnected());

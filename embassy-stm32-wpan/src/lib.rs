@@ -2,6 +2,7 @@
 #![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
 // #![warn(missing_docs)]
+#![allow(static_mut_refs)] // TODO: Fix
 
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;

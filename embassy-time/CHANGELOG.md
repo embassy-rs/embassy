@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- The `generic-queue` and related features have been removed (moved to embassy-time-queue-driver)
+- embassy-time no longer provides an `embassy-time-queue-driver` implementation
+
+## 0.3.2 - 2024-08-05
+
+- Implement with_timeout()/with_deadline() method style call on Future
+- Add collapse_debuginfo to fmt.rs macros.
+
+## 0.3.1 - 2024-01-11
+
+- Add with\_deadline convenience function and example
+- Implement Clone for Delay
+- Make Ticker::next Send+Sync
+- Add timestamp features
+
 ## 0.3.0 - 2024-01-11
 
 - Update `embedded-hal-async` to `1.0.0`

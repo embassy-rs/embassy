@@ -13,10 +13,12 @@ pub use enums::*;
 use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
 use crate::dma::{word, ChannelAndRequest};
-use crate::gpio::{AFType, AnyPin, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::octospi::{vals, Octospi as Regs};
-use crate::rcc::RccPeripheral;
+#[cfg(octospim_v1)]
+use crate::pac::octospim::Octospim;
+use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// OPSI driver config.
@@ -177,6 +179,71 @@ pub struct Ospi<'d, T: Instance, M: PeriMode> {
 }
 
 impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
+    /// Enter memory mode.
+    /// The Input `read_config` is used to configure the read operation in memory mode
+    pub fn enable_memory_mapped_mode(
+        &mut self,
+        read_config: TransferConfig,
+        write_config: TransferConfig,
+    ) -> Result<(), OspiError> {
+        // Use configure command to set read config
+        self.configure_command(&read_config, None)?;
+
+        let reg = T::REGS;
+        while reg.sr().read().busy() {}
+
+        reg.ccr().modify(|r| {
+            r.set_dqse(false);
+            r.set_sioo(true);
+        });
+
+        // Set wrting configurations, there are separate registers for write configurations in memory mapped mode
+        reg.wccr().modify(|w| {
+            w.set_imode(PhaseMode::from_bits(write_config.iwidth.into()));
+            w.set_idtr(write_config.idtr);
+            w.set_isize(SizeInBits::from_bits(write_config.isize.into()));
+
+            w.set_admode(PhaseMode::from_bits(write_config.adwidth.into()));
+            w.set_addtr(write_config.idtr);
+            w.set_adsize(SizeInBits::from_bits(write_config.adsize.into()));
+
+            w.set_dmode(PhaseMode::from_bits(write_config.dwidth.into()));
+            w.set_ddtr(write_config.ddtr);
+
+            w.set_abmode(PhaseMode::from_bits(write_config.abwidth.into()));
+            w.set_dqse(true);
+        });
+
+        reg.wtcr().modify(|w| w.set_dcyc(write_config.dummy.into()));
+
+        // Enable memory mapped mode
+        reg.cr().modify(|r| {
+            r.set_fmode(crate::ospi::vals::FunctionalMode::MEMORYMAPPED);
+            r.set_tcen(false);
+        });
+        Ok(())
+    }
+
+    /// Quit from memory mapped mode
+    pub fn disable_memory_mapped_mode(&mut self) {
+        let reg = T::REGS;
+
+        reg.cr().modify(|r| {
+            r.set_fmode(crate::ospi::vals::FunctionalMode::INDIRECTWRITE);
+            r.set_abort(true);
+            r.set_dmaen(false);
+            r.set_en(false);
+        });
+
+        // Clear transfer complete flag
+        reg.fcr().write(|w| w.set_ctcf(true));
+
+        // Re-enable ospi
+        reg.cr().modify(|r| {
+            r.set_en(true);
+        });
+    }
+
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
         d0: Option<PeripheralRef<'d, AnyPin>>,
@@ -197,8 +264,85 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     ) -> Self {
         into_ref!(peri);
 
+        #[cfg(octospim_v1)]
+        {
+            // RCC for octospim should be enabled before writing register
+            #[cfg(stm32l4)]
+            crate::pac::RCC.ahb2smenr().modify(|w| w.set_octospimsmen(true));
+            #[cfg(stm32u5)]
+            crate::pac::RCC.ahb2enr1().modify(|w| w.set_octospimen(true));
+            #[cfg(not(any(stm32l4, stm32u5)))]
+            crate::pac::RCC.ahb3enr().modify(|w| w.set_iomngren(true));
+
+            // Disable OctoSPI peripheral first
+            T::REGS.cr().modify(|w| {
+                w.set_en(false);
+            });
+
+            // OctoSPI IO Manager has been enabled before
+            T::OCTOSPIM_REGS.cr().modify(|w| {
+                w.set_muxen(false);
+                w.set_req2ack_time(0xff);
+            });
+
+            // Clear config
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                w.set_clksrc(false);
+                w.set_dqssrc(false);
+                w.set_ncssrc(false);
+                w.set_clken(false);
+                w.set_dqsen(false);
+                w.set_ncsen(false);
+                w.set_iolsrc(0);
+                w.set_iohsrc(0);
+            });
+
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                let octospi_src = if T::OCTOSPI_IDX == 1 { false } else { true };
+                w.set_ncsen(true);
+                w.set_ncssrc(octospi_src);
+                w.set_clken(true);
+                w.set_clksrc(octospi_src);
+                if dqs.is_some() {
+                    w.set_dqsen(true);
+                    w.set_dqssrc(octospi_src);
+                }
+
+                // Set OCTOSPIM IOL and IOH according to the index of OCTOSPI instance
+                if T::OCTOSPI_IDX == 1 {
+                    w.set_iolen(true);
+                    w.set_iolsrc(0);
+                    // Enable IOH in octo and dual quad mode
+                    if let OspiWidth::OCTO = width {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b01);
+                    } else if dual_quad {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b00);
+                    } else {
+                        w.set_iohen(false);
+                        w.set_iohsrc(0b00);
+                    }
+                } else {
+                    w.set_iolen(true);
+                    w.set_iolsrc(0b10);
+                    // Enable IOH in octo and dual quad mode
+                    if let OspiWidth::OCTO = width {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b11);
+                    } else if dual_quad {
+                        w.set_iohen(true);
+                        w.set_iohsrc(0b10);
+                    } else {
+                        w.set_iohen(false);
+                        w.set_iohsrc(0b00);
+                    }
+                }
+            });
+        }
+
         // System configuration
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         while T::REGS.sr().read().busy() {}
 
         // Device configuration
@@ -548,16 +692,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::Input, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::input(Pull::None)),
             None,
             None,
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -577,16 +724,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             None,
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -608,16 +758,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -643,16 +796,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d4, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d5, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d6, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d7, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -678,16 +834,19 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d4, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d5, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d6, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d7, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             config,
@@ -710,16 +869,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::Input, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::input(Pull::None)),
             None,
             None,
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,
@@ -740,16 +902,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             None,
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,
@@ -772,16 +937,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             None,
             None,
             None,
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,
@@ -808,16 +976,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d4, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d5, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d6, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d7, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,
@@ -844,16 +1015,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d1, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d2, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d3, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d4, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d5, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d6, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(d7, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(sck, AFType::OutputPushPull, Speed::VeryHigh),
-            new_pin!(nss, AFType::OutputPushPull, Speed::VeryHigh, Pull::Up),
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             new_dma!(dma),
             config,
@@ -1013,7 +1187,7 @@ impl<'d, T: Instance, M: PeriMode> Drop for Ospi<'d, T, M> {
         self.nss.as_ref().map(|x| x.set_as_disconnected());
         self.dqs.as_ref().map(|x| x.set_as_disconnected());
 
-        T::disable();
+        rcc::disable::<T>();
     }
 }
 
@@ -1026,15 +1200,25 @@ fn finish_dma(regs: Regs) {
     });
 }
 
+#[cfg(octospim_v1)]
+/// OctoSPI I/O manager instance trait.
+pub(crate) trait SealedOctospimInstance {
+    const OCTOSPIM_REGS: Octospim;
+    const OCTOSPI_IDX: u8;
+}
+
+/// OctoSPI instance trait.
 pub(crate) trait SealedInstance {
     const REGS: Regs;
 }
 
-trait SealedWord {
-    const CONFIG: u8;
-}
+/// OSPI instance trait.
+#[cfg(octospim_v1)]
+#[allow(private_bounds)]
+pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral + SealedOctospimInstance {}
 
 /// OSPI instance trait.
+#[cfg(not(octospim_v1))]
 #[allow(private_bounds)]
 pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
 
@@ -1052,6 +1236,31 @@ pin_trait!(DQSPin, Instance);
 pin_trait!(NSSPin, Instance);
 dma_trait!(OctoDma, Instance);
 
+// Hard-coded the octospi index, for OCTOSPIM
+#[cfg(octospim_v1)]
+impl SealedOctospimInstance for peripherals::OCTOSPI1 {
+    const OCTOSPIM_REGS: Octospim = crate::pac::OCTOSPIM;
+    const OCTOSPI_IDX: u8 = 1;
+}
+
+#[cfg(all(octospim_v1, peri_octospi2))]
+impl SealedOctospimInstance for peripherals::OCTOSPI2 {
+    const OCTOSPIM_REGS: Octospim = crate::pac::OCTOSPIM;
+    const OCTOSPI_IDX: u8 = 2;
+}
+
+#[cfg(octospim_v1)]
+foreach_peripheral!(
+    (octospi, $inst:ident) => {
+        impl SealedInstance for peripherals::$inst {
+            const REGS: Regs = crate::pac::$inst;
+        }
+
+        impl Instance for peripherals::$inst {}
+    };
+);
+
+#[cfg(not(octospim_v1))]
 foreach_peripheral!(
     (octospi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
@@ -1080,17 +1289,14 @@ impl<'d, T: Instance, M: PeriMode> GetConfig for Ospi<'d, T, M> {
 
 /// Word sizes usable for OSPI.
 #[allow(private_bounds)]
-pub trait Word: word::Word + SealedWord {}
+pub trait Word: word::Word {}
 
 macro_rules! impl_word {
-    ($T:ty, $config:expr) => {
-        impl SealedWord for $T {
-            const CONFIG: u8 = $config;
-        }
+    ($T:ty) => {
         impl Word for $T {}
     };
 }
 
-impl_word!(u8, 8);
-impl_word!(u16, 16);
-impl_word!(u32, 32);
+impl_word!(u8);
+impl_word!(u16);
+impl_word!(u32);
