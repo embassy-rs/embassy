@@ -21,7 +21,13 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
         config: BootLoaderConfig<ACTIVE, DFU, STATE>,
     ) -> Self {
-        Self::try_prepare::<ACTIVE, DFU, STATE>(config).expect("Boot prepare error")
+        if let Ok(loader) = Self::try_prepare::<ACTIVE, DFU, STATE>(config) {
+            loader
+        } else {
+            // Use explicit panic instead of .expect() to ensure this gets routed via defmt/etc.
+            // properly
+            panic!("Boot prepare error")
+        }
     }
 
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware

@@ -1,6 +1,6 @@
 = Embassy nRF HAL
 
-The link:https://github.com/embassy-rs/embassy/tree/master/embassy-nrf[Embassy nRF HAL] is based on the PACs (Peripheral Access Crate) from link:https://github.com/nrf-rs/[nrf-rs].
+The link:https://github.com/embassy-rs/embassy/tree/main/embassy-nrf[Embassy nRF HAL] is based on the PACs (Peripheral Access Crate) from link:https://github.com/nrf-rs/[nrf-rs].
 
 == Timer driver
 

@@ -1,76 +1,39 @@
-use core::cmp::min;
+//! Timer queue operations.
+
+use core::cell::Cell;
 
 use super::TaskRef;
-use crate::raw::util::SyncUnsafeCell;
 
-pub(crate) struct TimerQueueItem {
-    next: SyncUnsafeCell<Option<TaskRef>>,
+/// An item in the timer queue.
+pub struct TimerQueueItem {
+    /// The next item in the queue.
+    ///
+    /// If this field contains `Some`, the item is in the queue. The last item in the queue has a
+    /// value of `Some(dangling_pointer)`
+    pub next: Cell<Option<TaskRef>>,
+
+    /// The time at which this item expires.
+    pub expires_at: Cell<u64>,
 }
+
+unsafe impl Sync for TimerQueueItem {}
 
 impl TimerQueueItem {
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
-            next: SyncUnsafeCell::new(None),
+            next: Cell::new(None),
+            expires_at: Cell::new(0),
         }
     }
 }
 
-pub(crate) struct TimerQueue {
-    head: SyncUnsafeCell<Option<TaskRef>>,
-}
-
-impl TimerQueue {
-    pub const fn new() -> Self {
-        Self {
-            head: SyncUnsafeCell::new(None),
-        }
-    }
-
-    pub(crate) unsafe fn update(&self, p: TaskRef) {
-        let task = p.header();
-        if task.expires_at.get() != u64::MAX {
-            if task.state.timer_enqueue() {
-                task.timer_queue_item.next.set(self.head.get());
-                self.head.set(Some(p));
-            }
-        }
-    }
-
-    pub(crate) unsafe fn next_expiration(&self) -> u64 {
-        let mut res = u64::MAX;
-        self.retain(|p| {
-            let task = p.header();
-            let expires = task.expires_at.get();
-            res = min(res, expires);
-            expires != u64::MAX
-        });
-        res
-    }
-
-    pub(crate) unsafe fn dequeue_expired(&self, now: u64, on_task: impl Fn(TaskRef)) {
-        self.retain(|p| {
-            let task = p.header();
-            if task.expires_at.get() <= now {
-                on_task(p);
-                false
-            } else {
-                true
-            }
-        });
-    }
-
-    pub(crate) unsafe fn retain(&self, mut f: impl FnMut(TaskRef) -> bool) {
-        let mut prev = &self.head;
-        while let Some(p) = prev.get() {
-            let task = p.header();
-            if f(p) {
-                // Skip to next
-                prev = &task.timer_queue_item.next;
-            } else {
-                // Remove it
-                prev.set(task.timer_queue_item.next.get());
-                task.state.timer_dequeue();
-            }
-        }
-    }
+/// The operation to perform after `timer_enqueue` is called.
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[must_use]
+pub enum TimerEnqueueOperation {
+    /// Enqueue the task (or update its expiration time).
+    Enqueue,
+    /// The task must not be enqueued in the timer queue.
+    Ignore,
 }

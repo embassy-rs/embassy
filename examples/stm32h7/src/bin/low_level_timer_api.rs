@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{AFType, Flex, Pull, Speed};
+use embassy_stm32::gpio::{AfType, Flex, OutputType, Speed};
 use embassy_stm32::time::{khz, Hertz};
 use embassy_stm32::timer::low_level::{OutputCompareMode, Timer as LLTimer};
 use embassy_stm32::timer::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance32bit4Channel};
@@ -83,10 +83,10 @@ impl<'d, T: GeneralInstance32bit4Channel> SimplePwm32<'d, T> {
         let mut ch2 = Flex::new(ch2);
         let mut ch3 = Flex::new(ch3);
         let mut ch4 = Flex::new(ch4);
-        ch1.set_as_af_unchecked(af1, AFType::OutputPushPull, Pull::None, Speed::VeryHigh);
-        ch2.set_as_af_unchecked(af2, AFType::OutputPushPull, Pull::None, Speed::VeryHigh);
-        ch3.set_as_af_unchecked(af3, AFType::OutputPushPull, Pull::None, Speed::VeryHigh);
-        ch4.set_as_af_unchecked(af4, AFType::OutputPushPull, Pull::None, Speed::VeryHigh);
+        ch1.set_as_af_unchecked(af1, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        ch2.set_as_af_unchecked(af2, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        ch3.set_as_af_unchecked(af3, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        ch4.set_as_af_unchecked(af4, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         let mut this = Self {
             tim: LLTimer::new(tim),

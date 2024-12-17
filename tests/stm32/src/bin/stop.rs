@@ -58,7 +58,7 @@ async fn async_main(spawner: Spawner) {
         config.rcc.hsi = Some(HSIPrescaler::DIV4); // 64 MHz HSI will need a /4
     }
 
-    let p = embassy_stm32::init(config);
+    let p = init_with_config(config);
     info!("Hello World!");
 
     let now = NaiveDate::from_ymd_opt(2020, 5, 15)

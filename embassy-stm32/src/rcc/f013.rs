@@ -76,6 +76,7 @@ pub enum HrtimClockSource {
 
 /// Clocks configutation
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Config {
     pub hsi: bool,
     pub hse: Option<Hse>,
@@ -95,7 +96,7 @@ pub struct Config {
 
     #[cfg(all(stm32f3, not(rcc_f37)))]
     pub adc: AdcClockSource,
-    #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
+    #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
     pub adc34: AdcClockSource,
 
     /// Per-peripheral kernel clock selection muxes
@@ -125,7 +126,7 @@ impl Default for Config {
 
             #[cfg(all(stm32f3, not(rcc_f37)))]
             adc: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
-            #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
+            #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
 
             mux: Default::default(),
@@ -135,17 +136,18 @@ impl Default for Config {
 
 /// Initialize and Set the clock frequencies
 pub(crate) unsafe fn init(config: Config) {
+    // Turn on the HSI
+    RCC.cr().modify(|w| w.set_hsion(true));
+    while !RCC.cr().read().hsirdy() {}
+
+    // Use the HSI clock as system clock during the actual clock setup
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
+    while RCC.cfgr().read().sws() != Sysclk::HSI {}
+
     // Configure HSI
     let hsi = match config.hsi {
-        false => {
-            RCC.cr().modify(|w| w.set_hsion(false));
-            None
-        }
-        true => {
-            RCC.cr().modify(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
-            Some(HSI_FREQ)
-        }
+        false => None,
+        true => Some(HSI_FREQ),
     };
 
     // Configure HSE
@@ -156,8 +158,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
         Some(hse) => {
             match hse.mode {
-                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
-                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+                HseMode::Bypass => rcc_assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => rcc_assert!(max::HSE_OSC.contains(&hse.freq)),
             }
 
             RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
@@ -190,9 +192,9 @@ pub(crate) unsafe fn init(config: Config) {
             PllSource::HSI48 => (Pllsrc::HSI48_DIV_PREDIV, unwrap!(hsi48)),
         };
         let in_freq = src_freq / pll.prediv;
-        assert!(max::PLL_IN.contains(&in_freq));
+        rcc_assert!(max::PLL_IN.contains(&in_freq));
         let out_freq = in_freq * pll.mul;
-        assert!(max::PLL_OUT.contains(&out_freq));
+        rcc_assert!(max::PLL_OUT.contains(&out_freq));
 
         #[cfg(not(stm32f1))]
         RCC.cfgr2().modify(|w| w.set_prediv(pll.prediv));
@@ -227,6 +229,9 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::HSI => unwrap!(hsi),
         Sysclk::HSE => unwrap!(hse),
         Sysclk::PLL1_P => unwrap!(pll),
+        #[cfg(crs)]
+        Sysclk::HSI48 => unwrap!(hsi48),
+        #[cfg(not(crs))]
         _ => unreachable!(),
     };
 
@@ -237,15 +242,15 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32f0)]
     let (pclk2, pclk2_tim) = (pclk1, pclk1_tim);
 
-    assert!(max::HCLK.contains(&hclk));
-    assert!(max::PCLK1.contains(&pclk1));
+    rcc_assert!(max::HCLK.contains(&hclk));
+    rcc_assert!(max::PCLK1.contains(&pclk1));
     #[cfg(not(stm32f0))]
-    assert!(max::PCLK2.contains(&pclk2));
+    rcc_assert!(max::PCLK2.contains(&pclk2));
 
     #[cfg(stm32f1)]
     let adc = pclk2 / config.adc_pre;
     #[cfg(stm32f1)]
-    assert!(max::ADC.contains(&adc));
+    rcc_assert!(max::ADC.contains(&adc));
 
     // Set latency based on HCLK frquency
     #[cfg(stm32f0)]
@@ -275,7 +280,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Set prescalers
     // CFGR has been written before (PLL, PLL48) don't overwrite these settings
-    RCC.cfgr().modify(|w: &mut stm32_metapac::rcc::regs::Cfgr| {
+    RCC.cfgr().modify(|w| {
         #[cfg(not(stm32f0))]
         {
             w.set_ppre1(config.apb1_pre);
@@ -296,6 +301,11 @@ pub(crate) unsafe fn init(config: Config) {
     // CFGR has been written before (PLL, PLL48, clock divider) don't overwrite these settings
     RCC.cfgr().modify(|w| w.set_sw(config.sys));
     while RCC.cfgr().read().sws() != config.sys {}
+
+    // Disable HSI if not used
+    if !config.hsi {
+        RCC.cr().modify(|w| w.set_hsion(false));
+    }
 
     let rtc = config.ls.init();
 
@@ -333,7 +343,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
+    #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
     let adc34 = {
         #[cfg(peri_adc3_common)]
         let common = crate::pac::ADC3_COMMON;
@@ -398,7 +408,7 @@ pub(crate) unsafe fn init(config: Config) {
         hclk1: Some(hclk),
         #[cfg(all(stm32f3, not(rcc_f37)))]
         adc: Some(adc),
-        #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
+        #[cfg(all(stm32f3, not(rcc_f37), any(peri_adc3_common, peri_adc34_common)))]
         adc34: Some(adc34),
         rtc: rtc,
         hsi48: hsi48,

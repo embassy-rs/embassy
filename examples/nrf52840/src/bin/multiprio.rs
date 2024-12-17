@@ -80,7 +80,7 @@ async fn run_med() {
         info!("    [med] Starting long computation");
 
         // Spin-wait to simulate a long CPU computation
-        cortex_m::asm::delay(32_000_000); // ~1 second
+        embassy_time::block_for(embassy_time::Duration::from_secs(1)); // ~1 second
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
@@ -97,7 +97,7 @@ async fn run_low() {
         info!("[low] Starting long computation");
 
         // Spin-wait to simulate a long CPU computation
-        cortex_m::asm::delay(64_000_000); // ~2 seconds
+        embassy_time::block_for(embassy_time::Duration::from_secs(2)); // ~2 seconds
 
         let end = Instant::now();
         let ms = end.duration_since(start).as_ticks() / 33;
@@ -112,12 +112,12 @@ static EXECUTOR_MED: InterruptExecutor = InterruptExecutor::new();
 static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
 
 #[interrupt]
-unsafe fn SWI1_EGU1() {
+unsafe fn EGU1_SWI1() {
     EXECUTOR_HIGH.on_interrupt()
 }
 
 #[interrupt]
-unsafe fn SWI0_EGU0() {
+unsafe fn EGU0_SWI0() {
     EXECUTOR_MED.on_interrupt()
 }
 
@@ -127,14 +127,14 @@ fn main() -> ! {
 
     let _p = embassy_nrf::init(Default::default());
 
-    // High-priority executor: SWI1_EGU1, priority level 6
-    interrupt::SWI1_EGU1.set_priority(Priority::P6);
-    let spawner = EXECUTOR_HIGH.start(interrupt::SWI1_EGU1);
+    // High-priority executor: EGU1_SWI1, priority level 6
+    interrupt::EGU1_SWI1.set_priority(Priority::P6);
+    let spawner = EXECUTOR_HIGH.start(interrupt::EGU1_SWI1);
     unwrap!(spawner.spawn(run_high()));
 
-    // Medium-priority executor: SWI0_EGU0, priority level 7
-    interrupt::SWI0_EGU0.set_priority(Priority::P7);
-    let spawner = EXECUTOR_MED.start(interrupt::SWI0_EGU0);
+    // Medium-priority executor: EGU0_SWI0, priority level 7
+    interrupt::EGU0_SWI0.set_priority(Priority::P7);
+    let spawner = EXECUTOR_MED.start(interrupt::EGU0_SWI0);
     unwrap!(spawner.spawn(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV

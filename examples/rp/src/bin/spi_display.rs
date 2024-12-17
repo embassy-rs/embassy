@@ -9,11 +9,12 @@
 use core::cell::RefCell;
 
 use defmt::*;
+use display_interface_spi::SPIInterface;
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDeviceWithConfig;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::spi;
-use embassy_rp::spi::{Blocking, Spi};
+use embassy_rp::spi::Spi;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::Delay;
@@ -24,10 +25,11 @@ use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyleBuilder, Rectangle};
 use embedded_graphics::text::Text;
-use st7789::{Orientation, ST7789};
+use mipidsi::models::ST7789;
+use mipidsi::options::{Orientation, Rotation};
+use mipidsi::Builder;
 use {defmt_rtt as _, panic_probe as _};
 
-use crate::my_display_interface::SPIDeviceInterface;
 use crate::touch::Touch;
 
 const DISPLAY_FREQ: u32 = 64_000_000;
@@ -58,7 +60,7 @@ async fn main(_spawner: Spawner) {
     touch_config.phase = spi::Phase::CaptureOnSecondTransition;
     touch_config.polarity = spi::Polarity::IdleHigh;
 
-    let spi: Spi<'_, _, Blocking> = Spi::new_blocking(p.SPI1, clk, mosi, miso, touch_config.clone());
+    let spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, touch_config.clone());
     let spi_bus: Mutex<NoopRawMutex, _> = Mutex::new(RefCell::new(spi));
 
     let display_spi = SpiDeviceWithConfig::new(&spi_bus, Output::new(display_cs, Level::High), display_config);
@@ -74,17 +76,15 @@ async fn main(_spawner: Spawner) {
     let _bl = Output::new(bl, Level::High);
 
     // display interface abstraction from SPI and DC
-    let di = SPIDeviceInterface::new(display_spi, dcx);
+    let di = SPIInterface::new(display_spi, dcx);
 
-    // create driver
-    let mut display = ST7789::new(di, rst, 240, 320);
-
-    // initialize
-    display.init(&mut Delay).unwrap();
-
-    // set default orientation
-    display.set_orientation(Orientation::Landscape).unwrap();
-
+    // Define the display from the display interface and initialize it
+    let mut display = Builder::new(ST7789, di)
+        .display_size(240, 320)
+        .reset_pin(rst)
+        .orientation(Orientation::new().rotate(Rotation::Deg90))
+        .init(&mut Delay)
+        .unwrap();
     display.clear(Rgb565::BLACK).unwrap();
 
     let raw_image_data = ImageRawLE::new(include_bytes!("../../assets/ferris.raw"), 86);
@@ -172,141 +172,6 @@ mod touch {
             } else {
                 Some((x, y))
             }
-        }
-    }
-}
-
-mod my_display_interface {
-    use display_interface::{DataFormat, DisplayError, WriteOnlyDataCommand};
-    use embedded_hal_1::digital::OutputPin;
-    use embedded_hal_1::spi::SpiDevice;
-
-    /// SPI display interface.
-    ///
-    /// This combines the SPI peripheral and a data/command pin
-    pub struct SPIDeviceInterface<SPI, DC> {
-        spi: SPI,
-        dc: DC,
-    }
-
-    impl<SPI, DC> SPIDeviceInterface<SPI, DC>
-    where
-        SPI: SpiDevice,
-        DC: OutputPin,
-    {
-        /// Create new SPI interface for communciation with a display driver
-        pub fn new(spi: SPI, dc: DC) -> Self {
-            Self { spi, dc }
-        }
-    }
-
-    impl<SPI, DC> WriteOnlyDataCommand for SPIDeviceInterface<SPI, DC>
-    where
-        SPI: SpiDevice,
-        DC: OutputPin,
-    {
-        fn send_commands(&mut self, cmds: DataFormat<'_>) -> Result<(), DisplayError> {
-            // 1 = data, 0 = command
-            self.dc.set_low().map_err(|_| DisplayError::DCError)?;
-
-            send_u8(&mut self.spi, cmds).map_err(|_| DisplayError::BusWriteError)?;
-            Ok(())
-        }
-
-        fn send_data(&mut self, buf: DataFormat<'_>) -> Result<(), DisplayError> {
-            // 1 = data, 0 = command
-            self.dc.set_high().map_err(|_| DisplayError::DCError)?;
-
-            send_u8(&mut self.spi, buf).map_err(|_| DisplayError::BusWriteError)?;
-            Ok(())
-        }
-    }
-
-    fn send_u8<T: SpiDevice>(spi: &mut T, words: DataFormat<'_>) -> Result<(), T::Error> {
-        match words {
-            DataFormat::U8(slice) => spi.write(slice),
-            DataFormat::U16(slice) => {
-                use byte_slice_cast::*;
-                spi.write(slice.as_byte_slice())
-            }
-            DataFormat::U16LE(slice) => {
-                use byte_slice_cast::*;
-                for v in slice.as_mut() {
-                    *v = v.to_le();
-                }
-                spi.write(slice.as_byte_slice())
-            }
-            DataFormat::U16BE(slice) => {
-                use byte_slice_cast::*;
-                for v in slice.as_mut() {
-                    *v = v.to_be();
-                }
-                spi.write(slice.as_byte_slice())
-            }
-            DataFormat::U8Iter(iter) => {
-                let mut buf = [0; 32];
-                let mut i = 0;
-
-                for v in iter.into_iter() {
-                    buf[i] = v;
-                    i += 1;
-
-                    if i == buf.len() {
-                        spi.write(&buf)?;
-                        i = 0;
-                    }
-                }
-
-                if i > 0 {
-                    spi.write(&buf[..i])?;
-                }
-
-                Ok(())
-            }
-            DataFormat::U16LEIter(iter) => {
-                use byte_slice_cast::*;
-                let mut buf = [0; 32];
-                let mut i = 0;
-
-                for v in iter.map(u16::to_le) {
-                    buf[i] = v;
-                    i += 1;
-
-                    if i == buf.len() {
-                        spi.write(&buf.as_byte_slice())?;
-                        i = 0;
-                    }
-                }
-
-                if i > 0 {
-                    spi.write(&buf[..i].as_byte_slice())?;
-                }
-
-                Ok(())
-            }
-            DataFormat::U16BEIter(iter) => {
-                use byte_slice_cast::*;
-                let mut buf = [0; 64];
-                let mut i = 0;
-                let len = buf.len();
-
-                for v in iter.map(u16::to_be) {
-                    buf[i] = v;
-                    i += 1;
-
-                    if i == len {
-                        spi.write(&buf.as_byte_slice())?;
-                        i = 0;
-                    }
-                }
-
-                if i > 0 {
-                    spi.write(&buf[..i].as_byte_slice())?;
-                }
-
-                Ok(())
-            }
-            _ => unimplemented!(),
         }
     }
 }

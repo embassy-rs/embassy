@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.3.0"
+version = "0.3.2"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -27,35 +27,20 @@ features = ["defmt", "std"]
 std = ["tick-hz-1_000_000", "critical-section/std"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000"]
 
-## Display a timestamp of the number of seconds since startup next to defmt log messages
+## Display the time since startup next to defmt log messages.
+## At most 1 `defmt-timestamp-uptime-*` feature can be used.
+## `defmt-timestamp-uptime` is provided for backwards compatibility (provides the same format as `uptime-us`).
 ## To use this you must have a time driver provided.
 defmt-timestamp-uptime = ["defmt"]
+defmt-timestamp-uptime-s = ["defmt"]
+defmt-timestamp-uptime-ms = ["defmt"]
+defmt-timestamp-uptime-us = ["defmt"]
+defmt-timestamp-uptime-ts = ["defmt"]
+defmt-timestamp-uptime-tms = ["defmt"]
+defmt-timestamp-uptime-tus = ["defmt"]
 
 ## Create a `MockDriver` that can be manually advanced for testing purposes.
 mock-driver = ["tick-hz-1_000_000"]
-
-#! ### Generic Queue
-
-## Create a global, generic queue that can be used with any executor.
-## To use this you must have a time driver provided.
-generic-queue = []
-
-#! The following features set how many timers are used for the generic queue. At most one
-#! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
-#!
-#! When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
-#! end user to pick.
-
-## Generic Queue with 8 timers
-generic-queue-8 = ["generic-queue"]
-## Generic Queue with 16 timers
-generic-queue-16 = ["generic-queue"]
-## Generic Queue with 32 timers
-generic-queue-32 = ["generic-queue"]
-## Generic Queue with 64 timers
-generic-queue-64 = ["generic-queue"]
-## Generic Queue with 128 timers
-generic-queue-128 = ["generic-queue"]
 
 #! ### Tick Rate
 #!
@@ -411,7 +396,6 @@ embedded-hal-async = { version = "1.0" }
 futures-util = { version = "0.3.17", default-features = false }
 critical-section = "1.1"
 cfg-if = "1.0.0"
-heapless = "0.8"
 
 document-features = "0.2.7"
 
@@ -423,4 +407,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.5.0", path = "../embassy-executor" }
+embassy-executor = { version = "0.6.3", path = "../embassy-executor" }

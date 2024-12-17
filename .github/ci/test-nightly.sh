@@ -9,6 +9,9 @@ export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
 mv rust-toolchain-nightly.toml rust-toolchain.toml
 
+cargo test --manifest-path ./embassy-executor/Cargo.toml
+cargo test --manifest-path ./embassy-executor/Cargo.toml --features nightly
+
 MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml
 MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml --features nightly
 MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-sync/Cargo.toml

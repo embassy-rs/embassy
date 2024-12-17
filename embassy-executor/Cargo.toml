@@ -1,6 +1,6 @@
 [package]
 name = "embassy-executor"
-version = "0.5.0"
+version = "0.6.3"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "async/await executor designed for embedded usage"
@@ -31,11 +31,10 @@ features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
-rtos-trace = { version = "0.1.2", optional = true }
+rtos-trace = { version = "0.1.3", optional = true }
 
-embassy-executor-macros = { version = "0.4.0", registry = "globus", path = "../embassy-executor-macros" }
-embassy-time-driver = { version = "0.1.0", registry = "globus", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver", optional = true }
+embassy-executor-macros = { version = "0.6.2", path = "../embassy-executor-macros" }
+embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver", optional = true }
 critical-section = "1.1"
 
 document-features = "0.2.7"
@@ -55,7 +54,7 @@ avr-device = { version = "0.5.3", optional = true }
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
-
+trybuild = "1.0"
 
 [features]
 
@@ -67,9 +66,6 @@ nightly = ["embassy-executor-macros/nightly"]
 # See: https://github.com/embassy-rs/embassy/pull/1263
 turbowakers = []
 
-## Use the executor-integrated `embassy-time` timer queue.
-integrated-timers = ["dep:embassy-time-driver", "dep:embassy-time-queue-driver"]
-
 #! ### Architecture
 _arch = [] # some arch was picked
 ## std
@@ -79,9 +75,11 @@ arch-cortex-m = ["_arch", "dep:cortex-m"]
 ## RISC-V 32
 arch-riscv32 = ["_arch"]
 ## WASM
-arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
+arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys", "critical-section/std"]
 ## AVR
 arch-avr = ["_arch", "dep:portable-atomic", "dep:avr-device"]
+## spin (architecture agnostic; never sleeps)
+arch-spin = ["_arch"]
 
 #! ### Executor
 
@@ -89,6 +87,10 @@ arch-avr = ["_arch", "dep:portable-atomic", "dep:avr-device"]
 executor-thread = []
 ## Enable the interrupt-mode executor (available in Cortex-M only)
 executor-interrupt = []
+## Enable tracing support (adds some overhead)
+trace = []
+## Enable support for rtos-trace framework
+rtos-trace = ["dep:rtos-trace", "trace", "dep:embassy-time-driver"]
 
 #! ### Task Arena Size
 #! Sets the [task arena](#task-arena) size. Necessary if you’re not using `nightly`.

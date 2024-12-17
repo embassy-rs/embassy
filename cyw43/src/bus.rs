@@ -4,7 +4,7 @@ use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
 use crate::consts::*;
-use crate::slice8_mut;
+use crate::util::slice8_mut;
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
@@ -48,44 +48,91 @@ where
         }
     }
 
-    pub async fn init(&mut self) {
+    pub async fn init(&mut self, bluetooth_enabled: bool) {
         // Reset
+        trace!("WL_REG off/on");
         self.pwr.set_low().unwrap();
         Timer::after_millis(20).await;
         self.pwr.set_high().unwrap();
         Timer::after_millis(250).await;
 
+        trace!("read REG_BUS_TEST_RO");
         while self
-            .read32_swapped(REG_BUS_TEST_RO)
+            .read32_swapped(FUNC_BUS, REG_BUS_TEST_RO)
             .inspect(|v| trace!("{:#x}", v))
             .await
             != FEEDBEAD
         {}
 
-        self.write32_swapped(REG_BUS_TEST_RW, TEST_PATTERN).await;
-        let val = self.read32_swapped(REG_BUS_TEST_RW).await;
+        trace!("write REG_BUS_TEST_RW");
+        self.write32_swapped(FUNC_BUS, REG_BUS_TEST_RW, TEST_PATTERN).await;
+        let val = self.read32_swapped(FUNC_BUS, REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
         assert_eq!(val, TEST_PATTERN);
 
-        let val = self.read32_swapped(REG_BUS_CTRL).await;
+        trace!("read REG_BUS_CTRL");
+        let val = self.read32_swapped(FUNC_BUS, REG_BUS_CTRL).await;
         trace!("{:#010b}", (val & 0xff));
 
         // 32-bit word length, little endian (which is the default endianess).
+        // TODO: C library is uint32_t val = WORD_LENGTH_32 | HIGH_SPEED_MODE| ENDIAN_BIG | INTERRUPT_POLARITY_HIGH | WAKE_UP | 0x4 << (8 * SPI_RESPONSE_DELAY) | INTR_WITH_STATUS << (8 * SPI_STATUS_ENABLE);
+        trace!("write REG_BUS_CTRL");
         self.write32_swapped(
+            FUNC_BUS,
             REG_BUS_CTRL,
-            WORD_LENGTH_32 | HIGH_SPEED | INTERRUPT_HIGH | WAKE_UP | STATUS_ENABLE | INTERRUPT_WITH_STATUS,
+            WORD_LENGTH_32
+                | HIGH_SPEED
+                | INTERRUPT_POLARITY_HIGH
+                | WAKE_UP
+                | 0x4 << (8 * REG_BUS_RESPONSE_DELAY)
+                | STATUS_ENABLE << (8 * REG_BUS_STATUS_ENABLE)
+                | INTR_WITH_STATUS << (8 * REG_BUS_STATUS_ENABLE),
         )
         .await;
 
+        trace!("read REG_BUS_CTRL");
         let val = self.read8(FUNC_BUS, REG_BUS_CTRL).await;
         trace!("{:#b}", val);
 
+        // TODO: C doesn't do this? i doubt it messes anything up
+        trace!("read REG_BUS_TEST_RO");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RO).await;
         trace!("{:#x}", val);
         assert_eq!(val, FEEDBEAD);
+
+        // TODO: C doesn't do this? i doubt it messes anything up
+        trace!("read REG_BUS_TEST_RW");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
         assert_eq!(val, TEST_PATTERN);
+
+        trace!("write SPI_RESP_DELAY_F1 CYW43_BACKPLANE_READ_PAD_LEN_BYTES");
+        self.write8(FUNC_BUS, SPI_RESP_DELAY_F1, WHD_BUS_SPI_BACKPLANE_READ_PADD_SIZE)
+            .await;
+
+        // TODO: Make sure error interrupt bits are clear?
+        // cyw43_write_reg_u8(self, BUS_FUNCTION, SPI_INTERRUPT_REGISTER, DATA_UNAVAILABLE | COMMAND_ERROR | DATA_ERROR | F1_OVERFLOW) != 0)
+        trace!("Make sure error interrupt bits are clear");
+        self.write8(
+            FUNC_BUS,
+            REG_BUS_INTERRUPT,
+            (IRQ_DATA_UNAVAILABLE | IRQ_COMMAND_ERROR | IRQ_DATA_ERROR | IRQ_F1_OVERFLOW) as u8,
+        )
+        .await;
+
+        // Enable a selection of interrupts
+        // TODO: why not all of these F2_F3_FIFO_RD_UNDERFLOW | F2_F3_FIFO_WR_OVERFLOW | COMMAND_ERROR | DATA_ERROR | F2_PACKET_AVAILABLE | F1_OVERFLOW | F1_INTR
+        trace!("enable a selection of interrupts");
+        let mut val = IRQ_F2_F3_FIFO_RD_UNDERFLOW
+            | IRQ_F2_F3_FIFO_WR_OVERFLOW
+            | IRQ_COMMAND_ERROR
+            | IRQ_DATA_ERROR
+            | IRQ_F2_PACKET_AVAILABLE
+            | IRQ_F1_OVERFLOW;
+        if bluetooth_enabled {
+            val = val | IRQ_F1_INTR;
+        }
+        self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
     }
 
     pub async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
@@ -107,6 +154,8 @@ where
 
     #[allow(unused)]
     pub async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+        trace!("bp_read addr = {:08x}", addr);
+
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
@@ -140,6 +189,8 @@ where
     }
 
     pub async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
+        trace!("bp_write addr = {:08x}", addr);
+
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
@@ -196,23 +247,32 @@ where
     }
 
     async fn backplane_readn(&mut self, addr: u32, len: u32) -> u32 {
+        trace!("backplane_readn addr = {:08x} len = {}", addr, len);
+
         self.backplane_set_window(addr).await;
 
         let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
         if len == 4 {
-            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG
+            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
-        self.readn(FUNC_BACKPLANE, bus_addr, len).await
+
+        let val = self.readn(FUNC_BACKPLANE, bus_addr, len).await;
+
+        trace!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, len, val);
+
+        return val;
     }
 
     async fn backplane_writen(&mut self, addr: u32, val: u32, len: u32) {
+        trace!("backplane_writen addr = {:08x} len = {} val = {:08x}", addr, len, val);
+
         self.backplane_set_window(addr).await;
 
         let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
         if len == 4 {
-            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG
+            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
-        self.writen(FUNC_BACKPLANE, bus_addr, val, len).await
+        self.writen(FUNC_BACKPLANE, bus_addr, val, len).await;
     }
 
     async fn backplane_set_window(&mut self, addr: u32) {
@@ -293,8 +353,8 @@ where
         self.status = self.spi.cmd_write(&[cmd, val]).await;
     }
 
-    async fn read32_swapped(&mut self, addr: u32) -> u32 {
-        let cmd = cmd_word(READ, INC_ADDR, FUNC_BUS, addr, 4);
+    async fn read32_swapped(&mut self, func: u32, addr: u32) -> u32 {
+        let cmd = cmd_word(READ, INC_ADDR, func, addr, 4);
         let cmd = swap16(cmd);
         let mut buf = [0; 1];
 
@@ -303,8 +363,8 @@ where
         swap16(buf[0])
     }
 
-    async fn write32_swapped(&mut self, addr: u32, val: u32) {
-        let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BUS, addr, 4);
+    async fn write32_swapped(&mut self, func: u32, addr: u32, val: u32) {
+        let cmd = cmd_word(WRITE, INC_ADDR, func, addr, 4);
         let buf = [swap16(cmd), swap16(val)];
 
         self.status = self.spi.cmd_write(&buf).await;

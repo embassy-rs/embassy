@@ -32,9 +32,10 @@ macro_rules! complementary_channel_impl {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), output_type.into());
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                    pin.set_as_af(
+                        pin.af_num(),
+                        crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh),
+                    );
                 });
                 ComplementaryPwmPin {
                     _pin: pin.map_into(),
@@ -115,7 +116,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         } else {
             1u8
         };
-        self.inner.set_frequency(freq * multiplier);
+        self.inner.set_frequency_internal(freq * multiplier, 16);
     }
 
     /// Get max duty value.

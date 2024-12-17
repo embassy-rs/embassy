@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{State, DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -235,12 +235,15 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     /// |       DFU |            3 |      4 |      5 |      6 |      3 |
     ///
     pub fn prepare_boot(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
+        const {
+            core::assert!(Self::PAGE_SIZE % ACTIVE::WRITE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % DFU::WRITE_SIZE as u32 == 0);
+            core::assert!(Self::PAGE_SIZE % DFU::ERASE_SIZE as u32 == 0);
+        }
+
         // Ensure we have enough progress pages to store copy progress
         assert_eq!(0, Self::PAGE_SIZE % aligned_buf.len() as u32);
-        assert_eq!(0, Self::PAGE_SIZE % ACTIVE::WRITE_SIZE as u32);
-        assert_eq!(0, Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32);
-        assert_eq!(0, Self::PAGE_SIZE % DFU::WRITE_SIZE as u32);
-        assert_eq!(0, Self::PAGE_SIZE % DFU::ERASE_SIZE as u32);
         assert!(aligned_buf.len() >= STATE::WRITE_SIZE);
         assert_eq!(0, aligned_buf.len() % ACTIVE::WRITE_SIZE);
         assert_eq!(0, aligned_buf.len() % DFU::WRITE_SIZE);
@@ -273,7 +276,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
                 self.state.erase(0, self.state.capacity() as u32)?;
 
                 // Set magic
-                state_word.fill(BOOT_MAGIC);
+                state_word.fill(REVERT_MAGIC);
                 self.state.write(0, state_word)?;
             }
         }
@@ -408,6 +411,8 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
             Ok(State::Swap)
         } else if !state_word.iter().any(|&b| b != DFU_DETACH_MAGIC) {
             Ok(State::DfuDetach)
+        } else if !state_word.iter().any(|&b| b != REVERT_MAGIC) {
+            Ok(State::Revert)
         } else {
             Ok(State::Boot)
         }

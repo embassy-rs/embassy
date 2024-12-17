@@ -48,6 +48,7 @@ impl<'d> ChannelAndRequest<'d> {
         Transfer::new_write_raw(&mut self.channel, self.request, buf, peri_addr, options)
     }
 
+    #[allow(dead_code)]
     pub unsafe fn write_repeated<'a, W: Word>(
         &'a mut self,
         repeated: &'a W,

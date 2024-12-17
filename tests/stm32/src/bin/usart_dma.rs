@@ -11,7 +11,7 @@ use embassy_stm32::usart::{Config, Uart};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let p = init();
     info!("Hello World!");
 
     // Arduino pins D0 and D1
@@ -50,6 +50,23 @@ async fn main(_spawner: Spawner) {
 
         assert_eq!(tx_buf, rx_buf);
     }
+
+    // Test flush doesn't hang. Check multiple combinations of async+blocking.
+    tx.write(&tx_buf).await.unwrap();
+    tx.flush().await.unwrap();
+    tx.flush().await.unwrap();
+
+    tx.write(&tx_buf).await.unwrap();
+    tx.blocking_flush().unwrap();
+    tx.flush().await.unwrap();
+
+    tx.blocking_write(&tx_buf).unwrap();
+    tx.blocking_flush().unwrap();
+    tx.flush().await.unwrap();
+
+    tx.blocking_write(&tx_buf).unwrap();
+    tx.flush().await.unwrap();
+    tx.blocking_flush().unwrap();
 
     info!("Test OK");
     cortex_m::asm::bkpt();

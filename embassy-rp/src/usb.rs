@@ -28,10 +28,10 @@ pub trait Instance: SealedInstance + 'static {
 
 impl crate::usb::SealedInstance for peripherals::USB {
     fn regs() -> pac::usb::Usb {
-        pac::USBCTRL_REGS
+        pac::USB
     }
     fn dpram() -> crate::pac::usb_dpram::UsbDpram {
-        pac::USBCTRL_DPRAM
+        pac::USB_DPRAM
     }
 }
 
@@ -41,12 +41,11 @@ impl crate::usb::Instance for peripherals::USB {
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
-const EP_MEMORY: *mut u8 = pac::USBCTRL_DPRAM.as_ptr() as *mut u8;
+const EP_MEMORY: *mut u8 = pac::USB_DPRAM.as_ptr() as *mut u8;
 
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static BUS_WAKER: AtomicWaker = NEW_AW;
-static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
-static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
+static BUS_WAKER: AtomicWaker = AtomicWaker::new();
+static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
+static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 
 struct EndpointBuffer<T: Instance> {
     addr: u16,

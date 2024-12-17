@@ -84,16 +84,9 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     ) -> Self {
         into_ref!(inner);
 
-        let p = inner.regs();
-        let (presc, postdiv) = calc_prescs(config.frequency);
+        Self::apply_config(&inner, &config);
 
-        p.cpsr().write(|w| w.set_cpsdvsr(presc));
-        p.cr0().write(|w| {
-            w.set_dss(0b0111); // 8bit
-            w.set_spo(config.polarity == Polarity::IdleHigh);
-            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
-            w.set_scr(postdiv);
-        });
+        let p = inner.regs();
 
         // Always enable DREQ signals -- harmless if DMA is not listening
         p.dmacr().write(|reg| {
@@ -106,15 +99,55 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 
         if let Some(pin) = &clk {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "_rp235x")]
+                w.set_iso(false);
+                w.set_schmitt(true);
+                w.set_slewfast(false);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(false);
+                w.set_pde(false);
+            });
         }
         if let Some(pin) = &mosi {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "_rp235x")]
+                w.set_iso(false);
+                w.set_schmitt(true);
+                w.set_slewfast(false);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(false);
+                w.set_pde(false);
+            });
         }
         if let Some(pin) = &miso {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "_rp235x")]
+                w.set_iso(false);
+                w.set_schmitt(true);
+                w.set_slewfast(false);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(false);
+                w.set_pde(false);
+            });
         }
         if let Some(pin) = &cs {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+            pin.pad_ctrl().write(|w| {
+                #[cfg(feature = "_rp235x")]
+                w.set_iso(false);
+                w.set_schmitt(true);
+                w.set_slewfast(false);
+                w.set_ie(true);
+                w.set_od(false);
+                w.set_pue(false);
+                w.set_pde(false);
+            });
         }
         Self {
             inner,
@@ -122,6 +155,23 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             rx_dma,
             phantom: PhantomData,
         }
+    }
+
+    /// Private function to apply SPI configuration (phase, polarity, frequency) settings.
+    ///
+    /// Driver should be disabled before making changes and reenabled after the modifications
+    /// are applied.
+    fn apply_config(inner: &PeripheralRef<'d, T>, config: &Config) {
+        let p = inner.regs();
+        let (presc, postdiv) = calc_prescs(config.frequency);
+
+        p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        p.cr0().write(|w| {
+            w.set_dss(0b0111); // 8bit
+            w.set_spo(config.polarity == Polarity::IdleHigh);
+            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
+            w.set_scr(postdiv);
+        });
     }
 
     /// Write data to SPI blocking execution until done.
@@ -200,6 +250,20 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         p.cr0().modify(|w| {
             w.set_scr(postdiv);
         });
+
+        // enable
+        p.cr1().write(|w| w.set_sse(true));
+    }
+
+    /// Set SPI config.
+    pub fn set_config(&mut self, config: &Config) {
+        let p = self.inner.regs();
+
+        // disable
+        p.cr1().write(|w| w.set_sse(false));
+
+        // change stuff
+        Self::apply_config(&self.inner, config);
 
         // enable
         p.cr1().write(|w| w.set_sse(true));
@@ -319,17 +383,18 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         inner: impl Peripheral<P = T> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
         miso: impl Peripheral<P = impl MisoPin<T> + 'd> + 'd,
+        tx_dma: impl Peripheral<P = impl Channel> + 'd,
         rx_dma: impl Peripheral<P = impl Channel> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rx_dma, clk, miso);
+        into_ref!(tx_dma, rx_dma, clk, miso);
         Self::new_inner(
             inner,
             Some(clk.map_into()),
             None,
             Some(miso.map_into()),
             None,
-            None,
+            Some(tx_dma.map_into()),
             Some(rx_dma.map_into()),
             config,
         )
@@ -394,17 +459,14 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         self.transfer_inner(words, words).await
     }
 
-    async fn transfer_inner(&mut self, rx_ptr: *mut [u8], tx_ptr: *const [u8]) -> Result<(), Error> {
-        let (_, tx_len) = crate::dma::slice_ptr_parts(tx_ptr);
-        let (_, rx_len) = crate::dma::slice_ptr_parts_mut(rx_ptr);
-
+    async fn transfer_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         // Start RX first. Transfer starts when TX starts, if RX
         // is not started yet we might lose bytes.
         let rx_ch = self.rx_dma.as_mut().unwrap();
         let rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, rx_ptr, T::RX_DREQ)
+            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, rx, T::RX_DREQ)
         };
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap();
@@ -413,10 +475,10 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let tx_transfer = async {
             let p = self.inner.regs();
             unsafe {
-                crate::dma::write(&mut tx_ch, tx_ptr, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
+                crate::dma::write(&mut tx_ch, tx, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
 
-                if rx_len > tx_len {
-                    let write_bytes_len = rx_len - tx_len;
+                if rx.len() > tx.len() {
+                    let write_bytes_len = rx.len() - tx.len();
                     // write dummy data
                     // this will disable incrementation of the buffers
                     crate::dma::write_repeated(tx_ch, p.dr().as_ptr() as *mut u8, write_bytes_len, T::TX_DREQ).await
@@ -426,7 +488,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         join(tx_transfer, rx_transfer).await;
 
         // if tx > rx we should clear any overflow of the FIFO SPI buffer
-        if tx_len > rx_len {
+        if tx.len() > rx.len() {
             let p = self.inner.regs();
             while p.sr().read().bsy() {}
 
@@ -445,8 +507,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 trait SealedMode {}
 
 trait SealedInstance {
-    const TX_DREQ: u8;
-    const RX_DREQ: u8;
+    const TX_DREQ: pac::dma::vals::TreqSel;
+    const RX_DREQ: pac::dma::vals::TreqSel;
 
     fn regs(&self) -> pac::spi::Spi;
 }
@@ -462,8 +524,8 @@ pub trait Instance: SealedInstance {}
 macro_rules! impl_instance {
     ($type:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl SealedInstance for peripherals::$type {
-            const TX_DREQ: u8 = $tx_dreq;
-            const RX_DREQ: u8 = $rx_dreq;
+            const TX_DREQ: pac::dma::vals::TreqSel = $tx_dreq;
+            const RX_DREQ: pac::dma::vals::TreqSel = $rx_dreq;
 
             fn regs(&self) -> pac::spi::Spi {
                 pac::$type
@@ -473,8 +535,18 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(SPI0, Spi0, 16, 17);
-impl_instance!(SPI1, Spi1, 18, 19);
+impl_instance!(
+    SPI0,
+    Spi0,
+    pac::dma::vals::TreqSel::SPI0_TX,
+    pac::dma::vals::TreqSel::SPI0_RX
+);
+impl_instance!(
+    SPI1,
+    Spi1,
+    pac::dma::vals::TreqSel::SPI1_TX,
+    pac::dma::vals::TreqSel::SPI1_RX
+);
 
 /// CLK pin.
 pub trait ClkPin<T: Instance>: GpioPin {}
@@ -521,6 +593,42 @@ impl_pin!(PIN_26, SPI1, ClkPin);
 impl_pin!(PIN_27, SPI1, MosiPin);
 impl_pin!(PIN_28, SPI1, MisoPin);
 impl_pin!(PIN_29, SPI1, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_30, SPI1, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_31, SPI1, MosiPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_32, SPI0, MisoPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_33, SPI0, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_34, SPI0, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_35, SPI0, MosiPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_36, SPI0, MisoPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_37, SPI0, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_38, SPI0, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_39, SPI0, MosiPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_40, SPI1, MisoPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_41, SPI1, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, SPI1, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, SPI1, MosiPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_44, SPI1, MisoPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_45, SPI1, CsPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, SPI1, ClkPin);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, SPI1, MosiPin);
 
 macro_rules! impl_mode {
     ($name:ident) => {
@@ -613,15 +721,7 @@ impl<'d, T: Instance, M: Mode> SetConfig for Spi<'d, T, M> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        let p = self.inner.regs();
-        let (presc, postdiv) = calc_prescs(config.frequency);
-        p.cpsr().write(|w| w.set_cpsdvsr(presc));
-        p.cr0().write(|w| {
-            w.set_dss(0b0111); // 8bit
-            w.set_spo(config.polarity == Polarity::IdleHigh);
-            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
-            w.set_scr(postdiv);
-        });
+        self.set_config(config);
 
         Ok(())
     }

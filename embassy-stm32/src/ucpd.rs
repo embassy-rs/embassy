@@ -27,8 +27,8 @@ use crate::dma::{ChannelAndRequest, TransferOptions};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
-pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, TypecVstateCc as CcVState};
-use crate::rcc::RccPeripheral;
+pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, Rxordset, TypecVstateCc as CcVState};
+use crate::rcc::{self, RccPeripheral};
 
 pub(crate) fn init(
     _cs: critical_section::CriticalSection,
@@ -86,6 +86,34 @@ pub enum CcPull {
     Source3_0A,
 }
 
+/// UCPD configuration
+#[non_exhaustive]
+#[derive(Copy, Clone, Debug)]
+pub struct Config {
+    /// Receive SOP packets
+    pub sop: bool,
+    /// Receive SOP' packets
+    pub sop_prime: bool,
+    /// Receive SOP'' packets
+    pub sop_double_prime: bool,
+    /// Receive SOP'_Debug packets
+    pub sop_prime_debug: bool,
+    /// Receive SOP''_Debug packets
+    pub sop_double_prime_debug: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            sop: true,
+            sop_prime: false,
+            sop_double_prime: false,
+            sop_prime_debug: false,
+            sop_double_prime_debug: false,
+        }
+    }
+}
+
 /// UCPD driver.
 pub struct Ucpd<'d, T: Instance> {
     cc_phy: CcPhy<'d, T>,
@@ -98,12 +126,13 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         cc1: impl Peripheral<P = impl Cc1Pin<T>> + 'd,
         cc2: impl Peripheral<P = impl Cc2Pin<T>> + 'd,
+        config: Config,
     ) -> Self {
         into_ref!(cc1, cc2);
         cc1.set_as_analog();
         cc2.set_as_analog();
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
@@ -129,9 +158,15 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             // 1.75us * 17 = ~30us
             w.set_ifrgap(17 - 1);
 
-            // TODO: Currently only hard reset and SOP messages can be received.
             // UNDOCUMENTED: This register can only be written while UCPDEN=0 (found by testing).
-            w.set_rxordseten(0b1001);
+            let rxordset = (config.sop as u16) << 0
+                | (config.sop_prime as u16) << 1
+                | (config.sop_double_prime as u16) << 2
+                // Hard reset
+                | 0x1 << 3
+                | (config.sop_prime_debug as u16) << 4
+                | (config.sop_double_prime_debug as u16) << 5;
+            w.set_rxordseten(rxordset);
 
             // Enable DMA
             w.set_txdmaen(true);
@@ -168,6 +203,9 @@ impl<'d, T: Instance> Ucpd<'d, T> {
 
         // Enable hard reset receive interrupt.
         r.imr().modify(|w| w.set_rxhrstdetie(true));
+
+        // Enable PD packet reception
+        r.cr().modify(|w| w.set_phyrxen(true));
 
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
@@ -212,7 +250,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
             drop_not_ready.store(true, Ordering::Relaxed);
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
-            T::disable();
+            rcc::disable::<T>();
             T::Interrupt::disable();
         }
     }
@@ -285,6 +323,22 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     }
 }
 
+/// Receive SOP.
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Sop {
+    /// SOP
+    Sop,
+    /// SOP'
+    SopPrime,
+    /// SOP''
+    SopDoublePrime,
+    /// SOP'_Debug
+    SopPrimeDebug,
+    /// SOP''_Debug
+    SopDoublePrimeDebug,
+}
+
 /// Receive Error.
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -319,13 +373,14 @@ pub struct PdPhy<'d, T: Instance> {
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
+        T::REGS.cr().modify(|w| w.set_phyrxen(false));
         // Check if the Type-C part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
             drop_not_ready.store(true, Ordering::Relaxed);
         } else {
             T::REGS.cfgr1().write(|w| w.set_ucpden(false));
-            T::disable();
+            rcc::disable::<T>();
             T::Interrupt::disable();
         }
     }
@@ -336,6 +391,13 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     ///
     /// Returns the number of received bytes or an error.
     pub async fn receive(&mut self, buf: &mut [u8]) -> Result<usize, RxError> {
+        self.receive_with_sop(buf).await.map(|(_sop, size)| size)
+    }
+
+    /// Receives SOP and a PD message into the provided buffer.
+    ///
+    /// Returns the start of packet type and number of received bytes or an error.
+    pub async fn receive_with_sop(&mut self, buf: &mut [u8]) -> Result<(Sop, usize), RxError> {
         let r = T::REGS;
 
         let dma = unsafe {
@@ -343,17 +405,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 .read(r.rxdr().as_ptr() as *mut u8, buf, TransferOptions::default())
         };
 
-        // Clear interrupt flags (possibly set from last receive).
-        r.icr().write(|w| {
-            w.set_rxorddetcf(true);
-            w.set_rxovrcf(true);
-            w.set_rxmsgendcf(true);
-        });
-
-        r.cr().modify(|w| w.set_phyrxen(true));
         let _on_drop = OnDrop::new(|| {
-            r.cr().modify(|w| w.set_phyrxen(false));
             Self::enable_rx_interrupt(false);
+            // Clear interrupt flags
+            r.icr().write(|w| {
+                w.set_rxorddetcf(true);
+                w.set_rxovrcf(true);
+                w.set_rxmsgendcf(true);
+            });
         });
 
         poll_fn(|cx| {
@@ -387,7 +446,18 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             }
         }
 
-        Ok(r.rx_payszr().read().rxpaysz().into())
+        let sop = match r.rx_ordsetr().read().rxordset() {
+            Rxordset::SOP => Sop::Sop,
+            Rxordset::SOPPRIME => Sop::SopPrime,
+            Rxordset::SOPDOUBLEPRIME => Sop::SopDoublePrime,
+            Rxordset::SOPPRIMEDEBUG => Sop::SopPrimeDebug,
+            Rxordset::SOPDOUBLEPRIMEDEBUG => Sop::SopDoublePrimeDebug,
+            Rxordset::CABLERESET => return Err(RxError::HardReset),
+            // Extension headers are not supported
+            _ => unreachable!(),
+        };
+
+        Ok((sop, r.rx_payszr().read().rxpaysz().into()))
     }
 
     fn enable_rx_interrupt(enable: bool) {

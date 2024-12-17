@@ -278,6 +278,7 @@ pub enum DescriptorType {
 
 /// Table 5. Descriptor set information structure.
 #[allow(non_snake_case)]
+#[allow(unused)]
 #[repr(C, packed(1))]
 pub struct DescriptorSetInformation {
     dwWindowsVersion: u32,
@@ -288,6 +289,7 @@ pub struct DescriptorSetInformation {
 
 /// Table 4. Microsoft OS 2.0 platform capability descriptor header.
 #[allow(non_snake_case)]
+#[allow(unused)]
 #[repr(C, packed(1))]
 pub struct PlatformDescriptor {
     bLength: u8,

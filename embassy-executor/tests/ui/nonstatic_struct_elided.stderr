@@ -1,0 +1,10 @@
+error[E0726]: implicit elided lifetime not allowed here
+ --> tests/ui/nonstatic_struct_elided.rs:6:19
+  |
+6 | async fn task(_x: Foo) {}
+  |                   ^^^ expected lifetime parameter
+  |
+help: indicate the anonymous lifetime
+  |
+6 | async fn task(_x: Foo<'_>) {}
+  |                      ++++

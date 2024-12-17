@@ -37,6 +37,7 @@ pub struct Hsi {
 
 /// Clocks configutation
 #[non_exhaustive]
+#[derive(Clone, Copy)]
 pub struct Config {
     /// HSI Configuration
     pub hsi: Option<Hsi>,
@@ -76,25 +77,29 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // Turn on the HSI
+    match config.hsi {
+        None => RCC.cr().modify(|w| w.set_hsion(true)),
+        Some(hsi) => RCC.cr().modify(|w| {
+            w.set_hsidiv(hsi.sys_div);
+            w.set_hsikerdiv(hsi.ker_div);
+            w.set_hsion(true);
+        }),
+    }
+    while !RCC.cr().read().hsirdy() {}
+
+    // Use the HSI clock as system clock during the actual clock setup
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSISYS));
+    while RCC.cfgr().read().sws() != Sysclk::HSISYS {}
+
     // Configure HSI
     let (hsi, hsisys, hsiker) = match config.hsi {
-        None => {
-            RCC.cr().modify(|w| w.set_hsion(false));
-            (None, None, None)
-        }
-        Some(hsi) => {
-            RCC.cr().modify(|w| {
-                w.set_hsidiv(hsi.sys_div);
-                w.set_hsikerdiv(hsi.ker_div);
-                w.set_hsion(true);
-            });
-            while !RCC.cr().read().hsirdy() {}
-            (
-                Some(HSI_FREQ),
-                Some(HSI_FREQ / hsi.sys_div),
-                Some(HSI_FREQ / hsi.ker_div),
-            )
-        }
+        None => (None, None, None),
+        Some(hsi) => (
+            Some(HSI_FREQ),
+            Some(HSI_FREQ / hsi.sys_div),
+            Some(HSI_FREQ / hsi.ker_div),
+        ),
     };
 
     // Configure HSE
@@ -105,8 +110,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
         Some(hse) => {
             match hse.mode {
-                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
-                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+                HseMode::Bypass => rcc_assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => rcc_assert!(max::HSE_OSC.contains(&hse.freq)),
             }
 
             RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
@@ -122,14 +127,14 @@ pub(crate) unsafe fn init(config: Config) {
         _ => unreachable!(),
     };
 
-    assert!(max::SYSCLK.contains(&sys));
+    rcc_assert!(max::SYSCLK.contains(&sys));
 
     // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
     let hclk = sys / config.ahb_pre;
-    assert!(max::HCLK.contains(&hclk));
+    rcc_assert!(max::HCLK.contains(&hclk));
 
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
-    assert!(max::PCLK.contains(&pclk1));
+    rcc_assert!(max::PCLK.contains(&pclk1));
 
     let latency = match hclk.0 {
         ..=24_000_000 => Latency::WS0,
@@ -150,6 +155,12 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_hpre(config.ahb_pre);
         w.set_ppre(config.apb1_pre);
     });
+    while RCC.cfgr().read().sws() != config.sys {}
+
+    // Disable HSI if not used
+    if config.hsi.is_none() {
+        RCC.cr().modify(|w| w.set_hsion(false));
+    }
 
     let rtc = config.ls.init();
 

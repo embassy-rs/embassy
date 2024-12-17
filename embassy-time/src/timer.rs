@@ -37,6 +37,36 @@ pub async fn with_deadline<F: Future>(at: Instant, fut: F) -> Result<F::Output, 
     }
 }
 
+/// Provides functions to run a given future with a timeout or a deadline.
+pub trait WithTimeout {
+    /// Output type of the future.
+    type Output;
+
+    /// Runs a given future with a timeout.
+    ///
+    /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
+    /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+    async fn with_timeout(self, timeout: Duration) -> Result<Self::Output, TimeoutError>;
+
+    /// Runs a given future with a deadline time.
+    ///
+    /// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
+    /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+    async fn with_deadline(self, at: Instant) -> Result<Self::Output, TimeoutError>;
+}
+
+impl<F: Future> WithTimeout for F {
+    type Output = F::Output;
+
+    async fn with_timeout(self, timeout: Duration) -> Result<Self::Output, TimeoutError> {
+        with_timeout(timeout, self).await
+    }
+
+    async fn with_deadline(self, at: Instant) -> Result<Self::Output, TimeoutError> {
+        with_deadline(at, self).await
+    }
+}
+
 /// A future that completes at a specified [Instant](struct.Instant.html).
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Timer {

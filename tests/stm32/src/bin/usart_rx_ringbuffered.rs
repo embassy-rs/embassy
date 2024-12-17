@@ -18,7 +18,7 @@ const DMA_BUF_SIZE: usize = 256;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let p = init();
     info!("Hello World!");
 
     // Arduino pins D0 and D1
@@ -43,8 +43,7 @@ async fn main(spawner: Spawner) {
     let usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config).unwrap();
     let (tx, rx) = usart.split();
     static mut DMA_BUF: [u8; DMA_BUF_SIZE] = [0; DMA_BUF_SIZE];
-    let dma_buf = unsafe { DMA_BUF.as_mut() };
-    let rx = rx.into_ring_buffered(dma_buf);
+    let rx = rx.into_ring_buffered(unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) });
 
     info!("Spawning tasks");
     spawner.spawn(transmit_task(tx)).unwrap();
@@ -52,7 +51,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn transmit_task(mut tx: UartTx<'static, peris::UART, Async>) {
+async fn transmit_task(mut tx: UartTx<'static, Async>) {
     // workaround https://github.com/embassy-rs/embassy/issues/1426
     Timer::after_millis(100).await;
 
@@ -75,7 +74,7 @@ async fn transmit_task(mut tx: UartTx<'static, peris::UART, Async>) {
 }
 
 #[embassy_executor::task]
-async fn receive_task(mut rx: RingBufferedUartRx<'static, peris::UART>) {
+async fn receive_task(mut rx: RingBufferedUartRx<'static>) {
     info!("Ready to receive...");
 
     let mut rng = ChaCha8Rng::seed_from_u64(1337);

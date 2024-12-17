@@ -138,7 +138,7 @@ impl<M: RawMutex, T> From<T> for Mutex<M, T> {
 impl<M, T> Default for Mutex<M, T>
 where
     M: RawMutex,
-    T: ?Sized + Default,
+    T: Default,
 {
     fn default() -> Self {
         Self::new(Default::default())

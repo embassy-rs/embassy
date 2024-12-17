@@ -24,7 +24,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-pub async fn send_can_message(tx: &'static mut CanTx<'static, CAN3>) {
+pub async fn send_can_message(tx: &'static mut CanTx<'static>) {
     loop {
         let frame = Frame::new_data(unwrap!(StandardId::new(0 as _)), &[0]).unwrap();
         tx.write(&frame).await;
@@ -45,7 +45,7 @@ async fn main(spawner: Spawner) {
     let rx_pin = Input::new(&mut p.PA15, Pull::Up);
     core::mem::forget(rx_pin);
 
-    static CAN: StaticCell<Can<'static, CAN3>> = StaticCell::new();
+    static CAN: StaticCell<Can<'static>> = StaticCell::new();
     let can = CAN.init(Can::new(p.CAN3, p.PA8, p.PA15, Irqs));
     can.modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
@@ -62,7 +62,7 @@ async fn main(spawner: Spawner) {
 
     let (tx, mut rx) = can.split();
 
-    static CAN_TX: StaticCell<CanTx<'static, CAN3>> = StaticCell::new();
+    static CAN_TX: StaticCell<CanTx<'static>> = StaticCell::new();
     let tx = CAN_TX.init(tx);
     spawner.spawn(send_can_message(tx)).unwrap();
 

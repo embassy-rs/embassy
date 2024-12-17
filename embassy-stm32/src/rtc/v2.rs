@@ -95,7 +95,7 @@ impl super::Rtc {
 
     pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
     where
-        F: FnOnce(&crate::pac::rtc::Rtc) -> R,
+        F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
         let r = RTC::regs();
         // Disable write protection.
@@ -112,7 +112,7 @@ impl super::Rtc {
             while !r.isr().read().initf() {}
         }
 
-        let result = f(&r);
+        let result = f(r);
 
         if init_mode {
             r.isr().modify(|w| w.set_init(false)); // Exits init mode
@@ -131,16 +131,19 @@ impl SealedInstance for crate::peripherals::RTC {
     #[cfg(all(feature = "low-power", stm32f4))]
     const EXTI_WAKEUP_LINE: usize = 22;
 
+    #[cfg(all(feature = "low-power", stm32l4))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
     #[cfg(all(feature = "low-power", stm32l0))]
     const EXTI_WAKEUP_LINE: usize = 20;
 
-    #[cfg(all(feature = "low-power", stm32f4))]
+    #[cfg(all(feature = "low-power", any(stm32f4, stm32l4)))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
 
     #[cfg(all(feature = "low-power", stm32l0))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC;
 
-    fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32> {
+    fn read_backup_register(rtc: Rtc, register: usize) -> Option<u32> {
         if register < Self::BACKUP_REGISTER_COUNT {
             Some(rtc.bkpr(register).read().bkp())
         } else {
@@ -148,7 +151,7 @@ impl SealedInstance for crate::peripherals::RTC {
         }
     }
 
-    fn write_backup_register(rtc: &Rtc, register: usize, value: u32) {
+    fn write_backup_register(rtc: Rtc, register: usize, value: u32) {
         if register < Self::BACKUP_REGISTER_COUNT {
             rtc.bkpr(register).write(|w| w.set_bkp(value));
         }

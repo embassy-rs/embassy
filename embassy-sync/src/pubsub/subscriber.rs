@@ -83,6 +83,11 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Sub<'a, PSB, T> {
         self.channel.free_capacity()
     }
 
+    /// Clears all elements in the ***channel***.
+    pub fn clear(&self) {
+        self.channel.clear();
+    }
+
     /// Returns the number of elements currently in the ***channel***.
     /// See [Self::available] for how many messages are available for this subscriber.
     pub fn len(&self) -> usize {

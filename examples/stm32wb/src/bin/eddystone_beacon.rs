@@ -46,7 +46,6 @@ async fn main(_spawner: Spawner) {
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
         - Select "Start Wireless Stack".
         - Disconnect from the device.
-        - In the examples folder for stm32wb, modify the memory.x file to match your target device.
         - Run this example.
 
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.

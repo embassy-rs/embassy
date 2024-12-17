@@ -6,10 +6,15 @@
 //!
 //! The available functionality depends on the timer type.
 
+use core::mem::ManuallyDrop;
+
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+// Re-export useful enums
+pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
 use crate::pac::timer::vals;
+use crate::rcc;
 use crate::time::Hertz;
 
 /// Input capture mode.
@@ -181,7 +186,7 @@ pub struct Timer<'d, T: CoreInstance> {
 
 impl<'d, T: CoreInstance> Drop for Timer<'d, T> {
     fn drop(&mut self) {
-        T::disable()
+        rcc::disable::<T>();
     }
 }
 
@@ -190,9 +195,14 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     pub fn new(tim: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(tim);
 
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         Self { tim }
+    }
+
+    pub(crate) unsafe fn clone_unchecked(&self) -> ManuallyDrop<Self> {
+        let tim = unsafe { self.tim.clone_unchecked() };
+        ManuallyDrop::new(Self { tim })
     }
 
     /// Get access to the virutal core 16bit timer registers.
@@ -232,16 +242,28 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     /// In center-aligned mode (which not all timers support), the wrap-around frequency is effectively halved
     /// because it needs to count up and down.
     pub fn set_frequency(&self, frequency: Hertz) {
+        match T::BITS {
+            TimerBits::Bits16 => {
+                self.set_frequency_internal(frequency, 16);
+            }
+            #[cfg(not(stm32l0))]
+            TimerBits::Bits32 => {
+                self.set_frequency_internal(frequency, 32);
+            }
+        }
+    }
+
+    pub(crate) fn set_frequency_internal(&self, frequency: Hertz, max_divide_by_bits: u8) {
         let f = frequency.0;
         assert!(f > 0);
         let timer_f = T::frequency().0;
 
+        let pclk_ticks_per_timer_period = (timer_f / f) as u64;
+        let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << max_divide_by_bits)).try_into());
+        let divide_by = pclk_ticks_per_timer_period / (u64::from(psc) + 1);
+
         match T::BITS {
             TimerBits::Bits16 => {
-                let pclk_ticks_per_timer_period = timer_f / f;
-                let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 16)).try_into());
-                let divide_by = pclk_ticks_per_timer_period / (u32::from(psc) + 1);
-
                 // the timer counts `0..=arr`, we want it to count `0..divide_by`
                 let arr = unwrap!(u16::try_from(divide_by - 1));
 
@@ -255,10 +277,6 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
             }
             #[cfg(not(stm32l0))]
             TimerBits::Bits32 => {
-                let pclk_ticks_per_timer_period = (timer_f / f) as u64;
-                let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 32)).try_into());
-                let divide_by = pclk_ticks_per_timer_period / (u64::from(psc) + 1);
-
                 // the timer counts `0..=arr`, we want it to count `0..divide_by`
                 let arr: u32 = unwrap!(u32::try_from(divide_by - 1));
 
@@ -271,6 +289,22 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
                 regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
             }
         }
+    }
+
+    /// Set tick frequency.
+    pub fn set_tick_freq(&mut self, freq: Hertz) {
+        let f = freq;
+        assert!(f.0 > 0);
+        let timer_f = self.get_clock_frequency();
+
+        let pclk_ticks_per_timer_period = timer_f / f;
+        let psc: u16 = unwrap!((pclk_ticks_per_timer_period - 1).try_into());
+
+        let regs = self.regs_core();
+        regs.psc().write_value(psc);
+
+        // Generate an Update Request
+        regs.egr().write(|r| r.set_ug(true));
     }
 
     /// Clear update interrupt.
@@ -571,6 +605,16 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set capture compare DMA enable state
     pub fn set_cc_dma_enable_state(&self, channel: Channel, ccde: bool) {
         self.regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
+    }
+
+    /// Set Timer Slave Mode
+    pub fn set_slave_mode(&self, sms: SlaveMode) {
+        self.regs_gp16().smcr().modify(|r| r.set_sms(sms));
+    }
+
+    /// Set Timer Trigger Source
+    pub fn set_trigger_source(&self, ts: TriggerSource) {
+        self.regs_gp16().smcr().modify(|r| r.set_ts(ts));
     }
 }
 

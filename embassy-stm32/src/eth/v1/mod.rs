@@ -12,7 +12,9 @@ use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress
 pub(crate) use self::rx_desc::{RDes, RDesRing};
 pub(crate) use self::tx_desc::{TDes, TDesRing};
 use super::*;
-use crate::gpio::{AFType, AnyPin, SealedPin};
+#[cfg(eth_v1a)]
+use crate::gpio::Pull;
+use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::interrupt::InterruptExt;
 #[cfg(eth_v1a)]
 use crate::pac::AFIO;
@@ -61,7 +63,7 @@ macro_rules! config_in_pins {
         critical_section::with(|_| {
             $(
                 // TODO properly create a set_as_input function
-                $pin.set_as_af($pin.af_num(), AFType::Input);
+                $pin.set_as_af($pin.af_num(), AfType::input(Pull::None));
             )*
         })
     }
@@ -72,8 +74,7 @@ macro_rules! config_af_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                // We are lucky here, this configures to max speed (50MHz)
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
+                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -84,8 +85,7 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                $pin.set_speed(crate::gpio::Speed::VeryHigh);
+                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };

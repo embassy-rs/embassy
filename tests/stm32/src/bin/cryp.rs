@@ -20,7 +20,7 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p: embassy_stm32::Peripherals = embassy_stm32::init(config());
+    let p: embassy_stm32::Peripherals = init();
 
     const PAYLOAD1: &[u8] = b"payload data 1 ;zdfhzdfhS;GKJASBDG;ASKDJBAL,zdfhzdfhzdfhzdfhvljhb,jhbjhb,sdhsdghsdhsfhsghzdfhzdfhzdfhzdfdhsdthsthsdhsgaadfhhgkdgfuoyguoft6783567";
     const PAYLOAD2: &[u8] = b"payload data 2 ;SKEzdfhzdfhzbhgvljhb,jhbjhb,sdhsdghsdhsfhsghshsfhshstsdthadfhsdfjhsfgjsfgjxfgjzdhgDFghSDGHjtfjtjszftjzsdtjhstdsdhsdhsdhsdhsdthsthsdhsgfh";

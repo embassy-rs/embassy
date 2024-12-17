@@ -4,7 +4,7 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
 use crate::pac::cordic::vals;
-use crate::{dma, peripherals};
+use crate::{dma, peripherals, rcc};
 
 mod enums;
 pub use enums::*;
@@ -199,7 +199,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
     /// If you need a peripheral -> CORDIC -> peripheral mode,  
     /// you may want to set Cordic into [Mode::ZeroOverhead] mode, and add extra arguments with [Self::extra_config]
     pub fn new(peri: impl Peripheral<P = T> + 'd, config: Config) -> Self {
-        T::enable_and_reset();
+        rcc::enable_and_reset::<T>();
 
         into_ref!(peri);
 
@@ -259,7 +259,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
 impl<'d, T: Instance> Drop for Cordic<'d, T> {
     fn drop(&mut self) {
-        T::disable();
+        rcc::disable::<T>();
     }
 }
 

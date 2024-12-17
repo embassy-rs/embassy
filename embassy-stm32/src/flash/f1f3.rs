@@ -37,14 +37,16 @@ pub(crate) unsafe fn disable_blocking_write() {
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     let mut address = start_address;
     for chunk in buf.chunks(2) {
-        write_volatile(address as *mut u16, u16::from_le_bytes(chunk.try_into().unwrap()));
+        write_volatile(address as *mut u16, u16::from_le_bytes(unwrap!(chunk.try_into())));
         address += chunk.len() as u32;
 
         // prevents parallelism errors
         fence(Ordering::SeqCst);
+
+        wait_ready_blocking()?;
     }
 
-    wait_ready_blocking()
+    Ok(())
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {

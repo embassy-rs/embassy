@@ -1,0 +1,13 @@
+error: task functions must not have `self` arguments
+ --> tests/ui/self_ref.rs:6:15
+  |
+6 | async fn task(&mut self) {}
+  |               ^^^^^^^^^
+
+error: `self` parameter is only allowed in associated functions
+ --> tests/ui/self_ref.rs:6:15
+  |
+6 | async fn task(&mut self) {}
+  |               ^^^^^^^^^ not semantically valid as function parameter
+  |
+  = note: associated functions are those in `impl` or `trait` definitions

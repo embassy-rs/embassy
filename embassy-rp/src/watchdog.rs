@@ -34,6 +34,7 @@ impl Watchdog {
     ///
     /// * `cycles` - Total number of tick cycles before the next tick is generated.
     ///   It is expected to be the frequency in MHz of clk_ref.
+    #[cfg(feature = "rp2040")]
     pub fn enable_tick_generation(&mut self, cycles: u8) {
         let watchdog = pac::WATCHDOG;
         watchdog.tick().write(|w| {
@@ -46,7 +47,7 @@ impl Watchdog {
     /// or when JTAG is accessing bus fabric
     pub fn pause_on_debug(&mut self, pause: bool) {
         let watchdog = pac::WATCHDOG;
-        watchdog.ctrl().write(|w| {
+        watchdog.ctrl().modify(|w| {
             w.set_pause_dbg0(pause);
             w.set_pause_dbg1(pause);
             w.set_pause_jtag(pause);
@@ -60,7 +61,7 @@ impl Watchdog {
 
     fn enable(&self, bit: bool) {
         let watchdog = pac::WATCHDOG;
-        watchdog.ctrl().write(|w| w.set_enable(bit))
+        watchdog.ctrl().modify(|w| w.set_enable(bit))
     }
 
     // Configure which hardware will be reset by the watchdog

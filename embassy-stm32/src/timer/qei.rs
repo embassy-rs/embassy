@@ -7,7 +7,7 @@ use stm32_metapac::timer::vals;
 
 use super::low_level::Timer;
 use super::{Channel1Pin, Channel2Pin, GeneralInstance4Channel};
-use crate::gpio::{AFType, AnyPin};
+use crate::gpio::{AfType, AnyPin, Pull};
 use crate::Peripheral;
 
 /// Counting direction
@@ -37,9 +37,7 @@ macro_rules! channel_impl {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), AFType::Input);
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                    pin.set_as_af(pin.af_num(), AfType::input(Pull::None));
                 });
                 QeiPin {
                     _pin: pin.map_into(),

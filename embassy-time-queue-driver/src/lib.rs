@@ -2,38 +2,25 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-//! ## Implementing a timer queue
+//! This crate is an implementation detail of `embassy-time-driver`.
 //!
-//! - Define a struct `MyTimerQueue`
-//! - Implement [`TimerQueue`] for it
-//! - Register it as the global timer queue with [`timer_queue_impl`](crate::timer_queue_impl).
+//! As a HAL user, you should only depend on this crate if your application does not use
+//! `embassy-executor` and your HAL does not configure a generic queue by itself.
 //!
-//! ## Example
-//!
-//! ```
-//! use core::task::Waker;
-//!
-//! use embassy_time::Instant;
-//! use embassy_time::queue::{TimerQueue};
-//!
-//! struct MyTimerQueue{}; // not public!
-//!
-//! impl TimerQueue for MyTimerQueue {
-//!     fn schedule_wake(&'static self, at: u64, waker: &Waker) {
-//!         todo!()
-//!     }
-//! }
-//!
-//! embassy_time_queue_driver::timer_queue_impl!(static QUEUE: MyTimerQueue = MyTimerQueue{});
-//! ```
+//! As a HAL implementer, you need to depend on this crate if you want to implement a time driver,
+//! but how you should do so is documented in `embassy-time-driver`.
+
 use core::task::Waker;
 
-/// Timer queue
-pub trait TimerQueue {
-    /// Schedules a waker in the queue to be awoken at moment `at`.
-    /// If this moment is in the past, the waker might be awoken immediately.
-    fn schedule_wake(&'static self, at: u64, waker: &Waker);
-}
+#[cfg(feature = "_generic-queue")]
+pub mod queue_generic;
+#[cfg(not(feature = "_generic-queue"))]
+pub mod queue_integrated;
+
+#[cfg(feature = "_generic-queue")]
+pub use queue_generic::Queue;
+#[cfg(not(feature = "_generic-queue"))]
+pub use queue_integrated::Queue;
 
 extern "Rust" {
     fn _embassy_time_schedule_wake(at: u64, waker: &Waker);
@@ -41,20 +28,22 @@ extern "Rust" {
 
 /// Schedule the given waker to be woken at `at`.
 pub fn schedule_wake(at: u64, waker: &Waker) {
-    unsafe { _embassy_time_schedule_wake(at, waker) }
-}
-
-/// Set the TimerQueue implementation.
-///
-/// See the module documentation for an example.
-#[macro_export]
-macro_rules! timer_queue_impl {
-    (static $name:ident: $t: ty = $val:expr) => {
-        static $name: $t = $val;
-
-        #[no_mangle]
-        fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker) {
-            <$t as $crate::TimerQueue>::schedule_wake(&$name, at, waker);
+    // This function is not implemented in embassy-time-driver because it needs access to executor
+    // internals. The function updates task state, then delegates to the implementation provided
+    // by the time driver.
+    #[cfg(not(feature = "_generic-queue"))]
+    {
+        use embassy_executor::raw::task_from_waker;
+        use embassy_executor::raw::timer_queue::TimerEnqueueOperation;
+        // The very first thing we must do, before we even access the timer queue, is to
+        // mark the task a TIMER_QUEUED. This ensures that the task that is being scheduled
+        // can not be respawn while we are accessing the timer queue.
+        let task = task_from_waker(waker);
+        if unsafe { task.timer_enqueue() } == TimerEnqueueOperation::Ignore {
+            // We are not allowed to enqueue the task in the timer queue. This is because the
+            // task is not spawned, and so it makes no sense to schedule it.
+            return;
         }
-    };
+    }
+    unsafe { _embassy_time_schedule_wake(at, waker) }
 }

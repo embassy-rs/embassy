@@ -1,6 +1,6 @@
 [package]
 name = "embassy-nrf"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
@@ -18,6 +18,7 @@ flavors = [
     { regex_feature = "nrf51", target = "thumbv6m-none-eabi" },
     { regex_feature = "nrf52.*", target = "thumbv7em-none-eabihf" },
     { regex_feature = "nrf53.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "nrf54.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "nrf91.*", target = "thumbv8m.main-none-eabihf" },
 ]
 
@@ -28,19 +29,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = ["rt"]
 ## Cortex-M runtime (enabled by default)
-rt = [
-    "nrf51-pac?/rt",
-    "nrf52805-pac?/rt",
-    "nrf52810-pac?/rt",
-    "nrf52811-pac?/rt",
-    "nrf52820-pac?/rt",
-    "nrf52832-pac?/rt",
-    "nrf52833-pac?/rt",
-    "nrf52840-pac?/rt",
-    "nrf5340-app-pac?/rt",
-    "nrf5340-net-pac?/rt",
-    "nrf9160-pac?/rt",
-]
+rt = ["nrf-pac/rt"]
 
 ## Enable features requiring `embassy-time`
 time = ["dep:embassy-time"]
@@ -74,43 +63,63 @@ qspi-multiwrite-flash = []
 
 #! ### Chip selection features
 ## nRF51
-nrf51 = ["nrf51-pac", "_nrf51"]
+nrf51 = ["nrf-pac/nrf51", "_nrf51"]
 ## nRF52805
-nrf52805 = ["nrf52805-pac", "_nrf52"]
+nrf52805 = ["nrf-pac/nrf52805", "_nrf52"]
 ## nRF52810
-nrf52810 = ["nrf52810-pac", "_nrf52"]
+nrf52810 = ["nrf-pac/nrf52810", "_nrf52"]
 ## nRF52811
-nrf52811 = ["nrf52811-pac", "_nrf52"]
+nrf52811 = ["nrf-pac/nrf52811", "_nrf52"]
 ## nRF52820
-nrf52820 = ["nrf52820-pac", "_nrf52"]
+nrf52820 = ["nrf-pac/nrf52820", "_nrf52"]
 ## nRF52832
-nrf52832 = ["nrf52832-pac", "_nrf52", "_nrf52832_anomaly_109"]
+nrf52832 = ["nrf-pac/nrf52832", "_nrf52", "_nrf52832_anomaly_109"]
 ## nRF52833
-nrf52833 = ["nrf52833-pac", "_nrf52", "_gpio-p1"]
+nrf52833 = ["nrf-pac/nrf52833", "_nrf52", "_gpio-p1"]
 ## nRF52840
-nrf52840 = ["nrf52840-pac", "_nrf52", "_gpio-p1"]
+nrf52840 = ["nrf-pac/nrf52840", "_nrf52", "_gpio-p1"]
 ## nRF5340 application core in Secure mode
 nrf5340-app-s = ["_nrf5340-app", "_s"]
 ## nRF5340 application core in Non-Secure mode
 nrf5340-app-ns = ["_nrf5340-app", "_ns"]
 ## nRF5340 network core
 nrf5340-net = ["_nrf5340-net"]
+## nRF54L15 application core in Secure mode
+nrf54l15-app-s = ["_nrf54l15-app", "_s"]
+## nRF54L15 application core in Non-Secure mode
+nrf54l15-app-ns = ["_nrf54l15-app", "_ns"]
+
 ## nRF9160 in Secure mode
-nrf9160-s = ["_nrf9160", "_s"]
+nrf9160-s = ["_nrf9160", "_s", "_nrf91"]
 ## nRF9160 in Non-Secure mode
-nrf9160-ns = ["_nrf9160", "_ns"]
+nrf9160-ns = ["_nrf9160", "_ns", "_nrf91"]
+## The nRF9120 is the internal part number for the nRF9161 and nRF9151.
+## nRF9120 in Secure mode
+nrf9120-s = ["_nrf9120", "_s", "_nrf91"]
+nrf9151-s = ["nrf9120-s"]
+nrf9161-s = ["nrf9120-s"]
+## nRF9120 in Non-Secure mode
+nrf9120-ns = ["_nrf9120", "_ns", "_nrf91"]
+nrf9151-ns = ["nrf9120-ns"]
+nrf9161-ns = ["nrf9120-ns"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
 
-_nrf5340-app = ["_nrf5340", "nrf5340-app-pac"]
-_nrf5340-net = ["_nrf5340", "nrf5340-net-pac"]
+_nrf5340-app = ["_nrf5340", "nrf-pac/nrf5340-app"]
+_nrf5340-net = ["_nrf5340", "nrf-pac/nrf5340-net"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
-_nrf9160 = ["nrf9160-pac", "_dppi"]
+_nrf54l15-app = ["_nrf54l15", "nrf-pac/nrf54l15-app"]
+_nrf54l15 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
+_nrf54l = ["_dppi"]
+
+_nrf9160 = ["nrf-pac/nrf9160", "_dppi"]
+_nrf9120 = ["nrf-pac/nrf9120", "_dppi"]
 _nrf52 = ["_ppi"]
 _nrf51 = ["_ppi"]
+_nrf91 = []
 
-_time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768"]
+_time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768", "dep:embassy-time-queue-driver"]
 
 # trustzone state.
 _s = []
@@ -119,16 +128,18 @@ _ns = []
 _ppi = []
 _dppi = []
 _gpio-p1 = []
+_gpio-p2 = []
 
 # Errata workarounds
 _nrf52832_anomaly_109 = []
 
 [dependencies]
 embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
-embassy-time = { version = "0.3.0", path = "../embassy-time", optional = true }
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
-embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
-embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
+embassy-time-queue-driver = { version = "0.1", path = "../embassy-time-queue-driver", optional = true }
+embassy-time = { version = "0.3.2", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.6.1", path = "../embassy-sync" }
+embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-embedded-hal = {version = "0.2.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
@@ -136,6 +147,8 @@ embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
+
+nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "52e3a757f06035c94291bfc42b0c03f71e4d677e" }
 
 defmt = { version = "0.3", optional = true }
 bitflags = "2.4.2"
@@ -149,15 +162,3 @@ embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.1"
 cfg-if = "1.0.0"
 document-features = "0.2.7"
-
-nrf51-pac = { version = "0.12.0", optional = true }
-nrf52805-pac = { version = "0.12.0", optional = true }
-nrf52810-pac = { version = "0.12.0", optional = true }
-nrf52811-pac = { version = "0.12.0", optional = true }
-nrf52820-pac = { version = "0.12.0", optional = true }
-nrf52832-pac = { version = "0.12.0", optional = true }
-nrf52833-pac = { version = "0.12.0", optional = true }
-nrf52840-pac = { version = "0.12.0", optional = true }
-nrf5340-app-pac = { version = "0.12.0", optional = true }
-nrf5340-net-pac = { version = "0.12.0", optional = true }
-nrf9160-pac = { version = "0.12.0", optional = true }

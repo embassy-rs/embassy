@@ -19,7 +19,7 @@ bind_interrupts!(struct Irqs {
 // If you are trying this and your USB device doesn't connect, the most
 // common issues are the RCC config and vbus_detection
 //
-// See https://embassy.dev/book/dev/faq.html#_the_usb_examples_are_not_working_on_my_board_is_there_anything_else_i_need_to_configure
+// See https://embassy.dev/book/#_the_usb_examples_are_not_working_on_my_board_is_there_anything_else_i_need_to_configure
 // for more information.
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
