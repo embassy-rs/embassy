@@ -46,6 +46,9 @@
 //!
 //! Then, you'll need to adapt the `schedule_wake` method to use this queue.
 //!
+//! Note that if you are using multiple queues, you will need to ensure that a single timer
+//! queue item is only ever enqueued into a single queue at a time.
+//!
 //! ```ignore
 //! use core::cell::RefCell;
 //! use core::task::Waker;
@@ -131,11 +134,17 @@ pub trait Driver: Send + Sync + 'static {
 
 extern "Rust" {
     fn _embassy_time_now() -> u64;
+    fn _embassy_time_schedule_wake(at: u64, waker: &Waker);
 }
 
 /// See [`Driver::now`]
 pub fn now() -> u64 {
     unsafe { _embassy_time_now() }
+}
+
+/// Schedule the given waker to be woken at `at`.
+pub fn schedule_wake(at: u64, waker: &Waker) {
+    unsafe { _embassy_time_schedule_wake(at, waker) }
 }
 
 /// Set the time Driver implementation.

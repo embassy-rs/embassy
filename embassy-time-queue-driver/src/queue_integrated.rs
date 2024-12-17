@@ -83,7 +83,6 @@ impl Queue {
                 // Remove it
                 prev.set(item.next.get());
                 item.next.set(None);
-                unsafe { p.timer_dequeue() };
             }
         }
     }

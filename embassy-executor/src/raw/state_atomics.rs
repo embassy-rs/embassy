@@ -1,7 +1,5 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use super::timer_queue::TimerEnqueueOperation;
-
 #[derive(Clone, Copy)]
 pub(crate) struct Token(());
 
@@ -16,8 +14,6 @@ pub(crate) fn locked<R>(f: impl FnOnce(Token) -> R) -> R {
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
 pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
-/// Task is in the executor timer queue
-pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 
 pub(crate) struct State {
     state: AtomicU32,
@@ -70,33 +66,5 @@ impl State {
     pub fn run_dequeue(&self) -> bool {
         let state = self.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
         state & STATE_SPAWNED != 0
-    }
-
-    /// Mark the task as timer-queued. Return whether it can be enqueued.
-    #[inline(always)]
-    pub fn timer_enqueue(&self) -> TimerEnqueueOperation {
-        if self
-            .state
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
-                // If not started, ignore it
-                if state & STATE_SPAWNED == 0 {
-                    None
-                } else {
-                    // Mark it as enqueued
-                    Some(state | STATE_TIMER_QUEUED)
-                }
-            })
-            .is_ok()
-        {
-            TimerEnqueueOperation::Enqueue
-        } else {
-            TimerEnqueueOperation::Ignore
-        }
-    }
-
-    /// Unmark the task as timer-queued.
-    #[inline(always)]
-    pub fn timer_dequeue(&self) {
-        self.state.fetch_and(!STATE_TIMER_QUEUED, Ordering::Relaxed);
     }
 }
