@@ -50,33 +50,32 @@ use super::SpawnToken;
 /// A task's complete life cycle is as follows:
 ///
 /// ```text
-///    ┌────────────┐   ┌────────────────────────┐
-/// ┌─►│Not spawned │◄─6┤Not spawned|Run enqueued│
-/// │  │            ├7─►│                        │
-/// │  └─────┬──────┘   └──────▲─────────────────┘
-/// │        1                 │
-/// │        │    ┌────────────┘
-/// │        │    5
-/// │  ┌─────▼────┴─────────┐
-/// │  │Spawned|Run enqueued│
-/// │  │                    │
-/// │  └─────┬▲─────────────┘
-/// │        2│
-/// │        │3
-/// │  ┌─────▼┴─────┐
-/// └─4┤  Spawned   │
-///    │            │
-///    └────────────┘
+/// ┌────────────┐   ┌────────────────────────┐
+/// │Not spawned │◄─5┤Not spawned|Run enqueued│
+/// │            ├6─►│                        │
+/// └─────┬──────┘   └──────▲─────────────────┘
+///       1                 │
+///       │    ┌────────────┘
+///       │    4
+/// ┌─────▼────┴─────────┐
+/// │Spawned|Run enqueued│
+/// │                    │
+/// └─────┬▲─────────────┘
+///       2│
+///       │3
+/// ┌─────▼┴─────┐
+/// │  Spawned   │
+/// │            │
+/// └────────────┘
 /// ```
 ///
 /// Transitions:
 /// - 1: Task is spawned - `AvailableTask::claim -> Executor::spawn`
 /// - 2: During poll - `RunQueue::dequeue_all -> State::run_dequeue`
-/// - 3: Task wakes itself, waker wakes task - `Waker::wake -> wake_task -> State::run_enqueue`
-/// - 4: Task exits - `TaskStorage::poll -> Poll::Ready`
-/// - 5: A run-queued task exits - `TaskStorage::poll -> Poll::Ready`
-/// - 6: Task is dequeued and then ignored via `State::run_dequeue`
-/// - 7: A task is waken when it is not spawned - `wake_task -> State::run_enqueue`
+/// - 3: Task wakes itself, waker wakes task, or task exits - `Waker::wake -> wake_task -> State::run_enqueue`
+/// - 4: A run-queued task exits - `TaskStorage::poll -> Poll::Ready`
+/// - 5: Task is dequeued. The task's future is not polled, because exiting the task replaces its `poll_fn`.
+/// - 6: A task is waken when it is not spawned - `wake_task -> State::run_enqueue`
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
