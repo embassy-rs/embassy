@@ -44,19 +44,8 @@ impl State {
     /// function if the task was successfully marked.
     #[inline(always)]
     pub fn run_enqueue(&self, f: impl FnOnce(Token)) {
-        if self
-            .state
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
-                // If already scheduled, or if not started,
-                if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
-                    None
-                } else {
-                    // Mark it as scheduled
-                    Some(state | STATE_RUN_QUEUED)
-                }
-            })
-            .is_ok()
-        {
+        let prev = self.state.fetch_or(STATE_RUN_QUEUED, Ordering::AcqRel);
+        if prev & STATE_RUN_QUEUED == 0 {
             locked(f);
         }
     }

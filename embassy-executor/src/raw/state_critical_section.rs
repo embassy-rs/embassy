@@ -56,12 +56,9 @@ impl State {
     pub fn run_enqueue(&self, f: impl FnOnce(Token)) {
         critical_section::with(|cs| {
             if self.update_with_cs(cs, |s| {
-                if (*s & STATE_RUN_QUEUED != 0) || (*s & STATE_SPAWNED == 0) {
-                    false
-                } else {
-                    *s |= STATE_RUN_QUEUED;
-                    true
-                }
+                let ok = *s & STATE_RUN_QUEUED == 0;
+                *s |= STATE_RUN_QUEUED;
+                ok
             }) {
                 f(cs);
             }

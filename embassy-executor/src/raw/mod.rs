@@ -52,7 +52,7 @@ use super::SpawnToken;
 /// ```text
 ///    ┌────────────┐   ┌────────────────────────┐
 /// ┌─►│Not spawned │◄─6┤Not spawned|Run enqueued│
-/// │  │            │   │                        │
+/// │  │            ├7─►│                        │
 /// │  └─────┬──────┘   └──────▲─────────────────┘
 /// │        1                 │
 /// │        │    ┌────────────┘
@@ -76,6 +76,7 @@ use super::SpawnToken;
 /// - 4: Task exits - `TaskStorage::poll -> Poll::Ready`
 /// - 5: A run-queued task exits - `TaskStorage::poll -> Poll::Ready`
 /// - 6: Task is dequeued and then ignored via `State::run_dequeue`
+/// - 7: A task is waken when it is not spawned - `wake_task -> State::run_enqueue`
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
