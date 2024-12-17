@@ -193,8 +193,8 @@ impl Config {
         if self.swap_rx_tx {
             return AfType::input(self.rx_pull);
         };
-        if(self.output_open_drain) {
-            return AFType::OutputOpenDrain;
+        if self.output_open_drain {
+            return AfType::output(OutputType::OpenDrain, Speed::Medium);
         }
         AfType::output(OutputType::PushPull, Speed::Medium)
     }
@@ -204,8 +204,8 @@ impl Config {
         if self.swap_rx_tx {
             return AfType::output(OutputType::PushPull, Speed::Medium);
         };
-        if(self.output_open_drain) {
-            return AFType::OutputOpenDrain;
+        if self.output_open_drain {
+            return AfType::output(OutputType::OpenDrain, Speed::Medium);
         }
         AfType::input(self.rx_pull)
     }
