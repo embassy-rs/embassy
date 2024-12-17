@@ -161,6 +161,12 @@ pub struct TaskStorage<F: Future + 'static> {
     future: UninitCell<F>, // Valid if STATE_SPAWNED
 }
 
+unsafe fn poll_to_despawn(p: TaskRef) {
+    // The task's future has already been dropped, we just mark it as `!SPAWNED`.
+    let this = p.header();
+    this.state.despawn();
+}
+
 impl<F: Future + 'static> TaskStorage<F> {
     const NEW: Self = Self::new();
 
@@ -201,12 +207,6 @@ impl<F: Future + 'static> TaskStorage<F> {
         }
     }
 
-    unsafe fn poll_to_despawn(p: TaskRef) {
-        // The task's future has already been dropped, we just mark it as `!SPAWNED`.
-        let this = &*p.as_ptr().cast::<TaskStorage<F>>();
-        this.raw.state.despawn();
-    }
-
     unsafe fn poll(p: TaskRef) {
         let this = &*p.as_ptr().cast::<TaskStorage<F>>();
 
@@ -223,7 +223,7 @@ impl<F: Future + 'static> TaskStorage<F> {
 
                 // We replace the poll_fn with a despawn function, so that the task is cleaned up
                 // when the executor polls it next.
-                this.raw.poll_fn.set(Some(Self::poll_to_despawn));
+                this.raw.poll_fn.set(Some(poll_to_despawn));
             }
             Poll::Pending => {}
         }
