@@ -1,14 +1,12 @@
 use core::cell::Cell;
 
-use critical_section::Mutex;
+pub(crate) use critical_section::{with as locked, CriticalSection as Token};
+use critical_section::{CriticalSection, Mutex};
 
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
 pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
-/// Task is in the executor timer queue
-#[cfg(feature = "integrated-timers")]
-pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
 
 pub(crate) struct State {
     state: Mutex<Cell<u32>>,
@@ -22,13 +20,15 @@ impl State {
     }
 
     fn update<R>(&self, f: impl FnOnce(&mut u32) -> R) -> R {
-        critical_section::with(|cs| {
-            let s = self.state.borrow(cs);
-            let mut val = s.get();
-            let r = f(&mut val);
-            s.set(val);
-            r
-        })
+        critical_section::with(|cs| self.update_with_cs(cs, f))
+    }
+
+    fn update_with_cs<R>(&self, cs: CriticalSection<'_>, f: impl FnOnce(&mut u32) -> R) -> R {
+        let s = self.state.borrow(cs);
+        let mut val = s.get();
+        let r = f(&mut val);
+        s.set(val);
+        r
     }
 
     /// If task is idle, mark it as spawned + run_queued and return true.
@@ -50,44 +50,24 @@ impl State {
         self.update(|s| *s &= !STATE_SPAWNED);
     }
 
-    /// Mark the task as run-queued if it's spawned and isn't already run-queued. Return true on success.
+    /// Mark the task as run-queued if it's spawned and isn't already run-queued. Run the given
+    /// function if the task was successfully marked.
     #[inline(always)]
-    pub fn run_enqueue(&self) -> bool {
-        self.update(|s| {
-            if (*s & STATE_RUN_QUEUED != 0) || (*s & STATE_SPAWNED == 0) {
-                false
-            } else {
+    pub fn run_enqueue(&self, f: impl FnOnce(Token)) {
+        critical_section::with(|cs| {
+            if self.update_with_cs(cs, |s| {
+                let ok = *s & STATE_RUN_QUEUED == 0;
                 *s |= STATE_RUN_QUEUED;
-                true
+                ok
+            }) {
+                f(cs);
             }
-        })
+        });
     }
 
     /// Unmark the task as run-queued. Return whether the task is spawned.
     #[inline(always)]
-    pub fn run_dequeue(&self) -> bool {
-        self.update(|s| {
-            let ok = *s & STATE_SPAWNED != 0;
-            *s &= !STATE_RUN_QUEUED;
-            ok
-        })
-    }
-
-    /// Mark the task as timer-queued. Return whether it was newly queued (i.e. not queued before)
-    #[cfg(feature = "integrated-timers")]
-    #[inline(always)]
-    pub fn timer_enqueue(&self) -> bool {
-        self.update(|s| {
-            let ok = *s & STATE_TIMER_QUEUED == 0;
-            *s |= STATE_TIMER_QUEUED;
-            ok
-        })
-    }
-
-    /// Unmark the task as timer-queued.
-    #[cfg(feature = "integrated-timers")]
-    #[inline(always)]
-    pub fn timer_dequeue(&self) {
-        self.update(|s| *s &= !STATE_TIMER_QUEUED);
+    pub fn run_dequeue(&self, cs: CriticalSection<'_>) {
+        self.update_with_cs(cs, |s| *s &= !STATE_RUN_QUEUED)
     }
 }

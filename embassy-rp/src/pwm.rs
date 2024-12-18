@@ -1,6 +1,8 @@
 //! Pulse Width Modulation (PWM)
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embedded_hal_1::pwm::SetDutyCycle;
+use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 use fixed::traits::ToFixed;
 use fixed::FixedU16;
 use pac::pwm::regs::{ChDiv, Intr};
@@ -80,11 +82,50 @@ impl From<InputMode> for Divmode {
     }
 }
 
+/// PWM error.
+#[derive(Debug)]
+pub enum PwmError {
+    /// Invalid Duty Cycle.
+    InvalidDutyCycle,
+}
+
+impl Error for PwmError {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            PwmError::InvalidDutyCycle => ErrorKind::Other,
+        }
+    }
+}
+
 /// PWM driver.
 pub struct Pwm<'d> {
     pin_a: Option<PeripheralRef<'d, AnyPin>>,
     pin_b: Option<PeripheralRef<'d, AnyPin>>,
     slice: usize,
+}
+
+impl<'d> ErrorType for Pwm<'d> {
+    type Error = PwmError;
+}
+
+impl<'d> SetDutyCycle for Pwm<'d> {
+    fn max_duty_cycle(&self) -> u16 {
+        pac::PWM.ch(self.slice).top().read().top()
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        let max_duty = self.max_duty_cycle();
+        if duty > max_duty {
+            return Err(PwmError::InvalidDutyCycle);
+        }
+
+        let p = pac::PWM.ch(self.slice);
+        p.cc().modify(|w| {
+            w.set_a(duty);
+            w.set_b(duty);
+        });
+        Ok(())
+    }
 }
 
 impl<'d> Pwm<'d> {
@@ -106,6 +147,10 @@ impl<'d> Pwm<'d> {
 
         if let Some(pin) = &a {
             pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+            #[cfg(feature = "_rp235x")]
+            pin.pad_ctrl().modify(|w| {
+                w.set_iso(false);
+            });
         }
         if let Some(pin) = &b {
             pin.gpio().ctrl().write(|w| w.set_funcsel(4));
@@ -298,6 +343,119 @@ impl<'d> Pwm<'d> {
     #[inline]
     fn bit(&self) -> u32 {
         1 << self.slice as usize
+    }
+
+    /// Splits the PWM driver into separate `PwmOutput` instances for channels A and B.
+    #[inline]
+    pub fn split(mut self) -> (Option<PwmOutput<'d>>, Option<PwmOutput<'d>>) {
+        (
+            self.pin_a
+                .take()
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin), self.slice.clone(), true)),
+            self.pin_b
+                .take()
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin), self.slice.clone(), true)),
+        )
+    }
+    /// Splits the PWM driver by reference to allow for separate duty cycle control
+    /// of each channel (A and B) without taking ownership of the PWM instance.
+    #[inline]
+    pub fn split_by_ref(&mut self) -> (Option<PwmOutput<'_>>, Option<PwmOutput<'_>>) {
+        (
+            self.pin_a
+                .as_mut()
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin.reborrow()), self.slice.clone(), false)),
+            self.pin_b
+                .as_mut()
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin.reborrow()), self.slice.clone(), false)),
+        )
+    }
+}
+
+enum PwmChannelPin<'d> {
+    A(PeripheralRef<'d, AnyPin>),
+    B(PeripheralRef<'d, AnyPin>),
+}
+
+/// Single channel of Pwm driver.
+pub struct PwmOutput<'d> {
+    //pin that can be ether ChannelAPin or ChannelBPin
+    channel_pin: PwmChannelPin<'d>,
+    slice: usize,
+    is_owned: bool,
+}
+
+impl<'d> PwmOutput<'d> {
+    fn new(channel_pin: PwmChannelPin<'d>, slice: usize, is_owned: bool) -> Self {
+        Self {
+            channel_pin,
+            slice,
+            is_owned,
+        }
+    }
+}
+
+impl<'d> Drop for PwmOutput<'d> {
+    fn drop(&mut self) {
+        if self.is_owned {
+            let p = pac::PWM.ch(self.slice);
+            match &self.channel_pin {
+                PwmChannelPin::A(pin) => {
+                    p.cc().modify(|w| {
+                        w.set_a(0);
+                    });
+
+                    pin.gpio().ctrl().write(|w| w.set_funcsel(31));
+                    //Enable pin PULL-DOWN
+                    pin.pad_ctrl().modify(|w| {
+                        w.set_pde(true);
+                    });
+                }
+                PwmChannelPin::B(pin) => {
+                    p.cc().modify(|w| {
+                        w.set_b(0);
+                    });
+                    pin.gpio().ctrl().write(|w| w.set_funcsel(31));
+                    //Enable pin PULL-DOWN
+                    pin.pad_ctrl().modify(|w| {
+                        w.set_pde(true);
+                    });
+                }
+            }
+        }
+    }
+}
+
+impl<'d> ErrorType for PwmOutput<'d> {
+    type Error = PwmError;
+}
+
+impl<'d> SetDutyCycle for PwmOutput<'d> {
+    fn max_duty_cycle(&self) -> u16 {
+        pac::PWM.ch(self.slice).top().read().top()
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        let max_duty = self.max_duty_cycle();
+        if duty > max_duty {
+            return Err(PwmError::InvalidDutyCycle);
+        }
+
+        let p = pac::PWM.ch(self.slice);
+        match self.channel_pin {
+            PwmChannelPin::A(_) => {
+                p.cc().modify(|w| {
+                    w.set_a(duty);
+                });
+            }
+            PwmChannelPin::B(_) => {
+                p.cc().modify(|w| {
+                    w.set_b(duty);
+                });
+            }
+        }
+
+        Ok(())
     }
 }
 

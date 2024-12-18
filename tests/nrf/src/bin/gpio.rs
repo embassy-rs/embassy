@@ -17,10 +17,12 @@ async fn main(_spawner: Spawner) {
     let mut output = Output::new(peri!(p, PIN_B), Level::Low, OutputDrive::Standard);
 
     output.set_low();
+    assert!(output.is_set_low());
     Timer::after_millis(10).await;
     assert!(input.is_low());
 
     output.set_high();
+    assert!(output.is_set_high());
     Timer::after_millis(10).await;
     assert!(input.is_high());
 

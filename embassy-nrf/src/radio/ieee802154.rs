@@ -9,6 +9,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use super::{state, Error, Instance, InterruptHandler, RadioState, TxPower};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
+use crate::pac::radio::vals;
 use crate::Peripheral;
 
 /// Default (IEEE compliant) Start of Frame Delimiter
@@ -47,58 +48,47 @@ impl<'d, T: Instance> Radio<'d, T> {
         let r = T::regs();
 
         // Disable and enable to reset peripheral
-        r.power.write(|w| w.power().disabled());
-        r.power.write(|w| w.power().enabled());
+        r.power().write(|w| w.set_power(false));
+        r.power().write(|w| w.set_power(true));
 
         // Enable 802.15.4 mode
-        r.mode.write(|w| w.mode().ieee802154_250kbit());
+        r.mode().write(|w| w.set_mode(vals::Mode::IEEE802154_250KBIT));
         // Configure CRC skip address
-        r.crccnf.write(|w| w.len().two().skipaddr().ieee802154());
-        unsafe {
-            // Configure CRC polynomial and init
-            r.crcpoly.write(|w| w.crcpoly().bits(0x0001_1021));
-            r.crcinit.write(|w| w.crcinit().bits(0));
-            r.pcnf0.write(|w| {
-                // 8-bit on air length
-                w.lflen()
-                    .bits(8)
-                    // Zero bytes S0 field length
-                    .s0len()
-                    .clear_bit()
-                    // Zero bytes S1 field length
-                    .s1len()
-                    .bits(0)
-                    // Do not include S1 field in RAM if S1 length > 0
-                    .s1incl()
-                    .clear_bit()
-                    // Zero code Indicator length
-                    .cilen()
-                    .bits(0)
-                    // 32-bit zero preamble
-                    .plen()
-                    ._32bit_zero()
-                    // Include CRC in length
-                    .crcinc()
-                    .include()
-            });
-            r.pcnf1.write(|w| {
-                // Maximum packet length
-                w.maxlen()
-                    .bits(Packet::MAX_PSDU_LEN)
-                    // Zero static length
-                    .statlen()
-                    .bits(0)
-                    // Zero base address length
-                    .balen()
-                    .bits(0)
-                    // Little-endian
-                    .endian()
-                    .clear_bit()
-                    // Disable packet whitening
-                    .whiteen()
-                    .clear_bit()
-            });
-        }
+        r.crccnf().write(|w| {
+            w.set_len(vals::Len::TWO);
+            w.set_skipaddr(vals::Skipaddr::IEEE802154);
+        });
+        // Configure CRC polynomial and init
+        r.crcpoly().write(|w| w.set_crcpoly(0x0001_1021));
+        r.crcinit().write(|w| w.set_crcinit(0));
+        r.pcnf0().write(|w| {
+            // 8-bit on air length
+            w.set_lflen(8);
+            // Zero bytes S0 field length
+            w.set_s0len(false);
+            // Zero bytes S1 field length
+            w.set_s1len(0);
+            // Do not include S1 field in RAM if S1 length > 0
+            w.set_s1incl(vals::S1incl::AUTOMATIC);
+            // Zero code Indicator length
+            w.set_cilen(0);
+            // 32-bit zero preamble
+            w.set_plen(vals::Plen::_32BIT_ZERO);
+            // Include CRC in length
+            w.set_crcinc(vals::Crcinc::INCLUDE);
+        });
+        r.pcnf1().write(|w| {
+            // Maximum packet length
+            w.set_maxlen(Packet::MAX_PSDU_LEN);
+            // Zero static length
+            w.set_statlen(0);
+            // Zero base address length
+            w.set_balen(0);
+            // Little-endian
+            w.set_endian(vals::Endian::LITTLE);
+            // Disable packet whitening
+            w.set_whiteen(false);
+        });
 
         // Enable NVIC interrupt
         T::Interrupt::unpend();
@@ -125,8 +115,10 @@ impl<'d, T: Instance> Radio<'d, T> {
         }
         let frequency_offset = (channel - 10) * 5;
         self.needs_enable = true;
-        r.frequency
-            .write(|w| unsafe { w.frequency().bits(frequency_offset).map().default() });
+        r.frequency().write(|w| {
+            w.set_frequency(frequency_offset);
+            w.set_map(vals::Map::DEFAULT);
+        });
     }
 
     /// Changes the Clear Channel Assessment method
@@ -134,12 +126,14 @@ impl<'d, T: Instance> Radio<'d, T> {
         let r = T::regs();
         self.needs_enable = true;
         match cca {
-            Cca::CarrierSense => r.ccactrl.write(|w| w.ccamode().carrier_mode()),
+            Cca::CarrierSense => r.ccactrl().write(|w| w.set_ccamode(vals::Ccamode::CARRIER_MODE)),
             Cca::EnergyDetection { ed_threshold } => {
                 // "[ED] is enabled by first configuring the field CCAMODE=EdMode in CCACTRL
                 // and writing the CCAEDTHRES field to a chosen value."
-                r.ccactrl
-                    .write(|w| unsafe { w.ccamode().ed_mode().ccaedthres().bits(ed_threshold) });
+                r.ccactrl().write(|w| {
+                    w.set_ccamode(vals::Ccamode::ED_MODE);
+                    w.set_ccaedthres(ed_threshold);
+                });
             }
         }
     }
@@ -147,13 +141,13 @@ impl<'d, T: Instance> Radio<'d, T> {
     /// Changes the Start of Frame Delimiter (SFD)
     pub fn set_sfd(&mut self, sfd: u8) {
         let r = T::regs();
-        r.sfd.write(|w| unsafe { w.sfd().bits(sfd) });
+        r.sfd().write(|w| w.set_sfd(sfd));
     }
 
     /// Clear interrupts
     pub fn clear_all_interrupts(&mut self) {
         let r = T::regs();
-        r.intenclr.write(|w| unsafe { w.bits(0xffff_ffff) });
+        r.intenclr().write(|w| w.0 = 0xffff_ffff);
     }
 
     /// Changes the radio transmission power
@@ -163,43 +157,43 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         let tx_power: TxPower = match power {
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            8 => TxPower::POS8D_BM,
+            8 => TxPower::POS8_DBM,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            7 => TxPower::POS7D_BM,
+            7 => TxPower::POS7_DBM,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            6 => TxPower::POS6D_BM,
+            6 => TxPower::POS6_DBM,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            5 => TxPower::POS5D_BM,
+            5 => TxPower::POS5_DBM,
             #[cfg(not(feature = "_nrf5340-net"))]
-            4 => TxPower::POS4D_BM,
+            4 => TxPower::POS4_DBM,
             #[cfg(not(feature = "_nrf5340-net"))]
-            3 => TxPower::POS3D_BM,
+            3 => TxPower::POS3_DBM,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            2 => TxPower::POS2D_BM,
-            0 => TxPower::_0D_BM,
+            2 => TxPower::POS2_DBM,
+            0 => TxPower::_0_DBM,
             #[cfg(feature = "_nrf5340-net")]
-            -1 => TxPower::NEG1D_BM,
+            -1 => TxPower::NEG1_DBM,
             #[cfg(feature = "_nrf5340-net")]
-            -2 => TxPower::NEG2D_BM,
+            -2 => TxPower::NEG2_DBM,
             #[cfg(feature = "_nrf5340-net")]
-            -3 => TxPower::NEG3D_BM,
-            -4 => TxPower::NEG4D_BM,
+            -3 => TxPower::NEG3_DBM,
+            -4 => TxPower::NEG4_DBM,
             #[cfg(feature = "_nrf5340-net")]
-            -5 => TxPower::NEG5D_BM,
+            -5 => TxPower::NEG5_DBM,
             #[cfg(feature = "_nrf5340-net")]
-            -6 => TxPower::NEG6D_BM,
+            -6 => TxPower::NEG6_DBM,
             #[cfg(feature = "_nrf5340-net")]
-            -7 => TxPower::NEG7D_BM,
-            -8 => TxPower::NEG8D_BM,
-            -12 => TxPower::NEG12D_BM,
-            -16 => TxPower::NEG16D_BM,
-            -20 => TxPower::NEG20D_BM,
-            -30 => TxPower::NEG30D_BM,
-            -40 => TxPower::NEG40D_BM,
+            -7 => TxPower::NEG7_DBM,
+            -8 => TxPower::NEG8_DBM,
+            -12 => TxPower::NEG12_DBM,
+            -16 => TxPower::NEG16_DBM,
+            -20 => TxPower::NEG20_DBM,
+            -30 => TxPower::NEG30_DBM,
+            -40 => TxPower::NEG40_DBM,
             _ => panic!("Invalid transmission power value"),
         };
 
-        r.txpower.write(|w| w.txpower().variant(tx_power));
+        r.txpower().write(|w| w.set_txpower(tx_power));
     }
 
     /// Waits until the radio state matches the given `state`
@@ -221,7 +215,7 @@ impl<'d, T: Instance> Radio<'d, T> {
                 RadioState::DISABLED => return,
                 // idle or ramping up
                 RadioState::RX_RU | RadioState::RX_IDLE | RadioState::TX_RU | RadioState::TX_IDLE => {
-                    r.tasks_disable.write(|w| w.tasks_disable().set_bit());
+                    r.tasks_disable().write_value(1);
                     self.wait_for_radio_state(RadioState::DISABLED);
                     return;
                 }
@@ -232,29 +226,30 @@ impl<'d, T: Instance> Radio<'d, T> {
                 }
                 // cancel ongoing transfer or ongoing CCA
                 RadioState::RX => {
-                    r.tasks_ccastop.write(|w| w.tasks_ccastop().set_bit());
-                    r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+                    r.tasks_ccastop().write_value(1);
+                    r.tasks_stop().write_value(1);
                     self.wait_for_radio_state(RadioState::RX_IDLE);
                 }
                 RadioState::TX => {
-                    r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+                    r.tasks_stop().write_value(1);
                     self.wait_for_radio_state(RadioState::TX_IDLE);
                 }
+                _ => unreachable!(),
             }
         }
     }
 
     fn set_buffer(&mut self, buffer: &[u8]) {
         let r = T::regs();
-        r.packetptr.write(|w| unsafe { w.bits(buffer.as_ptr() as u32) });
+        r.packetptr().write_value(buffer.as_ptr() as u32);
     }
 
     /// Moves the radio to the RXIDLE state
     fn receive_prepare(&mut self) {
         // clear related events
-        T::regs().events_ccabusy.reset();
-        T::regs().events_phyend.reset();
-        // NOTE to avoid errata 204 (see rev1 v1.4) we do TX_IDLE -> DISABLED -> RX_IDLE
+        T::regs().events_ccabusy().write_value(0);
+        T::regs().events_phyend().write_value(0);
+        // NOTE to avoid errata 204 (see rev1 v1.4) we do TX_IDLE -> DISABLED -> RXIDLE
         let disable = match self.state() {
             RadioState::DISABLED => false,
             RadioState::RX_IDLE => self.needs_enable,
@@ -279,7 +274,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         // The radio goes through following states when receiving a 802.15.4 packet
         //
         // enable RX → ramp up RX → RX idle → Receive → end (PHYEND)
-        r.shorts.write(|w| w.rxready_start().enabled());
+        r.shorts().write(|w| w.set_rxready_start(true));
 
         // set up RX buffer
         self.set_buffer(packet.buffer.as_mut());
@@ -289,17 +284,17 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         match self.state() {
             // Re-start receiver
-            RadioState::RX_IDLE => r.tasks_start.write(|w| w.tasks_start().set_bit()),
+            RadioState::RX_IDLE => r.tasks_start().write_value(1),
             // Enable receiver
-            _ => r.tasks_rxen.write(|w| w.tasks_rxen().set_bit()),
+            _ => r.tasks_rxen().write_value(1),
         }
     }
 
     /// Cancel receiving packet
     fn receive_cancel() {
         let r = T::regs();
-        r.shorts.reset();
-        r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+        r.shorts().write(|_| {});
+        r.tasks_stop().write_value(1);
         loop {
             match state(r) {
                 RadioState::DISABLED | RadioState::RX_IDLE => break,
@@ -329,12 +324,12 @@ impl<'d, T: Instance> Radio<'d, T> {
         core::future::poll_fn(|cx| {
             s.event_waker.register(cx.waker());
 
-            if r.events_phyend.read().events_phyend().bit_is_set() {
-                r.events_phyend.reset();
+            if r.events_phyend().read() != 0 {
+                r.events_phyend().write_value(0);
                 trace!("RX done poll");
                 return Poll::Ready(());
             } else {
-                r.intenset.write(|w| w.phyend().set());
+                r.intenset().write(|w| w.set_phyend(true));
             };
 
             Poll::Pending
@@ -344,8 +339,8 @@ impl<'d, T: Instance> Radio<'d, T> {
         dma_end_fence();
         dropper.defuse();
 
-        let crc = r.rxcrc.read().rxcrc().bits() as u16;
-        if r.crcstatus.read().crcstatus().bit_is_set() {
+        let crc = r.rxcrc().read().rxcrc() as u16;
+        if r.crcstatus().read().crcstatus() == vals::Crcstatus::CRCOK {
             Ok(())
         } else {
             Err(Error::CrcFailed(crc))
@@ -387,17 +382,12 @@ impl<'d, T: Instance> Radio<'d, T> {
         // CCA idle → enable TX → start TX → TX → end (PHYEND) → disabled
         //
         // CCA might end up in the event CCABUSY in which there will be no transmission
-        r.shorts.write(|w| {
-            w.rxready_ccastart()
-                .enabled()
-                .ccaidle_txen()
-                .enabled()
-                .txready_start()
-                .enabled()
-                .ccabusy_disable()
-                .enabled()
-                .phyend_disable()
-                .enabled()
+        r.shorts().write(|w| {
+            w.set_rxready_ccastart(true);
+            w.set_ccaidle_txen(true);
+            w.set_txready_start(true);
+            w.set_ccabusy_disable(true);
+            w.set_phyend_disable(true);
         });
 
         // Set transmission buffer
@@ -410,27 +400,30 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         match self.state() {
             // Re-start receiver
-            RadioState::RX_IDLE => r.tasks_ccastart.write(|w| w.tasks_ccastart().set_bit()),
+            RadioState::RX_IDLE => r.tasks_ccastart().write_value(1),
             // Enable receiver
-            _ => r.tasks_rxen.write(|w| w.tasks_rxen().set_bit()),
+            _ => r.tasks_rxen().write_value(1),
         }
 
         self.clear_all_interrupts();
         let result = core::future::poll_fn(|cx| {
             s.event_waker.register(cx.waker());
 
-            if r.events_phyend.read().events_phyend().bit_is_set() {
-                r.events_phyend.reset();
-                r.events_ccabusy.reset();
+            if r.events_phyend().read() != 0 {
+                r.events_phyend().write_value(0);
+                r.events_ccabusy().write_value(0);
                 trace!("TX done poll");
                 return Poll::Ready(TransmitResult::Success);
-            } else if r.events_ccabusy.read().events_ccabusy().bit_is_set() {
-                r.events_ccabusy.reset();
+            } else if r.events_ccabusy().read() != 0 {
+                r.events_ccabusy().write_value(0);
                 trace!("TX no CCA");
                 return Poll::Ready(TransmitResult::ChannelInUse);
             }
 
-            r.intenset.write(|w| w.phyend().set().ccabusy().set());
+            r.intenset().write(|w| {
+                w.set_phyend(true);
+                w.set_ccabusy(true);
+            });
 
             Poll::Pending
         })

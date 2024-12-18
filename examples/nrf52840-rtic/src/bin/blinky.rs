@@ -4,7 +4,7 @@
 
 use {defmt_rtt as _, panic_probe as _};
 
-#[rtic::app(device = embassy_nrf, peripherals = false, dispatchers = [SWI0_EGU0, SWI1_EGU1])]
+#[rtic::app(device = embassy_nrf, peripherals = false, dispatchers = [EGU0_SWI0, EGU1_SWI1])]
 mod app {
     use defmt::info;
     use embassy_nrf::gpio::{Level, Output, OutputDrive};

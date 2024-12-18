@@ -1,6 +1,7 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem;
+use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use super::raw;
@@ -92,7 +93,13 @@ impl Spawner {
     pub async fn for_current_executor() -> Self {
         poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
-            let executor = unsafe { task.header().executor.get().unwrap_unchecked() };
+            let executor = unsafe {
+                task.header()
+                    .executor
+                    .load(Ordering::Relaxed)
+                    .as_ref()
+                    .unwrap_unchecked()
+            };
             let executor = unsafe { raw::Executor::wrap(executor) };
             Poll::Ready(Self::new(executor))
         })
@@ -164,7 +171,13 @@ impl SendSpawner {
     pub async fn for_current_executor() -> Self {
         poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
-            let executor = unsafe { task.header().executor.get().unwrap_unchecked() };
+            let executor = unsafe {
+                task.header()
+                    .executor
+                    .load(Ordering::Relaxed)
+                    .as_ref()
+                    .unwrap_unchecked()
+            };
             Poll::Ready(Self::new(executor))
         })
         .await

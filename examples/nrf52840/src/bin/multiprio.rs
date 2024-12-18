@@ -112,12 +112,12 @@ static EXECUTOR_MED: InterruptExecutor = InterruptExecutor::new();
 static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
 
 #[interrupt]
-unsafe fn SWI1_EGU1() {
+unsafe fn EGU1_SWI1() {
     EXECUTOR_HIGH.on_interrupt()
 }
 
 #[interrupt]
-unsafe fn SWI0_EGU0() {
+unsafe fn EGU0_SWI0() {
     EXECUTOR_MED.on_interrupt()
 }
 
@@ -127,14 +127,14 @@ fn main() -> ! {
 
     let _p = embassy_nrf::init(Default::default());
 
-    // High-priority executor: SWI1_EGU1, priority level 6
-    interrupt::SWI1_EGU1.set_priority(Priority::P6);
-    let spawner = EXECUTOR_HIGH.start(interrupt::SWI1_EGU1);
+    // High-priority executor: EGU1_SWI1, priority level 6
+    interrupt::EGU1_SWI1.set_priority(Priority::P6);
+    let spawner = EXECUTOR_HIGH.start(interrupt::EGU1_SWI1);
     unwrap!(spawner.spawn(run_high()));
 
-    // Medium-priority executor: SWI0_EGU0, priority level 7
-    interrupt::SWI0_EGU0.set_priority(Priority::P7);
-    let spawner = EXECUTOR_MED.start(interrupt::SWI0_EGU0);
+    // Medium-priority executor: EGU0_SWI0, priority level 7
+    interrupt::EGU0_SWI0.set_priority(Priority::P7);
+    let spawner = EXECUTOR_MED.start(interrupt::EGU0_SWI0);
     unwrap!(spawner.spawn(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV

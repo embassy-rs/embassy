@@ -12,11 +12,12 @@ export CARGO_TARGET_DIR=/ci/cache/target
 # used when pointing stm32-metapac to a CI-built one.
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
+cargo test --manifest-path ./embassy-executor/Cargo.toml
 cargo test --manifest-path ./embassy-futures/Cargo.toml
 cargo test --manifest-path ./embassy-sync/Cargo.toml
 cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml
 cargo test --manifest-path ./embassy-hal-internal/Cargo.toml
-cargo test --manifest-path ./embassy-time/Cargo.toml --features generic-queue,mock-driver
+cargo test --manifest-path ./embassy-time/Cargo.toml --features mock-driver,embassy-time-queue-driver/generic-queue-8
 cargo test --manifest-path ./embassy-time-driver/Cargo.toml
 
 cargo test --manifest-path ./embassy-boot/Cargo.toml

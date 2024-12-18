@@ -251,10 +251,12 @@ foreach_peripheral!(
         impl_opamp_external_output!(OPAMP2, ADC2, 3);
     };
     (opamp, OPAMP3) => {
+        impl_opamp_external_output!(OPAMP3, ADC1, 12);
         impl_opamp_external_output!(OPAMP3, ADC3, 1);
     };
     // OPAMP4 only in STM32G4 Cat 3 devices
     (opamp, OPAMP4) => {
+        impl_opamp_external_output!(OPAMP4, ADC1, 11);
         impl_opamp_external_output!(OPAMP4, ADC4, 3);
     };
     // OPAMP5 only in STM32G4 Cat 3 devices
@@ -264,6 +266,7 @@ foreach_peripheral!(
     // OPAMP6 only in STM32G4 Cat 3/4 devices
     (opamp, OPAMP6) => {
         impl_opamp_external_output!(OPAMP6, ADC1, 14);
+        impl_opamp_external_output!(OPAMP6, ADC2, 14);
     };
 );
 

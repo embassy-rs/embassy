@@ -6,11 +6,12 @@ use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-pub use pac::radio::mode::MODE_A as Mode;
-#[cfg(not(feature = "nrf51"))]
-use pac::radio::pcnf0::PLEN_A as PreambleLength;
+pub use pac::radio::vals::Mode;
+#[cfg(not(feature = "_nrf51"))]
+use pac::radio::vals::Plen as PreambleLength;
 
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::radio::vals;
 use crate::radio::*;
 pub use crate::radio::{Error, TxPower};
 use crate::util::slice_in_ram_or;
@@ -30,69 +31,63 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         let r = T::regs();
 
-        r.pcnf1.write(|w| unsafe {
+        r.pcnf1().write(|w| {
             // It is 0 bytes long in a standard BLE packet
-            w.statlen()
-                .bits(0)
-                // MaxLen configures the maximum packet payload plus add-on size in
-                // number of bytes that can be transmitted or received by the RADIO. This feature can be used to ensure
-                // that the RADIO does not overwrite, or read beyond, the RAM assigned to the packet payload. This means
-                // that if the packet payload length defined by PCNF1.STATLEN and the LENGTH field in the packet specifies a
-                // packet larger than MAXLEN, the payload will be truncated at MAXLEN
-                //
-                // To simplify the implementation, It is setted as the maximum value
-                // and the length of the packet is controlled only by the LENGTH field in the packet
-                .maxlen()
-                .bits(255)
-                // Configure the length of the address field in the packet
-                // The prefix after the address fields is always appended, so is always 1 byte less than the size of the address
-                // The base address is truncated from the least significant byte if the BALEN is less than 4
-                //
-                // BLE address is always 4 bytes long
-                .balen()
-                .bits(3) // 3 bytes base address (+ 1 prefix);
-                // Configure the endianess
-                // For BLE is always little endian (LSB first)
-                .endian()
-                .little()
-                // Data whitening is used to avoid long sequences of zeros or
-                // ones, e.g., 0b0000000 or 0b1111111, in the data bit stream.
-                // The whitener and de-whitener are defined the same way,
-                // using a 7-bit linear feedback shift register with the
-                // polynomial x7 + x4 + 1.
-                //
-                // In BLE Whitening shall be applied on the PDU and CRC of all
-                // Link Layer packets and is performed after the CRC generation
-                // in the transmitter. No other parts of the packets are whitened.
-                // De-whitening is performed before the CRC checking in the receiver
-                // Before whitening or de-whitening, the shift register should be
-                // initialized based on the channel index.
-                .whiteen()
-                .set_bit()
+            w.set_statlen(0);
+            // MaxLen configures the maximum packet payload plus add-on size in
+            // number of bytes that can be transmitted or received by the RADIO. This feature can be used to ensure
+            // that the RADIO does not overwrite, or read beyond, the RAM assigned to the packet payload. This means
+            // that if the packet payload length defined by PCNF1.STATLEN and the LENGTH field in the packet specifies a
+            // packet larger than MAXLEN, the payload will be truncated at MAXLEN
+            //
+            // To simplify the implementation, It is setted as the maximum value
+            // and the length of the packet is controlled only by the LENGTH field in the packet
+            w.set_maxlen(255);
+            // Configure the length of the address field in the packet
+            // The prefix after the address fields is always appended, so is always 1 byte less than the size of the address
+            // The base address is truncated from the least significant byte if the BALEN is less than 4
+            //
+            // BLE address is always 4 bytes long
+            w.set_balen(3); // 3 bytes base address (+ 1 prefix);
+                            // Configure the endianess
+                            // For BLE is always little endian (LSB first)
+            w.set_endian(vals::Endian::LITTLE);
+            // Data whitening is used to avoid long sequences of zeros or
+            // ones, e.g., 0b0000000 or 0b1111111, in the data bit stream.
+            // The whitener and de-whitener are defined the same way,
+            // using a 7-bit linear feedback shift register with the
+            // polynomial x7 + x4 + 1.
+            //
+            // In BLE Whitening shall be applied on the PDU and CRC of all
+            // Link Layer packets and is performed after the CRC generation
+            // in the transmitter. No other parts of the packets are whitened.
+            // De-whitening is performed before the CRC checking in the receiver
+            // Before whitening or de-whitening, the shift register should be
+            // initialized based on the channel index.
+            w.set_whiteen(true);
         });
 
         // Configure CRC
-        r.crccnf.write(|w| {
+        r.crccnf().write(|w| {
             // In BLE the CRC shall be calculated on the PDU of all Link Layer
             // packets (even if the packet is encrypted).
             // It skips the address field
-            w.skipaddr()
-                .skip()
-                // In BLE  24-bit CRC = 3 bytes
-                .len()
-                .three()
+            w.set_skipaddr(vals::Skipaddr::SKIP);
+            // In BLE  24-bit CRC = 3 bytes
+            w.set_len(vals::Len::THREE);
         });
 
         // Ch map between 2400 MHZ .. 2500 MHz
         // All modes use this range
-        #[cfg(not(feature = "nrf51"))]
-        r.frequency.write(|w| w.map().default());
+        #[cfg(not(feature = "_nrf51"))]
+        r.frequency().write(|w| w.set_map(vals::Map::DEFAULT));
 
         // Configure shortcuts to simplify and speed up sending and receiving packets.
-        r.shorts.write(|w| {
+        r.shorts().write(|w| {
             // start transmission/recv immediately after ramp-up
             // disable radio when transmission/recv is done
-            w.ready_start().enabled().end_disable().enabled()
+            w.set_ready_start(true);
+            w.set_end_disable(true);
         });
 
         // Enable NVIC interrupt
@@ -113,11 +108,11 @@ impl<'d, T: Instance> Radio<'d, T> {
         assert!(self.state() == RadioState::DISABLED);
 
         let r = T::regs();
-        r.mode.write(|w| w.mode().variant(mode));
+        r.mode().write(|w| w.set_mode(mode));
 
-        #[cfg(not(feature = "nrf51"))]
-        r.pcnf0.write(|w| {
-            w.plen().variant(match mode {
+        #[cfg(not(feature = "_nrf51"))]
+        r.pcnf0().write(|w| {
+            w.set_plen(match mode {
                 Mode::BLE_1MBIT => PreambleLength::_8BIT,
                 Mode::BLE_2MBIT => PreambleLength::_16BIT,
                 #[cfg(any(
@@ -147,18 +142,14 @@ impl<'d, T: Instance> Radio<'d, T> {
             true => 8,
         };
 
-        r.pcnf0.write(|w| unsafe {
-            w
-                // Configure S0 to 1 byte length, this will represent the Data/Adv header flags
-                .s0len()
-                .set_bit()
-                // Configure the length (in bits) field to 1 byte length, this will represent the length of the payload
-                // and also be used to know how many bytes to read/write from/to the buffer
-                .lflen()
-                .bits(8)
-                // Configure the lengh (in bits) of bits in the S1 field. It could be used to represent the CTEInfo for data packages in BLE.
-                .s1len()
-                .bits(s1len)
+        r.pcnf0().write(|w| {
+            // Configure S0 to 1 byte length, this will represent the Data/Adv header flags
+            w.set_s0len(true);
+            // Configure the length (in bits) field to 1 byte length, this will represent the length of the payload
+            // and also be used to know how many bytes to read/write from/to the buffer
+            w.set_lflen(0);
+            // Configure the lengh (in bits) of bits in the S1 field. It could be used to represent the CTEInfo for data packages in BLE.
+            w.set_s1len(s1len);
         });
     }
 
@@ -172,7 +163,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         let r = T::regs();
 
-        r.datawhiteiv.write(|w| unsafe { w.datawhiteiv().bits(whitening_init) });
+        r.datawhiteiv().write(|w| w.set_datawhiteiv(whitening_init));
     }
 
     /// Set the central frequency to be used
@@ -185,8 +176,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         let r = T::regs();
 
-        r.frequency
-            .write(|w| unsafe { w.frequency().bits((frequency - 2400) as u8) });
+        r.frequency().write(|w| w.set_frequency((frequency - 2400) as u8));
     }
 
     /// Set the acess address
@@ -204,31 +194,25 @@ impl<'d, T: Instance> Radio<'d, T> {
         // The byte ordering on air is always least significant byte first for the address
         // So for the address 0xAA_BB_CC_DD, the address on air will be DD CC BB AA
         // The package order is BASE, PREFIX so BASE=0xBB_CC_DD and PREFIX=0xAA
-        r.prefix0
-            .write(|w| unsafe { w.ap0().bits((access_address >> 24) as u8) });
+        r.prefix0().write(|w| w.set_ap0((access_address >> 24) as u8));
 
         // The base address is truncated from the least significant byte (because the BALEN is less than 4)
         // So it shifts the address to the right
-        r.base0.write(|w| unsafe { w.bits(access_address << 8) });
+        r.base0().write_value(access_address << 8);
 
         // Don't match tx address
-        r.txaddress.write(|w| unsafe { w.txaddress().bits(0) });
+        r.txaddress().write(|w| w.set_txaddress(0));
 
         // Match on logical address
         // This config only filter the packets by the address,
         // so only packages send to the previous address
         // will finish the reception (TODO: check the explanation)
-        r.rxaddresses.write(|w| {
-            w.addr0()
-                .enabled()
-                .addr1()
-                .enabled()
-                .addr2()
-                .enabled()
-                .addr3()
-                .enabled()
-                .addr4()
-                .enabled()
+        r.rxaddresses().write(|w| {
+            w.set_addr0(true);
+            w.set_addr1(true);
+            w.set_addr2(true);
+            w.set_addr3(true);
+            w.set_addr4(true);
         });
     }
 
@@ -241,7 +225,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         let r = T::regs();
 
-        r.crcpoly.write(|w| unsafe {
+        r.crcpoly().write(|w| {
             // Configure the CRC polynomial
             // Each term in the CRC polynomial is mapped to a bit in this
             // register which index corresponds to the term's exponent.
@@ -249,7 +233,7 @@ impl<'d, T: Instance> Radio<'d, T> {
             // 1, and bit number 0 of the register content is ignored by
             // the hardware. The following example is for an 8 bit CRC
             // polynomial: x8 + x7 + x3 + x2 + 1 = 1 1000 1101 .
-            w.crcpoly().bits(crc_poly & 0xFFFFFF)
+            w.set_crcpoly(crc_poly & 0xFFFFFF)
         });
     }
 
@@ -263,7 +247,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         let r = T::regs();
 
-        r.crcinit.write(|w| unsafe { w.crcinit().bits(crc_init & 0xFFFFFF) });
+        r.crcinit().write(|w| w.set_crcinit(crc_init & 0xFFFFFF));
     }
 
     /// Set the radio tx power
@@ -274,7 +258,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         let r = T::regs();
 
-        r.txpower.write(|w| w.txpower().variant(tx_power));
+        r.txpower().write(|w| w.set_txpower(tx_power));
     }
 
     /// Set buffer to read/write
@@ -294,7 +278,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         let ptr = buffer.as_ptr();
 
         // Configure the payload
-        r.packetptr.write(|w| unsafe { w.bits(ptr as u32) });
+        r.packetptr().write_value(ptr as u32);
 
         Ok(())
     }
@@ -310,7 +294,7 @@ impl<'d, T: Instance> Radio<'d, T> {
             // Initialize the transmission
             // trace!("txen");
 
-            r.tasks_txen.write(|w| unsafe { w.bits(1) });
+            r.tasks_txen().write_value(1);
         })
         .await;
 
@@ -327,7 +311,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         self.trigger_and_wait_end(move || {
             // Initialize the transmission
             // trace!("rxen");
-            r.tasks_rxen.write(|w| unsafe { w.bits(1) });
+            r.tasks_rxen().write_value(1);
         })
         .await;
 
@@ -344,21 +328,21 @@ impl<'d, T: Instance> Radio<'d, T> {
         let drop = OnDrop::new(|| {
             trace!("radio drop: stopping");
 
-            r.intenclr.write(|w| w.end().clear());
+            r.intenclr().write(|w| w.set_end(true));
 
-            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            r.tasks_stop().write_value(1);
 
-            r.events_end.reset();
+            r.events_end().write_value(0);
 
             trace!("radio drop: stopped");
         });
 
         // trace!("radio:enable interrupt");
         // Clear some remnant side-effects (TODO: check if this is necessary)
-        r.events_end.reset();
+        r.events_end().write_value(0);
 
         // Enable interrupt
-        r.intenset.write(|w| w.end().set());
+        r.intenset().write(|w| w.set_end(true));
 
         compiler_fence(Ordering::SeqCst);
 
@@ -368,7 +352,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         // On poll check if interrupt happen
         poll_fn(|cx| {
             s.event_waker.register(cx.waker());
-            if r.events_end.read().bits() == 1 {
+            if r.events_end().read() == 1 {
                 // trace!("radio:end");
                 return core::task::Poll::Ready(());
             }
@@ -377,7 +361,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         .await;
 
         compiler_fence(Ordering::SeqCst);
-        r.events_end.reset(); // ACK
+        r.events_end().write_value(0); // ACK
 
         // Everthing ends fine, so it disable the drop
         drop.defuse();
@@ -392,15 +376,15 @@ impl<'d, T: Instance> Radio<'d, T> {
         if self.state() != RadioState::DISABLED {
             trace!("radio:disable");
             // Trigger the disable task
-            r.tasks_disable.write(|w| unsafe { w.bits(1) });
+            r.tasks_disable().write_value(1);
 
             // Wait until the radio is disabled
-            while r.events_disabled.read().bits() == 0 {}
+            while r.events_disabled().read() == 0 {}
 
             compiler_fence(Ordering::SeqCst);
 
             // Acknowledge it
-            r.events_disabled.reset();
+            r.events_disabled().write_value(0);
         }
     }
 }

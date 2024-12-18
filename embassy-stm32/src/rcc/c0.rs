@@ -110,8 +110,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
         Some(hse) => {
             match hse.mode {
-                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
-                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+                HseMode::Bypass => rcc_assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => rcc_assert!(max::HSE_OSC.contains(&hse.freq)),
             }
 
             RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
@@ -127,14 +127,14 @@ pub(crate) unsafe fn init(config: Config) {
         _ => unreachable!(),
     };
 
-    assert!(max::SYSCLK.contains(&sys));
+    rcc_assert!(max::SYSCLK.contains(&sys));
 
     // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
     let hclk = sys / config.ahb_pre;
-    assert!(max::HCLK.contains(&hclk));
+    rcc_assert!(max::HCLK.contains(&hclk));
 
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
-    assert!(max::PCLK.contains(&pclk1));
+    rcc_assert!(max::PCLK.contains(&pclk1));
 
     let latency = match hclk.0 {
         ..=24_000_000 => Latency::WS0,

@@ -371,7 +371,7 @@ pub struct DataRequest {
 }
 
 impl DataRequest {
-    pub fn set_buffer<'a>(&'a mut self, buf: &'a [u8]) -> &mut Self {
+    pub fn set_buffer<'a>(&'a mut self, buf: &'a [u8]) -> &'a mut Self {
         self.msdu_ptr = buf as *const _ as *const u8;
         self.msdu_length = buf.len() as u8;
 

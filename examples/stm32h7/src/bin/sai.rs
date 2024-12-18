@@ -81,8 +81,9 @@ async fn main(_spawner: Spawner) {
     rx_config.sync_output = false;
 
     let tx_buffer: &mut [u32] = unsafe {
-        TX_BUFFER.initialize_all_copied(0);
-        let (ptr, len) = TX_BUFFER.get_ptr_len();
+        let buf = &mut *core::ptr::addr_of_mut!(TX_BUFFER);
+        buf.initialize_all_copied(0);
+        let (ptr, len) = buf.get_ptr_len();
         core::slice::from_raw_parts_mut(ptr, len)
     };
 
@@ -98,15 +99,15 @@ async fn main(_spawner: Spawner) {
     );
 
     let rx_buffer: &mut [u32] = unsafe {
-        RX_BUFFER.initialize_all_copied(0);
-        let (ptr, len) = RX_BUFFER.get_ptr_len();
+        let buf = &mut *core::ptr::addr_of_mut!(RX_BUFFER);
+        buf.initialize_all_copied(0);
+        let (ptr, len) = buf.get_ptr_len();
         core::slice::from_raw_parts_mut(ptr, len)
     };
 
     let mut sai_receiver = Sai::new_synchronous(sub_block_rx, p.PE3, p.DMA1_CH1, rx_buffer, rx_config);
 
-    sai_receiver.start();
-    sai_transmitter.start();
+    sai_receiver.start().unwrap();
 
     let mut buf = [0u32; HALF_DMA_BUFFER_LENGTH];
 

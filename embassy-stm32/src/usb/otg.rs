@@ -24,13 +24,9 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        trace!("irq");
         let r = T::regs();
         let state = T::state();
-
-        let setup_late_cnak = quirk_setup_late_cnak(r);
-
-        on_interrupt_impl(r, state, T::ENDPOINT_COUNT, setup_late_cnak);
+        on_interrupt_impl(r, state, T::ENDPOINT_COUNT);
     }
 }
 
@@ -87,7 +83,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::InternalFullSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -107,26 +102,26 @@ impl<'d, T: Instance> Driver<'d, T> {
     pub fn new_hs(
         _peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        _dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+        _dm: impl Peripheral<P = impl DmPin<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(dp, dm);
-
-        dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-
-        let regs = T::regs();
+        // For STM32U5 High speed pins need to be left in analog mode
+        #[cfg(not(all(stm32u5, peri_usb_otg_hs)))]
+        {
+            into_ref!(_dp, _dm);
+            _dp.set_as_af(_dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            _dm.set_as_af(_dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        }
 
         let instance = OtgInstance {
-            regs,
+            regs: T::regs(),
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::InternalHighSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -166,8 +161,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             ulpi_d7
         );
 
-        let regs = T::regs();
-
         let instance = OtgInstance {
             regs: T::regs(),
             state: T::state(),
@@ -175,7 +168,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::ExternalFullSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -217,8 +209,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             ulpi_d7
         );
 
-        let regs = T::regs();
-
         let instance = OtgInstance {
             regs: T::regs(),
             state: T::state(),
@@ -226,7 +216,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             endpoint_count: T::ENDPOINT_COUNT,
             phy_type: PhyType::ExternalHighSpeed,
-            quirk_setup_late_cnak: quirk_setup_late_cnak(regs),
             calculate_trdt_fn: calculate_trdt::<T>,
         };
 
@@ -323,6 +312,20 @@ impl<'d, T: Instance> Bus<'d, T> {
                 w.set_usb_otg_hslpen(true);
             });
         });
+
+        #[cfg(all(stm32u5, peri_usb_otg_hs))]
+        {
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
+            });
+
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb2enr1().modify(|w| {
+                    w.set_usb_otg_hsen(true);
+                    w.set_usb_otg_hs_phyen(true);
+                });
+            });
+        }
 
         let r = T::regs();
         let core_id = r.cid().read().0;
@@ -578,8 +581,4 @@ fn calculate_trdt<T: Instance>(speed: Dspd) -> u8 {
         }
         _ => unimplemented!(),
     }
-}
-
-fn quirk_setup_late_cnak(r: Otg) -> bool {
-    r.cid().read().0 & 0xf000 == 0x1000
 }

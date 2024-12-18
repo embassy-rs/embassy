@@ -7,6 +7,28 @@ use core::fmt::{Debug, Display, LowerHex};
 compile_error!("You may not enable both `defmt` and `log` features.");
 
 #[collapse_debuginfo(yes)]
+macro_rules! rcc_assert {
+    ($($x:tt)*) => {
+        {
+            #[cfg(not(feature = "unchecked-overclocking"))]
+            {
+                #[cfg(not(feature = "defmt"))]
+                ::core::assert!($($x)*);
+                #[cfg(feature = "defmt")]
+                ::defmt::assert!($($x)*);
+            }
+            #[cfg(feature = "unchecked-overclocking")]
+            {
+                #[cfg(feature = "log")]
+                ::log::warn!("`rcc_assert!` skipped: `unchecked-overclocking` feature is enabled.");
+                #[cfg(feature = "defmt")]
+                ::defmt::warn!("`rcc_assert!` skipped: `unchecked-overclocking` feature is enabled.");
+            }
+        }
+    };
+}
+
+#[collapse_debuginfo(yes)]
 macro_rules! assert {
     ($($x:tt)*) => {
         {

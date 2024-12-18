@@ -42,11 +42,9 @@ pub struct PacketQueue<const TX: usize, const RX: usize> {
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// Create a new packet queue.
     pub const fn new() -> Self {
-        const NEW_TDES: TDes = TDes::new();
-        const NEW_RDES: RDes = RDes::new();
         Self {
-            tx_desc: [NEW_TDES; TX],
-            rx_desc: [NEW_RDES; RX],
+            tx_desc: [const { TDes::new() }; TX],
+            rx_desc: [const { RDes::new() }; RX],
             tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
             rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
         }
@@ -74,8 +72,14 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 impl<'d, T: Instance, P: PHY> embassy_net_driver::Driver for Ethernet<'d, T, P> {
-    type RxToken<'a> = RxToken<'a, 'd> where Self: 'a;
-    type TxToken<'a> = TxToken<'a, 'd> where Self: 'a;
+    type RxToken<'a>
+        = RxToken<'a, 'd>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = TxToken<'a, 'd>
+    where
+        Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         WAKER.register(cx.waker());

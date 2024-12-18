@@ -21,16 +21,6 @@ use {defmt_rtt as _, panic_probe as _};
 #[used]
 pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
-// Program metadata for `picotool info`
-#[link_section = ".bi_entries"]
-#[used]
-pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
-    embassy_rp::binary_info::rp_program_name!(c"example"),
-    embassy_rp::binary_info::rp_cargo_version!(),
-    embassy_rp::binary_info::rp_program_description!(c"Blinky"),
-    embassy_rp::binary_info::rp_program_build_attribute!(),
-];
-
 struct DummyTimesource();
 
 impl embedded_sdmmc::TimeSource for DummyTimesource {
@@ -66,7 +56,7 @@ async fn main(_spawner: Spawner) {
     // Now that the card is initialized, the SPI clock can go faster
     let mut config = spi::Config::default();
     config.frequency = 16_000_000;
-    sdcard.spi(|dev| dev.bus_mut().set_config(&config)).ok();
+    sdcard.spi(|dev| SetConfig::set_config(dev.bus_mut(), &config)).ok();
 
     // Now let's look for volumes (also known as partitions) on our block device.
     // To do this we need a Volume Manager. It will take ownership of the block device.

@@ -6,6 +6,8 @@
 //!
 //! The available functionality depends on the timer type.
 
+use core::mem::ManuallyDrop;
+
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 // Re-export useful enums
 pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
@@ -198,6 +200,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         Self { tim }
     }
 
+    pub(crate) unsafe fn clone_unchecked(&self) -> ManuallyDrop<Self> {
+        let tim = unsafe { self.tim.clone_unchecked() };
+        ManuallyDrop::new(Self { tim })
+    }
+
     /// Get access to the virutal core 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -235,16 +242,28 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     /// In center-aligned mode (which not all timers support), the wrap-around frequency is effectively halved
     /// because it needs to count up and down.
     pub fn set_frequency(&self, frequency: Hertz) {
+        match T::BITS {
+            TimerBits::Bits16 => {
+                self.set_frequency_internal(frequency, 16);
+            }
+            #[cfg(not(stm32l0))]
+            TimerBits::Bits32 => {
+                self.set_frequency_internal(frequency, 32);
+            }
+        }
+    }
+
+    pub(crate) fn set_frequency_internal(&self, frequency: Hertz, max_divide_by_bits: u8) {
         let f = frequency.0;
         assert!(f > 0);
         let timer_f = T::frequency().0;
 
+        let pclk_ticks_per_timer_period = (timer_f / f) as u64;
+        let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << max_divide_by_bits)).try_into());
+        let divide_by = pclk_ticks_per_timer_period / (u64::from(psc) + 1);
+
         match T::BITS {
             TimerBits::Bits16 => {
-                let pclk_ticks_per_timer_period = timer_f / f;
-                let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 16)).try_into());
-                let divide_by = pclk_ticks_per_timer_period / (u32::from(psc) + 1);
-
                 // the timer counts `0..=arr`, we want it to count `0..divide_by`
                 let arr = unwrap!(u16::try_from(divide_by - 1));
 
@@ -258,10 +277,6 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
             }
             #[cfg(not(stm32l0))]
             TimerBits::Bits32 => {
-                let pclk_ticks_per_timer_period = (timer_f / f) as u64;
-                let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 32)).try_into());
-                let divide_by = pclk_ticks_per_timer_period / (u64::from(psc) + 1);
-
                 // the timer counts `0..=arr`, we want it to count `0..divide_by`
                 let arr: u32 = unwrap!(u32::try_from(divide_by - 1));
 

@@ -1,0 +1,5 @@
+error: task functions must not be generic
+ --> tests/ui/generics.rs:6:1
+  |
+6 | async fn task<T: Sized>(_t: T) {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

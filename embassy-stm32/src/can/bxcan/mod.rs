@@ -893,7 +893,7 @@ impl RxMode {
                     RxFifo::Fifo0 => 0usize,
                     RxFifo::Fifo1 => 1usize,
                 };
-                T::regs().ier().write(|w| {
+                T::regs().ier().modify(|w| {
                     w.set_fmpie(fifo_idx, false);
                 });
                 waker.wake();
@@ -936,18 +936,22 @@ impl RxMode {
             Self::NonBuffered(_) => {
                 let registers = &info.regs;
                 if let Some(msg) = registers.receive_fifo(RxFifo::Fifo0) {
-                    registers.0.ier().write(|w| {
+                    registers.0.ier().modify(|w| {
                         w.set_fmpie(0, true);
                     });
                     Ok(msg)
                 } else if let Some(msg) = registers.receive_fifo(RxFifo::Fifo1) {
-                    registers.0.ier().write(|w| {
+                    registers.0.ier().modify(|w| {
                         w.set_fmpie(1, true);
                     });
                     Ok(msg)
                 } else if let Some(err) = registers.curr_error() {
                     Err(TryReadError::BusError(err))
                 } else {
+                    registers.0.ier().modify(|w| {
+                        w.set_fmpie(0, true);
+                        w.set_fmpie(1, true);
+                    });
                     Err(TryReadError::Empty)
                 }
             }

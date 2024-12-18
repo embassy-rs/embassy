@@ -73,8 +73,11 @@ impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
         &self,
         host: &str,
         addr_type: embedded_nal_async::AddrType,
-    ) -> Result<embedded_nal_async::IpAddr, Self::Error> {
-        use embedded_nal_async::{AddrType, IpAddr};
+    ) -> Result<core::net::IpAddr, Self::Error> {
+        use core::net::IpAddr;
+
+        use embedded_nal_async::AddrType;
+
         let (qtype, secondary_qtype) = match addr_type {
             AddrType::IPv4 => (DnsQueryType::A, None),
             AddrType::IPv6 => (DnsQueryType::Aaaa, None),
@@ -98,20 +101,16 @@ impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
         if let Some(first) = addrs.get(0) {
             Ok(match first {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(addr) => IpAddr::V4(addr.0.into()),
+                IpAddress::Ipv4(addr) => IpAddr::V4(*addr),
                 #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(addr) => IpAddr::V6(addr.0.into()),
+                IpAddress::Ipv6(addr) => IpAddr::V6(*addr),
             })
         } else {
             Err(Error::Failed)
         }
     }
 
-    async fn get_host_by_address(
-        &self,
-        _addr: embedded_nal_async::IpAddr,
-        _result: &mut [u8],
-    ) -> Result<usize, Self::Error> {
+    async fn get_host_by_address(&self, _addr: core::net::IpAddr, _result: &mut [u8]) -> Result<usize, Self::Error> {
         todo!()
     }
 }

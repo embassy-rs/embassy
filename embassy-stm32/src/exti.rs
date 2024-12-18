@@ -14,8 +14,7 @@ use crate::pac::EXTI;
 use crate::{interrupt, pac, peripherals, Peripheral};
 
 const EXTI_COUNT: usize = 16;
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [NEW_AW; EXTI_COUNT];
+static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
 
 #[cfg(exti_w)]
 fn cpu_regs() -> pac::exti::Cpu {
@@ -41,9 +40,6 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 unsafe fn on_irq() {
-    #[cfg(feature = "low-power")]
-    crate::low_power::on_wakeup_irq();
-
     #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
     let bits = EXTI.pr(0).read().0;
     #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
@@ -68,6 +64,9 @@ unsafe fn on_irq() {
         EXTI.rpr(0).write_value(Lines(bits));
         EXTI.fpr(0).write_value(Lines(bits));
     }
+
+    #[cfg(feature = "low-power")]
+    crate::low_power::on_wakeup_irq();
 }
 
 struct BitIter(u32);

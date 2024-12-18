@@ -1248,6 +1248,20 @@ impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, T, 
     }
 }
 
+impl<'d, T: Instance> embedded_io::ErrorType for UartTx<'d, T, Blocking> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance> embedded_io::Write for UartTx<'d, T, Blocking> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf).map(|_| buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
 impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for Uart<'d, T, M> {
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
         embedded_hal_02::serial::Read::read(&mut self.rx)
@@ -1264,11 +1278,25 @@ impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for Uart<'d, T, M>
     }
 }
 
+impl<'d, T: Instance> embedded_io::ErrorType for Uart<'d, T, Blocking> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance> embedded_io::Write for Uart<'d, T, Blocking> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf).map(|_| buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
 trait SealedMode {}
 
 trait SealedInstance {
-    const TX_DREQ: u8;
-    const RX_DREQ: u8;
+    const TX_DREQ: pac::dma::vals::TreqSel;
+    const RX_DREQ: pac::dma::vals::TreqSel;
 
     fn regs() -> pac::uart::Uart;
 
@@ -1306,8 +1334,8 @@ pub trait Instance: SealedInstance {
 macro_rules! impl_instance {
     ($inst:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl SealedInstance for peripherals::$inst {
-            const TX_DREQ: u8 = $tx_dreq;
-            const RX_DREQ: u8 = $rx_dreq;
+            const TX_DREQ: pac::dma::vals::TreqSel = $tx_dreq;
+            const RX_DREQ: pac::dma::vals::TreqSel = $rx_dreq;
 
             fn regs() -> pac::uart::Uart {
                 pac::$inst
@@ -1332,8 +1360,18 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(UART0, UART0_IRQ, 20, 21);
-impl_instance!(UART1, UART1_IRQ, 22, 23);
+impl_instance!(
+    UART0,
+    UART0_IRQ,
+    pac::dma::vals::TreqSel::UART0_TX,
+    pac::dma::vals::TreqSel::UART0_RX
+);
+impl_instance!(
+    UART1,
+    UART1_IRQ,
+    pac::dma::vals::TreqSel::UART1_TX,
+    pac::dma::vals::TreqSel::UART1_RX
+);
 
 /// Trait for TX pins.
 pub trait TxPin<T: Instance>: crate::gpio::Pin {}

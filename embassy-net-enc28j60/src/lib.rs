@@ -635,11 +635,13 @@ where
     S: SpiDevice,
     O: OutputPin,
 {
-    type RxToken<'a> = RxToken<'a>
+    type RxToken<'a>
+        = RxToken<'a>
     where
         Self: 'a;
 
-    type TxToken<'a> = TxToken<'a, S, O>
+    type TxToken<'a>
+        = TxToken<'a, S, O>
     where
         Self: 'a;
 

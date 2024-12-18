@@ -8,7 +8,7 @@ use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::raw;
 pub use smoltcp::socket::raw::PacketMetadata;
-use smoltcp::wire::{IpProtocol, IpVersion};
+pub use smoltcp::wire::{IpProtocol, IpVersion};
 
 use crate::Stack;
 
@@ -62,11 +62,37 @@ impl<'a> RawSocket<'a> {
         })
     }
 
+    /// Wait until the socket becomes readable.
+    ///
+    /// A socket is readable when a packet has been received, or when there are queued packets in
+    /// the buffer.
+    pub async fn wait_recv_ready(&self) {
+        poll_fn(move |cx| self.poll_recv_ready(cx)).await
+    }
+
     /// Receive a datagram.
     ///
     /// This method will wait until a datagram is received.
     pub async fn recv(&self, buf: &mut [u8]) -> Result<usize, RecvError> {
         poll_fn(move |cx| self.poll_recv(buf, cx)).await
+    }
+
+    /// Wait until a datagram can be read.
+    ///
+    /// When no datagram is readable, this method will return `Poll::Pending` and
+    /// register the current task to be notified when a datagram is received.
+    ///
+    /// When a datagram is received, this method will return `Poll::Ready`.
+    pub fn poll_recv_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
+        self.with_mut(|s, _| {
+            if s.can_recv() {
+                Poll::Ready(())
+            } else {
+                // socket buffer is empty wait until at least one byte has arrived
+                s.register_recv_waker(cx.waker());
+                Poll::Pending
+            }
+        })
     }
 
     /// Receive a datagram.
@@ -80,6 +106,33 @@ impl<'a> RawSocket<'a> {
             Err(raw::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
             Err(raw::RecvError::Exhausted) => {
                 s.register_recv_waker(cx.waker());
+                Poll::Pending
+            }
+        })
+    }
+
+    /// Wait until the socket becomes writable.
+    ///
+    /// A socket becomes writable when there is space in the buffer, from initial memory or after
+    /// dispatching datagrams on a full buffer.
+    pub async fn wait_send_ready(&self) {
+        poll_fn(move |cx| self.poll_send_ready(cx)).await
+    }
+
+    /// Wait until a datagram can be sent.
+    ///
+    /// When no datagram can be sent (i.e. the buffer is full), this method will return
+    /// `Poll::Pending` and register the current task to be notified when
+    /// space is freed in the buffer after a datagram has been dispatched.
+    ///
+    /// When a datagram can be sent, this method will return `Poll::Ready`.
+    pub fn poll_send_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
+        self.with_mut(|s, _| {
+            if s.can_send() {
+                Poll::Ready(())
+            } else {
+                // socket buffer is full wait until a datagram has been dispatched
+                s.register_send_waker(cx.waker());
                 Poll::Pending
             }
         })
@@ -107,6 +160,23 @@ impl<'a> RawSocket<'a> {
                 Poll::Pending
             }
         })
+    }
+
+    /// Flush the socket.
+    ///
+    /// This method will wait until the socket is flushed.
+    pub async fn flush(&mut self) {
+        poll_fn(move |cx| {
+            self.with_mut(|s, _| {
+                if s.send_queue() == 0 {
+                    Poll::Ready(())
+                } else {
+                    s.register_send_waker(cx.waker());
+                    Poll::Pending
+                }
+            })
+        })
+        .await
     }
 }
 

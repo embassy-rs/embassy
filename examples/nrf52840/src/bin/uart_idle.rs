@@ -8,7 +8,7 @@ use embassy_nrf::{bind_interrupts, uarte};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    UARTE0_UART0 => uarte::InterruptHandler<UARTE0>;
+    UARTE0 => uarte::InterruptHandler<UARTE0>;
 });
 
 #[embassy_executor::main]

@@ -104,6 +104,7 @@ impl<T> Mutex<raw::CriticalSectionRawMutex, T> {
 
 impl<T> Mutex<raw::NoopRawMutex, T> {
     /// Borrows the data
+    #[allow(clippy::should_implement_trait)]
     pub fn borrow(&self) -> &T {
         let ptr = self.data.get() as *const T;
         unsafe { &*ptr }

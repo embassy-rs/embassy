@@ -14,7 +14,7 @@ use {defmt_rtt as _, panic_probe as _};
 const ADDRESS: u8 = 0x50;
 
 bind_interrupts!(struct Irqs {
-    SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => twim::InterruptHandler<peripherals::TWISPI0>;
+    TWISPI0 => twim::InterruptHandler<peripherals::TWISPI0>;
 });
 
 #[embassy_executor::main]
