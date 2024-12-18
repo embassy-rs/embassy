@@ -1,7 +1,7 @@
 //! Async mutex.
 //!
 //! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
-use core::cell::{RefCell, UnsafeCell};
+use core::cell::{Cell, UnsafeCell};
 use core::future::{poll_fn, Future};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
@@ -9,7 +9,7 @@ use core::{fmt, mem};
 
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
-use crate::waitqueue::WakerRegistration;
+use crate::waitqueue::NonSyncWakerRegistration;
 
 /// Error returned by [`Mutex::try_lock`]
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -17,8 +17,39 @@ use crate::waitqueue::WakerRegistration;
 pub struct TryLockError;
 
 struct State {
-    locked: bool,
-    waker: WakerRegistration,
+    locked: Cell<bool>,
+    waker: NonSyncWakerRegistration,
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            locked: Cell::new(false),
+            waker: NonSyncWakerRegistration::new(),
+        }
+    }
+
+    fn lock(&self, waker: &core::task::Waker) -> bool {
+        if self.locked.replace(true) {
+            self.waker.register(waker);
+            false
+        } else {
+            true
+        }
+    }
+
+    fn try_lock(&self) -> Result<(), TryLockError> {
+        if self.locked.replace(true) {
+            Err(TryLockError)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn unlock(&self) {
+        self.waker.wake();
+        self.locked.set(false);
+    }
 }
 
 /// Async mutex.
@@ -41,7 +72,7 @@ where
     M: RawMutex,
     T: ?Sized,
 {
-    state: BlockingMutex<M, RefCell<State>>,
+    state: BlockingMutex<M, State>,
     inner: UnsafeCell<T>,
 }
 
@@ -57,10 +88,7 @@ where
     pub const fn new(value: T) -> Self {
         Self {
             inner: UnsafeCell::new(value),
-            state: BlockingMutex::new(RefCell::new(State {
-                locked: false,
-                waker: WakerRegistration::new(),
-            })),
+            state: BlockingMutex::new(State::new()),
         }
     }
 }
@@ -75,16 +103,7 @@ where
     /// This will wait for the mutex to be unlocked if it's already locked.
     pub fn lock(&self) -> impl Future<Output = MutexGuard<'_, M, T>> {
         poll_fn(|cx| {
-            let ready = self.state.lock(|s| {
-                let mut s = s.borrow_mut();
-                if s.locked {
-                    s.waker.register(cx.waker());
-                    false
-                } else {
-                    s.locked = true;
-                    true
-                }
-            });
+            let ready = self.state.lock(|s| s.lock(cx.waker()));
 
             if ready {
                 Poll::Ready(MutexGuard { mutex: self })
@@ -98,15 +117,7 @@ where
     ///
     /// If the mutex is already locked, this will return an error instead of waiting.
     pub fn try_lock(&self) -> Result<MutexGuard<'_, M, T>, TryLockError> {
-        self.state.lock(|s| {
-            let mut s = s.borrow_mut();
-            if s.locked {
-                Err(TryLockError)
-            } else {
-                s.locked = true;
-                Ok(())
-            }
-        })?;
+        self.state.lock(|s| s.try_lock())?;
 
         Ok(MutexGuard { mutex: self })
     }
@@ -205,11 +216,7 @@ where
     T: ?Sized,
 {
     fn drop(&mut self) {
-        self.mutex.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
-            s.locked = false;
-            s.waker.wake();
-        })
+        self.mutex.state.lock(|s| s.unlock())
     }
 }
 
@@ -268,7 +275,7 @@ where
     M: RawMutex,
     T: ?Sized,
 {
-    state: &'a BlockingMutex<M, RefCell<State>>,
+    state: &'a BlockingMutex<M, State>,
     value: *mut T,
 }
 
@@ -319,11 +326,7 @@ where
     T: ?Sized,
 {
     fn drop(&mut self) {
-        self.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
-            s.locked = false;
-            s.waker.wake();
-        })
+        self.state.lock(|s| s.unlock())
     }
 }
 
