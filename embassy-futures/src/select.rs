@@ -14,6 +14,18 @@ pub enum Either<A, B> {
     Second(B),
 }
 
+impl<A, B> Either<A, B> {
+    /// Did the first future complete first?
+    pub fn is_first(&self) -> bool {
+        matches!(self, Either::First(_))
+    }
+
+    /// Did the second future complete first?
+    pub fn is_second(&self) -> bool {
+        matches!(self, Either::Second(_))
+    }
+}
+
 /// Wait for one of two futures to complete.
 ///
 /// This function returns a new future which polls all the futures.
@@ -71,6 +83,23 @@ pub enum Either3<A, B, C> {
     Second(B),
     /// Third future finished first.
     Third(C),
+}
+
+impl<A, B, C> Either3<A, B, C> {
+    /// Did the first future complete first?
+    pub fn is_first(&self) -> bool {
+        matches!(self, Either3::First(_))
+    }
+
+    /// Did the second future complete first?
+    pub fn is_second(&self) -> bool {
+        matches!(self, Either3::Second(_))
+    }
+
+    /// Did the third future complete first?
+    pub fn is_third(&self) -> bool {
+        matches!(self, Either3::Third(_))
+    }
 }
 
 /// Same as [`select`], but with more futures.
@@ -132,6 +161,28 @@ pub enum Either4<A, B, C, D> {
     Third(C),
     /// Fourth future finished first.
     Fourth(D),
+}
+
+impl<A, B, C, D> Either4<A, B, C, D> {
+    /// Did the first future complete first?
+    pub fn is_first(&self) -> bool {
+        matches!(self, Either4::First(_))
+    }
+
+    /// Did the second future complete first?
+    pub fn is_second(&self) -> bool {
+        matches!(self, Either4::Second(_))
+    }
+
+    /// Did the third future complete first?
+    pub fn is_third(&self) -> bool {
+        matches!(self, Either4::Third(_))
+    }
+
+    /// Did the fourth future complete first?
+    pub fn is_fourth(&self) -> bool {
+        matches!(self, Either4::Fourth(_))
+    }
 }
 
 /// Same as [`select`], but with more futures.
@@ -202,6 +253,33 @@ pub enum Either5<A, B, C, D, E> {
     Fourth(D),
     /// Fifth future finished first.
     Fifth(E),
+}
+
+impl<A, B, C, D, E> Either5<A, B, C, D, E> {
+    /// Did the first future complete first?
+    pub fn is_first(&self) -> bool {
+        matches!(self, Either5::First(_))
+    }
+
+    /// Did the second future complete first?
+    pub fn is_second(&self) -> bool {
+        matches!(self, Either5::Second(_))
+    }
+
+    /// Did the third future complete first?
+    pub fn is_third(&self) -> bool {
+        matches!(self, Either5::Third(_))
+    }
+
+    /// Did the fourth future complete first?
+    pub fn is_fourth(&self) -> bool {
+        matches!(self, Either5::Fourth(_))
+    }
+
+    /// Did the fifth future complete first?
+    pub fn is_fifth(&self) -> bool {
+        matches!(self, Either5::Fifth(_))
+    }
 }
 
 /// Same as [`select`], but with more futures.
@@ -281,6 +359,38 @@ pub enum Either6<A, B, C, D, E, F> {
     Fifth(E),
     /// Sixth future finished first.
     Sixth(F),
+}
+
+impl<A, B, C, D, E, F> Either6<A, B, C, D, E, F> {
+    /// Did the first future complete first?
+    pub fn is_first(&self) -> bool {
+        matches!(self, Either6::First(_))
+    }
+
+    /// Did the second future complete first?
+    pub fn is_second(&self) -> bool {
+        matches!(self, Either6::Second(_))
+    }
+
+    /// Did the third future complete first?
+    pub fn is_third(&self) -> bool {
+        matches!(self, Either6::Third(_))
+    }
+
+    /// Did the fourth future complete first?
+    pub fn is_fourth(&self) -> bool {
+        matches!(self, Either6::Fourth(_))
+    }
+
+    /// Did the fifth future complete first?
+    pub fn is_fifth(&self) -> bool {
+        matches!(self, Either6::Fifth(_))
+    }
+
+    /// Did the sixth future complete first?
+    pub fn is_sixth(&self) -> bool {
+        matches!(self, Either6::Sixth(_))
+    }
 }
 
 /// Same as [`select`], but with more futures.
