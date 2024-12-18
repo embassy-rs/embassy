@@ -463,7 +463,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self::set_channel_sample_time(channel, sample_time);
 
-        #[cfg(stm32h7)]
+        #[cfg(any(stm32h7, stm32u5))]
         {
             T::regs().cfgr2().modify(|w| w.set_lshift(0));
             T::regs()
