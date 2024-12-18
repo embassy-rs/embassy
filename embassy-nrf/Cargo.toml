@@ -134,9 +134,9 @@ _gpio-p2 = []
 _nrf52832_anomaly_109 = []
 
 [dependencies]
-embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-driver = { version = "0.1", path = "../embassy-time-queue-driver", optional = true }
-embassy-time = { version = "0.3.2", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-driver = { version = "0.2", path = "../embassy-time-queue-driver", optional = true }
+embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.6.1", path = "../embassy-sync" }
 embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = {version = "0.2.0", path = "../embassy-embedded-hal" }
