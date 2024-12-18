@@ -1274,6 +1274,11 @@ fn main() {
         (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
         (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
         (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
+        // For STM32U5 (maybe more?), the timer DMA channels are named differently
+        (("timer", "CC1"), quote!(crate::timer::Ch1Dma)),
+        (("timer", "CC2"), quote!(crate::timer::Ch2Dma)),
+        (("timer", "CC3"), quote!(crate::timer::Ch3Dma)),
+        (("timer", "CC4"), quote!(crate::timer::Ch4Dma)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
     ]
