@@ -10,7 +10,7 @@ use embassy_hal_internal::PeripheralRef;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 use crate::dma::{word, ChannelAndRequest};
-use crate::gpio::{AfType, AnyPin, OutputType, Pin, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{regs, vals, Spi as Regs};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
