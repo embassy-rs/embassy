@@ -749,6 +749,7 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
+    #[cfg(gpio_v2)]
     fn set_speed(&self, speed: Speed) {
         set_speed(self.pin_port(), speed)
     }
