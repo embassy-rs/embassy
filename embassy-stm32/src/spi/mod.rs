@@ -249,12 +249,15 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         let br = compute_baud_rate(self.kernel_clock, config.frequency);
 
-        self.rise_fall_speed = config.rise_fall_speed;
-        if let Some(sck) = self.sck.as_ref() {
-            sck.set_speed(config.rise_fall_speed);
-        }
-        if let Some(mosi) = self.mosi.as_ref() {
-            mosi.set_speed(config.rise_fall_speed);
+        #[cfg(gpio_v2)]
+        {
+            self.rise_fall_speed = config.rise_fall_speed;
+            if let Some(sck) = self.sck.as_ref() {
+                sck.set_speed(config.rise_fall_speed);
+            }
+            if let Some(mosi) = self.mosi.as_ref() {
+                mosi.set_speed(config.rise_fall_speed);
+            }
         }
 
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
