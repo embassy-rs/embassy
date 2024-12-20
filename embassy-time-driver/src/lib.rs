@@ -53,7 +53,7 @@
 //! use core::cell::RefCell;
 //! use core::task::Waker;
 //!
-//! use embassy_time_queue_driver::Queue;
+//! use embassy_time_queue_utils::Queue;
 //! use embassy_time_driver::Driver;
 //!
 //! struct MyDriver {

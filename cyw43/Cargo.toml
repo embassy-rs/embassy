@@ -18,7 +18,7 @@ bluetooth = ["dep:bt-hci", "dep:embedded-io-async"]
 firmware-logs = []
 
 [dependencies]
-embassy-time = { version = "0.3.2", path = "../embassy-time"}
+embassy-time = { version = "0.4.0", path = "../embassy-time"}
 embassy-sync = { version = "0.6.1", path = "../embassy-sync"}
 embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
 embassy-net-driver-channel = { version = "0.3.0", path = "../embassy-net-driver-channel"}
