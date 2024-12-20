@@ -24,8 +24,8 @@ target = "x86_64-unknown-linux-gnu"
 features = ["defmt", "std"]
 
 [features]
-std = ["tick-hz-1_000_000", "critical-section/std", "dep:embassy-time-queue-driver"]
-wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "dep:embassy-time-queue-driver"]
+std = ["tick-hz-1_000_000", "critical-section/std", "dep:embassy-time-queue-utils"]
+wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 
 ## Display the time since startup next to defmt log messages.
 ## At most 1 `defmt-timestamp-uptime-*` feature can be used.
@@ -40,7 +40,7 @@ defmt-timestamp-uptime-tms = ["defmt"]
 defmt-timestamp-uptime-tus = ["defmt"]
 
 ## Create a `MockDriver` that can be manually advanced for testing purposes.
-mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-driver"]
+mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 
 #! ### Generic Queue
 
@@ -57,15 +57,15 @@ mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-driver"]
 #! end user to pick.
 
 ## Generic Queue with 8 timers
-generic-queue-8 = ["embassy-time-queue-driver/generic-queue-8"]
+generic-queue-8 = ["embassy-time-queue-utils/generic-queue-8"]
 ## Generic Queue with 16 timers
-generic-queue-16 = ["embassy-time-queue-driver/generic-queue-16"]
+generic-queue-16 = ["embassy-time-queue-utils/generic-queue-16"]
 ## Generic Queue with 32 timers
-generic-queue-32 = ["embassy-time-queue-driver/generic-queue-32"]
+generic-queue-32 = ["embassy-time-queue-utils/generic-queue-32"]
 ## Generic Queue with 64 timers
-generic-queue-64 = ["embassy-time-queue-driver/generic-queue-64"]
+generic-queue-64 = ["embassy-time-queue-utils/generic-queue-64"]
 ## Generic Queue with 128 timers
-generic-queue-128 = ["embassy-time-queue-driver/generic-queue-128"]
+generic-queue-128 = ["embassy-time-queue-utils/generic-queue-128"]
 
 #! ### Tick Rate
 #!
@@ -409,7 +409,7 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 
 [dependencies]
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver" }
-embassy-time-queue-driver = { version = "0.2", path = "../embassy-time-queue-driver", optional = true}
+embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true}
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }

@@ -1,10 +1,10 @@
 [package]
-name = "embassy-time-queue-driver"
-version = "0.2.0"
+name = "embassy-time-queue-utils"
+version = "0.1.0"
 edition = "2021"
 description = "Timer queue driver trait for embassy-time"
 repository = "https://github.com/embassy-rs/embassy"
-documentation = "https://docs.embassy.dev/embassy-time-queue-driver"
+documentation = "https://docs.embassy.dev/embassy-time-queue-utils"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 categories = [
@@ -53,6 +53,6 @@ generic-queue-128 = ["_generic-queue"]
 _generic-queue = []
 
 [package.metadata.embassy_docs]
-src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-queue-driver-v$VERSION/embassy-time-queue-driver/src/"
-src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time-queue-driver/src/"
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-queue-utils-v$VERSION/embassy-time-queue-utils/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time-queue-utils/src/"
 target = "x86_64-unknown-linux-gnu"

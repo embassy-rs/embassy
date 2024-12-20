@@ -32,7 +32,7 @@ docserver-builder -i ./embassy-stm32-wpan -o webroot/crates/embassy-stm32-wpan/g
 
 docserver-builder -i ./embassy-time -o webroot/crates/embassy-time/git.zup
 docserver-builder -i ./embassy-time-driver -o webroot/crates/embassy-time-driver/git.zup
-docserver-builder -i ./embassy-time-queue-driver -o webroot/crates/embassy-time-queue-driver/git.zup
+docserver-builder -i ./embassy-time-queue-utils -o webroot/crates/embassy-time-queue-utils/git.zup
 
 docserver-builder -i ./embassy-usb -o webroot/crates/embassy-usb/git.zup
 docserver-builder -i ./embassy-usb-dfu -o webroot/crates/embassy-usb-dfu/git.zup
