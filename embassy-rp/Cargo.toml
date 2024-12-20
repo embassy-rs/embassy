@@ -140,7 +140,7 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 
 pio-proc = {version= "0.2" }
-pio = {version= "0.2.1" }
+pio = { version= "0.2.1" }
 rp2040-boot2 = "0.3"
 document-features = "0.2.10"
 sha2-const-stable = "0.1"
@@ -150,3 +150,8 @@ smart-leds = "0.4.0"
 [dev-dependencies]
 embassy-executor = { version = "0.6.3", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }
+
+[patch.crates-io]
+pio = { git="https://github.com/CBJamo/pio-rs.git", rev="72a5a7daa859b9d8a416564a2fbf849f58e51639" }
+pio-parser = { git="https://github.com/CBJamo/pio-rs.git", rev="72a5a7daa859b9d8a416564a2fbf849f58e51639" }
+pio-proc = { git="https://github.com/CBJamo/pio-rs.git", rev="72a5a7daa859b9d8a416564a2fbf849f58e51639" }
