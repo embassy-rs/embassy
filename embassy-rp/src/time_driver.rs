@@ -5,7 +5,7 @@ use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time_driver::Driver;
-use embassy_time_queue_driver::Queue;
+use embassy_time_queue_utils::Queue;
 #[cfg(feature = "rp2040")]
 use pac::TIMER;
 #[cfg(feature = "_rp235x")]

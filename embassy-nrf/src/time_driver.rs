@@ -5,7 +5,7 @@ use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::Driver;
-use embassy_time_queue_driver::Queue;
+use embassy_time_queue_utils::Queue;
 
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};

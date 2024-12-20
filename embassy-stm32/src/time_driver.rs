@@ -7,7 +7,7 @@ use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time_driver::{Driver, TICK_HZ};
-use embassy_time_queue_driver::Queue;
+use embassy_time_queue_utils::Queue;
 use stm32_metapac::timer::{regs, TimGp16};
 
 use crate::interrupt::typelevel::Interrupt;
