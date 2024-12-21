@@ -659,6 +659,16 @@ fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
 }
 
 #[inline(never)]
+#[cfg(gpio_v2)]
+fn set_speed(pin_port: u8, speed: Speed) {
+    let pin = unsafe { AnyPin::steal(pin_port) };
+    let r = pin.block();
+    let n = pin._pin() as usize;
+
+    r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
+}
+
+#[inline(never)]
 fn set_as_analog(pin_port: u8) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -736,6 +746,12 @@ pub(crate) trait SealedPin {
     #[inline]
     fn set_as_af(&self, af_num: u8, af_type: AfType) {
         set_as_af(self.pin_port(), af_num, af_type)
+    }
+
+    #[inline]
+    #[cfg(gpio_v2)]
+    fn set_speed(&self, speed: Speed) {
+        set_speed(self.pin_port(), speed)
     }
 
     #[inline]
