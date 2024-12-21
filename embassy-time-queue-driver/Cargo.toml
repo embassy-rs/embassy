@@ -36,7 +36,7 @@ embassy-executor = { version = "0.6.3", path = "../embassy-executor" }
 #! The features also set how many timers are used for the generic queue. At most one
 #! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
 #!
-#! When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
+#! When using embassy-time-queue-driver from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
 #! end user to pick.
 
 ## Generic Queue with 8 timers
