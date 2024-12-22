@@ -180,7 +180,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_rxafilten(true);
         });
 
-        // Software trim according to RM0481, p. 2650
+        // Software trim according to RM0481, p. 2650/2668
         #[cfg(stm32h5)]
         {
             let trim_rd_cc1 = unsafe { *(0x4002_242C as *const u32) & 0xF };
@@ -295,7 +295,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
             });
         });
 
-        // Software trim according to RM0481, p. 2668
+        // Software trim according to RM0481, p. 2650/2668
         #[cfg(stm32h5)]
         T::REGS.cfgr3().modify(|w| match cc_pull {
             CcPull::Source1_5A => {
