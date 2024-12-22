@@ -437,13 +437,7 @@ impl<'d> UartTx<'d, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
 
-        // Enable Transmitter and disable Receiver for Half-Duplex mode
-        let mut cr1 = r.cr1().read();
-        if r.cr3().read().hdsel() && !cr1.te() {
-            cr1.set_te(true);
-            cr1.set_re(self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
-            r.cr1().write_value(cr1);
-        }
+        half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
 
         let ch = self.tx_dma.as_mut().unwrap();
         r.cr3().modify(|reg| {
@@ -544,13 +538,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
 
-        // Enable Transmitter and disable Receiver for Half-Duplex mode
-        let mut cr1 = r.cr1().read();
-        if r.cr3().read().hdsel() && !cr1.te() {
-            cr1.set_te(true);
-            cr1.set_re(self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
-            r.cr1().write_value(cr1);
-        }
+        half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
 
         for &b in buffer {
             while !sr(r).read().txe() {}
@@ -627,6 +615,17 @@ pub fn send_break(regs: &Regs) {
     regs.cr1().modify(|w| w.set_sbk(true));
     #[cfg(any(usart_v3, usart_v4))]
     regs.rqr().write(|w| w.set_sbkrq(true));
+}
+
+/// Enable Transmitter and disable Receiver for Half-Duplex mode
+/// In case of readback, keep Receiver enabled
+fn half_duplex_set_rx_tx_before_write(r: &Regs, enable_readback: bool) {
+    let mut cr1 = r.cr1().read();
+    if r.cr3().read().hdsel() && !cr1.te() {
+        cr1.set_te(true);
+        cr1.set_re(enable_readback);
+        r.cr1().write_value(cr1);
+    }
 }
 
 impl<'d> UartRx<'d, Async> {
