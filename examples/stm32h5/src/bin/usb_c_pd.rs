@@ -1,3 +1,5 @@
+//! This example targets the NUCLEO-H563ZI platform.
+//! USB-C CC lines are protected by a TCPP01-M12 chipset.
 #![no_std]
 #![no_main]
 
