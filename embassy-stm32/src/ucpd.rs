@@ -175,6 +175,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_ucpden(true);
         });
 
+        #[cfg(stm32h5)]
         r.cfgr2().write(|w| {
             w.set_rxafilten(true);
         });
@@ -190,6 +191,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
                 w.set_trim_cc2_rd(trim_rd_cc2 as u8);
             });
         }
+
         Self {
             cc_phy: CcPhy { _lifetime: PhantomData },
         }
