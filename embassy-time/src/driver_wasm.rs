@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use embassy_time_driver::Driver;
-use embassy_time_queue_driver::Queue;
+use embassy_time_queue_utils::Queue;
 use wasm_bindgen::prelude::*;
 use wasm_timer::Instant as StdInstant;
 

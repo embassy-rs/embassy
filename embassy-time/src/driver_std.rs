@@ -3,7 +3,7 @@ use std::thread;
 use std::time::{Duration as StdDuration, Instant as StdInstant};
 
 use embassy_time_driver::Driver;
-use embassy_time_queue_driver::Queue;
+use embassy_time_queue_utils::Queue;
 
 struct TimeDriver {
     signaler: Signaler,
