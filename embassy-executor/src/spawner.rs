@@ -62,6 +62,16 @@ pub enum SpawnError {
     Busy,
 }
 
+impl core::fmt::Display for SpawnError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            SpawnError::Busy => write!(f, "Busy"),
+        }
+    }
+}
+
+impl core::error::Error for SpawnError {}
+
 /// Handle to spawn tasks into an executor.
 ///
 /// This Spawner can spawn any task (Send and non-Send ones), but it can
