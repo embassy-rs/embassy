@@ -326,10 +326,11 @@ mod dual_core {
     /// ```
     ///
     /// This static must be placed in the same position for both cores. How and where this is done is left to the user.
+    #[repr(C)]
     pub struct SharedData {
         init_flag: AtomicUsize,
         clocks: UnsafeCell<MaybeUninit<Clocks>>,
-        config: UnsafeCell<MaybeUninit<Config>>,
+        config: UnsafeCell<MaybeUninit<SharedConfig>>,
     }
 
     unsafe impl Sync for SharedData {}
@@ -352,7 +353,7 @@ mod dual_core {
         rcc::set_freqs_ptr(shared_data.clocks.get());
         let p = init_hw(config);
 
-        unsafe { *shared_data.config.get() }.write(config);
+        unsafe { *shared_data.config.get() }.write(config.into());
 
         shared_data.init_flag.store(INIT_DONE_FLAG, Ordering::SeqCst);
 
@@ -423,6 +424,40 @@ mod dual_core {
         });
 
         Peripherals::take()
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct SharedConfig {
+        #[cfg(bdma)]
+        bdma_interrupt_priority: Priority,
+        #[cfg(dma)]
+        dma_interrupt_priority: Priority,
+        #[cfg(gpdma)]
+        gpdma_interrupt_priority: Priority,
+    }
+
+    impl From<Config> for SharedConfig {
+        fn from(value: Config) -> Self {
+            let Config {
+                #[cfg(bdma)]
+                bdma_interrupt_priority,
+                #[cfg(dma)]
+                dma_interrupt_priority,
+                #[cfg(gpdma)]
+                gpdma_interrupt_priority,
+                ..
+            } = value;
+
+            SharedConfig {
+                #[cfg(bdma)]
+                bdma_interrupt_priority,
+                #[cfg(dma)]
+                dma_interrupt_priority,
+                #[cfg(gpdma)]
+                gpdma_interrupt_priority,
+            }
+        }
     }
 }
 
