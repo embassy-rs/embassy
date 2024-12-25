@@ -350,6 +350,11 @@ mod dual_core {
     pub fn init_primary(config: Config, shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
+        // Write the flag as soon as possible. Reading this flag uninitialized in the `init_secondary`
+        // is maybe unsound? Unclear. If it is indeed unsound, writing it sooner doesn't fix it all,
+        // but improves the odds of it going right
+        shared_data.init_flag.store(0, Ordering::SeqCst);
+
         rcc::set_freqs_ptr(shared_data.clocks.get());
         let p = init_hw(config);
 
