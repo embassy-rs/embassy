@@ -332,10 +332,11 @@ mod dual_core {
     /// ```
     ///
     /// This static must be placed in the same position for both cores. How and where this is done is left to the user.
+    #[repr(C)]
     pub struct SharedData {
         init_flag: AtomicUsize,
         clocks: UnsafeCell<MaybeUninit<Clocks>>,
-        config: UnsafeCell<MaybeUninit<Config>>,
+        config: UnsafeCell<MaybeUninit<SharedConfig>>,
     }
 
     unsafe impl Sync for SharedData {}
@@ -355,10 +356,15 @@ mod dual_core {
     pub fn init_primary(config: Config, shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
+        // Write the flag as soon as possible. Reading this flag uninitialized in the `init_secondary`
+        // is maybe unsound? Unclear. If it is indeed unsound, writing it sooner doesn't fix it all,
+        // but improves the odds of it going right
+        shared_data.init_flag.store(0, Ordering::SeqCst);
+
         rcc::set_freqs_ptr(shared_data.clocks.get());
         let p = init_hw(config);
 
-        unsafe { *shared_data.config.get() }.write(config);
+        unsafe { *shared_data.config.get() }.write(config.into());
 
         shared_data.init_flag.store(INIT_DONE_FLAG, Ordering::SeqCst);
 
@@ -429,6 +435,40 @@ mod dual_core {
         });
 
         Peripherals::take()
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct SharedConfig {
+        #[cfg(bdma)]
+        bdma_interrupt_priority: Priority,
+        #[cfg(dma)]
+        dma_interrupt_priority: Priority,
+        #[cfg(gpdma)]
+        gpdma_interrupt_priority: Priority,
+    }
+
+    impl From<Config> for SharedConfig {
+        fn from(value: Config) -> Self {
+            let Config {
+                #[cfg(bdma)]
+                bdma_interrupt_priority,
+                #[cfg(dma)]
+                dma_interrupt_priority,
+                #[cfg(gpdma)]
+                gpdma_interrupt_priority,
+                ..
+            } = value;
+
+            SharedConfig {
+                #[cfg(bdma)]
+                bdma_interrupt_priority,
+                #[cfg(dma)]
+                dma_interrupt_priority,
+                #[cfg(gpdma)]
+                gpdma_interrupt_priority,
+            }
+        }
     }
 }
 

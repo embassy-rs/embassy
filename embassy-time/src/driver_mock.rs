@@ -3,7 +3,7 @@ use core::task::Waker;
 
 use critical_section::Mutex as CsMutex;
 use embassy_time_driver::Driver;
-use embassy_time_queue_driver::Queue;
+use embassy_time_queue_utils::Queue;
 
 use crate::{Duration, Instant};
 

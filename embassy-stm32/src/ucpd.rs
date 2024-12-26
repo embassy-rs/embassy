@@ -175,6 +175,23 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_ucpden(true);
         });
 
+        #[cfg(stm32h5)]
+        r.cfgr2().write(|w| {
+            w.set_rxafilten(true);
+        });
+
+        // Software trim according to RM0481, p. 2650/2668
+        #[cfg(stm32h5)]
+        {
+            let trim_rd_cc1 = unsafe { *(0x4002_242C as *const u32) & 0xF };
+            let trim_rd_cc2 = unsafe { ((*(0x4002_242C as *const u32)) >> 8) & 0xF };
+
+            r.cfgr3().write(|w| {
+                w.set_trim_cc1_rd(trim_rd_cc1 as u8);
+                w.set_trim_cc2_rd(trim_rd_cc2 as u8);
+            });
+        }
+
         Self {
             cc_phy: CcPhy { _lifetime: PhantomData },
         }
@@ -276,6 +293,31 @@ impl<'d, T: Instance> CcPhy<'d, T> {
             } else {
                 Ccenable::BOTH
             });
+        });
+
+        // Software trim according to RM0481, p. 2650/2668
+        #[cfg(stm32h5)]
+        T::REGS.cfgr3().modify(|w| match cc_pull {
+            CcPull::Source1_5A => {
+                #[cfg(stm32h5)]
+                {
+                    let trim_1a5_cc1 = unsafe { *(0x08FF_F844 as *const u32) & 0xF };
+                    let trim_1a5_cc2 = unsafe { ((*(0x08FF_F844 as *const u32)) >> 16) & 0xF };
+
+                    w.set_trim_cc1_rp(trim_1a5_cc1 as u8);
+                    w.set_trim_cc2_rp(trim_1a5_cc2 as u8);
+                };
+            }
+            _ => {
+                #[cfg(stm32h5)]
+                {
+                    let trim_3a0_cc1 = unsafe { (*(0x4002_242C as *const u32) >> 4) & 0xF };
+                    let trim_3a0_cc2 = unsafe { ((*(0x4002_242C as *const u32)) >> 12) & 0xF };
+
+                    w.set_trim_cc1_rp(trim_3a0_cc1 as u8);
+                    w.set_trim_cc2_rp(trim_3a0_cc2 as u8);
+                };
+            }
         });
 
         // Disable dead-battery pull-down resistors which are enabled by default on boot.

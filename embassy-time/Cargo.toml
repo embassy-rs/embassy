@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -24,8 +24,8 @@ target = "x86_64-unknown-linux-gnu"
 features = ["defmt", "std"]
 
 [features]
-std = ["tick-hz-1_000_000", "critical-section/std", "dep:embassy-time-queue-driver"]
-wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "dep:embassy-time-queue-driver"]
+std = ["tick-hz-1_000_000", "critical-section/std", "dep:embassy-time-queue-utils"]
+wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 
 ## Display the time since startup next to defmt log messages.
 ## At most 1 `defmt-timestamp-uptime-*` feature can be used.
@@ -40,7 +40,32 @@ defmt-timestamp-uptime-tms = ["defmt"]
 defmt-timestamp-uptime-tus = ["defmt"]
 
 ## Create a `MockDriver` that can be manually advanced for testing purposes.
-mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-driver"]
+mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
+
+#! ### Generic Queue
+
+#! By default embassy-time uses a timer queue implementation that is faster but depends on `embassy-executor`.
+#! It will panic if you try to await any timer when using another executor.
+#! 
+#! Alternatively, you can choose to use a "generic" timer queue implementation that works on any executor.
+#! To enable it, enable any of the features below.
+#! 
+#! The features also set how many timers are used for the generic queue. At most one
+#! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
+#!
+#! When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
+#! end user to pick.
+
+## Generic Queue with 8 timers
+generic-queue-8 = ["embassy-time-queue-utils/generic-queue-8"]
+## Generic Queue with 16 timers
+generic-queue-16 = ["embassy-time-queue-utils/generic-queue-16"]
+## Generic Queue with 32 timers
+generic-queue-32 = ["embassy-time-queue-utils/generic-queue-32"]
+## Generic Queue with 64 timers
+generic-queue-64 = ["embassy-time-queue-utils/generic-queue-64"]
+## Generic Queue with 128 timers
+generic-queue-128 = ["embassy-time-queue-utils/generic-queue-128"]
 
 #! ### Tick Rate
 #!
@@ -383,8 +408,8 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 #! </details>
 
 [dependencies]
-embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver" }
-embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver", optional = true}
+embassy-time-driver = { version = "0.2", path = "../embassy-time-driver" }
+embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true}
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -407,4 +432,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.6.3", path = "../embassy-executor" }
+embassy-executor = { version = "0.7.0", path = "../embassy-executor" }

@@ -23,9 +23,6 @@ target = "thumbv7em-none-eabi"
 features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname"]
 
 [features]
-default = []
-std = []
-
 ## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
 
@@ -74,7 +71,7 @@ smoltcp = { version = "0.12.0", default-features = false, features = [
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.3.2", path = "../embassy-time" }
+embassy-time = { version = "0.4.0", path = "../embassy-time" }
 embassy-sync = { version = "0.6.1", path = "../embassy-sync" }
 embedded-io-async = { version = "0.6.1" }
 

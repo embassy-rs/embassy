@@ -41,11 +41,6 @@ async fn main(_spawner: Spawner) {
     config.product = Some("USB-Serial Example");
     config.serial_number = Some("123456");
 
-    config.device_class = 0xEF;
-    config.device_sub_class = 0x02;
-    config.device_protocol = 0x01;
-    config.composite_with_iads = true;
-
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
