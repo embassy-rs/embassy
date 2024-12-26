@@ -507,7 +507,6 @@ pub fn init(config: config::Config) -> Peripherals {
     let mut needs_reset = false;
 
     // Setup debug protection.
-    #[cfg(not(feature = "_nrf54l"))] // TODO
     #[cfg(not(feature = "_nrf51"))]
     match config.debug {
         config::Debug::Allowed => {
@@ -549,18 +548,77 @@ pub fn init(config: config::Config) -> Peripherals {
                 }
             }
 
+            // TAMPC is only accessible for secure code
+            #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+            {
+                use crate::pac::tampc::vals;
+
+                // UICR cannot be written here, because it can only be written once after an erase all.
+                // The erase all value means that debug access is allowed if permitted by the firmware.
+
+                // Write to TAMPC to permit debug access
+                //
+                // See https://docs.nordicsemi.com/bundle/ps_nrf54L15/page/debug.html#ariaid-title6
+
+                let p = pac::TAMPC;
+
+                // Unlock dbgen
+                p.protect().domain(0).dbgen().ctrl().write(|w| {
+                    w.set_key(vals::DomainDbgenCtrlKey::KEY);
+                    w.set_writeprotection(vals::DomainDbgenCtrlWriteprotection::CLEAR);
+                });
+                p.protect().domain(0).dbgen().ctrl().write(|w| {
+                    w.set_key(vals::DomainDbgenCtrlKey::KEY);
+                    w.set_value(vals::DomainDbgenCtrlValue::HIGH);
+                });
+
+                // Unlock niden
+                p.protect().domain(0).niden().ctrl().write(|w| {
+                    w.set_key(vals::NidenCtrlKey::KEY);
+                    w.set_writeprotection(vals::NidenCtrlWriteprotection::CLEAR);
+                });
+                p.protect().domain(0).niden().ctrl().write(|w| {
+                    w.set_key(vals::NidenCtrlKey::KEY);
+                    w.set_value(vals::NidenCtrlValue::HIGH);
+                });
+
+                p.protect().domain(0).spiden().ctrl().write(|w| {
+                    w.set_key(vals::SpidenCtrlKey::KEY);
+                    w.set_writeprotection(vals::SpidenCtrlWriteprotection::CLEAR);
+                });
+                p.protect().domain(0).spiden().ctrl().write(|w| {
+                    w.set_key(vals::SpidenCtrlKey::KEY);
+                    w.set_value(vals::SpidenCtrlValue::HIGH);
+                });
+
+                p.protect().domain(0).spniden().ctrl().write(|w| {
+                    w.set_key(vals::SpnidenCtrlKey::KEY);
+                    w.set_writeprotection(vals::SpnidenCtrlWriteprotection::CLEAR);
+                });
+                p.protect().domain(0).spniden().ctrl().write(|w| {
+                    w.set_key(vals::SpnidenCtrlKey::KEY);
+                    w.set_value(vals::SpnidenCtrlValue::HIGH);
+                });
+            }
+
             // nothing to do on the nrf9160, debug is allowed by default.
         }
-        config::Debug::Disallowed => unsafe {
-            // UICR.APPROTECT = Enabled
-            let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_ENABLED);
-            needs_reset |= res == WriteResult::Written;
-            #[cfg(any(feature = "_nrf5340-app", feature = "_nrf91"))]
-            {
-                let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_ENABLED);
+        config::Debug::Disallowed => {
+            // TODO: Handle nRF54L
+            //       By default, debug access is not allowed if the firmware doesn't allow it.
+            //       Code could be added here to disable debug access in UICR as well.
+            #[cfg(not(feature = "_nrf54l"))]
+            unsafe {
+                // UICR.APPROTECT = Enabled
+                let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_ENABLED);
                 needs_reset |= res == WriteResult::Written;
+                #[cfg(any(feature = "_nrf5340-app", feature = "_nrf91"))]
+                {
+                    let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_ENABLED);
+                    needs_reset |= res == WriteResult::Written;
+                }
             }
-        },
+        }
         config::Debug::NotConfigured => {}
     }
 
