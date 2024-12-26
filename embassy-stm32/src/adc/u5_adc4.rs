@@ -4,13 +4,14 @@ pub use crate::pac::adc::vals::Adc4Presc as Presc;
 pub use crate::pac::adc::regs::Adc4Chselrmod0;
 
 #[allow(unused)]
-use pac::adc::vals::{Adc4Exten, Adc4OversamplingRatio};
+use pac::adc::vals::{Adc4Exten, Adc4OversamplingRatio, Adc4Dmacfg};
 
 use super::{
-    blocking_delay_us, AdcChannel, SealedAdcChannel
+    blocking_delay_us, AdcChannel, SealedAdcChannel, AnyAdcChannel, RxDma4
 };
 use crate::time::Hertz;
 use crate::{pac, rcc, Peripheral};
+use crate::dma::Transfer;
 
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
@@ -182,6 +183,12 @@ pub struct Adc4<'d, T: Instance> {
     adc: crate::PeripheralRef<'d, T>,
 }
 
+#[derive(Debug)]
+pub enum Adc4Error {
+    InvalidSequence,
+    DMAError
+}
+
 impl<'d, T: Instance> Adc4<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
@@ -244,6 +251,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
         // single conversion mode, software trigger
         T::regs().cfgr1().modify(|w| {
             w.set_cont(false);
+            w.set_discen(false);
             w.set_exten(Adc4Exten::DISABLED);
         });
 
@@ -336,8 +344,18 @@ impl<'d, T: Instance> Adc4<'d, T> {
         })
     }
 
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
+    /// Read an ADC channel.
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16{
+        channel.setup();
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_chselrmod(false);
+        });
+
+        T::regs().chselrmod0().write_value(Adc4Chselrmod0(0_u32));
+        T::regs().chselrmod0().modify(|w| {
+            w.set_chsel(channel.channel() as usize, true);
+        });
+
         T::regs().isr().modify(|reg| {
             reg.set_eos(true);
             reg.set_eoc(true);
@@ -355,22 +373,92 @@ impl<'d, T: Instance> Adc4<'d, T> {
         T::regs().dr().read().0 as u16
     }
 
-    /// Read an ADC channel.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        self.read_channel(channel)
-    }
+    /// Channels can not be repeated and must be in ascending order!
+    /// TODO: broken
+    pub async fn read(
+        &mut self,
+        rx_dma: &mut impl RxDma4<T>,
+        sequence: impl ExactSizeIterator<Item = &mut AnyAdcChannel<T>>,
+        readings: &mut [u16],
+    ) -> Result<(), Adc4Error> {
+        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
+        assert!(
+            sequence.len() == readings.len(),
+            "Sequence length must be equal to readings length"
+        );
 
-    fn configure_channel(channel: &mut impl AdcChannel<T>) {
-        channel.setup();
-        T::regs().chselrmod0().write_value(Adc4Chselrmod0(0_u32));
-        T::regs().chselrmod0().modify(|w| {
-            w.set_chsel(channel.channel() as usize, true);
+        // Ensure no conversions are ongoing
+        Self::cancel_conversions();
+
+        T::regs().isr().modify(|reg| {
+            reg.set_ovr(true);
+            reg.set_eos(true);
+            reg.set_eoc(true);
         });
+
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_dmaen(true);
+            reg.set_dmacfg(Adc4Dmacfg::ONESHOT);
+            reg.set_chselrmod(false);
+        });
+
+
+        let mut prev_channel: i16 = -1;
+        T::regs().chselrmod0().write_value(Adc4Chselrmod0(0_u32));
+        for channel in sequence {
+            let channel_num = channel.channel;
+            if channel_num as i16 <= prev_channel {
+                return Err(Adc4Error::InvalidSequence);
+            };
+            prev_channel = channel_num as i16;
+
+            T::regs().chselrmod0().modify(|w| {
+                w.set_chsel(channel.channel as usize, true);
+            });
+        };
+
+        let request = rx_dma.request();
+        let transfer = unsafe {
+            Transfer::new_read(
+                rx_dma,
+                request,
+                T::regs().dr().as_ptr() as *mut u16,
+                readings,
+                Default::default(),
+            )
+        };
+
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        // Wait for conversion sequence to finish.
+        transfer.await;
+
+        blocking_delay_us(10);
+
+        // Ensure conversions are finished.
+        Self::cancel_conversions();
+
+        // Reset configuration.
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_dmaen(false);
+        });
+
+        if T::regs().isr().read().ovr() {
+            Err(Adc4Error::DMAError)
+        } else {
+            Ok(())
+        }
     }
 
-    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        Self::configure_channel(channel);
-        let ret = self.convert();
-        ret
+    fn cancel_conversions() {
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(true);
+            });
+            while T::regs().cr().read().adstart() {}
+        }
     }
 }
