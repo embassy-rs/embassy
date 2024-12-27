@@ -221,16 +221,16 @@ impl<'d, T: Instance> Adc4<'d, T> {
     }
 
     fn power_up(&mut self) {
-        T::regs().isr().modify(|reg| {
-            reg.set_ldordy(true);
+        T::regs().isr().modify(|w| {
+            w.set_ldordy(true);
         });
-        T::regs().cr().modify(|reg| {
-            reg.set_advregen(true);
+        T::regs().cr().modify(|w| {
+            w.set_advregen(true);
         });
         while !T::regs().isr().read().ldordy() { };
 
-        T::regs().isr().modify(|reg| {
-            reg.set_ldordy(true);
+        T::regs().isr().modify(|w| {
+            w.set_ldordy(true);
         });
     }
 
@@ -253,6 +253,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
             w.set_cont(false);
             w.set_discen(false);
             w.set_exten(Adc4Exten::DISABLED);
+            w.set_chselrmod(false);
         });
 
         // only use one channel at the moment
@@ -265,8 +266,8 @@ impl<'d, T: Instance> Adc4<'d, T> {
 
     /// Enable reading the voltage reference internal channel.
     pub fn enable_vrefint(&self) -> VrefInt {
-        T::regs().ccr().modify(|reg| {
-            reg.set_vrefen(true);
+        T::regs().ccr().modify(|w| {
+            w.set_vrefen(true);
         });
 
         VrefInt {}
@@ -274,8 +275,8 @@ impl<'d, T: Instance> Adc4<'d, T> {
 
     /// Enable reading the temperature internal channel.
     pub fn enable_temperature(&self) -> Temperature {
-        T::regs().ccr().modify(|reg| {
-            reg.set_vsensesel(true);
+        T::regs().ccr().modify(|w| {
+            w.set_vsensesel(true);
         });
 
         Temperature {}
@@ -283,8 +284,8 @@ impl<'d, T: Instance> Adc4<'d, T> {
 
     /// Enable reading the vbat internal channel.
     pub fn enable_vbat(&self) -> Vbat {
-        T::regs().ccr().modify(|reg| {
-            reg.set_vbaten(true);
+        T::regs().ccr().modify(|w| {
+            w.set_vbaten(true);
         });
 
         Vbat {}
@@ -320,7 +321,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
 
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
+        T::regs().cfgr1().modify(|w| w.set_res(resolution.into()));
     }
 
     /// Set hardware averaging.
@@ -337,25 +338,24 @@ impl<'d, T: Instance> Adc4<'d, T> {
             Averaging::Samples256 => (true, Adc4OversamplingRatio::OVERSAMPLE256X, 8),
         };
 
-        T::regs().cfgr2().modify(|reg| {
-            reg.set_ovsr(samples);
-            reg.set_ovss(right_shift);
-            reg.set_ovse(enable)
+        T::regs().cfgr2().modify(|w| {
+            w.set_ovsr(samples);
+            w.set_ovss(right_shift);
+            w.set_ovse(enable)
         })
     }
 
     /// Read an ADC channel.
     pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16{
         channel.setup();
-        T::regs().cfgr1().modify(|reg| {
-            reg.set_chselrmod(false);
-        });
 
+        // Select channel
         T::regs().chselrmod0().write_value(Adc4Chselrmod0(0_u32));
         T::regs().chselrmod0().modify(|w| {
             w.set_chsel(channel.channel() as usize, true);
         });
 
+        // Reset interrupts
         T::regs().isr().modify(|reg| {
             reg.set_eos(true);
             reg.set_eoc(true);
@@ -373,8 +373,33 @@ impl<'d, T: Instance> Adc4<'d, T> {
         T::regs().dr().read().0 as u16
     }
 
-    /// Channels can not be repeated and must be in ascending order!
-    /// TODO: broken
+    /// Read one or multiple ADC channels using DMA.
+    ///
+    /// `sequence` iterator and `readings` must have the same length.
+    /// The channels in `sequence` must be in ascending order.
+    ///
+    /// Example
+    /// ```rust,ignore
+    /// use embassy_stm32::adc::adc4;
+    /// use embassy_stm32::adc::AdcChannel;
+    ///
+    /// let mut adc4 = adc4::Adc4::new(p.ADC4);
+    /// let mut adc4_pin1 = p.PC1;
+    /// let mut adc4_pin2 = p.PC0;
+    /// let mut degraded41 = adc4_pin1.degrade_adc();
+    /// let mut degraded42 = adc4_pin2.degrade_adc();
+    /// let mut measurements = [0u16; 2];
+    /// // not that the channels must be in ascending order
+    /// adc4.read(
+    ///     &mut p.GPDMA1_CH1,
+    ///    [
+    ///        &mut degraded42,
+    ///        &mut degraded41,
+    ///    ]
+    ///    .into_iter(),
+    ///    &mut measurements,
+    /// ).await.unwrap();
+    /// ```
     pub async fn read(
         &mut self,
         rx_dma: &mut impl RxDma4<T>,
@@ -402,7 +427,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
             reg.set_chselrmod(false);
         });
 
-
+        // Verify and activate sequence
         let mut prev_channel: i16 = -1;
         T::regs().chselrmod0().write_value(Adc4Chselrmod0(0_u32));
         for channel in sequence {
@@ -433,10 +458,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
             reg.set_adstart(true);
         });
 
-        // Wait for conversion sequence to finish.
         transfer.await;
-
-        blocking_delay_us(10);
 
         // Ensure conversions are finished.
         Self::cancel_conversions();

@@ -14,25 +14,6 @@ use panic_probe as _;
 #[embassy_executor::main]
 async fn main(spawner: embassy_executor::Spawner) {
     let mut config = embassy_stm32::Config::default();
-    {
-        use embassy_stm32::rcc::*;
-        config.rcc.hsi = true;
-
-        config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI, // 16 MHz
-            prediv: PllPreDiv::DIV1, // 16 MHz
-            mul: PllMul::MUL10, // 160 MHz
-            divp: Some(PllDiv::DIV1), // don't care
-            divq: Some(PllDiv::DIV1), // don't care
-            divr: Some(PllDiv::DIV1), // 160 MHz
-        });
-
-        config.rcc.sys = Sysclk::PLL1_R;
-        config.rcc.voltage_range = VoltageScale::RANGE1;
-        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
-        config.rcc.mux.iclksel = mux::Iclksel::HSI48; // USB uses ICLK
-
-    }
 
     let mut p = embassy_stm32::init(config);
 

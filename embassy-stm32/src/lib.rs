@@ -238,7 +238,7 @@ pub struct Config {
     #[cfg(any(stm32l4, stm32l5, stm32u5))]
     pub enable_independent_io_supply: bool,
 
-    /// On the U5 series all analog peripherals are powere by a separate supply.
+    /// On the U5 series all analog peripherals are powered by a separate supply.
     #[cfg(stm32u5)]
     pub enable_independent_analog_supply: bool,
 
