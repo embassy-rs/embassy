@@ -85,6 +85,8 @@ pub enum Error {
     Overrun,
     /// Timeout error.
     Timeout,
+    /// Bus error.
+    Bus,
 }
 
 /// Interrupt handler.
@@ -329,7 +331,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     /// Wait for stop or error
-    fn async_wait(&mut self) -> impl Future<Output = ()> {
+    fn async_wait(&mut self) -> impl Future<Output = Result<(), Error>> {
         poll_fn(move |cx| {
             let r = T::regs();
             let s = T::state();
@@ -338,13 +340,23 @@ impl<'d, T: Instance> Twim<'d, T> {
             if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
                 r.events_stopped().write_value(0);
 
-                return Poll::Ready(());
+                return Poll::Ready(Ok(()));
             }
 
             // stop if an error occurred
             if r.events_error().read() != 0 {
                 r.events_error().write_value(0);
                 r.tasks_stop().write_value(1);
+                let errorsrc = r.errorsrc().read();
+                if errorsrc.overrun() {
+                    return Poll::Ready(Err(Error::Overrun));
+                } else if errorsrc.anack() {
+                    return Poll::Ready(Err(Error::AddressNack));
+                } else if errorsrc.dnack() {
+                    return Poll::Ready(Err(Error::DataNack));
+                } else {
+                    return Poll::Ready(Err(Error::Bus));
+                }
             }
 
             Poll::Pending
@@ -626,7 +638,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         while !operations.is_empty() {
             let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, true)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
-            self.async_wait().await;
+            self.async_wait().await?;
             self.check_operations(in_progress)?;
             last_op = in_progress.last();
             operations = rest;
@@ -644,7 +656,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         while !operations.is_empty() {
             let ops = self.setup_operations(address, operations, None, last_op, true)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
-            self.async_wait().await;
+            self.async_wait().await?;
             self.check_operations(in_progress)?;
             last_op = in_progress.last();
             operations = rest;
@@ -910,6 +922,7 @@ impl embedded_hal_1::i2c::Error for Error {
             }
             Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
             Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::Bus => embedded_hal_1::i2c::ErrorKind::Other,
         }
     }
 }
