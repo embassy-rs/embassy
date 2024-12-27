@@ -120,7 +120,7 @@ where
             cfg.clock_divider = FixedU32::from_bits(0x0100);
         }
 
-        #[cfg(not(feature = "overclock"))]
+        #[cfg(not(any(feature = "overclock", feature = "rm2")))]
         {
             // same speed as pico-sdk, 62.5Mhz
             // This is actually the fastest we can go without overclocking.
@@ -130,6 +130,12 @@ where
             // so that it averages out to the desired frequency of 100mhz. The 125mhz clock cycles
             // violate the maximum from the data sheet.
             cfg.clock_divider = FixedU32::from_bits(0x0200);
+        }
+
+        #[cfg(feature = "rm2")]
+        {
+            // This is found to work better with the RM2 module which is found on the Pimoroni Pico Plus 2 W
+            cfg.clock_divider = FixedU32::from_bits(0x0300);
         }
 
         sm.set_config(&cfg);
