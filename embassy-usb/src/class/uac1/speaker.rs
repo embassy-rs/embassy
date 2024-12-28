@@ -579,7 +579,7 @@ impl<'d> Control<'d> {
 
         if endpoint_address != self.streaming_endpoint_address {
             debug!(
-                "Unhandled endpoint set request for endpoint {} and control {} with data {}",
+                "Unhandled endpoint set request for endpoint {} and control {} with data {:?}",
                 endpoint_address, control_selector, data
             );
             return None;
