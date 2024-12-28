@@ -40,7 +40,6 @@ pub const OVERCLOCK_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0100);
 
 /// The clock divider for the RM2 module. Found to be needed for the Pimoroni Pico Plus 2 W,
 /// Pico Plus 2 Non w with the RM2 breakout module, and the Pico 2 with the RM2 breakout module.
-/// Does not work with the feature "overclock".
 pub const RM2_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0300);
 
 impl<'d, PIO, const SM: usize, DMA> PioSpi<'d, PIO, SM, DMA>
@@ -63,53 +62,56 @@ where
         DIO: PioPin,
         CLK: PioPin,
     {
-        #[cfg(feature = "overclock")]
-        let program = pio_asm!(
-            ".side_set 1"
+        let loaded_program = if clock_divider < DEFAULT_CLOCK_DIVIDER {
+            let overclock_program = pio_asm!(
+                ".side_set 1"
 
-            ".wrap_target"
-            // write out x-1 bits
-            "lp:"
-            "out pins, 1    side 0"
-            "jmp x-- lp     side 1"
-            // switch directions
-            "set pindirs, 0 side 0"
-            "nop            side 1"  // necessary for clkdiv=1.
-            "nop            side 0"
-            // read in y-1 bits
-            "lp2:"
-            "in pins, 1     side 1"
-            "jmp y-- lp2    side 0"
+                ".wrap_target"
+                // write out x-1 bits
+                "lp:"
+                "out pins, 1    side 0"
+                "jmp x-- lp     side 1"
+                // switch directions
+                "set pindirs, 0 side 0"
+                "nop            side 1"  // necessary for clkdiv=1.
+                "nop            side 0"
+                // read in y-1 bits
+                "lp2:"
+                "in pins, 1     side 1"
+                "jmp y-- lp2    side 0"
 
-            // wait for event and irq host
-            "wait 1 pin 0   side 0"
-            "irq 0          side 0"
+                // wait for event and irq host
+                "wait 1 pin 0   side 0"
+                "irq 0          side 0"
 
-            ".wrap"
-        );
-        #[cfg(not(feature = "overclock"))]
-        let program = pio_asm!(
-            ".side_set 1"
+                ".wrap"
+            );
+            common.load_program(&overclock_program.program)
+        } else {
+            let default_program = pio_asm!(
+                ".side_set 1"
 
-            ".wrap_target"
-            // write out x-1 bits
-            "lp:"
-            "out pins, 1    side 0"
-            "jmp x-- lp     side 1"
-            // switch directions
-            "set pindirs, 0 side 0"
-            "nop            side 0"
-            // read in y-1 bits
-            "lp2:"
-            "in pins, 1     side 1"
-            "jmp y-- lp2    side 0"
+                ".wrap_target"
+                // write out x-1 bits
+                "lp:"
+                "out pins, 1    side 0"
+                "jmp x-- lp     side 1"
+                // switch directions
+                "set pindirs, 0 side 0"
+                "nop            side 0"
+                // read in y-1 bits
+                "lp2:"
+                "in pins, 1     side 1"
+                "jmp y-- lp2    side 0"
 
-            // wait for event and irq host
-            "wait 1 pin 0   side 0"
-            "irq 0          side 0"
+                // wait for event and irq host
+                "wait 1 pin 0   side 0"
+                "irq 0          side 0"
 
-            ".wrap"
-        );
+                ".wrap"
+            );
+            common.load_program(&default_program.program)
+        };
 
         let mut pin_io: embassy_rp::pio::Pin<PIO> = common.make_pio_pin(dio);
         pin_io.set_pull(Pull::None);
@@ -123,7 +125,6 @@ where
         pin_clk.set_slew_rate(SlewRate::Fast);
 
         let mut cfg = Config::default();
-        let loaded_program = common.load_program(&program.program);
         cfg.use_program(&loaded_program, &[&pin_clk]);
         cfg.set_out_pins(&[&pin_io]);
         cfg.set_in_pins(&[&pin_io]);
