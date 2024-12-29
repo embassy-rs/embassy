@@ -370,6 +370,50 @@ mod tests {
     use crate::mutex::{Mutex, MutexGuard};
 
     #[futures_test::test]
+    async fn mutex_actually_provides_exclusive_access() {
+        async fn increment_once(mutex: &Mutex<NoopRawMutex, i32>) {
+            use core::future::poll_fn;
+            use core::task::Poll;
+
+            let mut guard = mutex.lock().await;
+            let value = &mut *guard;
+
+            // yield once to allow the other future to run while
+            // we are holding an exclusive borrow
+            let mut called = false;
+            poll_fn(|cx| {
+                if called {
+                    return Poll::Ready(());
+                }
+                called = true;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            })
+            .await;
+
+            *value += 1;
+        }
+
+        let mutex: Mutex<NoopRawMutex, i32> = Mutex::new(0);
+
+        let fut1 = async {
+            for _ in 0..5 {
+                increment_once(&mutex).await;
+            }
+        };
+
+        let fut2 = async {
+            for _ in 0..5 {
+                increment_once(&mutex).await;
+            }
+        };
+
+        futures_util::join!(fut1, fut2);
+
+        assert_eq!(*mutex.lock().await, 10);
+    }
+
+    #[futures_test::test]
     async fn mapped_guard_releases_lock_when_dropped() {
         let mutex: Mutex<NoopRawMutex, [i32; 2]> = Mutex::new([0, 1]);
 
