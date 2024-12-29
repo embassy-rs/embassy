@@ -9,11 +9,6 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/cyw43-pio"
 
-[features]
-# If disabled, SPI runs at 31.25MHz
-# If enabled, SPI runs at 62.5MHz, which is 25% higher than 50Mhz which is the maximum according to the CYW43439 datasheet.
-overclock = []
-
 [dependencies]
 cyw43 = { version = "0.2.0", path = "../cyw43" }
 embassy-rp = { version = "0.2.0", path = "../embassy-rp" }
