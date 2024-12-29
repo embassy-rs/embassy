@@ -10,6 +10,7 @@
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.showUnlinkedFileNotification": false,
   // Uncomment the target of your chip.
+  //"rust-analyzer.cargo.target": "avr-unknown-gnu-atmega328",
   //"rust-analyzer.cargo.target": "thumbv6m-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv7m-none-eabi",
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
@@ -28,6 +29,7 @@
     // To work on the examples, comment the line above and all of the cargo.features lines,
     // then uncomment ONE line below to select the chip you want to work on.
     // This makes rust-analyzer work on the example crate and all its dependencies.
+    // "examples/avr/Cargo.toml",
     // "examples/nrf52840-rtic/Cargo.toml",
     // "examples/nrf5340/Cargo.toml",
     // "examples/nrf-rtos-trace/Cargo.toml",
