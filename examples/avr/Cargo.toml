@@ -5,7 +5,7 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-avr-device = { version = "0.5", features = ["atmega328p"] }
+avr-device = { version = "0.6", features = ["atmega328p"] }
 embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-avr", "executor-thread", "nightly"] }
 panic-halt = "1"
 
