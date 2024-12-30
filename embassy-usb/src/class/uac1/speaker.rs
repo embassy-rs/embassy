@@ -11,7 +11,7 @@
 //! The class provides volume and mute controls for each channel.
 
 use core::cell::{Cell, RefCell};
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
@@ -389,7 +389,7 @@ impl<'d> Default for SharedControl<'d> {
 }
 
 impl<'d> SharedControl<'d> {
-    async fn changed(&self) {
+    fn changed(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|context| {
             if self.changed.load(Ordering::Relaxed) {
                 self.changed.store(false, Ordering::Relaxed);
@@ -399,7 +399,6 @@ impl<'d> SharedControl<'d> {
                 Poll::Pending
             }
         })
-        .await;
     }
 }
 

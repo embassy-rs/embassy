@@ -1,6 +1,6 @@
 //! Raw sockets.
 
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::mem;
 use core::task::{Context, Poll};
 
@@ -66,8 +66,8 @@ impl<'a> RawSocket<'a> {
     ///
     /// A socket is readable when a packet has been received, or when there are queued packets in
     /// the buffer.
-    pub async fn wait_recv_ready(&self) {
-        poll_fn(move |cx| self.poll_recv_ready(cx)).await
+    pub fn wait_recv_ready(&self) -> impl Future<Output = ()> + '_ {
+        poll_fn(move |cx| self.poll_recv_ready(cx))
     }
 
     /// Receive a datagram.
@@ -115,8 +115,8 @@ impl<'a> RawSocket<'a> {
     ///
     /// A socket becomes writable when there is space in the buffer, from initial memory or after
     /// dispatching datagrams on a full buffer.
-    pub async fn wait_send_ready(&self) {
-        poll_fn(move |cx| self.poll_send_ready(cx)).await
+    pub fn wait_send_ready(&self) -> impl Future<Output = ()> + '_ {
+        poll_fn(move |cx| self.poll_send_ready(cx))
     }
 
     /// Wait until a datagram can be sent.
@@ -141,8 +141,8 @@ impl<'a> RawSocket<'a> {
     /// Send a datagram.
     ///
     /// This method will wait until the datagram has been sent.`
-    pub async fn send(&self, buf: &[u8]) {
-        poll_fn(move |cx| self.poll_send(buf, cx)).await
+    pub fn send<'s>(&'s self, buf: &'s [u8]) -> impl Future<Output = ()> + 's {
+        poll_fn(|cx| self.poll_send(buf, cx))
     }
 
     /// Send a datagram.
@@ -165,8 +165,8 @@ impl<'a> RawSocket<'a> {
     /// Flush the socket.
     ///
     /// This method will wait until the socket is flushed.
-    pub async fn flush(&mut self) {
-        poll_fn(move |cx| {
+    pub fn flush(&mut self) -> impl Future<Output = ()> + '_ {
+        poll_fn(|cx| {
             self.with_mut(|s, _| {
                 if s.send_queue() == 0 {
                     Poll::Ready(())
@@ -176,7 +176,6 @@ impl<'a> RawSocket<'a> {
                 }
             })
         })
-        .await
     }
 }
 

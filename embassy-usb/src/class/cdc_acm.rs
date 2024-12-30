@@ -1,7 +1,7 @@
 //! CDC-ACM class implementation, aka Serial over USB.
 
 use core::cell::{Cell, RefCell};
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
@@ -108,7 +108,7 @@ impl Default for ControlShared {
 }
 
 impl ControlShared {
-    async fn changed(&self) {
+    fn changed(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
             if self.changed.load(Ordering::Relaxed) {
                 self.changed.store(false, Ordering::Relaxed);
@@ -118,7 +118,6 @@ impl ControlShared {
                 Poll::Pending
             }
         })
-        .await;
     }
 }
 

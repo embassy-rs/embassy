@@ -1,4 +1,4 @@
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::Ordering;
@@ -100,7 +100,7 @@ impl Spawner {
     /// # Panics
     ///
     /// Panics if the current executor is not an Embassy executor.
-    pub async fn for_current_executor() -> Self {
+    pub fn for_current_executor() -> impl Future<Output = Self> {
         poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
             let executor = unsafe {
@@ -113,7 +113,6 @@ impl Spawner {
             let executor = unsafe { raw::Executor::wrap(executor) };
             Poll::Ready(Self::new(executor))
         })
-        .await
     }
 
     /// Spawn a task into an executor.
@@ -178,7 +177,7 @@ impl SendSpawner {
     /// # Panics
     ///
     /// Panics if the current executor is not an Embassy executor.
-    pub async fn for_current_executor() -> Self {
+    pub fn for_current_executor() -> impl Future<Output = Self> {
         poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
             let executor = unsafe {
@@ -190,7 +189,6 @@ impl SendSpawner {
             };
             Poll::Ready(Self::new(executor))
         })
-        .await
     }
 
     /// Spawn a task into an executor.

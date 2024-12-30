@@ -2,7 +2,7 @@
 
 #![macro_use]
 
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
@@ -314,7 +314,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
         Ok(())
     }
 
-    async fn wait_ready(&mut self) {
+    fn wait_ready(&mut self) -> impl Future<Output = ()> {
         poll_fn(move |cx| {
             let r = T::regs();
             let s = T::state();
@@ -324,7 +324,6 @@ impl<'d, T: Instance> Qspi<'d, T> {
             }
             Poll::Pending
         })
-        .await
     }
 
     fn blocking_wait_ready() {
