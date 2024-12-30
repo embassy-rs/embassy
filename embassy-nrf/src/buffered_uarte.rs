@@ -9,7 +9,7 @@
 //! Please also see [crate::uarte] to understand when [BufferedUarte] should be used.
 
 use core::cmp::min;
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::slice;
 use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU8, AtomicUsize, Ordering};
@@ -452,7 +452,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     }
 
     /// Write a buffer into this writer, returning how many bytes were written.
-    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    pub fn write<'a>(&'a mut self, buf: &'a [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
         poll_fn(move |cx| {
             //trace!("poll_write: {:?}", buf.len());
             let ss = U::state();
@@ -477,7 +477,6 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
 
             Poll::Ready(Ok(n))
         })
-        .await
     }
 
     /// Try writing a buffer without waiting, returning how many bytes were written.
@@ -504,7 +503,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     }
 
     /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.
-    pub async fn flush(&mut self) -> Result<(), Error> {
+    pub fn flush(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
         poll_fn(move |cx| {
             //trace!("poll_flush");
             let ss = U::state();
@@ -517,7 +516,6 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
 
             Poll::Ready(Ok(()))
         })
-        .await
     }
 }
 
@@ -721,7 +719,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
     }
 
     /// Return the contents of the internal buffer, filling it with more data from the inner reader if it is empty.
-    pub async fn fill_buf(&mut self) -> Result<&[u8], Error> {
+    pub fn fill_buf(&mut self) -> impl Future<Output = Result<&'_ [u8], Error>> {
         poll_fn(move |cx| {
             compiler_fence(Ordering::SeqCst);
             //trace!("poll_read");
@@ -771,7 +769,6 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
             let buf = s.rx_buf.buf.load(Ordering::Relaxed);
             Poll::Ready(Ok(unsafe { slice::from_raw_parts(buf.add(start), n) }))
         })
-        .await
     }
 
     /// Tell this buffer that `amt` bytes have been consumed from the buffer, so they should no longer be returned in calls to `fill_buf`.

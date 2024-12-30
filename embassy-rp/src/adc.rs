@@ -1,5 +1,5 @@
 //! ADC driver.
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -193,18 +193,18 @@ impl<'d> Adc<'d, Async> {
         Self { phantom: PhantomData }
     }
 
-    async fn wait_for_ready() {
+    fn wait_for_ready() -> impl Future<Output = ()> {
         let r = Self::regs();
         r.inte().write(|w| w.set_fifo(true));
         compiler_fence(Ordering::SeqCst);
-        poll_fn(|cx| {
+
+        poll_fn(move |cx| {
             WAKER.register(cx.waker());
             if r.cs().read().ready() {
                 return Poll::Ready(());
             }
             Poll::Pending
         })
-        .await;
     }
 
     /// Sample a value from a channel until completed.

@@ -1,7 +1,7 @@
 //! Synchronization primitive for initializing a value once, allowing others to await a reference to the value.
 
 use core::cell::Cell;
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
@@ -55,7 +55,7 @@ impl<T> OnceLock<T> {
 
     /// Get a reference to the underlying value, waiting for it to be set.
     /// If the value is already set, this will return immediately.
-    pub async fn get(&self) -> &T {
+    pub fn get(&self) -> impl Future<Output = &T> {
         poll_fn(|cx| match self.try_get() {
             Some(data) => Poll::Ready(data),
             None => {
@@ -63,7 +63,6 @@ impl<T> OnceLock<T> {
                 Poll::Pending
             }
         })
-        .await
     }
 
     /// Try to get a reference to the underlying value if it exists.

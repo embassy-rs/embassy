@@ -15,7 +15,7 @@
 //! another message will result in an error being returned.
 
 use core::cell::RefCell;
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 
@@ -131,12 +131,15 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
     }
 
     /// Asynchronously send a value over the channel.
-    pub async fn send(&mut self) -> &mut T {
-        let i = poll_fn(|cx| {
+    pub fn send(&mut self) -> impl Future<Output = &mut T> {
+        poll_fn(|cx| {
             self.channel.state.lock(|s| {
                 let s = &mut *s.borrow_mut();
                 match s.push_index() {
-                    Some(i) => Poll::Ready(i),
+                    Some(i) => {
+                        let r = unsafe { &mut *self.channel.buf.add(i) };
+                        Poll::Ready(r)
+                    }
                     None => {
                         s.receive_waker.register(cx.waker());
                         Poll::Pending
@@ -144,8 +147,6 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
                 }
             })
         })
-        .await;
-        unsafe { &mut *self.channel.buf.add(i) }
     }
 
     /// Notify the channel that the sending of the value has been finalized.
@@ -213,12 +214,15 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     }
 
     /// Asynchronously receive a value over the channel.
-    pub async fn receive(&mut self) -> &mut T {
-        let i = poll_fn(|cx| {
+    pub fn receive(&mut self) -> impl Future<Output = &mut T> {
+        poll_fn(|cx| {
             self.channel.state.lock(|s| {
                 let s = &mut *s.borrow_mut();
                 match s.pop_index() {
-                    Some(i) => Poll::Ready(i),
+                    Some(i) => {
+                        let r = unsafe { &mut *self.channel.buf.add(i) };
+                        Poll::Ready(r)
+                    }
                     None => {
                         s.send_waker.register(cx.waker());
                         Poll::Pending
@@ -226,8 +230,6 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
                 }
             })
         })
-        .await;
-        unsafe { &mut *self.channel.buf.add(i) }
     }
 
     /// Notify the channel that the receiving of the value has been finalized.

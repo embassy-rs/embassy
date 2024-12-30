@@ -9,7 +9,7 @@ mod fmt;
 pub mod context;
 
 use core::cell::RefCell;
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, addr_of, addr_of_mut, copy_nonoverlapping};
@@ -737,7 +737,7 @@ pub struct Control<'a> {
 
 impl<'a> Control<'a> {
     /// Wait for modem IPC to be initialized.
-    pub async fn wait_init(&self) {
+    pub fn wait_init(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
             let mut state = self.state.borrow_mut();
             if state.init {
@@ -746,7 +746,6 @@ impl<'a> Control<'a> {
             state.init_waker.register(cx.waker());
             Poll::Pending
         })
-        .await
     }
 
     async fn request(&self, msg: &mut Message, req_data: &[u8], resp_data: &mut [u8]) -> usize {

@@ -1,6 +1,6 @@
 //! UDP sockets.
 
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::mem;
 use core::task::{Context, Poll};
 
@@ -107,8 +107,8 @@ impl<'a> UdpSocket<'a> {
     ///
     /// A socket is readable when a packet has been received, or when there are queued packets in
     /// the buffer.
-    pub async fn wait_recv_ready(&self) {
-        poll_fn(move |cx| self.poll_recv_ready(cx)).await
+    pub fn wait_recv_ready(&self) -> impl Future<Output = ()> + '_ {
+        poll_fn(move |cx| self.poll_recv_ready(cx))
     }
 
     /// Wait until a datagram can be read.
@@ -134,8 +134,11 @@ impl<'a> UdpSocket<'a> {
     /// This method will wait until a datagram is received.
     ///
     /// Returns the number of bytes received and the remote endpoint.
-    pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, UdpMetadata), RecvError> {
-        poll_fn(move |cx| self.poll_recv_from(buf, cx)).await
+    pub fn recv_from<'s>(
+        &'s self,
+        buf: &'s mut [u8],
+    ) -> impl Future<Output = Result<(usize, UdpMetadata), RecvError>> + 's {
+        poll_fn(|cx| self.poll_recv_from(buf, cx))
     }
 
     /// Receive a datagram.
@@ -194,8 +197,8 @@ impl<'a> UdpSocket<'a> {
     ///
     /// A socket becomes writable when there is space in the buffer, from initial memory or after
     /// dispatching datagrams on a full buffer.
-    pub async fn wait_send_ready(&self) {
-        poll_fn(move |cx| self.poll_send_ready(cx)).await
+    pub fn wait_send_ready(&self) -> impl Future<Output = ()> + '_ {
+        poll_fn(|cx| self.poll_send_ready(cx))
     }
 
     /// Wait until a datagram can be sent.
@@ -297,8 +300,8 @@ impl<'a> UdpSocket<'a> {
     /// Flush the socket.
     ///
     /// This method will wait until the socket is flushed.
-    pub async fn flush(&mut self) {
-        poll_fn(move |cx| {
+    pub fn flush(&mut self) -> impl Future<Output = ()> + '_ {
+        poll_fn(|cx| {
             self.with_mut(|s, _| {
                 if s.send_queue() == 0 {
                     Poll::Ready(())
@@ -308,7 +311,6 @@ impl<'a> UdpSocket<'a> {
                 }
             })
         })
-        .await
     }
 
     /// Returns the local endpoint of the socket.
