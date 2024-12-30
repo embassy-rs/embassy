@@ -366,34 +366,37 @@ where
 
 #[cfg(test)]
 mod tests {
+    use futures_util::future::join;
+    use futures_util::FutureExt;
+
     use crate::blocking_mutex::raw::NoopRawMutex;
     use crate::mutex::{Mutex, MutexGuard};
 
+    async fn increment_once(mutex: &Mutex<NoopRawMutex, i32>) {
+        use core::future::poll_fn;
+        use core::task::Poll;
+
+        let mut guard = mutex.lock().await;
+        let value = &mut *guard;
+
+        // yield once to allow the other future to run while
+        // we are holding an exclusive borrow
+        let mut called = false;
+        poll_fn(|cx| {
+            if called {
+                return Poll::Ready(());
+            }
+            called = true;
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        })
+        .await;
+
+        *value += 1;
+    }
+
     #[futures_test::test]
     async fn mutex_actually_provides_exclusive_access() {
-        async fn increment_once(mutex: &Mutex<NoopRawMutex, i32>) {
-            use core::future::poll_fn;
-            use core::task::Poll;
-
-            let mut guard = mutex.lock().await;
-            let value = &mut *guard;
-
-            // yield once to allow the other future to run while
-            // we are holding an exclusive borrow
-            let mut called = false;
-            poll_fn(|cx| {
-                if called {
-                    return Poll::Ready(());
-                }
-                called = true;
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            })
-            .await;
-
-            *value += 1;
-        }
-
         let mutex: Mutex<NoopRawMutex, i32> = Mutex::new(0);
 
         let fut1 = async {
@@ -408,7 +411,7 @@ mod tests {
             }
         };
 
-        futures_util::join!(fut1, fut2);
+        join(fut1, fut2).await;
 
         assert_eq!(*mutex.lock().await, 10);
     }
@@ -434,5 +437,67 @@ mod tests {
         }
 
         assert_eq!(*mutex.lock().await, [0, 3]);
+    }
+
+    /// Test that user code does not cause UB.
+    #[cfg(miri)]
+    #[test]
+    fn locking_in_a_waker_is_not_ub() {
+        use core::future::Future;
+        use core::pin::Pin;
+        use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+        // Set up the same test as in `mutex_actually_provides_exclusive_access` but with a custom
+        // evil block_on implementation that tries to lock the mutex inside a waker.
+        let mutex: Mutex<NoopRawMutex, i32> = Mutex::new(0);
+
+        let fut1 = async {
+            for _ in 0..5 {
+                increment_once(&mutex).await;
+            }
+        };
+
+        let fut2 = async {
+            for _ in 0..5 {
+                increment_once(&mutex).await;
+            }
+        };
+
+        let mut fut = join(fut1, fut2);
+
+        // block_on impl
+
+        unsafe fn wake(ctx: *const ()) {
+            static NOOP_VTABLE: RawWakerVTable = RawWakerVTable::new(
+                |_| RawWaker::new(core::ptr::null(), &NOOP_VTABLE),
+                |_| {},
+                |_| {},
+                |_| {},
+            );
+            static NOOP_WAKER: Waker = unsafe { Waker::from_raw(RawWaker::new(core::ptr::null(), &NOOP_VTABLE)) };
+
+            let mutex = ctx.cast::<Mutex<NoopRawMutex, i32>>().as_ref().unwrap();
+
+            // Let's ask miri whether locking the same mutex inside a waker is UB.
+            let mut fut = async {
+                let _g = mutex.lock().await;
+            };
+
+            let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
+            _ = fut.poll_unpin(&mut Context::from_waker(&NOOP_WAKER));
+        }
+
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(|ptr| RawWaker::new(ptr, &VTABLE), wake, wake, |_| {});
+
+        let raw_waker = RawWaker::new(&mutex as *const Mutex<NoopRawMutex, i32> as *const _, &VTABLE);
+        let waker = unsafe { Waker::from_raw(raw_waker) };
+        let mut cx = Context::from_waker(&waker);
+
+        let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
+        loop {
+            if let Poll::Ready(_) = fut.as_mut().poll(&mut cx) {
+                break;
+            }
+        }
     }
 }
