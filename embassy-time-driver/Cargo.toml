@@ -368,3 +368,7 @@ tick-hz-5_242_880_000 = []
 
 [dependencies]
 document-features = "0.2.7"
+
+[dev-dependencies]
+critical-section = "1"
+embassy-time-queue-utils = { path = "../embassy-time-queue-utils" }
