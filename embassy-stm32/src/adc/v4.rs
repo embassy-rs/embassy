@@ -1,9 +1,7 @@
-#[allow(unused)]
-use pac::adc::vals::{Adstp, Difsel, Exten, Pcsel, Dmngt};
-
 #[cfg(not(stm32u5))]
-use pac::adc::vals::{Adcaldif,  Boost};
-
+use pac::adc::vals::{Adcaldif, Boost};
+#[allow(unused)]
+use pac::adc::vals::{Adstp, Difsel, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
 use super::{
@@ -26,7 +24,6 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 #[cfg(stm32u5)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
-
 #[cfg(stm32g4)]
 const VREF_CHANNEL: u8 = 18;
 #[cfg(stm32g4)]
@@ -40,7 +37,6 @@ const TEMP_CHANNEL: u8 = 18;
 // TODO this should be 14 for H7a/b/35
 #[cfg(not(stm32u5))]
 const VBAT_CHANNEL: u8 = 17;
-
 
 #[cfg(stm32u5)]
 const VREF_CHANNEL: u8 = 0;

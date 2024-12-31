@@ -1,19 +1,14 @@
 #![no_std]
 #![no_main]
 
-
-use defmt::{*};
-use defmt_rtt as _;
-
+use defmt::*;
 use embassy_stm32::adc;
-use embassy_stm32::adc::AdcChannel;
-use embassy_stm32::adc::adc4;
-use panic_probe as _;
-
+use embassy_stm32::adc::{adc4, AdcChannel};
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
-async fn main(spawner: embassy_executor::Spawner) {
-    let mut config = embassy_stm32::Config::default();
+async fn main(_spawner: embassy_executor::Spawner) {
+    let config = embassy_stm32::Config::default();
 
     let mut p = embassy_stm32::init(config);
 
@@ -84,7 +79,8 @@ async fn main(spawner: embassy_executor::Spawner) {
         ]
         .into_iter(),
         &mut measurements,
-    ).await;
+    )
+    .await;
     let volt1: f32 = 3.3 * measurements[0] as f32 / max1 as f32;
     let volt2: f32 = 3.3 * measurements[1] as f32 / max1 as f32;
 
@@ -101,13 +97,11 @@ async fn main(spawner: embassy_executor::Spawner) {
     // The channels must be in ascending order and can't repeat for ADC4
     adc4.read(
         &mut p.GPDMA1_CH1,
-        [
-            &mut degraded42,
-            &mut degraded41,
-        ]
-        .into_iter(),
+        [&mut degraded42, &mut degraded41].into_iter(),
         &mut measurements,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
     let volt2: f32 = 3.3 * measurements[0] as f32 / max4 as f32;
     let volt1: f32 = 3.3 * measurements[1] as f32 / max4 as f32;
     info!("Async read 4 pin 1 {}", volt1);

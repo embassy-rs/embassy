@@ -1,17 +1,12 @@
-pub use crate::pac::adc::vals::Adc4Res as Resolution;
-pub use crate::pac::adc::vals::Adc4SampleTime as SampleTime;
-pub use crate::pac::adc::vals::Adc4Presc as Presc;
-pub use crate::pac::adc::regs::Adc4Chselrmod0;
-
 #[allow(unused)]
-use pac::adc::vals::{Adc4Exten, Adc4OversamplingRatio, Adc4Dmacfg};
+use pac::adc::vals::{Adc4Dmacfg, Adc4Exten, Adc4OversamplingRatio};
 
-use super::{
-    blocking_delay_us, AdcChannel, SealedAdcChannel, AnyAdcChannel, RxDma4
-};
+use super::{blocking_delay_us, AdcChannel, AnyAdcChannel, RxDma4, SealedAdcChannel};
+use crate::dma::Transfer;
+pub use crate::pac::adc::regs::Adc4Chselrmod0;
+pub use crate::pac::adc::vals::{Adc4Presc as Presc, Adc4Res as Resolution, Adc4SampleTime as SampleTime};
 use crate::time::Hertz;
 use crate::{pac, rcc, Peripheral};
-use crate::dma::Transfer;
 
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
@@ -74,7 +69,7 @@ impl<T: Instance> SealedAdcChannel<T> for Vcore {
 
 pub enum DacChannel {
     OUT1,
-    OUT2
+    OUT2,
 }
 
 /// Number of samples used for averaging.
@@ -186,7 +181,7 @@ pub struct Adc4<'d, T: Instance> {
 #[derive(Debug)]
 pub enum Adc4Error {
     InvalidSequence,
-    DMAError
+    DMAError,
 }
 
 impl<'d, T: Instance> Adc4<'d, T> {
@@ -205,9 +200,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
             panic!("Maximal allowed frequency for ADC4 is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
         }
 
-        let mut s = Self {
-            adc,
-        };
+        let mut s = Self { adc };
 
         s.power_up();
 
@@ -227,7 +220,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
         T::regs().cr().modify(|w| {
             w.set_advregen(true);
         });
-        while !T::regs().isr().read().ldordy() { };
+        while !T::regs().isr().read().ldordy() {}
 
         T::regs().isr().modify(|w| {
             w.set_ldordy(true);
@@ -300,8 +293,8 @@ impl<'d, T: Instance> Adc4<'d, T> {
     pub fn enable_dac_channel(&self, dac: DacChannel) -> Dac {
         let mux;
         match dac {
-            DacChannel::OUT1 => {mux = false},
-            DacChannel::OUT2 => {mux = true}
+            DacChannel::OUT1 => mux = false,
+            DacChannel::OUT2 => mux = true,
         }
         T::regs().or().modify(|w| w.set_chn21sel(mux));
         Dac {}
@@ -346,7 +339,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
     }
 
     /// Read an ADC channel.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16{
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
         channel.setup();
 
         // Select channel
@@ -440,7 +433,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
             T::regs().chselrmod0().modify(|w| {
                 w.set_chsel(channel.channel as usize, true);
             });
-        };
+        }
 
         let request = rx_dma.request();
         let transfer = unsafe {
