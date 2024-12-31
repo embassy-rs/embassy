@@ -1238,13 +1238,12 @@ fn main() {
     // ========
     // Generate dma_trait_impl!
 
-    let signals: HashMap<_, _> = [
+    let mut signals: HashMap<_, _> = [
         // (kind, signal) => trait
         (("adc", "ADC"), quote!(crate::adc::RxDma)),
         (("adc", "ADC1"), quote!(crate::adc::RxDma)),
         (("adc", "ADC2"), quote!(crate::adc::RxDma)),
         (("adc", "ADC3"), quote!(crate::adc::RxDma)),
-        (("adc", "ADC4"), quote!(crate::adc::RxDma)),
         (("ucpd", "RX"), quote!(crate::ucpd::RxDma)),
         (("ucpd", "TX"), quote!(crate::ucpd::TxDma)),
         (("usart", "RX"), quote!(crate::usart::RxDma)),
@@ -1278,6 +1277,12 @@ fn main() {
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
     ]
     .into();
+
+    if chip_name.starts_with("stm32u5") {
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
+    } else {
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
+    }
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
