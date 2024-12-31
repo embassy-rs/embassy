@@ -125,6 +125,33 @@ pub enum StopBits {
     STOP1P5,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Enables or disables receiver so written data are read back in half-duplex mode
+pub enum HalfDuplexReadback {
+    /// Disables receiver so written data are not read back
+    NoReadback,
+    /// Enables receiver so written data are read back
+    Readback,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Duplex mode
+pub enum Duplex {
+    /// Full duplex
+    Full,
+    /// Half duplex with possibility to read back written data
+    Half(HalfDuplexReadback),
+}
+
+impl Duplex {
+    /// Returns true if half-duplex
+    fn is_half(&self) -> bool {
+        matches!(self, Duplex::Half(_))
+    }
+}
+
 #[non_exhaustive]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -181,7 +208,7 @@ pub struct Config {
     pub rx_pull: Pull,
 
     // private: set by new_half_duplex, not by the user.
-    half_duplex: bool,
+    duplex: Duplex,
 }
 
 impl Config {
@@ -220,7 +247,7 @@ impl Default for Config {
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
             rx_pull: Pull::None,
-            half_duplex: false,
+            duplex: Duplex::Full,
         }
     }
 }
@@ -308,6 +335,7 @@ pub struct UartTx<'d, M: Mode> {
     cts: Option<PeripheralRef<'d, AnyPin>>,
     de: Option<PeripheralRef<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
+    duplex: Duplex,
     _phantom: PhantomData<M>,
 }
 
@@ -409,13 +437,7 @@ impl<'d> UartTx<'d, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
 
-        // Enable Transmitter and disable Receiver for Half-Duplex mode
-        let mut cr1 = r.cr1().read();
-        if r.cr3().read().hdsel() && !cr1.te() {
-            cr1.set_te(true);
-            cr1.set_re(false);
-            r.cr1().write_value(cr1);
-        }
+        half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
 
         let ch = self.tx_dma.as_mut().unwrap();
         r.cr3().modify(|reg| {
@@ -485,6 +507,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
             cts,
             de: None,
             tx_dma,
+            duplex: config.duplex,
             _phantom: PhantomData,
         };
         this.enable_and_configure(&config)?;
@@ -515,13 +538,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
 
-        // Enable Transmitter and disable Receiver for Half-Duplex mode
-        let mut cr1 = r.cr1().read();
-        if r.cr3().read().hdsel() && !cr1.te() {
-            cr1.set_te(true);
-            cr1.set_re(false);
-            r.cr1().write_value(cr1);
-        }
+        half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
 
         for &b in buffer {
             while !sr(r).read().txe() {}
@@ -598,6 +615,17 @@ pub fn send_break(regs: &Regs) {
     regs.cr1().modify(|w| w.set_sbk(true));
     #[cfg(any(usart_v3, usart_v4))]
     regs.rqr().write(|w| w.set_sbkrq(true));
+}
+
+/// Enable Transmitter and disable Receiver for Half-Duplex mode
+/// In case of readback, keep Receiver enabled
+fn half_duplex_set_rx_tx_before_write(r: &Regs, enable_readback: bool) {
+    let mut cr1 = r.cr1().read();
+    if r.cr3().read().hdsel() && !cr1.te() {
+        cr1.set_te(true);
+        cr1.set_re(enable_readback);
+        r.cr1().write_value(cr1);
+    }
 }
 
 impl<'d> UartRx<'d, Async> {
@@ -1149,13 +1177,14 @@ impl<'d> Uart<'d, Async> {
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         mut config: Config,
+        readback: HalfDuplexReadback,
         half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         #[cfg(not(any(usart_v1, usart_v2)))]
         {
             config.swap_rx_tx = false;
         }
-        config.half_duplex = true;
+        config.duplex = Duplex::Half(readback);
 
         Self::new_inner(
             peri,
@@ -1188,10 +1217,11 @@ impl<'d> Uart<'d, Async> {
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         mut config: Config,
+        readback: HalfDuplexReadback,
         half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         config.swap_rx_tx = true;
-        config.half_duplex = true;
+        config.duplex = Duplex::Half(readback);
 
         Self::new_inner(
             peri,
@@ -1307,13 +1337,14 @@ impl<'d> Uart<'d, Blocking> {
         peri: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         mut config: Config,
+        readback: HalfDuplexReadback,
         half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         #[cfg(not(any(usart_v1, usart_v2)))]
         {
             config.swap_rx_tx = false;
         }
-        config.half_duplex = true;
+        config.duplex = Duplex::Half(readback);
 
         Self::new_inner(
             peri,
@@ -1343,10 +1374,11 @@ impl<'d> Uart<'d, Blocking> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         mut config: Config,
+        readback: HalfDuplexReadback,
         half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         config.swap_rx_tx = true;
-        config.half_duplex = true;
+        config.duplex = Duplex::Half(readback);
 
         Self::new_inner(
             peri,
@@ -1388,6 +1420,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 cts,
                 de,
                 tx_dma,
+                duplex: config.duplex,
             },
             rx: UartRx {
                 _phantom: PhantomData,
@@ -1667,14 +1700,14 @@ fn configure(
     r.cr3().modify(|w| {
         #[cfg(not(usart_v1))]
         w.set_onebit(config.assume_noise_free);
-        w.set_hdsel(config.half_duplex);
+        w.set_hdsel(config.duplex.is_half());
     });
 
     r.cr1().write(|w| {
         // enable uart
         w.set_ue(true);
 
-        if config.half_duplex {
+        if config.duplex.is_half() {
             // The te and re bits will be set by write, read and flush methods.
             // Receiver should be enabled by default for Half-Duplex.
             w.set_te(false);
