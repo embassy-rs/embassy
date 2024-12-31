@@ -49,15 +49,16 @@
 //! Note that if you are using multiple queues, you will need to ensure that a single timer
 //! queue item is only ever enqueued into a single queue at a time.
 //!
-//! ```ignore
+//! ```
 //! use core::cell::RefCell;
 //! use core::task::Waker;
 //!
+//! use critical_section::{CriticalSection, Mutex};
 //! use embassy_time_queue_utils::Queue;
 //! use embassy_time_driver::Driver;
 //!
 //! struct MyDriver {
-//!     timer_queue: critical_section::Mutex<RefCell<Queue>>,
+//!     queue: Mutex<RefCell<Queue>>,
 //! }
 //!
 //! impl MyDriver {
@@ -67,14 +68,14 @@
 //! }
 //!
 //! impl Driver for MyDriver {
-//!     // fn now(&self) -> u64 { ... }
+//!     fn now(&self) -> u64 { todo!() }
 //!
 //!     fn schedule_wake(&self, at: u64, waker: &Waker) {
 //!         critical_section::with(|cs| {
 //!             let mut queue = self.queue.borrow(cs).borrow_mut();
 //!             if queue.schedule_wake(at, waker) {
 //!                 let mut next = queue.next_expiration(self.now());
-//!                 while !self.set_alarm(cs, next) {
+//!                 while !self.set_alarm(&cs, next) {
 //!                     next = queue.next_expiration(self.now());
 //!                 }
 //!             }
