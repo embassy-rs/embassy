@@ -305,10 +305,8 @@ impl<'d, T: Instance> Driver<'d, T> {
             w.set_fres(true);
         });
 
-        #[cfg(feature = "time")]
-        embassy_time::block_for(embassy_time::Duration::from_millis(100));
-        #[cfg(not(feature = "time"))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 10);
+        // wait t_STARTUP = 1us
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 1_000_000);
 
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
