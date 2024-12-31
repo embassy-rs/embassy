@@ -1,3 +1,5 @@
+use core::fmt::Write as _;
+
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
@@ -71,8 +73,10 @@ async fn main_task(spawner: Spawner) {
         return;
     }
     info!("connected!");
-    loop {
-        let r = socket.write_all(b"Hello!\n").await;
+    for i in 0.. {
+        let mut buf = heapless::String::<100>::new();
+        write!(buf, "Hello! ({})\r\n", i).unwrap();
+        let r = socket.write_all(buf.as_bytes()).await;
         if let Err(e) = r {
             warn!("write error: {:?}", e);
             return;
