@@ -11,11 +11,20 @@ use crate::tables::{BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, evt};
 
+/// A guard that, once constructed, may be used to send BLE commands to CPU2.
+///
+/// It is the responsibility of the caller to ensure that they have awaited an event via
+/// [crate::sub::Sys::read] before sending any of these commands, and to call
+/// [crate::sub::Sys::shci_c2_ble_init] and await the HCI_COMMAND_COMPLETE_EVENT before sending any
+/// other commands.
 pub struct Ble {
     _private: (),
 }
 
 impl Ble {
+    /// Constructs a guard that allows for BLE commands to be sent to CPU2.
+    ///
+    /// This takes the place of `TL_BLE_Init`, completing that step as laid out in AN5289, Fig 66.
     pub(crate) fn new() -> Self {
         unsafe {
             LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
@@ -30,6 +39,7 @@ impl Ble {
 
         Self { _private: () }
     }
+
     /// `HW_IPCC_BLE_EvtNot`
     pub async fn tl_read(&self) -> EvtBox<Self> {
         Ipcc::receive(channels::cpu2::IPCC_BLE_EVENT_CHANNEL, || unsafe {

@@ -89,12 +89,19 @@ pub struct DeviceInfoTable {
     pub wireless_fw_info_table: WirelessFwInfoTable,
 }
 
+/// The bluetooth reference table, as defined in figure 67 of STM32WX AN5289.
 #[derive(Debug)]
 #[repr(C)]
 pub struct BleTable {
+    /// A pointer to the buffer that is used for sending BLE commands.
     pub pcmd_buffer: *mut CmdPacket,
+    /// A pointer to the buffer used for storing Command statuses.
     pub pcs_buffer: *const u8,
+    /// A pointer to the event queue, over which IPCC BLE events are sent. This may be accessed via
+    /// [crate::sub::ble::tl_read].
     pub pevt_queue: *const u8,
+    /// A pointer to the buffer that is used for sending HCI (Host-Controller Interface) ACL
+    /// (Asynchronous Connection-oriented Logical transport) commands (unused).
     pub phci_acl_data_buffer: *mut AclDataPacket,
 }
 
