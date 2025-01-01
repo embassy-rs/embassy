@@ -14,9 +14,9 @@ use crate::{channels, evt};
 /// A guard that, once constructed, may be used to send BLE commands to CPU2.
 ///
 /// It is the responsibility of the caller to ensure that they have awaited an event via
-/// [crate::sub::Sys::read] before sending any of these commands, and to call
-/// [crate::sub::Sys::shci_c2_ble_init] and await the HCI_COMMAND_COMPLETE_EVENT before sending any
-/// other commands.
+/// [crate::sub::sys::Sys::read] before sending any of these commands, and to call
+/// [crate::sub::sys::Sys::shci_c2_ble_init] and await the HCI_COMMAND_COMPLETE_EVENT before
+/// sending any other commands.
 pub struct Ble {
     _private: (),
 }

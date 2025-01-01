@@ -91,7 +91,8 @@ impl Sys {
     ///
     /// This must be called before any BLE commands are sent via the BLE channel (according to
     /// AN5289, Figures 65 and 66). It should only be called after CPU2 sends a system event, via
-    /// `HW_IPCC_SYS_EvtNot`, aka `IoBusCallBackUserEvt` (as detailed in Figure 65), aka [read].
+    /// `HW_IPCC_SYS_EvtNot`, aka `IoBusCallBackUserEvt` (as detailed in Figure 65), aka
+    /// [crate::sub::ble::hci::host::uart::UartHci::read].
     #[cfg(feature = "ble")]
     pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await

@@ -73,9 +73,10 @@ impl<'d> TlMbox<'d> {
     /// Figure 65.
     ///
     /// If the `ble` feature is enabled, at this point, the user should call
-    /// [sys_subsystem.shci_c2_ble_init], before any commands are written to the [ble_subsystem]
-    /// ([Ble::new()] completes the process that would otherwise be handled by `TL_BLE_Init`; see
-    /// Figure 66). This completes the procedure laid out in Figure 66.
+    /// [sys_subsystem.shci_c2_ble_init], before any commands are written to the
+    /// [TlMbox.ble_subsystem] ([sub::ble::Ble::new()] completes the process that would otherwise
+    /// be handled by `TL_BLE_Init`; see Figure 66). This completes the procedure laid out in
+    /// Figure 66.
     // TODO: document what the user should do after calling init to use the mac_802_15_4 subsystem
     pub fn init(
         ipcc: impl Peripheral<P = IPCC> + 'd,

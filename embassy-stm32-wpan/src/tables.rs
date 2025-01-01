@@ -98,7 +98,7 @@ pub struct BleTable {
     /// A pointer to the buffer used for storing Command statuses.
     pub pcs_buffer: *const u8,
     /// A pointer to the event queue, over which IPCC BLE events are sent. This may be accessed via
-    /// [crate::sub::ble::tl_read].
+    /// [crate::sub::ble::Ble::tl_read].
     pub pevt_queue: *const u8,
     /// A pointer to the buffer that is used for sending HCI (Host-Controller Interface) ACL
     /// (Asynchronous Connection-oriented Logical transport) commands (unused).
