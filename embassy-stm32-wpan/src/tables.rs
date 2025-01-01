@@ -25,17 +25,17 @@ pub struct RssInfoTable {
 
 /**
  * Version
- * [0:3]   = Build - 0: Untracked - 15:Released - x: Tracked version
- * [4:7]   = branch - 0: Mass Market - x: ...
- * [8:15]  = Subversion
- * [16:23] = Version minor
- * [24:31] = Version major
+ * \[0:3\]   = Build - 0: Untracked - 15:Released - x: Tracked version
+ * \[4:7\]   = branch - 0: Mass Market - x: ...
+ * \[8:15\]  = Subversion
+ * \[16:23\] = Version minor
+ * \[24:31\] = Version major
  *
  * Memory Size
- * [0:7]   = Flash ( Number of 4k sector)
- * [8:15]  = Reserved ( Shall be set to 0 - may be used as flash extension )
- * [16:23] = SRAM2b ( Number of 1k sector)
- * [24:31] = SRAM2a ( Number of 1k sector)
+ * \[0:7\]   = Flash ( Number of 4k sector)
+ * \[8:15\]  = Reserved ( Shall be set to 0 - may be used as flash extension )
+ * \[16:23\] = SRAM2b ( Number of 1k sector)
+ * \[24:31\] = SRAM2a ( Number of 1k sector)
  */
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
