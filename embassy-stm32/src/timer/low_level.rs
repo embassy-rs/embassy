@@ -235,6 +235,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cnt().write(|r| r.set_cnt(0));
     }
 
+    /// get the capability of the timer
     pub fn get_bits(&self) -> TimerBits {
         T::BITS
     }
