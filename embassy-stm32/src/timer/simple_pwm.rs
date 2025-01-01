@@ -365,7 +365,10 @@ macro_rules! impl_waveform_chx {
             /// Generate a sequence of PWM waveform
             ///
             /// Note:
-            /// you will need to provide corresponding TIMx_CHy DMA channel to use this method.
+            /// 1. you will need to provide corresponding TIMx_CHy DMA channel to use this method.
+            /// 2. Please make sure the duty data length is aligned to the timer data width(16-bit or 32-bit).
+            /// 3. Please notice the endianess of the duty data. STM32 use little endian,
+            ///    for example, 0x12345678 as u32 will be stored as [0x78, 0x56, 0x34, 0x12] in memory.
             pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u8]) {
                 use crate::pac::timer::vals::Ccds;
 
