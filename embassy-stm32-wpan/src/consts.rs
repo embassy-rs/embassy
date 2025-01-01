@@ -69,7 +69,7 @@ pub const TL_CS_EVT_SIZE: usize = core::mem::size_of::<CsEvt>();
  * enough to store all asynchronous events received in between.
  * When CFG_TLBLE_MOST_EVENT_PAYLOAD_SIZE is set to 27, this allow to store three 255 bytes long asynchronous events
  * between the HCI command and its event.
- * This parameter depends on the value given to CFG_TLBLE_MOST_EVENT_PAYLOAD_SIZE. When the queue size is to small,
+ * This parameter depends on the value given to CFG_TLBLE_MOST_EVENT_PAYLOAD_SIZE. When the queue size is too small,
  * the system may hang if the queue is full with asynchronous events and the HCI layer is still waiting
  * for a CC/CS event, In that case, the notification TL_BLE_HCI_ToNot() is called to indicate
  * to the application a HCI command did not receive its command event within 30s (Default HCI Timeout).
