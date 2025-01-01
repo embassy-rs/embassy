@@ -17,6 +17,25 @@ use crate::{channels, evt};
 /// [crate::sub::sys::Sys::read] before sending any of these commands, and to call
 /// [crate::sub::sys::Sys::shci_c2_ble_init] and await the HCI_COMMAND_COMPLETE_EVENT before
 /// sending any other commands.
+///
+/// # Example
+///
+/// ```
+/// # embassy_stm32::bind_interrupts!(struct Irqs{
+/// #     IPCC_C1_RX => ReceiveInterruptHandler;
+/// #     IPCC_C1_TX => TransmitInterruptHandler;
+/// # });
+/// #
+/// # let p = embassy_stm32::init(embassy_stm32::Config::default());
+/// # let mut mbox = embassy_stm32_wpan::TlMbox::init(p.IPCC, Irqs, embassy_stm32::ipcc::Config::default());
+/// #
+/// # let sys_event = mbox.sys_subsystem.read().await;
+/// # let _command_status = mbox.sys_subsystem.shci_c2_ble_init(Default::default());
+/// # // BLE commands may now be sent
+/// #
+/// # mbox.ble_subsystem.reset().await;
+/// # let _reset_response = mbox.ble_subsystem.read().await;
+/// ```
 pub struct Ble {
     _private: (),
 }
