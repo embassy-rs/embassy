@@ -423,6 +423,7 @@ macro_rules! impl_waveform_chx {
                             )
                             .await
                         }
+                        #[cfg(not(stm32l0))]
                         TimerBits::Bits32 => {
                             // the data must be aligned to quad words
                             assert!(duty.len() % 4 == 0);
