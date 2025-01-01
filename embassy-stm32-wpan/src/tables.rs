@@ -278,6 +278,6 @@ pub static mut BLE_SPARE_EVT_BUF: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_
 
 #[cfg(feature = "ble")]
 #[link_section = "MB_MEM2"]
-//                                 fuck these "magic" numbers from ST ---v---v
+//                                                 fuck these "magic" numbers from ST ---v---v
 pub static mut HCI_ACL_DATA_BUFFER: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]>> =
     Aligned(MaybeUninit::uninit());
