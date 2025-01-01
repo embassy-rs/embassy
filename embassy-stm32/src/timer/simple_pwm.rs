@@ -6,6 +6,7 @@ use core::mem::ManuallyDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
+use super::TimerBits;
 use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
@@ -365,7 +366,7 @@ macro_rules! impl_waveform_chx {
             ///
             /// Note:
             /// you will need to provide corresponding TIMx_CHy DMA channel to use this method.
-            pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u16]) {
+            pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u8]) {
                 use crate::pac::timer::vals::Ccds;
 
                 into_ref!(dma);
@@ -406,14 +407,34 @@ macro_rules! impl_waveform_chx {
                         ..Default::default()
                     };
 
-                    Transfer::new_write(
-                        &mut dma,
-                        req,
-                        duty,
-                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
-                        dma_transfer_option,
-                    )
-                    .await
+                    match self.inner.get_bits() {
+                        TimerBits::Bits16 => {
+                            // the data must be aligned to double words
+                            assert!(duty.len() % 2 == 0);
+                            let duty = core::slice::from_raw_parts(duty.as_ptr() as *const u16, duty.len() / 2);
+                            Transfer::new_write(
+                                &mut dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                        TimerBits::Bits32 => {
+                            // the data must be aligned to quad words
+                            assert!(duty.len() % 4 == 0);
+                            let duty = core::slice::from_raw_parts(duty.as_ptr() as *const u32, duty.len() / 4);
+                            Transfer::new_write(
+                                &mut dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                    };
                 };
 
                 // restore output compare state

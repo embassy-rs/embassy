@@ -235,6 +235,10 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cnt().write(|r| r.set_cnt(0));
     }
 
+    pub fn get_bits(&self) -> TimerBits {
+        T::BITS
+    }
+
     /// Set the frequency of how many times per second the timer counts up to the max value or down to 0.
     ///
     /// This means that in the default edge-aligned mode,
