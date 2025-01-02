@@ -247,7 +247,7 @@ impl RtcDriver {
 
                 // If we have not passed the timestamp, we can be sure the alarm will be invoked. Otherwise,
                 // we need to retry setting the alarm.
-                if self.now() + 3 <= timestamp {
+                if self.now() + 2 <= timestamp {
                     return true;
                 }
             } else {
