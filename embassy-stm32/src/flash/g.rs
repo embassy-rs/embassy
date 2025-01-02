@@ -101,7 +101,7 @@ pub(crate) unsafe fn clear_all_err() {
 
 #[cfg(any(flash_g0x0, flash_g0x1))]
 fn wait_busy(){
-    while pac::FLASH.sr().read().bsy() & pac::FLASH.sr().read().bsy2() {}
+    while pac::FLASH.sr().read().bsy() | pac::FLASH.sr().read().bsy2() {}
 }
 
 #[cfg(not(any(flash_g0x0, flash_g0x1)))]
