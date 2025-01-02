@@ -163,7 +163,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
                                       // TODO: Carrier sense ? ECRSFD
         });
 
-        // Set the mac to pass all multicast packets 
+        // Set the mac to pass all multicast packets
         mac.macffr().modify(|w| {
             w.set_pam(true);
         });
