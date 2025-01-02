@@ -209,47 +209,54 @@ impl RtcDriver {
 
         let r = rtc();
 
-        let t = self.now();
-        if timestamp <= t {
-            // If alarm timestamp has passed the alarm will not fire.
-            // Disarm the alarm and return `false` to indicate that.
-            r.intenclr().write(|w| w.0 = compare_n(n));
+        loop {
+            let t = self.now();
+            if timestamp <= t {
+                // If alarm timestamp has passed the alarm will not fire.
+                // Disarm the alarm and return `false` to indicate that.
+                r.intenclr().write(|w| w.0 = compare_n(n));
 
-            alarm.timestamp.set(u64::MAX);
+                alarm.timestamp.set(u64::MAX);
 
-            return false;
+                return false;
+            }
+
+            // If it hasn't triggered yet, setup it in the compare channel.
+
+            // Write the CC value regardless of whether we're going to enable it now or not.
+            // This way, when we enable it later, the right value is already set.
+
+            // nrf52 docs say:
+            //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
+            // To workaround this, we never write a timestamp smaller than N+3.
+            // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
+            //
+            // Since the critical section does not guarantee that a higher prio interrupt causes
+            // this to be delayed, we need to re-check how much time actually passed after setting the
+            // alarm, and retry if we are within the unsafe interval still.
+            //
+            // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
+            // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
+            // and we don't do that here.
+            let safe_timestamp = timestamp.max(t + 3);
+            r.cc(n).write(|w| w.set_compare(safe_timestamp as u32 & 0xFFFFFF));
+
+            let diff = timestamp - t;
+            if diff < 0xc00000 {
+                r.intenset().write(|w| w.0 = compare_n(n));
+
+                // If we have not passed the timestamp, we can be sure the alarm will be invoked. Otherwise,
+                // we need to retry setting the alarm.
+                if self.now() + 2 <= timestamp {
+                    return true;
+                }
+            } else {
+                // If it's too far in the future, don't setup the compare channel yet.
+                // It will be setup later by `next_period`.
+                r.intenclr().write(|w| w.0 = compare_n(n));
+                return true;
+            }
         }
-
-        // If it hasn't triggered yet, setup it in the compare channel.
-
-        // Write the CC value regardless of whether we're going to enable it now or not.
-        // This way, when we enable it later, the right value is already set.
-
-        // nrf52 docs say:
-        //    If the COUNTER is N, writing N or N+1 to a CC register may not trigger a COMPARE event.
-        // To workaround this, we never write a timestamp smaller than N+3.
-        // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
-        //
-        // It is impossible for rtc to tick more than once because
-        //  - this code takes less time than 1 tick
-        //  - it runs with interrupts disabled so nothing else can preempt it.
-        //
-        // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
-        // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
-        // and we don't do that here.
-        let safe_timestamp = timestamp.max(t + 3);
-        r.cc(n).write(|w| w.set_compare(safe_timestamp as u32 & 0xFFFFFF));
-
-        let diff = timestamp - t;
-        if diff < 0xc00000 {
-            r.intenset().write(|w| w.0 = compare_n(n));
-        } else {
-            // If it's too far in the future, don't setup the compare channel yet.
-            // It will be setup later by `next_period`.
-            r.intenclr().write(|w| w.0 = compare_n(n));
-        }
-
-        true
     }
 }
 
