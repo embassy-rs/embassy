@@ -236,7 +236,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     }
 
     /// get the capability of the timer
-    pub fn get_bits(&self) -> TimerBits {
+    pub fn bits(&self) -> TimerBits {
         T::BITS
     }
 

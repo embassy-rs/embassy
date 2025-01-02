@@ -409,7 +409,7 @@ macro_rules! impl_waveform_chx {
                         ..Default::default()
                     };
 
-                    match self.inner.get_bits() {
+                    match self.inner.bits() {
                         TimerBits::Bits16 => {
                             // the data must be aligned to double words
                             assert!(duty.len() % 2 == 0);
