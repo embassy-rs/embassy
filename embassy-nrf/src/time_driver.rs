@@ -231,9 +231,9 @@ impl RtcDriver {
             // To workaround this, we never write a timestamp smaller than N+3.
             // N+2 is not safe because rtc can tick from N to N+1 between calling now() and writing cc.
             //
-            // It is impossible for rtc to tick more than once because
-            //  - this code takes less time than 1 tick
-            //  - it runs with interrupts disabled so nothing else can preempt it.
+            // Since the critical section does not guarantee that a higher prio interrupt causes
+            // this to be delayed, we need to re-check how much time actually passed after setting the
+            // alarm, and retry if we are within the unsafe interval still.
             //
             // This means that an alarm can be delayed for up to 2 ticks (from t+1 to t+3), but this is allowed
             // by the Alarm trait contract. What's not allowed is triggering alarms *before* their scheduled time,
