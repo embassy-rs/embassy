@@ -244,15 +244,16 @@ impl RtcDriver {
             let diff = timestamp - t;
             if diff < 0xc00000 {
                 r.intenset().write(|w| w.0 = compare_n(n));
+
+                // If we have not passed the timestamp, we can be sure the alarm will be invoked. Otherwise,
+                // we need to retry setting the alarm.
+                if self.now() + 3 <= timestamp {
+                    return true;
+                }
             } else {
                 // If it's too far in the future, don't setup the compare channel yet.
                 // It will be setup later by `next_period`.
                 r.intenclr().write(|w| w.0 = compare_n(n));
-            }
-
-            // If we have not passed the timestamp, we can be sure the alarm will be invoked. Otherwise,
-            // we need to retry setting the alarm.
-            if self.now() + 3 <= timestamp {
                 return true;
             }
         }
