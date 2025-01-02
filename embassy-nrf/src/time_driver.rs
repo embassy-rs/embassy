@@ -250,9 +250,9 @@ impl RtcDriver {
                 r.intenclr().write(|w| w.0 = compare_n(n));
             }
 
-            // If we have not passed the safe timestamp, we can be sure the alarm will be invoked. Otherwise,
+            // If we have not passed the timestamp, we can be sure the alarm will be invoked. Otherwise,
             // we need to retry setting the alarm.
-            if self.now() <= safe_timestamp {
+            if self.now() + 3 <= timestamp {
                 return true;
             }
         }
