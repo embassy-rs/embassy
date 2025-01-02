@@ -59,6 +59,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     interrupt::free(|_| {
         pac::FLASH.cr().modify(|w| {
             w.set_per(true);
+            #[cfg(any(flash_g0x0, flash_g0x1, flash_g4c3))]
             w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
             #[cfg(flash_g0x0)]
             w.set_pnb(idx as u16);
@@ -100,11 +101,11 @@ pub(crate) unsafe fn clear_all_err() {
 }
 
 #[cfg(any(flash_g0x0, flash_g0x1))]
-fn wait_busy(){
+fn wait_busy() {
     while pac::FLASH.sr().read().bsy() | pac::FLASH.sr().read().bsy2() {}
 }
 
 #[cfg(not(any(flash_g0x0, flash_g0x1)))]
-fn wait_busy(){
+fn wait_busy() {
     while pac::FLASH.sr().read().bsy() {}
 }
