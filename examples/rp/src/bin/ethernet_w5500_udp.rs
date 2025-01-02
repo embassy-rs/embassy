@@ -1,6 +1,6 @@
 //! This example implements a UDP server listening on port 1234 and echoing back the data.
 //!
-//! Example written for the [`WIZnet W5500-EVB-Pico`](https://www.wiznet.io/product-item/w5500-evb-pico/) board.
+//! Example written for the [`WIZnet W5500-EVB-Pico`](https://docs.wiznet.io/Product/iEthernet/W5500/w5500-evb-pico) board.
 
 #![no_std]
 #![no_main]
