@@ -494,7 +494,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
         #[cfg(all(rcc_f4, not(stm32f410)))]
         let pclk = unsafe { get_freqs() }.plli2s1_r.to_hertz().unwrap();
-        #[cfg(stm32f410)]
+        #[cfg(not(all(rcc_f4, not(stm32f410))))]
         let pclk = T::frequency();
 
         let (odd, div) = compute_baud_rate(pclk, freq, config.master_clock, config.format);
