@@ -129,7 +129,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.5
         // or ST RM0008 (STM32F103) chapter 15.3.5 Input capture mode
         self.inner.set_input_ti_selection(channel, tisel);
-        self.inner.set_input_capture_filter(channel, FilterValue::NOFILTER);
+        self.inner.set_input_capture_filter(channel, FilterValue::NO_FILTER);
         self.inner.set_input_capture_mode(channel, mode);
         self.inner.set_input_capture_prescaler(channel, 0);
         self.inner.enable_channel(channel, true);

@@ -30,7 +30,7 @@ impl From<OpAmpSpeed> for crate::pac::opamp::vals::Opahsm {
     fn from(v: OpAmpSpeed) -> Self {
         match v {
             OpAmpSpeed::Normal => crate::pac::opamp::vals::Opahsm::NORMAL,
-            OpAmpSpeed::HighSpeed => crate::pac::opamp::vals::Opahsm::HIGHSPEED,
+            OpAmpSpeed::HighSpeed => crate::pac::opamp::vals::Opahsm::HIGH_SPEED,
         }
     }
 }
@@ -105,7 +105,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             w.set_vm_sel(VmSel::from_bits(vm_sel));
             w.set_pga_gain(PgaGain::from_bits(pga_gain));
             #[cfg(opamp_g4)]
-            w.set_opaintoen(Opaintoen::OUTPUTPIN);
+            w.set_opaintoen(Opaintoen::OUTPUT_PIN);
             w.set_opampen(true);
         });
 
@@ -131,7 +131,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
             w.set_vm_sel(VmSel::OUTPUT);
             w.set_vp_sel(VpSel::DAC3_CH1);
-            w.set_opaintoen(Opaintoen::OUTPUTPIN);
+            w.set_opaintoen(Opaintoen::OUTPUT_PIN);
             w.set_opampen(true);
         });
 

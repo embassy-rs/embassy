@@ -214,7 +214,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     fn configure_differential_inputs(&mut self) {
         T::regs().difsel().modify(|w| {
             for n in 0..20 {
-                w.set_difsel(n, Difsel::SINGLEENDED);
+                w.set_difsel(n, Difsel::SINGLE_ENDED);
             }
         });
     }
@@ -222,7 +222,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     fn calibrate(&mut self) {
         T::regs().cr().modify(|w| {
             #[cfg(not(adc_u5))]
-            w.set_adcaldif(Adcaldif::SINGLEENDED);
+            w.set_adcaldif(Adcaldif::SINGLE_ENDED);
             w.set_adcallin(true);
         });
 
@@ -420,7 +420,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
         T::regs().cfgr().modify(|reg| {
             reg.set_cont(true);
-            reg.set_dmngt(Dmngt::DMA_ONESHOT);
+            reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
         });
 
         let request = rx_dma.request();

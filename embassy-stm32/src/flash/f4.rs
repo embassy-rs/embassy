@@ -469,7 +469,7 @@ fn pa12_is_output_pull_low() -> bool {
     use pac::GPIOA;
     const PIN: usize = 12;
     GPIOA.moder().read().moder(PIN) == vals::Moder::OUTPUT
-        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULLDOWN
+        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULL_DOWN
         && GPIOA.odr().read().odr(PIN) == vals::Odr::LOW
 }
 

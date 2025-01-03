@@ -332,9 +332,9 @@ pub(crate) unsafe fn init(config: Config) {
                 assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
 
                 let (div, ckmode) = match adcpres {
-                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNCDIV1),
-                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNCDIV2),
-                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNCDIV4),
+                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNC_DIV1),
+                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNC_DIV2),
+                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNC_DIV4),
                 };
                 common.ccr().modify(|w| w.set_ckmode(ckmode));
 
@@ -361,9 +361,9 @@ pub(crate) unsafe fn init(config: Config) {
                 assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
 
                 let (div, ckmode) = match adcpres {
-                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNCDIV1),
-                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNCDIV2),
-                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNCDIV4),
+                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNC_DIV1),
+                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNC_DIV2),
+                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNC_DIV4),
                 };
                 common.ccr().modify(|w| w.set_ckmode(ckmode));
 

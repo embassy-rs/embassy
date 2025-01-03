@@ -77,7 +77,7 @@ impl super::Rtc {
                     // When the offset is positive (0 to 512), the opposite of
                     // the offset (512 - offset) is masked, i.e. for the
                     // maximum offset (512), 0 pulses are masked.
-                    w.set_calp(stm32_metapac::rtc::vals::Calp::INCREASEFREQ);
+                    w.set_calp(stm32_metapac::rtc::vals::Calp::INCREASE_FREQ);
                     w.set_calm(512 - clock_drift as u16);
                 } else {
                     // Minimum (about -510.7) rounds to -511.
@@ -86,7 +86,7 @@ impl super::Rtc {
                     // When the offset is negative or zero (-511 to 0),
                     // the absolute offset is masked, i.e. for the minimum
                     // offset (-511), 511 pulses are masked.
-                    w.set_calp(stm32_metapac::rtc::vals::Calp::NOCHANGE);
+                    w.set_calp(stm32_metapac::rtc::vals::Calp::NO_CHANGE);
                     w.set_calm((clock_drift * -1.0) as u16);
                 }
             });

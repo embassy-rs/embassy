@@ -178,14 +178,14 @@ impl<'d, T: Instance> Adc<'d, T> {
     fn configure_differential_inputs(&mut self) {
         T::regs().difsel().modify(|w| {
             for n in 0..18 {
-                w.set_difsel(n, Difsel::SINGLEENDED);
+                w.set_difsel(n, Difsel::SINGLE_ENDED);
             }
         });
     }
 
     fn calibrate(&mut self) {
         T::regs().cr().modify(|w| {
-            w.set_adcaldif(Adcaldif::SINGLEENDED);
+            w.set_adcaldif(Adcaldif::SINGLE_ENDED);
         });
 
         T::regs().cr().modify(|w| w.set_adcal(true));
@@ -266,7 +266,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 if enable {
                     Difsel::DIFFERENTIAL
                 } else {
-                    Difsel::SINGLEENDED
+                    Difsel::SINGLE_ENDED
                 },
             );
         });
@@ -435,7 +435,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr().modify(|reg| {
             reg.set_discen(false);
             reg.set_cont(true);
-            reg.set_dmacfg(Dmacfg::ONESHOT);
+            reg.set_dmacfg(Dmacfg::ONE_SHOT);
             reg.set_dmaen(Dmaen::ENABLE);
         });
 

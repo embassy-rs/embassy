@@ -484,11 +484,11 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
         let sop = match r.rx_ordsetr().read().rxordset() {
             Rxordset::SOP => Sop::Sop,
-            Rxordset::SOPPRIME => Sop::SopPrime,
-            Rxordset::SOPDOUBLEPRIME => Sop::SopDoublePrime,
-            Rxordset::SOPPRIMEDEBUG => Sop::SopPrimeDebug,
-            Rxordset::SOPDOUBLEPRIMEDEBUG => Sop::SopDoublePrimeDebug,
-            Rxordset::CABLERESET => return Err(RxError::HardReset),
+            Rxordset::SOP_PRIME => Sop::SopPrime,
+            Rxordset::SOP_DOUBLE_PRIME => Sop::SopDoublePrime,
+            Rxordset::SOP_PRIME_DEBUG => Sop::SopPrimeDebug,
+            Rxordset::SOP_DOUBLE_PRIME_DEBUG => Sop::SopDoublePrimeDebug,
+            Rxordset::CABLE_RESET => return Err(RxError::HardReset),
             // Extension headers are not supported
             _ => unreachable!(),
         };

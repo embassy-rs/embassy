@@ -168,15 +168,15 @@ impl<'a> RDesRing<'a> {
             //  Reset or Stop Receive Command issued
             Rps::STOPPED => RunningState::Stopped,
             //  Fetching receive transfer descriptor
-            Rps::RUNNINGFETCHING => RunningState::Running,
+            Rps::RUNNING_FETCHING => RunningState::Running,
             //  Waiting for receive packet
-            Rps::RUNNINGWAITING => RunningState::Running,
+            Rps::RUNNING_WAITING => RunningState::Running,
             //  Receive descriptor unavailable
             Rps::SUSPENDED => RunningState::Stopped,
             //  Closing receive descriptor
             Rps::_RESERVED_5 => RunningState::Running,
             //  Transferring the receive packet data from receive buffer to host memory
-            Rps::RUNNINGWRITING => RunningState::Running,
+            Rps::RUNNING_WRITING => RunningState::Running,
             _ => RunningState::Unknown,
         }
     }
