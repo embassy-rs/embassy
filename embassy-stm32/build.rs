@@ -1238,6 +1238,27 @@ fn main() {
     // ========
     // Generate dma_trait_impl!
 
+    let syscfg_peripheral = METADATA
+        .peripherals
+        .iter()
+        .find(|p| p.name.eq_ignore_ascii_case("syscfg"))
+        .unwrap();
+
+    let syscfg_ir = syscfg_peripheral.registers.as_ref().unwrap().ir;
+
+    let cfgr1_offset = syscfg_ir
+        .blocks
+        .iter()
+        .find(|b| b.name.eq_ignore_ascii_case("syscfg"))
+        .unwrap()
+        .items
+        .iter()
+        .find(|i| i.name.eq_ignore_ascii_case("cfgr1"))
+        .unwrap()
+        .byte_offset;
+
+    let cfgr1 = syscfg_peripheral.address as u32 + cfgr1_offset;
+
     let mut signals: HashMap<_, _> = [
         // (kind, signal) => trait
         (("adc", "ADC"), quote!(crate::adc::RxDma)),
@@ -1334,9 +1355,45 @@ fn main() {
                             quote!(())
                         };
 
+                        let remap = ch.syscfg_cfgr1_remap_bit.map_or(quote! { () }, |remap| {
+                            let fields: Vec<_> = syscfg_ir
+                                .fieldsets
+                                .iter()
+                                .find(|i| i.name.eq_ignore_ascii_case("cfgr1"))
+                                .unwrap()
+                                .fields
+                                .iter()
+                                .filter(|f| {
+                                    let field_name = f.name.to_lowercase();
+                                    field_name.contains("dma_rmp")
+                                        && field_name.contains(p.name.to_lowercase().as_str())
+                                })
+                                .collect();
+
+                            let remap_field = if fields.len() == 1 {
+                                fields.first().unwrap()
+                            } else {
+                                fields
+                                    .iter()
+                                    .find(|f| f.name.contains(ch.signal.to_lowercase().as_str()))
+                                    .unwrap()
+                            };
+
+                            let BitOffset::Regular(ref bit_offset) = remap_field.bit_offset else {
+                                panic!("cursed bit offset")
+                            };
+                            let bit_offset: u8 = bit_offset.offset.try_into().unwrap();
+
+                            if remap {
+                                quote! { (#cfgr1 as *mut u32).write((#cfgr1 as *mut u32).read() | 1 << #bit_offset) }
+                            } else {
+                                quote! { (#cfgr1 as *mut u32).write((#cfgr1 as *mut u32).read() & !(1 << #bit_offset)) }
+                            }
+                        });
+
                         let channel = format_ident!("{}", channel);
                         g.extend(quote! {
-                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                            dma_trait_impl!(#tr, #peri, #channel, #request, #remap);
                         });
                     }
                 }
