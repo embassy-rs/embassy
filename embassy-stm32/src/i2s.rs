@@ -7,6 +7,7 @@ use stm32_metapac::spi::vals;
 use crate::dma::{ringbuffer, ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::mode::Async;
+use crate::rcc::get_freqs;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
 use crate::{Peripheral, PeripheralRef};
@@ -491,10 +492,9 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let regs = T::info().regs;
 
-        // TODO move i2s to the new mux infra.
-        //#[cfg(all(rcc_f4, not(stm32f410)))]
-        //let pclk = unsafe { get_freqs() }.plli2s1_q.unwrap();
-        //#[cfg(stm32f410)]
+        #[cfg(all(rcc_f4, not(stm32f410)))]
+        let pclk = unsafe { get_freqs() }.plli2s1_r.to_hertz().unwrap();
+        #[cfg(stm32f410)]
         let pclk = T::frequency();
 
         let (odd, div) = compute_baud_rate(pclk, freq, config.master_clock, config.format);
