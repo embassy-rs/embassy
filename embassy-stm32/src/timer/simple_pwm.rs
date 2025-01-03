@@ -6,7 +6,7 @@ use core::mem::ManuallyDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
-use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
+use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, TimerBits};
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -364,8 +364,11 @@ macro_rules! impl_waveform_chx {
             /// Generate a sequence of PWM waveform
             ///
             /// Note:
-            /// you will need to provide corresponding TIMx_CHy DMA channel to use this method.
-            pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u16]) {
+            /// 1. you will need to provide corresponding TIMx_CHy DMA channel to use this method.
+            /// 2. Please make sure the duty data length is aligned to the timer data width(16-bit or 32-bit).
+            /// 3. Please notice the endianess of the duty data. STM32 use little endian,
+            ///    for example, 0x12345678 as u32 will be stored as [0x78, 0x56, 0x34, 0x12] in memory.
+            pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u8]) {
                 use crate::pac::timer::vals::Ccds;
 
                 into_ref!(dma);
@@ -406,14 +409,35 @@ macro_rules! impl_waveform_chx {
                         ..Default::default()
                     };
 
-                    Transfer::new_write(
-                        &mut dma,
-                        req,
-                        duty,
-                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
-                        dma_transfer_option,
-                    )
-                    .await
+                    match self.inner.bits() {
+                        TimerBits::Bits16 => {
+                            // the data must be aligned to double words
+                            assert!(duty.len() % 2 == 0);
+                            let duty = core::slice::from_raw_parts(duty.as_ptr() as *const u16, duty.len() / 2);
+                            Transfer::new_write(
+                                &mut dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                        #[cfg(not(stm32l0))]
+                        TimerBits::Bits32 => {
+                            // the data must be aligned to quad words
+                            assert!(duty.len() % 4 == 0);
+                            let duty = core::slice::from_raw_parts(duty.as_ptr() as *const u32, duty.len() / 4);
+                            Transfer::new_write(
+                                &mut dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                    };
                 };
 
                 // restore output compare state
