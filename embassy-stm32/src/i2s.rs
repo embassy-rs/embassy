@@ -458,7 +458,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Write data directly to the raw I2S ringbuffer.
     /// This can be used to fill the buffer before starting the DMA transfer.
-    pub async fn write_immediate(&mut self, data: &mut [W]) -> Result<(usize, usize), Error> {
+    pub async fn write_immediate(&mut self, data: &[W]) -> Result<(usize, usize), Error> {
         match &mut self.tx_ring_buffer {
             Some(ring) => Ok(ring.write_immediate(data)?),
             _ => return Err(Error::NotATransmitter),
