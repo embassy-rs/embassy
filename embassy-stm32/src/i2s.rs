@@ -7,7 +7,6 @@ use stm32_metapac::spi::vals;
 use crate::dma::{ringbuffer, ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::mode::Async;
-use crate::rcc::get_freqs;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
 use crate::{Peripheral, PeripheralRef};
@@ -493,7 +492,7 @@ impl<'d, W: Word> I2S<'d, W> {
         let regs = T::info().regs;
 
         #[cfg(all(rcc_f4, not(stm32f410)))]
-        let pclk = unsafe { get_freqs() }.plli2s1_r.to_hertz().unwrap();
+        let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_r.to_hertz().unwrap();
         #[cfg(not(all(rcc_f4, not(stm32f410))))]
         let pclk = T::frequency();
 
