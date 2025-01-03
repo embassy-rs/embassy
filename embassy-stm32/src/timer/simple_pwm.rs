@@ -292,7 +292,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
     /// Generate a sequence of PWM waveform
     ///
-    /// Note:  
+    /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
     pub async fn waveform_up(
         &mut self,
@@ -377,12 +377,12 @@ macro_rules! impl_waveform_chx {
 
                 let original_duty_state = self.channel(cc_channel).current_duty_cycle();
                 let original_enable_state = self.channel(cc_channel).is_enabled();
-                let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ONUPDATE;
+                let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ON_UPDATE;
                 let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
 
                 // redirect CC DMA request onto Update Event
                 if !original_cc_dma_on_update {
-                    self.inner.set_cc_dma_selection(Ccds::ONUPDATE)
+                    self.inner.set_cc_dma_selection(Ccds::ON_UPDATE)
                 }
 
                 if !original_cc_dma_enabled {
@@ -433,7 +433,7 @@ macro_rules! impl_waveform_chx {
                 }
 
                 if !original_cc_dma_on_update {
-                    self.inner.set_cc_dma_selection(Ccds::ONCOMPARE)
+                    self.inner.set_cc_dma_selection(Ccds::ON_COMPARE)
                 }
             }
         }

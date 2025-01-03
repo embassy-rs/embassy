@@ -299,24 +299,18 @@ impl<'d, T: Instance> CcPhy<'d, T> {
         #[cfg(stm32h5)]
         T::REGS.cfgr3().modify(|w| match cc_pull {
             CcPull::Source1_5A => {
-                #[cfg(stm32h5)]
-                {
-                    let trim_1a5_cc1 = unsafe { *(0x08FF_F844 as *const u32) & 0xF };
-                    let trim_1a5_cc2 = unsafe { ((*(0x08FF_F844 as *const u32)) >> 16) & 0xF };
+                let trim_1a5_cc1 = unsafe { *(0x08FF_F844 as *const u32) & 0xF };
+                let trim_1a5_cc2 = unsafe { ((*(0x08FF_F844 as *const u32)) >> 16) & 0xF };
 
-                    w.set_trim_cc1_rp(trim_1a5_cc1 as u8);
-                    w.set_trim_cc2_rp(trim_1a5_cc2 as u8);
-                };
+                w.set_trim_cc1_rp(trim_1a5_cc1 as u8);
+                w.set_trim_cc2_rp(trim_1a5_cc2 as u8);
             }
             _ => {
-                #[cfg(stm32h5)]
-                {
-                    let trim_3a0_cc1 = unsafe { (*(0x4002_242C as *const u32) >> 4) & 0xF };
-                    let trim_3a0_cc2 = unsafe { ((*(0x4002_242C as *const u32)) >> 12) & 0xF };
+                let trim_3a0_cc1 = unsafe { (*(0x4002_242C as *const u32) >> 4) & 0xF };
+                let trim_3a0_cc2 = unsafe { ((*(0x4002_242C as *const u32)) >> 12) & 0xF };
 
-                    w.set_trim_cc1_rp(trim_3a0_cc1 as u8);
-                    w.set_trim_cc2_rp(trim_3a0_cc2 as u8);
-                };
+                w.set_trim_cc1_rp(trim_3a0_cc1 as u8);
+                w.set_trim_cc2_rp(trim_3a0_cc2 as u8);
             }
         });
 
@@ -490,11 +484,11 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
         let sop = match r.rx_ordsetr().read().rxordset() {
             Rxordset::SOP => Sop::Sop,
-            Rxordset::SOPPRIME => Sop::SopPrime,
-            Rxordset::SOPDOUBLEPRIME => Sop::SopDoublePrime,
-            Rxordset::SOPPRIMEDEBUG => Sop::SopPrimeDebug,
-            Rxordset::SOPDOUBLEPRIMEDEBUG => Sop::SopDoublePrimeDebug,
-            Rxordset::CABLERESET => return Err(RxError::HardReset),
+            Rxordset::SOP_PRIME => Sop::SopPrime,
+            Rxordset::SOP_DOUBLE_PRIME => Sop::SopDoublePrime,
+            Rxordset::SOP_PRIME_DEBUG => Sop::SopPrimeDebug,
+            Rxordset::SOP_DOUBLE_PRIME_DEBUG => Sop::SopDoublePrimeDebug,
+            Rxordset::CABLE_RESET => return Err(RxError::HardReset),
             // Extension headers are not supported
             _ => unreachable!(),
         };

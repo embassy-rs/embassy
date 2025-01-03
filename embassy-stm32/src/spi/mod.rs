@@ -75,15 +75,15 @@ impl Default for Config {
 impl Config {
     fn raw_phase(&self) -> vals::Cpha {
         match self.mode.phase {
-            Phase::CaptureOnSecondTransition => vals::Cpha::SECONDEDGE,
-            Phase::CaptureOnFirstTransition => vals::Cpha::FIRSTEDGE,
+            Phase::CaptureOnSecondTransition => vals::Cpha::SECOND_EDGE,
+            Phase::CaptureOnFirstTransition => vals::Cpha::FIRST_EDGE,
         }
     }
 
     fn raw_polarity(&self) -> vals::Cpol {
         match self.mode.polarity {
-            Polarity::IdleHigh => vals::Cpol::IDLEHIGH,
-            Polarity::IdleLow => vals::Cpol::IDLELOW,
+            Polarity::IdleHigh => vals::Cpol::IDLE_HIGH,
+            Polarity::IdleLow => vals::Cpol::IDLE_LOW,
         }
     }
 
@@ -180,7 +180,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 // we're doing "fake rxonly", by actually writing one
                 // byte to TXDR for each byte we want to receive. if we
                 // set OUTPUTDISABLED here, this hangs.
-                w.set_rxonly(vals::Rxonly::FULLDUPLEX);
+                w.set_rxonly(vals::Rxonly::FULL_DUPLEX);
                 w.set_dff(<u8 as SealedWord>::CONFIG)
             });
         }
@@ -217,18 +217,18 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssm(true);
                 w.set_master(vals::Master::MASTER);
-                w.set_comm(vals::Comm::FULLDUPLEX);
+                w.set_comm(vals::Comm::FULL_DUPLEX);
                 w.set_ssom(vals::Ssom::ASSERTED);
                 w.set_midi(0);
                 w.set_mssi(0);
                 w.set_afcntr(true);
-                w.set_ssiop(vals::Ssiop::ACTIVEHIGH);
+                w.set_ssiop(vals::Ssiop::ACTIVE_HIGH);
             });
             regs.cfg1().modify(|w| {
                 w.set_crcen(false);
                 w.set_mbr(br);
                 w.set_dsize(<u8 as SealedWord>::CONFIG);
-                w.set_fthlv(vals::Fthlv::ONEFRAME);
+                w.set_fthlv(vals::Fthlv::ONE_FRAME);
             });
             regs.cr2().modify(|w| {
                 w.set_tsize(0);
@@ -291,12 +291,12 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         let cfg1 = self.info.regs.cfg1().read();
 
-        let polarity = if cfg.cpol() == vals::Cpol::IDLELOW {
+        let polarity = if cfg.cpol() == vals::Cpol::IDLE_LOW {
             Polarity::IdleLow
         } else {
             Polarity::IdleHigh
         };
-        let phase = if cfg.cpha() == vals::Cpha::FIRSTEDGE {
+        let phase = if cfg.cpha() == vals::Cpha::FIRST_EDGE {
             Phase::CaptureOnFirstTransition
         } else {
             Phase::CaptureOnSecondTransition
@@ -693,8 +693,8 @@ impl<'d> Spi<'d, Async> {
             w.i2smod().then(|| {
                 let prev = w.i2scfg();
                 w.set_i2scfg(match prev {
-                    vals::I2scfg::SLAVERX | vals::I2scfg::SLAVEFULLDUPLEX => vals::I2scfg::SLAVERX,
-                    vals::I2scfg::MASTERRX | vals::I2scfg::MASTERFULLDUPLEX => vals::I2scfg::MASTERRX,
+                    vals::I2scfg::SLAVE_RX | vals::I2scfg::SLAVE_FULL_DUPLEX => vals::I2scfg::SLAVE_RX,
+                    vals::I2scfg::MASTER_RX | vals::I2scfg::MASTER_FULL_DUPLEX => vals::I2scfg::MASTER_RX,
                     _ => panic!("unsupported configuration"),
                 });
                 prev

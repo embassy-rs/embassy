@@ -45,8 +45,8 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
         match value {
             #[cfg(not(stm32h5))] // ES0565: LSE Low drive mode is not functional
             LseDrive::Low => Lsedrv::LOW,
-            LseDrive::MediumLow => Lsedrv::MEDIUMLOW,
-            LseDrive::MediumHigh => Lsedrv::MEDIUMHIGH,
+            LseDrive::MediumLow => Lsedrv::MEDIUM_LOW,
+            LseDrive::MediumHigh => Lsedrv::MEDIUM_HIGH,
             LseDrive::High => Lsedrv::HIGH,
         }
     }

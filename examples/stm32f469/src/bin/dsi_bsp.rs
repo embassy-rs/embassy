@@ -363,20 +363,20 @@ async fn main(_spawner: Spawner) {
     const _PCPOLARITY: bool = false; // LTDC_PCPOLARITY_IPC == 0
 
     const LTDC_DE_POLARITY: Depol = if !DE_POLARITY {
-        Depol::ACTIVELOW
+        Depol::ACTIVE_LOW
     } else {
-        Depol::ACTIVEHIGH
+        Depol::ACTIVE_HIGH
     };
     const LTDC_VS_POLARITY: Vspol = if !VS_POLARITY {
-        Vspol::ACTIVEHIGH
+        Vspol::ACTIVE_HIGH
     } else {
-        Vspol::ACTIVELOW
+        Vspol::ACTIVE_LOW
     };
 
     const LTDC_HS_POLARITY: Hspol = if !HS_POLARITY {
-        Hspol::ACTIVEHIGH
+        Hspol::ACTIVE_HIGH
     } else {
-        Hspol::ACTIVELOW
+        Hspol::ACTIVE_LOW
     };
 
     /* Timing Configuration */
@@ -397,7 +397,7 @@ async fn main(_spawner: Spawner) {
         w.set_hspol(LTDC_HS_POLARITY);
         w.set_vspol(LTDC_VS_POLARITY);
         w.set_depol(LTDC_DE_POLARITY);
-        w.set_pcpol(Pcpol::RISINGEDGE);
+        w.set_pcpol(Pcpol::RISING_EDGE);
     });
 
     // Set Synchronization size

@@ -166,16 +166,16 @@ impl Registers {
             return Some(BusError::BusPassive);
         } else if err.ewgf() {
             return Some(BusError::BusWarning);
-        } else if err.lec() != Lec::NOERROR {
+        } else if err.lec() != Lec::NO_ERROR {
             return Some(match err.lec() {
                 Lec::STUFF => BusError::Stuff,
                 Lec::FORM => BusError::Form,
                 Lec::ACK => BusError::Acknowledge,
-                Lec::BITRECESSIVE => BusError::BitRecessive,
-                Lec::BITDOMINANT => BusError::BitDominant,
+                Lec::BIT_RECESSIVE => BusError::BitRecessive,
+                Lec::BIT_DOMINANT => BusError::BitDominant,
                 Lec::CRC => BusError::Crc,
                 Lec::CUSTOM => BusError::Software,
-                Lec::NOERROR => unreachable!(),
+                Lec::NO_ERROR => unreachable!(),
             });
         }
         None

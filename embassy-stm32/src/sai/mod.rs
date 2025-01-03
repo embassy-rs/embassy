@@ -52,12 +52,12 @@ impl Mode {
     const fn mode(&self, tx_rx: TxRx) -> vals::Mode {
         match tx_rx {
             TxRx::Transmitter => match self {
-                Mode::Master => vals::Mode::MASTERTX,
-                Mode::Slave => vals::Mode::SLAVETX,
+                Mode::Master => vals::Mode::MASTER_TX,
+                Mode::Slave => vals::Mode::SLAVE_TX,
             },
             TxRx::Receiver => match self {
-                Mode::Master => vals::Mode::MASTERRX,
-                Mode::Slave => vals::Mode::SLAVERX,
+                Mode::Master => vals::Mode::MASTER_RX,
+                Mode::Slave => vals::Mode::SLAVE_RX,
             },
         }
     }
@@ -86,7 +86,7 @@ impl SlotSize {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn slotsz(&self) -> vals::Slotsz {
         match self {
-            SlotSize::DataSize => vals::Slotsz::DATASIZE,
+            SlotSize::DataSize => vals::Slotsz::DATA_SIZE,
             SlotSize::Channel16 => vals::Slotsz::BIT16,
             SlotSize::Channel32 => vals::Slotsz::BIT32,
         }
@@ -155,8 +155,8 @@ impl MuteValue {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn muteval(&self) -> vals::Muteval {
         match self {
-            MuteValue::Zero => vals::Muteval::SENDZERO,
-            MuteValue::LastValue => vals::Muteval::SENDLAST,
+            MuteValue::Zero => vals::Muteval::SEND_ZERO,
+            MuteValue::LastValue => vals::Muteval::SEND_LAST,
         }
     }
 }
@@ -251,8 +251,8 @@ impl BitOrder {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn lsbfirst(&self) -> vals::Lsbfirst {
         match self {
-            BitOrder::LsbFirst => vals::Lsbfirst::LSBFIRST,
-            BitOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
+            BitOrder::LsbFirst => vals::Lsbfirst::LSB_FIRST,
+            BitOrder::MsbFirst => vals::Lsbfirst::MSB_FIRST,
         }
     }
 }
@@ -270,8 +270,8 @@ impl FrameSyncOffset {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fsoff(&self) -> vals::Fsoff {
         match self {
-            FrameSyncOffset::OnFirstBit => vals::Fsoff::ONFIRST,
-            FrameSyncOffset::BeforeFirstBit => vals::Fsoff::BEFOREFIRST,
+            FrameSyncOffset::OnFirstBit => vals::Fsoff::ON_FIRST,
+            FrameSyncOffset::BeforeFirstBit => vals::Fsoff::BEFORE_FIRST,
         }
     }
 }
@@ -289,8 +289,8 @@ impl FrameSyncPolarity {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fspol(&self) -> vals::Fspol {
         match self {
-            FrameSyncPolarity::ActiveLow => vals::Fspol::FALLINGEDGE,
-            FrameSyncPolarity::ActiveHigh => vals::Fspol::RISINGEDGE,
+            FrameSyncPolarity::ActiveLow => vals::Fspol::FALLING_EDGE,
+            FrameSyncPolarity::ActiveHigh => vals::Fspol::RISING_EDGE,
         }
     }
 }
@@ -325,8 +325,8 @@ impl ClockStrobe {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn ckstr(&self) -> vals::Ckstr {
         match self {
-            ClockStrobe::Falling => vals::Ckstr::FALLINGEDGE,
-            ClockStrobe::Rising => vals::Ckstr::RISINGEDGE,
+            ClockStrobe::Falling => vals::Ckstr::FALLING_EDGE,
+            ClockStrobe::Rising => vals::Ckstr::RISING_EDGE,
         }
     }
 }
@@ -343,8 +343,8 @@ impl ComplementFormat {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn cpl(&self) -> vals::Cpl {
         match self {
-            ComplementFormat::OnesComplement => vals::Cpl::ONESCOMPLEMENT,
-            ComplementFormat::TwosComplement => vals::Cpl::TWOSCOMPLEMENT,
+            ComplementFormat::OnesComplement => vals::Cpl::ONES_COMPLEMENT,
+            ComplementFormat::TwosComplement => vals::Cpl::TWOS_COMPLEMENT,
         }
     }
 }
@@ -362,8 +362,8 @@ impl Companding {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn comp(&self) -> vals::Comp {
         match self {
-            Companding::None => vals::Comp::NOCOMPANDING,
-            Companding::MuLaw => vals::Comp::MULAW,
+            Companding::None => vals::Comp::NO_COMPANDING,
+            Companding::MuLaw => vals::Comp::MU_LAW,
             Companding::ALaw => vals::Comp::ALAW,
         }
     }
@@ -381,7 +381,7 @@ impl OutputDrive {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn outdriv(&self) -> vals::Outdriv {
         match self {
-            OutputDrive::OnStart => vals::Outdriv::ONSTART,
+            OutputDrive::OnStart => vals::Outdriv::ON_START,
             OutputDrive::Immediately => vals::Outdriv::IMMEDIATELY,
         }
     }
@@ -907,9 +907,9 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
                 w.set_mckdiv(config.master_clock_divider.mckdiv());
                 w.set_nodiv(
                     if config.master_clock_divider == MasterClockDivider::MasterClockDisabled {
-                        vals::Nodiv::NODIV
+                        vals::Nodiv::NO_DIV
                     } else {
-                        vals::Nodiv::MASTERCLOCK
+                        vals::Nodiv::MASTER_CLOCK
                     },
                 );
                 w.set_dmaen(true);

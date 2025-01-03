@@ -57,12 +57,13 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    // This pin controls the dead-battery mode on the attached TCPP01-M12.
-    // If low, TCPP01-M12 disconnects CC lines and presents dead-battery resistance on CC lines, thus set high.
-    let _tcpp01_m12_ndb = Output::new(p.PA9, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::Low);
-
     let mut ucpd = Ucpd::new(p.UCPD1, Irqs {}, p.PB13, p.PB14, Default::default());
     ucpd.cc_phy().set_pull(CcPull::Sink);
+
+    // This pin controls the dead-battery mode on the attached TCPP01-M12.
+    // If low, TCPP01-M12 disconnects CC lines and presents dead-battery resistance on CC lines, thus set high.
+    // Must only be set after the CC pull is established.
+    let _tcpp01_m12_ndb = Output::new(p.PA9, embassy_stm32::gpio::Level::High, embassy_stm32::gpio::Speed::Low);
 
     info!("Waiting for USB connection...");
     let cable_orientation = wait_attached(ucpd.cc_phy()).await;

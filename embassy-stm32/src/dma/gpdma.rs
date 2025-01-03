@@ -38,7 +38,7 @@ impl From<WordSize> for vals::Dw {
     fn from(raw: WordSize) -> Self {
         match raw {
             WordSize::OneByte => Self::BYTE,
-            WordSize::TwoBytes => Self::HALFWORD,
+            WordSize::TwoBytes => Self::HALF_WORD,
             WordSize::FourBytes => Self::WORD,
         }
     }
@@ -240,8 +240,8 @@ impl<'a> Transfer<'a> {
         });
         ch.tr2().write(|w| {
             w.set_dreq(match dir {
-                Dir::MemoryToPeripheral => vals::Dreq::DESTINATIONPERIPHERAL,
-                Dir::PeripheralToMemory => vals::Dreq::SOURCEPERIPHERAL,
+                Dir::MemoryToPeripheral => vals::Dreq::DESTINATION_PERIPHERAL,
+                Dir::PeripheralToMemory => vals::Dreq::SOURCE_PERIPHERAL,
             });
             w.set_reqsel(request);
         });

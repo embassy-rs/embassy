@@ -88,10 +88,10 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_nistc(pac::rng::vals::Nistc::CUSTOM);
             // set RNG config "A" according to reference manual
             // this has to be written within the same write access as setting the CONDRST bit
-            reg.set_rng_config1(pac::rng::vals::RngConfig1::CONFIGA);
-            reg.set_clkdiv(pac::rng::vals::Clkdiv::NODIV);
-            reg.set_rng_config2(pac::rng::vals::RngConfig2::CONFIGA_B);
-            reg.set_rng_config3(pac::rng::vals::RngConfig3::CONFIGA);
+            reg.set_rng_config1(pac::rng::vals::RngConfig1::CONFIG_A);
+            reg.set_clkdiv(pac::rng::vals::Clkdiv::NO_DIV);
+            reg.set_rng_config2(pac::rng::vals::RngConfig2::CONFIG_A_B);
+            reg.set_rng_config3(pac::rng::vals::RngConfig3::CONFIG_A);
             reg.set_ced(true);
             reg.set_ie(false);
             reg.set_rngen(true);

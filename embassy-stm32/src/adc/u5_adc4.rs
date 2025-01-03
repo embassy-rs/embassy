@@ -416,7 +416,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
 
         T::regs().cfgr1().modify(|reg| {
             reg.set_dmaen(true);
-            reg.set_dmacfg(Adc4Dmacfg::ONESHOT);
+            reg.set_dmacfg(Adc4Dmacfg::ONE_SHOT);
             reg.set_chselrmod(false);
         });
 
