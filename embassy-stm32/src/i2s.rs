@@ -458,7 +458,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Write data directly to the raw I2S ringbuffer.
     /// This can be used to fill the buffer before starting the DMA transfer.
-    pub async fn write_immediate(&mut self, data: &mut [W]) -> Result<(usize, usize), Error> {
+    pub async fn write_immediate(&mut self, data: &[W]) -> Result<(usize, usize), Error> {
         match &mut self.tx_ring_buffer {
             Some(ring) => Ok(ring.write_immediate(data)?),
             _ => return Err(Error::NotATransmitter),
@@ -491,10 +491,9 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let regs = T::info().regs;
 
-        // TODO move i2s to the new mux infra.
-        //#[cfg(all(rcc_f4, not(stm32f410)))]
-        //let pclk = unsafe { get_freqs() }.plli2s1_q.unwrap();
-        //#[cfg(stm32f410)]
+        #[cfg(all(rcc_f4, not(stm32f410)))]
+        let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_r.to_hertz().unwrap();
+        #[cfg(not(all(rcc_f4, not(stm32f410))))]
         let pclk = T::frequency();
 
         let (odd, div) = compute_baud_rate(pclk, freq, config.master_clock, config.format);
