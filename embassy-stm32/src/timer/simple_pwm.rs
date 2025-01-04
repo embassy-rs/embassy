@@ -334,7 +334,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
                 &mut dma,
                 req,
                 duty,
-                self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut _,
+                self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
                 dma_transfer_option,
             )
             .await
@@ -362,13 +362,7 @@ macro_rules! impl_waveform_chx {
     ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
         impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             /// Generate a sequence of PWM waveform
-            ///
-            /// Note:
-            /// 1. you will need to provide corresponding TIMx_CHy DMA channel to use this method.
-            /// 2. Please make sure the duty data length is aligned to the timer data width(16-bit or 32-bit).
-            /// 3. Please notice the endianess of the duty data. STM32 use little endian,
-            ///    for example, 0x12345678 as u32 will be stored as [0x78, 0x56, 0x34, 0x12] in memory.
-            pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u8]) {
+            pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u16]) {
                 use crate::pac::timer::vals::Ccds;
 
                 into_ref!(dma);
@@ -411,31 +405,29 @@ macro_rules! impl_waveform_chx {
 
                     match self.inner.bits() {
                         TimerBits::Bits16 => {
-                            // the data must be aligned to double words
-                            assert!(duty.len() % 2 == 0);
-                            let duty = core::slice::from_raw_parts(duty.as_ptr() as *const u16, duty.len() / 2);
                             Transfer::new_write(
                                 &mut dma,
                                 req,
                                 duty,
-                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u16,
                                 dma_transfer_option,
                             )
                             .await
                         }
-                        #[cfg(not(stm32l0))]
+                        #[cfg(not(any(stm32l0, bdma, gpdma)))]
                         TimerBits::Bits32 => {
-                            // the data must be aligned to quad words
-                            assert!(duty.len() % 4 == 0);
-                            let duty = core::slice::from_raw_parts(duty.as_ptr() as *const u32, duty.len() / 4);
                             Transfer::new_write(
                                 &mut dma,
                                 req,
                                 duty,
-                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u32,
                                 dma_transfer_option,
                             )
                             .await
+                        }
+                        #[cfg(any(stm32l0, bdma, gpdma))]
+                        _ => {
+                            panic!("unsupported timer bits")
                         }
                     };
                 };
