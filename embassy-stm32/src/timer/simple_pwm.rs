@@ -416,8 +416,10 @@ macro_rules! impl_waveform_chx {
                         }
                         #[cfg(not(any(stm32l0)))]
                         TimerBits::Bits32 => {
+                            #[cfg(not(any(bdma, gpdma)))]
+                            panic!("unsupported timer bits");
+
                             #[cfg(any(bdma, gpdma))]
-                            panic("unsupported timer bits");
                             Transfer::new_write(
                                 &mut dma,
                                 req,
