@@ -414,8 +414,10 @@ macro_rules! impl_waveform_chx {
                             )
                             .await
                         }
-                        #[cfg(not(any(stm32l0, bdma, gpdma)))]
+                        #[cfg(not(any(stm32l0)))]
                         TimerBits::Bits32 => {
+                            #[cfg(any(bdma, gpdma))]
+                            panic("unsupported timer bits");
                             Transfer::new_write(
                                 &mut dma,
                                 req,
@@ -424,10 +426,6 @@ macro_rules! impl_waveform_chx {
                                 dma_transfer_option,
                             )
                             .await
-                        }
-                        #[cfg(any(stm32l0, bdma, gpdma))]
-                        _ => {
-                            panic!("unsupported timer bits")
                         }
                     };
                 };
