@@ -172,7 +172,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         });
 
         for b in buf {
-            while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
+            while !T::REGS.sr().read().tcf() && (T::REGS.sr().read().flevel() == 0) {}
             *b = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
         }
 
@@ -402,7 +402,10 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
-        T::REGS.cr().modify(|v| v.set_dmaen(true));
+        T::REGS.cr().modify(|v| {
+            v.set_en(true);
+            v.set_dmaen(true)
+        });
         transfer
     }
 
