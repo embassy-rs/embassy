@@ -620,10 +620,10 @@ impl<'a> Transfer<'a> {
     }
 
     /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
-    pub unsafe fn new_write_raw<W: Word, PW: Word>(
+    pub unsafe fn new_write_raw<MW: Word, PW: Word>(
         channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
-        buf: *const [W],
+        buf: *const [MW],
         peri_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
@@ -634,11 +634,11 @@ impl<'a> Transfer<'a> {
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
-            buf as *const W as *mut u32,
+            buf as *const MW as *mut u32,
             buf.len(),
             true,
-            W::size(),
-            W::size(),
+            MW::size(),
+            PW::size(),
             options,
         )
     }
