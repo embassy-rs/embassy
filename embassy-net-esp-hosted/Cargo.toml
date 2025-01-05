@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net-esp-hosted"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "embassy-net driver for ESP-Hosted"
 keywords = ["embedded", "esp-hosted", "embassy-net", "embedded-hal-async", "wifi"]
