@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.0 - 2025-01-05
+
+- The `std` feature has been removed
+- Updated `embassy-time` to v0.4
+
 ## 0.2.0 - 2024-08-05
 
 - Add Clone derive to flash Partition in embassy-embedded-hal
