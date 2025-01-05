@@ -73,7 +73,7 @@ rand_core = "0.6.3"
 sdio-host = "0.5.0"
 critical-section = "1.1"
 #stm32-metapac = { version = "15" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-567fd0b1b7dfd9c1aa9e54d365547afe1ceb1241" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-274eeb0ed4477768d026276c4e9873586c1b9a05" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -102,7 +102,7 @@ proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
 #stm32-metapac = { version = "15", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-567fd0b1b7dfd9c1aa9e54d365547afe1ceb1241", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-274eeb0ed4477768d026276c4e9873586c1b9a05", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]

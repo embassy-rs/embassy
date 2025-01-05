@@ -68,6 +68,8 @@ pub mod dac;
 pub mod dcmi;
 #[cfg(dsihost)]
 pub mod dsihost;
+#[cfg(dts)]
+pub mod dts;
 #[cfg(eth)]
 pub mod eth;
 #[cfg(feature = "exti")]
