@@ -402,10 +402,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
-        T::REGS.cr().modify(|v| {
-            v.set_en(true);
-            v.set_dmaen(true)
-        });
+        T::REGS.cr().modify(|v| v.set_dmaen(true));
         transfer
     }
 
