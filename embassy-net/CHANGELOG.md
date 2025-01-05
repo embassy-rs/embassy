@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet... Quick, go send a PR!
 
+## 0.6 - 2025-01-05
+
+- Make `Config` constructors `const`
+- The `std` feature has been removed
+- Updated `embassy-time` to v0.4
+
 ## 0.5 - 2024-11-28
 
 - Refactor the API structure, simplifying lifetimes and generics.
