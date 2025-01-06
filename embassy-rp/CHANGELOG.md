@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.0 - 2025-01-05
+
+- Updated `embassy-time` to v0.4
+- Initial rp235x support
+- Setup timer0 tick when initializing clocks
+- Allow separate control of duty cycle for each channel in a pwm slice by splitting the Pwm driver.
+- Implement `embedded_io::Write` for Uart<'d, T: Instance, Blocking> and UartTx<'d, T: Instance, Blocking>
+- Add `set_pullup()` to OutputOpenDrain.
+
 ## 0.2.0 - 2024-08-05
 
 - Add read_to_break_with_count

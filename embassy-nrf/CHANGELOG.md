@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.0 - 2025-01-06
+
+- Updated `embassy-time` to v0.4
+- Add basic nrf54 support
+- Switch to use `nrf-pac` chiptool-based PAC
+- Fix bug where timer alarm was not scheduled if interrupted
+- Add RESET operations helpers for nrf5340
+- Allow debug access from firmware for nrf54l
+- Add trait `embedded_io_async` to uarte
+- Add system off and wake-on-field for nrf
+- Use inline const for initializing arrays
+- Add NFCT driver and related changes for nrf
+- Add support for transactions to Twim (embassy-nrf)
+- Fix build issues related to nrf9120 features
+- Disconnect input and fix bad pin assignment in nrf/pwm
+
 ## 0.2.0 - 2024-08-05
 
 - Support for NRF chips:

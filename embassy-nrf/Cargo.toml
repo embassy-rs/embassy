@@ -1,6 +1,6 @@
 [package]
 name = "embassy-nrf"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
@@ -148,7 +148,7 @@ embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 
-nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "52e3a757f06035c94291bfc42b0c03f71e4d677e" }
+nrf-pac = "0.1.0"
 
 defmt = { version = "0.3", optional = true }
 bitflags = "2.4.2"

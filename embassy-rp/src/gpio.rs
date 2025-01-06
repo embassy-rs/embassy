@@ -634,10 +634,10 @@ impl<'d> Flex<'d> {
     pub fn set_drive_strength(&mut self, strength: Drive) {
         self.pin.pad_ctrl().modify(|w| {
             w.set_drive(match strength {
-                Drive::_2mA => pac::pads::vals::Drive::_2MA,
-                Drive::_4mA => pac::pads::vals::Drive::_4MA,
-                Drive::_8mA => pac::pads::vals::Drive::_8MA,
-                Drive::_12mA => pac::pads::vals::Drive::_12MA,
+                Drive::_2mA => pac::pads::vals::Drive::_2M_A,
+                Drive::_4mA => pac::pads::vals::Drive::_4M_A,
+                Drive::_8mA => pac::pads::vals::Drive::_8M_A,
+                Drive::_12mA => pac::pads::vals::Drive::_12M_A,
             });
         });
     }
