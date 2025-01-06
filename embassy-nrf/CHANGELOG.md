@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Updated `embassy-time` to v0.4
 - Add basic nrf54 support
-- Switch to use nrf-pac chiptool based PAC
+- Switch to use `nrf-pac` chiptool-based PAC
 - Fix bug where timer alarm was not scheduled if interrupted
 - Add RESET operations helpers for nrf5340
 - Allow debug access from firmware for nrf54l
