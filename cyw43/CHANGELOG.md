@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.0 - 2025-01-05
+
+- Update embassy-time to 0.4.0
+- Update embassy-rp to 0.3.0
+
 ## 0.2.0 - 2024-08-05
 
 - Update to new versions of embassy-{time,sync}
