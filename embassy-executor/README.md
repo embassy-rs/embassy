@@ -17,7 +17,7 @@ When the `nightly` Cargo feature is not enabled, `embassy-executor` allocates ta
 
 If the task arena gets full, the program will panic at runtime. To guarantee this doesn't happen, you must set the size to the sum of sizes of all tasks.
 
-Tasks are allocated from the arena when spawned for the first time. If the task exists, the allocation is not released to the arena, but can be reused to spawn the task again. For multiple-instance tasks (like `#[embassy_executor::task(pool_size = 4)]`), the first spawn will allocate memory for all instances. This is done for performance and to increase predictability (for example, spawning at least 1 instance of every task at boot guarantees an immediate panic if the arena is too small, while allocating instances on-demand could delay the panic to only when the program is under load).
+Tasks are allocated from the arena when spawned for the first time. If the task exits, the allocation is not released to the arena, but can be reused to spawn the task again. For multiple-instance tasks (like `#[embassy_executor::task(pool_size = 4)]`), the first spawn will allocate memory for all instances. This is done for performance and to increase predictability (for example, spawning at least 1 instance of every task at boot guarantees an immediate panic if the arena is too small, while allocating instances on-demand could delay the panic to only when the program is under load).
 
 The arena size can be configured in two ways:
 
