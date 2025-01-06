@@ -12,8 +12,7 @@ pub use asynch::InterruptHandler;
 pub use common::*;
 
 pub use crate::_generated::flash_regions::*;
-pub use crate::_generated::MAX_ERASE_SIZE;
-pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+pub use crate::_generated::{FLASH_BASE, FLASH_SIZE, MAX_ERASE_SIZE, WRITE_SIZE};
 
 /// Get whether the default flash layout is being used.
 ///

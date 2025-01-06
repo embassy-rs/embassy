@@ -3,12 +3,12 @@ use core::sync::atomic::{fence, Ordering};
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use stm32_metapac::FLASH_BASE;
 
 use super::{
     family, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE,
     READ_SIZE, WRITE_SIZE,
 };
+use crate::_generated::FLASH_BASE;
 use crate::peripherals::FLASH;
 use crate::Peripheral;
 

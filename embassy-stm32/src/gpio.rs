@@ -7,7 +7,7 @@ use critical_section::CriticalSection;
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::gpio::{self, vals};
-use crate::{pac, peripherals, Peripheral};
+use crate::{peripherals, Peripheral};
 
 /// GPIO flexible pin.
 ///
@@ -726,7 +726,7 @@ pub(crate) trait SealedPin {
 
     #[inline]
     fn block(&self) -> gpio::Gpio {
-        pac::GPIO(self._port() as _)
+        crate::_generated::gpio_block(self._port() as _)
     }
 
     /// Set the output as high.
@@ -835,7 +835,7 @@ impl AnyPin {
     #[cfg(feature = "unstable-pac")]
     #[inline]
     pub fn block(&self) -> gpio::Gpio {
-        pac::GPIO(self._port() as _)
+        crate::_generated::gpio_block(self._port() as _)
     }
 }
 
