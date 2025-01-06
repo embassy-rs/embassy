@@ -450,6 +450,16 @@ impl<'d> OutputOpenDrain<'d> {
         Self { pin }
     }
 
+    /// Set the pin's pull-up.
+    #[inline]
+    pub fn set_pullup(&mut self, enable: bool) {
+        if enable {
+            self.pin.set_pull(Pull::Up);
+        } else {
+            self.pin.set_pull(Pull::None);
+        }
+    }
+
     /// Set the pin's drive strength.
     #[inline]
     pub fn set_drive_strength(&mut self, strength: Drive) {
