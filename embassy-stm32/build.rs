@@ -9,8 +9,8 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
-    MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, ALL_CHIPS,
-    ALL_PERIPHERAL_VERSIONS, METADATA,
+    MemoryRegion, MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode,
+    ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA,
 };
 
 #[path = "./build_common.rs"]
@@ -1678,6 +1678,59 @@ fn main() {
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
     });
 
+    // ========
+    // Generate gpio_block() function
+
+    let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as usize;
+    let gpio_stride = 0x400 as usize;
+
+    for p in METADATA.peripherals {
+        if let Some(bi) = &p.registers {
+            if bi.kind == "gpio" {
+                assert_eq!(0, (p.address as usize - gpio_base) % gpio_stride);
+            }
+        }
+    }
+
+    g.extend(quote!(
+        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {{
+            unsafe {{ crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }}
+        }}
+    ));
+
+    // ========
+    // Generate flash constants
+
+    let flash_regions: Vec<&MemoryRegion> = METADATA
+        .memory
+        .iter()
+        .filter(|x| x.kind == MemoryRegionKind::Flash && x.name.starts_with("BANK_"))
+        .collect();
+    let first_flash = flash_regions.first().unwrap();
+    let total_flash_size = flash_regions
+        .iter()
+        .map(|x| x.size)
+        .reduce(|acc, item| acc + item)
+        .unwrap();
+    let write_sizes: HashSet<_> = flash_regions
+        .iter()
+        .map(|r| r.settings.as_ref().unwrap().write_size)
+        .collect();
+    assert_eq!(1, write_sizes.len());
+
+    let flash_base = first_flash.address as usize;
+    let total_flash_size = total_flash_size as usize;
+    let write_size = (*write_sizes.iter().next().unwrap()) as usize;
+
+    g.extend(quote!(
+        pub const FLASH_BASE: usize = #flash_base;
+        pub const FLASH_SIZE: usize = #total_flash_size;
+        pub const WRITE_SIZE: usize = #write_size;
+    ));
+
+    // ========
+    // Generate macro-tables
+
     for irq in METADATA.interrupts {
         let name = irq.name.to_ascii_uppercase();
         interrupts_table.push(vec![name.clone()]);
@@ -1772,6 +1825,11 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=build.rs");
+
+    if cfg!(feature = "memory-x") {
+        gen_memory_x(out_dir);
+        println!("cargo:rustc-link-search={}", out_dir.display());
+    }
 }
 
 enum GetOneError {
@@ -1856,4 +1914,79 @@ fn rustfmt(path: impl AsRef<Path>) {
             }
         }
     }
+}
+
+fn gen_memory_x(out_dir: &Path) {
+    let mut memory_x = String::new();
+
+    let flash = get_memory_range(MemoryRegionKind::Flash);
+    let ram = get_memory_range(MemoryRegionKind::Ram);
+
+    write!(memory_x, "MEMORY\n{{\n").unwrap();
+    writeln!(
+        memory_x,
+        "    FLASH : ORIGIN = 0x{:08x}, LENGTH = {:>4}K /* {} */",
+        flash.0,
+        flash.1 / 1024,
+        flash.2
+    )
+    .unwrap();
+    writeln!(
+        memory_x,
+        "    RAM   : ORIGIN = 0x{:08x}, LENGTH = {:>4}K /* {} */",
+        ram.0,
+        ram.1 / 1024,
+        ram.2
+    )
+    .unwrap();
+    write!(memory_x, "}}").unwrap();
+
+    std::fs::write(out_dir.join("memory.x"), memory_x.as_bytes()).unwrap();
+}
+
+fn get_memory_range(kind: MemoryRegionKind) -> (u32, u32, String) {
+    let mut mems: Vec<_> = METADATA
+        .memory
+        .iter()
+        .filter(|m| m.kind == kind && m.size != 0)
+        .collect();
+    mems.sort_by_key(|m| m.address);
+
+    let mut start = u32::MAX;
+    let mut end = u32::MAX;
+    let mut names = Vec::new();
+    let mut best: Option<(u32, u32, String)> = None;
+    for m in mems {
+        if !mem_filter(&METADATA.name, &m.name) {
+            continue;
+        }
+
+        if m.address != end {
+            names = Vec::new();
+            start = m.address;
+            end = m.address;
+        }
+
+        end += m.size;
+        names.push(m.name.to_string());
+
+        if best.is_none() || end - start > best.as_ref().unwrap().1 {
+            best = Some((start, end - start, names.join(" + ")));
+        }
+    }
+
+    best.unwrap()
+}
+
+fn mem_filter(chip: &str, region: &str) -> bool {
+    // in STM32WB, SRAM2a/SRAM2b are reserved for the radio core.
+    if chip.starts_with("STM32WB")
+        && !chip.starts_with("STM32WBA")
+        && !chip.starts_with("STM32WB0")
+        && region.starts_with("SRAM2")
+    {
+        return false;
+    }
+
+    true
 }
