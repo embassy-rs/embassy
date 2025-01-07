@@ -235,7 +235,7 @@ impl<'a> TcpSocket<'a> {
     }
 
     /// Split the socket into reader and a writer halves.
-    pub fn split(&mut self) -> (TcpReader<'_>, TcpWriter<'_>) {
+    pub fn split<'b>(&'b mut self) -> (TcpReader<'a>, TcpWriter<'a>) {
         (TcpReader { io: self.io }, TcpWriter { io: self.io })
     }
 
