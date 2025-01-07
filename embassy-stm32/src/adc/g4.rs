@@ -191,6 +191,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_adcal(true));
 
         while T::regs().cr().read().adcal() {}
+
+        T::regs().cr().modify(|w| {
+            w.set_adcaldif(Adcaldif::DIFFERENTIAL);
+        });
+
+        T::regs().cr().modify(|w| w.set_adcal(true));
+
+        while T::regs().cr().read().adcal() {}
     }
 
     fn enable(&mut self) {
