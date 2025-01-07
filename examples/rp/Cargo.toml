@@ -69,11 +69,3 @@ opt-level = 'z'
 debug = 2
 lto = true
 opt-level = "z"
-
-[patch.crates-io]
-embassy-executor = { path = "../../embassy-executor" }
-embassy-sync = { path = "../../embassy-sync" }
-embassy-futures = { path = "../../embassy-futures" }
-embassy-time = { path = "../../embassy-time" }
-embassy-time-driver = { path = "../../embassy-time-driver" }
-embassy-embedded-hal = { path = "../../embassy-embedded-hal" }
