@@ -1,3 +1,6 @@
+use core::future::poll_fn;
+use core::task::Poll;
+
 use embassy_hal_internal::into_ref;
 
 use super::blocking_delay_us;
@@ -156,8 +159,7 @@ where
         Vbat {}
     }
 
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
+    fn start_conversion(&mut self) {
         // clear end of conversion flag
         T::regs().sr().modify(|reg| {
             reg.set_eoc(false);
@@ -167,6 +169,28 @@ where
         T::regs().cr2().modify(|reg| {
             reg.set_swstart(true);
         });
+    }
+
+    /// Perform a single conversion asynchronously.
+    async fn convert(&mut self) -> u16 {
+        self.start_conversion();
+
+        // wait for actual start and then finish
+        poll_fn(|_| {
+            if T::regs().sr().read().strt() && T::regs().sr().read().eoc() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        T::regs().dr().read().0 as u16
+    }
+
+    /// Perform a single conversion.
+    fn blocking_convert(&mut self) -> u16 {
+        self.start_conversion();
 
         while T::regs().sr().read().strt() == false {
             // spin //wait for actual start
@@ -178,7 +202,7 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    fn configure_channel_reading(&mut self, channel: &mut impl AdcChannel<T>) {
         channel.setup();
 
         // Configure ADC
@@ -189,8 +213,16 @@ where
 
         // Configure channel
         Self::set_channel_sample_time(channel, self.sample_time);
+    }
 
-        self.convert()
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        self.configure_channel_reading(channel);
+        self.convert().await
+    }
+
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        self.configure_channel_reading(channel);
+        self.blocking_convert()
     }
 
     fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
