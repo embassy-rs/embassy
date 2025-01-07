@@ -83,6 +83,8 @@ pub mod hash;
 pub mod hrtim;
 #[cfg(hsem)]
 pub mod hsem;
+#[cfg(hspi)]
+pub mod hspi;
 #[cfg(i2c)]
 pub mod i2c;
 #[cfg(any(all(spi_v1, rcc_f4), spi_v3))]
