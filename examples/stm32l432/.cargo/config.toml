@@ -1,0 +1,13 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace STM32F429ZITx with your chip as listed in `probe-rs chip list`
+#runner = "probe-rs run --chip STM32L475VGT6"
+#runner = "probe-rs run --chip STM32L475VG"
+#runner = "probe-rs run --chip STM32L4S5QI"
+runner = "probe-rs run --chip STM32L432KCUx --connect-under-reset --speed 3300"
+
+
+[build]
+target = "thumbv7em-none-eabi"
+
+[env]
+DEFMT_LOG = "trace"
