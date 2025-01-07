@@ -53,6 +53,13 @@ fn main() {
     // Generate singletons
 
     let mut singletons: Vec<String> = Vec::new();
+
+    // Generate one singleton per pin
+    for p in METADATA.pins {
+        singletons.push(p.name.to_string());
+    }
+
+    // generate one singleton per peripheral (with many exceptions...)
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
             if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" || r.kind == "otg" || r.kind == "octospi" {
@@ -63,13 +70,8 @@ fn main() {
             }
 
             match r.kind {
-                // Generate singletons per pin, not per port
-                "gpio" => {
-                    let port_letter = p.name.strip_prefix("GPIO").unwrap();
-                    for pin_num in 0..16 {
-                        singletons.push(format!("P{}{}", port_letter, pin_num));
-                    }
-                }
+                // handled above
+                "gpio" => {}
 
                 // No singleton for these, the HAL handles them specially.
                 "exti" => {}
@@ -1478,43 +1480,42 @@ fn main() {
     let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as u32;
     let gpio_stride = 0x400;
 
+    for pin in METADATA.pins {
+        let port_letter = pin.name.chars().nth(1).unwrap();
+        let pname = format!("GPIO{}", port_letter);
+        let p = METADATA.peripherals.iter().find(|p| p.name == pname).unwrap();
+        assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
+        let port_num = (p.address as u32 - gpio_base) / gpio_stride;
+        let pin_num: u32 = pin.name[2..].parse().unwrap();
+
+        pins_table.push(vec![
+            pin.name.to_string(),
+            p.name.to_string(),
+            port_num.to_string(),
+            pin_num.to_string(),
+            format!("EXTI{}", pin_num),
+        ]);
+
+        // If we have the split pins, we need to do a little extra work:
+        // Add the "_C" variant to the table. The solution is not optimal, though.
+        // Adding them only when the corresponding GPIOx also appears.
+        // This should avoid unintended side-effects as much as possible.
+        #[cfg(feature = "_split-pins-enabled")]
+        for split_feature in &split_features {
+            if split_feature.pin_name_without_c == pin_name {
+                pins_table.push(vec![
+                    split_feature.pin_name_with_c.to_string(),
+                    p.name.to_string(),
+                    port_num.to_string(),
+                    pin_num.to_string(),
+                    format!("EXTI{}", pin_num),
+                ]);
+            }
+        }
+    }
+
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
-            if regs.kind == "gpio" {
-                let port_letter = p.name.chars().nth(4).unwrap();
-                assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
-                let port_num = (p.address as u32 - gpio_base) / gpio_stride;
-
-                for pin_num in 0u32..16 {
-                    let pin_name = format!("P{}{}", port_letter, pin_num);
-
-                    pins_table.push(vec![
-                        pin_name.clone(),
-                        p.name.to_string(),
-                        port_num.to_string(),
-                        pin_num.to_string(),
-                        format!("EXTI{}", pin_num),
-                    ]);
-
-                    // If we have the split pins, we need to do a little extra work:
-                    // Add the "_C" variant to the table. The solution is not optimal, though.
-                    // Adding them only when the corresponding GPIOx also appears.
-                    // This should avoid unintended side-effects as much as possible.
-                    #[cfg(feature = "_split-pins-enabled")]
-                    for split_feature in &split_features {
-                        if split_feature.pin_name_without_c == pin_name {
-                            pins_table.push(vec![
-                                split_feature.pin_name_with_c.to_string(),
-                                p.name.to_string(),
-                                port_num.to_string(),
-                                pin_num.to_string(),
-                                format!("EXTI{}", pin_num),
-                            ]);
-                        }
-                    }
-                }
-            }
-
             if regs.kind == "adc" {
                 let adc_num = p.name.strip_prefix("ADC").unwrap();
                 let mut adc_common = None;
