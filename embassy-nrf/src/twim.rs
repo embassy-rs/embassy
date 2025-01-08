@@ -347,13 +347,8 @@ impl<'d, T: Instance> Twim<'d, T> {
             if r.events_error().read() != 0 {
                 r.events_error().write_value(0);
                 r.tasks_stop().write_value(1);
-                let errorsrc = r.errorsrc().read();
-                if errorsrc.overrun() {
-                    return Poll::Ready(Err(Error::Overrun));
-                } else if errorsrc.anack() {
-                    return Poll::Ready(Err(Error::AddressNack));
-                } else if errorsrc.dnack() {
-                    return Poll::Ready(Err(Error::DataNack));
+                if let Err(e) = self.check_errorsrc() {
+                    return Poll::Ready(Err(e));
                 } else {
                     return Poll::Ready(Err(Error::Bus));
                 }
