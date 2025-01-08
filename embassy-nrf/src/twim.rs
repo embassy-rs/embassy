@@ -257,7 +257,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     /// Get Error instance, if any occurred.
-    fn check_errorsrc(&self) -> Result<(), Error> {
+    fn check_errorsrc() -> Result<(), Error> {
         let r = T::regs();
 
         let err = r.errorsrc().read();
@@ -347,7 +347,7 @@ impl<'d, T: Instance> Twim<'d, T> {
             if r.events_error().read() != 0 {
                 r.events_error().write_value(0);
                 r.tasks_stop().write_value(1);
-                if let Err(e) = self.check_errorsrc() {
+                if let Err(e) = Self::check_errorsrc() {
                     return Poll::Ready(Err(e));
                 } else {
                     return Poll::Ready(Err(Error::Bus));
@@ -510,7 +510,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     fn check_operations(&mut self, operations: &[Operation<'_>]) -> Result<(), Error> {
         compiler_fence(SeqCst);
-        self.check_errorsrc()?;
+        Self::check_errorsrc()?;
 
         assert!(operations.len() == 1 || operations.len() == 2);
         match operations {
