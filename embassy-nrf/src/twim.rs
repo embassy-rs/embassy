@@ -85,8 +85,6 @@ pub enum Error {
     Overrun,
     /// Timeout error.
     Timeout,
-    /// Bus error.
-    Bus,
 }
 
 /// Interrupt handler.
@@ -350,7 +348,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 if let Err(e) = Self::check_errorsrc() {
                     return Poll::Ready(Err(e));
                 } else {
-                    return Poll::Ready(Err(Error::Bus));
+                    panic!("Found events_error bit without an error in errorsrc reg");
                 }
             }
 
@@ -917,7 +915,6 @@ impl embedded_hal_1::i2c::Error for Error {
             }
             Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
             Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
-            Self::Bus => embedded_hal_1::i2c::ErrorKind::Other,
         }
     }
 }
