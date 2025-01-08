@@ -64,8 +64,8 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     // BSY bit, because there is a one-cycle delay between
     // setting the STRT bit and the BSY bit being asserted
     // by hardware. See STM32F105xx, STM32F107xx device errata,
-    // section 2.2.8
-    #[cfg(stm32f1)]
+    // section 2.2.8, and also RM0316 Rev 10 section 4.2.3 for
+    // STM32F3xx series.
     pac::FLASH.cr().read();
 
     let mut ret: Result<(), Error> = wait_ready_blocking();
