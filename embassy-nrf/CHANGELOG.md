@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.1 - 2025-01-09
+
+- bugfix: nrf twim return errors in async\_wait instead of waiting indefinitely
+- bugfix: fix missing setting input as disconnected.
+
 ## 0.3.0 - 2025-01-06
 
 Firstly, this release switches embassy-nrf to chiptool-based `nrf-pac`
