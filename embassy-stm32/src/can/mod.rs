@@ -7,6 +7,8 @@ mod _version;
 pub use _version::*;
 
 mod common;
+pub use common::{Classic, Fd};
+
 pub mod enums;
 pub mod frame;
 pub mod util;
