@@ -1,4 +1,5 @@
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
@@ -7,7 +8,7 @@ use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
-use crate::{rcc, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 mod ringbuffered_v2;
 pub use ringbuffered_v2::{RingBufferedAdc, Sequence};
@@ -16,6 +17,23 @@ pub use ringbuffered_v2::{RingBufferedAdc, Sequence};
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        if T::regs().sr().read().eoc() {
+            T::regs().cr1().modify(|w| w.set_eocie(false));
+        } else {
+            return;
+        }
+
+        T::state().waker.wake();
+    }
+}
 
 pub struct VrefInt;
 impl AdcChannel<ADC1> for VrefInt {}
@@ -175,8 +193,12 @@ where
     async fn convert(&mut self) -> u16 {
         self.start_conversion();
 
-        // wait for actual start and then finish
-        poll_fn(|_| {
+        T::regs().cr1().modify(|w| w.set_eocie(true));
+
+        // wait for actual start and finish
+        poll_fn(|cx| {
+            T::state().waker.register(cx.waker());
+
             if T::regs().sr().read().strt() && T::regs().sr().read().eoc() {
                 Poll::Ready(())
             } else {
