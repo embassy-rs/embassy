@@ -638,7 +638,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        trace!("set_enabled {:x} {}", ep_addr, enabled);
+        trace!("set_enabled {:?} {}", ep_addr, enabled);
         // This can race, so do a retry loop.
         let reg = T::regs().epr(ep_addr.index() as _);
         trace!("EPR before: {:04x}", reg.read().0);
