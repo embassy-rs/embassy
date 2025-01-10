@@ -80,4 +80,5 @@ For more reading material on async Rust and Embassy:
 
 Videos:
 
+* link:https://www.youtube.com/watch?v=pDd5mXBF4tY[Intro to Embassy]
 * link:https://www.youtube.com/watch?v=wni5h5vIPhU[From Zero to Async in Embedded Rust]
