@@ -91,7 +91,7 @@ async fn main(_spawner: Spawner) {
                 }
                 (0, 0xb0, p1, p2) => {
                     info!("read");
-                    let offs = u16::from_be_bytes([p1 & 0xef, p2]) as usize;
+                    let offs = u16::from_be_bytes([p1 & 0x7f, p2]) as usize;
                     let len = if apdu.le == 0 { usize::MAX } else { apdu.le as usize };
                     let n = len.min(selected.len() - offs);
                     buf[..n].copy_from_slice(&selected[offs..][..n]);
