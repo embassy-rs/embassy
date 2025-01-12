@@ -2,6 +2,7 @@
 channel = "nightly-2024-12-10"
 components = [ "rust-src", "rustfmt", "llvm-tools", "miri" ]
 targets = [
+    "avr-unknown-gnu-atmega328",
     "thumbv7em-none-eabi",
     "thumbv7m-none-eabi",
     "thumbv6m-none-eabi",
