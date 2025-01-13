@@ -30,7 +30,7 @@ pub enum Port {
 }
 
 /// Pull setting for an input.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Pull {
     /// No pull.
