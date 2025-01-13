@@ -86,6 +86,9 @@ impl TimerDriver {
     fn check_alarm(&self) {
         let n = 0;
         critical_section::with(|cs| {
+            // clear the irq
+            TIMER.intr().write(|w| w.set_alarm(n, true));
+
             let alarm = &self.alarms.borrow(cs);
             let timestamp = alarm.timestamp.get();
             if timestamp <= self.now() {
@@ -97,8 +100,6 @@ impl TimerDriver {
             }
         });
 
-        // clear the irq
-        TIMER.intr().write(|w| w.set_alarm(n, true));
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
