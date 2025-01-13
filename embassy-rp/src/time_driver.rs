@@ -99,7 +99,6 @@ impl TimerDriver {
                 TIMER.alarm(n).write_value(timestamp as u32);
             }
         });
-
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
