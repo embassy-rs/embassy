@@ -255,7 +255,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     /// Get Error instance, if any occurred.
-    fn check_errorsrc(&self) -> Result<(), Error> {
+    fn check_errorsrc() -> Result<(), Error> {
         let r = T::regs();
 
         let err = r.errorsrc().read();
@@ -329,7 +329,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     /// Wait for stop or error
-    fn async_wait(&mut self) -> impl Future<Output = ()> {
+    fn async_wait(&mut self) -> impl Future<Output = Result<(), Error>> {
         poll_fn(move |cx| {
             let r = T::regs();
             let s = T::state();
@@ -338,13 +338,18 @@ impl<'d, T: Instance> Twim<'d, T> {
             if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
                 r.events_stopped().write_value(0);
 
-                return Poll::Ready(());
+                return Poll::Ready(Ok(()));
             }
 
             // stop if an error occurred
             if r.events_error().read() != 0 {
                 r.events_error().write_value(0);
                 r.tasks_stop().write_value(1);
+                if let Err(e) = Self::check_errorsrc() {
+                    return Poll::Ready(Err(e));
+                } else {
+                    panic!("Found events_error bit without an error in errorsrc reg");
+                }
             }
 
             Poll::Pending
@@ -503,7 +508,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     fn check_operations(&mut self, operations: &[Operation<'_>]) -> Result<(), Error> {
         compiler_fence(SeqCst);
-        self.check_errorsrc()?;
+        Self::check_errorsrc()?;
 
         assert!(operations.len() == 1 || operations.len() == 2);
         match operations {
@@ -626,7 +631,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         while !operations.is_empty() {
             let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, true)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
-            self.async_wait().await;
+            self.async_wait().await?;
             self.check_operations(in_progress)?;
             last_op = in_progress.last();
             operations = rest;
@@ -644,7 +649,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         while !operations.is_empty() {
             let ops = self.setup_operations(address, operations, None, last_op, true)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
-            self.async_wait().await;
+            self.async_wait().await?;
             self.check_operations(in_progress)?;
             last_op = in_progress.last();
             operations = rest;

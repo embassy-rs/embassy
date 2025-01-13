@@ -18,7 +18,7 @@ fn main() -> ! {
 
     let mut spi = Spi::new_blocking(p.SPI3, p.PC10, p.PC12, p.PC11, spi_config);
 
-    let mut cs = Output::new(p.PE0, Level::High, Speed::VeryHigh);
+    let mut cs = Output::new(p.PC13, Level::High, Speed::VeryHigh);
 
     loop {
         let mut buf = [0x0Au8; 4];

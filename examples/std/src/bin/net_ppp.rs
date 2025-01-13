@@ -45,7 +45,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, embassy_net_ppp::Devi
 async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: SerialPort) -> ! {
     let port = Async::new(port).unwrap();
     let port = BufReader::new(port);
-    let port = adapter::FromFutures::new(port);
+    let port = embedded_io_adapters::futures_03::FromFutures::new(port);
 
     let config = embassy_net_ppp::Config {
         username: b"myuser",
@@ -162,54 +162,4 @@ fn main() {
     executor.run(|spawner| {
         spawner.spawn(main_task(spawner)).unwrap();
     });
-}
-
-mod adapter {
-    use core::future::poll_fn;
-    use core::pin::Pin;
-
-    use futures::AsyncBufReadExt;
-
-    /// Adapter from `futures::io` traits.
-    #[derive(Clone)]
-    pub struct FromFutures<T: ?Sized> {
-        inner: T,
-    }
-
-    impl<T> FromFutures<T> {
-        /// Create a new adapter.
-        pub fn new(inner: T) -> Self {
-            Self { inner }
-        }
-    }
-
-    impl<T: ?Sized> embedded_io_async::ErrorType for FromFutures<T> {
-        type Error = std::io::Error;
-    }
-
-    impl<T: futures::io::AsyncRead + Unpin + ?Sized> embedded_io_async::Read for FromFutures<T> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-            poll_fn(|cx| Pin::new(&mut self.inner).poll_read(cx, buf)).await
-        }
-    }
-
-    impl<T: futures::io::AsyncBufRead + Unpin + ?Sized> embedded_io_async::BufRead for FromFutures<T> {
-        async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-            self.inner.fill_buf().await
-        }
-
-        fn consume(&mut self, amt: usize) {
-            Pin::new(&mut self.inner).consume(amt)
-        }
-    }
-
-    impl<T: futures::io::AsyncWrite + Unpin + ?Sized> embedded_io_async::Write for FromFutures<T> {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-            poll_fn(|cx| Pin::new(&mut self.inner).poll_write(cx, buf)).await
-        }
-
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            poll_fn(|cx| Pin::new(&mut self.inner).poll_flush(cx)).await
-        }
-    }
 }

@@ -53,6 +53,13 @@ fn main() {
     // Generate singletons
 
     let mut singletons: Vec<String> = Vec::new();
+
+    // Generate one singleton per pin
+    for p in METADATA.pins {
+        singletons.push(p.name.to_string());
+    }
+
+    // generate one singleton per peripheral (with many exceptions...)
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
             if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" || r.kind == "otg" || r.kind == "octospi" {
@@ -63,13 +70,8 @@ fn main() {
             }
 
             match r.kind {
-                // Generate singletons per pin, not per port
-                "gpio" => {
-                    let port_letter = p.name.strip_prefix("GPIO").unwrap();
-                    for pin_num in 0..16 {
-                        singletons.push(format!("P{}{}", port_letter, pin_num));
-                    }
-                }
+                // handled above
+                "gpio" => {}
 
                 // No singleton for these, the HAL handles them specially.
                 "exti" => {}
@@ -712,6 +714,16 @@ fn main() {
     // Generate RCC
     clock_gen.clock_names.insert("sys".to_string());
     clock_gen.clock_names.insert("rtc".to_string());
+
+    // STM32F4 SPI in I2S mode receives a clock input from the dedicated I2S PLL.
+    // For this, there is an additional clock MUX, which is not present in other
+    // peripherals and does not fit the current RCC structure of stm32-data.
+    if chip_name.starts_with("stm32f4") && !chip_name.starts_with("stm32f410") {
+        clock_gen.clock_names.insert("plli2s1_p".to_string());
+        clock_gen.clock_names.insert("plli2s1_q".to_string());
+        clock_gen.clock_names.insert("plli2s1_r".to_string());
+    }
+
     let clock_idents: Vec<_> = clock_gen.clock_names.iter().map(|n| format_ident!("{}", n)).collect();
     g.extend(quote! {
         #[derive(Clone, Copy, Debug)]
@@ -1079,6 +1091,27 @@ fn main() {
         (("octospim", "P2_NCS"), quote!(crate::ospi::NSSPin)),
         (("octospim", "P2_CLK"), quote!(crate::ospi::SckPin)),
         (("octospim", "P2_NCLK"), quote!(crate::ospi::NckPin)),
+        (("hspi", "IO0"), quote!(crate::hspi::D0Pin)),
+        (("hspi", "IO1"), quote!(crate::hspi::D1Pin)),
+        (("hspi", "IO2"), quote!(crate::hspi::D2Pin)),
+        (("hspi", "IO3"), quote!(crate::hspi::D3Pin)),
+        (("hspi", "IO4"), quote!(crate::hspi::D4Pin)),
+        (("hspi", "IO5"), quote!(crate::hspi::D5Pin)),
+        (("hspi", "IO6"), quote!(crate::hspi::D6Pin)),
+        (("hspi", "IO7"), quote!(crate::hspi::D7Pin)),
+        (("hspi", "IO8"), quote!(crate::hspi::D8Pin)),
+        (("hspi", "IO9"), quote!(crate::hspi::D9Pin)),
+        (("hspi", "IO10"), quote!(crate::hspi::D10Pin)),
+        (("hspi", "IO11"), quote!(crate::hspi::D11Pin)),
+        (("hspi", "IO12"), quote!(crate::hspi::D12Pin)),
+        (("hspi", "IO13"), quote!(crate::hspi::D13Pin)),
+        (("hspi", "IO14"), quote!(crate::hspi::D14Pin)),
+        (("hspi", "IO15"), quote!(crate::hspi::D15Pin)),
+        (("hspi", "DQS0"), quote!(crate::hspi::DQS0Pin)),
+        (("hspi", "DQS1"), quote!(crate::hspi::DQS1Pin)),
+        (("hspi", "NCS"), quote!(crate::hspi::NSSPin)),
+        (("hspi", "CLK"), quote!(crate::hspi::SckPin)),
+        (("hspi", "NCLK"), quote!(crate::hspi::NckPin)),
         (("tsc", "G1_IO1"), quote!(crate::tsc::G1IO1Pin)),
         (("tsc", "G1_IO2"), quote!(crate::tsc::G1IO2Pin)),
         (("tsc", "G1_IO3"), quote!(crate::tsc::G1IO3Pin)),
@@ -1263,6 +1296,7 @@ fn main() {
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
         (("octospi", "OCTOSPI1"), quote!(crate::ospi::OctoDma)),
+        (("hspi", "HSPI1"), quote!(crate::hspi::HspiDma)),
         (("dac", "CH1"), quote!(crate::dac::DacDma1)),
         (("dac", "CH2"), quote!(crate::dac::DacDma2)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
@@ -1478,43 +1512,42 @@ fn main() {
     let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as u32;
     let gpio_stride = 0x400;
 
+    for pin in METADATA.pins {
+        let port_letter = pin.name.chars().nth(1).unwrap();
+        let pname = format!("GPIO{}", port_letter);
+        let p = METADATA.peripherals.iter().find(|p| p.name == pname).unwrap();
+        assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
+        let port_num = (p.address as u32 - gpio_base) / gpio_stride;
+        let pin_num: u32 = pin.name[2..].parse().unwrap();
+
+        pins_table.push(vec![
+            pin.name.to_string(),
+            p.name.to_string(),
+            port_num.to_string(),
+            pin_num.to_string(),
+            format!("EXTI{}", pin_num),
+        ]);
+
+        // If we have the split pins, we need to do a little extra work:
+        // Add the "_C" variant to the table. The solution is not optimal, though.
+        // Adding them only when the corresponding GPIOx also appears.
+        // This should avoid unintended side-effects as much as possible.
+        #[cfg(feature = "_split-pins-enabled")]
+        for split_feature in &split_features {
+            if split_feature.pin_name_without_c == pin_name {
+                pins_table.push(vec![
+                    split_feature.pin_name_with_c.to_string(),
+                    p.name.to_string(),
+                    port_num.to_string(),
+                    pin_num.to_string(),
+                    format!("EXTI{}", pin_num),
+                ]);
+            }
+        }
+    }
+
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
-            if regs.kind == "gpio" {
-                let port_letter = p.name.chars().nth(4).unwrap();
-                assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
-                let port_num = (p.address as u32 - gpio_base) / gpio_stride;
-
-                for pin_num in 0u32..16 {
-                    let pin_name = format!("P{}{}", port_letter, pin_num);
-
-                    pins_table.push(vec![
-                        pin_name.clone(),
-                        p.name.to_string(),
-                        port_num.to_string(),
-                        pin_num.to_string(),
-                        format!("EXTI{}", pin_num),
-                    ]);
-
-                    // If we have the split pins, we need to do a little extra work:
-                    // Add the "_C" variant to the table. The solution is not optimal, though.
-                    // Adding them only when the corresponding GPIOx also appears.
-                    // This should avoid unintended side-effects as much as possible.
-                    #[cfg(feature = "_split-pins-enabled")]
-                    for split_feature in &split_features {
-                        if split_feature.pin_name_without_c == pin_name {
-                            pins_table.push(vec![
-                                split_feature.pin_name_with_c.to_string(),
-                                p.name.to_string(),
-                                port_num.to_string(),
-                                pin_num.to_string(),
-                                format!("EXTI{}", pin_num),
-                            ]);
-                        }
-                    }
-                }
-            }
-
             if regs.kind == "adc" {
                 let adc_num = p.name.strip_prefix("ADC").unwrap();
                 let mut adc_common = None;

@@ -6,7 +6,7 @@ Embassy is a project to make async/await a first-class option for embedded devel
 
 When handling I/O, software must call functions that block program execution until the I/O operation completes. When running inside of an OS such as Linux, such functions generally transfer control to the kernel so that another task (known as a “thread”) can be executed if available, or the CPU can be put to sleep until another task is ready.
 
-Because an OS cannot presume that threads will behave cooperatively, threads are relatively resource-intensive, and may be forcibly interrupted they do not transfer control back to the kernel within an allotted time. If tasks could be presumed to behave cooperatively, or at least not maliciously, it would be possible to create tasks that appear to be almost free when compared to a traditional OS thread.
+Because an OS cannot presume that threads will behave cooperatively, threads are relatively resource-intensive, and may be forcibly interrupted if they do not transfer control back to the kernel within an allotted time. If tasks could be presumed to behave cooperatively, or at least not maliciously, it would be possible to create tasks that appear to be almost free when compared to a traditional OS thread.
 
 In other programming languages, these lightweight tasks are known as “coroutines” or ”goroutines”. In Rust, they are implemented with async. Async-await works by transforming each async function into an object called a future. When a future blocks on I/O the future yields, and the scheduler, called an executor, can select a different future to execute.
 
@@ -80,4 +80,5 @@ For more reading material on async Rust and Embassy:
 
 Videos:
 
+* link:https://www.youtube.com/watch?v=pDd5mXBF4tY[Intro to Embassy]
 * link:https://www.youtube.com/watch?v=wni5h5vIPhU[From Zero to Async in Embedded Rust]

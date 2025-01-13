@@ -52,7 +52,7 @@ pub struct Config {
     /// Enables the transaction boundary feature and defines the boundary to release
     /// the chip select
     pub chip_select_boundary: u8,
-    /// Enbales the delay block bypass so the sampling is not affected by the delay block
+    /// Enables the delay block bypass so the sampling is not affected by the delay block
     pub delay_block_bypass: bool,
     /// Enables communication regulation feature. Chip select is released when the other
     /// OctoSpi requests access to the bus

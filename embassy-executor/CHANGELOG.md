@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.7.0 - 2024-01-02
+## 0.7.0 - 2025-01-02
 
 - Performance optimizations.
 - Remove feature `integrated-timers`. Starting with `embassy-time-driver` v0.2, `embassy-time` v0.4 the timer queue is now part of the time driver, so it's no longer the executor's responsibility. Therefore, `embassy-executor` no longer provides an `embassy-time-queue-driver` implementation.

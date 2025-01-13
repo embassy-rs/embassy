@@ -12,7 +12,8 @@ async fn main(_spawner: Spawner) -> ! {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut led = Output::new(p.PH7, Level::Low, Speed::Medium);
+    // replace PC13 with the right pin for your board.
+    let mut led = Output::new(p.PC13, Level::Low, Speed::Medium);
 
     loop {
         defmt::info!("on!");
