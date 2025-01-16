@@ -51,7 +51,7 @@ mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 #! To enable it, enable any of the features below.
 #! 
 #! The features also set how many timers are used for the generic queue. At most one
-#! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
+#! `generic-queue-*` feature can be enabled. If none is enabled, `queue_integrated` is used.
 #!
 #! When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
 #! end user to pick.
