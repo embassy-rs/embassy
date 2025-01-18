@@ -55,6 +55,7 @@ impl<'a, PIO: Instance> PioWs2812Program<'a, PIO> {
 pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize> {
     dma: PeripheralRef<'d, AnyChannel>,
     sm: StateMachine<'d, P, S>,
+    words: [u32; N],
 }
 
 impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
@@ -98,20 +99,31 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
         Self {
             dma: dma.map_into(),
             sm,
+            words: [0; N],
         }
     }
 
     /// Write a buffer of [smart_leds::RGB8] to the ws2812 string
     pub async fn write(&mut self, colors: &[RGB8; N]) {
-        // Precompute the word bytes from the colors
-        let mut words = [0u32; N];
-        for i in 0..N {
-            let word = (u32::from(colors[i].g) << 24) | (u32::from(colors[i].r) << 16) | (u32::from(colors[i].b) << 8);
-            words[i] = word;
-        }
+        // Write data into the buffer ready for DMA
+        self.write_iter(colors.iter().cloned());
+        // Flush the data to the ws2812 string
+        self.flush().await;
+    }
 
-        // DMA transfer
-        self.sm.tx().dma_push(self.dma.reborrow(), &words, false).await;
+    /// Write an iterator of [smart_leds::RGB8] to the ws2812 string
+    /// You may need to give the compiler a hint about the size of the iterator
+    /// when creating the PioWs2812 instance as it can't be inferred from the iterator.
+    pub fn write_iter(&mut self, iter: impl Iterator<Item = RGB8>) {
+        iter.zip(self.words.iter_mut()).for_each(|(color, word)| {
+            let packed = (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8);
+            *word = packed;
+        });
+    }
+
+    /// Async flush of the buffer to the ws2812 string
+    pub async fn flush(&mut self) {
+        self.sm.tx().dma_push(self.dma.reborrow(), &self.words, false).await;
 
         Timer::after_micros(55).await;
     }
