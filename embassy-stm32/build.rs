@@ -1534,7 +1534,7 @@ fn main() {
         // This should avoid unintended side-effects as much as possible.
         #[cfg(feature = "_split-pins-enabled")]
         for split_feature in &split_features {
-            if split_feature.pin_name_without_c == pin_name {
+            if split_feature.pin_name_without_c == pin.name {
                 pins_table.push(vec![
                     split_feature.pin_name_with_c.to_string(),
                     p.name.to_string(),
