@@ -1785,9 +1785,9 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         assert_eq!(blocks.len() % block_size, 0);
         // Configure DMA to transfer input to crypto core.
         let dma_request = dma.request();
-        let dst_ptr = T::regs().din().as_ptr();
+        let dst_ptr: *mut u32 = T::regs().din().as_ptr();
         let num_words = blocks.len() / 4;
-        let src_ptr = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
+        let src_ptr: *const [u8] = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
         let options = TransferOptions {
             #[cfg(not(gpdma))]
             priority: crate::dma::Priority::High,
@@ -1825,9 +1825,9 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         assert_eq!((blocks.len() * 4) % block_size, 0);
         // Configure DMA to transfer input to crypto core.
         let dma_request = dma.request();
-        let dst_ptr = T::regs().din().as_ptr();
+        let dst_ptr: *mut u32 = T::regs().din().as_ptr();
         let num_words = blocks.len();
-        let src_ptr = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
+        let src_ptr: *const [u32] = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
         let options = TransferOptions {
             #[cfg(not(gpdma))]
             priority: crate::dma::Priority::High,
