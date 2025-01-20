@@ -11,7 +11,7 @@ use usbd_hid::descriptor::AsInputReport;
 
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use crate::types::InterfaceNumber;
+use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Builder, Handler};
 
 const USB_CLASS_HID: u8 = 0x03;
@@ -35,6 +35,9 @@ const HID_REQ_SET_PROTOCOL: u8 = 0x0b;
 pub struct Config<'d> {
     /// HID report descriptor.
     pub report_descriptor: &'d [u8],
+
+    /// Optional string descriptor for the HID interface.
+    pub string_descriptor: Option<&'d str>,
 
     /// Handler for control requests.
     pub request_handler: Option<&'d mut dyn RequestHandler>,
@@ -112,7 +115,8 @@ fn build<'d, D: Driver<'d>>(
     let mut func = builder.function(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
     let mut iface = func.interface();
     let if_num = iface.interface_number();
-    let mut alt = iface.alt_setting(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE, None);
+    let string_index = config.string_descriptor.map(|_| iface.string());
+    let mut alt = iface.alt_setting(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE, string_index);
 
     // HID descriptor
     alt.descriptor(
@@ -145,6 +149,7 @@ fn build<'d, D: Driver<'d>>(
     let control = state.control.write(Control::new(
         if_num,
         config.report_descriptor,
+        string_index.zip(config.string_descriptor),
         config.request_handler,
         &state.out_report_offset,
     ));
@@ -411,6 +416,7 @@ pub trait RequestHandler {
 struct Control<'d> {
     if_num: InterfaceNumber,
     report_descriptor: &'d [u8],
+    string_descriptor: Option<(StringIndex, &'d str)>,
     request_handler: Option<&'d mut dyn RequestHandler>,
     out_report_offset: &'d AtomicUsize,
     hid_descriptor: [u8; 9],
@@ -420,12 +426,14 @@ impl<'d> Control<'d> {
     fn new(
         if_num: InterfaceNumber,
         report_descriptor: &'d [u8],
+        string_descriptor: Option<(StringIndex, &'d str)>,
         request_handler: Option<&'d mut dyn RequestHandler>,
         out_report_offset: &'d AtomicUsize,
     ) -> Self {
         Control {
             if_num,
             report_descriptor,
+            string_descriptor,
             request_handler,
             out_report_offset,
             hid_descriptor: [
@@ -548,5 +556,9 @@ impl<'d> Handler for Control<'d> {
             }
             _ => None,
         }
+    }
+
+    fn get_string(&mut self, index: StringIndex, _lang_id: u16) -> Option<&str> {
+        self.string_descriptor.and_then(|(idx, s)| (index == idx).then_some(s))
     }
 }

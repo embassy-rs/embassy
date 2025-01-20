@@ -60,6 +60,7 @@ async fn main(_spawner: Spawner) {
     // Create classes on the builder.
     let config = embassy_usb::class::hid::Config {
         report_descriptor: MouseReport::desc(),
+        string_descriptor: None,
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
