@@ -115,4 +115,21 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
 
         Timer::after_micros(55).await;
     }
+
+    /// Write an iterator of [smart_leds::RGB8] to the ws2812 string
+    /// You may need to give the compiler a hint about the size of the iterator
+    /// when creating the PioWs2812 instance as it can't be inferred from the iterator.
+    pub async fn write_iter(&mut self, mut iter: impl Iterator<Item = RGB8>) {
+        let mut words = [0u32; N];
+
+        for (i, color) in iter.by_ref().take(N).enumerate() {
+            let word: u32 = ((color.g as u32) << 24) | ((color.r as u32) << 16) | ((color.b as u32) << 8);
+            words[i] = word;
+        }
+
+        // DMA transfer
+        self.sm.tx().dma_push(self.dma.reborrow(), &words).await;
+
+        Timer::after_micros(55).await;
+    }
 }
