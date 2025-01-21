@@ -6,7 +6,7 @@ use core::mem::ManuallyDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
-use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
+use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, TimerBits};
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -334,7 +334,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
                 &mut dma,
                 req,
                 duty,
-                self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut _,
+                self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
                 dma_transfer_option,
             )
             .await
@@ -362,9 +362,6 @@ macro_rules! impl_waveform_chx {
     ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
         impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             /// Generate a sequence of PWM waveform
-            ///
-            /// Note:
-            /// you will need to provide corresponding TIMx_CHy DMA channel to use this method.
             pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u16]) {
                 use crate::pac::timer::vals::Ccds;
 
@@ -406,14 +403,33 @@ macro_rules! impl_waveform_chx {
                         ..Default::default()
                     };
 
-                    Transfer::new_write(
-                        &mut dma,
-                        req,
-                        duty,
-                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
-                        dma_transfer_option,
-                    )
-                    .await
+                    match self.inner.bits() {
+                        TimerBits::Bits16 => {
+                            Transfer::new_write(
+                                &mut dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u16,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                        #[cfg(not(any(stm32l0)))]
+                        TimerBits::Bits32 => {
+                            #[cfg(not(any(bdma, gpdma)))]
+                            panic!("unsupported timer bits");
+
+                            #[cfg(any(bdma, gpdma))]
+                            Transfer::new_write(
+                                &mut dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u32,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                    };
                 };
 
                 // restore output compare state

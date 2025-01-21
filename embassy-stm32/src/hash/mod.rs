@@ -515,14 +515,21 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
 
         // Configure DMA to transfer input to hash core.
         let dma_request = self.dma.request();
-        let dst_ptr = T::regs().din().as_ptr();
+        let dst_ptr: *mut u32 = T::regs().din().as_ptr();
         let mut num_words = input.len() / 4;
         if input.len() % 4 > 0 {
             num_words += 1;
         }
-        let src_ptr = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words);
-        let dma_transfer =
-            unsafe { Transfer::new_write_raw(&mut self.dma, dma_request, src_ptr, dst_ptr, Default::default()) };
+        let src_ptr: *const [u8] = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words);
+        let dma_transfer = unsafe {
+            Transfer::new_write_raw(
+                &mut self.dma,
+                dma_request,
+                src_ptr,
+                dst_ptr as *mut u32,
+                Default::default(),
+            )
+        };
         T::regs().cr().modify(|w| w.set_dmae(true));
 
         // Wait for the transfer to complete.
