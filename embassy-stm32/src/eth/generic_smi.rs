@@ -76,7 +76,6 @@ unsafe impl PHY for GenericSMI {
                         return;
                     }
                     embedded_hal_1::delay::DelayNs::delay_us(&mut Delay, 1000);
-                    cortex_m::asm::delay(1000000);
                 }
             }
             panic!("PHY did not respond");
