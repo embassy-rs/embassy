@@ -3,7 +3,7 @@
 use core::task::Context;
 
 #[cfg(feature = "time")]
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Timer, Delay};
 #[cfg(feature = "time")]
 use futures_util::FutureExt;
 
@@ -52,7 +52,7 @@ pub struct GenericSMI {
 impl GenericSMI {
     /// Construct the PHY. It assumes the address `phy_addr` in the SMI communication
     ///
-    /// Set `phy_addr` to `0xFF` for automatic detection
+    /// Set `phy_addr` to `0xFF` for automatic detection (only with `time` feature enabled)
     pub fn new(phy_addr: u8) -> Self {
         Self {
             phy_addr,
@@ -65,6 +65,7 @@ impl GenericSMI {
 unsafe impl PHY for GenericSMI {
     fn phy_reset<S: StationManagement>(&mut self, sm: &mut S) {
         // Detect SMI address
+        #[cfg(feature = "time")]
         if self.phy_addr == 0xFF {
             for addr in 0..32 {
                 sm.smi_write(addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
@@ -74,14 +75,15 @@ unsafe impl PHY for GenericSMI {
                         self.phy_addr = addr;
                         return;
                     }
-                    cortex_m::asm::delay(1000);
+                    embedded_hal_1::delay::DelayNs::delay_us(&mut Delay, 1000);
+                    cortex_m::asm::delay(1000000);
                 }
             }
             panic!("PHY did not respond");
-        } else {
-            sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
-            while sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
         }
+        
+        sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
+        while sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
     }
 
     fn phy_init<S: StationManagement>(&mut self, sm: &mut S) {
