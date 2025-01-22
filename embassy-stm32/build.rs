@@ -532,7 +532,11 @@ fn main() {
                 match crate::pac::RCC.#fieldset_name().read().#field_name() {
                     #match_arms
                     #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
+                    _ => panic!(
+                        "attempted to use peripheral '{}' but its clock mux is not set to a valid \
+                         clock. Change 'config.rcc.mux' to another clock.",
+                        #peripheral
+                    )
                 }
             }
         }
