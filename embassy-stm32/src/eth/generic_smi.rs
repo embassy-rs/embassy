@@ -51,6 +51,8 @@ pub struct GenericSMI {
 
 impl GenericSMI {
     /// Construct the PHY. It assumes the address `phy_addr` in the SMI communication
+    ///
+    /// Set `phy_addr` to `0xFF` for automatic detection
     pub fn new(phy_addr: u8) -> Self {
         Self {
             phy_addr,
@@ -62,8 +64,24 @@ impl GenericSMI {
 
 unsafe impl PHY for GenericSMI {
     fn phy_reset<S: StationManagement>(&mut self, sm: &mut S) {
-        sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
-        while sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
+        // Detect SMI address
+        if self.phy_addr == 0xFF {
+            for addr in 0..32 {
+                sm.smi_write(addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
+                for _ in 0..10 {
+                    if sm.smi_read(addr, PHY_REG_BCR) & PHY_REG_BCR_RESET != PHY_REG_BCR_RESET {
+                        trace!("Found ETH PHY on address {}", addr);
+                        self.phy_addr = addr;
+                        return;
+                    }
+                    cortex_m::asm::delay(1000);
+                }
+            }
+            panic!("PHY did not respond");
+        } else {
+            sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
+            while sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
+        }
     }
 
     fn phy_init<S: StationManagement>(&mut self, sm: &mut S) {
