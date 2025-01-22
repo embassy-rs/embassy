@@ -3,7 +3,7 @@
 use core::task::Context;
 
 #[cfg(feature = "time")]
-use embassy_time::{Duration, Timer, Delay};
+use embassy_time::{Delay, Duration, Timer};
 #[cfg(feature = "time")]
 use futures_util::FutureExt;
 
@@ -80,7 +80,7 @@ unsafe impl PHY for GenericSMI {
             }
             panic!("PHY did not respond");
         }
-        
+
         sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
         while sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
     }
