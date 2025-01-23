@@ -1,11 +1,11 @@
 //! Timer driver.
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 
-use atomic_polyfill::{AtomicU8, Ordering};
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_time_driver::{AlarmHandle, Driver};
+use embassy_time_driver::Driver;
+use embassy_time_queue_utils::Queue;
 #[cfg(feature = "rp2040")]
 use pac::TIMER;
 #[cfg(feature = "_rp235x")]
@@ -16,24 +16,19 @@ use crate::{interrupt, pac};
 
 struct AlarmState {
     timestamp: Cell<u64>,
-    callback: Cell<Option<(fn(*mut ()), *mut ())>>,
 }
 unsafe impl Send for AlarmState {}
 
-const ALARM_COUNT: usize = 4;
-const DUMMY_ALARM: AlarmState = AlarmState {
-    timestamp: Cell::new(0),
-    callback: Cell::new(None),
-};
-
 struct TimerDriver {
-    alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
-    next_alarm: AtomicU8,
+    alarms: Mutex<CriticalSectionRawMutex, AlarmState>,
+    queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
-    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), [DUMMY_ALARM; ALARM_COUNT]),
-    next_alarm: AtomicU8::new(0),
+    alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState {
+        timestamp: Cell::new(0),
+    }),
+    queue: Mutex::new(RefCell::new(Queue::new()))
 });
 
 impl Driver for TimerDriver {
@@ -48,64 +43,53 @@ impl Driver for TimerDriver {
         }
     }
 
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self.next_alarm.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-            if x < ALARM_COUNT as u8 {
-                Some(x + 1)
-            } else {
-                None
-            }
-        });
-
-        match id {
-            Ok(id) => Some(AlarmHandle::new(id)),
-            Err(_) => None,
-        }
-    }
-
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        let n = alarm.id() as usize;
+    fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
         critical_section::with(|cs| {
-            let alarm = &self.alarms.borrow(cs)[n];
-            alarm.callback.set(Some((callback, ctx)));
-        })
-    }
+            let mut queue = self.queue.borrow(cs).borrow_mut();
 
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        let n = alarm.id() as usize;
-        critical_section::with(|cs| {
-            let alarm = &self.alarms.borrow(cs)[n];
-            alarm.timestamp.set(timestamp);
-
-            // Arm it.
-            // Note that we're not checking the high bits at all. This means the irq may fire early
-            // if the alarm is more than 72 minutes (2^32 us) in the future. This is OK, since on irq fire
-            // it is checked if the alarm time has passed.
-            TIMER.alarm(n).write_value(timestamp as u32);
-
-            let now = self.now();
-            if timestamp <= now {
-                // If alarm timestamp has passed the alarm will not fire.
-                // Disarm the alarm and return `false` to indicate that.
-                TIMER.armed().write(|w| w.set_armed(1 << n));
-
-                alarm.timestamp.set(u64::MAX);
-
-                false
-            } else {
-                true
+            if queue.schedule_wake(at, waker) {
+                let mut next = queue.next_expiration(self.now());
+                while !self.set_alarm(cs, next) {
+                    next = queue.next_expiration(self.now());
+                }
             }
         })
     }
 }
 
 impl TimerDriver {
-    fn check_alarm(&self, n: usize) {
+    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
+        let n = 0;
+        let alarm = &self.alarms.borrow(cs);
+        alarm.timestamp.set(timestamp);
+
+        // Arm it.
+        // Note that we're not checking the high bits at all. This means the irq may fire early
+        // if the alarm is more than 72 minutes (2^32 us) in the future. This is OK, since on irq fire
+        // it is checked if the alarm time has passed.
+        TIMER.alarm(n).write_value(timestamp as u32);
+
+        let now = self.now();
+        if timestamp <= now {
+            // If alarm timestamp has passed the alarm will not fire.
+            // Disarm the alarm and return `false` to indicate that.
+            TIMER.armed().write(|w| w.set_armed(1 << n));
+
+            alarm.timestamp.set(u64::MAX);
+
+            false
+        } else {
+            true
+        }
+    }
+
+    fn check_alarm(&self) {
+        let n = 0;
         critical_section::with(|cs| {
-            let alarm = &self.alarms.borrow(cs)[n];
+            let alarm = &self.alarms.borrow(cs);
             let timestamp = alarm.timestamp.get();
             if timestamp <= self.now() {
-                self.trigger_alarm(n, cs)
+                self.trigger_alarm(cs)
             } else {
                 // Not elapsed, arm it again.
                 // This can happen if it was set more than 2^32 us in the future.
@@ -117,16 +101,10 @@ impl TimerDriver {
         TIMER.intr().write(|w| w.set_alarm(n, true));
     }
 
-    fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
-        // disarm
-        TIMER.armed().write(|w| w.set_armed(1 << n));
-
-        let alarm = &self.alarms.borrow(cs)[n];
-        alarm.timestamp.set(u64::MAX);
-
-        // Call after clearing alarm, so the callback can set another alarm.
-        if let Some((f, ctx)) = alarm.callback.get() {
-            f(ctx);
+    fn trigger_alarm(&self, cs: CriticalSection) {
+        let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
+        while !self.set_alarm(cs, next) {
+            next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
         }
     }
 }
@@ -135,79 +113,32 @@ impl TimerDriver {
 pub unsafe fn init() {
     // init alarms
     critical_section::with(|cs| {
-        let alarms = DRIVER.alarms.borrow(cs);
-        for a in alarms {
-            a.timestamp.set(u64::MAX);
-        }
+        let alarm = DRIVER.alarms.borrow(cs);
+        alarm.timestamp.set(u64::MAX);
     });
 
-    // enable all irqs
+    // enable irq
     TIMER.inte().write(|w| {
         w.set_alarm(0, true);
-        w.set_alarm(1, true);
-        w.set_alarm(2, true);
-        w.set_alarm(3, true);
     });
     #[cfg(feature = "rp2040")]
     {
         interrupt::TIMER_IRQ_0.enable();
-        interrupt::TIMER_IRQ_1.enable();
-        interrupt::TIMER_IRQ_2.enable();
-        interrupt::TIMER_IRQ_3.enable();
     }
     #[cfg(feature = "_rp235x")]
     {
         interrupt::TIMER0_IRQ_0.enable();
-        interrupt::TIMER0_IRQ_1.enable();
-        interrupt::TIMER0_IRQ_2.enable();
-        interrupt::TIMER0_IRQ_3.enable();
     }
 }
 
 #[cfg(all(feature = "rt", feature = "rp2040"))]
 #[interrupt]
 fn TIMER_IRQ_0() {
-    DRIVER.check_alarm(0)
-}
-
-#[cfg(all(feature = "rt", feature = "rp2040"))]
-#[interrupt]
-fn TIMER_IRQ_1() {
-    DRIVER.check_alarm(1)
-}
-
-#[cfg(all(feature = "rt", feature = "rp2040"))]
-#[interrupt]
-fn TIMER_IRQ_2() {
-    DRIVER.check_alarm(2)
-}
-
-#[cfg(all(feature = "rt", feature = "rp2040"))]
-#[interrupt]
-fn TIMER_IRQ_3() {
-    DRIVER.check_alarm(3)
+    DRIVER.check_alarm()
 }
 
 #[cfg(all(feature = "rt", feature = "_rp235x"))]
 #[interrupt]
 fn TIMER0_IRQ_0() {
-    DRIVER.check_alarm(0)
-}
-
-#[cfg(all(feature = "rt", feature = "_rp235x"))]
-#[interrupt]
-fn TIMER0_IRQ_1() {
-    DRIVER.check_alarm(1)
-}
-
-#[cfg(all(feature = "rt", feature = "_rp235x"))]
-#[interrupt]
-fn TIMER0_IRQ_2() {
-    DRIVER.check_alarm(2)
-}
-
-#[cfg(all(feature = "rt", feature = "_rp235x"))]
-#[interrupt]
-fn TIMER0_IRQ_3() {
-    DRIVER.check_alarm(3)
+    DRIVER.check_alarm()
 }

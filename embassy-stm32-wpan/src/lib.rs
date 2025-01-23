@@ -1,3 +1,16 @@
+//! The embassy-stm32-wpan crate aims to provide safe use of the commands necessary to interface
+//! with the Cortex C0 CPU2 coprocessor of STM32WB microcontrollers. It implements safe wrappers
+//! around the Transport Layer, and in particular the system, memory, BLE and Mac channels.
+//!
+//! # Design
+//!
+//! This crate loosely follows the Application Note 5289 "How to build wireless applications with
+//! STM32WB MCUs"; several of the startup procedures laid out in Annex 14.1 are implemented using
+//! inline copies of the code contained within the `stm32wb_copro` C library.
+//!
+//! BLE commands are implemented via use of the [stm32wb_hci] crate, for which the
+//! [stm32wb_hci::Controller] trait has been implemented.
+
 #![no_std]
 #![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
@@ -37,6 +50,7 @@ pub use crate::sub::ble::hci;
 
 type PacketHeader = LinkedListNode;
 
+/// Transport Layer for the Mailbox interface
 pub struct TlMbox<'d> {
     _ipcc: PeripheralRef<'d, IPCC>,
 
@@ -49,6 +63,34 @@ pub struct TlMbox<'d> {
 }
 
 impl<'d> TlMbox<'d> {
+    /// Initialise the Transport Layer, and creates and returns a wrapper around it.
+    ///
+    /// This method performs the initialisation laid out in AN5289 annex 14.1. However, it differs
+    /// from the implementation documented in Figure 64, to avoid needing to reference any C
+    /// function pointers.
+    ///
+    /// Annex 14.1 lays out the following methods that should be called:
+    ///     1. tl_mbox.c/TL_Init, which initialises the reference table that is shared between CPU1
+    ///        and CPU2.
+    ///     2. shci_tl.c/shci_init(), which initialises the system transport layer, and in turn
+    ///        calls tl_mbox.c/TL_SYS_Init, which initialises SYSTEM_EVT_QUEUE channel.
+    ///     3. tl_mbox.c/TL_MM_Init(), which initialises the channel used for sending memory
+    ///        manager commands.
+    ///     4. tl_mbox.c/TL_Enable(), which enables the IPCC, and starts CPU2.
+    /// This implementation initialises all of the shared refernce tables and all IPCC channel that
+    /// would be initialised by this process. The developer should therefore treat this method as
+    /// completing all steps in Figure 64.
+    ///
+    /// Once this method has been called, no system commands may be sent until the CPU2 ready
+    /// signal is received, via [sys_subsystem.read]; this completes the procedure laid out in
+    /// Figure 65.
+    ///
+    /// If the `ble` feature is enabled, at this point, the user should call
+    /// [sys_subsystem.shci_c2_ble_init], before any commands are written to the
+    /// [TlMbox.ble_subsystem] ([sub::ble::Ble::new()] completes the process that would otherwise
+    /// be handled by `TL_BLE_Init`; see Figure 66). This completes the procedure laid out in
+    /// Figure 66.
+    // TODO: document what the user should do after calling init to use the mac_802_15_4 subsystem
     pub fn init(
         ipcc: impl Peripheral<P = IPCC> + 'd,
         _irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
@@ -57,6 +99,9 @@ impl<'d> TlMbox<'d> {
     ) -> Self {
         into_ref!(ipcc);
 
+        // this is an inlined version of TL_Init from the STM32WB firmware as requested by AN5289.
+        // HW_IPCC_Init is not called, and its purpose is (presumably?) covered by this
+        // implementation
         unsafe {
             TL_REF_TABLE.as_mut_ptr().write_volatile(RefTable {
                 device_info_table: TL_DEVICE_INFO_TABLE.as_ptr(),
@@ -140,6 +185,7 @@ impl<'d> TlMbox<'d> {
 
         compiler_fence(Ordering::SeqCst);
 
+        // this is equivalent to `HW_IPCC_Enable`, which is called by `TL_Enable`
         Ipcc::enable(config);
 
         Self {

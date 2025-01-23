@@ -7,11 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.6.2 - 2025-01-15
+
+- Add dynamic dispatch variant of `Pipe`.
+
+## 0.6.1 - 2024-11-22
+
 - Add `LazyLock` sync primitive.
 - Add `Watch` sync primitive.
 - Add `clear`, `len`, `is_empty` and `is_full` functions to `zerocopy_channel`.
 - Add `capacity`, `free_capacity`, `clear`, `len`, `is_empty` and `is_full` functions to `channel::{Sender, Receiver}`.
 - Add `capacity`, `free_capacity`, `clear`, `len`, `is_empty` and `is_full` functions to `priority_channel::{Sender, Receiver}`.
+- Add `GenericAtomicWaker` utility.
 
 ## 0.6.0 - 2024-05-29
 

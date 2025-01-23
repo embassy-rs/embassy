@@ -2,7 +2,7 @@
 
 #![macro_use]
 
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;
@@ -314,7 +314,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
         Ok(())
     }
 
-    async fn wait_ready(&mut self) {
+    fn wait_ready(&mut self) -> impl Future<Output = ()> {
         poll_fn(move |cx| {
             let r = T::regs();
             let s = T::state();
@@ -324,7 +324,6 @@ impl<'d, T: Instance> Qspi<'d, T> {
             }
             Poll::Pending
         })
-        .await
     }
 
     fn blocking_wait_ready() {
@@ -546,7 +545,7 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
         // it seems events_ready is not generated in response to deactivate. nrfx doesn't wait for it.
         r.tasks_deactivate().write_value(1);
 
-        // Workaround https://infocenter.nordicsemi.com/topic/errata_nRF52840_Rev1/ERR/nRF52840/Rev1/latest/anomaly_840_122.html?cp=4_0_1_2_1_7
+        // Workaround https://docs.nordicsemi.com/bundle/errata_nRF52840_Rev3/page/ERR/nRF52840/Rev3/latest/anomaly_840_122.html
         // Note that the doc has 2 register writes, but the first one is really the write to tasks_deactivate,
         // so we only do the second one here.
         unsafe { ptr::write_volatile(0x40029054 as *mut u32, 1) }

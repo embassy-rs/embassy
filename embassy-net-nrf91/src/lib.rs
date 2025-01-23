@@ -9,7 +9,7 @@ mod fmt;
 pub mod context;
 
 use core::cell::RefCell;
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, addr_of, addr_of_mut, copy_nonoverlapping};
@@ -198,6 +198,7 @@ async fn new_internal<'a>(
         cb,
         requests: [const { None }; REQ_COUNT],
         next_req_serial: 0x12345678,
+        net_fd: None,
 
         rx_control_list: ptr::null_mut(),
         rx_data_list: ptr::null_mut(),
@@ -209,6 +210,7 @@ async fn new_internal<'a>(
 
         tx_seq_no: 0,
         tx_buf_used: [false; TX_BUF_COUNT],
+        tx_waker: WakerRegistration::new(),
 
         trace_chans: Vec::new(),
         trace_check: PointerChecker {
@@ -304,6 +306,8 @@ struct StateInner {
     requests: [Option<PendingRequest>; REQ_COUNT],
     next_req_serial: u32,
 
+    net_fd: Option<u32>,
+
     rx_control_list: *mut List,
     rx_data_list: *mut List,
     rx_seq_no: u16,
@@ -311,6 +315,7 @@ struct StateInner {
 
     tx_seq_no: u16,
     tx_buf_used: [bool; TX_BUF_COUNT],
+    tx_waker: WakerRegistration,
 
     trace_chans: Vec<TraceChannelInfo, TRACE_CHANNEL_COUNT>,
     trace_check: PointerChecker,
@@ -507,6 +512,7 @@ impl StateInner {
         if data.is_empty() {
             msg.data = ptr::null_mut();
             msg.data_len = 0;
+            self.send_message_raw(msg)
         } else {
             assert!(data.len() <= TX_BUF_SIZE);
             let buf_idx = self.find_free_tx_buf().ok_or(NoFreeBufs)?;
@@ -517,10 +523,16 @@ impl StateInner {
             self.tx_buf_used[buf_idx] = true;
 
             fence(Ordering::SeqCst); // synchronize copy_nonoverlapping (non-volatile) with volatile writes below.
+            if let Err(e) = self.send_message_raw(msg) {
+                msg.data = ptr::null_mut();
+                msg.data_len = 0;
+                self.tx_buf_used[buf_idx] = false;
+                self.tx_waker.wake();
+                Err(e)
+            } else {
+                Ok(())
+            }
         }
-
-        // TODO free data buf if send_message_raw fails.
-        self.send_message_raw(msg)
     }
 
     fn send_message_raw(&mut self, msg: &Message) -> Result<(), NoFreeBufs> {
@@ -580,6 +592,7 @@ impl StateInner {
             );
         }
         self.tx_buf_used[idx] = false;
+        self.tx_waker.wake();
     }
 
     fn handle_data(&mut self, msg: &Message, ch: &mut ch::Runner<MTU>) {
@@ -724,7 +737,7 @@ pub struct Control<'a> {
 
 impl<'a> Control<'a> {
     /// Wait for modem IPC to be initialized.
-    pub async fn wait_init(&self) {
+    pub fn wait_init(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
             let mut state = self.state.borrow_mut();
             if state.init {
@@ -733,7 +746,6 @@ impl<'a> Control<'a> {
             state.init_waker.register(cx.waker());
             Poll::Pending
         })
-        .await
     }
 
     async fn request(&self, msg: &mut Message, req_data: &[u8], resp_data: &mut [u8]) -> usize {
@@ -755,10 +767,22 @@ impl<'a> Control<'a> {
             state.next_req_serial = state.next_req_serial.wrapping_add(1);
         }
 
+        drop(state); // don't borrow state across awaits.
+
         msg.param[0..4].copy_from_slice(&req_serial.to_le_bytes());
-        unwrap!(state.send_message(msg, req_data));
+
+        poll_fn(|cx| {
+            let mut state = self.state.borrow_mut();
+            state.tx_waker.register(cx.waker());
+            match state.send_message(msg, req_data) {
+                Ok(_) => Poll::Ready(()),
+                Err(NoFreeBufs) => Poll::Pending,
+            }
+        })
+        .await;
 
         // Setup the pending request state.
+        let mut state = self.state.borrow_mut();
         let (req_slot_idx, req_slot) = state
             .requests
             .iter_mut()
@@ -863,6 +887,8 @@ impl<'a> Control<'a> {
         assert_eq!(status, 0);
         assert_eq!(msg.param_len, 16);
         let fd = u32::from_le_bytes(msg.param[12..16].try_into().unwrap());
+        self.state.borrow_mut().net_fd.replace(fd);
+
         trace!("got FD: {}", fd);
         fd
     }
@@ -902,16 +928,17 @@ impl<'a> Runner<'a> {
             state.poll(&mut self.trace_writer, &mut self.ch);
 
             if let Poll::Ready(buf) = self.ch.poll_tx_buf(cx) {
-                let fd = 128u32; // TODO unhardcode
-                let mut msg: Message = unsafe { mem::zeroed() };
-                msg.channel = 2; // data
-                msg.id = 0x7006_0004; // IP send
-                msg.param_len = 12;
-                msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
-                if let Err(e) = state.send_message(&mut msg, buf) {
-                    warn!("tx failed: {:?}", e);
+                if let Some(fd) = state.net_fd {
+                    let mut msg: Message = unsafe { mem::zeroed() };
+                    msg.channel = 2; // data
+                    msg.id = 0x7006_0004; // IP send
+                    msg.param_len = 12;
+                    msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
+                    if let Err(e) = state.send_message(&mut msg, buf) {
+                        warn!("tx failed: {:?}", e);
+                    }
+                    self.ch.tx_done();
                 }
-                self.ch.tx_done();
             }
 
             Poll::Pending

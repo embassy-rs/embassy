@@ -141,8 +141,8 @@ impl ClockPolarity {
     #[cfg(any(spi_v1, spi_v3, spi_f1))]
     const fn ckpol(&self) -> vals::Ckpol {
         match self {
-            ClockPolarity::IdleHigh => vals::Ckpol::IDLEHIGH,
-            ClockPolarity::IdleLow => vals::Ckpol::IDLELOW,
+            ClockPolarity::IdleHigh => vals::Ckpol::IDLE_HIGH,
+            ClockPolarity::IdleLow => vals::Ckpol::IDLE_LOW,
         }
     }
 }
@@ -458,7 +458,7 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Write data directly to the raw I2S ringbuffer.
     /// This can be used to fill the buffer before starting the DMA transfer.
-    pub async fn write_immediate(&mut self, data: &mut [W]) -> Result<(usize, usize), Error> {
+    pub async fn write_immediate(&mut self, data: &[W]) -> Result<(usize, usize), Error> {
         match &mut self.tx_ring_buffer {
             Some(ring) => Ok(ring.write_immediate(data)?),
             _ => return Err(Error::NotATransmitter),
@@ -491,10 +491,9 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let regs = T::info().regs;
 
-        // TODO move i2s to the new mux infra.
-        //#[cfg(all(rcc_f4, not(stm32f410)))]
-        //let pclk = unsafe { get_freqs() }.plli2s1_q.unwrap();
-        //#[cfg(stm32f410)]
+        #[cfg(all(rcc_f4, not(stm32f410)))]
+        let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_r.to_hertz().unwrap();
+        #[cfg(not(all(rcc_f4, not(stm32f410))))]
         let pclk = T::frequency();
 
         let (odd, div) = compute_baud_rate(pclk, freq, config.master_clock, config.format);
@@ -564,14 +563,14 @@ impl<'d, W: Word> I2S<'d, W> {
                 w.set_chlen(config.format.chlen());
 
                 w.set_i2scfg(match (config.mode, function) {
-                    (Mode::Master, Function::Transmit) => I2scfg::MASTERTX,
-                    (Mode::Master, Function::Receive) => I2scfg::MASTERRX,
+                    (Mode::Master, Function::Transmit) => I2scfg::MASTER_TX,
+                    (Mode::Master, Function::Receive) => I2scfg::MASTER_RX,
                     #[cfg(spi_v3)]
-                    (Mode::Master, Function::FullDuplex) => I2scfg::MASTERFULLDUPLEX,
-                    (Mode::Slave, Function::Transmit) => I2scfg::SLAVETX,
-                    (Mode::Slave, Function::Receive) => I2scfg::SLAVERX,
+                    (Mode::Master, Function::FullDuplex) => I2scfg::MASTER_FULL_DUPLEX,
+                    (Mode::Slave, Function::Transmit) => I2scfg::SLAVE_TX,
+                    (Mode::Slave, Function::Receive) => I2scfg::SLAVE_RX,
                     #[cfg(spi_v3)]
-                    (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVEFULLDUPLEX,
+                    (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVE_FULL_DUPLEX,
                 });
 
                 #[cfg(any(spi_v1, spi_f1))]

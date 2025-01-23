@@ -158,8 +158,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
         Some(hse) => {
             match hse.mode {
-                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
-                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+                HseMode::Bypass => rcc_assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => rcc_assert!(max::HSE_OSC.contains(&hse.freq)),
             }
 
             RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
@@ -192,9 +192,9 @@ pub(crate) unsafe fn init(config: Config) {
             PllSource::HSI48 => (Pllsrc::HSI48_DIV_PREDIV, unwrap!(hsi48)),
         };
         let in_freq = src_freq / pll.prediv;
-        assert!(max::PLL_IN.contains(&in_freq));
+        rcc_assert!(max::PLL_IN.contains(&in_freq));
         let out_freq = in_freq * pll.mul;
-        assert!(max::PLL_OUT.contains(&out_freq));
+        rcc_assert!(max::PLL_OUT.contains(&out_freq));
 
         #[cfg(not(stm32f1))]
         RCC.cfgr2().modify(|w| w.set_prediv(pll.prediv));
@@ -229,6 +229,9 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::HSI => unwrap!(hsi),
         Sysclk::HSE => unwrap!(hse),
         Sysclk::PLL1_P => unwrap!(pll),
+        #[cfg(crs)]
+        Sysclk::HSI48 => unwrap!(hsi48),
+        #[cfg(not(crs))]
         _ => unreachable!(),
     };
 
@@ -239,15 +242,15 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32f0)]
     let (pclk2, pclk2_tim) = (pclk1, pclk1_tim);
 
-    assert!(max::HCLK.contains(&hclk));
-    assert!(max::PCLK1.contains(&pclk1));
+    rcc_assert!(max::HCLK.contains(&hclk));
+    rcc_assert!(max::PCLK1.contains(&pclk1));
     #[cfg(not(stm32f0))]
-    assert!(max::PCLK2.contains(&pclk2));
+    rcc_assert!(max::PCLK2.contains(&pclk2));
 
     #[cfg(stm32f1)]
     let adc = pclk2 / config.adc_pre;
     #[cfg(stm32f1)]
-    assert!(max::ADC.contains(&adc));
+    rcc_assert!(max::ADC.contains(&adc));
 
     // Set latency based on HCLK frquency
     #[cfg(stm32f0)]
@@ -329,9 +332,9 @@ pub(crate) unsafe fn init(config: Config) {
                 assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
 
                 let (div, ckmode) = match adcpres {
-                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNCDIV1),
-                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNCDIV2),
-                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNCDIV4),
+                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNC_DIV1),
+                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNC_DIV2),
+                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNC_DIV4),
                 };
                 common.ccr().modify(|w| w.set_ckmode(ckmode));
 
@@ -358,9 +361,9 @@ pub(crate) unsafe fn init(config: Config) {
                 assert!(!(adcpres == AdcHclkPrescaler::Div1 && config.ahb_pre != AHBPrescaler::DIV1));
 
                 let (div, ckmode) = match adcpres {
-                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNCDIV1),
-                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNCDIV2),
-                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNCDIV4),
+                    AdcHclkPrescaler::Div1 => (1u32, Ckmode::SYNC_DIV1),
+                    AdcHclkPrescaler::Div2 => (2u32, Ckmode::SYNC_DIV2),
+                    AdcHclkPrescaler::Div4 => (4u32, Ckmode::SYNC_DIV4),
                 };
                 common.ccr().modify(|w| w.set_ckmode(ckmode));
 

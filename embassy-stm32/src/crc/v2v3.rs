@@ -118,7 +118,7 @@ impl<'d> Crc<'d> {
             w.set_rev_in(match self._config.reverse_in {
                 InputReverseConfig::None => vals::RevIn::NORMAL,
                 InputReverseConfig::Byte => vals::RevIn::BYTE,
-                InputReverseConfig::Halfword => vals::RevIn::HALFWORD,
+                InputReverseConfig::Halfword => vals::RevIn::HALF_WORD,
                 InputReverseConfig::Word => vals::RevIn::WORD,
             });
             // configure the polynomial.

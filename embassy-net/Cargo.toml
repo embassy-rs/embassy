@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net"
-version = "0.4.0"
+version = "0.6.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Async TCP/IP network stack for embedded systems"
@@ -23,9 +23,6 @@ target = "thumbv7em-none-eabi"
 features = ["defmt", "tcp", "udp", "raw", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname"]
 
 [features]
-default = []
-std = []
-
 ## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
 
@@ -68,14 +65,14 @@ multicast = ["smoltcp/multicast"]
 defmt = { version = "0.3.8", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { git="https://github.com/smoltcp-rs/smoltcp", rev="fe0b4d102253465850cd1cf39cd33d4721a4a8d5", default-features = false, features = [
+smoltcp = { version = "0.12.0", default-features = false, features = [
   "socket",
   "async",
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.3.2", path = "../embassy-time" }
-embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
+embassy-time = { version = "0.4.0", path = "../embassy-time" }
+embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
 embedded-io-async = { version = "0.6.1" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }

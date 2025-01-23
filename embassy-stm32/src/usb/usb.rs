@@ -119,15 +119,12 @@ const USBRAM_ALIGN: usize = 2;
 #[cfg(any(usbram_32_2048, usbram_32_1024))]
 const USBRAM_ALIGN: usize = 4;
 
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static BUS_WAKER: AtomicWaker = NEW_AW;
+static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP0_SETUP: AtomicBool = AtomicBool::new(false);
 
-const NEW_CTR_TRIGGERED: AtomicBool = AtomicBool::new(false);
-static CTR_TRIGGERED: [AtomicBool; EP_COUNT] = [NEW_CTR_TRIGGERED; EP_COUNT];
-
-static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
-static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
+static CTR_TRIGGERED: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
+static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
+static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
 static IRQ_SUSPEND: AtomicBool = AtomicBool::new(false);
 static IRQ_RESUME: AtomicBool = AtomicBool::new(false);
@@ -308,10 +305,8 @@ impl<'d, T: Instance> Driver<'d, T> {
             w.set_fres(true);
         });
 
-        #[cfg(feature = "time")]
-        embassy_time::block_for(embassy_time::Duration::from_millis(100));
-        #[cfg(not(feature = "time"))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 10);
+        // wait t_STARTUP = 1us
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 1_000_000);
 
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
@@ -643,7 +638,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        trace!("set_enabled {:x} {}", ep_addr, enabled);
+        trace!("set_enabled {:?} {}", ep_addr, enabled);
         // This can race, so do a retry loop.
         let reg = T::regs().epr(ep_addr.index() as _);
         trace!("EPR before: {:04x}", reg.read().0);

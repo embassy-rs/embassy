@@ -3,9 +3,9 @@ use core::sync::atomic::{fence, AtomicBool, Ordering};
 
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::flash::regs::Sr;
-use pac::FLASH_SIZE;
 
 use super::{FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use crate::_generated::FLASH_SIZE;
 use crate::flash::Error;
 use crate::pac;
 #[allow(missing_docs)] // TODO
@@ -14,9 +14,9 @@ mod alt_regions {
     use core::marker::PhantomData;
 
     use embassy_hal_internal::PeripheralRef;
-    use stm32_metapac::FLASH_SIZE;
 
     use crate::_generated::flash_regions::{BANK1_REGION1, BANK1_REGION2, BANK1_REGION3};
+    use crate::_generated::FLASH_SIZE;
     use crate::flash::{asynch, Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashRegion};
     use crate::peripherals::FLASH;
 
@@ -469,7 +469,7 @@ fn pa12_is_output_pull_low() -> bool {
     use pac::GPIOA;
     const PIN: usize = 12;
     GPIOA.moder().read().moder(PIN) == vals::Moder::OUTPUT
-        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULLDOWN
+        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULL_DOWN
         && GPIOA.odr().read().odr(PIN) == vals::Odr::LOW
 }
 

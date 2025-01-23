@@ -1,5 +1,5 @@
 use core::cell::RefCell;
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::WakerRegistration;
@@ -38,7 +38,7 @@ impl Shared {
         }))
     }
 
-    pub async fn ioctl_wait_complete(&self) -> usize {
+    pub fn ioctl_wait_complete(&self) -> impl Future<Output = usize> + '_ {
         poll_fn(|cx| {
             let mut this = self.0.borrow_mut();
             if let IoctlState::Done { resp_len } = this.ioctl {
@@ -48,7 +48,6 @@ impl Shared {
                 Poll::Pending
             }
         })
-        .await
     }
 
     pub async fn ioctl_wait_pending(&self) -> PendingIoctl {
@@ -108,7 +107,7 @@ impl Shared {
         this.control_waker.wake();
     }
 
-    pub async fn init_wait(&self) {
+    pub fn init_wait(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
             let mut this = self.0.borrow_mut();
             if this.is_init {
@@ -118,6 +117,5 @@ impl Shared {
                 Poll::Pending
             }
         })
-        .await
     }
 }

@@ -159,8 +159,13 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             w.set_ifg(Ifg::IFG96); // inter frame gap 96 bit times
             w.set_apcs(Apcs::STRIP); // automatic padding and crc stripping
             w.set_fes(Fes::FES100); // fast ethernet speed
-            w.set_dm(Dm::FULLDUPLEX); // full duplex
-                                      // TODO: Carrier sense ? ECRSFD
+            w.set_dm(Dm::FULL_DUPLEX); // full duplex
+                                       // TODO: Carrier sense ? ECRSFD
+        });
+
+        // Set the mac to pass all multicast packets
+        mac.macffr().modify(|w| {
+            w.set_pam(true);
         });
 
         // Note: Writing to LR triggers synchronisation of both LR and HR into the MAC core,
@@ -181,8 +186,8 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 
         // Transfer and Forward, Receive and Forward
         dma.dmaomr().modify(|w| {
-            w.set_tsf(Tsf::STOREFORWARD);
-            w.set_rsf(Rsf::STOREFORWARD);
+            w.set_tsf(Tsf::STORE_FORWARD);
+            w.set_rsf(Rsf::STORE_FORWARD);
         });
 
         dma.dmabmr().modify(|w| {

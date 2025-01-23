@@ -1,28 +1,17 @@
-use core::sync::atomic::{AtomicU8, Ordering};
-use std::cell::UnsafeCell;
-use std::mem::MaybeUninit;
-use std::ptr;
-use std::sync::{Mutex, Once};
+use std::sync::Mutex;
 
-use embassy_time_driver::{AlarmHandle, Driver};
+use embassy_time_driver::Driver;
+use embassy_time_queue_utils::Queue;
 use wasm_bindgen::prelude::*;
 use wasm_timer::Instant as StdInstant;
 
-const ALARM_COUNT: usize = 4;
-
 struct AlarmState {
     token: Option<f64>,
-    closure: Option<Closure<dyn FnMut() + 'static>>,
 }
-
-unsafe impl Send for AlarmState {}
 
 impl AlarmState {
     const fn new() -> Self {
-        Self {
-            token: None,
-            closure: None,
-        }
+        Self { token: None }
     }
 }
 
@@ -33,67 +22,38 @@ extern "C" {
 }
 
 struct TimeDriver {
-    alarm_count: AtomicU8,
-
-    once: Once,
-    alarms: UninitCell<Mutex<[AlarmState; ALARM_COUNT]>>,
-    zero_instant: UninitCell<StdInstant>,
+    inner: Mutex<Inner>,
 }
 
-const ALARM_NEW: AlarmState = AlarmState::new();
+struct Inner {
+    alarm: AlarmState,
+    zero_instant: Option<StdInstant>,
+    queue: Queue,
+    closure: Option<Closure<dyn FnMut()>>,
+}
+
+unsafe impl Send for Inner {}
+
 embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
-    alarm_count: AtomicU8::new(0),
-    once: Once::new(),
-    alarms: UninitCell::uninit(),
-    zero_instant: UninitCell::uninit(),
+    inner: Mutex::new(Inner{
+        zero_instant: None,
+        queue: Queue::new(),
+        alarm: AlarmState::new(),
+        closure: None,
+    }),
 });
 
-impl TimeDriver {
-    fn init(&self) {
-        self.once.call_once(|| unsafe {
-            self.alarms.write(Mutex::new([ALARM_NEW; ALARM_COUNT]));
-            self.zero_instant.write(StdInstant::now());
-        });
-    }
-}
-
-impl Driver for TimeDriver {
-    fn now(&self) -> u64 {
-        self.init();
-
-        let zero = unsafe { self.zero_instant.read() };
-        StdInstant::now().duration_since(zero).as_micros() as u64
+impl Inner {
+    fn init(&mut self) -> StdInstant {
+        *self.zero_instant.get_or_insert_with(StdInstant::now)
     }
 
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self.alarm_count.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-            if x < ALARM_COUNT as u8 {
-                Some(x + 1)
-            } else {
-                None
-            }
-        });
-
-        match id {
-            Ok(id) => Some(AlarmHandle::new(id)),
-            Err(_) => None,
-        }
+    fn now(&mut self) -> u64 {
+        StdInstant::now().duration_since(self.zero_instant.unwrap()).as_micros() as u64
     }
 
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-        self.init();
-        let mut alarms = unsafe { self.alarms.as_ref() }.lock().unwrap();
-        let alarm = &mut alarms[alarm.id() as usize];
-        alarm.closure.replace(Closure::new(move || {
-            callback(ctx);
-        }));
-    }
-
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        self.init();
-        let mut alarms = unsafe { self.alarms.as_ref() }.lock().unwrap();
-        let alarm = &mut alarms[alarm.id() as usize];
-        if let Some(token) = alarm.token {
+    fn set_alarm(&mut self, timestamp: u64) -> bool {
+        if let Some(token) = self.alarm.token {
             clearTimeout(token);
         }
 
@@ -102,40 +62,42 @@ impl Driver for TimeDriver {
             false
         } else {
             let timeout = (timestamp - now) as u32;
-            alarm.token = Some(setTimeout(alarm.closure.as_ref().unwrap(), timeout / 1000));
+            let closure = self.closure.get_or_insert_with(|| Closure::new(dispatch));
+            self.alarm.token = Some(setTimeout(closure, timeout / 1000));
 
             true
         }
     }
 }
 
-pub(crate) struct UninitCell<T>(MaybeUninit<UnsafeCell<T>>);
-unsafe impl<T> Send for UninitCell<T> {}
-unsafe impl<T> Sync for UninitCell<T> {}
-
-impl<T> UninitCell<T> {
-    pub const fn uninit() -> Self {
-        Self(MaybeUninit::uninit())
-    }
-    unsafe fn as_ptr(&self) -> *const T {
-        (*self.0.as_ptr()).get()
+impl Driver for TimeDriver {
+    fn now(&self) -> u64 {
+        let mut inner = self.inner.lock().unwrap();
+        let zero = inner.init();
+        StdInstant::now().duration_since(zero).as_micros() as u64
     }
 
-    pub unsafe fn as_mut_ptr(&self) -> *mut T {
-        (*self.0.as_ptr()).get()
-    }
-
-    pub unsafe fn as_ref(&self) -> &T {
-        &*self.as_ptr()
-    }
-
-    pub unsafe fn write(&self, val: T) {
-        ptr::write(self.as_mut_ptr(), val)
+    fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.init();
+        if inner.queue.schedule_wake(at, waker) {
+            let now = inner.now();
+            let mut next = inner.queue.next_expiration(now);
+            while !inner.set_alarm(next) {
+                let now = inner.now();
+                next = inner.queue.next_expiration(now);
+            }
+        }
     }
 }
 
-impl<T: Copy> UninitCell<T> {
-    pub unsafe fn read(&self) -> T {
-        ptr::read(self.as_mut_ptr())
+fn dispatch() {
+    let inner = &mut *DRIVER.inner.lock().unwrap();
+
+    let now = inner.now();
+    let mut next = inner.queue.next_expiration(now);
+    while !inner.set_alarm(next) {
+        let now = inner.now();
+        next = inner.queue.next_expiration(now);
     }
 }

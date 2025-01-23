@@ -4,7 +4,7 @@
 
 pub mod vbus_detect;
 
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
@@ -22,11 +22,10 @@ use crate::pac::usbd::vals;
 use crate::util::slice_in_ram;
 use crate::{interrupt, pac, Peripheral};
 
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static BUS_WAKER: AtomicWaker = NEW_AW;
-static EP0_WAKER: AtomicWaker = NEW_AW;
-static EP_IN_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
-static EP_OUT_WAKERS: [AtomicWaker; 8] = [NEW_AW; 8];
+static BUS_WAKER: AtomicWaker = AtomicWaker::new();
+static EP0_WAKER: AtomicWaker = AtomicWaker::new();
+static EP_IN_WAKERS: [AtomicWaker; 8] = [const { AtomicWaker::new() }; 8];
+static EP_OUT_WAKERS: [AtomicWaker; 8] = [const { AtomicWaker::new() }; 8];
 static READY_ENDPOINTS: AtomicU32 = AtomicU32::new(0);
 
 /// Interrupt handler.
@@ -220,8 +219,8 @@ impl<'d, T: Instance, V: VbusDetect> driver::Bus for Bus<'d, T, V> {
         regs.enable().write(|x| x.set_enable(false));
     }
 
-    async fn poll(&mut self) -> Event {
-        poll_fn(move |cx| {
+    fn poll(&mut self) -> impl Future<Output = Event> {
+        poll_fn(|cx| {
             BUS_WAKER.register(cx.waker());
             let regs = T::regs();
 
@@ -278,7 +277,6 @@ impl<'d, T: Instance, V: VbusDetect> driver::Bus for Bus<'d, T, V> {
 
             Poll::Pending
         })
-        .await
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
@@ -469,7 +467,7 @@ impl<'d, T: Instance, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, T, Dir
 
 #[allow(private_bounds)]
 impl<'d, T: Instance, Dir: EndpointDir> Endpoint<'d, T, Dir> {
-    async fn wait_enabled_state(&mut self, state: bool) {
+    fn wait_enabled_state(&mut self, state: bool) -> impl Future<Output = ()> {
         let i = self.info.addr.index();
         assert!(i != 0);
 
@@ -481,12 +479,11 @@ impl<'d, T: Instance, Dir: EndpointDir> Endpoint<'d, T, Dir> {
                 Poll::Pending
             }
         })
-        .await
     }
 
     /// Wait for the endpoint to be disabled
-    pub async fn wait_disabled(&mut self) {
-        self.wait_enabled_state(false).await
+    pub fn wait_disabled(&mut self) -> impl Future<Output = ()> {
+        self.wait_enabled_state(false)
     }
 }
 

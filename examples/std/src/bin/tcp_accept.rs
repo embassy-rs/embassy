@@ -1,5 +1,3 @@
-use core::fmt::Write as _;
-
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
@@ -26,16 +24,6 @@ struct Opts {
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, TunTapDevice>) -> ! {
     runner.run().await
-}
-
-#[derive(Default)]
-struct StrWrite(pub heapless::Vec<u8, 30>);
-
-impl core::fmt::Write for StrWrite {
-    fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
-        self.0.extend_from_slice(s.as_bytes()).unwrap();
-        Ok(())
-    }
 }
 
 #[embassy_executor::task]
@@ -85,9 +73,8 @@ async fn main_task(spawner: Spawner) {
 
         // Write some quick output
         for i in 1..=5 {
-            let mut w = StrWrite::default();
-            write!(w, "{}!  ", i).unwrap();
-            let r = socket.write_all(&w.0).await;
+            let s = format!("{}!  ", i);
+            let r = socket.write_all(s.as_bytes()).await;
             if let Err(e) = r {
                 warn!("write error: {:?}", e);
                 return;

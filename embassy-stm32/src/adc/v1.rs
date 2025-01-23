@@ -160,7 +160,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         channel.setup();
 
         // A.7.5 Single conversion sequence code example - Software trigger
-        T::regs().chselr().write(|reg| reg.set_chselx(ch_num as usize, true));
+        T::regs().chselr().write(|reg| reg.set_chsel_x(ch_num as usize, true));
 
         self.convert().await
     }

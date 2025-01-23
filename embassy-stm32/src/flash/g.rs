@@ -20,7 +20,7 @@ pub(crate) unsafe fn lock() {
 }
 pub(crate) unsafe fn unlock() {
     // Wait, while the memory interface is busy.
-    while pac::FLASH.sr().read().bsy() {}
+    wait_busy();
 
     // Unlock flash
     if pac::FLASH.cr().read().lock() {
@@ -53,12 +53,17 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     let idx = (sector.start - super::FLASH_BASE as u32) / super::BANK1_REGION.erase_size as u32;
-    while pac::FLASH.sr().read().bsy() {}
+    wait_busy();
     clear_all_err();
 
     interrupt::free(|_| {
         pac::FLASH.cr().modify(|w| {
             w.set_per(true);
+            #[cfg(any(flash_g0x0, flash_g0x1, flash_g4c3))]
+            w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
+            #[cfg(flash_g0x0)]
+            w.set_pnb(idx as u16);
+            #[cfg(not(flash_g0x0))]
             w.set_pnb(idx as u8);
             w.set_strt(true);
         });
@@ -93,4 +98,14 @@ pub(crate) unsafe fn clear_all_err() {
     // read and write back the same value.
     // This clears all "write 1 to clear" bits.
     pac::FLASH.sr().modify(|_| {});
+}
+
+#[cfg(any(flash_g0x0, flash_g0x1))]
+fn wait_busy() {
+    while pac::FLASH.sr().read().bsy() | pac::FLASH.sr().read().bsy2() {}
+}
+
+#[cfg(not(any(flash_g0x0, flash_g0x1)))]
+fn wait_busy() {
+    while pac::FLASH.sr().read().bsy() {}
 }

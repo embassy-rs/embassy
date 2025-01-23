@@ -10,25 +10,44 @@ use crate::{Handler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUS
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
+/// Allows Configuring the Bcd USB version below 2.1
+pub enum UsbVersion {
+    /// Usb version 2.0
+    Two = 0x0200,
+    /// Usb version 2.1
+    TwoOne = 0x0210,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 /// Configuration used when creating [`UsbDevice`].
 pub struct Config<'a> {
     pub(crate) vendor_id: u16,
     pub(crate) product_id: u16,
 
+    /// Device BCD USB version.
+    ///
+    /// Default: `0x0210` ("2.1")
+    pub bcd_usb: UsbVersion,
+
     /// Device class code assigned by USB.org. Set to `0xff` for vendor-specific
     /// devices that do not conform to any class.
     ///
-    /// Default: `0x00` (class code specified by interfaces)
+    /// Default: `0xEF`
+    /// See also: `composite_with_iads`
     pub device_class: u8,
 
     /// Device sub-class code. Depends on class.
     ///
-    /// Default: `0x00`
+    /// Default: `0x02`
+    /// See also: `composite_with_iads`
     pub device_sub_class: u8,
 
     /// Device protocol code. Depends on class and sub-class.
     ///
-    /// Default: `0x00`
+    /// Default: `0x01`
+    /// See also: `composite_with_iads`
     pub device_protocol: u8,
 
     /// Device release version in BCD.
@@ -68,11 +87,14 @@ pub struct Config<'a> {
 
     /// Configures the device as a composite device with interface association descriptors.
     ///
-    /// If set to `true`, the following fields should have the given values:
+    /// If set to `true` (default), the following fields should have the given values:
     ///
     /// - `device_class` = `0xEF`
     /// - `device_sub_class` = `0x02`
     /// - `device_protocol` = `0x01`
+    ///
+    /// If set to `false`, those fields must be set correctly for the classes that will be
+    /// installed on the USB device.
     pub composite_with_iads: bool,
 
     /// Whether the device has its own power source.
@@ -101,19 +123,20 @@ impl<'a> Config<'a> {
     /// Create default configuration with the provided vid and pid values.
     pub const fn new(vid: u16, pid: u16) -> Self {
         Self {
-            device_class: 0x00,
-            device_sub_class: 0x00,
-            device_protocol: 0x00,
+            device_class: 0xEF,
+            device_sub_class: 0x02,
+            device_protocol: 0x01,
             max_packet_size_0: 64,
             vendor_id: vid,
             product_id: pid,
             device_release: 0x0010,
+            bcd_usb: UsbVersion::TwoOne,
             manufacturer: None,
             product: None,
             serial_number: None,
             self_powered: false,
             supports_remote_wakeup: false,
-            composite_with_iads: false,
+            composite_with_iads: true,
             max_power: 100,
         }
     }

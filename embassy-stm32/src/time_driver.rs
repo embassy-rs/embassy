@@ -1,13 +1,13 @@
 #![allow(non_snake_case)]
 
-use core::cell::Cell;
-use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
-use core::{mem, ptr};
+use core::cell::{Cell, RefCell};
+use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_time_driver::{AlarmHandle, Driver, TICK_HZ};
+use embassy_time_driver::{Driver, TICK_HZ};
+use embassy_time_queue_utils::Queue;
 use stm32_metapac::timer::{regs, TimGp16};
 
 use crate::interrupt::typelevel::Interrupt;
@@ -24,18 +24,6 @@ use crate::{interrupt, peripherals};
 // additional CC capabilities to provide timer alarms to embassy-time. embassy-time requires AT LEAST
 // one alarm to be allocatable, which means timers that only have CC1, such as TIM16/TIM17, are not
 // candidates for use as an embassy-time driver provider. (a.k.a 1CH and 1CH_CMP are not, others are good.)
-//
-// The values of ALARM_COUNT below are not the TOTAL CC registers available, but rather the number
-// available after reserving CC1 for regular time keeping. For example, TIM2 has four CC registers:
-// CC1, CC2, CC3, and CC4, so it can provide ALARM_COUNT = 3.
-
-cfg_if::cfg_if! {
-    if #[cfg(any(time_driver_tim9, time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22))] {
-        const ALARM_COUNT: usize = 1;
-    } else {
-        const ALARM_COUNT: usize = 3;
-    }
-}
 
 #[cfg(time_driver_tim1)]
 type T = peripherals::TIM1;
@@ -67,14 +55,6 @@ type T = peripherals::TIM23;
 type T = peripherals::TIM24;
 
 foreach_interrupt! {
-    (TIM1, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim1)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
     (TIM1, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim1)]
         #[cfg(feature = "rt")]
@@ -123,14 +103,6 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM8, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim8)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
     (TIM9, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim9)]
         #[cfg(feature = "rt")]
@@ -149,14 +121,6 @@ foreach_interrupt! {
     };
     (TIM15, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim15)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM20, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim20)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
@@ -232,11 +196,6 @@ fn calc_now(period: u32, counter: u16) -> u64 {
 
 struct AlarmState {
     timestamp: Cell<u64>,
-
-    // This is really a Option<(fn(*mut ()), *mut ())>
-    // but fn pointers aren't allowed in const yet
-    callback: Cell<*const ()>,
-    ctx: Cell<*mut ()>,
 }
 
 unsafe impl Send for AlarmState {}
@@ -245,8 +204,6 @@ impl AlarmState {
     const fn new() -> Self {
         Self {
             timestamp: Cell::new(u64::MAX),
-            callback: Cell::new(ptr::null()),
-            ctx: Cell::new(ptr::null_mut()),
         }
     }
 }
@@ -254,22 +211,18 @@ impl AlarmState {
 pub(crate) struct RtcDriver {
     /// Number of 2^15 periods elapsed since boot.
     period: AtomicU32,
-    alarm_count: AtomicU8,
-    /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
-    alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
+    alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
     rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
+    queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
-
-#[allow(clippy::declare_interior_mutable_const)]
-const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
-    alarm_count: AtomicU8::new(0),
-    alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
+    alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
     #[cfg(feature = "low-power")]
     rtc: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
+    queue: Mutex::new(RefCell::new(Queue::new()))
 });
 
 impl RtcDriver {
@@ -293,9 +246,9 @@ impl RtcDriver {
         r.arr().write(|w| w.set_arr(u16::MAX));
 
         // Set URS, generate update and clear URS
-        r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTERONLY));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTER_ONLY));
         r.egr().write(|w| w.set_ug(true));
-        r.cr1().modify(|w| w.set_urs(vals::Urs::ANYEVENT));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::ANY_EVENT));
 
         // Mid-way point
         r.ccr(0).write(|w| w.set_ccr(0x8000));
@@ -315,7 +268,6 @@ impl RtcDriver {
     fn on_interrupt(&self) {
         let r = regs_gp16();
 
-        // XXX: reduce the size of this critical section ?
         critical_section::with(|cs| {
             let sr = r.sr().read();
             let dier = r.dier().read();
@@ -335,10 +287,9 @@ impl RtcDriver {
                 self.next_period();
             }
 
-            for n in 0..ALARM_COUNT {
-                if sr.ccif(n + 1) && dier.ccie(n + 1) {
-                    self.trigger_alarm(n, cs);
-                }
+            let n = 0;
+            if sr.ccif(n + 1) && dier.ccie(n + 1) {
+                self.trigger_alarm(cs);
             }
         })
     }
@@ -353,36 +304,23 @@ impl RtcDriver {
 
         critical_section::with(move |cs| {
             r.dier().modify(move |w| {
-                for n in 0..ALARM_COUNT {
-                    let alarm = &self.alarms.borrow(cs)[n];
-                    let at = alarm.timestamp.get();
+                let n = 0;
+                let alarm = self.alarm.borrow(cs);
+                let at = alarm.timestamp.get();
 
-                    if at < t + 0xc000 {
-                        // just enable it. `set_alarm` has already set the correct CCR val.
-                        w.set_ccie(n + 1, true);
-                    }
+                if at < t + 0xc000 {
+                    // just enable it. `set_alarm` has already set the correct CCR val.
+                    w.set_ccie(n + 1, true);
                 }
             })
         })
     }
 
-    fn get_alarm<'a>(&'a self, cs: CriticalSection<'a>, alarm: AlarmHandle) -> &'a AlarmState {
-        // safety: we're allowed to assume the AlarmState is created by us, and
-        // we never create one that's out of bounds.
-        unsafe { self.alarms.borrow(cs).get_unchecked(alarm.id() as usize) }
-    }
-
-    fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
-        let alarm = &self.alarms.borrow(cs)[n];
-        alarm.timestamp.set(u64::MAX);
-
-        // Call after clearing alarm, so the callback can set another alarm.
-
-        // safety:
-        // - we can ignore the possibility of `f` being unset (null) because of the safety contract of `allocate_alarm`.
-        // - other than that we only store valid function pointers into alarm.callback
-        let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
-        f(alarm.ctx.get());
+    fn trigger_alarm(&self, cs: CriticalSection) {
+        let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
+        while !self.set_alarm(cs, next) {
+            next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
+        }
     }
 
     /*
@@ -394,14 +332,7 @@ impl RtcDriver {
     fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
         let now = self.now() + 32;
 
-        embassy_time::Duration::from_ticks(
-            self.alarms
-                .borrow(cs)
-                .iter()
-                .map(|alarm: &AlarmState| alarm.timestamp.get().saturating_sub(now))
-                .min()
-                .unwrap_or(u64::MAX),
-        )
+        embassy_time::Duration::from_ticks(self.alarm.borrow(cs).timestamp.get().saturating_sub(now))
     }
 
     #[cfg(feature = "low-power")]
@@ -436,12 +367,12 @@ impl RtcDriver {
         self.period.store(period, Ordering::SeqCst);
         regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
 
-        // Now, recompute all alarms
-        for i in 0..ALARM_COUNT {
-            let alarm_handle = unsafe { AlarmHandle::new(i as u8) };
-            let alarm = self.get_alarm(cs, alarm_handle);
+        // Now, recompute alarm
+        let alarm = self.alarm.borrow(cs);
 
-            self.set_alarm(alarm_handle, alarm.timestamp.get());
+        if !self.set_alarm(cs, alarm.timestamp.get()) {
+            // If the alarm timestamp has passed, we need to trigger it
+            self.trigger_alarm(cs);
         }
     }
 
@@ -513,6 +444,49 @@ impl RtcDriver {
             regs_gp16().cr1().modify(|w| w.set_cen(true));
         })
     }
+
+    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
+        let r = regs_gp16();
+
+        let n = 0;
+        self.alarm.borrow(cs).timestamp.set(timestamp);
+
+        let t = self.now();
+        if timestamp <= t {
+            // If alarm timestamp has passed the alarm will not fire.
+            // Disarm the alarm and return `false` to indicate that.
+            r.dier().modify(|w| w.set_ccie(n + 1, false));
+
+            self.alarm.borrow(cs).timestamp.set(u64::MAX);
+
+            return false;
+        }
+
+        // Write the CCR value regardless of whether we're going to enable it now or not.
+        // This way, when we enable it later, the right value is already set.
+        r.ccr(n + 1).write(|w| w.set_ccr(timestamp as u16));
+
+        // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
+        let diff = timestamp - t;
+        r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000));
+
+        // Reevaluate if the alarm timestamp is still in the future
+        let t = self.now();
+        if timestamp <= t {
+            // If alarm timestamp has passed since we set it, we have a race condition and
+            // the alarm may or may not have fired.
+            // Disarm the alarm and return `false` to indicate that.
+            // It is the caller's responsibility to handle this ambiguity.
+            r.dier().modify(|w| w.set_ccie(n + 1, false));
+
+            self.alarm.borrow(cs).timestamp.set(u64::MAX);
+
+            return false;
+        }
+
+        // We're confident the alarm will ring in the future.
+        true
+    }
 }
 
 impl Driver for RtcDriver {
@@ -525,70 +499,16 @@ impl Driver for RtcDriver {
         calc_now(period, counter)
     }
 
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        critical_section::with(|_| {
-            let id = self.alarm_count.load(Ordering::Relaxed);
-            if id < ALARM_COUNT as u8 {
-                self.alarm_count.store(id + 1, Ordering::Relaxed);
-                Some(AlarmHandle::new(id))
-            } else {
-                None
-            }
-        })
-    }
-
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+    fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
         critical_section::with(|cs| {
-            let alarm = self.get_alarm(cs, alarm);
+            let mut queue = self.queue.borrow(cs).borrow_mut();
 
-            alarm.callback.set(callback as *const ());
-            alarm.ctx.set(ctx);
-        })
-    }
-
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-        critical_section::with(|cs| {
-            let r = regs_gp16();
-
-            let n = alarm.id() as usize;
-            let alarm = self.get_alarm(cs, alarm);
-            alarm.timestamp.set(timestamp);
-
-            let t = self.now();
-            if timestamp <= t {
-                // If alarm timestamp has passed the alarm will not fire.
-                // Disarm the alarm and return `false` to indicate that.
-                r.dier().modify(|w| w.set_ccie(n + 1, false));
-
-                alarm.timestamp.set(u64::MAX);
-
-                return false;
+            if queue.schedule_wake(at, waker) {
+                let mut next = queue.next_expiration(self.now());
+                while !self.set_alarm(cs, next) {
+                    next = queue.next_expiration(self.now());
+                }
             }
-
-            // Write the CCR value regardless of whether we're going to enable it now or not.
-            // This way, when we enable it later, the right value is already set.
-            r.ccr(n + 1).write(|w| w.set_ccr(timestamp as u16));
-
-            // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
-            let diff = timestamp - t;
-            r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000));
-
-            // Reevaluate if the alarm timestamp is still in the future
-            let t = self.now();
-            if timestamp <= t {
-                // If alarm timestamp has passed since we set it, we have a race condition and
-                // the alarm may or may not have fired.
-                // Disarm the alarm and return `false` to indicate that.
-                // It is the caller's responsibility to handle this ambiguity.
-                r.dier().modify(|w| w.set_ccie(n + 1, false));
-
-                alarm.timestamp.set(u64::MAX);
-
-                return false;
-            }
-
-            // We're confident the alarm will ring in the future.
-            true
         })
     }
 }

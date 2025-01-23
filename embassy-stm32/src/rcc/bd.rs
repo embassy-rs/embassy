@@ -45,8 +45,8 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
         match value {
             #[cfg(not(stm32h5))] // ES0565: LSE Low drive mode is not functional
             LseDrive::Low => Lsedrv::LOW,
-            LseDrive::MediumLow => Lsedrv::MEDIUMLOW,
-            LseDrive::MediumHigh => Lsedrv::MEDIUMHIGH,
+            LseDrive::MediumLow => Lsedrv::MEDIUM_LOW,
+            LseDrive::MediumHigh => Lsedrv::MEDIUM_HIGH,
             LseDrive::High => Lsedrv::HIGH,
         }
     }
@@ -159,6 +159,9 @@ impl LsConfig {
         } else {
             None
         };
+        #[cfg(rcc_u0)]
+        let lse_sysen = Some(lse_en);
+
         _ = lse_drv; // not all chips have it.
 
         // Disable backup domain write protection
@@ -199,7 +202,7 @@ impl LsConfig {
         }
         ok &= reg.lseon() == lse_en;
         ok &= reg.lsebyp() == lse_byp;
-        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         if let Some(lse_sysen) = lse_sysen {
             ok &= reg.lsesysen() == lse_sysen;
         }
@@ -251,7 +254,7 @@ impl LsConfig {
 
             while !bdcr().read().lserdy() {}
 
-            #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+            #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
             if let Some(lse_sysen) = lse_sysen {
                 bdcr().modify(|w| {
                     w.set_lsesysen(lse_sysen);

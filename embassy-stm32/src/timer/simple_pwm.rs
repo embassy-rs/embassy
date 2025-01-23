@@ -6,7 +6,7 @@ use core::mem::ManuallyDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
-use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel};
+use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, TimerBits};
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
 use crate::Peripheral;
@@ -278,7 +278,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         } else {
             1u8
         };
-        self.inner.set_frequency(freq * multiplier);
+        self.inner.set_frequency_internal(freq * multiplier, 16);
     }
 
     pub fn get_max_duty(&self) -> u32 {
@@ -303,7 +303,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
     /// Generate a sequence of PWM waveform
     ///
-    /// Note:  
+    /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
     pub async fn waveform_up(
         &mut self,
@@ -371,9 +371,6 @@ macro_rules! impl_waveform_chx {
     ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
         impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             /// Generate a sequence of PWM waveform
-            ///
-            /// Note:
-            /// you will need to provide corresponding TIMx_CHy DMA channel to use this method.
             pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u16]) {
                 use crate::pac::timer::vals::Ccds;
 
@@ -386,12 +383,12 @@ macro_rules! impl_waveform_chx {
 
                 let original_duty_state = self.channel(cc_channel).current_duty_cycle();
                 let original_enable_state = self.channel(cc_channel).is_enabled();
-                let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ONUPDATE;
+                let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ON_UPDATE;
                 let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
 
                 // redirect CC DMA request onto Update Event
                 if !original_cc_dma_on_update {
-                    self.inner.set_cc_dma_selection(Ccds::ONUPDATE)
+                    self.inner.set_cc_dma_selection(Ccds::ON_UPDATE)
                 }
 
                 if !original_cc_dma_enabled {
@@ -415,14 +412,33 @@ macro_rules! impl_waveform_chx {
                         ..Default::default()
                     };
 
-                    Transfer::new_write(
-                        &mut dma,
-                        req,
-                        duty,
-                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
-                        dma_transfer_option,
-                    )
-                    .await
+                    match self.inner.bits() {
+                        TimerBits::Bits16 => {
+                            Transfer::new_write(
+                                &mut dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u16,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                        #[cfg(not(any(stm32l0)))]
+                        TimerBits::Bits32 => {
+                            #[cfg(not(any(bdma, gpdma)))]
+                            panic!("unsupported timer bits");
+
+                            #[cfg(any(bdma, gpdma))]
+                            Transfer::new_write(
+                                &mut dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u32,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                    };
                 };
 
                 // restore output compare state
@@ -442,7 +458,7 @@ macro_rules! impl_waveform_chx {
                 }
 
                 if !original_cc_dma_on_update {
-                    self.inner.set_cc_dma_selection(Ccds::ONCOMPARE)
+                    self.inner.set_cc_dma_selection(Ccds::ON_COMPARE)
                 }
             }
         }

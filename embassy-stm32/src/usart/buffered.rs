@@ -12,8 +12,9 @@ use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(not(any(usart_v1, usart_v2)))]
 use super::DePin;
 use super::{
-    clear_interrupt_flags, configure, rdr, reconfigure, send_break, sr, tdr, Config, ConfigError, CtsPin, Error, Info,
-    Instance, Regs, RtsPin, RxPin, TxPin,
+    clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, send_break, set_baudrate,
+    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexConfig, HalfDuplexReadback, Info, Instance, Regs,
+    RtsPin, RxPin, TxPin,
 };
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::{self, InterruptExt};
@@ -108,6 +109,8 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
                 });
             }
 
+            half_duplex_set_rx_tx_before_write(&r, state.half_duplex_readback.load(Ordering::Relaxed));
+
             tdr(r).write_volatile(buf[0].into());
             tx_reader.pop_done(1);
         } else {
@@ -126,6 +129,7 @@ pub(super) struct State {
     tx_buf: RingBuffer,
     tx_done: AtomicBool,
     tx_rx_refcount: AtomicU8,
+    half_duplex_readback: AtomicBool,
 }
 
 impl State {
@@ -137,6 +141,7 @@ impl State {
             tx_waker: AtomicWaker::new(),
             tx_done: AtomicBool::new(true),
             tx_rx_refcount: AtomicU8::new(0),
+            half_duplex_readback: AtomicBool::new(false),
         }
     }
 }
@@ -321,6 +326,84 @@ impl<'d> BufferedUart<'d> {
         )
     }
 
+    /// Create a single-wire half-duplex Uart transceiver on a single Tx pin.
+    ///
+    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin
+    /// (when it is available for your chip). There is no functional difference between these methods, as both
+    /// allow bidirectional communication.
+    ///
+    /// The TX pin is always released when no data is transmitted. Thus, it acts as a standard
+    /// I/O in idle or in reception. It means that the I/O must be configured so that TX is
+    /// configured as alternate function open-drain with an external pull-up
+    /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
+    /// on the line must be managed by software (for instance by using a centralized arbiter).
+    #[doc(alias("HDSEL"))]
+    pub fn new_half_duplex<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        mut config: Config,
+        readback: HalfDuplexReadback,
+        half_duplex: HalfDuplexConfig,
+    ) -> Result<Self, ConfigError> {
+        #[cfg(not(any(usart_v1, usart_v2)))]
+        {
+            config.swap_rx_tx = false;
+        }
+        config.duplex = Duplex::Half(readback);
+
+        Self::new_inner(
+            peri,
+            None,
+            new_pin!(tx, half_duplex.af_type()),
+            None,
+            None,
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
+    }
+
+    /// Create a single-wire half-duplex Uart transceiver on a single Rx pin.
+    ///
+    /// See [`new_half_duplex`][`Self::new_half_duplex`] if you would prefer to use an Tx pin.
+    /// There is no functional difference between these methods, as both allow bidirectional communication.
+    ///
+    /// The pin is always released when no data is transmitted. Thus, it acts as a standard
+    /// I/O in idle or in reception.
+    /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
+    /// on the line must be managed by software (for instance by using a centralized arbiter).
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    #[doc(alias("HDSEL"))]
+    pub fn new_half_duplex_on_rx<T: Instance>(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        tx_buffer: &'d mut [u8],
+        rx_buffer: &'d mut [u8],
+        mut config: Config,
+        readback: HalfDuplexReadback,
+        half_duplex: HalfDuplexConfig,
+    ) -> Result<Self, ConfigError> {
+        config.swap_rx_tx = true;
+        config.duplex = Duplex::Half(readback);
+
+        Self::new_inner(
+            peri,
+            new_pin!(rx, half_duplex.af_type()),
+            None,
+            None,
+            None,
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )
+    }
+
     fn new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
         rx: Option<PeripheralRef<'d, AnyPin>>,
@@ -335,6 +418,11 @@ impl<'d> BufferedUart<'d> {
         let info = T::info();
         let state = T::buffered_state();
         let kernel_clock = T::frequency();
+
+        state.half_duplex_readback.store(
+            config.duplex == Duplex::Half(HalfDuplexReadback::Readback),
+            Ordering::Relaxed,
+        );
 
         let mut this = Self {
             rx: BufferedUartRx {
@@ -381,12 +469,20 @@ impl<'d> BufferedUart<'d> {
             w.set_ctse(self.tx.cts.is_some());
             #[cfg(not(any(usart_v1, usart_v2)))]
             w.set_dem(self.tx.de.is_some());
+            w.set_hdsel(config.duplex.is_half());
         });
         configure(info, self.rx.kernel_clock, &config, true, true)?;
 
         info.regs.cr1().modify(|w| {
             w.set_rxneie(true);
             w.set_idleie(true);
+
+            if config.duplex.is_half() {
+                // The te and re bits will be set by write, read and flush methods.
+                // Receiver should be enabled by default for Half-Duplex.
+                w.set_te(false);
+                w.set_re(true);
+            }
         });
 
         info.interrupt.unpend();
@@ -440,6 +536,13 @@ impl<'d> BufferedUart<'d> {
     /// Send break character
     pub fn send_break(&self) {
         self.tx.send_break()
+    }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        self.tx.set_baudrate(baudrate)?;
+        self.rx.set_baudrate(baudrate)?;
+        Ok(())
     }
 }
 
@@ -535,6 +638,11 @@ impl<'d> BufferedUartRx<'d> {
 
         Ok(())
     }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        set_baudrate(self.info, self.kernel_clock, baudrate)
+    }
 }
 
 impl<'d> BufferedUartTx<'d> {
@@ -624,6 +732,11 @@ impl<'d> BufferedUartTx<'d> {
     /// Send break character
     pub fn send_break(&self) {
         send_break(&self.info.regs);
+    }
+
+    /// Set baudrate
+    pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
+        set_baudrate(self.info, self.kernel_clock, baudrate)
     }
 }
 

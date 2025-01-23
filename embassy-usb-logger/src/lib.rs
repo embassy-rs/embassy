@@ -102,13 +102,6 @@ impl<const N: usize, T: ReceiverHandler + Send + Sync> UsbLogger<N, T> {
         config.max_power = 100;
         config.max_packet_size_0 = MAX_PACKET_SIZE;
 
-        // Required for windows compatiblity.
-        // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
-        config.device_class = 0xEF;
-        config.device_sub_class = 0x02;
-        config.device_protocol = 0x01;
-        config.composite_with_iads = true;
-
         let mut builder = Builder::new(
             driver,
             config,

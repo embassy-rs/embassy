@@ -25,17 +25,17 @@ pub struct RssInfoTable {
 
 /**
  * Version
- * [0:3]   = Build - 0: Untracked - 15:Released - x: Tracked version
- * [4:7]   = branch - 0: Mass Market - x: ...
- * [8:15]  = Subversion
- * [16:23] = Version minor
- * [24:31] = Version major
+ * \[0:3\]   = Build - 0: Untracked - 15:Released - x: Tracked version
+ * \[4:7\]   = branch - 0: Mass Market - x: ...
+ * \[8:15\]  = Subversion
+ * \[16:23\] = Version minor
+ * \[24:31\] = Version major
  *
  * Memory Size
- * [0:7]   = Flash ( Number of 4k sector)
- * [8:15]  = Reserved ( Shall be set to 0 - may be used as flash extension )
- * [16:23] = SRAM2b ( Number of 1k sector)
- * [24:31] = SRAM2a ( Number of 1k sector)
+ * \[0:7\]   = Flash ( Number of 4k sector)
+ * \[8:15\]  = Reserved ( Shall be set to 0 - may be used as flash extension )
+ * \[16:23\] = SRAM2b ( Number of 1k sector)
+ * \[24:31\] = SRAM2a ( Number of 1k sector)
  */
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
@@ -89,12 +89,19 @@ pub struct DeviceInfoTable {
     pub wireless_fw_info_table: WirelessFwInfoTable,
 }
 
+/// The bluetooth reference table, as defined in figure 67 of STM32WX AN5289.
 #[derive(Debug)]
 #[repr(C)]
 pub struct BleTable {
+    /// A pointer to the buffer that is used for sending BLE commands.
     pub pcmd_buffer: *mut CmdPacket,
+    /// A pointer to the buffer used for storing Command statuses.
     pub pcs_buffer: *const u8,
+    /// A pointer to the event queue, over which IPCC BLE events are sent. This may be accessed via
+    /// [crate::sub::ble::Ble::tl_read].
     pub pevt_queue: *const u8,
+    /// A pointer to the buffer that is used for sending HCI (Host-Controller Interface) ACL
+    /// (Asynchronous Connection-oriented Logical transport) commands (unused).
     pub phci_acl_data_buffer: *mut AclDataPacket,
 }
 
@@ -271,6 +278,6 @@ pub static mut BLE_SPARE_EVT_BUF: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_
 
 #[cfg(feature = "ble")]
 #[link_section = "MB_MEM2"]
-//                                 fuck these "magic" numbers from ST ---v---v
+//                                                 fuck these "magic" numbers from ST ---v---v
 pub static mut HCI_ACL_DATA_BUFFER: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]>> =
     Aligned(MaybeUninit::uninit());

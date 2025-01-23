@@ -1,0 +1,58 @@
+[package]
+name = "embassy-time-queue-utils"
+version = "0.1.0"
+edition = "2021"
+description = "Timer queue driver trait for embassy-time"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-time-queue-utils"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+categories = [
+    "embedded",
+    "no-std",
+    "concurrency",
+    "asynchronous",
+]
+
+# Prevent multiple copies of this crate in the same binary.
+# Needed because different copies might get different tick rates, causing
+# wrong delays if the time driver is using one copy and user code is using another.
+# This is especially common when mixing crates from crates.io and git.
+links = "embassy-time-queue"
+
+[dependencies]
+heapless = "0.8"
+embassy-executor = { version = "0.7.0", path = "../embassy-executor" }
+
+[features]
+#! ### Generic Queue
+
+#! By default this crate uses a timer queue implementation that is faster but depends on `embassy-executor`.
+#! It will panic if you try to await any timer when using another executor.
+#! 
+#! Alternatively, you can choose to use a "generic" timer queue implementation that works on any executor.
+#! To enable it, enable any of the features below.
+#! 
+#! The features also set how many timers are used for the generic queue. At most one
+#! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
+#!
+#! When using embassy-time-queue-driver from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
+#! end user to pick.
+
+## Generic Queue with 8 timers
+generic-queue-8 = ["_generic-queue"]
+## Generic Queue with 16 timers
+generic-queue-16 = ["_generic-queue"]
+## Generic Queue with 32 timers
+generic-queue-32 = ["_generic-queue"]
+## Generic Queue with 64 timers
+generic-queue-64 = ["_generic-queue"]
+## Generic Queue with 128 timers
+generic-queue-128 = ["_generic-queue"]
+
+_generic-queue = []
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-queue-utils-v$VERSION/embassy-time-queue-utils/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time-queue-utils/src/"
+target = "x86_64-unknown-linux-gnu"

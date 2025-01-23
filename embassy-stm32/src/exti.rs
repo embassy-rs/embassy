@@ -14,12 +14,16 @@ use crate::pac::EXTI;
 use crate::{interrupt, pac, peripherals, Peripheral};
 
 const EXTI_COUNT: usize = 16;
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [NEW_AW; EXTI_COUNT];
+static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
 
-#[cfg(exti_w)]
+#[cfg(all(exti_w, feature = "_core-cm0p"))]
 fn cpu_regs() -> pac::exti::Cpu {
-    EXTI.cpu(crate::pac::CORE_INDEX)
+    EXTI.cpu(1)
+}
+
+#[cfg(all(exti_w, not(feature = "_core-cm0p")))]
+fn cpu_regs() -> pac::exti::Cpu {
+    EXTI.cpu(0)
 }
 
 #[cfg(not(exti_w))]

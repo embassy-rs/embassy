@@ -95,11 +95,11 @@ impl CountingMode {
 impl From<CountingMode> for (vals::Cms, vals::Dir) {
     fn from(value: CountingMode) -> Self {
         match value {
-            CountingMode::EdgeAlignedUp => (vals::Cms::EDGEALIGNED, vals::Dir::UP),
-            CountingMode::EdgeAlignedDown => (vals::Cms::EDGEALIGNED, vals::Dir::DOWN),
-            CountingMode::CenterAlignedDownInterrupts => (vals::Cms::CENTERALIGNED1, vals::Dir::UP),
-            CountingMode::CenterAlignedUpInterrupts => (vals::Cms::CENTERALIGNED2, vals::Dir::UP),
-            CountingMode::CenterAlignedBothInterrupts => (vals::Cms::CENTERALIGNED3, vals::Dir::UP),
+            CountingMode::EdgeAlignedUp => (vals::Cms::EDGE_ALIGNED, vals::Dir::UP),
+            CountingMode::EdgeAlignedDown => (vals::Cms::EDGE_ALIGNED, vals::Dir::DOWN),
+            CountingMode::CenterAlignedDownInterrupts => (vals::Cms::CENTER_ALIGNED1, vals::Dir::UP),
+            CountingMode::CenterAlignedUpInterrupts => (vals::Cms::CENTER_ALIGNED2, vals::Dir::UP),
+            CountingMode::CenterAlignedBothInterrupts => (vals::Cms::CENTER_ALIGNED3, vals::Dir::UP),
         }
     }
 }
@@ -107,11 +107,11 @@ impl From<CountingMode> for (vals::Cms, vals::Dir) {
 impl From<(vals::Cms, vals::Dir)> for CountingMode {
     fn from(value: (vals::Cms, vals::Dir)) -> Self {
         match value {
-            (vals::Cms::EDGEALIGNED, vals::Dir::UP) => CountingMode::EdgeAlignedUp,
-            (vals::Cms::EDGEALIGNED, vals::Dir::DOWN) => CountingMode::EdgeAlignedDown,
-            (vals::Cms::CENTERALIGNED1, _) => CountingMode::CenterAlignedDownInterrupts,
-            (vals::Cms::CENTERALIGNED2, _) => CountingMode::CenterAlignedUpInterrupts,
-            (vals::Cms::CENTERALIGNED3, _) => CountingMode::CenterAlignedBothInterrupts,
+            (vals::Cms::EDGE_ALIGNED, vals::Dir::UP) => CountingMode::EdgeAlignedUp,
+            (vals::Cms::EDGE_ALIGNED, vals::Dir::DOWN) => CountingMode::EdgeAlignedDown,
+            (vals::Cms::CENTER_ALIGNED1, _) => CountingMode::CenterAlignedDownInterrupts,
+            (vals::Cms::CENTER_ALIGNED2, _) => CountingMode::CenterAlignedUpInterrupts,
+            (vals::Cms::CENTER_ALIGNED3, _) => CountingMode::CenterAlignedBothInterrupts,
         }
     }
 }
@@ -150,13 +150,13 @@ impl From<OutputCompareMode> for stm32_metapac::timer::vals::Ocm {
     fn from(mode: OutputCompareMode) -> Self {
         match mode {
             OutputCompareMode::Frozen => stm32_metapac::timer::vals::Ocm::FROZEN,
-            OutputCompareMode::ActiveOnMatch => stm32_metapac::timer::vals::Ocm::ACTIVEONMATCH,
-            OutputCompareMode::InactiveOnMatch => stm32_metapac::timer::vals::Ocm::INACTIVEONMATCH,
+            OutputCompareMode::ActiveOnMatch => stm32_metapac::timer::vals::Ocm::ACTIVE_ON_MATCH,
+            OutputCompareMode::InactiveOnMatch => stm32_metapac::timer::vals::Ocm::INACTIVE_ON_MATCH,
             OutputCompareMode::Toggle => stm32_metapac::timer::vals::Ocm::TOGGLE,
-            OutputCompareMode::ForceInactive => stm32_metapac::timer::vals::Ocm::FORCEINACTIVE,
-            OutputCompareMode::ForceActive => stm32_metapac::timer::vals::Ocm::FORCEACTIVE,
-            OutputCompareMode::PwmMode1 => stm32_metapac::timer::vals::Ocm::PWMMODE1,
-            OutputCompareMode::PwmMode2 => stm32_metapac::timer::vals::Ocm::PWMMODE2,
+            OutputCompareMode::ForceInactive => stm32_metapac::timer::vals::Ocm::FORCE_INACTIVE,
+            OutputCompareMode::ForceActive => stm32_metapac::timer::vals::Ocm::FORCE_ACTIVE,
+            OutputCompareMode::PwmMode1 => stm32_metapac::timer::vals::Ocm::PWM_MODE1,
+            OutputCompareMode::PwmMode2 => stm32_metapac::timer::vals::Ocm::PWM_MODE2,
         }
     }
 }
@@ -235,6 +235,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cnt().write(|r| r.set_cnt(0));
     }
 
+    /// get the capability of the timer
+    pub fn bits(&self) -> TimerBits {
+        T::BITS
+    }
+
     /// Set the frequency of how many times per second the timer counts up to the max value or down to 0.
     ///
     /// This means that in the default edge-aligned mode,
@@ -242,16 +247,28 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     /// In center-aligned mode (which not all timers support), the wrap-around frequency is effectively halved
     /// because it needs to count up and down.
     pub fn set_frequency(&self, frequency: Hertz) {
+        match T::BITS {
+            TimerBits::Bits16 => {
+                self.set_frequency_internal(frequency, 16);
+            }
+            #[cfg(not(stm32l0))]
+            TimerBits::Bits32 => {
+                self.set_frequency_internal(frequency, 32);
+            }
+        }
+    }
+
+    pub(crate) fn set_frequency_internal(&self, frequency: Hertz, max_divide_by_bits: u8) {
         let f = frequency.0;
         assert!(f > 0);
         let timer_f = T::frequency().0;
 
+        let pclk_ticks_per_timer_period = (timer_f / f) as u64;
+        let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << max_divide_by_bits)).try_into());
+        let divide_by = pclk_ticks_per_timer_period / (u64::from(psc) + 1);
+
         match T::BITS {
             TimerBits::Bits16 => {
-                let pclk_ticks_per_timer_period = timer_f / f;
-                let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 16)).try_into());
-                let divide_by = pclk_ticks_per_timer_period / (u32::from(psc) + 1);
-
                 // the timer counts `0..=arr`, we want it to count `0..divide_by`
                 let arr = unwrap!(u16::try_from(divide_by - 1));
 
@@ -259,16 +276,12 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
                 regs.psc().write_value(psc);
                 regs.arr().write(|r| r.set_arr(arr));
 
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
                 regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
             }
             #[cfg(not(stm32l0))]
             TimerBits::Bits32 => {
-                let pclk_ticks_per_timer_period = (timer_f / f) as u64;
-                let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 32)).try_into());
-                let divide_by = pclk_ticks_per_timer_period / (u64::from(psc) + 1);
-
                 // the timer counts `0..=arr`, we want it to count `0..divide_by`
                 let arr: u32 = unwrap!(u32::try_from(divide_by - 1));
 
@@ -276,9 +289,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
                 regs.psc().write_value(psc);
                 regs.arr().write_value(arr);
 
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
                 regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
             }
         }
     }

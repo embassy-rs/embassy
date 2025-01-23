@@ -100,7 +100,7 @@ impl From<Priority> for pac::dma::vals::Pl {
             Priority::Low => pac::dma::vals::Pl::LOW,
             Priority::Medium => pac::dma::vals::Pl::MEDIUM,
             Priority::High => pac::dma::vals::Pl::HIGH,
-            Priority::VeryHigh => pac::dma::vals::Pl::VERYHIGH,
+            Priority::VeryHigh => pac::dma::vals::Pl::VERY_HIGH,
         }
     }
 }
@@ -112,7 +112,7 @@ impl From<Priority> for pac::bdma::vals::Pl {
             Priority::Low => pac::bdma::vals::Pl::LOW,
             Priority::Medium => pac::bdma::vals::Pl::MEDIUM,
             Priority::High => pac::bdma::vals::Pl::HIGH,
-            Priority::VeryHigh => pac::bdma::vals::Pl::VERYHIGH,
+            Priority::VeryHigh => pac::bdma::vals::Pl::VERY_HIGH,
         }
     }
 }
@@ -138,8 +138,8 @@ mod dma_only {
     impl From<Dir> for vals::Dir {
         fn from(raw: Dir) -> Self {
             match raw {
-                Dir::MemoryToPeripheral => Self::MEMORYTOPERIPHERAL,
-                Dir::PeripheralToMemory => Self::PERIPHERALTOMEMORY,
+                Dir::MemoryToPeripheral => Self::MEMORY_TO_PERIPHERAL,
+                Dir::PeripheralToMemory => Self::PERIPHERAL_TO_MEMORY,
             }
         }
     }
@@ -207,7 +207,7 @@ mod dma_only {
             match value {
                 FifoThreshold::Quarter => vals::Fth::QUARTER,
                 FifoThreshold::Half => vals::Fth::HALF,
-                FifoThreshold::ThreeQuarters => vals::Fth::THREEQUARTERS,
+                FifoThreshold::ThreeQuarters => vals::Fth::THREE_QUARTERS,
                 FifoThreshold::Full => vals::Fth::FULL,
             }
         }
@@ -233,8 +233,8 @@ mod bdma_only {
     impl From<Dir> for vals::Dir {
         fn from(raw: Dir) -> Self {
             match raw {
-                Dir::MemoryToPeripheral => Self::FROMMEMORY,
-                Dir::PeripheralToMemory => Self::FROMPERIPHERAL,
+                Dir::MemoryToPeripheral => Self::FROM_MEMORY,
+                Dir::PeripheralToMemory => Self::FROM_PERIPHERAL,
             }
         }
     }
@@ -340,7 +340,8 @@ impl AnyChannel {
         mem_addr: *mut u32,
         mem_len: usize,
         incr_mem: bool,
-        data_size: WordSize,
+        mem_size: WordSize,
+        peripheral_size: WordSize,
         options: TransferOptions,
     ) {
         let info = self.info();
@@ -380,8 +381,8 @@ impl AnyChannel {
                 });
                 ch.cr().write(|w| {
                     w.set_dir(dir.into());
-                    w.set_msize(data_size.into());
-                    w.set_psize(data_size.into());
+                    w.set_msize(mem_size.into());
+                    w.set_psize(peripheral_size.into());
                     w.set_pl(options.priority.into());
                     w.set_minc(incr_mem);
                     w.set_pinc(false);
@@ -414,8 +415,8 @@ impl AnyChannel {
                 ch.mar().write_value(mem_addr as u32);
                 ch.ndtr().write(|w| w.set_ndt(mem_len as u16));
                 ch.cr().write(|w| {
-                    w.set_psize(data_size.into());
-                    w.set_msize(data_size.into());
+                    w.set_psize(peripheral_size.into());
+                    w.set_msize(mem_size.into());
                     w.set_minc(incr_mem);
                     w.set_dir(dir.into());
                     w.set_teie(true);
@@ -602,27 +603,28 @@ impl<'a> Transfer<'a> {
             buf.len(),
             true,
             W::size(),
+            W::size(),
             options,
         )
     }
 
     /// Create a new write DMA transfer (memory to peripheral).
-    pub unsafe fn new_write<W: Word>(
+    pub unsafe fn new_write<MW: Word, PW: Word>(
         channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
-        buf: &'a [W],
-        peri_addr: *mut W,
+        buf: &'a [MW],
+        peri_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
         Self::new_write_raw(channel, request, buf, peri_addr, options)
     }
 
     /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
-    pub unsafe fn new_write_raw<W: Word>(
+    pub unsafe fn new_write_raw<MW: Word, PW: Word>(
         channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
-        buf: *const [W],
-        peri_addr: *mut W,
+        buf: *const [MW],
+        peri_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
         into_ref!(channel);
@@ -632,10 +634,11 @@ impl<'a> Transfer<'a> {
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
-            buf as *const W as *mut u32,
+            buf as *const MW as *mut u32,
             buf.len(),
             true,
-            W::size(),
+            MW::size(),
+            PW::size(),
             options,
         )
     }
@@ -660,6 +663,7 @@ impl<'a> Transfer<'a> {
             count,
             false,
             W::size(),
+            W::size(),
             options,
         )
     }
@@ -673,15 +677,23 @@ impl<'a> Transfer<'a> {
         mem_len: usize,
         incr_mem: bool,
         data_size: WordSize,
+        peripheral_size: WordSize,
         options: TransferOptions,
     ) -> Self {
         assert!(mem_len > 0 && mem_len <= 0xFFFF);
 
         channel.configure(
-            _request, dir, peri_addr, mem_addr, mem_len, incr_mem, data_size, options,
+            _request,
+            dir,
+            peri_addr,
+            mem_addr,
+            mem_len,
+            incr_mem,
+            data_size,
+            peripheral_size,
+            options,
         );
         channel.start();
-
         Self { channel }
     }
 
@@ -813,6 +825,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             buffer_ptr as *mut u32,
             len,
             true,
+            data_size,
             data_size,
             options,
         );
@@ -965,6 +978,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             buffer_ptr as *mut u32,
             len,
             true,
+            data_size,
             data_size,
             options,
         );

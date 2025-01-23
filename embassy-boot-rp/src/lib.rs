@@ -14,7 +14,10 @@ use embassy_time::Duration;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 /// A bootloader for RP2040 devices.
-pub struct BootLoader<const BUFFER_SIZE: usize = ERASE_SIZE>;
+pub struct BootLoader<const BUFFER_SIZE: usize = ERASE_SIZE> {
+    /// The reported state of the bootloader after preparing for boot
+    pub state: State,
+}
 
 impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
@@ -36,8 +39,8 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     ) -> Result<Self, BootError> {
         let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
         let mut boot = embassy_boot::BootLoader::new(config);
-        let _state = boot.prepare_boot(aligned_buf.as_mut())?;
-        Ok(Self)
+        let state = boot.prepare_boot(aligned_buf.as_mut())?;
+        Ok(Self { state })
     }
 
     /// Boots the application.

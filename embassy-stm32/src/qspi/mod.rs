@@ -148,7 +148,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     }
 
     /// Do a QSPI command.
-    pub fn command(&mut self, transaction: TransferConfig) {
+    pub fn blocking_command(&mut self, transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
@@ -172,7 +172,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         });
 
         for b in buf {
-            while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
+            while !T::REGS.sr().read().tcf() && (T::REGS.sr().read().flevel() == 0) {}
             *b = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
         }
 
@@ -199,6 +199,26 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
 
         while !T::REGS.sr().read().tcf() {}
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
+    }
+
+    /// Enable memory map mode
+    pub fn enable_memory_map(&mut self, transaction: &TransferConfig) {
+        T::REGS.fcr().modify(|v| {
+            v.set_csmf(true);
+            v.set_ctcf(true);
+            v.set_ctef(true);
+            v.set_ctof(true);
+        });
+        T::REGS.ccr().write(|v| {
+            v.set_fmode(QspiMode::MemoryMapped.into());
+            v.set_imode(transaction.iwidth.into());
+            v.set_instruction(transaction.instruction);
+            v.set_admode(transaction.awidth.into());
+            v.set_adsize(self.config.address_size.into());
+            v.set_dmode(transaction.dwidth.into());
+            v.set_abmode(QspiWidth::NONE.into());
+            v.set_dcyc(transaction.dummy.into());
+        });
     }
 
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {

@@ -35,10 +35,15 @@ pub struct Control<'a> {
     ioctl_state: &'a IoctlState,
 }
 
+/// WiFi scan type.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScanType {
+    /// Active scan: the station actively transmits probes that make APs respond.
+    /// Faster, but uses more power.
     Active,
+    /// Passive scan: the station doesn't transmit any probes, just listens for beacons.
+    /// Slower, but uses less power.
     Passive,
 }
 

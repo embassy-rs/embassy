@@ -10,6 +10,7 @@ use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
 use embassy_rp::pio::{instr, Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
 use embassy_rp::{Peripheral, PeripheralRef};
+use fixed::types::extra::U8;
 use fixed::FixedU32;
 use pio_proc::pio_asm;
 
@@ -22,6 +23,25 @@ pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA> {
     wrap_target: u8,
 }
 
+/// The default clock divider that works for Pico 1 and 2 W. As well as the RM2 on rp2040 devices.
+/// same speed as pico-sdk, 62.5Mhz
+/// This is actually the fastest we can go without overclocking.
+/// According to data sheet, the theoretical maximum is 100Mhz Pio => 50Mhz SPI Freq.
+/// However, the PIO uses a fractional divider, which works by introducing jitter when
+/// the divider is not an integer. It does some clocks at 125mhz and others at 62.5mhz
+/// so that it averages out to the desired frequency of 100mhz. The 125mhz clock cycles
+/// violate the maximum from the data sheet.
+pub const DEFAULT_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0200);
+
+/// The overclock clock divider for the Pico 1 W. Does not work on any known RM2 devices.
+/// 125mhz Pio => 62.5Mhz SPI Freq. 25% higher than theoretical maximum according to
+/// data sheet, but seems to work fine.
+pub const OVERCLOCK_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0100);
+
+/// The clock divider for the RM2 module. Found to be needed for the Pimoroni Pico Plus 2 W,
+/// Pico Plus 2 Non w with the RM2 breakout module, and the Pico 2 with the RM2 breakout module.
+pub const RM2_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0300);
+
 impl<'d, PIO, const SM: usize, DMA> PioSpi<'d, PIO, SM, DMA>
 where
     DMA: Channel,
@@ -31,6 +51,7 @@ where
     pub fn new<DIO, CLK>(
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
+        clock_divider: FixedU32<U8>,
         irq: Irq<'d, PIO, 0>,
         cs: Output<'d>,
         dio: DIO,
@@ -41,53 +62,56 @@ where
         DIO: PioPin,
         CLK: PioPin,
     {
-        #[cfg(feature = "overclock")]
-        let program = pio_asm!(
-            ".side_set 1"
+        let loaded_program = if clock_divider < DEFAULT_CLOCK_DIVIDER {
+            let overclock_program = pio_asm!(
+                ".side_set 1"
 
-            ".wrap_target"
-            // write out x-1 bits
-            "lp:"
-            "out pins, 1    side 0"
-            "jmp x-- lp     side 1"
-            // switch directions
-            "set pindirs, 0 side 0"
-            "nop            side 1"  // necessary for clkdiv=1.
-            "nop            side 0"
-            // read in y-1 bits
-            "lp2:"
-            "in pins, 1     side 1"
-            "jmp y-- lp2    side 0"
+                ".wrap_target"
+                // write out x-1 bits
+                "lp:"
+                "out pins, 1    side 0"
+                "jmp x-- lp     side 1"
+                // switch directions
+                "set pindirs, 0 side 0"
+                "nop            side 1"  // necessary for clkdiv=1.
+                "nop            side 0"
+                // read in y-1 bits
+                "lp2:"
+                "in pins, 1     side 1"
+                "jmp y-- lp2    side 0"
 
-            // wait for event and irq host
-            "wait 1 pin 0   side 0"
-            "irq 0          side 0"
+                // wait for event and irq host
+                "wait 1 pin 0   side 0"
+                "irq 0          side 0"
 
-            ".wrap"
-        );
-        #[cfg(not(feature = "overclock"))]
-        let program = pio_asm!(
-            ".side_set 1"
+                ".wrap"
+            );
+            common.load_program(&overclock_program.program)
+        } else {
+            let default_program = pio_asm!(
+                ".side_set 1"
 
-            ".wrap_target"
-            // write out x-1 bits
-            "lp:"
-            "out pins, 1    side 0"
-            "jmp x-- lp     side 1"
-            // switch directions
-            "set pindirs, 0 side 0"
-            "nop            side 0"
-            // read in y-1 bits
-            "lp2:"
-            "in pins, 1     side 1"
-            "jmp y-- lp2    side 0"
+                ".wrap_target"
+                // write out x-1 bits
+                "lp:"
+                "out pins, 1    side 0"
+                "jmp x-- lp     side 1"
+                // switch directions
+                "set pindirs, 0 side 0"
+                "nop            side 0"
+                // read in y-1 bits
+                "lp2:"
+                "in pins, 1     side 1"
+                "jmp y-- lp2    side 0"
 
-            // wait for event and irq host
-            "wait 1 pin 0   side 0"
-            "irq 0          side 0"
+                // wait for event and irq host
+                "wait 1 pin 0   side 0"
+                "irq 0          side 0"
 
-            ".wrap"
-        );
+                ".wrap"
+            );
+            common.load_program(&default_program.program)
+        };
 
         let mut pin_io: embassy_rp::pio::Pin<PIO> = common.make_pio_pin(dio);
         pin_io.set_pull(Pull::None);
@@ -101,7 +125,6 @@ where
         pin_clk.set_slew_rate(SlewRate::Fast);
 
         let mut cfg = Config::default();
-        let loaded_program = common.load_program(&program.program);
         cfg.use_program(&loaded_program, &[&pin_clk]);
         cfg.set_out_pins(&[&pin_io]);
         cfg.set_in_pins(&[&pin_io]);
@@ -112,25 +135,7 @@ where
         cfg.shift_in.direction = ShiftDirection::Left;
         cfg.shift_in.auto_fill = true;
         //cfg.shift_in.threshold = 32;
-
-        #[cfg(feature = "overclock")]
-        {
-            // 125mhz Pio => 62.5Mhz SPI Freq. 25% higher than theoretical maximum according to
-            // data sheet, but seems to work fine.
-            cfg.clock_divider = FixedU32::from_bits(0x0100);
-        }
-
-        #[cfg(not(feature = "overclock"))]
-        {
-            // same speed as pico-sdk, 62.5Mhz
-            // This is actually the fastest we can go without overclocking.
-            // According to data sheet, the theoretical maximum is 100Mhz Pio => 50Mhz SPI Freq.
-            // However, the PIO uses a fractional divider, which works by introducing jitter when
-            // the divider is not an integer. It does some clocks at 125mhz and others at 62.5mhz
-            // so that it averages out to the desired frequency of 100mhz. The 125mhz clock cycles
-            // violate the maximum from the data sheet.
-            cfg.clock_divider = FixedU32::from_bits(0x0200);
-        }
+        cfg.clock_divider = clock_divider;
 
         sm.set_config(&cfg);
 

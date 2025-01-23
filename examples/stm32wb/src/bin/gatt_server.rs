@@ -151,11 +151,6 @@ async fn main(_spawner: Spawner) {
     let response = mbox.ble_subsystem.read().await;
     defmt::debug!("{}", response);
 
-    info!("set scan response data...");
-    mbox.ble_subsystem.le_set_scan_response_data(b"TXTX").await.unwrap();
-    let response = mbox.ble_subsystem.read().await;
-    defmt::debug!("{}", response);
-
     defmt::info!("initializing services and characteristics...");
     let mut ble_context = init_gatt_services(&mut mbox.ble_subsystem).await.unwrap();
     defmt::info!("{}", ble_context);

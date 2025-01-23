@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.1 - 2025-01-09
+
+- bugfix: nrf twim return errors in async\_wait instead of waiting indefinitely
+- bugfix: fix missing setting input as disconnected.
+
+## 0.3.0 - 2025-01-06
+
+Firstly, this release switches embassy-nrf to chiptool-based `nrf-pac`
+implementations and lots of improvements, but also changes to API like
+peripheral and interrupt naming.
+
+Second big change is a refactoring of time driver contract with
+embassy-time-driver. From now on, the timer queue is handled by the
+time-driver implementation and `generic-queue` feature is provided by
+the `embassy-time-queue-utils` crate. Newly required dependencies are
+following:
+  - embassy-time-0.4
+  - embassy-time-driver-0.2
+  - embassy-time-queue-utils-0.1
+
+Add support for following NRF chips:
+  - nRF54L15 (only gpio and timer support)
+
+Support for chip-specific features:
+  - RESET operations for nrf5340
+  - POWER operations (system-off and wake-on-field) for nrf52840 and nrf9160
+
+- nfc:
+  - Adds support for NFC Tag emulator driver
+- pwm:
+  - Fix incorrect pin assignments
+  - Properly disconnect inputs when pins are set as output
+- uart:
+  - `try_write` support for `BufferedUarte`
+  - Support for `embedded_io_async` trait
+- spim:
+  - Support SPIM4 peripheral on nrf5340-app
+- time:
+  - Generic refactor of embassy-time-driver API
+  - Fix for missed executor alarms in certain occasions (issue #3672, PR #3705).
+- twim:
+  - Implement support for transactions
+  - Remove support for consecutive Read operations due to hardware limitations
+
 ## 0.2.0 - 2024-08-05
 
 - Support for NRF chips:

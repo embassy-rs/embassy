@@ -45,7 +45,7 @@ impl RunQueue {
     ///
     /// `item` must NOT be already enqueued in any queue.
     #[inline(always)]
-    pub(crate) unsafe fn enqueue(&self, task: TaskRef) -> bool {
+    pub(crate) unsafe fn enqueue(&self, task: TaskRef, _: super::state::Token) -> bool {
         let mut was_empty = false;
 
         self.head
@@ -81,6 +81,7 @@ impl RunQueue {
             // safety: there are no concurrent accesses to `next`
             next = unsafe { task.header().run_queue_item.next.get() };
 
+            task.header().state.run_dequeue();
             on_task(task);
         }
     }

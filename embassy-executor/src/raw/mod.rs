@@ -16,8 +16,9 @@ mod run_queue;
 #[cfg_attr(not(target_has_atomic = "8"), path = "state_critical_section.rs")]
 mod state;
 
-#[cfg(feature = "integrated-timers")]
-mod timer_queue;
+pub mod timer_queue;
+#[cfg(feature = "trace")]
+mod trace;
 pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
@@ -27,12 +28,8 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::{Context, Poll};
-
-#[cfg(feature = "integrated-timers")]
-use embassy_time_driver::AlarmHandle;
-#[cfg(feature = "rtos-trace")]
-use rtos_trace::trace;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
@@ -41,20 +38,56 @@ pub use self::waker::task_from_waker;
 use super::SpawnToken;
 
 /// Raw task header for use in task pointers.
+///
+/// A task can be in one of the following states:
+///
+/// - Not spawned: the task is ready to spawn.
+/// - `SPAWNED`: the task is currently spawned and may be running.
+/// - `RUN_ENQUEUED`: the task is enqueued to be polled. Note that the task may be `!SPAWNED`.
+///    In this case, the `RUN_ENQUEUED` state will be cleared when the task is next polled, without
+///    polling the task's future.
+///
+/// A task's complete life cycle is as follows:
+///
+/// ```text
+/// ┌────────────┐   ┌────────────────────────┐
+/// │Not spawned │◄─5┤Not spawned|Run enqueued│
+/// │            ├6─►│                        │
+/// └─────┬──────┘   └──────▲─────────────────┘
+///       1                 │
+///       │    ┌────────────┘
+///       │    4
+/// ┌─────▼────┴─────────┐
+/// │Spawned|Run enqueued│
+/// │                    │
+/// └─────┬▲─────────────┘
+///       2│
+///       │3
+/// ┌─────▼┴─────┐
+/// │  Spawned   │
+/// │            │
+/// └────────────┘
+/// ```
+///
+/// Transitions:
+/// - 1: Task is spawned - `AvailableTask::claim -> Executor::spawn`
+/// - 2: During poll - `RunQueue::dequeue_all -> State::run_dequeue`
+/// - 3: Task wakes itself, waker wakes task, or task exits - `Waker::wake -> wake_task -> State::run_enqueue`
+/// - 4: A run-queued task exits - `TaskStorage::poll -> Poll::Ready`
+/// - 5: Task is dequeued. The task's future is not polled, because exiting the task replaces its `poll_fn`.
+/// - 6: A task is waken when it is not spawned - `wake_task -> State::run_enqueue`
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
-    pub(crate) executor: SyncUnsafeCell<Option<&'static SyncExecutor>>,
+    pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
-    #[cfg(feature = "integrated-timers")]
-    pub(crate) expires_at: SyncUnsafeCell<u64>,
-    #[cfg(feature = "integrated-timers")]
+    /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct TaskRef {
     ptr: NonNull<TaskHeader>,
 }
@@ -76,8 +109,29 @@ impl TaskRef {
         }
     }
 
+    /// # Safety
+    ///
+    /// The result of this function must only be compared
+    /// for equality, or stored, but not used.
+    pub const unsafe fn dangling() -> Self {
+        Self {
+            ptr: NonNull::dangling(),
+        }
+    }
+
     pub(crate) fn header(self) -> &'static TaskHeader {
         unsafe { self.ptr.as_ref() }
+    }
+
+    /// Returns a reference to the executor that the task is currently running on.
+    pub unsafe fn executor(self) -> Option<&'static Executor> {
+        let executor = self.header().executor.load(Ordering::Relaxed);
+        executor.as_ref().map(|e| Executor::wrap(e))
+    }
+
+    /// Returns a reference to the timer queue item.
+    pub fn timer_queue_item(&self) -> &'static timer_queue::TimerQueueItem {
+        &self.header().timer_queue_item
     }
 
     /// The returned pointer is valid for the entire TaskStorage.
@@ -107,6 +161,10 @@ pub struct TaskStorage<F: Future + 'static> {
     future: UninitCell<F>, // Valid if STATE_SPAWNED
 }
 
+unsafe fn poll_exited(_p: TaskRef) {
+    // Nothing to do, the task is already !SPAWNED and dequeued.
+}
+
 impl<F: Future + 'static> TaskStorage<F> {
     const NEW: Self = Self::new();
 
@@ -116,13 +174,10 @@ impl<F: Future + 'static> TaskStorage<F> {
             raw: TaskHeader {
                 state: State::new(),
                 run_queue_item: RunQueueItem::new(),
-                executor: SyncUnsafeCell::new(None),
+                executor: AtomicPtr::new(core::ptr::null_mut()),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
 
-                #[cfg(feature = "integrated-timers")]
-                expires_at: SyncUnsafeCell::new(0),
-                #[cfg(feature = "integrated-timers")]
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
             },
             future: UninitCell::uninit(),
@@ -151,18 +206,24 @@ impl<F: Future + 'static> TaskStorage<F> {
     }
 
     unsafe fn poll(p: TaskRef) {
-        let this = &*(p.as_ptr() as *const TaskStorage<F>);
+        let this = &*p.as_ptr().cast::<TaskStorage<F>>();
 
         let future = Pin::new_unchecked(this.future.as_mut());
         let waker = waker::from_task(p);
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
+                // As the future has finished and this function will not be called
+                // again, we can safely drop the future here.
                 this.future.drop_in_place();
-                this.raw.state.despawn();
 
-                #[cfg(feature = "integrated-timers")]
-                this.raw.expires_at.set(u64::MAX);
+                // We replace the poll_fn with a despawn function, so that the task is cleaned up
+                // when the executor polls it next.
+                this.raw.poll_fn.set(Some(poll_exited));
+
+                // Make sure we despawn last, so that other threads can only spawn the task
+                // after we're done with it.
+                this.raw.state.despawn();
             }
             Poll::Pending => {}
         }
@@ -316,26 +377,13 @@ impl Pender {
 pub(crate) struct SyncExecutor {
     run_queue: RunQueue,
     pender: Pender,
-
-    #[cfg(feature = "integrated-timers")]
-    pub(crate) timer_queue: timer_queue::TimerQueue,
-    #[cfg(feature = "integrated-timers")]
-    alarm: AlarmHandle,
 }
 
 impl SyncExecutor {
     pub(crate) fn new(pender: Pender) -> Self {
-        #[cfg(feature = "integrated-timers")]
-        let alarm = unsafe { unwrap!(embassy_time_driver::allocate_alarm()) };
-
         Self {
             run_queue: RunQueue::new(),
             pender,
-
-            #[cfg(feature = "integrated-timers")]
-            timer_queue: timer_queue::TimerQueue::new(),
-            #[cfg(feature = "integrated-timers")]
-            alarm,
         }
     }
 
@@ -346,90 +394,47 @@ impl SyncExecutor {
     /// - `task` must be set up to run in this executor.
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
-    unsafe fn enqueue(&self, task: TaskRef) {
-        #[cfg(feature = "rtos-trace")]
-        trace::task_ready_begin(task.as_ptr() as u32);
+    unsafe fn enqueue(&self, task: TaskRef, l: state::Token) {
+        #[cfg(feature = "trace")]
+        trace::task_ready_begin(self, &task);
 
-        if self.run_queue.enqueue(task) {
+        if self.run_queue.enqueue(task, l) {
             self.pender.pend();
         }
     }
 
-    #[cfg(feature = "integrated-timers")]
-    fn alarm_callback(ctx: *mut ()) {
-        let this: &Self = unsafe { &*(ctx as *const Self) };
-        this.pender.pend();
-    }
-
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
-        task.header().executor.set(Some(self));
+        task.header()
+            .executor
+            .store((self as *const Self).cast_mut(), Ordering::Relaxed);
 
-        #[cfg(feature = "rtos-trace")]
-        trace::task_new(task.as_ptr() as u32);
+        #[cfg(feature = "trace")]
+        trace::task_new(self, &task);
 
-        self.enqueue(task);
+        state::locked(|l| {
+            self.enqueue(task, l);
+        })
     }
 
     /// # Safety
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
-        #[cfg(feature = "integrated-timers")]
-        embassy_time_driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
+        self.run_queue.dequeue_all(|p| {
+            let task = p.header();
 
-        #[allow(clippy::never_loop)]
-        loop {
-            #[cfg(feature = "integrated-timers")]
-            self.timer_queue
-                .dequeue_expired(embassy_time_driver::now(), wake_task_no_pend);
+            #[cfg(feature = "trace")]
+            trace::task_exec_begin(self, &p);
 
-            self.run_queue.dequeue_all(|p| {
-                let task = p.header();
+            // Run the task
+            task.poll_fn.get().unwrap_unchecked()(p);
 
-                #[cfg(feature = "integrated-timers")]
-                task.expires_at.set(u64::MAX);
+            #[cfg(feature = "trace")]
+            trace::task_exec_end(self, &p);
+        });
 
-                if !task.state.run_dequeue() {
-                    // If task is not running, ignore it. This can happen in the following scenario:
-                    //   - Task gets dequeued, poll starts
-                    //   - While task is being polled, it gets woken. It gets placed in the queue.
-                    //   - Task poll finishes, returning done=true
-                    //   - RUNNING bit is cleared, but the task is already in the queue.
-                    return;
-                }
-
-                #[cfg(feature = "rtos-trace")]
-                trace::task_exec_begin(p.as_ptr() as u32);
-
-                // Run the task
-                task.poll_fn.get().unwrap_unchecked()(p);
-
-                #[cfg(feature = "rtos-trace")]
-                trace::task_exec_end();
-
-                // Enqueue or update into timer_queue
-                #[cfg(feature = "integrated-timers")]
-                self.timer_queue.update(p);
-            });
-
-            #[cfg(feature = "integrated-timers")]
-            {
-                // If this is already in the past, set_alarm might return false
-                // In that case do another poll loop iteration.
-                let next_expiration = self.timer_queue.next_expiration();
-                if embassy_time_driver::set_alarm(self.alarm, next_expiration) {
-                    break;
-                }
-            }
-
-            #[cfg(not(feature = "integrated-timers"))]
-            {
-                break;
-            }
-        }
-
-        #[cfg(feature = "rtos-trace")]
-        trace::system_idle();
+        #[cfg(feature = "trace")]
+        trace::executor_idle(self)
     }
 }
 
@@ -516,6 +521,8 @@ impl Executor {
     ///
     /// # Safety
     ///
+    /// You must call `initialize` before calling this method.
+    ///
     /// You must NOT call `poll` reentrantly on the same executor.
     ///
     /// In particular, note that `poll` may call the pender synchronously. Therefore, you
@@ -540,13 +547,13 @@ impl Executor {
 /// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
 pub fn wake_task(task: TaskRef) {
     let header = task.header();
-    if header.state.run_enqueue() {
+    header.state.run_enqueue(|l| {
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
-            let executor = header.executor.get().unwrap_unchecked();
-            executor.enqueue(task);
+            let executor = header.executor.load(Ordering::Relaxed).as_ref().unwrap_unchecked();
+            executor.enqueue(task, l);
         }
-    }
+    });
 }
 
 /// Wake a task by `TaskRef` without calling pend.
@@ -554,57 +561,11 @@ pub fn wake_task(task: TaskRef) {
 /// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
 pub fn wake_task_no_pend(task: TaskRef) {
     let header = task.header();
-    if header.state.run_enqueue() {
+    header.state.run_enqueue(|l| {
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
-            let executor = header.executor.get().unwrap_unchecked();
-            executor.run_queue.enqueue(task);
+            let executor = header.executor.load(Ordering::Relaxed).as_ref().unwrap_unchecked();
+            executor.run_queue.enqueue(task, l);
         }
-    }
+    });
 }
-
-#[cfg(feature = "integrated-timers")]
-struct TimerQueue;
-
-#[cfg(feature = "integrated-timers")]
-impl embassy_time_queue_driver::TimerQueue for TimerQueue {
-    fn schedule_wake(&'static self, at: u64, waker: &core::task::Waker) {
-        let task = waker::task_from_waker(waker);
-        let task = task.header();
-        unsafe {
-            let expires_at = task.expires_at.get();
-            task.expires_at.set(expires_at.min(at));
-        }
-    }
-}
-
-#[cfg(feature = "integrated-timers")]
-embassy_time_queue_driver::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
-
-#[cfg(all(feature = "rtos-trace", feature = "integrated-timers"))]
-const fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
-}
-
-#[cfg(feature = "rtos-trace")]
-impl rtos_trace::RtosTraceOSCallbacks for Executor {
-    fn task_list() {
-        // We don't know what tasks exist, so we can't send them.
-    }
-    #[cfg(feature = "integrated-timers")]
-    fn time() -> u64 {
-        const GCD_1M: u64 = gcd(embassy_time_driver::TICK_HZ, 1_000_000);
-        embassy_time_driver::now() * (1_000_000 / GCD_1M) / (embassy_time_driver::TICK_HZ / GCD_1M)
-    }
-    #[cfg(not(feature = "integrated-timers"))]
-    fn time() -> u64 {
-        0
-    }
-}
-
-#[cfg(feature = "rtos-trace")]
-rtos_trace::global_os_callbacks! {Executor}

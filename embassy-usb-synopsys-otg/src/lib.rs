@@ -9,7 +9,7 @@ mod fmt;
 use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -18,21 +18,24 @@ use embassy_usb_driver::{
     EndpointType, Event, Unsupported,
 };
 
+use crate::fmt::Bytes;
+
 pub mod otg_v1;
 
 use otg_v1::{regs, vals, Otg};
 
 /// Handle interrupts.
-pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
-    r: Otg,
-    state: &State<MAX_EP_COUNT>,
-    ep_count: usize,
-    quirk_setup_late_cnak: bool,
-) {
+pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(r: Otg, state: &State<MAX_EP_COUNT>, ep_count: usize) {
+    trace!("irq");
+
     let ints = r.gintsts().read();
     if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
         // Mask interrupts and notify `Bus` to process them
-        r.gintmsk().write(|_| {});
+        r.gintmsk().write(|w| {
+            w.set_iepint(true);
+            w.set_oepint(true);
+            w.set_rxflvlm(true);
+        });
         state.bus_waker.wake();
     }
 
@@ -60,19 +63,9 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
                     while r.grstctl().read().txfflsh() {}
                 }
 
-                if state.cp_state.setup_ready.load(Ordering::Relaxed) == false {
-                    // SAFETY: exclusive access ensured by atomic bool
-                    let data = unsafe { &mut *state.cp_state.setup_data.get() };
-                    data[0..4].copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
-                    data[4..8].copy_from_slice(&r.fifo(0).read().0.to_ne_bytes());
-                    state.cp_state.setup_ready.store(true, Ordering::Release);
-                    state.ep_states[0].out_waker.wake();
-                } else {
-                    error!("received SETUP before previous finished processing");
-                    // discard FIFO
-                    r.fifo(0).read();
-                    r.fifo(0).read();
-                }
+                let data = &state.cp_state.setup_data;
+                data[0].store(r.fifo(0).read().data(), Ordering::Relaxed);
+                data[1].store(r.fifo(0).read().data(), Ordering::Relaxed);
             }
             vals::Pktstsd::OUT_DATA_RX => {
                 trace!("OUT_DATA_RX ep={} len={}", ep_num, len);
@@ -106,11 +99,6 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
             }
             vals::Pktstsd::SETUP_DATA_DONE => {
                 trace!("SETUP_DATA_DONE ep={}", ep_num);
-
-                if quirk_setup_late_cnak {
-                    // Clear NAK to indicate we are ready to receive more data
-                    r.doepctl(ep_num).modify(|w| w.set_cnak(true));
-                }
             }
             x => trace!("unknown PKTSTS: {}", x.to_bits()),
         }
@@ -147,25 +135,30 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(
         }
     }
 
-    // not needed? reception handled in rxflvl
-    // OUT endpoint interrupt
-    // if ints.oepint() {
-    //     let mut ep_mask = r.daint().read().oepint();
-    //     let mut ep_num = 0;
+    // out endpoint interrupt
+    if ints.oepint() {
+        trace!("oepint");
+        let mut ep_mask = r.daint().read().oepint();
+        let mut ep_num = 0;
 
-    //     while ep_mask != 0 {
-    //         if ep_mask & 1 != 0 {
-    //             let ep_ints = r.doepint(ep_num).read();
-    //             // clear all
-    //             r.doepint(ep_num).write_value(ep_ints);
-    //             state.ep_out_wakers[ep_num].wake();
-    //             trace!("out ep={} irq val={:08x}", ep_num, ep_ints.0);
-    //         }
+        // Iterate over endpoints while there are non-zero bits in the mask
+        while ep_mask != 0 {
+            if ep_mask & 1 != 0 {
+                let ep_ints = r.doepint(ep_num).read();
+                // clear all
+                r.doepint(ep_num).write_value(ep_ints);
 
-    //         ep_mask >>= 1;
-    //         ep_num += 1;
-    //     }
-    // }
+                if ep_ints.stup() {
+                    state.cp_state.setup_ready.store(true, Ordering::Release);
+                }
+                state.ep_states[ep_num].out_waker.wake();
+                trace!("out ep={} irq val={:08x}", ep_num, ep_ints.0);
+            }
+
+            ep_mask >>= 1;
+            ep_num += 1;
+        }
+    }
 }
 
 /// USB PHY type
@@ -232,7 +225,7 @@ unsafe impl Sync for EpState {}
 
 struct ControlPipeSetupState {
     /// Holds received SETUP packets. Available if [Ep0State::setup_ready] is true.
-    setup_data: UnsafeCell<[u8; 8]>,
+    setup_data: [AtomicU32; 2],
     setup_ready: AtomicBool,
 }
 
@@ -249,23 +242,20 @@ unsafe impl<const EP_COUNT: usize> Sync for State<EP_COUNT> {}
 impl<const EP_COUNT: usize> State<EP_COUNT> {
     /// Create a new State.
     pub const fn new() -> Self {
-        const NEW_AW: AtomicWaker = AtomicWaker::new();
-        const NEW_BUF: UnsafeCell<*mut u8> = UnsafeCell::new(0 as _);
-        const NEW_SIZE: AtomicU16 = AtomicU16::new(EP_OUT_BUFFER_EMPTY);
-        const NEW_EP_STATE: EpState = EpState {
-            in_waker: NEW_AW,
-            out_waker: NEW_AW,
-            out_buffer: NEW_BUF,
-            out_size: NEW_SIZE,
-        };
-
         Self {
             cp_state: ControlPipeSetupState {
-                setup_data: UnsafeCell::new([0u8; 8]),
+                setup_data: [const { AtomicU32::new(0) }; 2],
                 setup_ready: AtomicBool::new(false),
             },
-            ep_states: [NEW_EP_STATE; EP_COUNT],
-            bus_waker: NEW_AW,
+            ep_states: [const {
+                EpState {
+                    in_waker: AtomicWaker::new(),
+                    out_waker: AtomicWaker::new(),
+                    out_buffer: UnsafeCell::new(0 as _),
+                    out_size: AtomicU16::new(EP_OUT_BUFFER_EMPTY),
+                }
+            }; EP_COUNT],
+            bus_waker: AtomicWaker::new(),
         }
     }
 }
@@ -476,7 +466,6 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d
         trace!("start");
 
         let regs = self.instance.regs;
-        let quirk_setup_late_cnak = self.instance.quirk_setup_late_cnak;
         let cp_setup_state = &self.instance.state.cp_state;
         (
             Bus {
@@ -492,7 +481,6 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d
                 ep_out,
                 ep_in,
                 regs,
-                quirk_setup_late_cnak,
             },
         )
     }
@@ -628,6 +616,11 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
             w.set_xfrcm(true);
         });
 
+        // Unmask SETUP received EP interrupt
+        r.doepmsk().write(|w| {
+            w.set_stupm(true);
+        });
+
         // Unmask and clear core interrupts
         self.restore_irqs();
         r.gintsts().write_value(regs::Gintsts(0xFFFF_FFFF));
@@ -739,7 +732,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
                     regs.doeptsiz(index).modify(|w| {
                         w.set_xfrsiz(ep.max_packet_size as _);
                         if index == 0 {
-                            w.set_rxdpid_stupcnt(1);
+                            w.set_rxdpid_stupcnt(3);
                         } else {
                             w.set_pktcnt(1);
                         }
@@ -751,8 +744,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
         // Enable IRQs for allocated endpoints
         regs.daintmsk().modify(|w| {
             w.set_iepm(ep_irq_mask(&self.ep_in));
-            // OUT interrupts not used, handled in RXFLVL
-            // w.set_oepm(ep_irq_mask(&self.ep_out));
+            w.set_oepm(ep_irq_mask(&self.ep_out));
         });
     }
 
@@ -1126,7 +1118,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
 
 impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        trace!("write ep={:?} data={:?}", self.info.addr, buf);
+        trace!("write ep={:?} data={:?}", self.info.addr, Bytes(buf));
 
         if buf.len() > self.info.max_packet_size as usize {
             return Err(EndpointError::BufferOverflow);
@@ -1238,7 +1230,6 @@ pub struct ControlPipe<'d> {
     setup_state: &'d ControlPipeSetupState,
     ep_in: Endpoint<'d, In>,
     ep_out: Endpoint<'d, Out>,
-    quirk_setup_late_cnak: bool,
 }
 
 impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
@@ -1251,23 +1242,22 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
             self.ep_out.state.out_waker.register(cx.waker());
 
             if self.setup_state.setup_ready.load(Ordering::Relaxed) {
-                let data = unsafe { *self.setup_state.setup_data.get() };
+                let mut data = [0; 8];
+                data[0..4].copy_from_slice(&self.setup_state.setup_data[0].load(Ordering::Relaxed).to_ne_bytes());
+                data[4..8].copy_from_slice(&self.setup_state.setup_data[1].load(Ordering::Relaxed).to_ne_bytes());
                 self.setup_state.setup_ready.store(false, Ordering::Release);
 
                 // EP0 should not be controlled by `Bus` so this RMW does not need a critical section
-                // Receive 1 SETUP packet
                 self.regs.doeptsiz(self.ep_out.info.addr.index()).modify(|w| {
-                    w.set_rxdpid_stupcnt(1);
+                    w.set_rxdpid_stupcnt(3);
                 });
 
                 // Clear NAK to indicate we are ready to receive more data
-                if !self.quirk_setup_late_cnak {
-                    self.regs
-                        .doepctl(self.ep_out.info.addr.index())
-                        .modify(|w| w.set_cnak(true));
-                }
+                self.regs
+                    .doepctl(self.ep_out.info.addr.index())
+                    .modify(|w| w.set_cnak(true));
 
-                trace!("SETUP received: {:?}", data);
+                trace!("SETUP received: {:?}", Bytes(&data));
                 Poll::Ready(data)
             } else {
                 trace!("SETUP waiting");
@@ -1280,12 +1270,12 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
     async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
         trace!("control: data_out");
         let len = self.ep_out.read(buf).await?;
-        trace!("control: data_out read: {:?}", &buf[..len]);
+        trace!("control: data_out read: {:?}", Bytes(&buf[..len]));
         Ok(len)
     }
 
     async fn data_in(&mut self, data: &[u8], _first: bool, last: bool) -> Result<(), EndpointError> {
-        trace!("control: data_in write: {:?}", data);
+        trace!("control: data_in write: {:?}", Bytes(data));
         self.ep_in.write(data).await?;
 
         // wait for status response from host after sending the last packet
@@ -1385,8 +1375,6 @@ pub struct OtgInstance<'d, const MAX_EP_COUNT: usize> {
     pub phy_type: PhyType,
     /// Extra RX FIFO words needed by some implementations.
     pub extra_rx_fifo_words: u16,
-    /// Whether to set up late cnak
-    pub quirk_setup_late_cnak: bool,
     /// Function to calculate TRDT value based on some internal clock speed.
     pub calculate_trdt_fn: fn(speed: vals::Dspd) -> u8,
 }

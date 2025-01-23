@@ -12,7 +12,7 @@ impl super::Rtc {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
                 w.set_bypshad(true);
-                w.set_fmt(Fmt::TWENTYFOURHOUR);
+                w.set_fmt(Fmt::TWENTY_FOUR_HOUR);
                 w.set_osel(Osel::DISABLED);
                 w.set_pol(Pol::HIGH);
             });
@@ -25,7 +25,7 @@ impl super::Rtc {
             // TODO: configuration for output pins
             rtc.cr().modify(|w| {
                 w.set_out2en(false);
-                w.set_tampalrm_type(TampalrmType::PUSHPULL);
+                w.set_tampalrm_type(TampalrmType::PUSH_PULL);
                 w.set_tampalrm_pu(false);
             });
         });
@@ -56,10 +56,10 @@ impl super::Rtc {
             rtc.calr().write(|w| {
                 match period {
                     RtcCalibrationCyclePeriod::Seconds8 => {
-                        w.set_calw8(Calw8::EIGHTSECONDS);
+                        w.set_calw8(Calw8::EIGHT_SECONDS);
                     }
                     RtcCalibrationCyclePeriod::Seconds16 => {
-                        w.set_calw16(Calw16::SIXTEENSECONDS);
+                        w.set_calw16(Calw16::SIXTEEN_SECONDS);
                     }
                     RtcCalibrationCyclePeriod::Seconds32 => {
                         // Set neither `calw8` nor `calw16` to use 32 seconds
@@ -79,7 +79,7 @@ impl super::Rtc {
                     // When the offset is positive (0 to 512), the opposite of
                     // the offset (512 - offset) is masked, i.e. for the
                     // maximum offset (512), 0 pulses are masked.
-                    w.set_calp(Calp::INCREASEFREQ);
+                    w.set_calp(Calp::INCREASE_FREQ);
                     w.set_calm(512 - clock_drift as u16);
                 } else {
                     // Minimum (about -510.7) rounds to -511.
@@ -88,7 +88,7 @@ impl super::Rtc {
                     // When the offset is negative or zero (-511 to 0),
                     // the absolute offset is masked, i.e. for the minimum
                     // offset (-511), 511 pulses are masked.
-                    w.set_calp(Calp::NOCHANGE);
+                    w.set_calp(Calp::NO_CHANGE);
                     w.set_calm((clock_drift * -1.0) as u16);
                 }
             });
@@ -133,14 +133,20 @@ impl SealedInstance for crate::peripherals::RTC {
     cfg_if::cfg_if!(
         if #[cfg(stm32g4)] {
             const EXTI_WAKEUP_LINE: usize = 20;
-            type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
         } else if #[cfg(stm32g0)] {
             const EXTI_WAKEUP_LINE: usize = 19;
-            type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
         } else if #[cfg(any(stm32l5, stm32h5))] {
             const EXTI_WAKEUP_LINE: usize = 17;
-            type WakeupInterrupt = crate::interrupt::typelevel::RTC;
-        } else if #[cfg(stm32u5)] {
+        }
+    );
+
+    #[cfg(feature = "low-power")]
+    cfg_if::cfg_if!(
+        if #[cfg(stm32g4)] {
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+        } else if #[cfg(any(stm32g0, stm32u0))] {
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
+        } else if #[cfg(any(stm32l5, stm32h5, stm32u5))] {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC;
         }
     );

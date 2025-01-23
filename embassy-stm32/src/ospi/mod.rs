@@ -52,7 +52,7 @@ pub struct Config {
     /// Enables the transaction boundary feature and defines the boundary to release
     /// the chip select
     pub chip_select_boundary: u8,
-    /// Enbales the delay block bypass so the sampling is not affected by the delay block
+    /// Enables the delay block bypass so the sampling is not affected by the delay block
     pub delay_block_bypass: bool,
     /// Enables communication regulation feature. Chip select is released when the other
     /// OctoSpi requests access to the bus
@@ -218,7 +218,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         // Enable memory mapped mode
         reg.cr().modify(|r| {
-            r.set_fmode(crate::ospi::vals::FunctionalMode::MEMORYMAPPED);
+            r.set_fmode(crate::ospi::vals::FunctionalMode::MEMORY_MAPPED);
             r.set_tcen(false);
         });
         Ok(())
@@ -229,7 +229,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         let reg = T::REGS;
 
         reg.cr().modify(|r| {
-            r.set_fmode(crate::ospi::vals::FunctionalMode::INDIRECTWRITE);
+            r.set_fmode(crate::ospi::vals::FunctionalMode::INDIRECT_WRITE);
             r.set_abort(true);
             r.set_dmaen(false);
             r.set_en(false);
@@ -388,7 +388,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS.tcr().modify(|w| {
             w.set_sshift(match config.sample_shifting {
-                true => vals::SampleShift::HALFCYCLE,
+                true => vals::SampleShift::HALF_CYCLE,
                 false => vals::SampleShift::NONE,
             });
             w.set_dhqc(config.delay_hold_quarter_cycle);
@@ -520,7 +520,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     }
 
     /// Function used to control or configure the target device without data transfer
-    pub async fn command(&mut self, command: &TransferConfig) -> Result<(), OspiError> {
+    pub fn blocking_command(&mut self, command: &TransferConfig) -> Result<(), OspiError> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
@@ -556,7 +556,9 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTREAD));
+        T::REGS
+            .cr()
+            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
         if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
@@ -591,7 +593,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
 
         for idx in 0..buf.len() {
             while !T::REGS.sr().read().ftf() {}
@@ -653,7 +655,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS.tcr().modify(|w| {
             w.set_sshift(match config.sample_shifting {
-                true => vals::SampleShift::HALFCYCLE,
+                true => vals::SampleShift::HALF_CYCLE,
                 false => vals::SampleShift::NONE,
             });
             w.set_dhqc(config.delay_hold_quarter_cycle);
@@ -1051,7 +1053,9 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTREAD));
+        T::REGS
+            .cr()
+            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
         if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
@@ -1086,7 +1090,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         self.configure_command(&transaction, Some(buf.len()))?;
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
 
         let transfer = unsafe {
             self.dma
@@ -1119,7 +1123,9 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTREAD));
+        T::REGS
+            .cr()
+            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
         if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
@@ -1154,7 +1160,7 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         self.configure_command(&transaction, Some(buf.len()))?;
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
 
         let transfer = unsafe {
             self.dma

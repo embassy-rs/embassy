@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+No unreleased changes yet... Quick, go send a PR!
+
+## 0.6 - 2025-01-05
+
+- Make `Config` constructors `const`
+- The `std` feature has been removed
+- Updated `embassy-time` to v0.4
+
+## 0.5 - 2024-11-28
+
+- Refactor the API structure, simplifying lifetimes and generics.
+    - Stack is now a thin handle that implements `Copy+Clone`. Instead of passing `&Stack` around, you can now pass `Stack`.
+    - `Stack` and `DnsSocket` no longer need a generic parameter for the device driver.
+    - The `run()` method has been moved to a new `Runner` struct.
+    - Sockets are covariant wrt their lifetime.
+    - An implication of the refactor is now you need only one `StaticCell` instead of two if you need to share the network stack between tasks.
+- Use standard `core::net` IP types instead of custom ones from smoltcp.
+- Update to `smoltcp` v0.12.
+- Add `mdns` Cargo feature.
+- dns: properly handle `AddrType::Either` in `get_host_by_name()`
+- dns: truncate instead of panic if the DHCP server gives us more DNS servers than the configured maximum.
+- stack: add `wait_link_up()`, `wait_link_down()`, `wait_config_down()`.
+- tcp: Add `recv_queue()`, `send_queue()`.
+- tcp: Add `wait_read_ready()`, `wait_write_ready()`.
+- tcp: allow setting timeout through `embedded-nal` client.
+- tcp: fix `flush()` hanging forever if socket is closed with pending data.
+- tcp: fix `flush()` not waiting for ACK of FIN.
+- tcp: implement `ReadReady`, `WriteReady` traits from `embedded-io`.
+- udp, raw: Add `wait_send_ready()`, `wait_recv_ready()`, `flush()`.
+- udp: add `recv_from_with()`, `send_to_with()` methods, allowing for IO with one less copy.
+- udp: send/recv now takes/returns full `UdpMetadata` instead of just the remote `IpEndpoint`.
+- raw: add raw sockets.
+
+
 ## 0.4 - 2024-01-11
 
 - Update to `embassy-time` v0.3.

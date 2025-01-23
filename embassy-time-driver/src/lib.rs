@@ -17,12 +17,79 @@
 //! Otherwise, don’t enable any `tick-hz-*` feature to let the user configure the tick rate themselves by
 //! enabling a feature on `embassy-time`.
 //!
+//! ### Example
+//!
+//! ```
+//! use core::task::Waker;
+//!
+//! use embassy_time_driver::Driver;
+//!
+//! struct MyDriver{} // not public!
+//!
+//! impl Driver for MyDriver {
+//!     fn now(&self) -> u64 {
+//!         todo!()
+//!     }
+//!
+//!     fn schedule_wake(&self, at: u64, waker: &Waker) {
+//!         todo!()
+//!     }
+//! }
+//!
+//! embassy_time_driver::time_driver_impl!(static DRIVER: MyDriver = MyDriver{});
+//! ```
+//!
+//! ## Implementing the timer queue
+//!
+//! The simplest (but suboptimal) way to implement a timer queue is to define a single queue in the
+//! time driver. Declare a field protected by an appropriate mutex (e.g. `critical_section::Mutex`).
+//!
+//! Then, you'll need to adapt the `schedule_wake` method to use this queue.
+//!
+//! Note that if you are using multiple queues, you will need to ensure that a single timer
+//! queue item is only ever enqueued into a single queue at a time.
+//!
+//! ```
+//! use core::cell::RefCell;
+//! use core::task::Waker;
+//!
+//! use critical_section::{CriticalSection, Mutex};
+//! use embassy_time_queue_utils::Queue;
+//! use embassy_time_driver::Driver;
+//!
+//! struct MyDriver {
+//!     queue: Mutex<RefCell<Queue>>,
+//! }
+//!
+//! impl MyDriver {
+//!    fn set_alarm(&self, cs: &CriticalSection, at: u64) -> bool {
+//!        todo!()
+//!    }
+//! }
+//!
+//! impl Driver for MyDriver {
+//!     fn now(&self) -> u64 { todo!() }
+//!
+//!     fn schedule_wake(&self, at: u64, waker: &Waker) {
+//!         critical_section::with(|cs| {
+//!             let mut queue = self.queue.borrow(cs).borrow_mut();
+//!             if queue.schedule_wake(at, waker) {
+//!                 let mut next = queue.next_expiration(self.now());
+//!                 while !self.set_alarm(&cs, next) {
+//!                     next = queue.next_expiration(self.now());
+//!                 }
+//!             }
+//!         });
+//!     }
+//! }
+//! ```
+//!
 //! # Linkage details
 //!
 //! Instead of the usual "trait + generic params" approach, calls from embassy to the driver are done via `extern` functions.
 //!
-//! `embassy` internally defines the driver functions as `extern "Rust" { fn _embassy_time_now() -> u64; }` and calls them.
-//! The driver crate defines the functions as `#[no_mangle] fn _embassy_time_now() -> u64`. The linker will resolve the
+//! `embassy` internally defines the driver function as `extern "Rust" { fn _embassy_time_now() -> u64; }` and calls it.
+//! The driver crate defines the function as `#[no_mangle] fn _embassy_time_now() -> u64`. The linker will resolve the
 //! calls from the `embassy` crate to call into the driver crate.
 //!
 //! If there is none or multiple drivers in the crate tree, linking will fail.
@@ -34,34 +101,11 @@
 //! - It means comparing `Instant`s will always make sense: if there were multiple drivers
 //!   active, one could compare an `Instant` from driver A to an `Instant` from driver B, which
 //!   would yield incorrect results.
-//!
-//! # Example
-//!
-//! ```
-//! use embassy_time_driver::{Driver, AlarmHandle};
-//!
-//! struct MyDriver{} // not public!
-//!
-//! impl Driver for MyDriver {
-//!     fn now(&self) -> u64 {
-//!         todo!()
-//!     }
-//!     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-//!         todo!()
-//!     }
-//!     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-//!         todo!()
-//!     }
-//!     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
-//!         todo!()
-//!     }
-//! }
-//!
-//! embassy_time_driver::time_driver_impl!(static DRIVER: MyDriver = MyDriver{});
-//! ```
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+
+use core::task::Waker;
 
 mod tick;
 
@@ -69,28 +113,6 @@ mod tick;
 ///
 /// This value is specified by the [`tick-*` Cargo features](crate#tick-rate)
 pub const TICK_HZ: u64 = tick::TICK_HZ;
-
-/// Alarm handle, assigned by the driver.
-#[derive(Clone, Copy)]
-pub struct AlarmHandle {
-    id: u8,
-}
-
-impl AlarmHandle {
-    /// Create an AlarmHandle
-    ///
-    /// Safety: May only be called by the current global Driver impl.
-    /// The impl is allowed to rely on the fact that all `AlarmHandle` instances
-    /// are created by itself in unsafe code (e.g. indexing operations)
-    pub unsafe fn new(id: u8) -> Self {
-        Self { id }
-    }
-
-    /// Get the ID of the AlarmHandle.
-    pub fn id(&self) -> u8 {
-        self.id
-    }
-}
 
 /// Time driver
 pub trait Driver: Send + Sync + 'static {
@@ -106,75 +128,14 @@ pub trait Driver: Send + Sync + 'static {
     ///   or chaining multiple timers together.
     fn now(&self) -> u64;
 
-    /// Try allocating an alarm handle. Returns None if no alarms left.
-    /// Initially the alarm has no callback set, and a null `ctx` pointer.
-    ///
-    /// The allocated alarm is a reusable resource and can be used multiple times.
-    /// Once the alarm has fired, it remains allocated and can be set again without needing
-    /// to be reallocated.
-    ///
-    /// # Safety
-    /// It is UB to make the alarm fire before setting a callback.
-    unsafe fn allocate_alarm(&self) -> Option<AlarmHandle>;
-
-    /// Set the callback function to be called when the alarm triggers.
-    /// The callback may be called from any context (interrupt or thread mode).
-    ///
-    /// The callback is maintained after the alarm has fired. Callers do not need
-    /// to set a callback again before setting another alarm, unless they want to
-    /// change the callback function or context.
-    fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ());
-
-    /// Set an alarm at the given timestamp.
-    ///
-    /// ## Behavior
-    ///
-    /// If `timestamp` is in the future, `set_alarm` schedules calling the callback function
-    /// at that time, and returns `true`.
-    ///
-    /// If `timestamp` is in the past, `set_alarm` has two allowed behaviors. Implementations can pick whether to:
-    ///
-    /// - Schedule calling the callback function "immediately", as if the requested timestamp was "now+epsilon" and return `true`, or
-    /// - Not schedule the callback, and return `false`.
-    ///
-    /// Callers must ensure to behave correctly with either behavior.
-    ///
-    /// When callback is called, it is guaranteed that `now()` will return a value greater than or equal to `timestamp`.
-    ///
-    /// ## Reentrancy
-    ///
-    /// Calling the callback from `set_alarm` synchronously is not allowed. If the implementation chooses the first option above,
-    /// it must still call the callback from another context (i.e. an interrupt handler or background thread), it's not allowed
-    /// to call it synchronously in the context `set_alarm` is running.
-    ///
-    /// The reason for the above is callers are explicitly permitted to do both of:
-    /// - Lock a mutex in the alarm callback.
-    /// - Call `set_alarm` while having that mutex locked.
-    ///
-    /// If `set_alarm` called the callback synchronously, it'd cause a deadlock or panic because it'd cause the
-    /// mutex to be locked twice reentrantly in the same context.
-    ///
-    /// ## Overwriting alarms
-    ///
-    /// Only one alarm can be active at a time for each `AlarmHandle`. This overwrites any previously-set alarm if any.
-    ///
-    /// ## Unsetting the alarm
-    ///
-    /// There is no `unset_alarm` API. Instead, callers can call `set_alarm` with `timestamp` set to `u64::MAX`.
-    ///
-    /// This allows for more efficient implementations, since they don't need to distinguish between the "alarm set" and
-    /// "alarm not set" cases, thanks to the fact "Alarm set for u64::MAX" is effectively equivalent for "alarm not set".
-    ///
-    /// This means implementations need to be careful to avoid timestamp overflows. The recommendation is to make `timestamp`
-    /// be in the same units as hardware ticks to avoid any conversions, which makes avoiding overflow easier.
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool;
+    /// Schedules a waker to be awoken at moment `at`.
+    /// If this moment is in the past, the waker might be awoken immediately.
+    fn schedule_wake(&self, at: u64, waker: &Waker);
 }
 
 extern "Rust" {
     fn _embassy_time_now() -> u64;
-    fn _embassy_time_allocate_alarm() -> Option<AlarmHandle>;
-    fn _embassy_time_set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ());
-    fn _embassy_time_set_alarm(alarm: AlarmHandle, timestamp: u64) -> bool;
+    fn _embassy_time_schedule_wake(at: u64, waker: &Waker);
 }
 
 /// See [`Driver::now`]
@@ -182,21 +143,9 @@ pub fn now() -> u64 {
     unsafe { _embassy_time_now() }
 }
 
-/// See [`Driver::allocate_alarm`]
-///
-/// Safety: it is UB to make the alarm fire before setting a callback.
-pub unsafe fn allocate_alarm() -> Option<AlarmHandle> {
-    _embassy_time_allocate_alarm()
-}
-
-/// See [`Driver::set_alarm_callback`]
-pub fn set_alarm_callback(alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-    unsafe { _embassy_time_set_alarm_callback(alarm, callback, ctx) }
-}
-
-/// See [`Driver::set_alarm`]
-pub fn set_alarm(alarm: AlarmHandle, timestamp: u64) -> bool {
-    unsafe { _embassy_time_set_alarm(alarm, timestamp) }
+/// Schedule the given waker to be woken at `at`.
+pub fn schedule_wake(at: u64, waker: &Waker) {
+    unsafe { _embassy_time_schedule_wake(at, waker) }
 }
 
 /// Set the time Driver implementation.
@@ -213,18 +162,8 @@ macro_rules! time_driver_impl {
         }
 
         #[no_mangle]
-        unsafe fn _embassy_time_allocate_alarm() -> Option<$crate::AlarmHandle> {
-            <$t as $crate::Driver>::allocate_alarm(&$name)
-        }
-
-        #[no_mangle]
-        fn _embassy_time_set_alarm_callback(alarm: $crate::AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-            <$t as $crate::Driver>::set_alarm_callback(&$name, alarm, callback, ctx)
-        }
-
-        #[no_mangle]
-        fn _embassy_time_set_alarm(alarm: $crate::AlarmHandle, timestamp: u64) -> bool {
-            <$t as $crate::Driver>::set_alarm(&$name, alarm, timestamp)
+        fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker) {
+            <$t as $crate::Driver>::schedule_wake(&$name, at, waker);
         }
     };
 }

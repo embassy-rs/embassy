@@ -7,7 +7,7 @@ use critical_section::CriticalSection;
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::gpio::{self, vals};
-use crate::{pac, peripherals, Peripheral};
+use crate::{peripherals, Peripheral};
 
 /// GPIO flexible pin.
 ///
@@ -61,7 +61,7 @@ impl<'d> Flex<'d> {
             #[cfg(gpio_v2)]
             {
                 r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSH_PULL));
                 r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
             }
         });
@@ -82,13 +82,13 @@ impl<'d> Flex<'d> {
             {
                 r.cr(n / 8).modify(|w| {
                     w.set_mode(n % 8, speed.to_mode());
-                    w.set_cnf_out(n % 8, vals::CnfOut::PUSHPULL);
+                    w.set_cnf_out(n % 8, vals::CnfOut::PUSH_PULL);
                 });
             }
             #[cfg(gpio_v2)]
             {
                 r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSH_PULL));
                 r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
                 r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
             }
@@ -112,7 +112,7 @@ impl<'d> Flex<'d> {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             r.cr(n / 8).modify(|w| w.set_mode(n % 8, speed.to_mode()));
-            r.cr(n / 8).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPENDRAIN));
+            r.cr(n / 8).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPEN_DRAIN));
         });
 
         #[cfg(gpio_v2)]
@@ -130,7 +130,7 @@ impl<'d> Flex<'d> {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
+            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPEN_DRAIN));
             r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
             r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
         });
@@ -253,8 +253,8 @@ impl Pull {
     const fn to_pupdr(self) -> vals::Pupdr {
         match self {
             Pull::None => vals::Pupdr::FLOATING,
-            Pull::Up => vals::Pupdr::PULLUP,
-            Pull::Down => vals::Pupdr::PULLDOWN,
+            Pull::Up => vals::Pupdr::PULL_UP,
+            Pull::Down => vals::Pupdr::PULL_DOWN,
         }
     }
 }
@@ -293,11 +293,11 @@ impl Speed {
     #[cfg(gpio_v2)]
     const fn to_ospeedr(self: Speed) -> vals::Ospeedr {
         match self {
-            Speed::Low => vals::Ospeedr::LOWSPEED,
-            Speed::Medium => vals::Ospeedr::MEDIUMSPEED,
+            Speed::Low => vals::Ospeedr::LOW_SPEED,
+            Speed::Medium => vals::Ospeedr::MEDIUM_SPEED,
             #[cfg(not(syscfg_f0))]
-            Speed::High => vals::Ospeedr::HIGHSPEED,
-            Speed::VeryHigh => vals::Ospeedr::VERYHIGHSPEED,
+            Speed::High => vals::Ospeedr::HIGH_SPEED,
+            Speed::VeryHigh => vals::Ospeedr::VERY_HIGH_SPEED,
         }
     }
 }
@@ -539,16 +539,16 @@ impl OutputType {
     #[cfg(gpio_v1)]
     const fn to_cnf_out(self) -> vals::CnfOut {
         match self {
-            OutputType::PushPull => vals::CnfOut::ALTPUSHPULL,
-            OutputType::OpenDrain => vals::CnfOut::ALTOPENDRAIN,
+            OutputType::PushPull => vals::CnfOut::ALT_PUSH_PULL,
+            OutputType::OpenDrain => vals::CnfOut::ALT_OPEN_DRAIN,
         }
     }
 
     #[cfg(gpio_v2)]
     const fn to_ot(self) -> vals::Ot {
         match self {
-            OutputType::PushPull => vals::Ot::PUSHPULL,
-            OutputType::OpenDrain => vals::Ot::OPENDRAIN,
+            OutputType::PushPull => vals::Ot::PUSH_PULL,
+            OutputType::OpenDrain => vals::Ot::OPEN_DRAIN,
         }
     }
 }
@@ -624,8 +624,8 @@ impl AfType {
     pub const fn input(pull: Pull) -> Self {
         Self {
             pupdr: pull.to_pupdr(),
-            ot: vals::Ot::PUSHPULL,
-            ospeedr: vals::Ospeedr::LOWSPEED,
+            ot: vals::Ot::PUSH_PULL,
+            ospeedr: vals::Ospeedr::LOW_SPEED,
         }
     }
 
@@ -656,6 +656,16 @@ fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
     r.otyper().modify(|w| w.set_ot(n, af_type.ot));
     r.ospeedr().modify(|w| w.set_ospeedr(n, af_type.ospeedr));
     r.moder().modify(|w| w.set_moder(n, vals::Moder::ALTERNATE));
+}
+
+#[inline(never)]
+#[cfg(gpio_v2)]
+fn set_speed(pin_port: u8, speed: Speed) {
+    let pin = unsafe { AnyPin::steal(pin_port) };
+    let r = pin.block();
+    let n = pin._pin() as usize;
+
+    r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
 }
 
 #[inline(never)]
@@ -695,8 +705,8 @@ fn get_pull(pin_port: u8) -> Pull {
     #[cfg(gpio_v2)]
     return match r.pupdr().read().pupdr(n) {
         vals::Pupdr::FLOATING => Pull::None,
-        vals::Pupdr::PULLDOWN => Pull::Down,
-        vals::Pupdr::PULLUP => Pull::Up,
+        vals::Pupdr::PULL_DOWN => Pull::Down,
+        vals::Pupdr::PULL_UP => Pull::Up,
         vals::Pupdr::_RESERVED_3 => Pull::None,
     };
 }
@@ -716,7 +726,7 @@ pub(crate) trait SealedPin {
 
     #[inline]
     fn block(&self) -> gpio::Gpio {
-        pac::GPIO(self._port() as _)
+        crate::_generated::gpio_block(self._port() as _)
     }
 
     /// Set the output as high.
@@ -736,6 +746,12 @@ pub(crate) trait SealedPin {
     #[inline]
     fn set_as_af(&self, af_num: u8, af_type: AfType) {
         set_as_af(self.pin_port(), af_num, af_type)
+    }
+
+    #[inline]
+    #[cfg(gpio_v2)]
+    fn set_speed(&self, speed: Speed) {
+        set_speed(self.pin_port(), speed)
     }
 
     #[inline]
@@ -819,7 +835,7 @@ impl AnyPin {
     #[cfg(feature = "unstable-pac")]
     #[inline]
     pub fn block(&self) -> gpio::Gpio {
-        pac::GPIO(self._port() as _)
+        crate::_generated::gpio_block(self._port() as _)
     }
 }
 

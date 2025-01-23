@@ -113,8 +113,8 @@ pub enum TimerPrescaler {
 impl From<TimerPrescaler> for Timpre {
     fn from(value: TimerPrescaler) -> Self {
         match value {
-            TimerPrescaler::DefaultX2 => Timpre::DEFAULTX2,
-            TimerPrescaler::DefaultX4 => Timpre::DEFAULTX4,
+            TimerPrescaler::DefaultX2 => Timpre::DEFAULT_X2,
+            TimerPrescaler::DefaultX4 => Timpre::DEFAULT_X4,
         }
     }
 }
@@ -788,9 +788,9 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
 
     let vco_clk = ref_clk * config.mul;
     let vco_range = if VCO_RANGE.contains(&vco_clk) {
-        Pllvcosel::MEDIUMVCO
+        Pllvcosel::MEDIUM_VCO
     } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
-        Pllvcosel::WIDEVCO
+        Pllvcosel::WIDE_VCO
     } else {
         panic!("pll vco_clk out of range: {} hz", vco_clk.0)
     };

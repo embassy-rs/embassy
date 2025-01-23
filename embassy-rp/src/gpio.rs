@@ -13,18 +13,16 @@ use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-
 #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
 pub(crate) const BANK0_PIN_COUNT: usize = 30;
 #[cfg(feature = "rp235xb")]
 pub(crate) const BANK0_PIN_COUNT: usize = 48;
 
-static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [NEW_AW; BANK0_PIN_COUNT];
+static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [const { AtomicWaker::new() }; BANK0_PIN_COUNT];
 #[cfg(feature = "qspi-as-gpio")]
 const QSPI_PIN_COUNT: usize = 6;
 #[cfg(feature = "qspi-as-gpio")]
-static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [NEW_AW; QSPI_PIN_COUNT];
+static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [const { AtomicWaker::new() }; QSPI_PIN_COUNT];
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -452,6 +450,16 @@ impl<'d> OutputOpenDrain<'d> {
         Self { pin }
     }
 
+    /// Set the pin's pull-up.
+    #[inline]
+    pub fn set_pullup(&mut self, enable: bool) {
+        if enable {
+            self.pin.set_pull(Pull::Up);
+        } else {
+            self.pin.set_pull(Pull::None);
+        }
+    }
+
     /// Set the pin's drive strength.
     #[inline]
     pub fn set_drive_strength(&mut self, strength: Drive) {
@@ -626,10 +634,10 @@ impl<'d> Flex<'d> {
     pub fn set_drive_strength(&mut self, strength: Drive) {
         self.pin.pad_ctrl().modify(|w| {
             w.set_drive(match strength {
-                Drive::_2mA => pac::pads::vals::Drive::_2MA,
-                Drive::_4mA => pac::pads::vals::Drive::_4MA,
-                Drive::_8mA => pac::pads::vals::Drive::_8MA,
-                Drive::_12mA => pac::pads::vals::Drive::_12MA,
+                Drive::_2mA => pac::pads::vals::Drive::_2M_A,
+                Drive::_4mA => pac::pads::vals::Drive::_4M_A,
+                Drive::_8mA => pac::pads::vals::Drive::_8M_A,
+                Drive::_12mA => pac::pads::vals::Drive::_12M_A,
             });
         });
     }

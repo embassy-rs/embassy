@@ -74,7 +74,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         // is BUSY or I2C is in slave mode.
 
         let reload = if reload {
-            i2c::vals::Reload::NOTCOMPLETED
+            i2c::vals::Reload::NOT_COMPLETED
         } else {
             i2c::vals::Reload::COMPLETED
         };
@@ -115,7 +115,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
 
         let reload = if reload {
-            i2c::vals::Reload::NOTCOMPLETED
+            i2c::vals::Reload::NOT_COMPLETED
         } else {
             i2c::vals::Reload::COMPLETED
         };
@@ -144,7 +144,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
 
         let reload = if reload {
-            i2c::vals::Reload::NOTCOMPLETED
+            i2c::vals::Reload::NOT_COMPLETED
         } else {
             i2c::vals::Reload::COMPLETED
         };

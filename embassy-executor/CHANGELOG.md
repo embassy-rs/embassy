@@ -5,7 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.7.0 - 2025-01-02
+
+- Performance optimizations.
+- Remove feature `integrated-timers`. Starting with `embassy-time-driver` v0.2, `embassy-time` v0.4 the timer queue is now part of the time driver, so it's no longer the executor's responsibility. Therefore, `embassy-executor` no longer provides an `embassy-time-queue-driver` implementation.
+- Added the possibility for timer driver implementations to store arbitrary data in task headers. This can be used to make a timer queue intrusive list, similar to the previous `integrated-timers` feature. Payload size is controlled by the `timer-item-payload-size-X` features.
+- Added `TaskRef::executor` to obtain a reference to a task's executor
 
 ## 0.6.3 - 2024-11-12
 

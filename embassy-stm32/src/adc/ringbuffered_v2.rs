@@ -312,7 +312,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             // DMA requests are issues as long as DMA=1 and data are converted.
             w.set_dds(vals::Dds::CONTINUOUS);
             // EOC flag is set at the end of each conversion.
-            w.set_eocs(vals::Eocs::EACHCONVERSION);
+            w.set_eocs(vals::Eocs::EACH_CONVERSION);
         });
 
         // Begin ADC conversions

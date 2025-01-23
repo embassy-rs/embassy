@@ -14,6 +14,16 @@ use {defmt_rtt as _, panic_probe as _};
 // https://cdn-shop.adafruit.com/datasheets/WS2812B.pdf.
 // This demo lights up a single LED in blue. It then proceeds
 // to pulsate the LED rapidly.
+//
+// /!\ NOTE FOR nRF52840-DK users /!\
+//
+// If you're using the nRF52840-DK, the default "Vdd" power source
+// will set the GPIO I/O voltage to 3.0v, using the onboard regulator.
+// This can sometimes not be enough to drive the WS2812B signal if you
+// are not using an external level shifter. If you set the board to "USB"
+// power instead (and provide power via the "nRF USB" connector), the board
+// will instead power the I/Os at 3.3v, which is often enough (but still
+// out of official spec) for the WS2812Bs to work properly.
 
 // In the following declarations, setting the high bit tells the PWM
 // to reverse polarity, which is what the WS2812B expects.
