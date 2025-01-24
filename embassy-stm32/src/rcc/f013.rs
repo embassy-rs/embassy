@@ -209,6 +209,28 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(not(crs))]
     let hsi48: Option<Hertz> = None;
 
+    // PLL2 and PLL3
+    // Configure this before PLL since PLL2 can be the source for PLL.
+    #[cfg(stm32f107)]
+    {
+        // Common prediv for PLL2 and PLL3
+        RCC.cfgr2().modify(|w| w.set_prediv2(config.prediv2));
+
+        // Configure PLL2
+        if let Some(pll2) = config.pll2 {
+            RCC.cfgr2().modify(|w| w.set_pll2mul(pll2.mul));
+            RCC.cr().modify(|w| w.set_pll2on(true));
+            while !RCC.cr().read().pll2rdy() {}
+        }
+
+        // Configure PLL3
+        if let Some(pll3) = config.pll3 {
+            RCC.cfgr2().modify(|w| w.set_pll3mul(pll3.mul));
+            RCC.cr().modify(|w| w.set_pll3on(true));
+            while !RCC.cr().read().pll3rdy() {}
+        }
+    }
+
     // Enable PLL
     let pll = config.pll.map(|pll| {
         let (src_val, src_freq) = match pll.src {
@@ -221,7 +243,12 @@ pub(crate) unsafe fn init(config: Config) {
                 }
                 (Pllsrc::HSI_DIV2, unwrap!(hsi))
             }
-            PllSource::HSE => (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse)),
+            PllSource::HSE => {
+                #[cfg(stm32f107)]
+                RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::HSE));
+
+                (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse))
+            }
             #[cfg(rcc_f0v4)]
             PllSource::HSI48 => (Pllsrc::HSI48_DIV_PREDIV, unwrap!(hsi48)),
             #[cfg(stm32f107)]
@@ -229,9 +256,12 @@ pub(crate) unsafe fn init(config: Config) {
                 if config.pll2.is_none() {
                     panic!("if PLL source is PLL2, Config::pll2 must also be set.");
                 }
+                RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::PLL2));
+
                 let pll2 = unwrap!(config.pll2);
                 let in_freq = hse.unwrap() / config.prediv2;
                 let pll2freq = in_freq * pll2.mul;
+
                 (Pllsrc::HSE_DIV_PREDIV, pll2freq)
             }
         };
@@ -258,34 +288,6 @@ pub(crate) unsafe fn init(config: Config) {
 
         out_freq
     });
-
-    #[cfg(stm32f107)]
-    match config.pll.map(|pll| pll.src) {
-        Some(PllSource::HSE) => RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::HSE)),
-        Some(PllSource::PLL2) => RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::PLL2)),
-        _ => {}
-    }
-
-    // pll2 and pll3
-    #[cfg(stm32f107)]
-    {
-        // Common prediv for PLL2 and PLL3
-        RCC.cfgr2().modify(|w| w.set_prediv2(config.prediv2));
-
-        // Configure PLL2
-        if let Some(pll2) = config.pll2 {
-            RCC.cfgr2().modify(|w| w.set_pll2mul(pll2.mul));
-            RCC.cr().modify(|w| w.set_pll2on(true));
-            while !RCC.cr().read().pll2rdy() {}
-        }
-
-        // Configure PLL3
-        if let Some(pll3) = config.pll3 {
-            RCC.cfgr2().modify(|w| w.set_pll3mul(pll3.mul));
-            RCC.cr().modify(|w| w.set_pll3on(true));
-            while !RCC.cr().read().pll3rdy() {}
-        }
-    }
 
     #[cfg(stm32f3)]
     let pll_mul_2 = pll.map(|pll| pll * 2u32);
