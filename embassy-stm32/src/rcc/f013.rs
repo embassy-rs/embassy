@@ -10,9 +10,7 @@ pub use crate::pac::rcc::vals::Pllxtpre as PllPreDiv;
 pub use crate::pac::rcc::vals::Prediv as PllPreDiv;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Pllmul as PllMul, Ppre as APBPrescaler, Sw as Sysclk};
 #[cfg(stm32f107)]
-pub use crate::pac::rcc::vals::{
-    I2s2src, Pll2mul as Pll2Mul, Prediv1 as PllPreDiv, Prediv1src as PreDiv1Src, Usbpre as UsbPre,
-};
+pub use crate::pac::rcc::vals::{I2s2src, Pll2mul as Pll2Mul, Prediv1 as PllPreDiv, Prediv1src, Usbpre as UsbPre};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
@@ -223,12 +221,7 @@ pub(crate) unsafe fn init(config: Config) {
                 }
                 (Pllsrc::HSI_DIV2, unwrap!(hsi))
             }
-            PllSource::HSE => {
-                #[cfg(stm32f107)]
-                RCC.cfgr2().modify(|w| w.set_prediv1src(PreDiv1Src::HSE));
-
-                (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse))
-            }
+            PllSource::HSE => (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse)),
             #[cfg(rcc_f0v4)]
             PllSource::HSI48 => (Pllsrc::HSI48_DIV_PREDIV, unwrap!(hsi48)),
             #[cfg(stm32f107)]
@@ -239,7 +232,6 @@ pub(crate) unsafe fn init(config: Config) {
                 let pll2 = unwrap!(config.pll2);
                 let in_freq = hse.unwrap() / config.prediv2;
                 let pll2freq = in_freq * pll2.mul;
-                RCC.cfgr2().modify(|w| w.set_prediv1src(PreDiv1Src::PLL2));
                 (Pllsrc::HSE_DIV_PREDIV, pll2freq)
             }
         };
@@ -266,6 +258,13 @@ pub(crate) unsafe fn init(config: Config) {
 
         out_freq
     });
+
+    #[cfg(stm32f107)]
+    match config.pll.map(|pll| pll.src) {
+        Some(PllSource::HSE) => RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::HSE)),
+        Some(PllSource::PLL2) => RCC.cfgr2().modify(|w| w.set_prediv1src(Prediv1src::PLL2)),
+        _ => {}
+    }
 
     // pll2 and pll3
     #[cfg(stm32f107)]
