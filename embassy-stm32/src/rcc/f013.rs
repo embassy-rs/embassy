@@ -41,6 +41,8 @@ pub enum PllSource {
     HSI,
     #[cfg(rcc_f0v4)]
     HSI48,
+    #[cfg(stm32f107)]
+    PLL2,
 }
 
 #[derive(Clone, Copy)]
@@ -100,9 +102,7 @@ pub struct Config {
     #[cfg(stm32f107)]
     pub pll3: Option<Pll2Or3>,
     #[cfg(stm32f107)]
-    pub prediv1_src: Option<PreDiv1Src>,
-    #[cfg(stm32f107)]
-    pub prediv2: Option<PllPreDiv>,
+    pub prediv2: PllPreDiv,
 
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
@@ -118,9 +118,9 @@ pub struct Config {
     pub adc34: AdcClockSource,
 
     #[cfg(stm32f107)]
-    pub i2s2_src: Option<I2s2src>,
+    pub i2s2_src: I2s2src,
     #[cfg(stm32f107)]
-    pub i2s3_src: Option<I2s2src>,
+    pub i2s3_src: I2s2src,
 
     /// Per-peripheral kernel clock selection muxes
     pub mux: super::mux::ClockMux,
@@ -143,9 +143,7 @@ impl Default for Config {
             #[cfg(stm32f107)]
             pll3: None,
             #[cfg(stm32f107)]
-            prediv1_src: None,
-            #[cfg(stm32f107)]
-            prediv2: None,
+            prediv2: PllPreDiv::DIV1,
 
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
@@ -163,9 +161,9 @@ impl Default for Config {
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
 
             #[cfg(stm32f107)]
-            i2s2_src: None,
+            i2s2_src: I2s2src::SYS,
             #[cfg(stm32f107)]
-            i2s3_src: None,
+            i2s3_src: I2s2src::SYS,
 
             mux: Default::default(),
         }
@@ -207,13 +205,6 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(stm32f107)]
-    let pll2freq = config.pll2.map(|pll2| {
-        let prediv2 = config.prediv2.unwrap_or(PllPreDiv::DIV1);
-        let in_freq = hse.unwrap() / (prediv2.to_bits() + 1);
-        in_freq * pll2.mul
-    });
-
     // configure HSI48
     #[cfg(crs)]
     let hsi48 = config.hsi48.map(|config| super::init_hsi48(config));
@@ -222,8 +213,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Enable PLL
     let pll = config.pll.map(|pll| {
-        #[cfg(stm32f107)]
-        let prediv1_src = config.prediv1_src.unwrap_or(PreDiv1Src::HSE);
         let (src_val, src_freq) = match pll.src {
             #[cfg(any(rcc_f0v3, rcc_f0v4, rcc_f3v3))]
             PllSource::HSI => (Pllsrc::HSI_DIV_PREDIV, unwrap!(hsi)),
@@ -234,24 +223,27 @@ pub(crate) unsafe fn init(config: Config) {
                 }
                 (Pllsrc::HSI_DIV2, unwrap!(hsi))
             }
-            #[cfg(not(stm32f107))]
-            PllSource::HSE => (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse)),
-            #[cfg(stm32f107)]
-            PllSource::HSE => (
-                Pllsrc::HSE_DIV_PREDIV,
-                match prediv1_src {
-                    PreDiv1Src::HSE => unwrap!(hse),
-                    PreDiv1Src::PLL2 => unwrap!(pll2freq),
-                },
-            ),
+            PllSource::HSE => {
+                #[cfg(stm32f107)]
+                RCC.cfgr2().modify(|w| w.set_prediv1src(PreDiv1Src::HSE));
+
+                (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse))
+            }
             #[cfg(rcc_f0v4)]
             PllSource::HSI48 => (Pllsrc::HSI48_DIV_PREDIV, unwrap!(hsi48)),
+            #[cfg(stm32f107)]
+            PllSource::PLL2 => {
+                if config.pll2.is_none() {
+                    panic!("if PLL source is PLL2, Config::pll2 must also be set.");
+                }
+                let pll2 = unwrap!(config.pll2);
+                let in_freq = hse.unwrap() / config.prediv2;
+                let pll2freq = in_freq * pll2.mul;
+                RCC.cfgr2().modify(|w| w.set_prediv1src(PreDiv1Src::PLL2));
+                (Pllsrc::HSE_DIV_PREDIV, pll2freq)
+            }
         };
-        #[cfg(not(stm32f107))]
         let in_freq = src_freq / pll.prediv;
-
-        #[cfg(stm32f107)]
-        let in_freq = src_freq / (pll.prediv.to_bits() + 1);
 
         rcc_assert!(max::PLL_IN.contains(&in_freq));
         let out_freq = in_freq * pll.mul;
@@ -275,19 +267,11 @@ pub(crate) unsafe fn init(config: Config) {
         out_freq
     });
 
-    // Prediv1 Source Mux (HSE or PLL2)
-    #[cfg(stm32f107)]
-    if let Some(prediv1_src) = config.prediv1_src {
-        RCC.cfgr2().modify(|w| w.set_prediv1src(prediv1_src));
-    }
-
     // pll2 and pll3
     #[cfg(stm32f107)]
     {
         // Common prediv for PLL2 and PLL3
-        if let Some(prediv) = config.prediv2 {
-            RCC.cfgr2().modify(|w| w.set_prediv2(prediv));
-        }
+        RCC.cfgr2().modify(|w| w.set_prediv2(config.prediv2));
 
         // Configure PLL2
         if let Some(pll2) = config.pll2 {
@@ -390,13 +374,8 @@ pub(crate) unsafe fn init(config: Config) {
     // I2S2 and I2S3
     #[cfg(stm32f107)]
     {
-        if let Some(i2s2_src) = config.i2s2_src {
-            RCC.cfgr2().modify(|w| w.set_i2s2src(i2s2_src));
-        }
-
-        if let Some(i2s3_src) = config.i2s3_src {
-            RCC.cfgr2().modify(|w| w.set_i2s3src(i2s3_src));
-        }
+        RCC.cfgr2().modify(|w| w.set_i2s2src(config.i2s2_src));
+        RCC.cfgr2().modify(|w| w.set_i2s3src(config.i2s3_src));
     }
 
     // Wait for the new prescalers to kick in
