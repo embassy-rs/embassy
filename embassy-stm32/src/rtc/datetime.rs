@@ -3,6 +3,7 @@ use chrono::{Datelike, NaiveDate, Timelike, Weekday};
 
 /// Errors regarding the [`DateTime`] struct.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// The [DateTime] contains an invalid year value. Must be between `0..=4095`.
     InvalidYear,
@@ -24,6 +25,7 @@ pub enum Error {
 }
 
 /// Structure containing date and time information
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DateTime {
     /// 0..4095
     year: u16,
@@ -141,6 +143,7 @@ impl From<DateTime> for chrono::NaiveDateTime {
 /// A day of the week
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
 pub enum DayOfWeek {
     Monday = 1,
