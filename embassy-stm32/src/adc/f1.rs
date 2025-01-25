@@ -22,12 +22,9 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         if T::regs().sr().read().eoc() {
-            T::regs().cr1().modify(|w| w.set_eocie(false));
-        } else {
-            return;
+            T::regs().cr1().modify(|w| w.set_eocie(false)); // End of Convert interrupt disable
+            T::state().waker.wake();
         }
-
-        T::state().waker.wake();
     }
 }
 
@@ -115,24 +112,21 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Perform a single conversion.
     async fn convert(&mut self) -> u16 {
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(true);
-            reg.set_swstart(true);
-        });
-        T::regs().cr1().modify(|w| w.set_eocie(true));
-
+        let mut started = false;
         poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-
             if !T::regs().cr2().read().swstart() && T::regs().sr().read().eoc() {
-                Poll::Ready(())
+                Poll::Ready(T::regs().dr().read().0 as u16)
             } else {
+                if !started {
+                    T::state().waker.register(cx.waker());
+                    T::regs().cr1().modify(|w| w.set_eocie(true)); // End of Convert interrupt enable
+                    T::regs().cr2().modify(|reg| reg.set_swstart(true));
+                    started = false;
+                }
                 Poll::Pending
             }
         })
-        .await;
-
-        T::regs().dr().read().0 as u16
+        .await
     }
 
     pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
