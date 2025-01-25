@@ -6,11 +6,9 @@ use embassy_hal_internal::into_ref;
 
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
+use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::time::Hertz;
-use crate::{
-    interrupt::{self, typelevel::Interrupt},
-    rcc, Peripheral,
-};
+use crate::{rcc, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -22,7 +20,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         if T::regs().sr().read().eoc() {
             T::regs().cr1().modify(|w| w.set_eocie(false)); // End of Convert interrupt disable
