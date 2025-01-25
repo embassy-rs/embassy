@@ -23,7 +23,7 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         if T::regs().sr().read().eoc() {
-            T::regs().cr1().modify(|w| w.set_eocie(false)); // End of Convert interrupt disable
+            T::regs().cr1().modify(|w| w.set_eocie(false));
             T::state().waker.wake();
         }
     }
@@ -70,6 +70,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         // One cycle after calibration
         blocking_delay_us((1_000_000 * 1) / Self::freq().0 + 1);
 
+        T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
         Self {
