@@ -7,7 +7,10 @@ use embassy_hal_internal::into_ref;
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peripheral};
+use crate::{
+    interrupt::{self, typelevel::Interrupt},
+    rcc, Peripheral,
+};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -68,6 +71,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // One cycle after calibration
         blocking_delay_us((1_000_000 * 1) / Self::freq().0 + 1);
+
+        unsafe { T::Interrupt::enable() };
 
         Self {
             adc,
