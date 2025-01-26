@@ -137,6 +137,13 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         unsafe { T::Interrupt::enable() };
 
         let r = T::REGS;
+
+        #[cfg(stm32h5)]
+        r.cfgr2().write(|w| {
+            // Only takes effect, when UCPDEN=0.
+            w.set_rxafilten(true);
+        });
+
         r.cfgr1().write(|w| {
             // "The receiver is designed to work in the clock frequency range from 6 to 18 MHz.
             // However, the optimum performance is ensured in the range from 6 to 12 MHz"
@@ -173,11 +180,6 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_rxdmaen(true);
 
             w.set_ucpden(true);
-        });
-
-        #[cfg(stm32h5)]
-        r.cfgr2().write(|w| {
-            w.set_rxafilten(true);
         });
 
         // Software trim according to RM0481, p. 2650/2668
@@ -436,7 +438,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     pub async fn receive_with_sop(&mut self, buf: &mut [u8]) -> Result<(Sop, usize), RxError> {
         let r = T::REGS;
 
-        let dma = unsafe {
+        let mut dma = unsafe {
             self.rx_dma
                 .read(r.rxdr().as_ptr() as *mut u8, buf, TransferOptions::default())
         };
@@ -451,14 +453,20 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             });
         });
 
+        // Stop DMA reception immediately after receiving a packet, to prevent storing multiple packets in the same buffer.
         poll_fn(|cx| {
             let sr = r.sr().read();
+
             if sr.rxhrstdet() {
+                dma.request_stop();
+
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
                 r.imr().modify(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(RxError::HardReset))
             } else if sr.rxmsgend() {
+                dma.request_stop();
+
                 let ret = if sr.rxovr() {
                     Err(RxError::Overrun)
                 } else if sr.rxerr() {
