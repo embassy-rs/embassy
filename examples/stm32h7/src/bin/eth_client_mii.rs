@@ -86,7 +86,7 @@ async fn main(spawner: Spawner) -> ! {
         p.PC2,
         p.PE2,
         p.PG11,
-        GenericSMI::new(1),
+        GenericSMI::new_auto(),
         mac_addr,
     );
     info!("Device created");
