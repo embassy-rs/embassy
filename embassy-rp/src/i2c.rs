@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "defmt", allow(deprecated))] // Suppress warnings for defmt::Format using Error::AddressReserved
+
 //! I2C driver.
 use core::future;
 use core::marker::PhantomData;
@@ -40,6 +42,7 @@ pub enum Error {
     /// Target i2c address is out of range
     AddressOutOfRange(u16),
     /// Target i2c address is reserved
+    #[deprecated = "embassy_rp no longer prevents accesses to reserved addresses."]
     AddressReserved(u16),
 }
 
@@ -470,10 +473,6 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             return Err(Error::AddressOutOfRange(addr));
         }
 
-        if i2c_reserved_addr(addr) {
-            return Err(Error::AddressReserved(addr));
-        }
-
         let p = T::regs();
         p.ic_enable().write(|w| w.set_enable(false));
         p.ic_tar().write(|w| w.set_ic_tar(addr));
@@ -680,6 +679,7 @@ impl embedded_hal_1::i2c::Error for Error {
             Self::InvalidReadBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
             Self::InvalidWriteBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
             Self::AddressOutOfRange(_) => embedded_hal_1::i2c::ErrorKind::Other,
+            #[allow(deprecated)]
             Self::AddressReserved(_) => embedded_hal_1::i2c::ErrorKind::Other,
         }
     }
@@ -773,11 +773,6 @@ impl<'d, T: Instance, M: Mode> embassy_embedded_hal::SetConfig for I2c<'d, T, M>
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         self.set_config_inner(config)
     }
-}
-
-/// Check if address is reserved.
-pub fn i2c_reserved_addr(addr: u16) -> bool {
-    ((addr & 0x78) == 0 || (addr & 0x78) == 0x78) && addr != 0
 }
 
 pub(crate) trait SealedInstance {
