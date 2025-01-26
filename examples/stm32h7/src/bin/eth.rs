@@ -79,7 +79,7 @@ async fn main(spawner: Spawner) -> ! {
         p.PG13, // TX_D0: Transmit Bit 0
         p.PB13, // TX_D1: Transmit Bit 1
         p.PG11, // TX_EN: Transmit Enable
-        GenericSMI::new(0),
+        GenericSMI::new_auto(),
         mac_addr,
     );
 

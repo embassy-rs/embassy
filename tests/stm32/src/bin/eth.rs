@@ -87,7 +87,7 @@ async fn main(spawner: Spawner) {
         #[cfg(feature = "stm32h563zi")]
         p.PB15,
         p.PG11,
-        GenericSMI::new(0),
+        GenericSMI::new_auto(),
         mac_addr,
     );
 
