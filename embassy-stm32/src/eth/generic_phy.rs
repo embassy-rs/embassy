@@ -7,7 +7,7 @@ use embassy_time::{Duration, Timer};
 #[cfg(feature = "time")]
 use futures_util::FutureExt;
 
-use super::{StationManagement, PHY};
+use super::{Phy, StationManagement};
 
 #[allow(dead_code)]
 mod phy_consts {
@@ -43,13 +43,13 @@ mod phy_consts {
 use self::phy_consts::*;
 
 /// Generic SMI Ethernet PHY implementation
-pub struct GenericSMI {
+pub struct GenericPhy {
     phy_addr: u8,
     #[cfg(feature = "time")]
     poll_interval: Duration,
 }
 
-impl GenericSMI {
+impl GenericPhy {
     /// Construct the PHY. It assumes the address `phy_addr` in the SMI communication
     ///
     /// # Panics
@@ -89,7 +89,7 @@ fn blocking_delay_us(us: u32) {
     }
 }
 
-unsafe impl PHY for GenericSMI {
+impl Phy for GenericPhy {
     fn phy_reset<S: StationManagement>(&mut self, sm: &mut S) {
         // Detect SMI address
         if self.phy_addr == 0xFF {
@@ -148,7 +148,7 @@ unsafe impl PHY for GenericSMI {
 }
 
 /// Public functions for the PHY
-impl GenericSMI {
+impl GenericPhy {
     /// Set the SMI polling interval.
     #[cfg(feature = "time")]
     pub fn set_poll_interval(&mut self, poll_interval: Duration) {
