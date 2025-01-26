@@ -30,7 +30,7 @@ pub enum SendError {
     /// Socket not bound to an outgoing port.
     SocketNotBound,
     /// There is not enough transmit buffer capacity to ever send this packet.
-    Truncated,
+    PacketTooLarge,
 }
 
 /// Error returned by [`UdpSocket::recv_from`].
@@ -252,11 +252,9 @@ impl<'a> UdpSocket<'a> {
         T: Into<UdpMetadata>,
     {
         // Don't need to wake waker in `with_mut` if the buffer will never fit the udp tx_buffer.
-        let send_capacity_too_small = self
-            .stack
-            .with(|i| i.sockets.get::<udp::Socket>(self.handle).payload_send_capacity() < buf.len());
+        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < buf.len());
         if send_capacity_too_small {
-            return Poll::Ready(Err(SendError::Truncated));
+            return Poll::Ready(Err(SendError::PacketTooLarge));
         }
 
         self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
@@ -291,11 +289,9 @@ impl<'a> UdpSocket<'a> {
         F: FnOnce(&mut [u8]) -> R,
     {
         // Don't need to wake waker in `with_mut` if the buffer will never fit the udp tx_buffer.
-        let send_capacity_too_small = self
-            .stack
-            .with(|i| i.sockets.get::<udp::Socket>(self.handle).payload_send_capacity() < size);
+        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < size);
         if send_capacity_too_small {
-            return Err(SendError::Truncated);
+            return Err(SendError::PacketTooLarge);
         }
 
         let mut f = Some(f);
