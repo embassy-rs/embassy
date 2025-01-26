@@ -359,11 +359,13 @@ impl AnyChannel {
         match self.info().dma {
             #[cfg(dma)]
             DmaInfo::Dma(r) => {
+                let state: &ChannelState = &STATE[self.id as usize];
                 let ch = r.st(info.num);
 
                 // "Preceding reads and writes cannot be moved past subsequent writes."
                 fence(Ordering::SeqCst);
 
+                state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
 
                 ch.par().write_value(peri_addr as u32);
