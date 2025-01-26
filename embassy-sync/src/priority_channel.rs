@@ -411,6 +411,9 @@ where
     }
 
     fn clear(&mut self) {
+        if self.queue.len() == self.queue.capacity() {
+            self.senders_waker.wake();
+        }
         self.queue.clear();
     }
 

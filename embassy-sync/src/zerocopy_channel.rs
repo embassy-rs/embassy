@@ -287,6 +287,9 @@ impl State {
     }
 
     fn clear(&mut self) {
+        if self.full {
+            self.receive_waker.wake();
+        }
         self.front = 0;
         self.back = 0;
         self.full = false;
