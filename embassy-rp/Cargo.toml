@@ -20,7 +20,9 @@ flavors = [
 ]
 
 [package.metadata.docs.rs]
-features = ["defmt", "unstable-pac", "time-driver"]
+# TODO: it's not GREAT to set a specific target, but docs.rs builds will fail otherwise
+# for now, default to rp2040
+features = ["defmt", "unstable-pac", "time-driver", "rp2040"]
 
 [features]
 default = [ "rt" ]
