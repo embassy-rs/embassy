@@ -254,6 +254,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             self.rise_fall_speed = config.rise_fall_speed;
             if let Some(sck) = self.sck.as_ref() {
                 sck.set_speed(config.rise_fall_speed);
+
+                if let Some(af_num) = sck.pin_af_num() {
+                    sck.set_as_af(af_num, config.sck_af());
+                }
             }
             if let Some(mosi) = self.mosi.as_ref() {
                 mosi.set_speed(config.rise_fall_speed);
