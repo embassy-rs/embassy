@@ -118,11 +118,11 @@ impl<'d, T: Instance> Adc<'d, T> {
     async fn convert(&mut self) -> u16 {
         let mut started = false;
         poll_fn(|cx| {
+            T::state().waker.register(cx.waker());
             if !T::regs().cr2().read().swstart() && T::regs().sr().read().eoc() {
                 Poll::Ready(T::regs().dr().read().0 as u16)
             } else {
                 if !started {
-                    T::state().waker.register(cx.waker());
                     T::regs().cr1().modify(|w| w.set_eocie(true)); // End of Convert interrupt enable
                     T::regs().cr2().modify(|reg| reg.set_swstart(true));
                     started = false;
