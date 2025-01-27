@@ -589,8 +589,8 @@ impl AfType {
 
 #[inline(never)]
 #[cfg(gpio_v1)]
-fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
-    let pin = unsafe { AnyPin::steal(pin_port, Some(af_num)) };
+fn set_as_af(pin_port: u8, _af_num: u8, af_type: AfType) {
+    let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
 
@@ -647,7 +647,7 @@ impl AfType {
 #[inline(never)]
 #[cfg(gpio_v2)]
 fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
-    let pin = unsafe { AnyPin::steal(pin_port, Some(af_num)) };
+    let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
 
@@ -661,7 +661,7 @@ fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
 #[inline(never)]
 #[cfg(gpio_v2)]
 fn set_speed(pin_port: u8, speed: Speed) {
-    let pin = unsafe { AnyPin::steal(pin_port, None) };
+    let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
 
@@ -670,7 +670,7 @@ fn set_speed(pin_port: u8, speed: Speed) {
 
 #[inline(never)]
 fn set_as_analog(pin_port: u8) {
-    let pin = unsafe { AnyPin::steal(pin_port, None) };
+    let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
 
@@ -686,7 +686,7 @@ fn set_as_analog(pin_port: u8) {
 
 #[inline(never)]
 fn get_pull(pin_port: u8) -> Pull {
-    let pin = unsafe { AnyPin::steal(pin_port, None) };
+    let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
 
@@ -713,8 +713,6 @@ fn get_pull(pin_port: u8) -> Pull {
 
 pub(crate) trait SealedPin {
     fn pin_port(&self) -> u8;
-
-    fn pin_af_num(&self) -> Option<u8>;
 
     #[inline]
     fn _pin(&self) -> u8 {
@@ -810,7 +808,6 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
     fn degrade(self) -> AnyPin {
         AnyPin {
             pin_port: self.pin_port(),
-            pin_af_num: self.pin_af_num(),
         }
     }
 }
@@ -818,7 +815,6 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
 /// Type-erased GPIO pin
 pub struct AnyPin {
     pin_port: u8,
-    pin_af_num: Option<u8>,
 }
 
 impl AnyPin {
@@ -826,11 +822,8 @@ impl AnyPin {
     ///
     /// `pin_port` is `port_num * 16 + pin_num`, where `port_num` is 0 for port `A`, 1 for port `B`, etc...
     #[inline]
-    pub unsafe fn steal(pin_port: u8, af_num: Option<u8>) -> Self {
-        Self {
-            pin_port,
-            pin_af_num: af_num,
-        }
+    pub unsafe fn steal(pin_port: u8) -> Self {
+        Self { pin_port }
     }
 
     #[inline]
@@ -856,11 +849,6 @@ impl SealedPin for AnyPin {
     fn pin_port(&self) -> u8 {
         self.pin_port
     }
-
-    #[inline]
-    fn pin_af_num(&self) -> Option<u8> {
-        self.pin_af_num
-    }
 }
 
 // ====================
@@ -875,11 +863,6 @@ foreach_pin!(
             #[inline]
             fn pin_port(&self) -> u8 {
                 $port_num * 16 + $pin_num
-            }
-
-            #[inline]
-            fn pin_af_num(&self) -> Option<u8> {
-                None
             }
         }
 
