@@ -125,7 +125,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 if !started {
                     T::regs().cr1().modify(|w| w.set_eocie(true)); // End of Convert interrupt enable
                     T::regs().cr2().modify(|reg| reg.set_swstart(true));
-                    started = false;
+                    started = true;
                 }
                 Poll::Pending
             }
