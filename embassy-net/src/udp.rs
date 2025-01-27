@@ -226,7 +226,7 @@ impl<'a> UdpSocket<'a> {
     ///
     /// This method will wait until the datagram has been sent.
     ///
-    /// If the socket's send buffer is too small to fit `buf`, this method will return `Poll::Ready(Err(SendError::Truncated))`
+    /// If the socket's send buffer is too small to fit `buf`, this method will return `Err(SendError::PacketTooLarge)`
     ///
     /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
     pub async fn send_to<T>(&self, buf: &[u8], remote_endpoint: T) -> Result<(), SendError>
@@ -244,7 +244,7 @@ impl<'a> UdpSocket<'a> {
     /// When the socket's send buffer is full, this method will return `Poll::Pending`
     /// and register the current task to be notified when the buffer has space available.
     ///
-    /// If the socket's send buffer is too small to fit `buf`, this method will return `Poll::Ready(Err(SendError::Truncated))`
+    /// If the socket's send buffer is too small to fit `buf`, this method will return `Poll::Ready(Err(SendError::PacketTooLarge))`
     ///
     /// When the remote endpoint is not reachable, this method will return `Poll::Ready(Err(Error::NoRoute))`.
     pub fn poll_send_to<T>(&self, buf: &[u8], remote_endpoint: T, cx: &mut Context<'_>) -> Poll<Result<(), SendError>>
@@ -280,7 +280,7 @@ impl<'a> UdpSocket<'a> {
     /// This method will wait until the buffer can fit the requested size before
     /// calling the function to fill its contents.
     ///
-    /// If the socket's send buffer is too small to fit `size`, this method will return `Poll::Ready(Err(SendError::Truncated))`
+    /// If the socket's send buffer is too small to fit `size`, this method will return `Err(SendError::PacketTooLarge)`
     ///
     /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
     pub async fn send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
