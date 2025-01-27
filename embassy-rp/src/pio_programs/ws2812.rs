@@ -101,14 +101,35 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
         }
     }
 
+    // Pack a [smart_leds::RGB8] into a u32 in the correct format for the PIO program
+    #[inline(always)]
+    fn pack_rgb32(color: RGB8) -> u32 {
+        (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8)
+    }
+
     /// Write a buffer of [smart_leds::RGB8] to the ws2812 string
     pub async fn write(&mut self, colors: &[RGB8; N]) {
         // Precompute the word bytes from the colors
         let mut words = [0u32; N];
         for i in 0..N {
-            let word = (u32::from(colors[i].g) << 24) | (u32::from(colors[i].r) << 16) | (u32::from(colors[i].b) << 8);
-            words[i] = word;
+            words[i] = Self::pack_rgb32(colors[i]);
         }
+
+        // DMA transfer
+        self.sm.tx().dma_push(self.dma.reborrow(), &words).await;
+
+        Timer::after_micros(55).await;
+    }
+
+    /// Write an iterator of [smart_leds::RGB8] to the ws2812 string
+    /// You may need to give the compiler a hint about the size of the iterator
+    /// when creating the PioWs2812 instance as it can't be inferred from the iterator.
+    pub async fn write_iter(&mut self, iter: impl Iterator<Item = RGB8>) {
+        let mut words = [0u32; N];
+
+        iter.zip(words.iter_mut()).for_each(|(color, word)| {
+            *word = Self::pack_rgb32(color);
+        });
 
         // DMA transfer
         self.sm.tx().dma_push(self.dma.reborrow(), &words).await;
