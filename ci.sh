@@ -305,6 +305,7 @@ cargo batch \
 # temporarily disabled, these boards are dead.
 rm -rf out/tests/stm32f103c8
 rm -rf out/tests/nrf52840-dk
+rm -rf out/tests/nrf52833-dk
 
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
