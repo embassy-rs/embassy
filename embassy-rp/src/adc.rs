@@ -58,11 +58,21 @@ impl<'p> Channel<'p> {
     }
 
     fn channel(&self) -> u8 {
+        #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
+        const CH_OFFSET: u8 = 26;
+        #[cfg(feature = "rp235xb")]
+        const CH_OFFSET: u8 = 40;
+
+        #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
+        const TS_CHAN: u8 = 4;
+        #[cfg(feature = "rp235xb")]
+        const TS_CHAN: u8 = 8;
+
         match &self.0 {
             // this requires adc pins to be sequential and matching the adc channels,
-            // which is the case for rp2040
-            Source::Pin(p) => p._pin() - 26,
-            Source::TempSensor(_) => 4,
+            // which is the case for rp2040/rp235xy
+            Source::Pin(p) => p._pin() - CH_OFFSET,
+            Source::TempSensor(_) => TS_CHAN,
         }
     }
 }
