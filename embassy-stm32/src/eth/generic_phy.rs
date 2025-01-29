@@ -42,8 +42,6 @@ mod phy_consts {
 }
 use self::phy_consts::*;
 
-const PHY_REG_BCR_DEFAULT: u16 = PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M;
-
 /// Generic SMI Ethernet PHY implementation
 pub struct GenericPhy {
     phy_addr: u8,
@@ -130,7 +128,11 @@ impl Phy for GenericPhy {
         self.smi_write_ext(sm, PHY_REG_WUCSR, 0);
 
         // Enable auto-negotiation
-        sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_DEFAULT);
+        sm.smi_write(
+            self.phy_addr,
+            PHY_REG_BCR,
+            PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M,
+        );
     }
 
     fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool {
@@ -156,7 +158,7 @@ impl Phy for GenericPhy {
         if !link_up && self.auto_recover {
             let bcr = sm.smi_read(self.phy_addr, PHY_REG_BCR);
 
-            if bcr != PHY_REG_BCR_DEFAULT {
+            if (bcr & PHY_REG_BCR_AN == 0) || (bcr & PHY_REG_BCR_100M == 0) {
                 #[cfg(feature = "defmt")]
                 defmt::error!("Spurious PHY reset detected, will automatically reconfigure.");
 
