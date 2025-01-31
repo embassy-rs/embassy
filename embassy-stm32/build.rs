@@ -116,6 +116,7 @@ fn main() {
         "peri_usb_otg_fs",
         "peri_usb_otg_hs",
         "peri_octospi2",
+        "peri_xspi2",
     ]);
     cfgs.declare_all(&["mco", "mco1", "mco2"]);
 
@@ -1098,6 +1099,72 @@ fn main() {
         (("octospim", "P2_NCS"), quote!(crate::ospi::NSSPin)),
         (("octospim", "P2_CLK"), quote!(crate::ospi::SckPin)),
         (("octospim", "P2_NCLK"), quote!(crate::ospi::NckPin)),
+        (("xspi", "IO0"), quote!(crate::xspi::D0Pin)),
+        (("xspi", "IO1"), quote!(crate::xspi::D1Pin)),
+        (("xspi", "IO2"), quote!(crate::xspi::D2Pin)),
+        (("xspi", "IO3"), quote!(crate::xspi::D3Pin)),
+        (("xspi", "IO4"), quote!(crate::xspi::D4Pin)),
+        (("xspi", "IO5"), quote!(crate::xspi::D5Pin)),
+        (("xspi", "IO6"), quote!(crate::xspi::D6Pin)),
+        (("xspi", "IO7"), quote!(crate::xspi::D7Pin)),
+        (("xspi", "IO8"), quote!(crate::xspi::D8Pin)),
+        (("xspi", "IO9"), quote!(crate::xspi::D9Pin)),
+        (("xspi", "IO10"), quote!(crate::xspi::D10Pin)),
+        (("xspi", "IO11"), quote!(crate::xspi::D11Pin)),
+        (("xspi", "IO12"), quote!(crate::xspi::D12Pin)),
+        (("xspi", "IO13"), quote!(crate::xspi::D13Pin)),
+        (("xspi", "IO14"), quote!(crate::xspi::D14Pin)),
+        (("xspi", "IO15"), quote!(crate::xspi::D15Pin)),
+        (("xspi", "DQS0"), quote!(crate::xspi::DQS0Pin)),
+        (("xspi", "DQS1"), quote!(crate::xspi::DQS1Pin)),
+        (("xspi", "NCS1"), quote!(crate::xspi::NCS1Pin)),
+        (("xspi", "NCS2"), quote!(crate::xspi::NCS2Pin)),
+        (("xspi", "CLK"), quote!(crate::xspi::CLKPin)),
+        (("xspi", "NCLK"), quote!(crate::xspi::NCLKPin)),
+        (("xspim", "P1_IO0"), quote!(crate::xspi::D0Pin)),
+        (("xspim", "P1_IO1"), quote!(crate::xspi::D1Pin)),
+        (("xspim", "P1_IO2"), quote!(crate::xspi::D2Pin)),
+        (("xspim", "P1_IO3"), quote!(crate::xspi::D3Pin)),
+        (("xspim", "P1_IO4"), quote!(crate::xspi::D4Pin)),
+        (("xspim", "P1_IO5"), quote!(crate::xspi::D5Pin)),
+        (("xspim", "P1_IO6"), quote!(crate::xspi::D6Pin)),
+        (("xspim", "P1_IO7"), quote!(crate::xspi::D7Pin)),
+        (("xspim", "P1_IO8"), quote!(crate::xspi::D8Pin)),
+        (("xspim", "P1_IO9"), quote!(crate::xspi::D9Pin)),
+        (("xspim", "P1_IO10"), quote!(crate::xspi::D10Pin)),
+        (("xspim", "P1_IO11"), quote!(crate::xspi::D11Pin)),
+        (("xspim", "P1_IO12"), quote!(crate::xspi::D12Pin)),
+        (("xspim", "P1_IO13"), quote!(crate::xspi::D13Pin)),
+        (("xspim", "P1_IO14"), quote!(crate::xspi::D14Pin)),
+        (("xspim", "P1_IO15"), quote!(crate::xspi::D15Pin)),
+        (("xspim", "P1_DQS0"), quote!(crate::xspi::DQS0Pin)),
+        (("xspim", "P1_DQS1"), quote!(crate::xspi::DQS1Pin)),
+        (("xspim", "P1_NCS1"), quote!(crate::xspi::NCS1Pin)),
+        (("xspim", "P1_NCS2"), quote!(crate::xspi::NCS2Pin)),
+        (("xspim", "P1_CLK"), quote!(crate::xspi::CLKPin)),
+        (("xspim", "P1_NCLK"), quote!(crate::xspi::NCLKPin)),
+        (("xspim", "P2_IO0"), quote!(crate::xspi::D0Pin)),
+        (("xspim", "P2_IO1"), quote!(crate::xspi::D1Pin)),
+        (("xspim", "P2_IO2"), quote!(crate::xspi::D2Pin)),
+        (("xspim", "P2_IO3"), quote!(crate::xspi::D3Pin)),
+        (("xspim", "P2_IO4"), quote!(crate::xspi::D4Pin)),
+        (("xspim", "P2_IO5"), quote!(crate::xspi::D5Pin)),
+        (("xspim", "P2_IO6"), quote!(crate::xspi::D6Pin)),
+        (("xspim", "P2_IO7"), quote!(crate::xspi::D7Pin)),
+        (("xspim", "P2_IO8"), quote!(crate::xspi::D8Pin)),
+        (("xspim", "P2_IO9"), quote!(crate::xspi::D9Pin)),
+        (("xspim", "P2_IO10"), quote!(crate::xspi::D10Pin)),
+        (("xspim", "P2_IO11"), quote!(crate::xspi::D11Pin)),
+        (("xspim", "P2_IO12"), quote!(crate::xspi::D12Pin)),
+        (("xspim", "P2_IO13"), quote!(crate::xspi::D13Pin)),
+        (("xspim", "P2_IO14"), quote!(crate::xspi::D14Pin)),
+        (("xspim", "P2_IO15"), quote!(crate::xspi::D15Pin)),
+        (("xspim", "P2_DQS0"), quote!(crate::xspi::DQS0Pin)),
+        (("xspim", "P2_DQS1"), quote!(crate::xspi::DQS1Pin)),
+        (("xspim", "P2_NCS1"), quote!(crate::xspi::NCS1Pin)),
+        (("xspim", "P2_NCS2"), quote!(crate::xspi::NCS2Pin)),
+        (("xspim", "P2_CLK"), quote!(crate::xspi::CLKPin)),
+        (("xspim", "P2_NCLK"), quote!(crate::xspi::NCLKPin)),
         (("hspi", "IO0"), quote!(crate::hspi::D0Pin)),
         (("hspi", "IO1"), quote!(crate::hspi::D1Pin)),
         (("hspi", "IO2"), quote!(crate::hspi::D2Pin)),
@@ -1188,6 +1255,17 @@ fn main() {
                             });
                         }
                         peri = format_ident!("{}", "OCTOSPI1");
+                    }
+
+                    // XSPIM  is special
+                    if p.name == "XSPIM" {
+                        if pin.signal.starts_with("P1") {
+                            peri = format_ident!("{}", "XSPI1");
+                        } else if pin.signal.starts_with("P2") {
+                            peri = format_ident!("{}", "XSPI2");
+                        } else {
+                            panic! {"malformed XSPIM pin: {:?}", pin}
+                        }
                     }
 
                     g.extend(quote! {
