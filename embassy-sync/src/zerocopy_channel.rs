@@ -35,7 +35,7 @@ use crate::waitqueue::WakerRegistration;
 /// The channel requires a buffer of recyclable elements.  Writing to the channel is done through
 /// an `&mut T`.
 pub struct Channel<'a, M: RawMutex, T> {
-    buf: *mut T,
+    buf: BufferPtr<T>,
     phantom: PhantomData<&'a mut T>,
     state: Mutex<M, RefCell<State>>,
 }
@@ -50,7 +50,7 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
         assert!(len != 0);
 
         Self {
-            buf: buf.as_mut_ptr(),
+            buf: BufferPtr(buf.as_mut_ptr()),
             phantom: PhantomData,
             state: Mutex::new(RefCell::new(State {
                 capacity: len,
@@ -93,6 +93,18 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
         self.state.lock(|s| s.borrow().is_full())
     }
 }
+
+#[repr(transparent)]
+struct BufferPtr<T>(*mut T);
+
+impl<T> BufferPtr<T> {
+    unsafe fn add(&self, count: usize) -> *mut T {
+        self.0.add(count)
+    }
+}
+
+unsafe impl<T> Send for BufferPtr<T> {}
+unsafe impl<T> Sync for BufferPtr<T> {}
 
 /// Send-only access to a [`Channel`].
 pub struct Sender<'a, M: RawMutex, T> {
