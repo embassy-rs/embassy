@@ -200,6 +200,10 @@ impl Future for Timer {
 ///     }
 /// }
 /// ```
+///
+/// ## Cancel safety
+/// It is safe to cancel waiting for the next tick,
+/// meaning no tick is lost if the Future is dropped.
 pub struct Ticker {
     expires_at: Instant,
     duration: Duration,
@@ -231,6 +235,9 @@ impl Ticker {
     }
 
     /// Waits for the next tick.
+    ///
+    /// ## Cancel safety
+    /// The produced Future is cancel safe, meaning no tick is lost if the Future is dropped.
     pub fn next(&mut self) -> impl Future<Output = ()> + Send + Sync + '_ {
         poll_fn(|cx| {
             if self.expires_at <= Instant::now() {
