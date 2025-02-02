@@ -97,6 +97,55 @@ impl super::Rtc {
     where
         F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
+        RTC::write(init_mode, f)
+    }
+}
+
+impl SealedInstance for crate::peripherals::RTC {
+    const BACKUP_REGISTER_COUNT: usize = 20;
+
+    #[cfg(all(feature = "low-power", stm32f4))]
+    const EXTI_WAKEUP_LINE: usize = 22;
+
+    #[cfg(all(feature = "low-power", stm32l4))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
+    #[cfg(all(feature = "low-power", stm32l0))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
+    #[cfg(all(feature = "low-power", any(stm32f4, stm32l4)))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+
+    #[cfg(all(feature = "low-power", stm32l0))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
+
+    // TODO figure out interrupts and exti lines for other variants
+    const EXTI_ALARM_LINE: usize = 17;
+
+    #[cfg(stm32l0)]
+    type AlarmInterrupt = crate::interrupt::typelevel::RTC;
+
+    #[cfg(stm32f3)]
+    type AlarmInterrupt = crate::interrupt::typelevel::RTC_ALARM;
+
+    fn read_backup_register(rtc: Rtc, register: usize) -> Option<u32> {
+        if register < Self::BACKUP_REGISTER_COUNT {
+            Some(rtc.bkpr(register).read().bkp())
+        } else {
+            None
+        }
+    }
+
+    fn write_backup_register(rtc: Rtc, register: usize, value: u32) {
+        if register < Self::BACKUP_REGISTER_COUNT {
+            rtc.bkpr(register).write(|w| w.set_bkp(value));
+        }
+    }
+
+    fn write<F, R>(init_mode: bool, f: F) -> R
+    where
+        F: FnOnce(crate::pac::rtc::Rtc) -> R,
+    {
         let r = RTC::regs();
         // Disable write protection.
         // This is safe, as we're only writin the correct and expected values.
@@ -122,38 +171,5 @@ impl super::Rtc {
         // This is safe, as the field accepts the full range of 8-bit values.
         r.wpr().write(|w| w.set_key(0xff));
         result
-    }
-}
-
-impl SealedInstance for crate::peripherals::RTC {
-    const BACKUP_REGISTER_COUNT: usize = 20;
-
-    #[cfg(all(feature = "low-power", stm32f4))]
-    const EXTI_WAKEUP_LINE: usize = 22;
-
-    #[cfg(all(feature = "low-power", stm32l4))]
-    const EXTI_WAKEUP_LINE: usize = 20;
-
-    #[cfg(all(feature = "low-power", stm32l0))]
-    const EXTI_WAKEUP_LINE: usize = 20;
-
-    #[cfg(all(feature = "low-power", any(stm32f4, stm32l4)))]
-    type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
-
-    #[cfg(all(feature = "low-power", stm32l0))]
-    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
-
-    fn read_backup_register(rtc: Rtc, register: usize) -> Option<u32> {
-        if register < Self::BACKUP_REGISTER_COUNT {
-            Some(rtc.bkpr(register).read().bkp())
-        } else {
-            None
-        }
-    }
-
-    fn write_backup_register(rtc: Rtc, register: usize, value: u32) {
-        if register < Self::BACKUP_REGISTER_COUNT {
-            rtc.bkpr(register).write(|w| w.set_bkp(value));
-        }
     }
 }
