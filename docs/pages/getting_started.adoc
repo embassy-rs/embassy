@@ -86,7 +86,7 @@ NOTE: How does the `+cargo run+` command know how to connect to our board and pr
 
 === It didn’t work!
 
-If you hare having issues when running `+cargo run --release+`, please check the following:
+If you are having issues when running `+cargo run --release+`, please check the following:
 
 * You are specifying the correct `+--chip+` on the command line, OR
 * You have set `+.cargo/config.toml+`’s run line to the correct chip, AND
