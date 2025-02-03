@@ -51,8 +51,7 @@ impl<S> Drop for SpawnToken<S> {
 }
 
 /// Error returned when spawning a task.
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone)]
 pub enum SpawnError {
     /// Too many instances of this task are already running.
     ///
@@ -62,10 +61,25 @@ pub enum SpawnError {
     Busy,
 }
 
+impl core::fmt::Debug for SpawnError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(self, f)
+    }
+}
+
 impl core::fmt::Display for SpawnError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SpawnError::Busy => write!(f, "Busy"),
+            SpawnError::Busy => write!(f, "Busy - Too many instances of this task are already running. Check the `pool_size` attribute of the task."),
+        }
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for SpawnError {
+    fn format(&self, f: defmt::Formatter) {
+        match self {
+            SpawnError::Busy => defmt::write!(f, "Busy - Too many instances of this task are already running. Check the `pool_size` attribute of the task."),
         }
     }
 }
