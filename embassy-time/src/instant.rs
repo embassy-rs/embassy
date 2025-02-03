@@ -17,6 +17,7 @@ impl Instant {
     pub const MAX: Instant = Instant { ticks: u64::MAX };
 
     /// Returns an Instant representing the current time.
+    #[inline]
     pub fn now() -> Instant {
         Instant {
             ticks: embassy_time_driver::now(),
