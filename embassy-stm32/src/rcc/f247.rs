@@ -414,6 +414,11 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
         }),
         #[cfg(any(all(stm32f4, not(stm32f410)), stm32f7))]
         PllInstance::Plli2s => RCC.plli2scfgr().write(|w| {
+            #[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
+            w.set_pllm(pll.prediv);
+            #[cfg(any(stm32f412, stm32f413, stm32f423))]
+            w.set_pllsrc(input.source);
+
             write_fields!(w);
         }),
         #[cfg(stm32f2)]
