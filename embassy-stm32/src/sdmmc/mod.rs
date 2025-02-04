@@ -151,6 +151,8 @@ pub enum Error {
     BadClock,
     /// Signaling switch failed.
     SignalingSwitchFailed,
+    /// Underrun error
+    Underrun,
     /// ST bit error.
     #[cfg(sdmmc_v1)]
     StBitErr,
@@ -1025,6 +1027,9 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             if status.dtimeout() {
                 return Poll::Ready(Err(Error::Timeout));
             }
+            if status.txunderr() {
+                return Poll::Ready(Err(Error::Underrun));
+            }
             #[cfg(sdmmc_v1)]
             if status.stbiterr() {
                 return Poll::Ready(Err(Error::StBitErr));
@@ -1080,6 +1085,73 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         res
     }
 
+    /// Read multiple data blocks.
+    #[inline]
+    pub async fn read_blocks(&mut self, block_idx: u32, blocks: &mut [DataBlock]) -> Result<(), Error> {
+        let card_capacity = self.card()?.get_capacity();
+
+        // NOTE(unsafe) reinterpret buffer as &mut [u32]
+        let buffer = unsafe {
+            let ptr = blocks.as_mut_ptr() as *mut u32;
+            let len = blocks.len() * 128;
+            core::slice::from_raw_parts_mut(ptr, len)
+        };
+
+        // Always read 1 block of 512 bytes
+        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        let address = match card_capacity {
+            CardCapacity::StandardCapacity => block_idx * 512,
+            _ => block_idx,
+        };
+        Self::cmd(common_cmd::set_block_length(512), false)?; // CMD16
+
+        let regs = T::regs();
+        let on_drop = OnDrop::new(|| Self::on_drop());
+
+        let transfer = Self::prepare_datapath_read(
+            &self.config,
+            #[cfg(sdmmc_v1)]
+            &mut self.dma,
+            buffer,
+            512 * blocks.len() as u32,
+            9,
+        );
+        InterruptHandler::<T>::data_interrupts(true);
+
+        Self::cmd(common_cmd::read_multiple_blocks(address), true)?;
+
+        let res = poll_fn(|cx| {
+            T::state().register(cx.waker());
+            let status = regs.star().read();
+
+            if status.dcrcfail() {
+                return Poll::Ready(Err(Error::Crc));
+            }
+            if status.dtimeout() {
+                return Poll::Ready(Err(Error::Timeout));
+            }
+            #[cfg(sdmmc_v1)]
+            if status.stbiterr() {
+                return Poll::Ready(Err(Error::StBitErr));
+            }
+            if status.dataend() {
+                return Poll::Ready(Ok(()));
+            }
+            Poll::Pending
+        })
+        .await;
+
+        Self::cmd(common_cmd::stop_transmission(), false)?; // CMD12
+        Self::clear_interrupt_flags();
+
+        if res.is_ok() {
+            on_drop.defuse();
+            Self::stop_datapath();
+            drop(transfer);
+        }
+        res
+    }
+
     /// Write a data block.
     pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
@@ -1088,7 +1160,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         let buffer = unsafe { &*((&buffer.0) as *const [u8; 512] as *const [u32; 128]) };
 
         // Always read 1 block of 512 bytes
-        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        //  cards are byte addressed hence the blockaddress is in multiples of 512 bytes
         let address = match card.get_capacity() {
             CardCapacity::StandardCapacity => block_idx * 512,
             _ => block_idx,
@@ -1127,6 +1199,94 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
                     if ready_for_data {
                         return Ok(());
+                    }
+                    timeout -= 1;
+                }
+                Err(Error::SoftwareTimeout)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Write multiple data blocks.
+    pub async fn write_blocks(&mut self, block_idx: u32, blocks: &[DataBlock]) -> Result<(), Error> {
+        let card = self.card.as_mut().ok_or(Error::NoCard)?;
+
+        // NOTE(unsafe) reinterpret buffer as &[u32]
+        let buffer = unsafe {
+            let ptr = blocks.as_ptr() as *const u32;
+            let len = blocks.len() * 128;
+            core::slice::from_raw_parts(ptr, len)
+        };
+
+        // Always read 1 block of 512 bytes
+        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        let address = match card.get_capacity() {
+            CardCapacity::StandardCapacity => block_idx * 512,
+            _ => block_idx,
+        };
+
+        Self::cmd(common_cmd::set_block_length(512), false)?; // CMD16
+
+        let block_count = blocks.len();
+
+        let regs = T::regs();
+        let on_drop = OnDrop::new(|| Self::on_drop());
+
+        #[cfg(sdmmc_v1)]
+        Self::cmd(common_cmd::write_multiple_blocks(address), true)?; // CMD25
+
+        // Setup write command
+        let transfer = self.prepare_datapath_write(buffer, 512 * block_count as u32, 9);
+        InterruptHandler::<T>::data_interrupts(true);
+
+        #[cfg(sdmmc_v2)]
+        Self::cmd(common_cmd::write_multiple_blocks(address), true)?; // CMD25
+
+        let res = poll_fn(|cx| {
+            T::state().register(cx.waker());
+
+            let status = regs.star().read();
+
+            if status.dcrcfail() {
+                return Poll::Ready(Err(Error::Crc));
+            }
+            if status.dtimeout() {
+                return Poll::Ready(Err(Error::Timeout));
+            }
+            if status.txunderr() {
+                return Poll::Ready(Err(Error::Underrun));
+            }
+            #[cfg(sdmmc_v1)]
+            if status.stbiterr() {
+                return Poll::Ready(Err(Error::StBitErr));
+            }
+            if status.dataend() {
+                return Poll::Ready(Ok(()));
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        Self::cmd(common_cmd::stop_transmission(), false)?; // CMD12
+        Self::clear_interrupt_flags();
+
+        match res {
+            Ok(_) => {
+                on_drop.defuse();
+                Self::stop_datapath();
+                drop(transfer);
+
+                // TODO: Make this configurable
+                let mut timeout: u32 = 0x00FF_FFFF;
+
+                // Try to read card status (ACMD13)
+                while timeout > 0 {
+                    match self.read_sd_status().await {
+                        Ok(_) => return Ok(()),
+                        Err(Error::Timeout) => (), // Try again
+                        Err(e) => return Err(e),
                     }
                     timeout -= 1;
                 }
@@ -1699,33 +1859,35 @@ impl<'d, T: Instance> block_device_driver::BlockDevice<512> for Sdmmc<'d, T> {
 
     async fn read(
         &mut self,
-        mut block_address: u32,
+        block_address: u32,
         buf: &mut [aligned::Aligned<Self::Align, [u8; 512]>],
     ) -> Result<(), Self::Error> {
-        // FIXME/TODO because of missing read_blocks multiple we have to do this one block at a time
-        for block in buf.iter_mut() {
-            // safety aligned by block device
-            let block = unsafe { &mut *(block as *mut _ as *mut crate::sdmmc::DataBlock) };
+        // TODO: I think block_address needs to be adjusted by the partition start offset
+        if buf.len() == 1 {
+            let block = unsafe { &mut *(&mut buf[0] as *mut _ as *mut crate::sdmmc::DataBlock) };
             self.read_block(block_address, block).await?;
-            block_address += 1;
+        } else {
+            let blocks: &mut [DataBlock] =
+                unsafe { core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut DataBlock, buf.len()) };
+            self.read_blocks(block_address, blocks).await?;
         }
-
         Ok(())
     }
 
     async fn write(
         &mut self,
-        mut block_address: u32,
+        block_address: u32,
         buf: &[aligned::Aligned<Self::Align, [u8; 512]>],
     ) -> Result<(), Self::Error> {
-        // FIXME/TODO because of missing read_blocks multiple we have to do this one block at a time
-        for block in buf.iter() {
-            // safety aligned by block device
-            let block = unsafe { &*(block as *const _ as *const crate::sdmmc::DataBlock) };
+        // TODO: I think block_address needs to be adjusted by the partition start offset
+        if buf.len() == 1 {
+            let block = unsafe { &*(&buf[0] as *const _ as *const crate::sdmmc::DataBlock) };
             self.write_block(block_address, block).await?;
-            block_address += 1;
+        } else {
+            let blocks: &[DataBlock] =
+                unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const DataBlock, buf.len()) };
+            self.write_blocks(block_address, blocks).await?;
         }
-
         Ok(())
     }
 
