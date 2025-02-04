@@ -117,13 +117,15 @@ impl Instant {
     }
 
     /// Adds a Duration to self. In case of overflow, the maximum value is returned.
-    pub fn saturating_add(&mut self, duration: Duration) {
+    pub fn saturating_add(mut self, duration: Duration) -> Self {
         self.ticks = self.ticks.saturating_add(duration.ticks);
+        self
     }
 
     /// Subtracts a Duration from self. In case of overflow, the minimum value is returned.
-    pub fn saturating_sub(&mut self, duration: Duration) {
+    pub fn saturating_sub(mut self, duration: Duration) -> Self {
         self.ticks = self.ticks.saturating_sub(duration.ticks);
+        self
     }
 }
 
