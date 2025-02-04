@@ -656,7 +656,25 @@ unsafe fn pre_init() {
         // We can still use PSM to reset PROC1 since it comes after PROC0 in the state machine.
         pac::PSM.frce_off().write_and_wait(|w| w.set_proc1(true));
         pac::PSM.frce_off().write_and_wait(|_| {});
+
+        // Make atomics work between cores.
+        enable_actlr_extexclall();
     }
+}
+
+/// Set the EXTEXCLALL bit in ACTLR.
+///
+/// The default MPU memory map marks all memory as non-shareable, so atomics don't
+/// synchronize memory accesses between cores at all. This bit forces all memory to be
+/// considered shareable regardless of what the MPU says.
+///
+/// TODO: does this interfere somehow if the user wants to use a custom MPU configuration?
+/// maybe we need to add a way to disable this?
+///
+/// This must be done FOR EACH CORE.
+#[cfg(feature = "_rp235x")]
+unsafe fn enable_actlr_extexclall() {
+    (&*cortex_m::peripheral::ICB::PTR).actlr.modify(|w| w | (1 << 29));
 }
 
 /// Extension trait for PAC regs, adding atomic xor/bitset/bitclear writes.
