@@ -1667,33 +1667,35 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> block_device_driver::BlockDevice<51
 
     async fn read(
         &mut self,
-        mut block_address: u32,
+        block_address: u32,
         buf: &mut [aligned::Aligned<Self::Align, [u8; 512]>],
     ) -> Result<(), Self::Error> {
-        // FIXME/TODO because of missing read_blocks multiple we have to do this one block at a time
-        for block in buf.iter_mut() {
-            // safety aligned by block device
-            let block = unsafe { &mut *(block as *mut _ as *mut crate::sdmmc::DataBlock) };
+        // TODO: I think block_address needs to be adjusted by the partition start offset
+        if buf.len() == 1 {
+            let block = unsafe { &mut *(&mut buf[0] as *mut _ as *mut crate::sdmmc::DataBlock) };
             self.read_block(block_address, block).await?;
-            block_address += 1;
+        } else {
+            let blocks: &mut [DataBlock] =
+                unsafe { core::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut DataBlock, buf.len()) };
+            self.read_blocks(block_address, blocks).await?;
         }
-
         Ok(())
     }
 
     async fn write(
         &mut self,
-        mut block_address: u32,
+        block_address: u32,
         buf: &[aligned::Aligned<Self::Align, [u8; 512]>],
     ) -> Result<(), Self::Error> {
-        // FIXME/TODO because of missing read_blocks multiple we have to do this one block at a time
-        for block in buf.iter() {
-            // safety aligned by block device
-            let block = unsafe { &*(block as *const _ as *const crate::sdmmc::DataBlock) };
+        // TODO: I think block_address needs to be adjusted by the partition start offset
+        if buf.len() == 1 {
+            let block = unsafe { &*(&buf[0] as *const _ as *const crate::sdmmc::DataBlock) };
             self.write_block(block_address, block).await?;
-            block_address += 1;
+        } else {
+            let blocks: &[DataBlock] =
+                unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const DataBlock, buf.len()) };
+            self.write_blocks(block_address, blocks).await?;
         }
-
         Ok(())
     }
 
