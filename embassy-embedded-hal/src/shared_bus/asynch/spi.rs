@@ -25,6 +25,7 @@
 //! let display2 = ST7735::new(spi_dev2, dc2, rst2, Default::default(), 160, 128);
 //! ```
 
+use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_hal_1::digital::OutputPin;
@@ -70,6 +71,10 @@ where
         let mut bus = self.bus.lock().await;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
+        let cs_drop = OnDrop::new(|| {
+            let _ = self.cs.set_high();
+        });
+
         let op_res = 'ops: {
             for op in operations {
                 let res = match op {
@@ -97,11 +102,10 @@ where
 
         // On failure, it's important to still flush and deassert CS.
         let flush_res = bus.flush().await;
-        let cs_res = self.cs.set_high();
+        drop(cs_drop);
 
         let op_res = op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
-        cs_res.map_err(SpiDeviceError::Cs)?;
 
         Ok(op_res)
     }
@@ -155,6 +159,10 @@ where
         bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
+        let cs_drop = OnDrop::new(|| {
+            let _ = self.cs.set_high();
+        });
+
         let op_res = 'ops: {
             for op in operations {
                 let res = match op {
@@ -182,11 +190,10 @@ where
 
         // On failure, it's important to still flush and deassert CS.
         let flush_res = bus.flush().await;
-        let cs_res = self.cs.set_high();
+        drop(cs_drop);
 
         let op_res = op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
-        cs_res.map_err(SpiDeviceError::Cs)?;
 
         Ok(op_res)
     }
