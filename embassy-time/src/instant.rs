@@ -115,6 +115,16 @@ impl Instant {
     pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
         self.ticks.checked_sub(duration.ticks).map(|ticks| Instant { ticks })
     }
+
+    /// Adds a Duration to self. In case of overflow, the maximum value is returned.
+    pub fn saturating_add(&mut self, duration: Duration) {
+        self.ticks = self.ticks.saturating_add(duration.ticks);
+    }
+
+    /// Subtracts a Duration from self. In case of overflow, the minimum value is returned.
+    pub fn saturating_sub(&mut self, duration: Duration) {
+        self.ticks = self.ticks.saturating_sub(duration.ticks);
+    }
 }
 
 impl Add<Duration> for Instant {
