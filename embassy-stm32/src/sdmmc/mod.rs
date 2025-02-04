@@ -1248,6 +1248,66 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         res
     }
 
+    /// Read multiple data blocks.
+    #[inline]
+    pub async fn read_blocks(&mut self, block_idx: u32, blocks: &mut [DataBlock]) -> Result<(), Error> {
+        let card_capacity = self.card()?.card_type;
+
+        // NOTE(unsafe) reinterpret buffer as &mut [u32]
+        let buffer = unsafe {
+            let ptr = blocks.as_mut_ptr() as *mut u32;
+            let len = blocks.len() * 128;
+            core::slice::from_raw_parts_mut(ptr, len)
+        };
+
+        // Always read 1 block of 512 bytes
+        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        let address = match card_capacity {
+            CardCapacity::SDSC => block_idx * 512,
+            _ => block_idx,
+        };
+        Self::cmd(Cmd::set_block_length(512), false)?; // CMD16
+
+        let regs = T::regs();
+        let on_drop = OnDrop::new(|| Self::on_drop());
+
+        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, buffer, 512 * blocks.len() as u32, 9);
+        InterruptHandler::<T>::data_interrupts(true);
+
+        Self::cmd(Cmd::read_multiple_blocks(address), true)?;
+
+        let res = poll_fn(|cx| {
+            T::state().register(cx.waker());
+            let status = regs.star().read();
+
+            if status.dcrcfail() {
+                return Poll::Ready(Err(Error::Crc));
+            }
+            if status.dtimeout() {
+                return Poll::Ready(Err(Error::Timeout));
+            }
+            #[cfg(sdmmc_v1)]
+            if status.stbiterr() {
+                return Poll::Ready(Err(Error::StBitErr));
+            }
+            if status.dataend() {
+                return Poll::Ready(Ok(()));
+            }
+            Poll::Pending
+        })
+        .await;
+
+        Self::cmd(Cmd::stop_transmission(), false)?; // CMD12
+        Self::clear_interrupt_flags();
+
+        if res.is_ok() {
+            on_drop.defuse();
+            Self::stop_datapath();
+            drop(transfer);
+        }
+        res
+    }
+
     /// Write a data block.
     pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
