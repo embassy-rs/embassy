@@ -36,6 +36,8 @@ async fn main(_spawner: Spawner) {
         config.rcc.apb1_pre = APBPrescaler::DIV2;
         config.rcc.apb2_pre = APBPrescaler::DIV1;
 
+        // reference your chip's manual for proper clock settings; this config
+        // is recommended for a 32 bit frame at 48 kHz sample rate
         config.rcc.plli2s = Some(Pll {
             prediv: PllPreDiv::DIV25,
             mul: PllMul::MUL384,
