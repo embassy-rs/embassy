@@ -86,7 +86,7 @@ async fn main(_spawner: Spawner) {
     assert_eq!(block, pattern2);
 
     info!("writing blocks [pattern1, pattern2]...");
-    s.write_blocks(block_idx, [pattern1, pattern2]).await.unwrap();
+    s.write_blocks(block_idx, &[pattern1, pattern2]).await.unwrap();
     
     info!("reading blocks...");
     s.read_blocks(block_idx, &mut blocks).await.unwrap();
@@ -143,7 +143,7 @@ async fn main(_spawner: Spawner) {
     assert_eq!(block, pattern2);
 
     info!("writing blocks [pattern1, pattern2]...");
-    s.write_blocks(block_idx, [pattern1, pattern2]).await.unwrap();
+    s.write_blocks(block_idx, &[pattern1, pattern2]).await.unwrap();
     
     info!("reading blocks...");
     s.read_blocks(block_idx, &mut blocks).await.unwrap();
