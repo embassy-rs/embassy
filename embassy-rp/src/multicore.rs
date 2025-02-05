@@ -65,6 +65,10 @@ unsafe fn core1_setup(stack_bottom: *mut usize) {
         // embassy, somehow. trap if so since we can't deal with that.
         cortex_m::asm::udf();
     }
+
+    #[cfg(feature = "_rp235x")]
+    crate::enable_actlr_extexclall();
+
     unsafe {
         gpio::init();
     }
