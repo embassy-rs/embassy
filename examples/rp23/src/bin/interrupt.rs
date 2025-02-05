@@ -37,7 +37,6 @@ static ADC_VALUES: Channel<CriticalSectionRawMutex, u16, 2048> = Channel::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    embassy_rp::pac::SIO.spinlock(31).write_value(1);
     let p = embassy_rp::init(Default::default());
 
     let adc = Adc::new_blocking(p.ADC, Default::default());

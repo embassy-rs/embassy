@@ -32,7 +32,6 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    embassy_rp::pac::SIO.spinlock(31).write_value(1);
     let p = embassy_rp::init(Default::default());
 
     // SPI clock needs to be running at <= 400kHz during initialization
