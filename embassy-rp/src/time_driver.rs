@@ -392,3 +392,5 @@ mod timer_aon {
         }
     }
 }
+
+// TODO add a feature "time-driver-mtime" to use the RISC-V Platform Timer to free all other timers for the user 
