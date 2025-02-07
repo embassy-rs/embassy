@@ -72,6 +72,10 @@ where
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
         let cs_drop = OnDrop::new(|| {
+            // This drop guard deasserts CS pin if the async operation is cancelled.
+            // Errors are ignored in this drop handler, as there's nothing we can do about them.
+            // If the async operation is completed without cancellation, this handler will not
+            // be run, and the CS pin will be deasserted with proper error handling.
             let _ = self.cs.set_high();
         });
 
@@ -102,10 +106,15 @@ where
 
         // On failure, it's important to still flush and deassert CS.
         let flush_res = bus.flush().await;
-        drop(cs_drop);
+
+        // Now that all the async operations are done, we defuse the CS guard,
+        // and manually set the CS pin low (to better handle the possible errors).
+        cs_drop.defuse();
+        let cs_res = self.cs.set_high();
 
         let op_res = op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
+        cs_res.map_err(SpiDeviceError::Cs)?;
 
         Ok(op_res)
     }
@@ -160,6 +169,7 @@ where
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
         let cs_drop = OnDrop::new(|| {
+            // Please see comment in SpiDevice for an explanation of this drop handler.
             let _ = self.cs.set_high();
         });
 
@@ -190,10 +200,12 @@ where
 
         // On failure, it's important to still flush and deassert CS.
         let flush_res = bus.flush().await;
-        drop(cs_drop);
+        cs_drop.defuse();
+        let cs_res = self.cs.set_high();
 
         let op_res = op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
+        cs_res.map_err(SpiDeviceError::Cs)?;
 
         Ok(op_res)
     }
