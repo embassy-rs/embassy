@@ -651,7 +651,7 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     /// of the program. The state machine is not started.
     ///
     /// `side_set` sets the range of pins affected by side-sets. The range must be consecutive.
-    /// Side-set pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
+    /// Sideset pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
     /// effective.
     pub fn use_program(&mut self, prog: &LoadedProgram<'d, PIO>, side_set: &[&Pin<'d, PIO>]) {
         assert!((prog.side_set.bits() - prog.side_set.optional() as u8) as usize == side_set.len());
@@ -668,16 +668,6 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     /// Set pin used to signal jump.
     pub fn set_jmp_pin(&mut self, pin: &Pin<'d, PIO>) {
         self.exec.jmp_pin = pin.pin();
-    }
-
-    /// Sets the range of pins affected by SIDE instructions. The range must be consecutive.
-    /// Set pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
-    /// effective.
-    pub fn set_sideset_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
-        assert!(pins.len() <= 5);
-        assert_consecutive(pins);
-        self.pins.sideset_base = pins.first().map_or(0, |p| p.pin());
-        self.pins.sideset_count = pins.len() as u8;
     }
 
     /// Sets the range of pins affected by SET instructions. The range must be consecutive.
@@ -827,13 +817,13 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     }
 
     /// Read current instruction address for this state machine
-    pub fn addr(&self) -> u8 {
+    pub fn get_addr(&self) -> u8 {
         let addr = Self::this_sm().addr();
         addr.read().addr()
     }
 
     /// Read TX FIFO threshold for this state machine.
-    pub fn tx_threshold(&self) -> u8 {
+    pub fn get_tx_threshold(&self) -> u8 {
         let shiftctrl = Self::this_sm().shiftctrl();
         shiftctrl.read().pull_thresh()
     }
@@ -848,7 +838,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     }
 
     /// Read TX FIFO threshold for this state machine.
-    pub fn rx_threshold(&self) -> u8 {
+    pub fn get_rx_threshold(&self) -> u8 {
         Self::this_sm().shiftctrl().read().push_thresh()
     }
 
