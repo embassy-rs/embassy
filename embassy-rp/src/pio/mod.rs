@@ -670,6 +670,16 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
         self.exec.jmp_pin = pin.pin();
     }
 
+    /// Sets the range of pins affected by SIDE instructions. The range must be consecutive.
+    /// Set pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
+    /// effective.
+    pub fn set_sideset_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
+        assert!(pins.len() <= 5);
+        assert_consecutive(pins);
+        self.pins.sideset_base = pins.first().map_or(0, |p| p.pin());
+        self.pins.sideset_count = pins.len() as u8;
+    }
+
     /// Sets the range of pins affected by SET instructions. The range must be consecutive.
     /// Set pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
     /// effective.
@@ -814,6 +824,51 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         if let Some(origin) = config.origin {
             unsafe { instr::exec_jmp(self, origin) }
         }
+    }
+
+    /// Read current instruction address for this state machine
+    pub fn addr(&self) -> u8 {
+        let addr = Self::this_sm().addr();
+        addr.read().addr()
+    }
+
+    /// Read TX FIFO threshold for this state machine.
+    pub fn tx_threshold(&self) -> u8 {
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.read().pull_thresh()
+    }
+
+    /// Set/change the TX FIFO threshold for this state machine.
+    pub fn set_tx_threshold(&mut self, threshold: u8) {
+        assert!(threshold <= 31);
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.modify(|w| {
+            w.set_pull_thresh(threshold);
+        });
+    }
+
+    /// Read TX FIFO threshold for this state machine.
+    pub fn rx_threshold(&self) -> u8 {
+        Self::this_sm().shiftctrl().read().push_thresh()
+    }
+
+    /// Set/change the RX FIFO threshold for this state machine.
+    pub fn set_rx_threshold(&mut self, threshold: u8) {
+        assert!(threshold <= 31);
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.modify(|w| {
+            w.set_push_thresh(threshold);
+        });
+    }
+
+    /// Set/change both TX and RX FIFO thresholds for this state machine.
+    pub fn set_thresholds(&mut self, threshold: u8) {
+        assert!(threshold <= 31);
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.modify(|w| {
+            w.set_push_thresh(threshold);
+            w.set_pull_thresh(threshold);
+        });
     }
 
     /// Set the clock divider for this state machine.
