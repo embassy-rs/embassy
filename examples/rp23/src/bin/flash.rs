@@ -1,4 +1,4 @@
-//! This example test the flash connected to the RP2040 chip.
+//! This example test the flash connected to the RP2350 chip.
 
 #![no_std]
 #![no_main]
