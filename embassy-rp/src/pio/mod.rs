@@ -20,6 +20,9 @@ use crate::{pac, peripherals, RegExt};
 
 mod instr;
 
+#[doc(inline)]
+pub use pio as program;
+
 /// Wakers for interrupts and FIFOs.
 pub struct Wakers([AtomicWaker; 12]);
 

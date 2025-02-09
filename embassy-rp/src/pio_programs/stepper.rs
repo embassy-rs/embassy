@@ -16,7 +16,7 @@ pub struct PioStepperProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioStepperProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             "pull block",
             "mov x, osr",
             "pull block",
