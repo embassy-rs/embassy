@@ -33,6 +33,8 @@ packet-trace = []
 #! the [smoltcp feature flag documentation](https://github.com/smoltcp-rs/smoltcp#feature-flags)
 #! for more details
 
+## Enable ICMP support
+icmp = ["smoltcp/socket-icmp"]
 ## Enable UDP support
 udp = ["smoltcp/socket-udp"]
 ## Enable Raw support

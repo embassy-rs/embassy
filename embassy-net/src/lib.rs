@@ -22,6 +22,8 @@ pub mod tcp;
 mod time;
 #[cfg(feature = "udp")]
 pub mod udp;
+#[cfg(feature = "icmp")]
+pub mod icmp;
 
 use core::cell::RefCell;
 use core::future::{poll_fn, Future};
