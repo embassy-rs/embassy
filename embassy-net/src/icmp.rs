@@ -252,24 +252,24 @@ impl Drop for IcmpSocket<'_> {
 
 pub mod ping {
     //! Ping utilities.
-    //! 
-    //! This module allows for an easy ICMP Echo message interface used to 
+    //!
+    //! This module allows for an easy ICMP Echo message interface used to
     //! ping devices with an [ICMP Socket](IcmpSocket).
-    //! 
+    //!
     //! ## Usage
-    //! 
+    //!
     //! ```
     //! use core::net::Ipv4Addr;
     //! use core::str::FromStr;
-    //! 
+    //!
     //! use embassy_net::icmp::ping::{PingManager, PingParams};
     //! use embassy_net::icmp::PacketMetadata;
-    //! 
+    //!
     //! let mut rx_buffer = [0; 256];
     //! let mut tx_buffer = [0; 256];
     //! let mut rx_meta = [PacketMetadata::EMPTY];
     //! let mut tx_meta = [PacketMetadata::EMPTY];
-    //! 
+    //!
     //! let mut ping_manager = PingManager::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
     //! let addr = "192.168.8.1";
     //! let mut ping_params = PingParams::new(Ipv4Addr::from_str(addr).unwrap());
@@ -280,16 +280,18 @@ pub mod ping {
     //! };
     //! ```
 
-    use super::*;
     use core::net::{IpAddr, Ipv6Addr};
+
     use embassy_time::{Duration, Instant, Timer, WithTimeout};
+
+    use super::*;
 
     /// Error returned by [`ping()`](PingManager::ping).
     #[derive(PartialEq, Eq, Clone, Copy, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum PingError {
         /// The target did not respond.
-        /// 
+        ///
         /// The packet was sent but the Reply packet has not been recieved
         /// in the timeout set by [`set_timeout()`](PingParams::set_timeout).
         DestinationHostUnreachable,
@@ -339,7 +341,7 @@ pub mod ping {
     impl<'d> PingManager<'d> {
         /// Creates a new instance of [`PingManager`] with a [`Stack`] instance
         /// and the buffers used for RX and TX.
-        /// 
+        ///
         /// **note**: This does not yet creates the ICMP socket.
         pub fn new(
             stack: Stack<'d>,
@@ -387,7 +389,7 @@ pub mod ping {
                 // Make sure each ping takes at least 1 second to respect standards
                 let rate_limit_start = Instant::now();
 
-                // make a single ping 
+                // make a single ping
                 // - shorts out errors
                 // - select the ip version
                 let ping_duration = match params.target().unwrap() {
@@ -564,7 +566,6 @@ pub mod ping {
         }
     }
 
-    
     /// Parameters for configuring the ping operation.
     ///
     /// This struct provides various configuration options for performing ICMP ping operations,
@@ -653,7 +654,7 @@ pub mod ping {
         }
 
         /// Sets the hop limit that will be used by the socket with [`set_hop_limit()`](IcmpSocket::set_hop_limit).
-        /// 
+        ///
         /// **Note**: A hop limit of [`Some(0)`](Some()) is equivalent to a hop limit of [`None`].
         pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) -> &mut Self {
             let mut hop_limit = hop_limit;
@@ -669,9 +670,9 @@ pub mod ping {
             self.hop_limit
         }
 
-        /// Sets the count used for specifying the number of pings done on one 
+        /// Sets the count used for specifying the number of pings done on one
         /// [`ping()`](PingManager::ping) call.
-        /// 
+        ///
         /// **Note**: A count of 0 will be set as 1.
         pub fn set_count(&mut self, count: u16) -> &mut Self {
             let mut count = count;
@@ -682,7 +683,7 @@ pub mod ping {
             self
         }
 
-        /// Retrieve the count used for specifying the number of pings done on one 
+        /// Retrieve the count used for specifying the number of pings done on one
         /// [`ping()`](PingManager::ping) call.
         pub fn count(&self) -> u16 {
             self.count

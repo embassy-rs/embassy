@@ -15,6 +15,8 @@ pub(crate) mod fmt;
 #[cfg(feature = "dns")]
 pub mod dns;
 mod driver_util;
+#[cfg(feature = "icmp")]
+pub mod icmp;
 #[cfg(feature = "raw")]
 pub mod raw;
 #[cfg(feature = "tcp")]
@@ -22,8 +24,6 @@ pub mod tcp;
 mod time;
 #[cfg(feature = "udp")]
 pub mod udp;
-#[cfg(feature = "icmp")]
-pub mod icmp;
 
 use core::cell::RefCell;
 use core::future::{poll_fn, Future};

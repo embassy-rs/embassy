@@ -1,5 +1,5 @@
 //! This example implements an echo (ping) with an ICMP Socket and using defmt to report the results.
-//! 
+//!
 //! Although there is a better way to execute pings using the child module ping of the icmp module,
 //! this example allows for other icmp messages like `Destination unreachable` to be sent aswell.
 //!
@@ -106,16 +106,12 @@ async fn main(spawner: Spawner) {
 
     // Send the packet and store the starting instant to mesure latency later
     let start = socket
-        .send_to_with(
-            icmp_repr.buffer_len(),
-            cfg.gateway.unwrap(),
-            |buf| {
-                // Create and populate the packet buffer allocated by `send_to_with`
-                let mut icmp_packet = Icmpv4Packet::new_unchecked(buf);
-                icmp_repr.emit(&mut icmp_packet, &ChecksumCapabilities::default());
-                Instant::now() // Return the instant where the packet was sent
-            },
-        )
+        .send_to_with(icmp_repr.buffer_len(), cfg.gateway.unwrap(), |buf| {
+            // Create and populate the packet buffer allocated by `send_to_with`
+            let mut icmp_packet = Icmpv4Packet::new_unchecked(buf);
+            icmp_repr.emit(&mut icmp_packet, &ChecksumCapabilities::default());
+            Instant::now() // Return the instant where the packet was sent
+        })
         .await
         .unwrap();
 
@@ -123,7 +119,12 @@ async fn main(spawner: Spawner) {
     socket
         .recv_with(|(buf, addr)| {
             let packet = Icmpv4Packet::new_checked(buf).unwrap();
-            info!("Recieved {:?} from {} in {}ms", packet.data(), addr, start.elapsed().as_millis());
+            info!(
+                "Recieved {:?} from {} in {}ms",
+                packet.data(),
+                addr,
+                start.elapsed().as_millis()
+            );
         })
         .await
         .unwrap();
