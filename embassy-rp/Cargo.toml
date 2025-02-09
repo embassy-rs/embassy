@@ -157,7 +157,7 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.28.0"
 
-rp-pac = { version = "7.0.0", feature = ["rt"] }
+rp-pac = { version = "7.0.0" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
