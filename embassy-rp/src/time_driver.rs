@@ -1,5 +1,5 @@
-//! Timer driver.
 use core::cell::{Cell, RefCell};
+// Timer driver.
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -9,8 +9,12 @@ use embassy_time_queue_utils::Queue;
 
 #[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
 use embassy_rp::clocks;
+#[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
+use embassy_rp::clocks;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-aot"))]
 use pac::POWMAN as TIMER;
+#[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
+use pac::SIO as TIMER;
 #[cfg(feature = "rp2040")]
 use pac::TIMER;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-timer0"))]
@@ -39,7 +43,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
 });
 
 impl Driver for TimerDriver {
-    #[cfg(not(feature = "time-driver-aot"))]
+    #[cfg(not(any(feature = "time-driver-aot", feature = "time-driver-mtime")))]
     fn now(&self) -> u64 {
         loop {
             let hi = TIMER.timerawh().read();
@@ -65,6 +69,21 @@ impl Driver for TimerDriver {
         now_lpo * TICKS_PER_LPOSC_TICK
     }
 
+    #[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
+    fn now(&self) -> u64 {
+        let now_mtime = loop {
+            let timehi = TIMER.mtimeh();
+            let timelo = TIMER.mtime();
+            let hi2 = timehi.read();
+            let lo = timelo.read();
+            let hi = timehi.read();
+            if hi == hi2 {
+                break (hi as u64) << 32 | (lo as u64);
+            }
+        };
+        now_mtime
+    }
+
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
         critical_section::with(|cs| {
             let mut queue = self.queue.borrow(cs).borrow_mut();
@@ -80,7 +99,7 @@ impl Driver for TimerDriver {
 }
 
 impl TimerDriver {
-    #[cfg(not(feature = "time-driver-aot"))]
+    #[cfg(not(any(feature = "time-driver-aot", feature = "time-driver-mtime")))]
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
         let n = 0;
         let alarm = &self.alarms.borrow(cs);
@@ -106,13 +125,42 @@ impl TimerDriver {
         }
     }
 
-    #[cfg(not(feature = "time-driver-aot"))]
+    #[cfg(feature = "time-driver-mtime")]
+    fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
+        let alarm = &self.alarms.borrow(cs);
+        alarm.timestamp.set(timestamp);
+
+        // Arm it.
+
+        let mtime_cmp = TIMER.mtimecmp();
+        let mtime_cmp_h = TIMER.mtimecmph();
+        mtime_cmp.write_value(u32::MAX);
+        mtime_cmp_h.write_value((timestamp >> 32) as u32);
+        mtime_cmp.write_value(timestamp as u32);
+
+        let now = self.now();
+        if timestamp <= now {
+            // If alarm timestamp has passed the alarm will not fire.
+            // Disarm the alarm and return `false` to indicate that.
+
+            //TIMER.armed().write(|w| w.set_armed(1 << n));
+
+            //            TIMER.mtime_ctrl()  ???????
+
+            alarm.timestamp.set(u64::MAX);
+
+            false
+        } else {
+            true
+        }
+    }
+
+    #[cfg(not(any(feature = "time-driver-aot", feature = "time-driver-mtime")))]
     fn check_alarm(&self) {
         let n = 0;
         critical_section::with(|cs| {
             // clear the irq
             TIMER.intr().write(|w| w.set_alarm(n, true));
-
             let alarm = &self.alarms.borrow(cs);
             let timestamp = alarm.timestamp.get();
             if timestamp <= self.now() {
@@ -121,6 +169,29 @@ impl TimerDriver {
                 // Not elapsed, arm it again.
                 // This can happen if it was set more than 2^32 us in the future.
                 TIMER.alarm(n).write_value(timestamp as u32);
+            }
+        });
+    }
+
+    #[cfg(feature = "time-driver-mtime")]
+    fn check_alarm(&self) {
+        critical_section::with(|cs| {
+            // clear the irq
+            //            TIMER.intr().write(|w| w.set_alarm(n, true));
+            let riscv_softirq = TIMER.riscv_softirq();
+            let mut riscv_softirq_value = riscv_softirq.read();
+            riscv_softirq_value.set_core0_set(true);
+            riscv_softirq.write_value(riscv_softirq_value);
+            let alarm = &self.alarms.borrow(cs);
+            let timestamp = alarm.timestamp.get();
+            if timestamp <= self.now() {
+                self.trigger_alarm(cs)
+            } else {
+                // Not elapsed, arm it again.
+                let riscv_softirq = TIMER.riscv_softirq();
+                let mut riscv_softirq_value = riscv_softirq.read();
+                riscv_softirq_value.set_core0_set(true);
+                riscv_softirq.write_value(riscv_softirq_value);
             }
         });
     }
@@ -142,6 +213,7 @@ impl TimerDriver {
 }
 
 /// safety: must be called exactly once at bootup
+// init alarms
 pub unsafe fn init() {
     #[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
     {
@@ -156,7 +228,15 @@ pub unsafe fn init() {
     #[cfg(all(feature = "_rp235x", feature = "time-driver-aot"))]
     timer_aon::initialize_aon_timer();
 
-    // init alarms
+    #[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
+    {
+        let timer_cycles = clocks::clk_ref_freq() / embassy_time_driver::TICK_HZ as u32;
+        pac::TICKS.riscv_cycles().write(|w| w.0 = timer_cycles);
+        pac::TICKS.riscv_ctrl().write(|w| w.0 = 1);
+        TIMER.mtime().write_value(0);
+        TIMER.mtimeh().write_value(0);
+    }
+
     critical_section::with(|cs| {
         let alarm = DRIVER.alarms.borrow(cs);
         alarm.timestamp.set(u64::MAX);
@@ -197,6 +277,15 @@ pub unsafe fn init() {
             TIMER.inte().write_value_key(inte_value);
             interrupt::POWMAN_IRQ_TIMER.enable();
         }
+        #[cfg(feature = "time-driver-mtime")]
+        {
+            // enable irq
+            let riscv_softirq = TIMER.riscv_softirq();
+            let mut riscv_softirq_value = riscv_softirq.read();
+            riscv_softirq_value.set_core0_set(true);
+            riscv_softirq.write_value(riscv_softirq_value);
+            interrupt::SIO_IRQ_MTIMECMP.enable();
+        }
     }
 }
 
@@ -221,6 +310,12 @@ fn TIMER1_IRQ_0() {
 #[cfg(all(feature = "rt", feature = "_rp235x", feature = "time-driver-aot"))]
 #[interrupt]
 fn POWMAN_IRQ_TIMER() {
+    DRIVER.check_alarm()
+}
+
+#[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
+#[interrupt]
+fn SIO_IRQ_MTIMECMP() {
     DRIVER.check_alarm()
 }
 
@@ -392,5 +487,3 @@ mod timer_aon {
         }
     }
 }
-
-// TODO add a feature "time-driver-mtime" to use the RISC-V Platform Timer to free all other timers for the user 
