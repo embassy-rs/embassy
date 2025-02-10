@@ -579,7 +579,7 @@ pub mod ping {
     /// * `hop_limit` - The hop limit to be used by the socket.
     /// * `count` - The number of pings to be sent in one ping operation.
     /// * `timeout` - The timeout duration before returning a [`PingError::DestinationHostUnreachable`] error.
-    /// * `rate_limit` - The minimum time per echo request 
+    /// * `rate_limit` - The minimum time per echo request.
     pub struct PingParams<'a> {
         target: Option<IpAddr>,
         #[cfg(feature = "proto-ipv6")]
@@ -706,13 +706,13 @@ pub mod ping {
             self.timeout
         }
 
-        /// Sets the `rate_limit`: minimum time per echo request
+        /// Sets the `rate_limit`: minimum time per echo request.
         pub fn set_rate_limit(&mut self, rate_limit: Duration) -> &mut Self {
             self.rate_limit = rate_limit;
             self
         }
 
-        /// Retrieve the rate_limit
+        /// Retrieve the rate_limit.
         pub fn rate_limit(&self) -> Duration {
             self.rate_limit
         }
