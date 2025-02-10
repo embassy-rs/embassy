@@ -1,4 +1,5 @@
 //! Timer driver.
+
 use core::cell::{Cell, RefCell};
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -21,8 +22,11 @@ use pac::TIMER0 as TIMER;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
 use pac::TIMER1 as TIMER;
 
+/*
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
+ */
+use embassy_rp::{interrupt, interrupt::InterruptExt, pac};
 
 struct AlarmState {
     timestamp: Cell<u64>,
@@ -176,21 +180,12 @@ impl TimerDriver {
     fn check_alarm(&self) {
         critical_section::with(|cs| {
             // clear the irq
-            //            TIMER.intr().write(|w| w.set_alarm(n, true));
-            let riscv_softirq = TIMER.riscv_softirq();
-            let mut riscv_softirq_value = riscv_softirq.read();
-            riscv_softirq_value.set_core0_set(true);
-            riscv_softirq.write_value(riscv_softirq_value);
             let alarm = &self.alarms.borrow(cs);
             let timestamp = alarm.timestamp.get();
             if timestamp <= self.now() {
                 self.trigger_alarm(cs)
             } else {
                 // Not elapsed, arm it again.
-                let riscv_softirq = TIMER.riscv_softirq();
-                let mut riscv_softirq_value = riscv_softirq.read();
-                riscv_softirq_value.set_core0_set(true);
-                riscv_softirq.write_value(riscv_softirq_value);
             }
         });
     }
@@ -279,10 +274,6 @@ pub unsafe fn init() {
         #[cfg(feature = "time-driver-mtime")]
         {
             // enable irq
-            let riscv_softirq = TIMER.riscv_softirq();
-            let mut riscv_softirq_value = riscv_softirq.read();
-            riscv_softirq_value.set_core0_set(true);
-            riscv_softirq.write_value(riscv_softirq_value);
             interrupt::SIO_IRQ_MTIMECMP.enable();
         }
     }
