@@ -117,7 +117,7 @@ async fn main(spawner: Spawner) {
 
     // Recieve and log the data of the reply
     socket
-        .recv_with(|(buf, addr)| {
+        .recv_from_with(|(buf, addr)| {
             let packet = Icmpv4Packet::new_checked(buf).unwrap();
             info!(
                 "Recieved {:?} from {} in {}ms",
