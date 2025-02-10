@@ -22,11 +22,9 @@ use pac::TIMER0 as TIMER;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
 use pac::TIMER1 as TIMER;
 
-/*
+
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
- */
-use embassy_rp::{interrupt, interrupt::InterruptExt, pac};
 
 struct AlarmState {
     timestamp: Cell<u64>,
