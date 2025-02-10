@@ -1,6 +1,5 @@
+//! Timer driver.
 use core::cell::{Cell, RefCell};
-// Timer driver.
-
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
