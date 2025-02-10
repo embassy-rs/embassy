@@ -407,8 +407,8 @@ pub mod ping {
 
                 // 1 sec min per ping
                 let rate_limit_end = rate_limit_start.elapsed();
-                if rate_limit_end <= Duration::from_secs(1) {
-                    Timer::after(Duration::from_secs(1).checked_sub(rate_limit_end).unwrap()).await;
+                if rate_limit_end <= params.rate_limit {
+                    Timer::after(params.rate_limit.checked_sub(rate_limit_end).unwrap()).await;
                 }
             }
             // calculate and return the average duration
@@ -579,6 +579,7 @@ pub mod ping {
     /// * `hop_limit` - The hop limit to be used by the socket.
     /// * `count` - The number of pings to be sent in one ping operation.
     /// * `timeout` - The timeout duration before returning a [`PingError::DestinationHostUnreachable`] error.
+    /// * `rate_limit` - The minimum time per echo request 
     pub struct PingParams<'a> {
         target: Option<IpAddr>,
         #[cfg(feature = "proto-ipv6")]
@@ -587,6 +588,7 @@ pub mod ping {
         hop_limit: Option<u8>,
         count: u16,
         timeout: Duration,
+        rate_limit: Duration,
     }
 
     impl Default for PingParams<'_> {
@@ -599,6 +601,7 @@ pub mod ping {
                 hop_limit: None,
                 count: 4,
                 timeout: Duration::from_secs(4),
+                rate_limit: Duration::from_secs(1),
             }
         }
     }
@@ -614,6 +617,7 @@ pub mod ping {
                 hop_limit: None,
                 count: 4,
                 timeout: Duration::from_secs(4),
+                rate_limit: Duration::from_secs(1),
             }
         }
 
@@ -700,6 +704,17 @@ pub mod ping {
         /// when waiting for the Echo Reply icmp packet.
         pub fn timeout(&self) -> Duration {
             self.timeout
+        }
+
+        /// Sets the `rate_limit`: minimum time per echo request
+        pub fn set_rate_limit(&mut self, rate_limit: Duration) -> &mut Self {
+            self.rate_limit = rate_limit;
+            self
+        }
+
+        /// Retrieve the rate_limit
+        pub fn rate_limit(&self) -> Duration {
+            self.rate_limit
         }
     }
 }
