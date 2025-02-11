@@ -1,6 +1,6 @@
 //! Timer driver.
-
 use core::cell::{Cell, RefCell};
+
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
@@ -161,6 +161,7 @@ impl TimerDriver {
         critical_section::with(|cs| {
             // clear the irq
             TIMER.intr().write(|w| w.set_alarm(n, true));
+
             let alarm = &self.alarms.borrow(cs);
             let timestamp = alarm.timestamp.get();
             if timestamp <= self.now() {
@@ -204,9 +205,9 @@ impl TimerDriver {
 }
 
 /// safety: must be called exactly once at bootup
-// init alarms
 pub unsafe fn init() {
-    #[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
+// init alarms
+#[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
     {
         let timer1_cycles = clocks::clk_ref_freq() / embassy_time_driver::TICK_HZ as u32;
         assert!(timer1_cycles < 512);
@@ -265,10 +266,10 @@ pub unsafe fn init() {
         #[cfg(feature = "time-driver-aot")]
         {
             use timer_aon::PowmanIntValue;
-            let inte = pac::POWMAN.inte();
+            let inte = TIMER.inte();
             let mut inte_value = inte.read();
             inte_value.set_timer(true);
-            TIMER.inte().write_value_key(inte_value);
+            inte.write_value_key(inte_value);
             interrupt::POWMAN_IRQ_TIMER.enable();
         }
         #[cfg(feature = "time-driver-mtime")]
@@ -312,7 +313,7 @@ fn SIO_IRQ_MTIMECMP() {
 #[cfg(all(feature = "_rp235x", feature = "time-driver-aot"))]
 mod timer_aon {
     use super::TIMER;
-    use embassy_rp::pac::{powman, POWMAN};
+    use embassy_rp::pac::powman;
     use powman::regs;
     use regs::{AlarmTime15to0, AlarmTime31to16, AlarmTime47to32, AlarmTime63to48, Int, Timer};
 
@@ -335,19 +336,19 @@ mod timer_aon {
     const_assert!(TICKS_PER_LPOSC_TICK * LPOSC_TICK == embassy_time_driver::TICK_HZ);
 
     pub fn initialize_aon_timer() {
-        let timer_reg = POWMAN.timer();
+        let timer_reg = TIMER.timer();
         let mut reset_timer = regs::Timer(0);
         reset_timer.set_nonsec_write(true);
         timer_reg.write_value_key(reset_timer);
 
         let mut clear_timer = Timer(0);
-        clear_timer.set_nonsec_write(true);
         clear_timer.set_clear(true);
+        clear_timer.set_nonsec_write(true);
         timer_reg.write_value_key(clear_timer);
 
         let mut timer_reg_value = timer_reg.read();
-        timer_reg_value.set_nonsec_write(true);
         timer_reg_value.set_use_lposc(true);
+        timer_reg_value.set_nonsec_write(true);
         timer_reg.write_value_key(timer_reg_value);
         timer_reg_value.set_run(true);
         timer_reg_value.set_alarm_enab(true); // enable alarm
@@ -357,7 +358,6 @@ mod timer_aon {
 
     use super::TimerDriver;
     use critical_section::CriticalSection;
-    use embassy_rp::pac;
     use embassy_time_driver::Driver;
     impl TimerDriver {
         pub fn set_aon_alarm_value(&self, timestamp_ticks: u64) {
@@ -365,9 +365,9 @@ mod timer_aon {
 
             let timer_reg = TIMER.timer();
             let mut timer_reg_value = timer_reg.read();
-            timer_reg_value.set_nonsec_write(true);
             let timer_reg_value_o = timer_reg_value;
             timer_reg_value.set_alarm_enab(false); // disable alarm
+            timer_reg_value.set_nonsec_write(true);
             timer_reg.write_value_key(timer_reg_value);
 
             let timestamp_15to0 = ((timestamp_lposc_ticks >> 0) & 0xFFFF) as u16;
@@ -405,15 +405,15 @@ mod timer_aon {
             // clear the irq
             let timer_reg = TIMER.timer();
             let mut timer_reg_value = timer_reg.read();
-            timer_reg_value.set_nonsec_write(true);
             timer_reg_value.set_alarm_enab(true); // enable alarm
             timer_reg_value.set_alarm(true); // reset alarm
+            timer_reg_value.set_nonsec_write(true);
             timer_reg.write_value_key(timer_reg_value);
 
-            let inte = pac::POWMAN.inte();
+            let inte = TIMER.inte();
             let mut inte_value = inte.read();
             inte_value.set_timer(true);
-            TIMER.inte().write_value_key(inte_value);
+            inte.write_value_key(inte_value);
         }
 
         pub fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
@@ -431,11 +431,10 @@ mod timer_aon {
                 let timer_reg = TIMER.timer();
                 // Disarm the alarm and return `false` to indicate that.
                 let mut timer_reg_value = timer_reg.read();
-                timer_reg_value.set_nonsec_write(true);
-                //            timer_reg_value.set_clear();
                 timer_reg_value.set_alarm_enab(true); // enable alarm
                 timer_reg_value.set_pwrup_on_alarm(true);
                 timer_reg_value.set_alarm(true); // reset alarm (just in case)
+                timer_reg_value.set_nonsec_write(true);
                 timer_reg.write_value_key(timer_reg_value);
                 alarm.timestamp.set(u64::MAX);
                 false
