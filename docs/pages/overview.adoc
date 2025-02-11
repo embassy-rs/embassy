@@ -74,7 +74,7 @@ include::embassy_in_the_wild.adoc[leveloffset = 2]
 
 For more reading material on async Rust and Embassy:
 
-* link:https://tweedegolf.nl/en/blog/65/async-rust-vs-rtos-showdown[Comparsion of FreeRTOS and Embassy]
+* link:https://tweedegolf.nl/en/blog/65/async-rust-vs-rtos-showdown[Comparison of FreeRTOS and Embassy]
 * link:https://dev.to/apollolabsbin/series/20707[Tutorials]
 * link:https://blog.drogue.io/firmware-updates-part-1/[Firmware Updates with Embassy]
 
