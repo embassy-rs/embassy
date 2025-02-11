@@ -17,11 +17,10 @@ use pac::POWMAN as TIMER;
 use pac::SIO as TIMER;
 #[cfg(feature = "rp2040")]
 use pac::TIMER;
-#[cfg(all(feature = "_rp235x", feature = "time-driver-timer0"))]
+#[cfg(all(feature = "_rp235x", not(any(feature = "time-driver-timer1", feature = "time-driver-mtime", feature = "time-driver-aot"))))]
 use pac::TIMER0 as TIMER;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
 use pac::TIMER1 as TIMER;
-
 
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
@@ -223,6 +222,9 @@ pub unsafe fn init() {
     #[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
     {
         let timer_cycles = clocks::clk_ref_freq() / embassy_time_driver::TICK_HZ as u32;
+        assert!(timer_cycles < 512);
+        assert!(timer_cycles > 0);
+        assert!(timer_cycles * embassy_time_driver::TICK_HZ as u32 == clocks::clk_ref_freq());
         pac::TICKS.riscv_cycles().write(|w| w.0 = timer_cycles);
         pac::TICKS.riscv_ctrl().write(|w| w.0 = 1);
         TIMER.mtime().write_value(0);
@@ -244,7 +246,7 @@ pub unsafe fn init() {
     }
     #[cfg(feature = "_rp235x")]
     {
-        #[cfg(feature = "time-driver-timer0")]
+        #[cfg(all(feature = "_rp235x", not(any(feature = "time-driver-timer1", feature = "time-driver-mtime", feature = "time-driver-aot"))))]
         {
             // enable irq
             TIMER.inte().write(|w| {
@@ -283,7 +285,7 @@ fn TIMER_IRQ_0() {
     DRIVER.check_alarm()
 }
 
-#[cfg(all(feature = "rt", feature = "_rp235x", feature = "time-driver-timer0"))]
+#[cfg(all(feature = "_rp235x", not(any(feature = "time-driver-timer1", feature = "time-driver-mtime", feature = "time-driver-aot"))))]
 #[interrupt]
 fn TIMER0_IRQ_0() {
     DRIVER.check_alarm()
