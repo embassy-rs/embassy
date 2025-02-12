@@ -224,6 +224,9 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // Make sure we despawn last, so that other threads can only spawn the task
                 // after we're done with it.
                 this.raw.state.despawn();
+
+                // Make sure the task is not woken up by the time driver.
+                this.raw.timer_queue_item.expires_at.set(u64::MAX);
             }
             Poll::Pending => {}
         }
