@@ -180,6 +180,19 @@ impl<'a, C: Channel> Transfer<'a, C> {
 
         Self { channel }
     }
+    /// Abort a DMA transfer early
+    ///
+    /// Returns the count of transfers still left to do
+    pub fn abort(self) -> usize {
+        let p = self.channel.regs();
+        let transfer_count = p.trans_count().read();
+        pac::DMA
+            .chan_abort()
+            .modify(|m| m.set_chan_abort(1 << self.channel.number()));
+        while p.ctrl_trig().read().busy() {}
+
+        transfer_count as usize
+    }
 }
 
 impl<'a, C: Channel> Drop for Transfer<'a, C> {
