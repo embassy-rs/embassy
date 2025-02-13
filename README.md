@@ -13,11 +13,10 @@ Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows 
 
 - **Hardware Abstraction Layers** - HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed. The Embassy project maintains HALs for select hardware, but you can still use HALs from other projects with Embassy.
   - <a href="https://docs.embassy.dev/embassy-stm32/">embassy-stm32</a>, for all STM32 microcontroller families.
-  - <a href="https://docs.embassy.dev/embassy-nrf/">embassy-nrf</a>, for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
-  - <a href="https://docs.embassy.dev/embassy-rp/">embassy-rp</a>, for the Raspberry Pi RP2040 microcontroller.
+  - <a href="https://docs.embassy.dev/embassy-nrf/">embassy-nrf</a>, for the Nordic Semiconductor nRF52, nRF53, nRF54 and nRF91 series.
+  - <a href="https://docs.embassy.dev/embassy-rp/">embassy-rp</a>, for the Raspberry Pi RP2040 and RP23xx microcontrollers.
   - <a href="https://github.com/esp-rs">esp-rs</a>, for the Espressif Systems ESP32 series of chips.
-    - Embassy HAL support for Espressif chips is being developed in the [esp-rs/esp-hal](https://github.com/esp-rs/esp-hal) repository.
-    - Async WiFi, Bluetooth and ESP-NOW is being developed in the [esp-rs/esp-wifi](https://github.com/esp-rs/esp-wifi) repository.
+    - Embassy HAL support for Espressif chips, as well as Async WiFi, Bluetooth and ESP-NOW,  is being developed in the [esp-rs/esp-hal](https://github.com/esp-rs/esp-hal) repository.
   - <a href="https://github.com/ch32-rs/ch32-hal">ch32-hal</a>, for the WCH 32-bit RISC-V(CH32V) series of chips.
 
 - **Time that Just Works** - 
@@ -32,9 +31,10 @@ Easily build devices with years of battery life. The async executor automaticall
 - **Networking** - 
 The <a href="https://docs.embassy.dev/embassy-net/">embassy-net</a> network stack implements extensive networking functionality, including Ethernet, IP, TCP, UDP, ICMP and DHCP. Async drastically simplifies managing timeouts and serving multiple connections concurrently.
 
-- **Bluetooth** - 
-The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
-The <a href="https://github.com/embassy-rs/embassy/tree/main/embassy-stm32-wpan">embassy-stm32-wpan</a> crate provides Bluetooth Low Energy 5.x support for stm32wb microcontrollers.
+- **Bluetooth**
+  - The <a href="https://github.com/embassy-rs/trouble">trouble</a> crate provides a Bluetooth Low Energy 4.x and 5.x Host that runs on any microcontroller implementing the <a href="https://github.com/embassy-rs/bt-hci">bt-hci</a> traits (currently `nRF52`, `rp2040`, `rp23xx` and `esp32` and `serial` controllers are supported).
+  - The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
+  - The <a href="https://github.com/embassy-rs/embassy/tree/main/embassy-stm32-wpan">embassy-stm32-wpan</a> crate provides Bluetooth Low Energy 5.x support for stm32wb microcontrollers.
 
 - **LoRa** - The <a href="https://github.com/lora-rs/lora-rs">lora-rs</a> project provides an async LoRa and LoRaWAN stack that works well on Embassy.
 
