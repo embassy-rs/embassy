@@ -792,7 +792,9 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            if regs.epr(index).read().stat_tx() == Stat::DISABLED {
+            let stat_tx = regs.epr(index).read().stat_tx();
+            let susprdy = regs.cntr().read().lpmode();
+            if stat_tx == Stat::DISABLED || susprdy {
                 Poll::Pending
             } else {
                 Poll::Ready(())
@@ -814,7 +816,9 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            if regs.epr(index).read().stat_rx() == Stat::DISABLED {
+            let stat_rx = regs.epr(index).read().stat_rx();
+            let susprdy = regs.cntr().read().lpmode();
+            if stat_rx == Stat::DISABLED || susprdy {
                 Poll::Pending
             } else {
                 Poll::Ready(())
@@ -829,31 +833,36 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("READ WAITING, buf.len() = {}", buf.len());
         let index = self.info.addr.index();
-        let stat = poll_fn(|cx| {
+        let (stat, susprdy) = poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let regs = T::regs();
             let stat = regs.epr(index).read().stat_rx();
-            if self.info.ep_type == EndpointType::Isochronous {
-                // The isochronous endpoint does not change its `STAT_RX` field to `NAK` when receiving a packet.
-                // Therefore, this instead waits until the `CTR` interrupt was triggered.
-                if matches!(stat, Stat::DISABLED) || CTR_TRIGGERED[index].load(Ordering::Relaxed) {
-                    Poll::Ready(stat)
-                } else {
-                    Poll::Pending
-                }
+            let susprdy = regs.cntr().read().lpmode(); // This bit is labeled susprdy in RM0444 p. 1283
+            info!("Susprdy {}", susprdy);
+            if susprdy {
+                Poll::Ready((stat, susprdy))
             } else {
-                if matches!(stat, Stat::NAK | Stat::DISABLED) {
-                    Poll::Ready(stat)
+                if self.info.ep_type == EndpointType::Isochronous {
+                    // The isochronous endpoint does not change its `STAT_RX` field to `NAK` when receiving a packet.
+                    // Therefore, this instead waits until the `CTR` interrupt was triggered.
+                    if matches!(stat, Stat::DISABLED) || CTR_TRIGGERED[index].load(Ordering::Relaxed) {
+                        Poll::Ready((stat, susprdy))
+                    } else {
+                        Poll::Pending
+                    }
                 } else {
-                    Poll::Pending
+                    if matches!(stat, Stat::NAK | Stat::DISABLED) {
+                        Poll::Ready((stat, susprdy))
+                    } else {
+                        Poll::Pending
+                    }
                 }
             }
-        })
-        .await;
+        }).await;
 
         CTR_TRIGGERED[index].store(false, Ordering::Relaxed);
 
-        if stat == Stat::DISABLED {
+        if stat == Stat::DISABLED || susprdy {
             return Err(EndpointError::Disabled);
         }
 
@@ -899,31 +908,35 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         let index = self.info.addr.index();
 
         trace!("WRITE WAITING");
-        let stat = poll_fn(|cx| {
+        let (stat, susprdy) = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let regs = T::regs();
             let stat = regs.epr(index).read().stat_tx();
-            if self.info.ep_type == EndpointType::Isochronous {
-                // The isochronous endpoint does not change its `STAT_RX` field to `NAK` when receiving a packet.
-                // Therefore, this instead waits until the `CTR` interrupt was triggered.
-                if matches!(stat, Stat::DISABLED) || CTR_TRIGGERED[index].load(Ordering::Relaxed) {
-                    Poll::Ready(stat)
-                } else {
-                    Poll::Pending
-                }
+            let susprdy = regs.cntr().read().lpmode();
+            if susprdy {
+                Poll::Ready((stat, susprdy))
             } else {
-                if matches!(stat, Stat::NAK | Stat::DISABLED) {
-                    Poll::Ready(stat)
+                if self.info.ep_type == EndpointType::Isochronous {
+                    // The isochronous endpoint does not change its `STAT_RX` field to `NAK` when receiving a packet.
+                    // Therefore, this instead waits until the `CTR` interrupt was triggered.
+                    if matches!(stat, Stat::DISABLED) || CTR_TRIGGERED[index].load(Ordering::Relaxed) {
+                        Poll::Ready((stat, susprdy))
+                    } else {
+                        Poll::Pending
+                    }
                 } else {
-                    Poll::Pending
+                    if matches!(stat, Stat::NAK | Stat::DISABLED) {
+                        Poll::Ready((stat, susprdy))
+                    } else {
+                        Poll::Pending
+                    }
                 }
             }
-        })
-        .await;
+        }).await;
 
         CTR_TRIGGERED[index].store(false, Ordering::Relaxed);
 
-        if stat == Stat::DISABLED {
+        if stat == Stat::DISABLED || susprdy {
             return Err(EndpointError::Disabled);
         }
 
