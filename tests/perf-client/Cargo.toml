@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-embassy-net = { version = "0.6.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4"] }
+embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", ] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 defmt = "0.3"
