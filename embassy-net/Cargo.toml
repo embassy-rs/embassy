@@ -26,6 +26,9 @@ features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6",
 ## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
 
+# Implement serde Serialize / Deserialize
+serde = ["dep:serde", "heapless/serde", "smoltcp/serde", "embassy-time/serde"]
+
 ## Trace all raw received and transmitted packets using defmt or log.
 packet-trace = []
 
@@ -81,3 +84,8 @@ managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
 heapless = { version = "0.8", default-features = false }
 embedded-nal-async = "0.8.0"
 document-features = "0.2.7"
+serde = { version = "1.0.217", default-features = false, features = ["derive"], optional = true }
+
+# Patch until https://github.com/smoltcp-rs/smoltcp/pull/1042 is merged
+[patch.crates-io]
+smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp", rev = "cf805ebe01b9054005e2fa3a8695ff9a9f0411a4" }

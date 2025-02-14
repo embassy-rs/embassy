@@ -6,6 +6,7 @@ use crate::GCD_1G;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 /// Represents the difference between two [Instant](struct.Instant.html)s
 pub struct Duration {
     pub(crate) ticks: u64,

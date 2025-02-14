@@ -12,6 +12,9 @@ compile_error!("You must enable at least one of the following features: proto-ip
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
 #[cfg(feature = "dns")]
 pub mod dns;
 mod driver_util;
@@ -106,6 +109,7 @@ impl<const SOCK: usize> StackResources<SOCK> {
 /// Static IP address configuration.
 #[cfg(feature = "proto-ipv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct StaticConfigV4 {
     /// IP address and subnet mask.
     pub address: Ipv4Cidr,
@@ -118,6 +122,7 @@ pub struct StaticConfigV4 {
 /// Static IPv6 address configuration
 #[cfg(feature = "proto-ipv6")]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub struct StaticConfigV6 {
     /// IP address and subnet mask.
     pub address: Ipv6Cidr,
@@ -130,6 +135,7 @@ pub struct StaticConfigV6 {
 /// DHCP configuration.
 #[cfg(feature = "dhcpv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[non_exhaustive]
 pub struct DhcpConfig {
     /// Maximum lease duration.
@@ -169,6 +175,7 @@ impl Default for DhcpConfig {
 
 /// Network stack configuration.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 #[non_exhaustive]
 pub struct Config {
     /// IPv4 configuration
@@ -220,6 +227,7 @@ impl Config {
 /// Network stack IPv4 configuration.
 #[cfg(feature = "proto-ipv4")]
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub enum ConfigV4 {
     /// Do not configure IPv4.
     #[default]
@@ -234,6 +242,7 @@ pub enum ConfigV4 {
 /// Network stack IPv6 configuration.
 #[cfg(feature = "proto-ipv6")]
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
 pub enum ConfigV6 {
     /// Do not configure IPv6.
     #[default]

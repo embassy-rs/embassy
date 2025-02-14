@@ -431,6 +431,8 @@ cfg-if = "1.0.0"
 
 document-features = "0.2.7"
 
+serde = { version = "1.0.210", default-features = false, features = ["derive"], optional = true }
+
 # WASM dependencies
 wasm-bindgen = { version = "0.2.81", optional = true }
 js-sys = { version = "0.3", optional = true }
