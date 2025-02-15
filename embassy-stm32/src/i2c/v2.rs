@@ -13,13 +13,17 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
     let regs = T::info().regs;
     let isr = regs.isr().read();
 
-    if isr.tcr() || isr.tc() {
+    if isr.tcr() || isr.tc() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr() {
         T::state().waker.wake();
     }
-    // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
-    // the interrupt
     critical_section::with(|_| {
-        regs.cr1().modify(|w| w.set_tcie(false));
+        regs.cr1().modify(|w| {
+            // The flag can only be cleared by writting to nbytes, we won't do that here
+            w.set_tcie(false);
+            // Error flags are to be read in the routines, so we also don't clear them here
+            w.set_nackie(false);
+            w.set_errie(false);
+        });
     });
 }
 
@@ -449,6 +453,8 @@ impl<'d> I2c<'d, Async> {
                 if first_slice {
                     w.set_tcie(true);
                 }
+                w.set_nackie(true);
+                w.set_errie(true);
             });
             let dst = regs.txdr().as_ptr() as *mut u8;
 
@@ -459,18 +465,41 @@ impl<'d> I2c<'d, Async> {
 
         let on_drop = OnDrop::new(|| {
             let regs = self.info.regs;
+            let isr = regs.isr().read();
             regs.cr1().modify(|w| {
-                if last_slice {
+                if last_slice || isr.nackf() || isr.arlo() || isr.berr() || isr.ovr() {
                     w.set_txdmaen(false);
                 }
                 w.set_tcie(false);
-            })
+                w.set_nackie(false);
+                w.set_errie(false);
+            });
+            regs.icr().write(|w| {
+                w.set_nackcf(true);
+                w.set_berrcf(true);
+                w.set_arlocf(true);
+                w.set_ovrcf(true);
+            });
         });
 
         poll_fn(|cx| {
             self.state.waker.register(cx.waker());
 
             let isr = self.info.regs.isr().read();
+
+            if isr.nackf() {
+                return Poll::Ready(Err(Error::Nack));
+            }
+            if isr.arlo() {
+                return Poll::Ready(Err(Error::Arbitration));
+            }
+            if isr.berr() {
+                return Poll::Ready(Err(Error::Bus));
+            }
+            if isr.ovr() {
+                return Poll::Ready(Err(Error::Overrun));
+            }
+
             if remaining_len == total_len {
                 if first_slice {
                     Self::master_write(
@@ -531,6 +560,8 @@ impl<'d> I2c<'d, Async> {
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(true);
                 w.set_tcie(true);
+                w.set_nackie(true);
+                w.set_errie(true);
             });
             let src = regs.rxdr().as_ptr() as *mut u8;
 
@@ -544,13 +575,35 @@ impl<'d> I2c<'d, Async> {
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(false);
                 w.set_tcie(false);
-            })
+                w.set_nackie(false);
+                w.set_errie(false);
+            });
+            regs.icr().write(|w| {
+                w.set_nackcf(true);
+                w.set_berrcf(true);
+                w.set_arlocf(true);
+                w.set_ovrcf(true);
+            });
         });
 
         poll_fn(|cx| {
             self.state.waker.register(cx.waker());
 
             let isr = self.info.regs.isr().read();
+
+            if isr.nackf() {
+                return Poll::Ready(Err(Error::Nack));
+            }
+            if isr.arlo() {
+                return Poll::Ready(Err(Error::Arbitration));
+            }
+            if isr.berr() {
+                return Poll::Ready(Err(Error::Bus));
+            }
+            if isr.ovr() {
+                return Poll::Ready(Err(Error::Overrun));
+            }
+
             if remaining_len == total_len {
                 Self::master_read(
                     self.info,
