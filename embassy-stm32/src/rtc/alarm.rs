@@ -231,7 +231,6 @@ impl Future for RtcAlarmFuture {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         RTC_WAKERS[self.alarm as usize].register(cx.waker());
-        defmt::info!("poll rtc future");
 
         if !crate::pac::RTC.cr().read().alrie(self.alarm.index()) {
             Poll::Ready(())
@@ -253,8 +252,6 @@ unsafe fn on_irq() {
         rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
     ))]
     let isr = reg.isr().read();
-
-    // defmt::info!("RTC IRQ (misr = {})", misr.0);
 
     for i in 0..ALARM_COUNT {
         #[cfg(rtc_v3)]
