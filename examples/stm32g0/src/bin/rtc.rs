@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let now = DateTime::from(2023, 6, 14, DayOfWeek::Friday, 15, 59, 10);
+    let now = DateTime::from(2023, 6, 14, DayOfWeek::Friday, 15, 59, 10, 0);
 
     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
 
