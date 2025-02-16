@@ -106,7 +106,7 @@ imagedef-nonsecure-exe = []
 
 ## Have embassy-rp not provide the Image Definition so you can use your own.
 ## Place your own in the ".start_block" section like:
-## ```
+## ```ignore
 ## use embassy_rp::block::ImageDef;
 ##
 ## #[link_section = ".start_block"]
