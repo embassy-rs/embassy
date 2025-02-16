@@ -7,15 +7,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::gpio;
 use embassy_time::Timer;
 use gpio::{Level, Output};
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 // Program metadata for `picotool info`.
 // This isn't needed, but it's recomended to have these minimal entries.

@@ -7,13 +7,8 @@
 #![no_main]
 
 use defmt::*;
-use embassy_rp::block::ImageDef;
 use embassy_rp::i2c::InterruptHandler;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 // Our anonymous hypotetical temperature sensor could be:
 // a 12-bit sensor, with 100ms startup time, range of -40*C - 125*C, and precision 0.25*C
