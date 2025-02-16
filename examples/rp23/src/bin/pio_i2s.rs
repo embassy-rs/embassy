@@ -14,17 +14,12 @@ use core::mem;
 
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::i2s::{PioI2sOut, PioI2sOutProgram};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;

@@ -8,14 +8,9 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
 use embassy_rp::bind_interrupts;
-use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::Pull;
 use embassy_time::{Duration, Ticker};
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 bind_interrupts!(struct Irqs {
     ADC_IRQ_FIFO => InterruptHandler;

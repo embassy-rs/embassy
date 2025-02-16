@@ -8,13 +8,8 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::uart;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
