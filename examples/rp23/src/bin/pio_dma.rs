@@ -7,6 +7,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Config, InterruptHandler, Pio, ShiftConfig, ShiftDirection};
 use embassy_rp::{bind_interrupts, Peripheral};
 use fixed::traits::ToFixed;
@@ -37,7 +38,7 @@ async fn main(_spawner: Spawner) {
         ..
     } = Pio::new(pio, Irqs);
 
-    let prg = pio_proc::pio_asm!(
+    let prg = pio_asm!(
         ".origin 0",
         "set pindirs,1",
         ".wrap_target",

@@ -16,7 +16,7 @@ pub struct PioI2sOutProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioI2sOutProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             ".side_set 2",
             "    set x, 14          side 0b01", // side 0bWB - W = Word Clock, B = Bit Clock
             "left_data:",

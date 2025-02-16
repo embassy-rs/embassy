@@ -9,6 +9,7 @@ use embassy_executor::Spawner;
 use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::program::pio_asm;
 use embassy_rp::{bind_interrupts, pio};
 use embassy_time::Timer;
 use fixed::traits::ToFixed;
@@ -51,7 +52,7 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
 
         sm.set_pin_dirs(pio::Direction::In, &[&pin_a, &pin_b]);
 
-        let prg = pio_proc::pio_asm!(
+        let prg = pio_asm!(
             "start:"
             // encoder count is stored in X
             "mov isr, x"

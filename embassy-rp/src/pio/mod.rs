@@ -18,7 +18,10 @@ use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::relocate::RelocatedProgram;
 use crate::{pac, peripherals, RegExt};
 
-pub mod instr;
+mod instr;
+
+#[doc(inline)]
+pub use pio as program;
 
 /// Wakers for interrupts and FIFOs.
 pub struct Wakers([AtomicWaker; 12]);
@@ -812,7 +815,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         }
 
         if let Some(origin) = config.origin {
-            unsafe { instr::exec_jmp(self, origin) }
+            unsafe { self.exec_jmp(origin) }
         }
     }
 
