@@ -5,16 +5,11 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{Common, Config, InterruptHandler, Irq, Pio, PioPin, ShiftDirection, StateMachine};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;

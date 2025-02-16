@@ -12,7 +12,6 @@ use defmt::*;
 use display_interface_spi::SPIInterface;
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDeviceWithConfig;
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::spi;
 use embassy_rp::spi::{Blocking, Spi};
@@ -30,10 +29,6 @@ use mipidsi::models::ST7789;
 use mipidsi::options::{Orientation, Rotation};
 use mipidsi::Builder;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 use crate::touch::Touch;
 

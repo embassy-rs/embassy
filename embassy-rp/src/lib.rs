@@ -456,6 +456,30 @@ select_bootloader! {
     default => BOOT_LOADER_W25Q080
 }
 
+#[cfg(all(not(feature = "imagedef-none"), feature = "_rp235x"))]
+macro_rules! select_imagedef {
+    ( $( $feature:literal => $imagedef:ident, )+ default => $default:ident ) => {
+        $(
+            #[cfg(feature = $feature)]
+            #[link_section = ".start_block"]
+            #[used]
+            static IMAGE_DEF: crate::block::ImageDef = crate::block::ImageDef::$imagedef();
+        )*
+
+        #[cfg(not(any( $( feature = $feature),* )))]
+        #[link_section = ".start_block"]
+        #[used]
+        static IMAGE_DEF: crate::block::ImageDef = crate::block::ImageDef::$default();
+    }
+}
+
+#[cfg(all(not(feature = "imagedef-none"), feature = "_rp235x"))]
+select_imagedef! {
+    "imagedef-secure-exe" => secure_exe,
+    "imagedef-nonsecure-exe" => non_secure_exe,
+    default => secure_exe
+}
+
 /// Installs a stack guard for the CORE0 stack in MPU region 0.
 /// Will fail if the MPU is already configured. This function requires
 /// a `_stack_end` symbol to be defined by the linker script, and expects
