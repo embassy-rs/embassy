@@ -143,6 +143,8 @@ pub enum Error {
     BadClock,
     /// Signaling switch failed.
     SignalingSwitchFailed,
+    /// Underrun error
+    Underrun,
     /// ST bit error.
     #[cfg(sdmmc_v1)]
     StBitErr,
@@ -1346,6 +1348,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             if status.dtimeout() {
                 return Poll::Ready(Err(Error::Timeout));
             }
+            if status.txunderr() {
+                return Poll::Ready(Err(Error::Underrun));
+            }
             #[cfg(sdmmc_v1)]
             if status.stbiterr() {
                 return Poll::Ready(Err(Error::StBitErr));
@@ -1353,6 +1358,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             if status.dataend() {
                 return Poll::Ready(Ok(()));
             }
+
             Poll::Pending
         })
         .await;
@@ -1419,6 +1425,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
+
             let status = regs.star().read();
 
             if status.dcrcfail() {
@@ -1427,7 +1434,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             if status.dtimeout() {
                 return Poll::Ready(Err(Error::Timeout));
             }
-            // if status.d
+            if status.txunderr() {
+                return Poll::Ready(Err(Error::Underrun));
+            }
             #[cfg(sdmmc_v1)]
             if status.stbiterr() {
                 return Poll::Ready(Err(Error::StBitErr));
@@ -1435,6 +1444,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             if status.dataend() {
                 return Poll::Ready(Ok(()));
             }
+
             Poll::Pending
         })
         .await;
