@@ -9,17 +9,12 @@
 use defmt::*;
 use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::spi::Spi;
 use embassy_rp::{gpio, spi};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_sdmmc::sdcard::{DummyCsPin, SdCard};
 use gpio::{Level, Output};
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 struct DummyTimesource();
 
@@ -38,7 +33,6 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    embassy_rp::pac::SIO.spinlock(31).write_value(1);
     let p = embassy_rp::init(Default::default());
 
     // SPI clock needs to be running at <= 400kHz during initialization

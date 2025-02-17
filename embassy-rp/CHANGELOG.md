@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.1 - 2025-02-06
+
+Small release fixing a few gnarly bugs, upgrading is strongly recommended.
+
+- Fix a race condition in the time driver that could cause missed interrupts. ([#3758](https://github.com/embassy-rs/embassy/issues/3758), [#3763](https://github.com/embassy-rs/embassy/pull/3763))
+- rp235x: Make atomics work across cores. ([#3851](https://github.com/embassy-rs/embassy/pull/3851))
+- rp235x: add workaround "SIO spinlock stuck after reset" bug, same as RP2040 ([#3851](https://github.com/embassy-rs/embassy/pull/3851))
+- rp235x: Ensure core1 is reset if core0 resets. ([#3851](https://github.com/embassy-rs/embassy/pull/3851))
+- rp235xb: correct ADC channel numbers. ([#3823](https://github.com/embassy-rs/embassy/pull/3823))
+- rp235x: enable watchdog tick generator. ([#3777](https://github.com/embassy-rs/embassy/pull/3777))
+- Relax I2C address validity check to allow using 7-bit addresses that would be reserved for 10-bit addresses. ([#3809](https://github.com/embassy-rs/embassy/issues/3809), [#3810](https://github.com/embassy-rs/embassy/pull/3810))
+
 ## 0.3.0 - 2025-01-05
 
 - Updated `embassy-time` to v0.4

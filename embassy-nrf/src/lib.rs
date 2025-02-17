@@ -314,14 +314,14 @@ pub mod config {
         #[cfg(feature = "nrf52840")]
         pub reg0: bool,
         /// Configure the voltage of the first stage DCDC. It is stored in non-volatile memory (UICR.REGOUT0 register); pass None to not touch it.
-        #[cfg(feature = "nrf52840")]
+        #[cfg(any(feature = "nrf52840", feature = "nrf52833"))]
         pub reg0_voltage: Option<Reg0Voltage>,
         /// Config for the second stage DCDC (VDD -> DEC4), if disabled LDO will be used.
         pub reg1: bool,
     }
 
     ///  Output voltage setting for REG0 regulator stage.
-    #[cfg(feature = "nrf52840")]
+    #[cfg(any(feature = "nrf52840", feature = "nrf52833"))]
     pub enum Reg0Voltage {
         /// 1.8 V
         _1V8 = 0,
@@ -388,7 +388,7 @@ pub mod config {
                 dcdc: DcdcConfig {
                     #[cfg(feature = "nrf52840")]
                     reg0: false,
-                    #[cfg(feature = "nrf52840")]
+                    #[cfg(any(feature = "nrf52840", feature = "nrf52833"))]
                     reg0_voltage: None,
                     reg1: false,
                 },
@@ -664,7 +664,7 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
-    #[cfg(feature = "nrf52840")]
+    #[cfg(any(feature = "nrf52840", feature = "nrf52833"))]
     unsafe {
         if let Some(value) = config.dcdc.reg0_voltage {
             let value = value as u32;

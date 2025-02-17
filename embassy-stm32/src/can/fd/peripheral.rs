@@ -458,7 +458,7 @@ impl Registers {
     /// [`FdCanConfig::set_transmit_pause`]
     #[inline]
     pub fn set_transmit_pause(&self, enabled: bool) {
-        self.regs.cccr().modify(|w| w.set_txp(!enabled));
+        self.regs.cccr().modify(|w| w.set_txp(enabled));
     }
 
     /// Configures non-iso mode. See [`FdCanConfig::set_non_iso_mode`]

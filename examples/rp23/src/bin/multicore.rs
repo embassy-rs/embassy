@@ -7,7 +7,6 @@
 
 use defmt::*;
 use embassy_executor::Executor;
-use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -15,10 +14,6 @@ use embassy_sync::channel::Channel;
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
 static EXECUTOR0: StaticCell<Executor> = StaticCell::new();

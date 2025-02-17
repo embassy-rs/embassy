@@ -4,16 +4,11 @@
 use defmt::{debug, error, info};
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{Config, DataBits, InterruptHandler as UARTInterruptHandler, Parity, StopBits, Uart};
 use embassy_time::{with_timeout, Duration, Timer};
 use heapless::Vec;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 bind_interrupts!(pub struct Irqs {
     UART0_IRQ  => UARTInterruptHandler<UART0>;

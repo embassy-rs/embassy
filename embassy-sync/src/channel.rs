@@ -562,6 +562,9 @@ impl<T, const N: usize> ChannelState<T, N> {
     }
 
     fn clear(&mut self) {
+        if self.queue.is_full() {
+            self.senders_waker.wake();
+        }
         self.queue.clear();
     }
 

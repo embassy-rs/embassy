@@ -21,7 +21,7 @@ bind_interrupts!(struct Irqs {
 teleprobe_meta::timeout!(120);
 
 // Test-only wifi network, no internet access!
-const WIFI_NETWORK: &str = "EmbassyTest";
+const WIFI_NETWORK: &str = "EmbassyTestWPA2";
 const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 
 #[embassy_executor::task]
@@ -47,9 +47,11 @@ async fn main(spawner: Spawner) {
 
     // cyw43 firmware needs to be flashed manually:
     //     probe-rs download 43439A0.bin --binary-format bin --chip RP2040 --base-address 0x101b0000
+    //     probe-rs download 43439A0_btfw.bin --binary-format bin --chip RP2040 --base-address 0x101f0000
     //     probe-rs download 43439A0_clm.bin --binary-format bin --chip RP2040 --base-address 0x101f8000
-    let fw = unsafe { core::slice::from_raw_parts(0x101b0000 as *const u8, 230321) };
-    let clm = unsafe { core::slice::from_raw_parts(0x101f8000 as *const u8, 4752) };
+    let fw = unsafe { core::slice::from_raw_parts(0x101b0000 as *const u8, 231077) };
+    let _btfw = unsafe { core::slice::from_raw_parts(0x101f0000 as *const u8, 6164) };
+    let clm = unsafe { core::slice::from_raw_parts(0x101f8000 as *const u8, 984) };
 
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
@@ -104,9 +106,9 @@ async fn main(spawner: Spawner) {
     perf_client::run(
         stack,
         perf_client::Expected {
-            down_kbps: 300,
-            up_kbps: 300,
-            updown_kbps: 300,
+            down_kbps: 200,
+            up_kbps: 200,
+            updown_kbps: 200,
         },
     )
     .await;

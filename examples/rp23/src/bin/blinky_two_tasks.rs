@@ -7,17 +7,12 @@
 /// [Link explaining it](https://www.physicsclassroom.com/class/sound/Lesson-3/Interference-and-Beats)
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::gpio;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
 use gpio::{AnyPin, Level, Output};
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 type LedType = Mutex<ThreadModeRawMutex, Option<Output<'static>>>;
 static LED: LedType = Mutex::new(None);

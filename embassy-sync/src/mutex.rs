@@ -171,6 +171,7 @@ where
 ///
 /// Dropping it unlocks the mutex.
 #[clippy::has_significant_drop]
+#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, M, T>
 where
     M: RawMutex,

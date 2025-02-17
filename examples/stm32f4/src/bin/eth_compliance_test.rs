@@ -3,8 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::eth::generic_smi::GenericSMI;
-use embassy_stm32::eth::{Ethernet, PacketQueue, StationManagement};
+use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, StationManagement};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
 use embassy_time::Timer;
@@ -59,11 +58,11 @@ async fn main(_spawner: Spawner) -> ! {
         p.PG13,
         p.PB13,
         p.PG11,
-        GenericSMI::new(PHY_ADDR),
+        GenericPhy::new(PHY_ADDR),
         mac_addr,
     );
 
-    let sm = unsafe { device.station_management() };
+    let sm = device.station_management();
 
     // Just an example. Exact register settings depend on the specific PHY and test.
     sm.smi_write(PHY_ADDR, 0, 0x2100);

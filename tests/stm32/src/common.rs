@@ -284,7 +284,9 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32g071rb")]
     {
-        config.rcc.hsi = true;
+        config.rcc.hsi = Some(Hsi {
+            sys_div: HsiSysDiv::DIV1,
+        });
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV1,

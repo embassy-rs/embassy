@@ -357,7 +357,7 @@ impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
         );
 
         if D::dir() == Direction::Out {
-            if self.ep_out_buffer_offset + max_packet_size as usize >= self.ep_out_buffer.len() {
+            if self.ep_out_buffer_offset + max_packet_size as usize > self.ep_out_buffer.len() {
                 error!("Not enough endpoint out buffer capacity");
                 return Err(EndpointAllocError);
             }

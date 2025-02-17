@@ -7,7 +7,7 @@ use embassy_time::{Duration, Timer};
 #[cfg(feature = "time")]
 use futures_util::FutureExt;
 
-use super::{StationManagement, PHY};
+use super::{Phy, StationManagement};
 
 #[allow(dead_code)]
 mod phy_consts {
@@ -43,25 +43,71 @@ mod phy_consts {
 use self::phy_consts::*;
 
 /// Generic SMI Ethernet PHY implementation
-pub struct GenericSMI {
+pub struct GenericPhy {
     phy_addr: u8,
     #[cfg(feature = "time")]
     poll_interval: Duration,
 }
 
-impl GenericSMI {
+impl GenericPhy {
     /// Construct the PHY. It assumes the address `phy_addr` in the SMI communication
+    ///
+    /// # Panics
+    /// `phy_addr` must be in range `0..32`
     pub fn new(phy_addr: u8) -> Self {
+        assert!(phy_addr < 32);
         Self {
             phy_addr,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
         }
     }
+
+    /// Construct the PHY. Try to probe all addresses from 0 to 31 during initialization
+    ///
+    /// # Panics
+    /// Initialization panics if PHY didn't respond on any address
+    pub fn new_auto() -> Self {
+        Self {
+            phy_addr: 0xFF,
+            #[cfg(feature = "time")]
+            poll_interval: Duration::from_millis(500),
+        }
+    }
 }
 
-unsafe impl PHY for GenericSMI {
+// TODO: Factor out to shared functionality
+fn blocking_delay_us(us: u32) {
+    #[cfg(feature = "time")]
+    embassy_time::block_for(Duration::from_micros(us as u64));
+    #[cfg(not(feature = "time"))]
+    {
+        let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
+        let us = us as u64;
+        let cycles = freq * us / 1_000_000;
+        cortex_m::asm::delay(cycles as u32);
+    }
+}
+
+impl Phy for GenericPhy {
     fn phy_reset<S: StationManagement>(&mut self, sm: &mut S) {
+        // Detect SMI address
+        if self.phy_addr == 0xFF {
+            for addr in 0..32 {
+                sm.smi_write(addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
+                for _ in 0..10 {
+                    if sm.smi_read(addr, PHY_REG_BCR) & PHY_REG_BCR_RESET != PHY_REG_BCR_RESET {
+                        trace!("Found ETH PHY on address {}", addr);
+                        self.phy_addr = addr;
+                        return;
+                    }
+                    // Give PHY a total of 100ms to respond
+                    blocking_delay_us(10000);
+                }
+            }
+            panic!("PHY did not respond");
+        }
+
         sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
         while sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
     }
@@ -102,7 +148,7 @@ unsafe impl PHY for GenericSMI {
 }
 
 /// Public functions for the PHY
-impl GenericSMI {
+impl GenericPhy {
     /// Set the SMI polling interval.
     #[cfg(feature = "time")]
     pub fn set_poll_interval(&mut self, poll_interval: Duration) {

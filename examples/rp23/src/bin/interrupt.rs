@@ -13,7 +13,6 @@ use core::cell::{Cell, RefCell};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Blocking};
-use embassy_rp::block::ImageDef;
 use embassy_rp::gpio::Pull;
 use embassy_rp::interrupt;
 use embassy_rp::pwm::{Config, Pwm};
@@ -25,10 +24,6 @@ use portable_atomic::{AtomicU32, Ordering};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
-
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 static PWM: Mutex<CriticalSectionRawMutex, RefCell<Option<Pwm>>> = Mutex::new(RefCell::new(None));
 static ADC: Mutex<CriticalSectionRawMutex, RefCell<Option<(Adc<Blocking>, adc::Channel)>>> =
@@ -37,7 +32,6 @@ static ADC_VALUES: Channel<CriticalSectionRawMutex, u16, 2048> = Channel::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    embassy_rp::pac::SIO.spinlock(31).write_value(1);
     let p = embassy_rp::init(Default::default());
 
     let adc = Adc::new_blocking(p.ADC, Default::default());

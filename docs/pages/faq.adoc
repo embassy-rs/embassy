@@ -117,6 +117,20 @@ If you are in the early project setup phase and not using anything from the HAL,
 use embassy_stm32 as _;
 ----
 
+Another common error you may experience is:
+
+[source,text]
+----
+ = note: rust-lld: error: undefined symbol: __pender
+          >>> referenced by mod.rs:373 (src/raw/mod.rs:373)
+          >>>               embassy_executor-e78174e249bca7f4.embassy_executor.1e9d60fc90940543-cgu.0.rcgu.o:(embassy_executor::raw::Pender::pend::h0f19b6e01762e4cd) in archive [...]libembassy_executor-e78174e249bca7f4.rlib
+----
+
+There are two possible causes to this error:
+
+* You are using `embassy-executor` withuout enabling one of the architecture-specific features, but you are using a HAL that does not bring its own executors. For example, for Cortex-M (like the RP2040), you need to enable the `arch-cortex-m` feature of `embassy-executor`.
+* You are not using `embassy-executor`. In this case, you need to enable the one of the `generic-queue-X` features of `embassy-time`.
+
 == Error: `Only one package in the dependency graph may specify the same links value.`
 
 You have multiple versions of the same crate in your dependency tree. This means that some of your
