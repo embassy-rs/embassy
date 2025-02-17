@@ -28,6 +28,7 @@ features = ["defmt", "unstable-pac", "time-driver", "rp2040"]
 default = [ "rt" ]
 ## Enable the rt feature of [`rp-pac`](https://docs.rs/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
 rt = [ "rp-pac/rt" ]
+## these settimngs are currently necessary to allow the pipeline build. They should be removed ghere when the features will be (somehow) selectable in the "embassy-executor" or the "embassy-time" section
 time-driver-timer1 = []
 time-driver-aot = []
 time-driver-mtime = []
