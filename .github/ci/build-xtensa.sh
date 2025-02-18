@@ -13,7 +13,7 @@ export CARGO_TARGET_DIR=/ci/cache/target
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
 cargo install espup
-/ci/cache/cargo/bin/espup install --toolchain-version 1.83.0.1
+/ci/cache/cargo/bin/espup install --toolchain-version 1.84.0.0
 
 # Restore lockfiles
 if [ -f /ci/cache/lockfiles.tar ]; then

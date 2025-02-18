@@ -8,15 +8,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::i2c::{self, Config};
 use embassy_time::Timer;
 use embedded_hal_1::i2c::I2c;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 #[allow(dead_code)]
 mod mcp23017 {

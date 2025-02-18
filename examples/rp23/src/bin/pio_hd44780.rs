@@ -8,17 +8,12 @@ use core::fmt::Write;
 
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::hd44780::{PioHD44780, PioHD44780CommandSequenceProgram, PioHD44780CommandWordProgram};
 use embassy_rp::pwm::{self, Pwm};
 use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 bind_interrupts!(pub struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;

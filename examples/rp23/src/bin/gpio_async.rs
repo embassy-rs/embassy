@@ -7,15 +7,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::gpio;
 use embassy_time::Timer;
 use gpio::{Input, Level, Output, Pull};
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 /// It requires an external signal to be manually triggered on PIN 16. For
 /// example, this could be accomplished using an external power source with a

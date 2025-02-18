@@ -59,16 +59,11 @@
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
 use embassy_executor::{Executor, InterruptExecutor};
-use embassy_rp::block::ImageDef;
 use embassy_rp::interrupt;
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_time::{Instant, Timer, TICK_HZ};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 #[embassy_executor::task]
 async fn run_high() {

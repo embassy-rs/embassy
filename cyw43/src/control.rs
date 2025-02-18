@@ -531,7 +531,7 @@ impl<'a> Control<'a> {
     }
 
     /// Retrieve the list of configured multicast hardware addresses.
-    pub async fn list_mulistcast_addresses(&mut self, result: &mut [[u8; 6]; 10]) -> usize {
+    pub async fn list_multicast_addresses(&mut self, result: &mut [[u8; 6]; 10]) -> usize {
         let mut buf = [0; 64];
         self.get_iovar("mcast_list", &mut buf).await;
 
