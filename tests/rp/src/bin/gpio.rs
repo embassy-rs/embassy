@@ -1,10 +1,15 @@
 #![no_std]
 #![no_main]
+#[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert, *};
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Flex, Input, Level, Output, OutputOpenDrain, Pull};
+#[cfg(feature = "rp2040")]
+use embassy_rp::gpio::OutputOpenDrain;
+use embassy_rp::gpio::{Flex, Input, Level, Output, Pull};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -76,6 +81,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // Test input pulldown
+    #[cfg(feature = "rp2040")]
     {
         let b = Input::new(&mut b, Pull::Down);
         delay();
@@ -104,6 +110,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // OUTPUT OPEN DRAIN
+    #[cfg(feature = "rp2040")]
     {
         let mut b = OutputOpenDrain::new(&mut b, Level::High);
         let mut a = Flex::new(&mut a);
@@ -202,6 +209,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // Test input pulldown
+    #[cfg(feature = "rp2040")]
     {
         let mut b = Flex::new(&mut b);
         b.set_as_input();

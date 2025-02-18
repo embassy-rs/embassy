@@ -291,7 +291,8 @@ cargo batch \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f091rc --artifact-dir out/tests/stm32f091rc \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h503rb --artifact-dir out/tests/stm32h503rb \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u083rc --artifact-dir out/tests/stm32u083rc \
-    --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/tests/rpi-pico \
+    --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --features rp2040 --artifact-dir out/tests/rpi-pico \
+    --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv8m.main-none-eabihf --features rp235xb --artifact-dir out/tests/pimoroni-pico-plus-2 \
     --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv6m-none-eabi --features nrf51422 --artifact-dir out/tests/nrf51422-dk \
     --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52832 --artifact-dir out/tests/nrf52832-dk \
     --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52833 --artifact-dir out/tests/nrf52833-dk \
@@ -318,6 +319,15 @@ rm out/tests/stm32f207zg/usart_rx_ringbuffered
 
 # doesn't work, gives "noise error", no idea why. usart_dma does pass.
 rm out/tests/stm32u5a5zj/usart
+
+# probe-rs error: "multi-core ram flash start not implemented yet"
+# As of 2025-02-17 these tests work when run from flash
+rm out/tests/pimoroni-pico-plus-2/multicore
+rm out/tests/pimoroni-pico-plus-2/gpio_multicore
+# Doesn't work when run from ram on the 2350
+rm out/tests/pimoroni-pico-plus-2/flash
+# This test passes locally but fails on the HIL, no idea why
+rm out/tests/pimoroni-pico-plus-2/i2c
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests

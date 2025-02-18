@@ -1,10 +1,15 @@
 #![no_std]
 #![no_main]
+#[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert, assert_eq, assert_ne, *};
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::gpio::{Input, Pull};
+#[cfg(feature = "rp2040")]
+use embassy_rp::gpio::{Level, Output};
 use embassy_rp::pwm::{Config, InputMode, Pwm};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -92,6 +97,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // Test level-gated
+    #[cfg(feature = "rp2040")]
     {
         let mut pin2 = Output::new(&mut p11, Level::Low);
         let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, Pull::None, InputMode::Level, cfg.clone());
@@ -102,12 +108,14 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(1).await;
         pin2.set_low();
         let ctr = pwm.counter();
+        info!("ctr: {}", ctr);
         assert!(ctr >= 1000);
         Timer::after_millis(1).await;
         assert_eq!(pwm.counter(), ctr);
     }
 
     // Test rising-gated
+    #[cfg(feature = "rp2040")]
     {
         let mut pin2 = Output::new(&mut p11, Level::Low);
         let pwm = Pwm::new_input(
@@ -129,6 +137,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // Test falling-gated
+    #[cfg(feature = "rp2040")]
     {
         let mut pin2 = Output::new(&mut p11, Level::High);
         let pwm = Pwm::new_input(

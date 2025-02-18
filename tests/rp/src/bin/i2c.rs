@@ -1,22 +1,20 @@
 #![no_std]
 #![no_main]
+#[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
-use defmt::{assert_eq, info, panic, unwrap};
+use defmt::{assert_eq, info, panic};
 use embassy_embedded_hal::SetConfig;
-use embassy_executor::{Executor, Spawner};
+use embassy_executor::Spawner;
 use embassy_rp::clocks::{PllConfig, XoscConfig};
 use embassy_rp::config::Config as rpConfig;
-use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::peripherals::{I2C0, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
 use embedded_hal_1::i2c::Operation;
 use embedded_hal_async::i2c::I2c;
-use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _, panic_probe as _, panic_probe as _};
-
-static mut CORE1_STACK: Stack<1024> = Stack::new();
-static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
 use crate::i2c::AbortReason;
 
@@ -106,7 +104,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
 }
 
 async fn controller_task(con: &mut i2c::I2c<'static, I2C0, i2c::Async>) {
-    info!("Device start");
+    info!("Controller start");
 
     {
         let buf = [0xCA, 0x11];
@@ -180,7 +178,7 @@ async fn controller_task(con: &mut i2c::I2c<'static, I2C0, i2c::Async>) {
     }
 
     #[embassy_executor::main]
-    async fn main(_core0_spawner: Spawner) {
+    async fn main(spawner: Spawner) {
         let mut config = rpConfig::default();
         // Configure clk_sys to 48MHz to support 1kHz scl.
         // In theory it can go lower, but we won't bother to test below 1kHz.
@@ -210,14 +208,7 @@ async fn controller_task(con: &mut i2c::I2c<'static, I2C0, i2c::Async>) {
         config.addr = DEV_ADDR as u16;
         let device = i2c_slave::I2cSlave::new(p.I2C1, d_sda, d_scl, Irqs, config);
 
-        spawn_core1(
-            p.CORE1,
-            unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
-            move || {
-                let executor1 = EXECUTOR1.init(Executor::new());
-                executor1.run(|spawner| unwrap!(spawner.spawn(device_task(device))));
-            },
-        );
+        spawner.must_spawn(device_task(device));
 
         let c_sda = p.PIN_21;
         let c_scl = p.PIN_20;
