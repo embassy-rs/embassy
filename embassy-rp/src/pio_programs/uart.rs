@@ -19,7 +19,7 @@ pub struct PioUartTxProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioUartTxProgram<'a, PIO> {
     /// Load the uart tx program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             r#"
                 .side_set 1 opt
 
@@ -99,7 +99,7 @@ pub struct PioUartRxProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioUartRxProgram<'a, PIO> {
     /// Load the uart rx program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             r#"
                 ; Slightly more fleshed-out 8n1 UART receiver which handles framing errors and
                 ; break conditions more gracefully.

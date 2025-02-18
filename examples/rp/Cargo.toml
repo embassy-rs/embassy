@@ -55,8 +55,6 @@ embedded-storage = { version = "0.3" }
 static_cell = "2.1"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
-pio-proc = { git = "https://github.com/rp-rs/pio-rs", rev = "fa586448b0b223217eec8c92c19fe6823dd04cc4" }
-pio = { git = "https://github.com/rp-rs/pio-rs", rev = "fa586448b0b223217eec8c92c19fe6823dd04cc4" }
 rand = { version = "0.8.5", default-features = false }
 embedded-sdmmc = "0.7.0"
 
