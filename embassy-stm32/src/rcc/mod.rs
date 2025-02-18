@@ -195,8 +195,10 @@ impl RccInfo {
         }
 
         // set the xxxRST bit
+        debug!("try to set RST bit");
         let reset_ptr = self.reset_ptr();
         if let Some(reset_ptr) = reset_ptr {
+            debug!("set RST bit");
             unsafe {
                 let val = reset_ptr.read_volatile();
                 reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
@@ -204,7 +206,9 @@ impl RccInfo {
         }
 
         // set the xxxEN bit
+        debug!("try to set EN bit");
         let enable_ptr = self.enable_ptr();
+        debug!("set EN bit");
         unsafe {
             let val = enable_ptr.read_volatile();
             enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
@@ -221,7 +225,9 @@ impl RccInfo {
         cortex_m::asm::dsb();
 
         // clear the xxxRST bit
+        debug!("try to clear RST bit");
         if let Some(reset_ptr) = reset_ptr {
+            debug!("clear RST bit");
             unsafe {
                 let val = reset_ptr.read_volatile();
                 reset_ptr.write_volatile(val & !(1u32 << self.reset_bit));
@@ -270,6 +276,7 @@ impl RccInfo {
 
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset(&self) {
+        debug!("RCC_INFO enable_and_reset {} {}", self.reset_offset_or_0xff, self.enable_offset);
         critical_section::with(|cs| self.enable_and_reset_with_cs(cs))
     }
 
