@@ -9,8 +9,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler, Sample};
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::Pull;
-use embassy_rp::gpio::{Level, Output};
+use embassy_rp::gpio::{Level, Output, Pull};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
