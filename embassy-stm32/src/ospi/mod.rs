@@ -372,7 +372,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         });
 
         T::REGS.cr().modify(|w| {
-            w.set_fthres(vals::Threshold(config.fifo_threshold.into()));
+            w.set_fthres(vals::Threshold::from_bits(config.fifo_threshold.into()));
         });
 
         // Wait for busy flag to clear
