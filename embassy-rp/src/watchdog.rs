@@ -13,6 +13,15 @@ use embassy_time::Duration;
 use crate::pac;
 use crate::peripherals::WATCHDOG;
 
+/// The reason for a system reset from the watchdog.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ResetReason {
+    /// The reset was forced.
+    Forced,
+    /// The watchdog was not fed in time.
+    TimedOut,
+}
+
 /// Watchdog peripheral
 pub struct Watchdog {
     phantom: PhantomData<WATCHDOG>,
@@ -138,6 +147,19 @@ impl Watchdog {
             6 => watchdog.scratch6().read(),
             7 => watchdog.scratch7().read(),
             _ => panic!("Invalid watchdog scratch index"),
+        }
+    }
+
+    /// Get the reason for the last system reset, if it was caused by the watchdog.
+    pub fn reset_reason(&self) -> Option<ResetReason> {
+        let watchdog = pac::WATCHDOG;
+        let reason = watchdog.reason().read();
+        if reason.force() {
+            Some(ResetReason::Forced)
+        } else if reason.timer() {
+            Some(ResetReason::TimedOut)
+        } else {
+            None
         }
     }
 }

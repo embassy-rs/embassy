@@ -8,17 +8,12 @@
 use assign_resources::assign_resources;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::config::Config;
 use embassy_rp::gpio::Output;
 use embassy_rp::{gpio, peripherals, pwm};
 use embassy_time::{Duration, Timer};
 use tb6612fng::{DriveCommand, Motor, Tb6612fng};
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 assign_resources! {
     motor: MotorResources {
