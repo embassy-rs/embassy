@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Some random bytes: {:?}", bytes);
 
     // Sync API with `rand`
-    defmt::info!("A random number from 1 to 10: {:?}", rng.gen_range(1..=10));
+    defmt::info!("A random number from 1 to 10: {:?}", rng.random_range(1..=10));
 
     let mut bytes = [0; 1024];
     rng.fill_bytes(&mut bytes).await;

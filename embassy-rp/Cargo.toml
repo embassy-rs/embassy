@@ -154,7 +154,7 @@ embedded-io = { version = "0.6.1" }
 embedded-io-async = { version = "0.6.1" }
 embedded-storage = { version = "0.3" }
 embedded-storage-async = { version = "0.4.1" }
-rand_core = "0.6.4"
+rand_core = "0.9.1"
 fixed = "1.28.0"
 
 rp-pac = { version = "7.0.0" }

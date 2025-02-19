@@ -55,7 +55,7 @@ embedded-storage = { version = "0.3" }
 static_cell = "2.1"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
-rand = { version = "0.8.5", default-features = false }
+rand = { version = "0.9.0", default-features = false }
 embedded-sdmmc = "0.7.0"
 
 [profile.release]

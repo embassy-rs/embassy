@@ -199,11 +199,6 @@ impl<'d, T: Instance> rand_core::RngCore for Rng<'d, T> {
         self.blocking_fill_bytes(&mut bytes);
         u64::from_ne_bytes(bytes)
     }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.blocking_fill_bytes(dest);
-        Ok(())
-    }
 }
 
 impl<'d, T: Instance> rand_core::CryptoRng for Rng<'d, T> {}

@@ -69,7 +69,7 @@ log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
-rand_core = "0.6.3"
+rand_core = "0.9.1"
 sdio-host = "0.5.0"
 critical-section = "1.1"
 stm32-metapac = { version = "16" }
