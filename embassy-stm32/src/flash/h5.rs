@@ -114,6 +114,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         r.set_bksel(match sector.bank {
             crate::flash::FlashBank::Bank1 => stm32_metapac::flash::vals::NscrBksel::B_0X0,
             crate::flash::FlashBank::Bank2 => stm32_metapac::flash::vals::NscrBksel::B_0X1,
+            _ => unreachable!(),
         });
         r.set_snb(sector.index_in_bank);
         r.set_ser(true);

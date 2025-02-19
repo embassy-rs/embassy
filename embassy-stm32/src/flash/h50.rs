@@ -55,6 +55,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    assert!(sector.bank != FlashBank::Otp);
     assert!(sector.index_in_bank < 8);
 
     while busy() {}
@@ -67,6 +68,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
                 (FlashBank::Bank2, true) => Bksel::BANK1,
                 (FlashBank::Bank2, false) => Bksel::BANK2,
                 (FlashBank::Bank1, true) => Bksel::BANK2,
+                _ => unreachable!(),
             });
             w.set_snb(sector.index_in_bank);
             w.set_ser(true);
