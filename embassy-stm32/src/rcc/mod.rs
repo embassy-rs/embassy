@@ -276,7 +276,10 @@ impl RccInfo {
 
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset(&self) {
-        debug!("RCC_INFO enable_and_reset {} {}", self.reset_offset_or_0xff, self.enable_offset);
+        debug!(
+            "RCC_INFO enable_and_reset {} {}",
+            self.reset_offset_or_0xff, self.enable_offset
+        );
         critical_section::with(|cs| self.enable_and_reset_with_cs(cs))
     }
 

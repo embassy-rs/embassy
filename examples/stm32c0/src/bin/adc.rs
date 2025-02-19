@@ -3,10 +3,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::{
-    adc::{vals::Scandir, Adc, AdcChannel, AnyAdcChannel, SampleTime, Resolution},
-    peripherals::ADC1,
-};
+use embassy_stm32::adc::vals::Scandir;
+use embassy_stm32::adc::{Adc, AdcChannel, AnyAdcChannel, Resolution, SampleTime};
+use embassy_stm32::peripherals::ADC1;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
