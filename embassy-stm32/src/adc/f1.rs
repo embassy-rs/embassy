@@ -6,8 +6,9 @@ use embassy_hal_internal::into_ref;
 
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
+use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peripheral};
+use crate::{rcc, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -19,15 +20,12 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         if T::regs().sr().read().eoc() {
             T::regs().cr1().modify(|w| w.set_eocie(false));
-        } else {
-            return;
+            T::state().waker.wake();
         }
-
-        T::state().waker.wake();
     }
 }
 
@@ -72,6 +70,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         // One cycle after calibration
         blocking_delay_us((1_000_000 * 1) / Self::freq().0 + 1);
 
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
         Self {
             adc,
             sample_time: SampleTime::from_bits(0),
@@ -115,24 +116,21 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Perform a single conversion.
     async fn convert(&mut self) -> u16 {
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(true);
-            reg.set_swstart(true);
-        });
-        T::regs().cr1().modify(|w| w.set_eocie(true));
-
+        let mut started = false;
         poll_fn(|cx| {
             T::state().waker.register(cx.waker());
-
             if !T::regs().cr2().read().swstart() && T::regs().sr().read().eoc() {
-                Poll::Ready(())
+                Poll::Ready(T::regs().dr().read().0 as u16)
             } else {
+                if !started {
+                    T::regs().cr1().modify(|w| w.set_eocie(true)); // End of Convert interrupt enable
+                    T::regs().cr2().modify(|reg| reg.set_swstart(true));
+                    started = true;
+                }
                 Poll::Pending
             }
         })
-        .await;
-
-        T::regs().dr().read().0 as u16
+        .await
     }
 
     pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
