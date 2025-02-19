@@ -328,6 +328,8 @@ rm out/tests/pimoroni-pico-plus-2/gpio_multicore
 rm out/tests/pimoroni-pico-plus-2/flash
 # This test passes locally but fails on the HIL, no idea why
 rm out/tests/pimoroni-pico-plus-2/i2c
+# The pico2 plus doesn't have the adcs hooked up like the picoW does.
+rm out/tests/pimoroni-pico-plus-2/adc
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
