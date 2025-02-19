@@ -1050,10 +1050,6 @@ impl RoscRng {
 }
 
 impl rand_core::RngCore for RoscRng {
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        Ok(self.fill_bytes(dest))
-    }
-
     fn next_u32(&mut self) -> u32 {
         rand_core::impls::next_u32_via_fill(self)
     }

@@ -7,7 +7,6 @@ use core::task::Poll;
 
 use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
-use rand_core::Error;
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::peripherals::TRNG;
@@ -365,11 +364,6 @@ impl<'d, T: Instance> rand_core::RngCore for Trng<'d, T> {
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         self.blocking_fill_bytes(dest)
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
-        self.blocking_fill_bytes(dest);
-        Ok(())
     }
 }
 /// TRNG interrupt handler.

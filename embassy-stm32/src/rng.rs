@@ -213,11 +213,6 @@ impl<'d, T: Instance> RngCore for Rng<'d, T> {
             }
         }
     }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
 }
 
 impl<'d, T: Instance> CryptoRng for Rng<'d, T> {}
