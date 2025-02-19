@@ -910,7 +910,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     }
 
     async fn get_scr(&mut self, card: &mut Card) -> Result<(), Error> {
-        // Read the the 64-bit SCR register
+        // Read the 64-bit SCR register
         Self::cmd(Cmd::set_block_length(8), false)?; // CMD16
         Self::cmd(Cmd::app_cmd(card.rca << 16), false)?;
 

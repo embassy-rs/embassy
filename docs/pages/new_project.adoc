@@ -109,7 +109,7 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "7703f
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "7703f47c1ecac029f603033b7977d9a2becef48c" }
 ----
 
-There are a few other dependencies we need to build the project, but fortunately they’re much simpler to install. Copy their lines from the example `Cargo.toml` to the the `[dependencies]` section in the new `Cargo.toml`:
+There are a few other dependencies we need to build the project, but fortunately they’re much simpler to install. Copy their lines from the example `Cargo.toml` to the `[dependencies]` section in the new `Cargo.toml`:
 
 [source,toml]
 ----

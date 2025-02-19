@@ -335,10 +335,9 @@ core::arch::global_asm!(
     // result ourselves correctly. This sets DIRTY, so any interruptor will
     // save the state.
     "str    r3, [r2, #0x060]", // DIV_UDIVIDEND
-    // If we are interrupted here, the the interruptor may start the
-    // calculation using incorrectly signed inputs, but we'll restore the
-    // result ourselves. This sets DIRTY, so any interruptor will save the
-    // state.
+    // If we are interrupted here, the interruptor may start the calculation
+    // using incorrectly signed inputs, but we'll restore the result ourselves.
+    // This sets DIRTY, so any interruptor will save the state.
     "str    r4, [r2, #0x064]", // DIV_UDIVISOR
     // If we are interrupted here, the interruptor will have restored
     // everything but the quotient may be wrongly signed.  If the calculation
