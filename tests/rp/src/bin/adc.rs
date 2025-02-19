@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
+#[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -20,14 +23,19 @@ async fn main(_spawner: Spawner) {
     let _wifi_off = Output::new(p.PIN_25, Level::High);
     let mut adc = Adc::new(p.ADC, Irqs, Config::default());
 
+    #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
+    let (mut a, mut b, mut c, mut d) = (p.PIN_26, p.PIN_27, p.PIN_28, p.PIN_29);
+    #[cfg(feature = "rp235xb")]
+    let (mut a, mut b, mut c, mut d) = (p.PIN_44, p.PIN_45, p.PIN_46, p.PIN_47);
+
     {
         {
-            let mut p = Channel::new_pin(&mut p.PIN_26, Pull::Down);
+            let mut p = Channel::new_pin(&mut a, Pull::Down);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() < 0b01_0000_0000);
             defmt::assert!(adc.read(&mut p).await.unwrap() < 0b01_0000_0000);
         }
         {
-            let mut p = Channel::new_pin(&mut p.PIN_26, Pull::Up);
+            let mut p = Channel::new_pin(&mut a, Pull::Up);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() > 0b11_0000_0000);
             defmt::assert!(adc.read(&mut p).await.unwrap() > 0b11_0000_0000);
         }
@@ -35,21 +43,21 @@ async fn main(_spawner: Spawner) {
     // not bothering with async reads from now on
     {
         {
-            let mut p = Channel::new_pin(&mut p.PIN_27, Pull::Down);
+            let mut p = Channel::new_pin(&mut b, Pull::Down);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() < 0b01_0000_0000);
         }
         {
-            let mut p = Channel::new_pin(&mut p.PIN_27, Pull::Up);
+            let mut p = Channel::new_pin(&mut b, Pull::Up);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() > 0b11_0000_0000);
         }
     }
     {
         {
-            let mut p = Channel::new_pin(&mut p.PIN_28, Pull::Down);
+            let mut p = Channel::new_pin(&mut c, Pull::Down);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() < 0b01_0000_0000);
         }
         {
-            let mut p = Channel::new_pin(&mut p.PIN_28, Pull::Up);
+            let mut p = Channel::new_pin(&mut c, Pull::Up);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() > 0b11_0000_0000);
         }
     }
@@ -57,15 +65,15 @@ async fn main(_spawner: Spawner) {
         // gp29 is connected to vsys through a 200k/100k divider,
         // adding pulls should change the value
         let low = {
-            let mut p = Channel::new_pin(&mut p.PIN_29, Pull::Down);
+            let mut p = Channel::new_pin(&mut d, Pull::Down);
             adc.blocking_read(&mut p).unwrap()
         };
         let none = {
-            let mut p = Channel::new_pin(&mut p.PIN_29, Pull::None);
+            let mut p = Channel::new_pin(&mut d, Pull::None);
             adc.blocking_read(&mut p).unwrap()
         };
         let up = {
-            let mut p = Channel::new_pin(&mut p.PIN_29, Pull::Up);
+            let mut p = Channel::new_pin(&mut d, Pull::Up);
             adc.blocking_read(&mut p).unwrap()
         };
         defmt::assert!(low < none);
@@ -89,29 +97,14 @@ async fn main(_spawner: Spawner) {
         let mut low = [0u16; 16];
         let mut none = [0u8; 16];
         let mut up = [Sample::default(); 16];
-        adc.read_many(
-            &mut Channel::new_pin(&mut p.PIN_29, Pull::Down),
-            &mut low,
-            1,
-            &mut p.DMA_CH0,
-        )
-        .await
-        .unwrap();
-        adc.read_many(
-            &mut Channel::new_pin(&mut p.PIN_29, Pull::None),
-            &mut none,
-            1,
-            &mut p.DMA_CH0,
-        )
-        .await
-        .unwrap();
-        adc.read_many_raw(
-            &mut Channel::new_pin(&mut p.PIN_29, Pull::Up),
-            &mut up,
-            1,
-            &mut p.DMA_CH0,
-        )
-        .await;
+        adc.read_many(&mut Channel::new_pin(&mut d, Pull::Down), &mut low, 1, &mut p.DMA_CH0)
+            .await
+            .unwrap();
+        adc.read_many(&mut Channel::new_pin(&mut d, Pull::None), &mut none, 1, &mut p.DMA_CH0)
+            .await
+            .unwrap();
+        adc.read_many_raw(&mut Channel::new_pin(&mut d, Pull::Up), &mut up, 1, &mut p.DMA_CH0)
+            .await;
         defmt::assert!(low.iter().zip(none.iter()).all(|(l, n)| *l >> 4 < *n as u16));
         defmt::assert!(up.iter().all(|s| s.good()));
         defmt::assert!(none.iter().zip(up.iter()).all(|(n, u)| (*n as u16) < u.value()));
@@ -133,7 +126,7 @@ async fn main(_spawner: Spawner) {
     {
         let mut multi = [0u16; 2];
         let mut channels = [
-            Channel::new_pin(&mut p.PIN_26, Pull::Up),
+            Channel::new_pin(&mut a, Pull::Up),
             Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR),
         ];
         adc.read_many_multichannel(&mut channels, &mut multi, 1, &mut p.DMA_CH0)
