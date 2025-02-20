@@ -180,6 +180,9 @@ pub(crate) unsafe fn init(config: Config) {
         lsi: None,
         lse: None,
     );
+
+    RCC.ccipr()
+        .modify(|w| w.set_adc1sel(stm32_metapac::rcc::vals::Adcsel::SYS));
 }
 
 mod max {
