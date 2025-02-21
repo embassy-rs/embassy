@@ -1434,8 +1434,8 @@ fn main() {
 
         if is_rcc_name(e.name) {
             let enum_name = format_ident!("{}", e.name);
-            let muls_ident = format_ident!("{}_MULS", enum_name);
-            let divs_ident = format_ident!("{}_DIVS", enum_name);
+            let muls_ident = format_ident!("{}_MULS", e.name.to_uppercase());
+            let divs_ident = format_ident!("{}_DIVS", e.name.to_uppercase());
 
             let mut mul_values = Vec::new();
             let mut div_values = Vec::new();
@@ -1474,7 +1474,7 @@ fn main() {
                 impl core::ops::Div<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
                     type Output = crate::time::Hertz;
                     fn div(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        let index = (rhs.to_bits() as usize);
+                        let index = rhs.to_bits() as usize;
                         self * #divs_ident[index] / #muls_ident[index]
                     }
                 }
@@ -1482,7 +1482,7 @@ fn main() {
                 impl core::ops::Mul<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
                     type Output = crate::time::Hertz;
                     fn mul(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        let index = (rhs.to_bits() as usize);
+                        let index = rhs.to_bits() as usize;
                         self * #muls_ident[index] / #divs_ident[index]
                     }
                 }
