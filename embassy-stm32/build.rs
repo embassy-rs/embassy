@@ -1439,43 +1439,55 @@ fn main() {
 
             let mut mul_values = Vec::new();
             let mut div_values = Vec::new();
-            let mut min_val:usize = e.variants[0].value as usize;
+            let mut min_val = 0;
             for v in e.variants {
+                // check if the diff is greater than 1, if so, we need to fill in rserverd values
+
+                let diff = v.value - min_val;
+                if diff > 1 {
+                    for _ in 0..diff {
+                        mul_values.push(quote!(0));
+                        div_values.push(quote!(0));
+                    }
+                }
+                min_val = v.value;
+
                 let Ok(val) = parse_num(v.name) else {
-                    panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
+                    panic!(
+                        "could not parse mul/div. enum={} variant={}",
+                        e.name, v.name
+                    )
                 };
                 let num = val.num;
                 let denom = val.denom;
                 // valid_count is our running index for valid variants.
                 mul_values.push(quote!(#num));
                 div_values.push(quote!(#denom));
-
             }
-        
-            let array_len = mul_values.len(); 
 
-        
-            g.extend(quote! { 
+            let array_len = mul_values.len();
+
+            g.extend(quote! {
                 const #muls_ident: [u32; #array_len] = [ #(#mul_values),* ];
                 const #divs_ident: [u32; #array_len] = [ #(#div_values),* ];
-        
+
                 impl core::ops::Div<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
                     type Output = crate::time::Hertz;
                     fn div(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        let index = (rhs.to_bits() as usize)-#min_val;
+                        let index = (rhs.to_bits() as usize);
                         self * #divs_ident[index] / #muls_ident[index]
                     }
                 }
-        
+
                 impl core::ops::Mul<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
                     type Output = crate::time::Hertz;
                     fn mul(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        let index = (rhs.to_bits() as usize)-#min_val;
+                        let index = (rhs.to_bits() as usize);
                         self * #muls_ident[index] / #divs_ident[index]
                     }
                 }
             });
-        } 
+        }
     }
 
     // ========
