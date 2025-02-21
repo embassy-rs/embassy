@@ -4,16 +4,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::{I2C0, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
 use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => i2c::InterruptHandler<I2C0>;

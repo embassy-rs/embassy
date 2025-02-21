@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
+#[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{info, unwrap};
 use embassy_executor::Executor;
@@ -56,7 +59,7 @@ async fn core1_task(p: PIN_1) {
 
     CHANNEL0.receive().await;
 
-    let mut pin = Input::new(p, Pull::Down);
+    let mut pin = Input::new(p, Pull::None);
     let wait = pin.wait_for_rising_edge();
 
     CHANNEL1.send(()).await;

@@ -161,6 +161,7 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
 
     let result = quote! {
         #[::embassy_executor::task()]
+        #[allow(clippy::future_not_send)]
         async fn __embassy_main(#fargs) #out {
             #f_body
         }

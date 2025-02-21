@@ -6,6 +6,7 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Common, Config, InterruptHandler, Irq, Pio, PioPin, ShiftDirection, StateMachine};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
@@ -19,7 +20,7 @@ fn setup_pio_task_sm0<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
     // Setup sm0
 
     // Send data serially to pin
-    let prg = pio_proc::pio_asm!(
+    let prg = pio_asm!(
         ".origin 16",
         "set pindirs, 1",
         ".wrap_target",
@@ -53,7 +54,7 @@ fn setup_pio_task_sm1<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
     // Setupm sm1
 
     // Read 0b10101 repeatedly until ISR is full
-    let prg = pio_proc::pio_asm!(
+    let prg = pio_asm!(
         //
         ".origin 8",
         "set x, 0x15",
@@ -83,7 +84,7 @@ fn setup_pio_task_sm2<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
     // Setup sm2
 
     // Repeatedly trigger IRQ 3
-    let prg = pio_proc::pio_asm!(
+    let prg = pio_asm!(
         ".origin 0",
         ".wrap_target",
         "set x,10",

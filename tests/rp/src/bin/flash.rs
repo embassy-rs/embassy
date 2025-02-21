@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
+#[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -24,13 +27,19 @@ async fn main(_spawner: Spawner) {
     let mut flash = embassy_rp::flash::Flash::<_, Async, { 2 * 1024 * 1024 }>::new(p.FLASH, p.DMA_CH0);
 
     // Get JEDEC id
-    let jedec = defmt::unwrap!(flash.blocking_jedec_id());
-    info!("jedec id: 0x{:x}", jedec);
+    #[cfg(feature = "rp2040")]
+    {
+        let jedec = defmt::unwrap!(flash.blocking_jedec_id());
+        info!("jedec id: 0x{:x}", jedec);
+    }
 
     // Get unique id
-    let mut uid = [0; 8];
-    defmt::unwrap!(flash.blocking_unique_id(&mut uid));
-    info!("unique id: {:?}", uid);
+    #[cfg(feature = "rp2040")]
+    {
+        let mut uid = [0; 8];
+        defmt::unwrap!(flash.blocking_unique_id(&mut uid));
+        info!("unique id: {:?}", uid);
+    }
 
     let mut buf = [0u8; ERASE_SIZE];
     defmt::unwrap!(flash.blocking_read(ADDR_OFFSET, &mut buf));

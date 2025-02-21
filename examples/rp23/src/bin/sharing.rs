@@ -19,7 +19,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use cortex_m_rt::entry;
 use defmt::info;
 use embassy_executor::{Executor, InterruptExecutor};
-use embassy_rp::block::ImageDef;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_rp::peripherals::UART0;
@@ -31,10 +30,6 @@ use embassy_time::{Duration, Ticker};
 use rand::RngCore;
 use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 type UartAsyncMutex = mutex::Mutex<CriticalSectionRawMutex, UartTx<'static, UART0, uart::Async>>;
 

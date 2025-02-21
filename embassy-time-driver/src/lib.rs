@@ -139,11 +139,13 @@ extern "Rust" {
 }
 
 /// See [`Driver::now`]
+#[inline]
 pub fn now() -> u64 {
     unsafe { _embassy_time_now() }
 }
 
 /// Schedule the given waker to be woken at `at`.
+#[inline]
 pub fn schedule_wake(at: u64, waker: &Waker) {
     unsafe { _embassy_time_schedule_wake(at, waker) }
 }
@@ -157,11 +159,13 @@ macro_rules! time_driver_impl {
         static $name: $t = $val;
 
         #[no_mangle]
+        #[inline]
         fn _embassy_time_now() -> u64 {
             <$t as $crate::Driver>::now(&$name)
         }
 
         #[no_mangle]
+        #[inline]
         fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker) {
             <$t as $crate::Driver>::schedule_wake(&$name, at, waker);
         }

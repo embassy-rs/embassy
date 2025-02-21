@@ -140,7 +140,7 @@ pub struct WebUsb<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> WebUsb<'d, D> {
     /// Builder for the WebUSB capability implementation.
     ///
-    /// Pass in a USB `Builder`, a `State`, which holds the the control endpoint state, and a `Config` for the WebUSB configuration.
+    /// Pass in a USB `Builder`, a `State`, which holds the control endpoint state, and a `Config` for the WebUSB configuration.
     pub fn configure(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: &'d Config<'d>) {
         let mut func = builder.function(USB_CLASS_VENDOR, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
         let mut iface = func.interface();

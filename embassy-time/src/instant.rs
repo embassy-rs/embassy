@@ -17,6 +17,7 @@ impl Instant {
     pub const MAX: Instant = Instant { ticks: u64::MAX };
 
     /// Returns an Instant representing the current time.
+    #[inline]
     pub fn now() -> Instant {
         Instant {
             ticks: embassy_time_driver::now(),
@@ -113,6 +114,18 @@ impl Instant {
     /// Subtracts one Duration to self, returning a new `Instant` or None in the event of an overflow.
     pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
         self.ticks.checked_sub(duration.ticks).map(|ticks| Instant { ticks })
+    }
+
+    /// Adds a Duration to self. In case of overflow, the maximum value is returned.
+    pub fn saturating_add(mut self, duration: Duration) -> Self {
+        self.ticks = self.ticks.saturating_add(duration.ticks);
+        self
+    }
+
+    /// Subtracts a Duration from self. In case of overflow, the minimum value is returned.
+    pub fn saturating_sub(mut self, duration: Duration) -> Self {
+        self.ticks = self.ticks.saturating_sub(duration.ticks);
+        self
     }
 }
 

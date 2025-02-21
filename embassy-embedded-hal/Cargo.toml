@@ -22,6 +22,7 @@ time = ["dep:embassy-time"]
 default = ["time"]
 
 [dependencies]
+embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
 embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }

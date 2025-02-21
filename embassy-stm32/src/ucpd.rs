@@ -266,7 +266,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
         // Check if the PdPhy part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
-            drop_not_ready.store(true, Ordering::Relaxed);
+            drop_not_ready.store(false, Ordering::Relaxed);
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
             rcc::disable::<T>();
@@ -411,13 +411,14 @@ pub struct PdPhy<'d, T: Instance> {
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
-        T::REGS.cr().modify(|w| w.set_phyrxen(false));
-        // Check if the Type-C part was dropped already.
+        let r = T::REGS;
+        r.cr().modify(|w| w.set_phyrxen(false));
+        // Check if the CcPhy part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
-            drop_not_ready.store(true, Ordering::Relaxed);
+            drop_not_ready.store(false, Ordering::Relaxed);
         } else {
-            T::REGS.cfgr1().write(|w| w.set_ucpden(false));
+            r.cfgr1().write(|w| w.set_ucpden(false));
             rcc::disable::<T>();
             T::Interrupt::disable();
         }
@@ -453,6 +454,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             });
         });
 
+        let mut rxpaysz = 0;
+
         // Stop DMA reception immediately after receiving a packet, to prevent storing multiple packets in the same buffer.
         poll_fn(|cx| {
             let sr = r.sr().read();
@@ -466,6 +469,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 Poll::Ready(Err(RxError::HardReset))
             } else if sr.rxmsgend() {
                 dma.request_stop();
+                // Should be read immediately on interrupt.
+                rxpaysz = r.rx_payszr().read().rxpaysz().into();
 
                 let ret = if sr.rxovr() {
                     Err(RxError::Overrun)
@@ -501,7 +506,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             _ => unreachable!(),
         };
 
-        Ok((sop, r.rx_payszr().read().rxpaysz().into()))
+        Ok((sop, rxpaysz))
     }
 
     fn enable_rx_interrupt(enable: bool) {

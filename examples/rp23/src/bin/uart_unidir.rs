@@ -11,15 +11,10 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::block::ImageDef;
 use embassy_rp::peripherals::UART1;
 use embassy_rp::uart::{Async, Config, InterruptHandler, UartRx, UartTx};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
-
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: ImageDef = ImageDef::secure_exe();
 
 bind_interrupts!(struct Irqs {
     UART1_IRQ => InterruptHandler<UART1>;

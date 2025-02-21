@@ -83,7 +83,7 @@ boot2-ram-memcpy = []
 boot2-w25q080 = []
 ## Use boot2 with support for Winbond W25X10CL SPI flash.
 boot2-w25x10cl = []
-## Have embassy not provide the boot2 so you can use your own.
+## Have embassy-rp not provide the boot2 so you can use your own.
 ## Place your own in the ".boot2" section like:
 ## ```
 ## #[link_section = ".boot2"]
@@ -91,6 +91,29 @@ boot2-w25x10cl = []
 ## static BOOT2: [u8; 256] = [0; 256]; // Provide your own with e.g. include_bytes!
 ## ```
 boot2-none = []
+
+#! ### Image Definition support
+#! RP2350's internal bootloader will only execute firmware if it has a valid Image Definition.
+#! There are other tags that can be used (for example, you can tag an image as "DATA")
+#! but programs will want to have an exe header. "SECURE_EXE" is usually what you want.
+#! Use imagedef-none if you want to configure the Image Definition manually
+#! If none are selected, imagedef-secure-exe will be used
+
+## Image is executable and starts in Secure mode
+imagedef-secure-exe = []
+## Image is executable and starts in Non-secure mode
+imagedef-nonsecure-exe = []
+
+## Have embassy-rp not provide the Image Definition so you can use your own.
+## Place your own in the ".start_block" section like:
+## ```ignore
+## use embassy_rp::block::ImageDef;
+##
+## #[link_section = ".start_block"]
+## #[used]
+## static IMAGE_DEF: ImageDef = ImageDef::secure_exe(); // Update this with your own implementation.
+## ```
+imagedef-none = []
 
 ## Configure the hal for use with the rp2040
 rp2040 = ["rp-pac/rp2040"]
@@ -134,15 +157,14 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.28.0"
 
-rp-pac = { version = "7.0.0", feature = ["rt"] }
+rp-pac = { version = "7.0.0" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 
-pio-proc = { git = "https://github.com/rp-rs/pio-rs", rev = "fa586448b0b223217eec8c92c19fe6823dd04cc4" }
-pio = { git = "https://github.com/rp-rs/pio-rs", rev = "fa586448b0b223217eec8c92c19fe6823dd04cc4" }
+pio = { git = "https://github.com/rp-rs/pio-rs", rev = "506a51b9bc135845e8544a0debd75847b73754dc" }
 rp2040-boot2 = "0.3"
 document-features = "0.2.10"
 sha2-const-stable = "0.1"

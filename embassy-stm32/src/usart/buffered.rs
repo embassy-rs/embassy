@@ -747,7 +747,7 @@ impl<'d> Drop for BufferedUartRx<'d> {
             unsafe {
                 state.rx_buf.deinit();
 
-                // TX is inactive if the the buffer is not available.
+                // TX is inactive if the buffer is not available.
                 // We can now unregister the interrupt handler
                 if state.tx_buf.len() == 0 {
                     self.info.interrupt.disable();
@@ -768,7 +768,7 @@ impl<'d> Drop for BufferedUartTx<'d> {
             unsafe {
                 state.tx_buf.deinit();
 
-                // RX is inactive if the the buffer is not available.
+                // RX is inactive if the buffer is not available.
                 // We can now unregister the interrupt handler
                 if state.rx_buf.len() == 0 {
                     self.info.interrupt.disable();
