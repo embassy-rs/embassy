@@ -1453,10 +1453,7 @@ fn main() {
                 min_val = v.value;
 
                 let Ok(val) = parse_num(v.name) else {
-                    panic!(
-                        "could not parse mul/div. enum={} variant={}",
-                        e.name, v.name
-                    )
+                    panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
                 };
                 let num = val.num;
                 let denom = val.denom;
