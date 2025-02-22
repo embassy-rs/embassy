@@ -65,6 +65,9 @@ compile_error!("feature `reset-pin-as-gpio` is only valid for nRF52 series chips
 #[cfg(all(feature = "nfc-pins-as-gpio", not(any(feature = "_nrf52", feature = "_nrf5340-app"))))]
 compile_error!("feature `nfc-pins-as-gpio` is only valid for nRF52, or nRF53's application core.");
 
+#[cfg(all(feature = "lfxo-pins-as-gpio", not(any(feature = "_nrf5340"))))]
+compile_error!("feature `lfxo-pins-as-gpio` is only valid for nRF53 series chips.");
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 pub(crate) mod util;
@@ -282,15 +285,24 @@ pub mod config {
         /// Internal RC oscillator
         InternalRC,
         /// Synthesized from the high frequency clock source.
-        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
+        #[cfg(not(any(feature = "_nrf91")))]
         Synthesized,
         /// External source from xtal.
+        #[cfg(not(all(feature = "_nrf5340", feature = "lfxo-pins-as-gpio")))]
         ExternalXtal,
         /// External source from xtal with low swing applied.
-        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
+        #[cfg(not(any(
+            all(feature = "_nrf5340", feature = "lfxo-pins-as-gpio"),
+            feature = "_nrf91",
+            feature = "_nrf54l"
+        )))]
         ExternalLowSwing,
         /// External source from xtal with full swing applied.
-        #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
+        #[cfg(not(any(
+            all(feature = "_nrf5340", feature = "lfxo-pins-as-gpio"),
+            feature = "_nrf91",
+            feature = "_nrf54l"
+        )))]
         ExternalFullSwing,
     }
 
@@ -706,6 +718,19 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
+    // Workaround for anomaly 140
+    #[cfg(feature = "nrf5340-app-s")]
+    if unsafe { (0x50032420 as *mut u32).read_volatile() } & 0x80000000 != 0 {
+        r.events_lfclkstarted().write_value(0);
+        r.lfclksrc()
+            .write(|w| w.set_src(nrf_pac::clock::vals::Lfclksrc::LFSYNT));
+        r.tasks_lfclkstart().write_value(1);
+        while r.events_lfclkstarted().read() == 0 {}
+        r.events_lfclkstarted().write_value(0);
+        r.tasks_lfclkstop().write_value(1);
+        r.lfclksrc().write(|w| w.set_src(nrf_pac::clock::vals::Lfclksrc::LFRC));
+    }
+
     // Configure LFCLK.
     #[cfg(not(any(feature = "_nrf51", feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
     match config.lfclk_source {
@@ -722,6 +747,36 @@ pub fn init(config: config::Config) -> Peripherals {
             w.set_external(true);
             w.set_bypass(true);
         }),
+    }
+    #[cfg(feature = "_nrf5340")]
+    {
+        #[allow(unused_mut)]
+        let mut lfxo = false;
+        match config.lfclk_source {
+            config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFRC)),
+            config::LfclkSource::Synthesized => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFSYNT)),
+            #[cfg(not(feature = "lfxo-pins-as-gpio"))]
+            config::LfclkSource::ExternalXtal => lfxo = true,
+            #[cfg(not(feature = "lfxo-pins-as-gpio"))]
+            config::LfclkSource::ExternalLowSwing => lfxo = true,
+            #[cfg(not(feature = "lfxo-pins-as-gpio"))]
+            config::LfclkSource::ExternalFullSwing => {
+                #[cfg(all(feature = "_nrf5340-app"))]
+                pac::OSCILLATORS.xosc32ki().bypass().write(|w| w.set_bypass(true));
+                lfxo = true;
+            }
+        }
+        if lfxo {
+            if cfg!(feature = "_s") {
+                // MCUSEL is only accessible from secure code.
+                let p0 = pac::P0;
+                p0.pin_cnf(0)
+                    .write(|w| w.set_mcusel(pac::gpio::vals::Mcusel::PERIPHERAL));
+                p0.pin_cnf(1)
+                    .write(|w| w.set_mcusel(pac::gpio::vals::Mcusel::PERIPHERAL));
+            }
+            r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFXO));
+        }
     }
     #[cfg(feature = "_nrf91")]
     match config.lfclk_source {
