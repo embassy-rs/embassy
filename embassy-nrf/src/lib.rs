@@ -65,7 +65,7 @@ compile_error!("feature `reset-pin-as-gpio` is only valid for nRF52 series chips
 #[cfg(all(feature = "nfc-pins-as-gpio", not(any(feature = "_nrf52", feature = "_nrf5340-app"))))]
 compile_error!("feature `nfc-pins-as-gpio` is only valid for nRF52, or nRF53's application core.");
 
-#[cfg(all(feature = "lfxo-pins-as-gpio", not(any(feature = "_nrf5340"))))]
+#[cfg(all(feature = "lfxo-pins-as-gpio", not(feature = "_nrf5340")))]
 compile_error!("feature `lfxo-pins-as-gpio` is only valid for nRF53 series chips.");
 
 // This mod MUST go first, so that the others see its macros.
@@ -285,24 +285,16 @@ pub mod config {
         /// Internal RC oscillator
         InternalRC,
         /// Synthesized from the high frequency clock source.
-        #[cfg(not(any(feature = "_nrf91")))]
+        #[cfg(not(feature = "_nrf91"))]
         Synthesized,
         /// External source from xtal.
-        #[cfg(not(all(feature = "_nrf5340", feature = "lfxo-pins-as-gpio")))]
+        #[cfg(not(feature = "lfxo-pins-as-gpio"))]
         ExternalXtal,
         /// External source from xtal with low swing applied.
-        #[cfg(not(any(
-            all(feature = "_nrf5340", feature = "lfxo-pins-as-gpio"),
-            feature = "_nrf91",
-            feature = "_nrf54l"
-        )))]
+        #[cfg(not(any(feature = "lfxo-pins-as-gpio", feature = "_nrf91", feature = "_nrf54l")))]
         ExternalLowSwing,
         /// External source from xtal with full swing applied.
-        #[cfg(not(any(
-            all(feature = "_nrf5340", feature = "lfxo-pins-as-gpio"),
-            feature = "_nrf91",
-            feature = "_nrf54l"
-        )))]
+        #[cfg(not(any(feature = "lfxo-pins-as-gpio", feature = "_nrf91", feature = "_nrf54l")))]
         ExternalFullSwing,
     }
 

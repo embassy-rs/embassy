@@ -262,9 +262,9 @@ embassy_hal_internal::peripherals! {
     PPI_GROUP5,
 
     // GPIO port 0
-    #[cfg(any(not(feature = "_nrf5340"), feature = "lfxo-pins-as-gpio"))]
+    #[cfg(feature = "lfxo-pins-as-gpio")]
     P0_00,
-    #[cfg(any(not(feature = "_nrf5340"), feature = "lfxo-pins-as-gpio"))]
+    #[cfg(feature = "lfxo-pins-as-gpio")]
     P0_01,
     #[cfg(feature = "nfc-pins-as-gpio")]
     P0_02,
@@ -370,9 +370,9 @@ impl_pdm!(PDM0, PDM0, PDM0);
 impl_qdec!(QDEC0, QDEC0, QDEC0);
 impl_qdec!(QDEC1, QDEC1, QDEC1);
 
-#[cfg(any(not(feature = "_nrf5340"), feature = "lfxo-pins-as-gpio"))]
+#[cfg(feature = "lfxo-pins-as-gpio")]
 impl_pin!(P0_00, 0, 0);
-#[cfg(any(not(feature = "_nrf5340"), feature = "lfxo-pins-as-gpio"))]
+#[cfg(feature = "lfxo-pins-as-gpio")]
 impl_pin!(P0_01, 0, 1);
 #[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_02, 0, 2);
