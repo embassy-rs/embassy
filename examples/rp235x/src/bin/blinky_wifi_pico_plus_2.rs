@@ -1,6 +1,6 @@
 //! This example test the Pimoroni Pico Plus 2 on board LED.
 //!
-//! It does not work with the RP Pico board. See blinky.rs.
+//! It does not work with the RP Pico 2 board. See `blinky.rs`.
 
 #![no_std]
 #![no_main]
