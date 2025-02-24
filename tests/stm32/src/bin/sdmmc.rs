@@ -34,6 +34,7 @@ async fn main(_spawner: Spawner) {
         pattern1[i] = i as u8;
         pattern2[i] = !i as u8;
     }
+    let patterns = [pattern1.clone(), pattern2.clone()];
 
     let mut block = DataBlock([0u8; 512]);
     let mut blocks = [DataBlock([0u8; 512]), DataBlock([0u8; 512])];
@@ -86,11 +87,11 @@ async fn main(_spawner: Spawner) {
     assert_eq!(block, pattern2);
 
     info!("writing blocks [pattern1, pattern2]...");
-    s.write_blocks(block_idx, &[pattern1, pattern2]).await.unwrap();
-    
+    s.write_blocks(block_idx, &patterns).await.unwrap();
+
     info!("reading blocks...");
     s.read_blocks(block_idx, &mut blocks).await.unwrap();
-    assert_eq!(blocks, [pattern1, pattern2]);
+    assert_eq!(&blocks, &patterns);
 
     drop(s);
 
@@ -143,11 +144,11 @@ async fn main(_spawner: Spawner) {
     assert_eq!(block, pattern2);
 
     info!("writing blocks [pattern1, pattern2]...");
-    s.write_blocks(block_idx, &[pattern1, pattern2]).await.unwrap();
-    
+    s.write_blocks(block_idx, &patterns).await.unwrap();
+
     info!("reading blocks...");
     s.read_blocks(block_idx, &mut blocks).await.unwrap();
-    assert_eq!(blocks, [pattern1, pattern2]);
+    assert_eq!(&blocks, &patterns);
 
     drop(s);
 
