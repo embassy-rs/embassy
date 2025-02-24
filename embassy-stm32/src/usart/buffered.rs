@@ -908,26 +908,16 @@ impl<'d> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d> {
     type Error = Error;
 
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        let r = self.info.regs;
-        unsafe {
-            let sr = sr(r).read();
-            if sr.pe() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Parity))
-            } else if sr.fe() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Framing))
-            } else if sr.ne() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Noise))
-            } else if sr.ore() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Overrun))
-            } else if sr.rxne() {
-                Ok(rdr(r).read_volatile())
-            } else {
-                Err(nb::Error::WouldBlock)
+        let state = self.state;
+        let mut rx_reader = unsafe { state.rx_buf.reader() };
+        
+        if let Some(data) = rx_reader.pop_one() {
+            Ok(data)
+        } else {
+            if state.rx_buf.is_full() {
+                self.info.interrupt.pend();
             }
+            Err(nb::Error::WouldBlock)
         }
     }
 }
