@@ -911,12 +911,13 @@ impl<'d> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d> {
         let state = self.state;
         let mut rx_reader = unsafe { state.rx_buf.reader() };
 
+        let do_pend = state.rx_buf.is_full();
         if let Some(data) = rx_reader.pop_one() {
-            Ok(data)
-        } else {
-            if state.rx_buf.is_full() {
+            if do_pend {
                 self.info.interrupt.pend();
             }
+            Ok(data)
+        } else {
             Err(nb::Error::WouldBlock)
         }
     }
