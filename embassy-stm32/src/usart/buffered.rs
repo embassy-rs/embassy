@@ -910,7 +910,7 @@ impl<'d> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d> {
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
         let state = self.state;
         let mut rx_reader = unsafe { state.rx_buf.reader() };
-        
+
         if let Some(data) = rx_reader.pop_one() {
             Ok(data)
         } else {
