@@ -4,6 +4,9 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
+
+#[cfg(any(stm32f413, stm32f423, stm32f412))]
+pub use crate::pac::rcc::vals::Plli2ssrc as Plli2sSource;
 #[cfg(any(stm32f4, stm32f7))]
 use crate::pac::PWR;
 use crate::pac::{FLASH, RCC};
@@ -84,6 +87,8 @@ pub struct Config {
     pub sys: Sysclk,
 
     pub pll_src: PllSource,
+    #[cfg(any(stm32f413, stm32f423, stm32f412))]
+    pub plli2s_src: Plli2sSource,
 
     pub pll: Option<Pll>,
     #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
@@ -111,6 +116,8 @@ impl Default for Config {
             hse: None,
             sys: Sysclk::HSI,
             pll_src: PllSource::HSI,
+            #[cfg(any(stm32f413, stm32f423, stm32f412))]
+            plli2s_src: Plli2sSource::HSE_HSI,
             pll: None,
             #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
             plli2s: None,
@@ -417,7 +424,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             #[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
             w.set_pllm(pll.prediv);
             #[cfg(any(stm32f412, stm32f413, stm32f423))]
-            w.set_pllsrc(input.source);
+            w.set_plli2ssrc(Plli2sSource::HSE_HSI);
 
             write_fields!(w);
         }),
