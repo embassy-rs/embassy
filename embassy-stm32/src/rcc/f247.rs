@@ -1,12 +1,11 @@
 use stm32_metapac::flash::vals::Latency;
 
+#[cfg(any(stm32f413, stm32f423, stm32f412))]
+pub use crate::pac::rcc::vals::Plli2ssrc as Plli2sSource;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
-
-#[cfg(any(stm32f413, stm32f423, stm32f412))]
-pub use crate::pac::rcc::vals::Plli2ssrc as Plli2sSource;
 #[cfg(any(stm32f4, stm32f7))]
 use crate::pac::PWR;
 use crate::pac::{FLASH, RCC};
