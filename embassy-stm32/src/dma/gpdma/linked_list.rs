@@ -1,0 +1,236 @@
+//! Implementation of the GPDMA linked list and linked list items.
+#![macro_use]
+
+use stm32_metapac::gpdma::{regs, vals::Dreq};
+
+use super::TransferOptions;
+use crate::dma::{
+    word::{Word, WordSize},
+    Dir, Request,
+};
+use core::{
+    ptr,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+/// The mode in which to run the linked list.
+#[derive(Debug)]
+pub enum RunMode {
+    /// List items are not linked together.
+    Unlinked,
+    /// The list is linked sequentially and only run once.
+    Once,
+    /// The list is linked sequentially, and the end of the list is linked to the beginning.
+    Repeat,
+}
+
+/// A linked-list item for linear GPDMA transfers.
+///
+/// Also works for 2D-capable GPDMA channels, but does not use 2D capabilities.
+#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+pub struct LinearItem {
+    /// Transfer register 1.
+    pub tr1: u32,
+    /// Transfer register 2.
+    pub tr2: u32,
+    /// Block register 2.
+    pub br1: u32,
+    /// Source address register.
+    pub sar: u32,
+    /// Destination address register.
+    pub dar: u32,
+    /// Linked-list address register.
+    pub llr: u32,
+}
+
+impl LinearItem {
+    /// Create a new read DMA transfer (peripheral to memory).
+    pub unsafe fn new_read<'d, W: Word>(
+        request: Request,
+        peri_addr: *mut W,
+        buf: &'d mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_inner(
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            buf as *mut [W] as *mut W as *mut u32,
+            buf.len(),
+            true,
+            W::size(),
+            W::size(),
+            options,
+        )
+    }
+
+    /// Create a new write DMA transfer (memory to peripheral).
+    pub unsafe fn new_write<'d, MW: Word, PW: Word>(
+        request: Request,
+        buf: &'d [MW],
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_inner(
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            buf as *const [MW] as *const MW as *mut u32,
+            buf.len(),
+            true,
+            MW::size(),
+            PW::size(),
+            options,
+        )
+    }
+
+    unsafe fn new_inner(
+        request: Request,
+        dir: Dir,
+        peri_addr: *const u32,
+        mem_addr: *mut u32,
+        mem_len: usize,
+        incr_mem: bool,
+        data_size: WordSize,
+        dst_size: WordSize,
+        _options: TransferOptions,
+    ) -> Self {
+        // BNDT is specified as bytes, not as number of transfers.
+        let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
+            panic!("DMA transfers may not be larger than 65535 bytes.");
+        };
+
+        let mut br1 = regs::ChBr1(0);
+        br1.set_bndt(bndt);
+
+        let mut tr1 = regs::ChTr1(0);
+        tr1.set_sdw(data_size.into());
+        tr1.set_ddw(dst_size.into());
+        tr1.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
+        tr1.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+
+        let mut tr2 = regs::ChTr2(0);
+        tr2.set_dreq(match dir {
+            Dir::MemoryToPeripheral => Dreq::DESTINATION_PERIPHERAL,
+            Dir::PeripheralToMemory => Dreq::SOURCE_PERIPHERAL,
+        });
+        tr2.set_reqsel(request);
+
+        let (sar, dar) = match dir {
+            Dir::MemoryToPeripheral => (mem_addr as _, peri_addr as _),
+            Dir::PeripheralToMemory => (peri_addr as _, mem_addr as _),
+        };
+
+        let llr = regs::ChLlr(0);
+
+        Self {
+            tr1: tr1.0,
+            tr2: tr2.0,
+            br1: br1.0,
+            sar,
+            dar,
+            llr: llr.0,
+        }
+    }
+
+    /// Link to the next linear item at the given address.
+    ///
+    /// Enables channel update bits.
+    fn link_to(&mut self, next: u16) {
+        let mut llr = regs::ChLlr(0);
+
+        llr.set_ut1(true);
+        llr.set_ut2(true);
+        llr.set_ub1(true);
+        llr.set_usa(true);
+        llr.set_uda(true);
+        llr.set_ull(true);
+        llr.set_la(next);
+
+        self.llr = llr.0;
+    }
+
+    /// Unlink the next linear item.
+    ///
+    /// Disables channel update bits.
+    fn unlink(&mut self) {
+        self.llr = regs::ChLlr(0).0;
+    }
+}
+
+pub struct Table<const ITEM_COUNT: usize> {
+    current_index: AtomicUsize,
+    items: [LinearItem; ITEM_COUNT],
+}
+
+impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
+    /// Create a new table.
+    pub fn new(items: [LinearItem; ITEM_COUNT], run_mode: RunMode) -> Self {
+        assert!(!items.is_empty());
+
+        let mut this = Self {
+            current_index: AtomicUsize::new(0),
+            items,
+        };
+
+        if matches!(run_mode, RunMode::Once | RunMode::Repeat) {
+            this.link_sequential();
+        }
+
+        if matches!(run_mode, RunMode::Repeat) {
+            this.link_repeat();
+        }
+
+        this
+    }
+
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Items are linked together sequentially.
+    pub fn link_sequential(&mut self) {
+        if self.items.len() > 1 {
+            for index in 0..(self.items.len() - 1) {
+                let next = ptr::addr_of!(self.items[index + 1]) as u16;
+                self.items[index].link_to(next);
+            }
+        }
+    }
+
+    /// Last item links to first item.
+    pub fn link_repeat(&mut self) {
+        let first_item = self.items.first().unwrap();
+        let first_address = ptr::addr_of!(first_item) as u16;
+        self.items.last_mut().unwrap().link_to(first_address);
+    }
+
+    /// The index of the next item.
+    pub fn next_index(&self) -> usize {
+        let mut next_index = self.current_index.load(Ordering::Relaxed) + 1;
+        if next_index >= self.len() {
+            next_index = 0;
+        }
+
+        next_index
+    }
+
+    /// Unlink the next item.
+    pub fn unlink_next(&mut self) {
+        let next_index = self.next_index();
+        self.items[next_index].unlink();
+    }
+
+    /// Linked list base address (upper 16 address bits).
+    pub fn base_address(&self) -> u16 {
+        ((ptr::addr_of!(self.items) as u32) >> 16) as _
+    }
+
+    /// Linked list offset address (lower 16 address bits) at the selected index.
+    pub fn offset_address(&self, index: usize) -> u16 {
+        assert!(self.items.len() > index);
+
+        (ptr::addr_of!(self.items[index]) as u32) as _
+    }
+}
