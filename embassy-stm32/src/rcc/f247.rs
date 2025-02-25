@@ -89,6 +89,8 @@ pub struct Config {
     pub pll_src: PllSource,
     #[cfg(any(stm32f413, stm32f423, stm32f412))]
     pub plli2s_src: Plli2sSource,
+    #[cfg(any(stm32f412, stm32f413, stm32f423))]
+    pub external_clock: Option<Hertz>,
 
     pub pll: Option<Pll>,
     #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
@@ -118,6 +120,8 @@ impl Default for Config {
             pll_src: PllSource::HSI,
             #[cfg(any(stm32f413, stm32f423, stm32f412))]
             plli2s_src: Plli2sSource::HSE_HSI,
+            #[cfg(any(stm32f412, stm32f413, stm32f423))]
+            external_clock: None,
             pll: None,
             #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
             plli2s: None,
@@ -192,6 +196,8 @@ pub(crate) unsafe fn init(config: Config) {
     let pll_input = PllInput {
         hse,
         hsi,
+        #[cfg(any(stm32f412, stm32f413, stm32f423))]
+        external: config.external_clock,
         source: config.pll_src,
     };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
@@ -325,6 +331,8 @@ struct PllInput {
     source: PllSource,
     hsi: Option<Hertz>,
     hse: Option<Hertz>,
+    #[cfg(any(stm32f412, stm32f413, stm32f423))]
+    external: Option<Hertz>,
 }
 
 #[derive(Default)]
@@ -369,9 +377,16 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
 
     let Some(pll) = config else { return PllOutput::default() };
 
+    #[cfg(not(any(stm32f412, stm32f413, stm32f423)))]
     let pll_src = match input.source {
         PllSource::HSE => input.hse,
         PllSource::HSI => input.hsi,
+    };
+    #[cfg(any(stm32f412, stm32f413, stm32f423))]
+    let pll_src = match (input.source, input.external) {
+        (PllSource::HSE, None) => input.hse,
+        (PllSource::HSI, None) => input.hsi,
+        (_, Some(ext)) => Some(ext),
     };
 
     let pll_src = pll_src.unwrap();
@@ -424,7 +439,13 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             #[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
             w.set_pllm(pll.prediv);
             #[cfg(any(stm32f412, stm32f413, stm32f423))]
-            w.set_plli2ssrc(Plli2sSource::HSE_HSI);
+            {
+                let plli2ssource = match input.external {
+                    Some(_) => Plli2sSource::EXTERNAL,
+                    None => Plli2sSource::HSE_HSI,
+                };
+                w.set_plli2ssrc(plli2ssource);
+            }
 
             write_fields!(w);
         }),
