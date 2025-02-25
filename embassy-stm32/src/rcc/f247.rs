@@ -87,10 +87,8 @@ pub struct Config {
     pub sys: Sysclk,
 
     pub pll_src: PllSource,
-    #[cfg(any(stm32f413, stm32f423, stm32f412))]
-    pub plli2s_src: Plli2sSource,
     #[cfg(any(stm32f412, stm32f413, stm32f423))]
-    pub external_clock: Option<Hertz>,
+    pub external_i2s_clock: Option<Hertz>,
 
     pub pll: Option<Pll>,
     #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
@@ -118,10 +116,8 @@ impl Default for Config {
             hse: None,
             sys: Sysclk::HSI,
             pll_src: PllSource::HSI,
-            #[cfg(any(stm32f413, stm32f423, stm32f412))]
-            plli2s_src: Plli2sSource::HSE_HSI,
             #[cfg(any(stm32f412, stm32f413, stm32f423))]
-            external_clock: None,
+            external_i2s_clock: None,
             pll: None,
             #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
             plli2s: None,
@@ -197,7 +193,7 @@ pub(crate) unsafe fn init(config: Config) {
         hse,
         hsi,
         #[cfg(any(stm32f412, stm32f413, stm32f423))]
-        external: config.external_clock,
+        external: config.external_i2s_clock,
         source: config.pll_src,
     };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
