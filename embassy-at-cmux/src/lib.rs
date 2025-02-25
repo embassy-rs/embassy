@@ -12,23 +12,26 @@ use core::mem::MaybeUninit;
 use core::pin::pin;
 use core::task::Poll;
 
-use embassy_futures::join::join;
-use embassy_futures::select::{select, select_slice, Either};
+use embassy_futures::select::{select, select3, select_slice, Either, Either3};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe::{Pipe, Reader, Writer};
 use embassy_sync::signal::Signal;
 use embassy_sync::waitqueue::AtomicWaker;
-use embedded_io_async::{BufRead, Error, ErrorType, Read, Write};
+use embassy_time::{Duration, Instant, Timer};
+use embedded_io_async::{BufRead, ErrorType, Read, Write};
 pub use frame::{Break, Control};
-use frame::{Frame, Information, ModemStatusCommand};
+use frame::{Frame, Information, MultiplexerCloseDown};
 use futures::FutureExt;
 use heapless::Vec;
 
-use crate::frame::{FrameType, NonSupportedCommandResponse};
+use crate::frame::{Error, FrameType, NonSupportedCommandResponse};
+
+const MAX_PINGS: u8 = 3;
 
 struct Lines {
     rx: Cell<(Control, Option<Break>)>,
     tx: Cell<(Control, Option<Break>)>,
+    opened: Cell<bool>,
     hangup: Cell<bool>,
     hangup_mask: Cell<Option<(u16, u16)>>,
     hangup_waker: AtomicWaker,
@@ -39,6 +42,7 @@ impl Lines {
         Self {
             rx: Cell::new((Control::new(), None)),
             tx: Cell::new((Control::new(), None)),
+            opened: Cell::new(false),
             hangup: Cell::new(false),
             hangup_mask: Cell::new(None),
             hangup_waker: AtomicWaker::new(),
@@ -95,6 +99,7 @@ pub struct ChannelLines<'a, const BUF: usize> {
 pub struct Runner<'a, const N: usize, const BUF: usize> {
     tx: [Reader<'a, NoopRawMutex, BUF>; N],
     rx: [Writer<'a, NoopRawMutex, BUF>; N],
+    control_channel_opened: bool,
     lines: &'a [Lines; N],
     line_status_updated: &'a Signal<NoopRawMutex, ()>,
 }
@@ -136,6 +141,7 @@ impl<const N: usize, const BUF: usize> Mux<N, BUF> {
         let runner = Runner {
             rx: unsafe { runner_rx.assume_init() },
             tx: unsafe { runner_tx.assume_init() },
+            control_channel_opened: false,
             lines: &self.lines,
             line_status_updated: &self.line_status_updated,
         };
@@ -144,211 +150,288 @@ impl<const N: usize, const BUF: usize> Mux<N, BUF> {
 }
 
 impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
-    pub async fn run<R: BufRead, W: Write>(&mut self, mut port_r: R, mut port_w: W, max_frame_size: usize) -> ! {
-        // Open channels
-        for id in 0..(N as u8 + 1) {
+    pub async fn run<R: BufRead, W: Write>(
+        &mut self,
+        mut port_r: R,
+        mut port_w: W,
+        max_frame_size: usize,
+    ) -> Result<(), Error> {
+        if !self.control_channel_opened {
+            debug!("Opening control channel");
+
             // Send open channel request
-            debug!("open channel {}", id);
-            let sabm = frame::Sabm { id };
-            sabm.write(&mut port_w).await.unwrap();
+            frame::Sabm { id: 0 }.write(&mut port_w).await?;
+        }
 
-            // Read response
-            for _ in 0..5 {
-                let header = frame::RxHeader::read(&mut port_r).await.unwrap();
-                trace!("RX header {:?}", header);
+        for channel_id in 0..N {
+            if !self.lines[channel_id].opened.get() {
+                debug!("Opening channel {}", channel_id);
 
-                if header.frame_type == FrameType::Ua && header.id() == id {
-                    if let Err(e) = header.finalize().await {
-                        warn!("bad open channel resp: {:?}", e);
-                    }
-                    break;
+                // Send open channel request
+                frame::Sabm {
+                    id: channel_id as u8 + 1,
                 }
-                warn!("Got unexpected packet during channel open: {:?}", header);
-                if let Err(e) = header.finalize().await {
-                    warn!("bad open channel resp: {:?}", e);
-                }
+                .write(&mut port_w)
+                .await?;
             }
         }
 
-        // Set initial lines.
-        for c in self.lines {
-            c.tx.set((Control::new().with_rtc(true).with_rtr(true).with_dv(true), None));
-        }
+        let mut last_received = Instant::now();
+        let mut ping_number = 1u8;
 
-        self.line_status_updated.signal(());
-
-        debug!("mux running");
-
-        let tx_fut = async {
-            let mut line_tx_sent = [(Control::default(), None); N];
-            let mut line_rx_sent = [(Control::default(), None); N];
-            loop {
-                let mut futs: Vec<_, N> = Vec::new();
-                for c in &mut self.tx {
-                    let res = futs.push(c.fill_buf());
-                    assert!(res.is_ok());
-                }
-
-                match select(select_slice(pin!(&mut futs)), self.line_status_updated.wait()).await {
-                    Either::First((buf, i)) => {
-                        let (control, _) = self.lines[i].tx.get();
-                        if control.fc() {
-                            warn!("Channel {} TX flow controlled!", i + 1);
-                            continue;
-                        }
-
-                        let len = buf.len().min(max_frame_size);
-
-                        let frame = frame::Uih {
-                            id: i as u8 + 1,
-                            information: Information::Data(&buf[..len]),
-                        };
-
-                        frame.write(&mut port_w).await.unwrap();
-
-                        drop(futs);
-
-                        self.tx[i].consume(len);
-                    }
-                    Either::Second(()) => {
-                        for i in 0..N {
-                            let (control, brk) = self.lines[i].tx.get();
-                            if (control, brk) != line_tx_sent[i] {
-                                line_tx_sent[i] = (control, brk);
-
-                                info!("Sending new TX signals");
-
-                                let frame = frame::Uih {
-                                    id: 0,
-                                    information: Information::ModemStatusCommand(ModemStatusCommand {
-                                        cr: frame::CR::Command,
-                                        dlci: i as u8 + 1,
-                                        control,
-                                        brk,
-                                    }),
-                                };
-                                frame.write(&mut port_w).await.unwrap();
-                            }
-
-                            // Send ack message with `CR::Response`
-                            let (control, brk) = self.lines[i].rx.get();
-                            if (control, brk) != line_rx_sent[i] {
-                                line_rx_sent[i] = (control, brk);
-
-                                info!("Acknowledging new RX signals");
-
-                                let frame = frame::Uih {
-                                    id: 0,
-                                    information: Information::ModemStatusCommand(ModemStatusCommand {
-                                        cr: frame::CR::Response,
-                                        dlci: i as u8 + 1,
-                                        control,
-                                        brk,
-                                    }),
-                                };
-                                frame.write(&mut port_w).await.unwrap();
-                            }
-                        }
-                    }
-                }
+        loop {
+            let mut futs: Vec<_, N> = Vec::new();
+            for c in &mut self.tx {
+                let res = futs.push(c.fill_buf());
+                assert!(res.is_ok());
             }
-        };
 
-        let rx_fut = async {
-            loop {
-                let header = frame::RxHeader::read(&mut port_r).await.unwrap();
-                trace!("{:?}", header);
+            let ping_fut = Timer::at(last_received + Duration::from_secs(5 * ping_number as u64));
 
-                if header.len > 0 {
-                    if header.is_control() {
-                        // control channel command
-                        let info = header.read_information().await.unwrap();
+            match select3(
+                select_slice(pin!(&mut futs)),
+                frame::RxHeader::read(&mut port_r),
+                ping_fut,
+            )
+            .await
+            {
+                Either3::First((buf, i)) => {
+                    // let (control, _) = self.lines[i].tx.get();
+                    // if control.fc() {
+                    //     warn!("Channel {} TX flow controlled!", i + 1);
+                    //     continue;
+                    // }
 
-                        if info.is_command() {
-                            let mut supported = true;
+                    if !self.lines[i].opened.get() {
+                        continue;
+                    }
 
-                            match info {
-                                Information::MultiplexerCloseDown(_cld) => {
-                                    info!("The mobile station requested mux-mode termination");
+                    let len = buf.len().min(max_frame_size);
+
+                    let frame = frame::Uih {
+                        id: i as u8 + 1,
+                        information: Information::Data(&buf[..len]),
+                    };
+
+                    frame.write(&mut port_w).await?;
+
+                    drop(futs);
+
+                    self.tx[i].consume(len);
+                }
+
+                Either3::Second(Err(e)) => {
+                    error!("Got error while searching for RX header: {:?}", e);
+                    continue;
+                }
+                Either3::Second(Ok(mut header)) => {
+                    trace!("{:?}", header);
+
+                    last_received = Instant::now();
+
+                    match header.frame_type {
+                        FrameType::Ui | FrameType::Uih if header.is_control() => {
+                            let info = header.read_information().await?;
+
+                            if info.is_command() {
+                                let mut supported = true;
+
+                                match &info {
+                                    Information::MultiplexerCloseDown(_cld) => {
+                                        info!("The mobile station requested mux-mode termination");
+                                        break;
+                                    }
+                                    Information::TestCommand => {
+                                        debug!("Test command");
+                                    }
+                                    Information::ModemStatusCommand(msc) => {
+                                        let lines = &self.lines[msc.dlci as usize - 1];
+                                        let new_control = msc.control.with_ea(false);
+                                        let new_brk = msc.brk.map(|b| b.with_ea(false));
+                                        debug!(
+                                            "channel {:?} lines rx: {:?} -> {:?}",
+                                            msc.dlci,
+                                            lines.rx.get(),
+                                            (new_control, new_brk)
+                                        );
+
+                                        // Modem is telling us something about
+                                        // channel `msc.dlci`.
+                                        //
+                                        // We need to ack this message by sending
+                                        // `MSC` with the same payload, but
+                                        // `CR::Response`.
+                                        // lines.rx.set((new_control, new_brk));
+                                        // self.line_status_updated.signal(());
+                                        // lines.check_hangup();
+                                    }
+                                    n => {
+                                        warn!("Unknown command {:?} for the control channel", n);
+
+                                        // Send `InformationType::NonSupportedCommandResponse`
+                                        frame::Uih {
+                                            id: 0,
+                                            information: Information::NonSupportedCommandResponse(
+                                                NonSupportedCommandResponse {
+                                                    cr: frame::CR::Response,
+                                                    command_type: n.info_type(),
+                                                },
+                                            ),
+                                        }
+                                        .write(&mut port_w)
+                                        .await?;
+
+                                        supported = false;
+                                    }
                                 }
-                                Information::TestCommand => {
-                                    debug!("Test command");
+
+                                if supported {
+                                    // acknowledge the command
+                                    info.send_ack(&mut port_w).await?;
                                 }
-                                Information::ModemStatusCommand(msc) => {
-                                    let lines = &self.lines[msc.dlci as usize - 1];
-                                    let new_control = msc.control.with_ea(false);
-                                    let new_brk = msc.brk.map(|b| b.with_ea(false));
-                                    debug!(
-                                        "channel {:?} lines rx: {:?} -> {:?}",
-                                        msc.dlci,
-                                        lines.rx.get(),
-                                        (new_control, new_brk)
-                                    );
-
-                                    // Modem is telling us something abount
-                                    // channel `msc.dlci`.
-                                    //
-                                    // We need to ack this message by sending
-                                    // `MSC` with the same payload, but
-                                    // `CR::Response`.
-                                    lines.rx.set((new_control, new_brk));
-                                    self.line_status_updated.signal(());
-                                    lines.check_hangup();
-                                }
-                                n => {
-                                    warn!("Unknown command {:?} for the control channel", n);
-
-                                    // Send `InformationType::NonSupportedCommandResponse`
-
-                                    supported = false;
-                                }
-                            }
-
-                            if supported {
-                                // acknowledge the command
-                                // frame::Uih {
-                                //     id: header.id(),
-                                //     cr: frame::CR::Response,
-                                //     information: &buf[..],
-                                // };
-                            }
-                        } else {
-                            // received ack for a command
-                            if let Information::NonSupportedCommandResponse(NonSupportedCommandResponse {
-                                command_type,
-                                ..
-                            }) = info
-                            {
-                                warn!(
-                                    "The mobile station didn't support the command sent ({:?})",
-                                    command_type
-                                );
                             } else {
-                                debug!("Command acknowledged by the mobile station");
+                                // received ack for a command
+                                if let Information::NonSupportedCommandResponse(NonSupportedCommandResponse {
+                                    command_type,
+                                    ..
+                                }) = info
+                                {
+                                    warn!(
+                                        "The mobile station didn't support the command sent ({:?})",
+                                        command_type
+                                    );
+                                } else {
+                                    debug!("Command acknowledged by the mobile station");
+                                }
                             }
                         }
-                    } else {
-                        // data from logical channel
-                        let id = header.id() as usize - 1;
-                        match header.copy(&mut self.rx[id]).await {
-                            Ok(_) => {}
-                            // TODO: Only set FC for buffer full errors
-                            Err(_) => {
-                                // let lines = &self.lines[id];
-                                // let (ctrl, brk) = lines.tx.get();
-                                // lines.tx.set((ctrl.with_fc(true), brk));
-                                // self.line_status_updated.signal(());
+                        FrameType::Ui | FrameType::Uih => {
+                            // data from logical channel
+                            let channel_id = header.id() as usize - 1;
+
+                            // TODO: Set flow control bits on buffer full here?
+                            // let lines = &self.lines[id];
+                            // let (ctrl, brk) = lines.tx.get();
+                            // lines.tx.set((ctrl.with_fc(true), brk));
+                            // self.line_status_updated.signal(());
+
+                            header.copy(&mut self.rx[channel_id]).await?;
+                        }
+                        FrameType::Sabm if header.is_control() => {
+                            // channel open request
+                            if self.control_channel_opened {
+                                info!("Received SABM even though control channel was already open.");
+                            } else {
+                                info!("Control channel opened.");
+                            }
+                            self.control_channel_opened = true;
+                            frame::Ua { id: 0 }.write(&mut port_w).await?;
+                        }
+                        FrameType::Sabm => {
+                            let channel_id = header.id() as usize - 1;
+                            if self.lines[channel_id].opened.get() {
+                                info!("Received SABM even though channel {} was already open.", channel_id);
+                            } else {
+                                info!("Logical channel {} opened.", channel_id);
+                            }
+                            self.lines[channel_id].opened.set(true);
+                            frame::Ua { id: header.id() }.write(&mut port_w).await?;
+                        }
+                        FrameType::Ua if header.is_control() => {
+                            if self.control_channel_opened {
+                                self.control_channel_opened = false;
+                                info!("Control channel closed.");
+                            } else {
+                                self.control_channel_opened = true;
+                                info!("Control channel opened.");
+
+                                // send version Siemens version test
+                                // frame::Uih {
+                                //     id: 0,
+                                //     information: Information::Data(b"\x23\x21\x04TEMUXVERSION2\0\0"),
+                                // }
+                                // .write(&mut port_w)
+                                // .await?;
+                            }
+                        }
+                        FrameType::Ua => {
+                            let channel_id = header.id() as usize - 1;
+                            if self.lines[channel_id].opened.get() {
+                                info!("Logical channel {} closed.", channel_id);
+                                self.lines[channel_id].opened.set(false);
+                            } else {
+                                info!("Logical channel {} opened.", channel_id);
+
+                                self.lines[channel_id].opened.set(true);
+                            }
+                        }
+                        FrameType::Dm if header.is_control() => {
+                            info!("Couldn't open control channel. -> Terminating MUX");
+                            break;
+                        }
+                        FrameType::Dm => {
+                            info!("Logical channel {} couldn't be opened.", header.id() - 1);
+                        }
+                        FrameType::Disc if header.is_control() => {
+                            if self.control_channel_opened {
+                                info!("Control channel closed.");
+                                self.control_channel_opened = false;
+                                frame::Ua { id: 0 }.write(&mut port_w).await?;
+                                break;
+                            } else {
+                                info!("Received DISC even though control channel was already closed.");
+                                frame::Dm { id: 0 }.write(&mut port_w).await?;
+                            }
+                        }
+                        FrameType::Disc => {
+                            let channel_id = header.id() as usize - 1;
+                            if self.lines[channel_id].opened.get() {
+                                self.lines[channel_id].opened.set(false);
+                                info!("Logical channel {} closed.", channel_id);
+                                frame::Ua { id: header.id() }.write(&mut port_w).await?;
+                            } else {
+                                info!("Received DISC even though channel {} was already closed.", channel_id);
+                                frame::Dm { id: header.id() }.write(&mut port_w).await?;
                             }
                         }
                     }
-                } else {
-                    header.finalize().await.unwrap();
+
+                    header.finalize().await?;
+                }
+                Either3::Third(_) if ping_number >= MAX_PINGS => {}
+                Either3::Third(_) => {
+                    // Nothing has been received for a while -> test the modem
+                    debug!("Sending PING to the modem.");
+                    // frame::Uih {
+                    //     id: 0,
+                    //     information: Information::Data(b"\x23\x09PING"),
+                    // }
+                    // .write(&mut port_w)
+                    // .await?;
+                    ping_number += 1;
                 }
             }
-        };
+        }
 
-        join(tx_fut, rx_fut).await;
-        unreachable!()
+        for id in (0..N).rev() {
+            let channel_id = id + 1;
+            info!("Closing down the logical channel {}.", channel_id);
+            if self.lines[channel_id].opened.get() {
+                frame::Disc { id: channel_id as u8 }.write(&mut port_w).await?;
+            }
+        }
+
+        if self.control_channel_opened {
+            info!("Sending close down request to the multiplexer.");
+            frame::Uih {
+                id: 0,
+                information: Information::MultiplexerCloseDown(MultiplexerCloseDown { cr: frame::CR::Command }),
+            }
+            .write(&mut port_w)
+            .await?;
+        }
+
+        Ok(())
     }
 }
 
@@ -452,7 +535,7 @@ pub enum ChannelError {
     Hangup,
 }
 
-impl Error for ChannelError {
+impl embedded_io_async::Error for ChannelError {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
             Self::Hangup => embedded_io_async::ErrorKind::BrokenPipe,

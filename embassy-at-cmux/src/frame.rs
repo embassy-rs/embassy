@@ -94,9 +94,11 @@ pub enum InformationType {
     ServiceNegotiationCommand = 0xD0,
 }
 
-impl From<u8> for InformationType {
-    fn from(value: u8) -> Self {
-        match value & !(CR | EA) {
+impl TryFrom<u8> for InformationType {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value & !(CR | EA) {
             0x80 => Self::ParameterNegotiation,
             0x40 => Self::PowerSavingControl,
             0xC0 => Self::MultiplexerCloseDown,
@@ -108,12 +110,12 @@ impl From<u8> for InformationType {
             0x90 => Self::RemotePortNegotiationCommand,
             0x50 => Self::RemoteLineStatusCommand,
             0xD0 => Self::ServiceNegotiationCommand,
-            n => panic!("Unknown information type {:#02x}", n),
-        }
+            n => return Err(Error::UnknownInformationType(n)),
+        })
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Information<'a> {
     /// DLC parameter negotiation (PN)
@@ -142,6 +144,39 @@ pub enum Information<'a> {
 }
 
 impl<'a> Information<'a> {
+    pub async fn send_ack<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error> {
+        let mut information = self.clone();
+
+        match &mut information {
+            Information::ParameterNegotiation(inner) => inner.cr = CR::Response,
+            Information::MultiplexerCloseDown(inner) => inner.cr = CR::Response,
+            Information::FlowControlOnCommand(inner) => inner.cr = CR::Response,
+            Information::FlowControlOffCommand(inner) => inner.cr = CR::Response,
+            Information::ModemStatusCommand(inner) => inner.cr = CR::Response,
+            Information::NonSupportedCommandResponse(inner) => inner.cr = CR::Response,
+            Information::RemoteLineStatusCommand(inner) => inner.cr = CR::Response,
+            _ => todo!(),
+        }
+        Uih { id: 0, information }.write(writer).await
+    }
+
+    pub fn info_type(&self) -> InformationType {
+        match self {
+            Information::ParameterNegotiation(_) => InformationType::ParameterNegotiation,
+            Information::FlowControlOnCommand(_) => InformationType::FlowControlOnCommand,
+            Information::FlowControlOffCommand(_) => InformationType::FlowControlOffCommand,
+            Information::ModemStatusCommand(_) => InformationType::ModemStatusCommand,
+            Information::NonSupportedCommandResponse(_) => InformationType::NonSupportedCommandResponse,
+            Information::RemoteLineStatusCommand(_) => InformationType::RemoteLineStatusCommand,
+            Information::RemotePortNegotiationCommand => InformationType::RemotePortNegotiationCommand,
+            Information::PowerSavingControl => InformationType::PowerSavingControl,
+            Information::MultiplexerCloseDown(_) => InformationType::MultiplexerCloseDown,
+            Information::TestCommand => InformationType::TestCommand,
+            Information::ServiceNegotiationCommand => InformationType::ServiceNegotiationCommand,
+            _ => unreachable!(),
+        }
+    }
+
     pub fn is_command(&self) -> bool {
         match self {
             Information::ParameterNegotiation(i) => i.is_command(),
@@ -189,7 +224,7 @@ impl<'a> Information<'a> {
     }
 
     pub fn parse(buf: &[u8]) -> Result<Self, Error> {
-        let info_type = InformationType::from(buf[0]);
+        let info_type = InformationType::try_from(buf[0])?;
         let cr = CR::from(buf[0]);
 
         // get length
@@ -218,7 +253,7 @@ impl<'a> Information<'a> {
             InformationType::NonSupportedCommandResponse => {
                 Self::NonSupportedCommandResponse(NonSupportedCommandResponse {
                     cr,
-                    command_type: InformationType::from(inner_data[0]),
+                    command_type: InformationType::try_from(inner_data[0])?,
                 })
             }
             InformationType::RemotePortNegotiationCommand => Self::RemotePortNegotiationCommand,
@@ -249,17 +284,19 @@ pub enum FrameType {
     Ui = 0x03,
 }
 
-impl From<u8> for FrameType {
-    fn from(value: u8) -> Self {
-        match value & !PF {
+impl TryFrom<u8> for FrameType {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value & !PF {
             0x2F => Self::Sabm,
             0x63 => Self::Ua,
             0x0F => Self::Dm,
             0x43 => Self::Disc,
             0xEF => Self::Uih,
             0x03 => Self::Ui,
-            n => panic!("Unknown frame type {:#02x}", n),
-        }
+            n => return Err(Error::UnknownFrameType(n)),
+        })
     }
 }
 
@@ -268,8 +305,11 @@ impl From<u8> for FrameType {
 pub enum Error {
     Read(embedded_io_async::ErrorKind),
     Write(embedded_io_async::ErrorKind),
+    UnknownFrameType(u8),
+    UnknownInformationType(u8),
     Crc,
     MalformedFrame,
+    MultiplexerCloseDown,
 }
 
 pub trait Info {
@@ -282,7 +322,7 @@ pub trait Info {
     async fn write<W: embedded_io_async::Write>(&self, writer: &mut W) -> Result<(), Error>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ParameterNegotiation {
     cr: CR,
@@ -308,7 +348,7 @@ impl Info for ParameterNegotiation {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct MultiplexerCloseDown {
     pub cr: CR,
@@ -333,7 +373,7 @@ impl Info for MultiplexerCloseDown {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlowControlOffCommand {
     cr: CR,
@@ -358,7 +398,7 @@ impl Info for FlowControlOffCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlowControlOnCommand {
     cr: CR,
@@ -383,7 +423,7 @@ impl Info for FlowControlOnCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ModemStatusCommand {
     pub cr: CR,
@@ -427,7 +467,7 @@ impl Info for ModemStatusCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NonSupportedCommandResponse {
     pub cr: CR,
@@ -456,7 +496,7 @@ impl Info for NonSupportedCommandResponse {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RemoteLineStatusCommand {
     pub cr: CR,
@@ -554,7 +594,7 @@ pub struct Break {
 pub struct RemoteLineStatus {
     #[bits(4)]
     pub l: u8,
-    /// The res bits are set to zero for the sender and ignored by the reciever.
+    /// The res bits are set to zero for the sender and ignored by the receiver.
     #[bits(4, access = None)]
     reserved: u8,
 }
@@ -598,10 +638,11 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
         while header[0] == FLAG {
             Self::read_exact(reader, &mut header[..1]).await?;
         }
+
         Self::read_exact(reader, &mut header[1..]).await?;
 
         let id = header[0] >> 2;
-        let frame_type = FrameType::from(header[1]);
+        let frame_type = FrameType::try_from(header[1])?;
 
         fcs.update(&header);
 
@@ -644,7 +685,7 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
         Ok(())
     }
 
-    pub(crate) async fn read_information<'d>(mut self) -> Result<Information<'d>, Error> {
+    pub(crate) async fn read_information<'d>(&mut self) -> Result<Information<'d>, Error> {
         assert!(self.len <= 24);
 
         let mut buf = [0u8; 24];
@@ -659,12 +700,10 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
         // Make sure we cannot call this twice, or call `copy`, to over-read data
         self.len = 0;
 
-        self.finalize().await?;
-
         Ok(info)
     }
 
-    pub(crate) async fn copy<W: embedded_io_async::Write>(mut self, w: &mut W) -> Result<(), Error> {
+    pub(crate) async fn copy<W: embedded_io_async::Write>(&mut self, w: &mut W) -> Result<(), Error> {
         while self.len != 0 {
             let buf = self.reader.fill_buf().await.map_err(|e| Error::Read(e.kind()))?;
             if buf.is_empty() {
@@ -678,7 +717,6 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
             self.len -= n;
         }
         w.flush().await.map_err(|e| Error::Write(e.kind()))?;
-        self.finalize().await?;
 
         Ok(())
     }
@@ -780,6 +818,66 @@ pub trait Frame {
     }
 }
 
+pub struct Ua {
+    pub id: u8,
+}
+
+impl Frame for Ua {
+    const FRAME_TYPE: FrameType = FrameType::Ua;
+
+    fn cr(&self) -> u8 {
+        CR::Command as u8
+    }
+
+    fn pf(&self) -> u8 {
+        PF::Poll as u8
+    }
+
+    fn id(&self) -> u8 {
+        self.id
+    }
+}
+
+pub struct Dm {
+    pub id: u8,
+}
+
+impl Frame for Dm {
+    const FRAME_TYPE: FrameType = FrameType::Dm;
+
+    fn cr(&self) -> u8 {
+        CR::Command as u8
+    }
+
+    fn pf(&self) -> u8 {
+        PF::Poll as u8
+    }
+
+    fn id(&self) -> u8 {
+        self.id
+    }
+}
+
+pub struct Disc {
+    pub id: u8,
+}
+
+impl Frame for Disc {
+    const FRAME_TYPE: FrameType = FrameType::Disc;
+
+    fn cr(&self) -> u8 {
+        CR::Command as u8
+    }
+
+    fn pf(&self) -> u8 {
+        PF::Poll as u8
+    }
+
+    fn id(&self) -> u8 {
+        self.id
+    }
+}
+
 /// Set Asynchronous Balanced Mode (SABM) command
 pub struct Sabm {
     pub id: u8,
@@ -855,6 +953,35 @@ mod tests {
 
             assert_eq!(len, exp);
         }
+    }
+
+    #[tokio::test]
+
+    async fn decode() {
+        let data = [
+            249, 9, 239, 49, 3, 150, 105, 234, 248, 41, 94, 51, 227, 143, 53, 55, 158, 102, 155, 248, 170, 78, 80, 79,
+            181, 34, 8, 126, 245, 249,
+        ];
+
+        let mut reader = &data[..];
+
+        let mut channel_buf = [0u8; 256];
+        let mut writer = &mut channel_buf[..];
+
+        let mut header = RxHeader::read(&mut reader).await.unwrap();
+
+        let len = header.len;
+        header.copy(&mut writer).await.unwrap();
+
+        header.finalize().await.unwrap();
+
+        assert_eq!(
+            &channel_buf[..len],
+            &[
+                3, 150, 105, 234, 248, 41, 94, 51, 227, 143, 53, 55, 158, 102, 155, 248, 170, 78, 80, 79, 181, 34, 8,
+                126
+            ]
+        )
     }
 
     #[cfg(test)]

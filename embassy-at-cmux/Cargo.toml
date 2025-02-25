@@ -3,7 +3,13 @@ name = "embassy-at-cmux"
 version = "0.1.0"
 description = "Multiplexes serial channels using the CMUX standard"
 keywords = ["embedded", "cmux", "embassy", "embedded-io-async", "async"]
-categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
+categories = [
+    "embedded",
+    "hardware-support",
+    "no-std",
+    "network-programming",
+    "asynchronous",
+]
 license = "MIT OR Apache-2.0"
 edition = "2021"
 repository = "https://github.com/embassy-rs/embassy"
@@ -17,14 +23,17 @@ log = ["dep:log"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-heapless = { version = "0.8", default-features = false }
-futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
+heapless = { version = "0.9", default-features = false }
+futures = { version = "0.3.17", default-features = false, features = [
+    "async-await",
+] }
 
 bitfield-struct = "0.8.0"
 
-embedded-io-async = { version = "0.6.1" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
+embedded-io-async = { version = "0.7.0" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 
 crc = "3.0"
 
