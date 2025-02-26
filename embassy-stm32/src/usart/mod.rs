@@ -293,6 +293,22 @@ pub enum Error {
     BufferTooLong,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let message = match self {
+            Self::Framing => "Framing Error",
+            Self::Noise => "Noise Error",
+            Self::Overrun => "RX Buffer Overrun",
+            Self::Parity => "Parity Check Error",
+            Self::BufferTooLong => "Buffer too large for DMA",
+        };
+
+        write!(f, "{}", message)
+    }
+}
+
+impl core::error::Error for Error {}
+
 enum ReadCompletionEvent {
     // DMA Read transfer completed first
     DmaCompleted,
