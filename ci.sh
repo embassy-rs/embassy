@@ -209,7 +209,7 @@ cargo batch \
     --- build --release --manifest-path examples/nrf9151/ns/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/nrf9151/ns \
     --- build --release --manifest-path examples/nrf51/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/nrf51 \
     --- build --release --manifest-path examples/rp/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/rp \
-    --- build --release --manifest-path examples/rp23/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/rp23 \
+    --- build --release --manifest-path examples/rp235x/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/rp235x \
     --- build --release --manifest-path examples/stm32f0/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/stm32f0 \
     --- build --release --manifest-path examples/stm32f1/Cargo.toml --target thumbv7m-none-eabi --artifact-dir out/examples/stm32f1 \
     --- build --release --manifest-path examples/stm32f2/Cargo.toml --target thumbv7m-none-eabi --artifact-dir out/examples/stm32f2 \
