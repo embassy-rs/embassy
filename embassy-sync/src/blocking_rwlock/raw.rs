@@ -109,8 +109,6 @@ unsafe impl RawRwLock for CriticalSectionRawRwLock {
 
 const WRITER: isize = -1;
 
-// The rest of the file remains unchanged
-
 // ================
 
 /// A read-write lock that allows borrowing data in the context of a single executor.
