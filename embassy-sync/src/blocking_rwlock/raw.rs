@@ -126,13 +126,19 @@ mod thread_mode {
     unsafe impl RawRwLock for ThreadModeRawRwLock {
         const INIT: Self = Self::new();
         fn read_lock<R>(&self, f: impl FnOnce() -> R) -> R {
-            assert!(in_thread_mode(), "ThreadModeRwLock can only be locked from thread mode.");
+            assert!(
+                in_thread_mode(),
+                "ThreadModeRwLock can only be locked from thread mode."
+            );
 
             f()
         }
 
         fn write_lock<R>(&self, f: impl FnOnce() -> R) -> R {
-            assert!(in_thread_mode(), "ThreadModeRwLock can only be locked from thread mode.");
+            assert!(
+                in_thread_mode(),
+                "ThreadModeRwLock can only be locked from thread mode."
+            );
 
             f()
         }

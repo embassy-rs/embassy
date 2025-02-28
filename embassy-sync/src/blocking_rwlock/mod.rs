@@ -1,11 +1,11 @@
 //! Blocking read-write lock.
 //!
 //! This module provides a blocking read-write lock that can be used to synchronize data.
-pub mod raw_rwlock;
+pub mod raw;
 
 use core::cell::UnsafeCell;
 
-use self::raw_rwlock::RawRwLock;
+use self::raw::RawRwLock;
 
 /// Blocking read-write lock (not async)
 ///

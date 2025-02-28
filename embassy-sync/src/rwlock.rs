@@ -1,134 +1,160 @@
-use core::cell::UnsafeCell;
-use core::future::poll_fn;
+//! Async read-write lock.
+//!
+//! This module provides a read-write lock that can be used to synchronize data between asynchronous tasks.
+use core::cell::{RefCell, UnsafeCell};
+use core::future::{poll_fn, Future};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
+use core::{fmt, mem};
 
-use crate::blocking_mutex::Mutex as BlockingMutex;
+use crate::blocking_mutex::raw::RawRwLock;
+use crate::blocking_mutex::RwLock as BlockingRwLock;
 use crate::waitqueue::WakerRegistration;
-use crate::raw_rwlock::RawRwLock;
 
-pub struct RwLock<M, T>
+/// Error returned by [`RwLock::try_read_lock`] and [`RwLock::try_write_lock`]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TryLockError;
+
+struct State {
+    readers: usize,
+    writer: bool,
+    waker: WakerRegistration,
+}
+
+/// Async read-write lock.
+///
+/// The read-write lock is generic over a blocking [`RawRwLock`](crate::blocking_mutex::raw_rwlock::RawRwLock).
+/// The raw read-write lock is used to guard access to the internal state. It
+/// is held for very short periods only, while locking and unlocking. It is *not* held
+/// for the entire time the async RwLock is locked.
+///
+/// Which implementation you select depends on the context in which you're using the read-write lock.
+///
+/// Use [`CriticalSectionRawRwLock`](crate::blocking_mutex::raw_rwlock::CriticalSectionRawRwLock) when data can be shared between threads and interrupts.
+///
+/// Use [`NoopRawRwLock`](crate::blocking_mutex::raw_rwlock::NoopRawRwLock) when data is only shared between tasks running on the same executor.
+///
+/// Use [`ThreadModeRawRwLock`](crate::blocking_mutex::raw_rwlock::ThreadModeRawRwLock) when data is shared between tasks running on the same executor but you want a singleton.
+///
+pub struct RwLock<R, T>
 where
-    M: RawRwLock,
+    R: RawRwLock,
     T: ?Sized,
 {
-    state: BlockingMutex<M, RwLockState>,
+    state: BlockingRwLock<R, RefCell<State>>,
     inner: UnsafeCell<T>,
 }
 
-unsafe impl<M: RawRwLock + Send, T: ?Sized + Send> Send for RwLock<M, T> {}
-unsafe impl<M: RawRwLock + Sync, T: ?Sized + Send> Sync for RwLock<M, T> {}
+unsafe impl<R: RawRwLock + Send, T: ?Sized + Send> Send for RwLock<R, T> {}
+unsafe impl<R: RawRwLock + Sync, T: ?Sized + Send> Sync for RwLock<R, T> {}
 
-impl<M, T> RwLock<M, T>
+/// Async read-write lock.
+impl<R, T> RwLock<R, T>
 where
-    M: RawRwLock,
+    R: RawRwLock,
 {
+    /// Create a new read-write lock with the given value.
     pub const fn new(value: T) -> Self {
         Self {
             inner: UnsafeCell::new(value),
-            state: BlockingMutex::new(RwLockState {
-                locked: LockedState::Unlocked,
-                writer_pending: 0,
-                readers_pending: 0,
+            state: BlockingRwLock::new(RefCell::new(State {
+                readers: 0,
+                writer: false,
                 waker: WakerRegistration::new(),
-            }),
+            })),
         }
     }
 }
 
-impl<M, T> RwLock<M, T>
+impl<R, T> RwLock<R, T>
 where
-    M: RawRwLock,
+    R: RawRwLock,
     T: ?Sized,
 {
-    pub fn read(&self) -> impl Future<Output = RwLockReadGuard<'_, M, T>> {
+    /// Lock the read-write lock for reading.
+    ///
+    /// This will wait for the lock to be available if it's already locked for writing.
+    pub fn read_lock(&self) -> impl Future<Output = RwLockReadGuard<'_, R, T>> {
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
                 let mut s = s.borrow_mut();
-                match s.locked {
-                    LockedState::Unlocked => {
-                        s.locked = LockedState::ReadLocked(1);
-                        true
-                    }
-                    LockedState::ReadLocked(ref mut count) => {
-                        *count += 1;
-                        true
-                    }
-                    LockedState::WriteLocked => {
-                        s.readers_pending += 1;
-                        s.waker.register(cx.waker());
-                        false
-                    }
+                if s.writer {
+                    s.waker.register(cx.waker());
+                    false
+                } else {
+                    s.readers += 1;
+                    true
                 }
             });
 
             if ready {
-                Poll::Ready(RwLockReadGuard { lock: self })
+                Poll::Ready(RwLockReadGuard { rwlock: self })
             } else {
                 Poll::Pending
             }
         })
     }
 
-    pub fn write(&self) -> impl Future<Output = RwLockWriteGuard<'_, M, T>> {
+    /// Lock the read-write lock for writing.
+    ///
+    /// This will wait for the lock to be available if it's already locked for reading or writing.
+    pub fn write_lock(&self) -> impl Future<Output = RwLockWriteGuard<'_, R, T>> {
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
                 let mut s = s.borrow_mut();
-                match s.locked {
-                    LockedState::Unlocked => {
-                        s.locked = LockedState::WriteLocked;
-                        true
-                    }
-                    _ => {
-                        s.writer_pending += 1;
-                        s.waker.register(cx.waker());
-                        false
-                    }
+                if s.readers > 0 || s.writer {
+                    s.waker.register(cx.waker());
+                    false
+                } else {
+                    s.writer = true;
+                    true
                 }
             });
 
             if ready {
-                Poll::Ready(RwLockWriteGuard { lock: self })
+                Poll::Ready(RwLockWriteGuard { rwlock: self })
             } else {
                 Poll::Pending
             }
         })
     }
 
-    pub fn try_read(&self) -> Result<RwLockReadGuard<'_, M, T>, TryLockError> {
+    /// Attempt to immediately lock the read-write lock for reading.
+    ///
+    /// If the lock is already locked for writing, this will return an error instead of waiting.
+    pub fn try_read_lock(&self) -> Result<RwLockReadGuard<'_, R, T>, TryLockError> {
         self.state.lock(|s| {
             let mut s = s.borrow_mut();
-            match s.locked {
-                LockedState::Unlocked => {
-                    s.locked = LockedState::ReadLocked(1);
-                    Ok(())
-                }
-                LockedState::ReadLocked(ref mut count) => {
-                    *count += 1;
-                    Ok(())
-                }
-                LockedState::WriteLocked => Err(TryLockError),
+            if s.writer {
+                Err(TryLockError)
+            } else {
+                s.readers += 1;
+                Ok(())
             }
         })?;
 
-        Ok(RwLockReadGuard { lock: self })
+        Ok(RwLockReadGuard { rwlock: self })
     }
 
-    pub fn try_write(&self) -> Result<RwLockWriteGuard<'_, M, T>, TryLockError> {
+    /// Attempt to immediately lock the read-write lock for writing.
+    ///
+    /// If the lock is already locked for reading or writing, this will return an error instead of waiting.
+    pub fn try_write_lock(&self) -> Result<RwLockWriteGuard<'_, R, T>, TryLockError> {
         self.state.lock(|s| {
             let mut s = s.borrow_mut();
-            match s.locked {
-                LockedState::Unlocked => {
-                    s.locked = LockedState::WriteLocked;
-                    Ok(())
-                }
-                _ => Err(TryLockError),
+            if s.readers > 0 || s.writer {
+                Err(TryLockError)
+            } else {
+                s.writer = true;
+                Ok(())
             }
         })?;
 
-        Ok(RwLockWriteGuard { lock: self })
+        Ok(RwLockWriteGuard { rwlock: self })
     }
 
+    /// Consumes this read-write lock, returning the underlying data.
     pub fn into_inner(self) -> T
     where
         T: Sized,
@@ -136,20 +162,24 @@ where
         self.inner.into_inner()
     }
 
+    /// Returns a mutable reference to the underlying data.
+    ///
+    /// Since this call borrows the RwLock mutably, no actual locking needs to
+    /// take place -- the mutable borrow statically guarantees no locks exist.
     pub fn get_mut(&mut self) -> &mut T {
         self.inner.get_mut()
     }
 }
 
-impl<M: RawRwLock, T> From<T> for RwLock<M, T> {
+impl<R: RawRwLock, T> From<T> for RwLock<R, T> {
     fn from(from: T) -> Self {
         Self::new(from)
     }
 }
 
-impl<M, T> Default for RwLock<M, T>
+impl<R, T> Default for RwLock<R, T>
 where
-    M: RawRwLock,
+    R: RawRwLock,
     T: Default,
 {
     fn default() -> Self {
@@ -157,103 +187,203 @@ where
     }
 }
 
-pub struct RwLockReadGuard<'a, M, T>
+impl<R, T> fmt::Debug for RwLock<R, T>
 where
-    M: RawRwLock,
-    T: ?Sized,
+    R: RawRwLock,
+    T: ?Sized + fmt::Debug,
 {
-    lock: &'a RwLock<M, T>,
-}
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("RwLock");
+        match self.try_write_lock() {
+            Ok(value) => {
+                d.field("inner", &&*value);
+            }
+            Err(TryLockError) => {
+                d.field("inner", &format_args!("<locked>"));
+            }
+        }
 
-impl<'a, M, T> Deref for RwLockReadGuard<'a, M, T>
-where
-    M: RawRwLock,
-    T: ?Sized,
-{
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.lock.inner.get() }
+        d.finish_non_exhaustive()
     }
 }
 
-impl<'a, M, T> Drop for RwLockReadGuard<'a, M, T>
+/// Async read lock guard.
+///
+/// Owning an instance of this type indicates having
+/// successfully locked the read-write lock for reading, and grants access to the contents.
+///
+/// Dropping it unlocks the read-write lock.
+#[clippy::has_significant_drop]
+#[must_use = "if unused the RwLock will immediately unlock"]
+pub struct RwLockReadGuard<'a, R, T>
 where
-    M: RawRwLock,
+    R: RawRwLock,
+    T: ?Sized,
+{
+    rwlock: &'a RwLock<R, T>,
+}
+
+impl<'a, R, T> Drop for RwLockReadGuard<'a, R, T>
+where
+    R: RawRwLock,
     T: ?Sized,
 {
     fn drop(&mut self) {
-        self.lock.state.lock(|s| {
-            let mut s = s.borrow_mut();
-            match s.locked {
-                LockedState::ReadLocked(ref mut count) => {
-                    *count -= 1;
-                    if *count == 0 {
-                        s.locked = LockedState::Unlocked;
-                        s.waker.wake();
-                    }
-                }
-                _ => unreachable!(),
+        self.rwlock.state.lock(|s| {
+            let mut s = unwrap!(s.try_borrow_mut());
+            s.readers -= 1;
+            if s.readers == 0 {
+                s.waker.wake();
             }
-        });
+        })
     }
 }
 
-pub struct RwLockWriteGuard<'a, M, T>
+impl<'a, R, T> Deref for RwLockReadGuard<'a, R, T>
 where
-    M: RawRwLock,
-    T: ?Sized,
-{
-    lock: &'a RwLock<M, T>,
-}
-
-impl<'a, M, T> Deref for RwLockWriteGuard<'a, M, T>
-where
-    M: RawRwLock,
+    R: RawRwLock,
     T: ?Sized,
 {
     type Target = T;
-
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.lock.inner.get() }
+        // Safety: the RwLockReadGuard represents shared access to the contents
+        // of the read-write lock, so it's OK to get it.
+        unsafe { &*(self.rwlock.inner.get() as *const T) }
     }
 }
 
-impl<'a, M, T> DerefMut for RwLockWriteGuard<'a, M, T>
+impl<'a, R, T> fmt::Debug for RwLockReadGuard<'a, R, T>
 where
-    M: RawRwLock,
+    R: RawRwLock,
+    T: ?Sized + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<'a, R, T> fmt::Display for RwLockReadGuard<'a, R, T>
+where
+    R: RawRwLock,
+    T: ?Sized + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
+    }
+}
+
+/// Async write lock guard.
+///
+/// Owning an instance of this type indicates having
+/// successfully locked the read-write lock for writing, and grants access to the contents.
+///
+/// Dropping it unlocks the read-write lock.
+#[clippy::has_significant_drop]
+#[must_use = "if unused the RwLock will immediately unlock"]
+pub struct RwLockWriteGuard<'a, R, T>
+where
+    R: RawRwLock,
+    T: ?Sized,
+{
+    rwlock: &'a RwLock<R, T>,
+}
+
+impl<'a, R, T> Drop for RwLockWriteGuard<'a, R, T>
+where
+    R: RawRwLock,
+    T: ?Sized,
+{
+    fn drop(&mut self) {
+        self.rwlock.state.lock(|s| {
+            let mut s = unwrap!(s.try_borrow_mut());
+            s.writer = false;
+            s.waker.wake();
+        })
+    }
+}
+
+impl<'a, R, T> Deref for RwLockWriteGuard<'a, R, T>
+where
+    R: RawRwLock,
+    T: ?Sized,
+{
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        // Safety: the RwLockWriteGuard represents exclusive access to the contents
+        // of the read-write lock, so it's OK to get it.
+        unsafe { &*(self.rwlock.inner.get() as *mut T) }
+    }
+}
+
+impl<'a, R, T> DerefMut for RwLockWriteGuard<'a, R, T>
+where
+    R: RawRwLock,
     T: ?Sized,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.lock.inner.get() }
+        // Safety: the RwLockWriteGuard represents exclusive access to the contents
+        // of the read-write lock, so it's OK to get it.
+        unsafe { &mut *(self.rwlock.inner.get()) }
     }
 }
 
-impl<'a, M, T> Drop for RwLockWriteGuard<'a, M, T>
+impl<'a, R, T> fmt::Debug for RwLockWriteGuard<'a, R, T>
 where
-    M: RawRwLock,
-    T: ?Sized,
+    R: RawRwLock,
+    T: ?Sized + fmt::Debug,
 {
-    fn drop(&mut self) {
-        self.lock.state.lock(|s| {
-            let mut s = s.borrow_mut();
-            s.locked = LockedState::Unlocked;
-            s.waker.wake();
-        });
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
     }
 }
 
-struct RwLockState {
-    locked: LockedState,
-    writer_pending: usize,
-    readers_pending: usize,
-    waker: WakerRegistration,
+impl<'a, R, T> fmt::Display for RwLockWriteGuard<'a, R, T>
+where
+    R: RawRwLock,
+    T: ?Sized + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
+    }
 }
 
-enum LockedState {
-    Unlocked,
-    ReadLocked(usize),
-    WriteLocked,
-}
+#[cfg(test)]
+mod tests {
+    use crate::blocking_mutex::raw_rwlock::NoopRawRwLock;
+    use crate::rwlock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-pub struct TryLockError;
+    #[futures_test::test]
+    async fn read_guard_releases_lock_when_dropped() {
+        let rwlock: RwLock<NoopRawRwLock, [i32; 2]> = RwLock::new([0, 1]);
+
+        {
+            let guard = rwlock.read_lock().await;
+            assert_eq!(*guard, [0, 1]);
+        }
+
+        {
+            let guard = rwlock.read_lock().await;
+            assert_eq!(*guard, [0, 1]);
+        }
+
+        assert_eq!(*rwlock.read_lock().await, [0, 1]);
+    }
+
+    #[futures_test::test]
+    async fn write_guard_releases_lock_when_dropped() {
+        let rwlock: RwLock<NoopRawRwLock, [i32; 2]> = RwLock::new([0, 1]);
+
+        {
+            let mut guard = rwlock.write_lock().await;
+            assert_eq!(*guard, [0, 1]);
+            guard[1] = 2;
+        }
+
+        {
+            let guard = rwlock.read_lock().await;
+            assert_eq!(*guard, [0, 2]);
+        }
+
+        assert_eq!(*rwlock.read_lock().await, [0, 2]);
+    }
+}
