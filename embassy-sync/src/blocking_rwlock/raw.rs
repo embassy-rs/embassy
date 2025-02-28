@@ -1,7 +1,8 @@
 //! Read-Write Lock primitives.
 //!
 //! This module provides a trait for read-write locks that can be used in different contexts.
-use core::{cell::RefCell, marker::PhantomData};
+use core::cell::RefCell;
+use core::marker::PhantomData;
 
 /// Raw read-write lock trait.
 ///
