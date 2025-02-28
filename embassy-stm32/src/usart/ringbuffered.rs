@@ -254,7 +254,9 @@ fn clear_idle_flag(r: Regs) -> Sr {
 
     // This read also clears the error and idle interrupt flags on v1.
     unsafe { rdr(r).read_volatile() };
-    clear_interrupt_flags(r, sr);
+    let mut clear_idle = regs::Icr(0);
+    clear_idle.set_idle(true);
+    r.icr().write_value(clear_idle);
 
     r.cr1().modify(|w| w.set_idleie(true));
 
