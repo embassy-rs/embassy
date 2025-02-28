@@ -913,7 +913,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         });
 
         r.uartifls().write(|w| {
-            w.set_rxiflsel(0b000);
+            w.set_rxiflsel(0b100);
             w.set_txiflsel(0b000);
         });
 
