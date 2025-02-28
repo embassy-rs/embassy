@@ -1,7 +1,7 @@
 //! Read-Write Lock primitives.
 //!
 //! This module provides a trait for read-write locks that can be used in different contexts.
-use core::marker::PhantomData;
+use core::{cell::RefCell, marker::PhantomData};
 
 /// Raw read-write lock trait.
 ///
@@ -41,15 +41,50 @@ pub unsafe trait RawRwLock {
 ///
 /// This read-write lock is safe to share between different executors and interrupts.
 pub struct CriticalSectionRawRwLock {
-    _phantom: PhantomData<()>,
+    state: RefCell<isize>,
 }
+
 unsafe impl Send for CriticalSectionRawRwLock {}
 unsafe impl Sync for CriticalSectionRawRwLock {}
 
 impl CriticalSectionRawRwLock {
-    /// Create a new `CriticalSectionRawRwLock`.
+    /// Creates a new [`CriticalSectionRawRwLock`].
     pub const fn new() -> Self {
-        Self { _phantom: PhantomData }
+        Self { state: RefCell::new(0) }
+    }
+
+    fn lock_read(&self) {
+        critical_section::with(|_| {
+            let mut state = self.state.borrow_mut();
+
+            while *state & WRITER != 0 {
+                // Spin until the writer releases the lock
+            }
+            *state += 1;
+        });
+    }
+
+    fn unlock_read(&self) {
+        critical_section::with(|_| {
+            *self.state.borrow_mut() -= 1;
+        });
+    }
+
+    fn lock_write(&self) {
+        critical_section::with(|_| {
+            let mut state = self.state.borrow_mut();
+
+            while *state != 0 {
+                // Spin until all readers and writers release the lock
+            }
+            *state = WRITER;
+        });
+    }
+
+    fn unlock_write(&self) {
+        critical_section::with(|_| {
+            *self.state.borrow_mut() = 0;
+        });
     }
 }
 
@@ -57,13 +92,23 @@ unsafe impl RawRwLock for CriticalSectionRawRwLock {
     const INIT: Self = Self::new();
 
     fn read_lock<R>(&self, f: impl FnOnce() -> R) -> R {
-        critical_section::with(|_| f())
+        self.lock_read();
+        let result = f();
+        self.unlock_read();
+        result
     }
 
     fn write_lock<R>(&self, f: impl FnOnce() -> R) -> R {
-        critical_section::with(|_| f())
+        self.lock_write();
+        let result = f();
+        self.unlock_write();
+        result
     }
 }
+
+const WRITER: isize = -1;
+
+// The rest of the file remains unchanged
 
 // ================
 

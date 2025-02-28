@@ -350,7 +350,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::blocking_rwlock::raw::NoopRawRwLock;
-    use crate::rwlock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+    use crate::rwlock::RwLock;
 
     #[futures_test::test]
     async fn read_guard_releases_lock_when_dropped() {
