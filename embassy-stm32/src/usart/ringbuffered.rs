@@ -8,9 +8,7 @@ use embassy_hal_internal::PeripheralRef;
 use embedded_io_async::ReadReady;
 use futures_util::future::{select, Either};
 
-use super::{
-    rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx,
-};
+use super::{rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx};
 use crate::dma::ReadableRingBuffer;
 use crate::gpio::{AnyPin, SealedPin as _};
 use crate::mode::Async;
