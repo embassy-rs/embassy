@@ -16,6 +16,7 @@ use crate::gpio::{AnyPin, SealedPin as _};
 use crate::mode::Async;
 use crate::time::Hertz;
 use crate::usart::{Regs, Sr};
+use crate::pac::usart::regs;
 
 /// Rx-only Ring-buffered UART Driver
 ///
