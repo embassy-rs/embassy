@@ -9,7 +9,7 @@ use self::raw::RawRwLock;
 
 /// Blocking read-write lock (not async)
 ///
-/// Provides a blocking read-write lock primitive backed by an implementation of [`raw_rwlock::RawRwLock`].
+/// Provides a blocking read-write lock primitive backed by an implementation of [`raw::RawRwLock`].
 ///
 /// Which implementation you select depends on the context in which you're using the read-write lock, and you can choose which kind
 /// of interior mutability fits your use case.
@@ -94,16 +94,16 @@ impl<R, T> RwLock<R, T> {
 /// # Safety
 ///
 /// This read-write lock is safe to share between different executors and interrupts.
-pub type CriticalSectionRwLock<T> = RwLock<raw_rwlock::CriticalSectionRawRwLock, T>;
+pub type CriticalSectionRwLock<T> = RwLock<raw::CriticalSectionRawRwLock, T>;
 
 /// A read-write lock that allows borrowing data in the context of a single executor.
 ///
 /// # Safety
 ///
 /// **This Read-Write Lock is only safe within a single executor.**
-pub type NoopRwLock<T> = RwLock<raw_rwlock::NoopRawRwLock, T>;
+pub type NoopRwLock<T> = RwLock<raw::NoopRawRwLock, T>;
 
-impl<T> RwLock<raw_rwlock::CriticalSectionRawRwLock, T> {
+impl<T> RwLock<raw::CriticalSectionRawRwLock, T> {
     /// Borrows the data for the duration of the critical section
     pub fn borrow<'cs>(&'cs self, _cs: critical_section::CriticalSection<'cs>) -> &'cs T {
         let ptr = self.data.get() as *const T;
@@ -111,7 +111,7 @@ impl<T> RwLock<raw_rwlock::CriticalSectionRawRwLock, T> {
     }
 }
 
-impl<T> RwLock<raw_rwlock::NoopRawRwLock, T> {
+impl<T> RwLock<raw::NoopRawRwLock, T> {
     /// Borrows the data
     #[allow(clippy::should_implement_trait)]
     pub fn borrow(&self) -> &T {
@@ -184,7 +184,7 @@ mod thread_mode_rwlock {
         /// This will panic if not currently running in thread mode.
         pub fn borrow(&self) -> &T {
             assert!(
-                raw_rwlock::in_thread_mode(),
+                raw::in_thread_mode(),
                 "ThreadModeRwLock can only be borrowed from thread mode."
             );
             unsafe { &*self.inner.get() }
@@ -197,7 +197,7 @@ mod thread_mode_rwlock {
         /// This will panic if not currently running in thread mode.
         pub fn borrow_mut(&self) -> &mut T {
             assert!(
-                raw_rwlock::in_thread_mode(),
+                raw::in_thread_mode(),
                 "ThreadModeRwLock can only be borrowed from thread mode."
             );
             unsafe { &mut *self.inner.get() }
@@ -211,7 +211,7 @@ mod thread_mode_rwlock {
             // T isn't, so without this check a user could create a ThreadModeRwLock in thread mode,
             // send it to interrupt context and drop it there, which would "send" a T even if T is not Send.
             assert!(
-                raw_rwlock::in_thread_mode(),
+                raw::in_thread_mode(),
                 "ThreadModeRwLock can only be dropped from thread mode."
             );
 
