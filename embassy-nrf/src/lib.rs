@@ -347,10 +347,31 @@ pub mod config {
     pub struct DcdcConfig {
         /// Config for the high voltage stage, if disabled LDO will be used.
         pub regh: bool,
+        /// Configure the voltage of the high voltage stage. It is stored in non-volatile memory (UICR.VREGHVOUT register); pass None to not touch it.
+        #[cfg(feature = "nrf5340-app-s")]
+        pub regh_voltage: Option<ReghVoltage>,
         /// Config for the main rail, if disabled LDO will be used.
         pub regmain: bool,
         /// Config for the radio rail, if disabled LDO will be used.
         pub regradio: bool,
+    }
+
+    ///  Output voltage setting for VREGH regulator stage.
+    #[cfg(feature = "nrf5340-app-s")]
+    pub enum ReghVoltage {
+        /// 1.8 V
+        _1V8 = 0,
+        /// 2.1 V
+        _2V1 = 1,
+        /// 2.4 V
+        _2V4 = 2,
+        /// 2.7 V
+        _2V7 = 3,
+        /// 3.0 V
+        _3V0 = 4,
+        /// 3.3 V
+        _3v3 = 5,
+        //ERASED = 7, means 1.8V
     }
 
     /// Settings for enabling the built in DCDC converter.
@@ -399,6 +420,8 @@ pub mod config {
                 #[cfg(feature = "_nrf5340-app")]
                 dcdc: DcdcConfig {
                     regh: false,
+                    #[cfg(feature = "nrf5340-app-s")]
+                    regh_voltage: None,
                     regmain: false,
                     regradio: false,
                 },
@@ -431,6 +454,7 @@ mod consts {
 #[allow(unused)]
 mod consts {
     pub const UICR_APPROTECT: *mut u32 = 0x00FF8000 as *mut u32;
+    pub const UICR_VREGHVOUT: *mut u32 = 0x00FF8010 as *mut u32;
     pub const UICR_SECUREAPPROTECT: *mut u32 = 0x00FF801C as *mut u32;
     pub const UICR_NFCPINS: *mut u32 = 0x00FF8028 as *mut u32;
     pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
@@ -673,6 +697,21 @@ pub fn init(config: config::Config) -> Peripherals {
         if let Some(value) = config.dcdc.reg0_voltage {
             let value = value as u32;
             let res = uicr_write_masked(consts::UICR_REGOUT0, value, 0b00000000_00000000_00000000_00000111);
+            needs_reset |= res == WriteResult::Written;
+            if res == WriteResult::Failed {
+                warn!(
+                    "Failed to set regulator voltage, as UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                    To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "nrf5340-app-s")]
+    unsafe {
+        if let Some(value) = config.dcdc.regh_voltage {
+            let value = value as u32;
+            let res = uicr_write_masked(consts::UICR_VREGHVOUT, value, 0b00000000_00000000_00000000_00000111);
             needs_reset |= res == WriteResult::Written;
             if res == WriteResult::Failed {
                 warn!(
