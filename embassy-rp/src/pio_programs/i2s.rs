@@ -90,6 +90,6 @@ impl<'a, P: Instance, const S: usize> PioI2sOut<'a, P, S> {
 
     /// Return an in-prograss dma transfer future. Awaiting it will guarentee a complete transfer.
     pub fn write<'b>(&'b mut self, buff: &'b [u32]) -> Transfer<'b, AnyChannel> {
-        self.sm.tx().dma_push(self.dma.reborrow(), buff)
+        self.sm.tx().dma_push(self.dma.reborrow(), buff, false)
     }
 }
