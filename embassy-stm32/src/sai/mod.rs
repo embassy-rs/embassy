@@ -936,7 +936,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
                 w.set_nbslot(config.slot_count.0 as u8 - 1);
                 w.set_slotsz(config.slot_size.slotsz());
                 w.set_fboff(config.first_bit_offset.0 as u8);
-                w.set_sloten(vals::Sloten(config.slot_enable as u16));
+                w.set_sloten(vals::Sloten::from_bits(config.slot_enable as u16));
             });
 
             ch.cr1().modify(|w| w.set_saien(true));
