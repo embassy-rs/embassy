@@ -858,7 +858,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
                     }
                 }
             }
-        }).await;
+        })
+        .await;
 
         CTR_TRIGGERED[index].store(false, Ordering::Relaxed);
 
@@ -932,7 +933,8 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
                     }
                 }
             }
-        }).await;
+        })
+        .await;
 
         CTR_TRIGGERED[index].store(false, Ordering::Relaxed);
 
