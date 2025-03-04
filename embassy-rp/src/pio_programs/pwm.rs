@@ -21,7 +21,7 @@ pub struct PioPwmProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioPwmProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             ".side_set 1 opt"
                 "pull noblock    side 0"
                 "mov x, osr"

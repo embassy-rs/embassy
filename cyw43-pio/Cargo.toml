@@ -12,8 +12,6 @@ documentation = "https://docs.embassy.dev/cyw43-pio"
 [dependencies]
 cyw43 = { version = "0.3.0", path = "../cyw43" }
 embassy-rp = { version = "0.3.0", path = "../embassy-rp" }
-pio-proc = { git = "https://github.com/rp-rs/pio-rs", rev = "fa586448b0b223217eec8c92c19fe6823dd04cc4" }
-pio = { git = "https://github.com/rp-rs/pio-rs", rev = "fa586448b0b223217eec8c92c19fe6823dd04cc4" }
 fixed = "1.23.1"
 defmt = { version = "0.3", optional = true }
 

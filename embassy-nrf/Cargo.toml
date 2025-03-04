@@ -57,6 +57,9 @@ nfc-pins-as-gpio = []
 ##  * nRF52820, nRF52833, nRF52840: P0_18
 reset-pin-as-gpio = []
 
+## Allow using the LFXO pins as regular GPIO pins (P0_00/P0_01 on nRF53)
+lfxo-pins-as-gpio = []
+
 ## Implements the MultiwriteNorFlash trait for QSPI. Should only be enabled if your external
 ## flash supports the semantics described [here](https://docs.rs/embedded-storage/0.3.1/embedded_storage/nor_flash/trait.MultiwriteNorFlash.html)
 qspi-multiwrite-flash = []

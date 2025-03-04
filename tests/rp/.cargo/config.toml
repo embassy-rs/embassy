@@ -5,8 +5,9 @@
 #build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "teleprobe client run"
+#runner = "teleprobe client run"
 #runner = "teleprobe local run --chip RP2040 --elf"
+runner = "teleprobe local run --chip RP235X --elf"
 
 rustflags = [
   # Code-size optimizations.
@@ -15,7 +16,8 @@ rustflags = [
 ]
 
 [build]
-target = "thumbv6m-none-eabi"
+#target = "thumbv6m-none-eabi"
+target = "thumbv8m.main-none-eabihf"
 
 [env]
 DEFMT_LOG = "trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,smoltcp=info"

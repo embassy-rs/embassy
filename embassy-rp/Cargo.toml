@@ -157,15 +157,14 @@ embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.28.0"
 
-rp-pac = { version = "7.0.0", feature = ["rt"] }
+rp-pac = { version = "7.0.0" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 
-pio-proc = { git = "https://github.com/rp-rs/pio-rs", rev = "fa586448b0b223217eec8c92c19fe6823dd04cc4" }
-pio = { git = "https://github.com/rp-rs/pio-rs", rev = "fa586448b0b223217eec8c92c19fe6823dd04cc4" }
+pio = { git = "https://github.com/rp-rs/pio-rs", rev = "506a51b9bc135845e8544a0debd75847b73754dc" }
 rp2040-boot2 = "0.3"
 document-features = "0.2.10"
 sha2-const-stable = "0.1"

@@ -3,7 +3,9 @@
 use fixed::traits::ToFixed;
 
 use crate::gpio::Pull;
-use crate::pio::{self, Common, Config, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine};
+use crate::pio::{
+    Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
+};
 
 /// This struct represents an Encoder program loaded into pio instruction memory.
 pub struct PioEncoderProgram<'a, PIO: Instance> {
@@ -13,7 +15,7 @@ pub struct PioEncoderProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioEncoderProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!("wait 1 pin 1", "wait 0 pin 1", "in pins, 2", "push",);
+        let prg = pio::pio_asm!("wait 1 pin 1", "wait 0 pin 1", "in pins, 2", "push",);
 
         let prg = common.load_program(&prg.program);
 
@@ -39,7 +41,7 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         let mut pin_b = pio.make_pio_pin(pin_b);
         pin_a.set_pull(Pull::Up);
         pin_b.set_pull(Pull::Up);
-        sm.set_pin_dirs(pio::Direction::In, &[&pin_a, &pin_b]);
+        sm.set_pin_dirs(PioDirection::In, &[&pin_a, &pin_b]);
 
         let mut cfg = Config::default();
         cfg.set_in_pins(&[&pin_a, &pin_b]);

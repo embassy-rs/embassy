@@ -44,6 +44,24 @@ pub enum Error {
     ZeroLengthTransfer,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let message = match self {
+            Self::Bus => "Bus Error",
+            Self::Arbitration => "Arbitration Lost",
+            Self::Nack => "ACK Not Received",
+            Self::Timeout => "Request Timed Out",
+            Self::Crc => "CRC Mismatch",
+            Self::Overrun => "Buffer Overrun",
+            Self::ZeroLengthTransfer => "Zero-Length Transfers are not allowed",
+        };
+
+        write!(f, "{}", message)
+    }
+}
+
+impl core::error::Error for Error {}
+
 /// I2C config
 #[non_exhaustive]
 #[derive(Copy, Clone)]

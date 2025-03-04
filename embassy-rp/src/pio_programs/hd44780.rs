@@ -15,7 +15,7 @@ pub struct PioHD44780CommandWordProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioHD44780CommandWordProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             r#"
                 .side_set 1 opt
                 .origin 20
@@ -46,7 +46,7 @@ impl<'a, PIO: Instance> PioHD44780CommandSequenceProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
         // many side sets are only there to free up a delay bit!
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             r#"
                 .origin 27
                 .side_set 1

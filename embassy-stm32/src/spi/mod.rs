@@ -31,6 +31,21 @@ pub enum Error {
     Overrun,
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let message = match self {
+            Self::Framing => "Invalid Framing",
+            Self::Crc => "Hardware CRC Check Failed",
+            Self::ModeFault => "Mode Fault",
+            Self::Overrun => "Buffer Overrun",
+        };
+
+        write!(f, "{}", message)
+    }
+}
+
+impl core::error::Error for Error {}
+
 /// SPI bit order
 #[derive(Copy, Clone)]
 pub enum BitOrder {

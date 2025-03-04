@@ -1,29 +1,30 @@
-//! This example test the Pimoroni Pico Plus 2 on board LED.
+//! This example tests the RP Pico 2 W onboard LED.
 //!
-//! It does not work with the RP Pico board. See blinky.rs.
+//! It does not work with the RP Pico 2 board. See `blinky.rs`.
 
 #![no_std]
 #![no_main]
 
-use cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER};
+use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::bind_interrupts;
+use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_rp::{bind_interrupts, gpio};
 use embassy_time::{Duration, Timer};
-use gpio::{Level, Output};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 // Program metadata for `picotool info`.
-// This isn't needed, but it's recomended to have these minimal entries.
+// This isn't needed, but it's recommended to have these minimal entries.
 #[link_section = ".bi_entries"]
 #[used]
 pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info::rp_program_name!(c"Blinky Example"),
     embassy_rp::binary_info::rp_program_description!(
-        c"This example tests the RP Pico on board LED, connected to gpio 25"
+        c"This example tests the RP Pico 2 W's onboard LED, connected to GPIO 0 of the cyw43 \
+        (WiFi chip) via PIO 0 over the SPI bus."
     ),
     embassy_rp::binary_info::rp_cargo_version!(),
     embassy_rp::binary_info::rp_program_build_attribute!(),
@@ -57,7 +58,7 @@ async fn main(spawner: Spawner) {
     let spi = PioSpi::new(
         &mut pio.common,
         pio.sm0,
-        RM2_CLOCK_DIVIDER,
+        DEFAULT_CLOCK_DIVIDER,
         pio.irq0,
         cs,
         p.PIN_24,
@@ -75,7 +76,7 @@ async fn main(spawner: Spawner) {
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
 
-    let delay = Duration::from_secs(1);
+    let delay = Duration::from_millis(250);
     loop {
         info!("led on!");
         control.gpio_set(0, true).await;

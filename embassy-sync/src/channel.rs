@@ -317,6 +317,17 @@ where
     }
 }
 
+impl<'ch, M, T, const N: usize> futures_util::Stream for Receiver<'ch, M, T, N>
+where
+    M: RawMutex,
+{
+    type Item = T;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.channel.poll_receive(cx).map(Some)
+    }
+}
+
 /// Future returned by [`Channel::receive`] and  [`Receiver::receive`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct ReceiveFuture<'ch, M, T, const N: usize>
@@ -768,6 +779,17 @@ where
 
     fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
         Channel::poll_receive(self, cx)
+    }
+}
+
+impl<M, T, const N: usize> futures_util::Stream for Channel<M, T, N>
+where
+    M: RawMutex,
+{
+    type Item = T;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.poll_receive(cx).map(Some)
     }
 }
 
