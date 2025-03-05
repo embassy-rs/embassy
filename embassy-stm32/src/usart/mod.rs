@@ -209,6 +209,9 @@ pub struct Config {
 
     // private: set by new_half_duplex, not by the user.
     duplex: Duplex,
+
+    /// Variable to Change the Output Type of the TX pin to Open Drain
+    pub output_open_drain: bool,
 }
 
 impl Config {
@@ -217,6 +220,9 @@ impl Config {
         if self.swap_rx_tx {
             return AfType::input(self.rx_pull);
         };
+        if self.output_open_drain {
+            return AfType::output(OutputType::OpenDrain, Speed::Medium);
+        }
         AfType::output(OutputType::PushPull, Speed::Medium)
     }
 
@@ -225,6 +231,9 @@ impl Config {
         if self.swap_rx_tx {
             return AfType::output(OutputType::PushPull, Speed::Medium);
         };
+        if self.output_open_drain {
+            return AfType::output(OutputType::OpenDrain, Speed::Medium);
+        }
         AfType::input(self.rx_pull)
     }
 }
@@ -248,6 +257,7 @@ impl Default for Config {
             invert_rx: false,
             rx_pull: Pull::None,
             duplex: Duplex::Full,
+            output_open_drain: false,
         }
     }
 }
