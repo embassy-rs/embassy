@@ -51,6 +51,13 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     wait_ready_blocking()
 }
 
+/// Fix for incorrect register field width in STM32G4 category metadata
+#[cfg(flash_g4c4)]
+#[inline(always)]
+pub fn set_pnb_c4(cr: &mut stm32_metapac::flash::regs::Cr, val: u8) {
+    cr.0 = (cr.0 & !(0xff << 3usize)) | (((val as u32) & 0xff) << 3usize);
+}
+
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     let idx = (sector.start - super::FLASH_BASE as u32) / super::BANK1_REGION.erase_size as u32;
     wait_busy();
@@ -63,7 +70,10 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
             w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
             #[cfg(flash_g0x0)]
             w.set_pnb(idx as u16);
-            #[cfg(not(flash_g0x0))]
+            #[cfg(flash_g4c4)]
+            set_pnb_c4(w, idx as u8);
+            // otherwise
+            #[cfg(not(any(flash_g0x0, flash_g4c4)))]
             w.set_pnb(idx as u8);
             w.set_strt(true);
         });
