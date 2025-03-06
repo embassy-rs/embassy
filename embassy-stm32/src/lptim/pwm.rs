@@ -62,7 +62,7 @@ macro_rules! channel_impl {
                     phantom: PhantomData,
                 }
             }
-            #[doc = concat!("Create a new ", stringify!($channel), "_with_config PWM pin instance.")]
+            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with config.")]
             pub fn $new_chx_with_config(
                 pin: impl Peripheral<P = impl $pin_trait<T>> + 'd,
                 pin_config: PwmPinConfig,
