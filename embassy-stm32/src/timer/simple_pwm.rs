@@ -7,7 +7,9 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
 use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, TimerBits};
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, Speed};
+#[cfg(gpio_v2)]
+use crate::gpio::Pull;
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -32,13 +34,17 @@ pub struct PwmPin<'d, T, C> {
 ///
 /// This configures the pwm pin settings
 pub struct PwmPinConfig {
+    /// PWM Pin output type
     pub output_type: OutputType,
+    /// PWM Pin speed
     pub speed: Speed,
+    /// PWM Pin pull type
+    #[cfg(gpio_v2)]
     pub pull: Pull,
 }
 
 macro_rules! channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
+    ($new_chx:ident, $new_chx_with_config:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, T: GeneralInstance4Channel> PwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
             pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, output_type: OutputType) -> Self {
@@ -52,6 +58,7 @@ macro_rules! channel_impl {
                     phantom: PhantomData,
                 }
             }
+
             #[doc = concat!("Create a new ", stringify!($channel), "_with_config PWM pin instance.")]
             pub fn $new_chx_with_config(
                 pin: impl Peripheral<P = impl $pin_trait<T>> + 'd,
@@ -62,6 +69,9 @@ macro_rules! channel_impl {
                     pin.set_low();
                     pin.set_as_af(
                         pin.af_num(),
+                        #[cfg(gpio_v1)]
+                        AfType::output(pin_config.output_type, pin_config.speed),
+                        #[cfg(gpio_v2)]
                         AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
                     );
                 });
@@ -74,10 +84,10 @@ macro_rules! channel_impl {
     };
 }
 
-channel_impl!(new_ch1, Ch1, Channel1Pin);
-channel_impl!(new_ch2, Ch2, Channel2Pin);
-channel_impl!(new_ch3, Ch3, Channel3Pin);
-channel_impl!(new_ch4, Ch4, Channel4Pin);
+channel_impl!(new_ch1, new_ch1_with_config, Ch1, Channel1Pin);
+channel_impl!(new_ch2, new_ch2_with_config, Ch2, Channel2Pin);
+channel_impl!(new_ch3, new_ch3_with_config, Ch3, Channel3Pin);
+channel_impl!(new_ch4, new_ch4_with_config, Ch4, Channel4Pin);
 
 /// A single channel of a pwm, obtained from [`SimplePwm::split`],
 /// [`SimplePwm::channel`], [`SimplePwm::ch1`], etc.
