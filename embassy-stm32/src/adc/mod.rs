@@ -14,6 +14,7 @@
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_u0), path = "v3.rs")]
 #[cfg_attr(any(adc_v4, adc_u5), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
+#[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
 
 use core::marker::PhantomData;
@@ -71,7 +72,7 @@ trait SealedInstance {
 }
 
 pub(crate) trait SealedAdcChannel<T> {
-    #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
+    #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
     fn setup(&mut self) {}
 
     #[allow(unused)]
@@ -106,7 +107,8 @@ pub(crate) fn blocking_delay_us(us: u32) {
     adc_g0,
     adc_u0,
     adc_h5,
-    adc_u5
+    adc_u5,
+    adc_c0
 )))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::Peripheral<P = Self> {
@@ -126,7 +128,8 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> {
     adc_g0,
     adc_u0,
     adc_h5,
-    adc_u5
+    adc_u5,
+    adc_c0
 ))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {
@@ -160,6 +163,13 @@ pub struct AnyAdcChannel<T> {
 impl<T: Instance> AdcChannel<T> for AnyAdcChannel<T> {}
 impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<T> {
     fn channel(&self) -> u8 {
+        self.channel
+    }
+}
+
+impl<T> AnyAdcChannel<T> {
+    #[allow(unused)]
+    pub fn get_hw_channel(&self) -> u8 {
         self.channel
     }
 }
@@ -225,7 +235,7 @@ macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::peripherals::$pin {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::peripherals::$pin {
-            #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
+            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
             fn setup(&mut self) {
                 <Self as crate::gpio::SealedPin>::set_as_analog(self);
             }
@@ -254,7 +264,7 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
         Resolution::BITS12 => (1 << 12) - 1,
         Resolution::BITS10 => (1 << 10) - 1,
         Resolution::BITS8 => (1 << 8) - 1,
-        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_g0, adc_f3, adc_f3_v1_1, adc_h5))]
+        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3, adc_f3_v1_1, adc_h5))]
         Resolution::BITS6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),
