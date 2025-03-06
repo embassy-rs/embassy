@@ -11,6 +11,7 @@ pub(crate) mod fmt;
 mod ring_buffer;
 
 pub mod blocking_mutex;
+pub mod blocking_rwlock;
 pub mod channel;
 pub mod lazy_lock;
 pub mod mutex;
@@ -18,6 +19,7 @@ pub mod once_lock;
 pub mod pipe;
 pub mod priority_channel;
 pub mod pubsub;
+pub mod rwlock;
 pub mod semaphore;
 pub mod signal;
 pub mod waitqueue;
