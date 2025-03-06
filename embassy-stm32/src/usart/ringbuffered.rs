@@ -8,12 +8,12 @@ use embassy_hal_internal::PeripheralRef;
 use embedded_io_async::ReadReady;
 use futures_util::future::{select, Either};
 
-use super::{
-    clear_interrupt_flags, rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx,
-};
+use super::{rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx};
 use crate::dma::ReadableRingBuffer;
 use crate::gpio::{AnyPin, SealedPin as _};
 use crate::mode::Async;
+#[cfg(any(usart_v3, usart_v4))]
+use crate::pac::usart::regs;
 use crate::time::Hertz;
 use crate::usart::{Regs, Sr};
 
@@ -254,7 +254,12 @@ fn clear_idle_flag(r: Regs) -> Sr {
 
     // This read also clears the error and idle interrupt flags on v1.
     unsafe { rdr(r).read_volatile() };
-    clear_interrupt_flags(r, sr);
+    #[cfg(any(usart_v3, usart_v4))]
+    {
+        let mut clear_idle = regs::Icr(0);
+        clear_idle.set_idle(true);
+        r.icr().write_value(clear_idle);
+    }
 
     r.cr1().modify(|w| w.set_idleie(true));
 
