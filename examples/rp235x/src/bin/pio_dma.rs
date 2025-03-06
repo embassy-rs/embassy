@@ -72,8 +72,8 @@ async fn main(_spawner: Spawner) {
     loop {
         let (rx, tx) = sm.rx_tx();
         join(
-            tx.dma_push(dma_out_ref.reborrow(), &dout),
-            rx.dma_pull(dma_in_ref.reborrow(), &mut din),
+            tx.dma_push(dma_out_ref.reborrow(), &dout, false),
+            rx.dma_pull(dma_in_ref.reborrow(), &mut din, false),
         )
         .await;
         for i in 0..din.len() {
