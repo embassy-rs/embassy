@@ -10,7 +10,7 @@ use super::OutputPin;
 #[cfg(any(lptim_v2a, lptim_v2b))]
 use super::{channel::Channel, timer::ChannelDirection, Channel1Pin, Channel2Pin};
 use super::{BasicInstance, Instance};
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, Speed};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -29,6 +29,15 @@ pub struct PwmPin<'d, T, C> {
     phantom: PhantomData<(T, C)>,
 }
 
+/// PWM pin config
+///
+/// This configures the pwm pin settings
+pub struct PwmPinConfig {
+    pub output_type: OutputType,
+    pub speed: Speed,
+    pub pull: Pull,
+}
+
 macro_rules! channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, T: BasicInstance> PwmPin<'d, T, $channel> {
@@ -40,6 +49,24 @@ macro_rules! channel_impl {
                     pin.set_as_af(
                         pin.af_num(),
                         AfType::output(OutputType::PushPull, Speed::VeryHigh),
+                    );
+                });
+                PwmPin {
+                    _pin: pin.map_into(),
+                    phantom: PhantomData,
+                }
+            }
+            #[doc = concat!("Create a new ", stringify!($channel), "_with_config PWM pin instance.")]
+            pub fn $new_chx_with_config(
+                pin: impl Peripheral<P = impl $pin_trait<T>> + 'd,
+                pin_config: PwmPinConfig,
+            ) -> Self {
+                into_ref!(pin);
+                critical_section::with(|_| {
+                    pin.set_low();
+                    pin.set_as_af(
+                        pin.af_num(),
+                        AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
                     );
                 });
                 PwmPin {
