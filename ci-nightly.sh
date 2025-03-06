@@ -22,4 +22,4 @@ cargo batch  \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features nightly,arch-riscv32,executor-thread \
     --- build --release --manifest-path examples/nrf52840-rtic/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/nrf52840-rtic \
 
-cargo build --release --manifest-path embassy-executor/Cargo.toml --target avr-unknown-gnu-atmega328 -Z build-std=core,alloc --features nightly,arch-avr,avr-device/atmega328p
+RUSTFLAGS="$RUSTFLAGS -C target-cpu=atmega328p" cargo build --release --manifest-path embassy-executor/Cargo.toml --target avr-none -Z build-std=core,alloc --features nightly,arch-avr,avr-device/atmega328p
