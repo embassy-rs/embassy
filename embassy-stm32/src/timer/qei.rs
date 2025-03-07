@@ -1,9 +1,7 @@
 //! Quadrature decoder using a timer.
 
-use core::marker::PhantomData;
-
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use stm32_metapac::timer::vals;
+use stm32_metapac::timer::vals::{self, Sms};
 
 use super::low_level::Timer;
 use super::{Channel1Pin, Channel2Pin, GeneralInstance4Channel};
@@ -23,48 +21,119 @@ pub enum Ch1 {}
 /// Channel 2 marker type.
 pub enum Ch2 {}
 
-/// Wrapper for using a pin with QEI.
-pub struct QeiPin<'d, T, Channel> {
-    _pin: PeripheralRef<'d, AnyPin>,
-    phantom: PhantomData<(T, Channel)>,
+#[doc = "See STMicro AN4013 for §2.3 for more information"]
+#[derive(Clone, Eq, PartialEq, Copy, Debug)]
+pub enum QeiMode {
+    #[doc = "Direct alias for Sms::ENCODER_MODE_1"]
+    Mode1,
+    #[doc = "Direct alias for Sms::ENCODER_MODE_2"]
+    Mode2,
+    #[doc = "Direct alias for Sms::ENCODER_MODE_3"]
+    Mode3,
 }
 
-macro_rules! channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: GeneralInstance4Channel> QeiPin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " QEI pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd) -> Self {
-                into_ref!(pin);
-                critical_section::with(|_| {
-                    pin.set_low();
-                    pin.set_as_af(pin.af_num(), AfType::input(Pull::None));
-                });
-                QeiPin {
-                    _pin: pin.map_into(),
-                    phantom: PhantomData,
-                }
-            }
+impl From<QeiMode> for Sms {
+    fn from(mode: QeiMode) -> Self {
+        match mode {
+            QeiMode::Mode1 => Sms::ENCODER_MODE_1,
+            QeiMode::Mode2 => Sms::ENCODER_MODE_2,
+            QeiMode::Mode3 => Sms::ENCODER_MODE_3,
         }
-    };
+    }
 }
 
-channel_impl!(new_ch1, Ch1, Channel1Pin);
-channel_impl!(new_ch2, Ch2, Channel2Pin);
+#[non_exhaustive]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Config
+pub struct QeiConfig {
+    /// Encoder Mode
+    pub encoder_mode: QeiMode,
+
+    /// Set the pull configuration for the RX pin.
+    pub pull: Pull,
+}
+
+impl QeiConfig {
+    /// Default constructor
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the encoder mode
+    pub fn with_encoder_mode(mut self, mode: QeiMode) -> Self {
+        self.encoder_mode = mode;
+        self
+    }
+
+    /// Set the pull configuration
+    pub fn with_pull(mut self, pull: Pull) -> Self {
+        self.pull = pull;
+        self
+    }
+}
+
+impl Default for QeiConfig {
+    #[doc = "Arbitrary defaults to preserve backwards compatibility"]
+    fn default() -> Self {
+        Self {
+            encoder_mode: QeiMode::Mode3,
+            pull: Pull::None,
+        }
+    }
+}
 
 /// Quadrature decoder driver.
 pub struct Qei<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
+    _ch1: PeripheralRef<'d, AnyPin>,
+    _ch2: PeripheralRef<'d, AnyPin>,
 }
 
 impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     /// Create a new quadrature decoder driver.
-    pub fn new(tim: impl Peripheral<P = T> + 'd, _ch1: QeiPin<'d, T, Ch1>, _ch2: QeiPin<'d, T, Ch2>) -> Self {
-        Self::new_inner(tim)
+    pub fn new(
+        tim: impl Peripheral<P = T> + 'd,
+        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
+        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
+    ) -> Self {
+        Self::new_inner(tim, ch1, ch2, QeiConfig::default())
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
+    /// Create new quadrature encoder driver with non-default config.
+    pub fn new_with_config(
+        tim: impl Peripheral<P = T> + 'd,
+        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
+        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
+        config: QeiConfig,
+    ) -> Self {
+        Self::new_inner(tim, ch1, ch2, config)
+    }
+
+    fn new_inner(
+        tim: impl Peripheral<P = T> + 'd,
+        ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
+        ch2: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
+        config: QeiConfig,
+    ) -> Self {
         let inner = Timer::new(tim);
         let r = inner.regs_gp16();
+
+        // Due to generics and specific typesig of Peripheral<P> repeating
+        // this block of code twice is less bad than the alternative
+        // extra types and traits.
+        //
+        // Use of into_ref!() is destructive, and the resulting ref
+        // is later used when constructing the return type of this fn
+        into_ref!(ch1);
+        critical_section::with(|_| {
+            ch1.set_low();
+            ch1.set_as_af(ch1.af_num(), AfType::input(config.pull));
+        });
+        into_ref!(ch2);
+        critical_section::with(|_| {
+            ch2.set_low();
+            ch2.set_as_af(ch2.af_num(), AfType::input(config.pull));
+        });
 
         // Configure TxC1 and TxC2 as captures
         r.ccmr_input(0).modify(|w| {
@@ -82,13 +151,17 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         });
 
         r.smcr().modify(|w| {
-            w.set_sms(vals::Sms::ENCODER_MODE_3);
+            w.set_sms(config.encoder_mode.into());
         });
 
         r.arr().modify(|w| w.set_arr(u16::MAX));
         r.cr1().modify(|w| w.set_cen(true));
 
-        Self { inner }
+        Self {
+            inner,
+            _ch1: ch1.map_into(),
+            _ch2: ch2.map_into(),
+        }
     }
 
     /// Get direction.
