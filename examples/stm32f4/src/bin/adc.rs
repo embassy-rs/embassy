@@ -24,6 +24,7 @@ async fn main(_spawner: Spawner) {
     delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
 
     let vrefint_sample = adc.blocking_read(&mut vrefint);
+    info!("VrefInt: {}", vrefint_sample);
 
     let convert_to_millivolts = |sample| {
         // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
@@ -44,22 +45,21 @@ async fn main(_spawner: Spawner) {
         (sample_mv - V25) as f32 / AVG_SLOPE + 25.0
     };
 
-    info!("VrefInt: {}", vrefint_sample);
     const MAX_ADC_SAMPLE: u16 = (1 << 12) - 1;
     info!("VCCA: {} mV", convert_to_millivolts(MAX_ADC_SAMPLE));
 
     loop {
-        // Read pin
-        let v = adc.blocking_read(&mut pin);
+        // Read pin asynchronously
+        let v = adc.read(&mut pin).await;
         info!("PC1: {} ({} mV)", v, convert_to_millivolts(v));
 
-        // Read internal temperature
-        let v = adc.blocking_read(&mut temp);
+        // Read internal temperature asynchronously
+        let v = adc.read(&mut temp).await;
         let celcius = convert_to_celcius(v);
         info!("Internal temp: {} ({} C)", v, celcius);
 
-        // Read internal voltage reference
-        let v = adc.blocking_read(&mut vrefint);
+        // Read internal voltage reference asynchronously
+        let v = adc.read(&mut vrefint).await;
         info!("VrefInt: {}", v);
 
         Timer::after_millis(100).await;
