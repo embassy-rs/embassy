@@ -34,8 +34,10 @@ async fn main(_spawner: Spawner) {
         pattern1[i] = i as u8;
         pattern2[i] = !i as u8;
     }
+    let patterns = [pattern1.clone(), pattern2.clone()];
 
     let mut block = DataBlock([0u8; 512]);
+    let mut blocks = [DataBlock([0u8; 512]), DataBlock([0u8; 512])];
 
     // ======== Try 4bit. ==============
     info!("initializing in 4-bit mode...");
@@ -83,6 +85,13 @@ async fn main(_spawner: Spawner) {
     info!("reading...");
     s.read_block(block_idx, &mut block).await.unwrap();
     assert_eq!(block, pattern2);
+
+    info!("writing blocks [pattern1, pattern2]...");
+    s.write_blocks(block_idx, &patterns).await.unwrap();
+
+    info!("reading blocks...");
+    s.read_blocks(block_idx, &mut blocks).await.unwrap();
+    assert_eq!(&blocks, &patterns);
 
     drop(s);
 
@@ -133,6 +142,13 @@ async fn main(_spawner: Spawner) {
     info!("reading...");
     s.read_block(block_idx, &mut block).await.unwrap();
     assert_eq!(block, pattern2);
+
+    info!("writing blocks [pattern1, pattern2]...");
+    s.write_blocks(block_idx, &patterns).await.unwrap();
+
+    info!("reading blocks...");
+    s.read_blocks(block_idx, &mut blocks).await.unwrap();
+    assert_eq!(&blocks, &patterns);
 
     drop(s);
 
