@@ -50,6 +50,37 @@ impl Instant {
         }
     }
 
+    /// Try to create an Instant from a microsecond count since system boot.
+    /// Fails if the number of microseconds is too large.
+    pub const fn try_from_micros(micros: u64) -> Option<Self> {
+        let Some(value) = micros.checked_mul(TICK_HZ / GCD_1M) else {
+            return None;
+        };
+        Some(Self {
+            ticks: value / (1_000_000 / GCD_1M),
+        })
+    }
+
+    /// Try to create an Instant from a millisecond count since system boot.
+    /// Fails if the number of milliseconds is too large.
+    pub const fn try_from_millis(millis: u64) -> Option<Self> {
+        let Some(value) = millis.checked_mul(TICK_HZ / GCD_1K) else {
+            return None;
+        };
+        Some(Self {
+            ticks: value / (1000 / GCD_1K),
+        })
+    }
+
+    /// Try to create an Instant from a second count since system boot.
+    /// Fails if the number of seconds is too large.
+    pub const fn try_from_secs(seconds: u64) -> Option<Self> {
+        let Some(ticks) = seconds.checked_mul(TICK_HZ) else {
+            return None;
+        };
+        Some(Self { ticks })
+    }
+
     /// Tick count since system boot.
     pub const fn as_ticks(&self) -> u64 {
         self.ticks
