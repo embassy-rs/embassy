@@ -88,6 +88,8 @@ pub enum FlashBank {
     Bank1 = 0,
     /// Bank 2
     Bank2 = 1,
+    /// OTP region,
+    Otp,
 }
 
 #[cfg_attr(any(flash_l0, flash_l1, flash_l4, flash_l5, flash_wl, flash_wb), path = "l.rs")]

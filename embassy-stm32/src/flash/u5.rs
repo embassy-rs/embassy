@@ -75,6 +75,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         w.set_bker(match sector.bank {
             FlashBank::Bank1 => pac::flash::vals::SeccrBker::B_0X0,
             FlashBank::Bank2 => pac::flash::vals::SeccrBker::B_0X1,
+            _ => unreachable!(),
         });
     });
     #[cfg(not(feature = "trustzone-secure"))]
@@ -85,6 +86,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         w.set_bker(match sector.bank {
             FlashBank::Bank1 => pac::flash::vals::NscrBker::B_0X0,
             FlashBank::Bank2 => pac::flash::vals::NscrBker::B_0X1,
+            _ => unreachable!(),
         });
     });
 
