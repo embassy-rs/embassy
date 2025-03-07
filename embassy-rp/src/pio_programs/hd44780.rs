@@ -173,7 +173,7 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         sm.set_enable(true);
 
         // display on and cursor on and blinking, reset display
-        sm.tx().dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1]).await;
+        sm.tx().dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1], false).await;
 
         Self {
             dma: dma.map_into(),
@@ -198,6 +198,6 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         // set cursor to 1:15
         self.buf[38..].copy_from_slice(&[0x80, 0xcf]);
 
-        self.sm.tx().dma_push(self.dma.reborrow(), &self.buf).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), &self.buf, false).await;
     }
 }

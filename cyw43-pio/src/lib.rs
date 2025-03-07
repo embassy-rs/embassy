@@ -169,12 +169,12 @@ where
 
         self.sm.set_enable(true);
 
-        self.sm.tx().dma_push(self.dma.reborrow(), write).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), write, false).await;
 
         let mut status = 0;
         self.sm
             .rx()
-            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status))
+            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status), false)
             .await;
         status
     }
@@ -201,13 +201,16 @@ where
         // self.cs.set_low();
         self.sm.set_enable(true);
 
-        self.sm.tx().dma_push(self.dma.reborrow(), slice::from_ref(&cmd)).await;
-        self.sm.rx().dma_pull(self.dma.reborrow(), read).await;
+        self.sm
+            .tx()
+            .dma_push(self.dma.reborrow(), slice::from_ref(&cmd), false)
+            .await;
+        self.sm.rx().dma_pull(self.dma.reborrow(), read, false).await;
 
         let mut status = 0;
         self.sm
             .rx()
-            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status))
+            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status), false)
             .await;
 
         #[cfg(feature = "defmt")]

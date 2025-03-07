@@ -362,6 +362,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         &'a mut self,
         ch: PeripheralRef<'a, C>,
         data: &'a mut [W],
+        bswap: bool,
     ) -> Transfer<'a, C> {
         let pio_no = PIO::PIO_NO;
         let p = ch.regs();
@@ -379,6 +380,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
             w.set_chain_to(ch.number());
             w.set_incr_read(false);
             w.set_incr_write(true);
+            w.set_bswap(bswap);
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
@@ -447,7 +449,12 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     }
 
     /// Prepare a DMA transfer to TX FIFO.
-    pub fn dma_push<'a, C: Channel, W: Word>(&'a mut self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
+    pub fn dma_push<'a, C: Channel, W: Word>(
+        &'a mut self,
+        ch: PeripheralRef<'a, C>,
+        data: &'a [W],
+        bswap: bool,
+    ) -> Transfer<'a, C> {
         let pio_no = PIO::PIO_NO;
         let p = ch.regs();
         p.read_addr().write_value(data.as_ptr() as u32);
@@ -464,6 +471,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
             w.set_chain_to(ch.number());
             w.set_incr_read(true);
             w.set_incr_write(false);
+            w.set_bswap(bswap);
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
