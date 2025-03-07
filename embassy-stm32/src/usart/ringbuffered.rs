@@ -149,6 +149,15 @@ impl<'d> RingBufferedUartRx<'d> {
             check_for_errors(sr)?;
         }
 
+        // In half-duplex mode, we need to disable the Transmitter and enable the Receiver
+        // since they can't operate simultaneously on the shared line
+        if r.cr3().read().hdsel() && r.cr1().read().te() {
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
+        }
+
         loop {
             match self.ring_buf.read(buf) {
                 Ok((0, _)) => {}
