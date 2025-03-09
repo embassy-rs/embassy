@@ -9,4 +9,5 @@ targets = [
     "thumbv8m.main-none-eabihf",
     "riscv32imac-unknown-none-elf",
     "wasm32-unknown-unknown",
+    "armv7a-none-eabi",
 ]

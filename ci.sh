@@ -35,6 +35,9 @@ cargo batch \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread,executor-interrupt \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7a-none-eabi --features arch-cortex-ar,executor-thread \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7r-none-eabi --features arch-cortex-ar,executor-thread \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7r-none-eabihf --features arch-cortex-ar,executor-thread \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32 \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32,executor-thread \
     --- build --release --manifest-path embassy-sync/Cargo.toml --target thumbv6m-none-eabi --features defmt \
