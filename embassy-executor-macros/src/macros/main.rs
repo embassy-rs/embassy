@@ -155,6 +155,11 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
         ),
     };
 
+    let mut main_attrs = TokenStream::new();
+    for attr in f.attrs {
+        main_attrs.extend(quote!(#attr));
+    }
+
     if !errors.is_empty() {
         main_body = quote! {loop{}};
     }
@@ -167,6 +172,7 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
         }
 
         #entry
+        #main_attrs
         fn main() -> #main_ret {
             #main_body
         }
