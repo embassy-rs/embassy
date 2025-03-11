@@ -68,3 +68,17 @@ pub enum TryReadError {
     /// Receive buffer is empty
     Empty,
 }
+
+/// Internal Operation
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum InternalOperation {
+    /// Notify receiver created
+    NotifyReceiverCreated,
+    /// Notify receiver destroyed
+    NotifyReceiverDestroyed,
+    /// Notify sender created
+    NotifySenderCreated,
+    /// Notify sender destroyed
+    NotifySenderDestroyed,
+}
