@@ -1,10 +1,14 @@
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::task::Poll;
+
 use embassy_hal_internal::into_ref;
 
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
-use crate::{rcc, Peripheral};
+use crate::{interrupt, rcc, Peripheral};
 
 mod ringbuffered_v2;
 pub use ringbuffered_v2::{RingBufferedAdc, Sequence};
@@ -13,6 +17,23 @@ pub use ringbuffered_v2::{RingBufferedAdc, Sequence};
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        if T::regs().sr().read().eoc() {
+            T::regs().cr1().modify(|w| w.set_eocie(false));
+        } else {
+            return;
+        }
+
+        T::state().waker.wake();
+    }
+}
 
 pub struct VrefInt;
 impl AdcChannel<ADC1> for VrefInt {}
@@ -156,8 +177,7 @@ where
         Vbat {}
     }
 
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
+    fn start_conversion(&mut self) {
         // clear end of conversion flag
         T::regs().sr().modify(|reg| {
             reg.set_eoc(false);
@@ -167,6 +187,32 @@ where
         T::regs().cr2().modify(|reg| {
             reg.set_swstart(true);
         });
+    }
+
+    /// Perform a single conversion asynchronously.
+    async fn convert(&mut self) -> u16 {
+        self.start_conversion();
+
+        T::regs().cr1().modify(|w| w.set_eocie(true));
+
+        // wait for actual start and finish
+        poll_fn(|cx| {
+            T::state().waker.register(cx.waker());
+
+            if T::regs().sr().read().strt() && T::regs().sr().read().eoc() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        T::regs().dr().read().0 as u16
+    }
+
+    /// Perform a single conversion.
+    fn blocking_convert(&mut self) -> u16 {
+        self.start_conversion();
 
         while T::regs().sr().read().strt() == false {
             // spin //wait for actual start
@@ -178,7 +224,7 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    fn configure_channel_reading(&mut self, channel: &mut impl AdcChannel<T>) {
         channel.setup();
 
         // Configure ADC
@@ -189,8 +235,16 @@ where
 
         // Configure channel
         Self::set_channel_sample_time(channel, self.sample_time);
+    }
 
-        self.convert()
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        self.configure_channel_reading(channel);
+        self.convert().await
+    }
+
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        self.configure_channel_reading(channel);
+        self.blocking_convert()
     }
 
     fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
