@@ -13,8 +13,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 use super::DePin;
 use super::{
     clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, send_break, set_baudrate,
-    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexReadback, Info, Instance, Regs,
-    RtsPin, RxPin, TxPin,
+    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexReadback, Info, Instance, Regs, RtsPin, RxPin,
+    TxPin,
 };
 use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::{self, InterruptExt};

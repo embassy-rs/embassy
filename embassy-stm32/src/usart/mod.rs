@@ -450,13 +450,7 @@ impl<'d> UartTx<'d, Async> {
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(tx, config.tx_af()),
-            None,
-            new_dma!(tx_dma),
-            config,
-        )
+        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, new_dma!(tx_dma), config)
     }
 
     /// Create a new tx-only UART with a clear-to-send pin
@@ -508,13 +502,7 @@ impl<'d> UartTx<'d, Blocking> {
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(tx, config.tx_af()),
-            None,
-            None,
-            config,
-        )
+        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, None, config)
     }
 
     /// Create a new blocking tx-only UART with a clear-to-send pin
@@ -682,13 +670,7 @@ impl<'d> UartRx<'d, Async> {
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(rx, config.rx_af()),
-            None,
-            new_dma!(rx_dma),
-            config,
-        )
+        Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, new_dma!(rx_dma), config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
