@@ -16,7 +16,7 @@ use super::{
     sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexConfig, HalfDuplexReadback, Info, Instance, Regs,
     RtsPin, RxPin, TxPin,
 };
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::{self, InterruptExt};
 use crate::time::Hertz;
 
@@ -217,8 +217,8 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             None,
@@ -242,10 +242,10 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             tx_buffer,
             rx_buffer,
@@ -266,8 +266,8 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             new_pin!(rts, AfType::input(Pull::None)), // RTS mapped used as DE
@@ -290,8 +290,8 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             new_pin!(rts, AfType::input(Pull::None)),
             None, // no CTS
             None, // no DE
@@ -315,11 +315,11 @@ impl<'d> BufferedUart<'d> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
-            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(de, config.de_config.af_type()),
             tx_buffer,
             rx_buffer,
             config,
