@@ -138,6 +138,40 @@ pub enum HalfDuplexReadback {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Half duplex IO mode
+pub enum OutputConfig {
+    /// Push pull allows for faster baudrates, no internal pullup
+    PushPull,
+    #[cfg(not(gpio_v1))]
+    /// Push pull with internal pull up resistor
+    PushPullPullUp,
+    #[cfg(not(gpio_v1))]
+    /// Push pull with internal pull down resistor
+    PushPullPullDown,
+    /// Open drain output using external pull down resistor
+    OpenDrainExternal,
+    #[cfg(not(gpio_v1))]
+    /// Open drain output using internal pull up resistor
+    OpenDrainInternal,
+}
+
+impl OutputConfig {
+    const fn af_type(self) -> AfType {
+        match self {
+            OutputConfig::PushPull => AfType::output(OutputType::PushPull, Speed::Medium),
+            #[cfg(not(gpio_v1))]
+            OutputConfig::PushPullPullUp => AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up),
+            #[cfg(not(gpio_v1))]
+            OutputConfig::PushPullPullDown => AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Down),
+            OutputConfig::OpenDrainExternal => AfType::output(OutputType::OpenDrain, Speed::Medium),
+            #[cfg(not(gpio_v1))]
+            OutputConfig::OpenDrainInternal => AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Duplex mode
 pub enum Duplex {
     /// Full duplex
@@ -208,6 +242,18 @@ pub struct Config {
     /// Set the pull configuration for the RX pin.
     pub rx_pull: Pull,
 
+    /// Set the pull configuration for the CTS pin.
+    pub cts_pull: Pull,
+
+    /// Set the pin configuration for the TX pin.
+    pub tx_config: OutputConfig,
+
+    /// Set the pin configuration for the RTS pin.
+    pub rts_config: OutputConfig,
+
+    /// Set the pin configuration for the DE pin.
+    pub de_config: OutputConfig,
+
     // private: set by new_half_duplex, not by the user.
     duplex: Duplex,
 }
@@ -218,13 +264,13 @@ impl Config {
         if self.swap_rx_tx {
             return AfType::input(self.rx_pull);
         };
-        AfType::output(OutputType::PushPull, Speed::Medium)
+        self.tx_config.af_type()
     }
 
     fn rx_af(&self) -> AfType {
         #[cfg(any(usart_v3, usart_v4))]
         if self.swap_rx_tx {
-            return AfType::output(OutputType::PushPull, Speed::Medium);
+            return self.tx_config.af_type();
         };
         AfType::input(self.rx_pull)
     }
@@ -248,6 +294,10 @@ impl Default for Config {
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
             rx_pull: Pull::None,
+            cts_pull: Pull::None,
+            tx_config: OutputConfig::PushPull,
+            rts_config: OutputConfig::PushPull,
+            de_config: OutputConfig::PushPull,
             duplex: Duplex::Full,
         }
     }
@@ -426,7 +476,7 @@ impl<'d> UartTx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(tx, config.tx_af()),
             None,
             new_dma!(tx_dma),
             config,
@@ -443,8 +493,8 @@ impl<'d> UartTx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             new_dma!(tx_dma),
             config,
         )
@@ -484,7 +534,7 @@ impl<'d> UartTx<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             config,
@@ -500,8 +550,8 @@ impl<'d> UartTx<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(config.rx_pull)),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             config,
         )
@@ -658,7 +708,7 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
+            new_pin!(rx, config.rx_af()),
             None,
             new_dma!(rx_dma),
             config,
@@ -676,8 +726,8 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
             new_dma!(rx_dma),
             config,
         )
@@ -912,7 +962,7 @@ impl<'d> UartRx<'d, Blocking> {
         rx: Peri<'d, impl RxPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, AfType::input(config.rx_pull)), None, None, config)
+        Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, None, config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
@@ -924,8 +974,8 @@ impl<'d> UartRx<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
             None,
             config,
         )
@@ -1141,8 +1191,8 @@ impl<'d> Uart<'d, Async> {
             peri,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             new_dma!(tx_dma),
             new_dma!(rx_dma),
@@ -1168,7 +1218,7 @@ impl<'d> Uart<'d, Async> {
             new_pin!(tx, config.tx_af()),
             None,
             None,
-            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(de, config.de_config.af_type()),
             new_dma!(tx_dma),
             new_dma!(rx_dma),
             config,
@@ -1308,8 +1358,8 @@ impl<'d> Uart<'d, Blocking> {
             peri,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             None,
             None,
@@ -1332,7 +1382,7 @@ impl<'d> Uart<'d, Blocking> {
             new_pin!(tx, config.tx_af()),
             None,
             None,
-            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(de, config.de_config.af_type()),
             None,
             None,
             config,
