@@ -13,7 +13,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use super::DePin;
 use super::{
     clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, send_break, set_baudrate,
-    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexConfig, HalfDuplexReadback, Info, Instance, Regs,
+    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexReadback, Info, Instance, Regs,
     RtsPin, RxPin, TxPin,
 };
 use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
@@ -346,7 +346,6 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         #[cfg(not(any(usart_v1, usart_v2)))]
         {
@@ -357,7 +356,7 @@ impl<'d> BufferedUart<'d> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, half_duplex.af_type()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             None,
@@ -386,14 +385,13 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         config.swap_rx_tx = true;
         config.duplex = Duplex::Half(readback);
 
         Self::new_inner(
             peri,
-            new_pin!(rx, half_duplex.af_type()),
+            new_pin!(rx, config.rx_af()),
             None,
             None,
             None,
