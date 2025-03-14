@@ -64,9 +64,9 @@ impl Duration {
 
     /// Creates a duration from the specified number of nanoseconds, rounding up.
     /// NOTE: Delays this small may be inaccurate.
-    pub const fn from_nanos(micros: u64) -> Duration {
+    pub const fn from_nanos(nanoseconds: u64) -> Duration {
         Duration {
-            ticks: div_ceil(micros * (TICK_HZ / GCD_1G), 1_000_000_000 / GCD_1G),
+            ticks: div_ceil(nanoseconds * (TICK_HZ / GCD_1G), 1_000_000_000 / GCD_1G),
         }
     }
 
@@ -88,6 +88,82 @@ impl Duration {
         Duration {
             ticks: micros * (TICK_HZ / GCD_1M) / (1_000_000 / GCD_1M),
         }
+    }
+
+    /// Try to create a duration from the specified number of seconds, rounding up.
+    /// Fails if the number of seconds is too large.
+    pub const fn try_from_secs(secs: u64) -> Option<Duration> {
+        let Some(ticks) = secs.checked_mul(TICK_HZ) else {
+            return None;
+        };
+        Some(Duration { ticks })
+    }
+
+    /// Try to create a duration from the specified number of milliseconds, rounding up.
+    /// Fails if the number of milliseconds is too large.
+    pub const fn try_from_millis(millis: u64) -> Option<Duration> {
+        let Some(value) = millis.checked_mul(TICK_HZ / GCD_1K) else {
+            return None;
+        };
+        Some(Duration {
+            ticks: div_ceil(value, 1000 / GCD_1K),
+        })
+    }
+
+    /// Try to create a duration from the specified number of microseconds, rounding up.
+    /// Fails if the number of microseconds is too large.
+    /// NOTE: Delays this small may be inaccurate.
+    pub const fn try_from_micros(micros: u64) -> Option<Duration> {
+        let Some(value) = micros.checked_mul(TICK_HZ / GCD_1M) else {
+            return None;
+        };
+        Some(Duration {
+            ticks: div_ceil(value, 1_000_000 / GCD_1M),
+        })
+    }
+
+    /// Try to create a duration from the specified number of nanoseconds, rounding up.
+    /// Fails if the number of nanoseconds is too large.
+    /// NOTE: Delays this small may be inaccurate.
+    pub const fn try_from_nanos(nanoseconds: u64) -> Option<Duration> {
+        let Some(value) = nanoseconds.checked_mul(TICK_HZ / GCD_1G) else {
+            return None;
+        };
+        Some(Duration {
+            ticks: div_ceil(value, 1_000_000_000 / GCD_1G),
+        })
+    }
+
+    /// Try to create a duration from the specified number of seconds, rounding down.
+    /// Fails if the number of seconds is too large.
+    pub const fn try_from_secs_floor(secs: u64) -> Option<Duration> {
+        let Some(ticks) = secs.checked_mul(TICK_HZ) else {
+            return None;
+        };
+        Some(Duration { ticks })
+    }
+
+    /// Try to create a duration from the specified number of milliseconds, rounding down.
+    /// Fails if the number of milliseconds is too large.
+    pub const fn try_from_millis_floor(millis: u64) -> Option<Duration> {
+        let Some(value) = millis.checked_mul(TICK_HZ / GCD_1K) else {
+            return None;
+        };
+        Some(Duration {
+            ticks: value / (1000 / GCD_1K),
+        })
+    }
+
+    /// Try to create a duration from the specified number of microseconds, rounding down.
+    /// Fails if the number of microseconds is too large.
+    /// NOTE: Delays this small may be inaccurate.
+    pub const fn try_from_micros_floor(micros: u64) -> Option<Duration> {
+        let Some(value) = micros.checked_mul(TICK_HZ / GCD_1M) else {
+            return None;
+        };
+        Some(Duration {
+            ticks: value / (1_000_000 / GCD_1M),
+        })
     }
 
     /// Creates a duration corresponding to the specified Hz.

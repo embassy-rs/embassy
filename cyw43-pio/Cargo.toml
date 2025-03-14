@@ -1,6 +1,6 @@
 [package]
 name = "cyw43-pio"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "RP2040 PIO SPI implementation for cyw43"
 keywords = ["embedded", "cyw43", "embassy-net", "embedded-hal-async", "wifi"]
@@ -11,7 +11,7 @@ documentation = "https://docs.embassy.dev/cyw43-pio"
 
 [dependencies]
 cyw43 = { version = "0.3.0", path = "../cyw43" }
-embassy-rp = { version = "0.3.0", path = "../embassy-rp" }
+embassy-rp = { version = "0.4.0", path = "../embassy-rp" }
 fixed = "1.23.1"
 defmt = { version = "0.3", optional = true }
 
