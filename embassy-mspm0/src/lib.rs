@@ -1,10 +1,6 @@
 #![no_std]
 // Doc feature labels can be tested locally by running RUSTDOCFLAGS="--cfg=docsrs" cargo +nightly doc
-#![cfg_attr(
-    docsrs,
-    feature(doc_auto_cfg, doc_cfg_hide),
-    doc(cfg_hide(doc, docsrs))
-)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg_hide), doc(cfg_hide(doc, docsrs)))]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -40,6 +36,7 @@ pub(crate) mod _generated {
 }
 
 // Reexports
+pub(crate) use _generated::gpio_pincm;
 pub use _generated::{peripherals, Peripherals};
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
@@ -48,8 +45,6 @@ pub use mspm0_metapac as pac;
 pub(crate) use mspm0_metapac as pac;
 
 pub use crate::_generated::interrupt;
-pub(crate) use _generated::gpio_pincm;
-
 
 /// `embassy-mspm0` global configuration.
 #[non_exhaustive]

@@ -7,13 +7,12 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+
+use crate::pac::gpio::vals::*;
+use crate::pac::gpio::{self};
 #[cfg(all(feature = "rt", feature = "mspm0c110x"))]
 use crate::pac::interrupt;
-
-use crate::pac::{
-    self,
-    gpio::{self, vals::*},
-};
+use crate::pac::{self};
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -88,9 +87,7 @@ impl<'d> Flex<'d> {
         into_ref!(pin);
 
         // Pin will be in disconnected state.
-        Self {
-            pin: pin.map_into(),
-        }
+        Self { pin: pin.map_into() }
     }
 
     /// Set the pin's pull.
@@ -974,14 +971,7 @@ impl<'d> Future for InputFuture<'d> {
         waker.register(cx.waker());
 
         // The interrupt handler will mask the interrupt if the event has occurred.
-        if self
-            .pin
-            .block()
-            .cpu_int()
-            .ris()
-            .read()
-            .dio(self.pin.bit_index())
-        {
+        if self.pin.block().cpu_int().ris().read().dio(self.pin.bit_index()) {
             return Poll::Ready(());
         }
 

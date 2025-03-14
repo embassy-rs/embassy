@@ -1,19 +1,13 @@
-use core::{
-    cell::{Cell, RefCell},
-    sync::atomic::{compiler_fence, AtomicU32, Ordering},
-    task::Waker,
-};
+use core::cell::{Cell, RefCell};
+use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
+use core::task::Waker;
 
 use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
-use mspm0_metapac::{
-    interrupt,
-    tim::{
-        vals::{Cm, Cvae, CxC, EvtCfg, PwrenKey, Ratio, Repeat, ResetKey},
-        Counterregs16, Tim,
-    },
-};
+use mspm0_metapac::interrupt;
+use mspm0_metapac::tim::vals::{Cm, Cvae, CxC, EvtCfg, PwrenKey, Ratio, Repeat, ResetKey};
+use mspm0_metapac::tim::{Counterregs16, Tim};
 
 use crate::peripherals;
 use crate::timer::SealedTimer;
@@ -244,18 +238,10 @@ impl TimxDriver {
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
-        let mut next = self
-            .queue
-            .borrow(cs)
-            .borrow_mut()
-            .next_expiration(self.now());
+        let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
 
         while !self.set_alarm(cs, next) {
-            next = self
-                .queue
-                .borrow(cs)
-                .borrow_mut()
-                .next_expiration(self.now());
+            next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
         }
     }
 

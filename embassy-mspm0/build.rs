@@ -107,11 +107,7 @@ fn generate_code() {
     }
 
     // Generate timers
-    for peripheral in METADATA
-        .peripherals
-        .iter()
-        .filter(|p| p.name.starts_with("TIM"))
-    {
+    for peripheral in METADATA.peripherals.iter().filter(|p| p.name.starts_with("TIM")) {
         let name = Ident::new(&peripheral.name, Span::call_site());
         let timers = &*TIMERS;
 
@@ -225,8 +221,7 @@ fn time_driver(singletons: &[String], cfgs: &mut CfgSet) {
             // TODO: 32-bit timers are not considered yet
             [
                 // 16-bit, 2 channel
-                "TIMG0", "TIMG1", "TIMG2", "TIMG3",
-                // 16-bit, 2 channel with shadow registers
+                "TIMG0", "TIMG1", "TIMG2", "TIMG3", // 16-bit, 2 channel with shadow registers
                 "TIMG4", "TIMG5", "TIMG6", "TIMG7",  // 16-bit, 4 channel
                 "TIMG14", // 16-bit with QEI
                 "TIMG8", "TIMG9", "TIMG10", "TIMG11", // Advanced timers
