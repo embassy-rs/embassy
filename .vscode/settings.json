@@ -28,6 +28,11 @@
     // To work on the examples, comment the line above and all of the cargo.features lines,
     // then uncomment ONE line below to select the chip you want to work on.
     // This makes rust-analyzer work on the example crate and all its dependencies.
+    // "examples/mspm0c1104/Cargo.toml",
+    // "examples/mspm0g3507/Cargo.toml",
+    // "examples/mspm0g3519/Cargo.toml",
+    // "examples/mspm0l1306/Cargo.toml",
+    // "examples/mspm0l2228/Cargo.toml",
     // "examples/nrf52840-rtic/Cargo.toml",
     // "examples/nrf5340/Cargo.toml",
     // "examples/nrf-rtos-trace/Cargo.toml",
