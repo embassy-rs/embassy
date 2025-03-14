@@ -276,6 +276,31 @@ impl embedded_io_async::Read for RingBufferedUartRx<'_> {
     }
 }
 
+impl embedded_hal_nb::serial::Read for RingBufferedUartRx<'_> {
+    fn read(&mut self) -> nb::Result<u8, Self::Error> {
+        let mut buf = [0u8; 1];
+        // buf will be exclusively borrowed by the Future so we can not read the byte until the
+        // Future gets destroyed when it goes out of scope. So we need the following extra block
+        // and only read and return buf[0] afterwards.
+        {
+            use core::task::*;
+            let mut fut = embedded_io_async::Read::read(self, &mut buf);
+            let mut cx = Context::from_waker(Waker::noop());
+            match core::future::Future::poll(core::pin::pin!(fut), &mut cx) {
+                // len == 0 means EOF, this is never returned currently
+                Poll::Ready(Ok(len)) => assert!(len == 1),
+                Poll::Ready(Err(e)) => return Err(nb::Error::Other(e)),
+                Poll::Pending => return Err(nb::Error::WouldBlock),
+            }
+        }
+        Ok(buf[0])
+    }
+}
+
+impl embedded_hal_nb::serial::ErrorType for RingBufferedUartRx<'_> {
+    type Error = Error;
+}
+
 impl ReadReady for RingBufferedUartRx<'_> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
         let len = self.ring_buf.len().map_err(|e| match e {
