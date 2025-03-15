@@ -1,7 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # replace MSPM0L2228 with your chip as listed in `probe-rs chip list`
-# TODO: Remove description path after new chiptool release
-runner = "probe-rs run --restore-unwritten --verify --chip MSPM0L2228 --protocol=swd --chip-description-path ./MSPM0L122X_L222X_Series.yaml"
+runner = "probe-rs run --restore-unwritten --verify --chip MSPM0L2228 --protocol=swd"
 
 [build]
 target = "thumbv6m-none-eabi"

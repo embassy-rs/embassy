@@ -1,7 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # replace MSPM0G3519 with your chip as listed in `probe-rs chip list`
-# TODO: Remove description path after new chiptool release
-runner = "probe-rs run --restore-unwritten --verify --chip MSPM0G3519 --protocol=swd --chip-description-path ./MSPM0GX51X_Series.yaml"
+runner = "probe-rs run --restore-unwritten --verify --chip MSPM0G3519 --protocol=swd"
 
 [build]
 target = "thumbv6m-none-eabi"
