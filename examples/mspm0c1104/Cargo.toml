@@ -19,14 +19,14 @@ panic-semihosting = "0.6.0"
 
 # The chip only has 1KB of ram, so we must optimize binaries regardless
 [profile.dev]
-debug = 2
+debug = 1
 opt-level = "z"
 lto = true
 codegen-units = 1
 # strip = true
 
 [profile.release]
-debug = 2
+debug = 1
 opt-level = "z"
 lto = true
 codegen-units = 1
