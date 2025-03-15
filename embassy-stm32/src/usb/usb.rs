@@ -206,10 +206,6 @@ mod btable {
 mod btable {
     use super::*;
 
-    pub(super) fn write_in_tx<T: Instance>(_index: usize, _addr: u16) {}
-
-    pub(super) fn write_in_rx<T: Instance>(_index: usize, _addr: u16) {}
-
     pub(super) fn write_in_len_tx<T: Instance>(index: usize, addr: u16, len: u16) {
         assert_eq!(addr & 0b11, 0);
         USBRAM.mem(index * 2).write_value((addr as u32) | ((len as u32) << 16));
@@ -416,11 +412,23 @@ impl<'d, T: Instance> Driver<'d, T> {
                 let len = align_len_up(max_packet_size);
                 let addr = self.alloc_ep_mem(len);
 
-                // ep_in_len is written when actually TXing packets.
-                btable::write_in_len_tx::<T>(index, addr, 0);
+                #[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
+                {
+                    // ep_in_len is written when actually transmitting packets.
+                    btable::write_in_tx::<T>(index, addr);
 
-                if ep_type == EndpointType::Isochronous {
-                    btable::write_in_len_rx::<T>(index, addr, 0);
+                    if ep_type == EndpointType::Isochronous {
+                        btable::write_in_rx::<T>(index, addr);
+                    }
+                }
+
+                #[cfg(any(usbram_32_2048, usbram_32_1024))]
+                {
+                    btable::write_in_len_tx::<T>(index, addr, 0);
+
+                    if ep_type == EndpointType::Isochronous {
+                        btable::write_in_len_rx::<T>(index, addr, 0);
+                    }
                 }
 
                 EndpointBuffer {
