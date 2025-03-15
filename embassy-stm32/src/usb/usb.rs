@@ -868,31 +868,26 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 
         let regs = T::regs();
 
-        let packet_buffer = if self.info.ep_type == EndpointType::Isochronous {
+        let rx_len = if self.info.ep_type == EndpointType::Isochronous {
             // Find the buffer, which is currently in use. Read from the OTHER buffer.
-            if regs.epr(index).read().dtog_rx() {
+            let packet_buffer = if regs.epr(index).read().dtog_rx() {
                 PacketBuffer::Tx
             } else {
                 PacketBuffer::Rx
-            }
+            };
+            self.read_data_double_buffered(buf, packet_buffer)?
         } else {
-            PacketBuffer::Rx
-        };
-
-        let rx_len = self.read_data_double_buffered(buf, packet_buffer)?;
-
-        regs.epr(index).write(|w| {
-            w.set_ep_type(convert_type(self.info.ep_type));
-            w.set_ea(self.info.addr.index() as _);
-            if self.info.ep_type == EndpointType::Isochronous {
-                w.set_stat_rx(Stat::from_bits(0)); // STAT_RX remains `VALID`.
-            } else {
+            regs.epr(index).write(|w| {
+                w.set_ep_type(convert_type(self.info.ep_type));
+                w.set_ea(self.info.addr.index() as _);
                 w.set_stat_rx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
-            }
-            w.set_stat_tx(Stat::from_bits(0));
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
+                w.set_stat_tx(Stat::from_bits(0));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            });
+
+            self.read_data(buf)?
+        };
         trace!("READ OK, rx_len = {}", rx_len);
 
         Ok(rx_len)
