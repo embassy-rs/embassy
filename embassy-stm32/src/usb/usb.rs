@@ -83,7 +83,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
             let mut epr = regs.epr(index).read();
             if epr.ctr_rx() {
-                CTR_RX_TRIGGERED[index].store(true, Ordering::Relaxed);
+                RX_COMPLETE[index].store(true, Ordering::Relaxed);
                 if index == 0 && epr.setup() {
                     EP0_SETUP.store(true, Ordering::Relaxed);
                 }
@@ -91,7 +91,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 EP_OUT_WAKERS[index].wake();
             }
             if epr.ctr_tx() {
-                CTR_TX_TRIGGERED[index].store(true, Ordering::Relaxed);
+                TX_PENDING[index].store(false, Ordering::Relaxed);
                 //trace!("EP {} TX", index);
                 EP_IN_WAKERS[index].wake();
             }
@@ -123,8 +123,8 @@ const USBRAM_ALIGN: usize = 4;
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP0_SETUP: AtomicBool = AtomicBool::new(false);
 
-static CTR_TX_TRIGGERED: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
-static CTR_RX_TRIGGERED: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
+static TX_PENDING: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
+static RX_COMPLETE: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
@@ -417,10 +417,10 @@ impl<'d, T: Instance> Driver<'d, T> {
                 let addr = self.alloc_ep_mem(len);
 
                 // ep_in_len is written when actually TXing packets.
-                btable::write_in_tx::<T>(index, addr);
+                btable::write_in_len_tx::<T>(index, addr, 0);
 
                 if ep_type == EndpointType::Isochronous {
-                    btable::write_in_rx::<T>(index, addr);
+                    btable::write_in_len_rx::<T>(index, addr, 0);
                 }
 
                 EndpointBuffer {
@@ -719,6 +719,7 @@ impl Dir for Out {
 /// For double-buffered endpoints, both the `Rx` and `Tx` buffer from a channel are used for the same
 /// direction of transfer. This is opposed to single-buffered endpoints, where one channel can serve
 /// two directions at the same time.
+#[derive(Clone, Copy, Debug)]
 enum PacketBuffer {
     /// The RX buffer - must be used for single-buffered OUT endpoints
     Rx,
@@ -843,7 +844,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             if self.info.ep_type == EndpointType::Isochronous {
                 // The isochronous endpoint does not change its `STAT_RX` field to `NAK` when receiving a packet.
                 // Therefore, this instead waits until the `CTR` interrupt was triggered.
-                if matches!(stat, Stat::DISABLED) || CTR_RX_TRIGGERED[index].load(Ordering::Relaxed) {
+                if matches!(stat, Stat::DISABLED) || RX_COMPLETE[index].load(Ordering::Relaxed) {
                     assert!(matches!(stat, Stat::VALID | Stat::DISABLED));
                     Poll::Ready(stat)
                 } else {
@@ -859,7 +860,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         })
         .await;
 
-        CTR_RX_TRIGGERED[index].store(false, Ordering::Relaxed);
+        RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
         if stat == Stat::DISABLED {
             return Err(EndpointError::Disabled);
@@ -870,9 +871,9 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let packet_buffer = if self.info.ep_type == EndpointType::Isochronous {
             // Find the buffer, which is currently in use. Read from the OTHER buffer.
             if regs.epr(index).read().dtog_rx() {
-                PacketBuffer::Rx
-            } else {
                 PacketBuffer::Tx
+            } else {
+                PacketBuffer::Rx
             }
         } else {
             PacketBuffer::Rx
@@ -904,7 +905,21 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             return Err(EndpointError::BufferOverflow);
         }
         trace!("WRITE WAITING, buf.len() = {}", buf.len());
+
+        let regs = T::regs();
         let index = self.info.addr.index();
+
+        if self.info.ep_type == EndpointType::Isochronous {
+            // Find the buffer, which is currently in use. Write to the OTHER buffer.
+            let packet_buffer = if regs.epr(index).read().dtog_tx() {
+                PacketBuffer::Rx
+            } else {
+                PacketBuffer::Tx
+            };
+
+            self.write_data_double_buffered(buf, packet_buffer);
+        }
+
         let stat = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let regs = T::regs();
@@ -912,7 +927,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             if self.info.ep_type == EndpointType::Isochronous {
                 // The isochronous endpoint does not change its `STAT_TX` field to `NAK` after sending a packet.
                 // Therefore, this instead waits until the `CTR` interrupt was triggered.
-                if matches!(stat, Stat::DISABLED) || CTR_TX_TRIGGERED[index].load(Ordering::Relaxed) {
+                if matches!(stat, Stat::DISABLED) || !TX_PENDING[index].load(Ordering::Relaxed) {
                     assert!(matches!(stat, Stat::VALID | Stat::DISABLED));
                     Poll::Ready(stat)
                 } else {
@@ -928,39 +943,23 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         })
         .await;
 
-        CTR_TX_TRIGGERED[index].store(false, Ordering::Relaxed);
-
         if stat == Stat::DISABLED {
             return Err(EndpointError::Disabled);
         }
 
-        let regs = T::regs();
+        if self.info.ep_type != EndpointType::Isochronous {
+            self.write_data(buf);
 
-        let packet_buffer = if self.info.ep_type == EndpointType::Isochronous {
-            // Find the buffer, which is currently in use. Write to the OTHER buffer.
-            if regs.epr(index).read().dtog_tx() {
-                PacketBuffer::Tx
-            } else {
-                PacketBuffer::Rx
-            }
-        } else {
-            PacketBuffer::Tx
-        };
-
-        self.write_data_double_buffered(buf, packet_buffer);
-
-        regs.epr(index).write(|w| {
-            w.set_ep_type(convert_type(self.info.ep_type));
-            w.set_ea(self.info.addr.index() as _);
-            if self.info.ep_type == EndpointType::Isochronous {
-                w.set_stat_tx(Stat::from_bits(0)); // STAT_TX remains `VALID`.
-            } else {
+            regs.epr(index).write(|w| {
+                w.set_ep_type(convert_type(self.info.ep_type));
+                w.set_ea(self.info.addr.index() as _);
                 w.set_stat_tx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
-            }
-            w.set_stat_rx(Stat::from_bits(0));
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
+                w.set_stat_rx(Stat::from_bits(0));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            });
+        }
+        TX_PENDING[index].store(true, Ordering::Relaxed);
         trace!("WRITE OK");
 
         Ok(())
