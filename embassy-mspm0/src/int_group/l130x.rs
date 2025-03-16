@@ -6,7 +6,7 @@ use crate::pac::interrupt;
 fn GROUP0() {
     use mspm0_metapac::Group0;
 
-    let group = pac::CPUSS.int_group(1);
+    let group = pac::CPUSS.int_group(0);
 
     // Must subtract by 1 since NO_INTR is value 0
     let iidx = group.iidx().read().stat().to_bits() - 1;
