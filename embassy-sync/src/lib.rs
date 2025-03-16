@@ -11,7 +11,6 @@ pub(crate) mod fmt;
 mod ring_buffer;
 
 pub mod blocking_mutex;
-pub mod blocking_rwlock;
 pub mod channel;
 pub mod lazy_lock;
 pub mod mutex;
