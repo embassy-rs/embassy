@@ -288,6 +288,7 @@ pub struct Driver<'d, T: Instance> {
 
 impl<'d, T: Instance> Driver<'d, T> {
     /// Create a new USB driver with start-of-frame (SOF) output.
+    #[cfg(not(stm32l1))]
     pub fn new_with_sof(
         _usb: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -296,13 +297,10 @@ impl<'d, T: Instance> Driver<'d, T> {
         sof: impl Peripheral<P = impl SofPin<T>> + 'd,
     ) -> Self {
         into_ref!(sof);
-        #[cfg(not(stm32l1))]
         {
             use crate::gpio::{AfType, OutputType, Speed};
             sof.set_as_af(sof.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
-        #[cfg(stm32l1)]
-        let _ = sof; // suppress "unused" warning.
 
         Self::new(_usb, _irq, dp, dm)
     }
