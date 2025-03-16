@@ -291,6 +291,8 @@ macro_rules! impl_dma_methods {
             /// flag can be set. This configures a circular DMA transfer that continually outputs
             /// `data`. Note that for performance reasons in circular mode the transfer-complete
             /// interrupt is disabled.
+            ///
+            /// FIXME: Enable for GPDMA
             #[cfg(not(gpdma))]
             pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) {
                 // Enable DAC and DMA
