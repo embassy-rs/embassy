@@ -283,6 +283,9 @@ impl AnyChannel {
         state.lli_state.transfer_count.store(0, Ordering::Relaxed)
     }
 
+    /// Configure a linked-list transfer.
+    ///
+    /// Transfer options apply only to the base register transfer, not the linked-list items.
     unsafe fn configure_linked_list<const ITEM_COUNT: usize>(
         &self,
         table: &Table<ITEM_COUNT>,
