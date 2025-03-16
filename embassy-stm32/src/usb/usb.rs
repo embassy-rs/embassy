@@ -311,18 +311,8 @@ impl<'d, T: Instance> Driver<'d, T> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: impl Peripheral<P = impl DpPin<T>> + 'd,
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
-        sof: Option<impl Peripheral<P = impl SofPin<T>> + 'd>,
     ) -> Self {
         into_ref!(dp, dm);
-
-        #[cfg(not(stm32l1))]
-        {
-            if let Some(sof) = sof {
-                into_ref!(sof);
-                use crate::gpio::{AfType, OutputType, Speed};
-                sof.set_as_af(sof.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            }
-        }
 
         super::common_init::<T>();
 
