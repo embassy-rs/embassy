@@ -76,7 +76,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
-        mut options: TransferOptions,
+        _options: TransferOptions,
     ) -> Self {
         into_ref!(channel);
         let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
@@ -84,31 +84,26 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
-        options.half_transfer_ir = false;
-        options.complete_transfer_ir = true;
-
         let items = [
-            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len], options),
-            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..], options),
+            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len]),
+            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..]),
         ];
         let table = Table::new(items);
 
-        let this = Self {
+        Self {
             channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
             table,
             user_buffer_half: BufferHalf::First,
-        };
-
-        this.channel.configure_linked_list(&this.table, options);
-
-        this
+        }
     }
 
     /// Start the ring buffer operation.
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
+        unsafe { self.channel.configure_linked_list(&self.table, Default::default()) };
+        self.table.link(RunMode::Repeat);
         self.channel.start();
     }
 
