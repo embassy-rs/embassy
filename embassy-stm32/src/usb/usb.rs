@@ -363,10 +363,11 @@ impl<'d, T: Instance> Driver<'d, T> {
                 return false; // reserved for control pipe
             }
             let used = ep.used_out || ep.used_in;
-            if used && (ep.ep_type == EndpointType::Isochronous || ep.ep_type == EndpointType::Bulk) {
-                // Isochronous and bulk endpoints are double-buffered.
+            if used && (ep.ep_type == EndpointType::Isochronous) {
+                // Isochronous endpoints are always double-buffered.
                 // Their corresponding endpoint/channel registers are forced to be unidirectional.
                 // Do not reuse this index.
+                // FIXME: Bulk endpoints can be double buffered, but are not in the current implementation.
                 return false;
             }
 
