@@ -11,7 +11,7 @@ use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
 use crate::waitqueue::WakerRegistration;
 
-/// Error returned by [`RwLock::try_read_lock`] and [`RwLock::try_write_lock`]
+/// Error returned by [`RwLock::try_read`] and [`RwLock::try_write`] when the lock is already held.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TryLockError;
@@ -24,7 +24,7 @@ struct State {
 
 /// Async read-write lock.
 ///
-/// The read-write lock is generic over a blocking [`RawRwLock`](crate::blocking_mutex::raw_rwlock::RawRwLock).
+/// The read-write lock is generic over the raw mutex implementation `M` and the data `T` it protects.
 /// The raw read-write lock is used to guard access to the internal state. It
 /// is held for very short periods only, while locking and unlocking. It is *not* held
 /// for the entire time the async RwLock is locked.
@@ -307,6 +307,25 @@ where
     rwlock: &'a RwLock<R, T>,
 }
 
+impl<'a, R, T> RwLockWriteGuard<'a, R, T>
+where
+    R: RawMutex,
+    T: ?Sized,
+{
+    /// Returns a locked view over a portion of the locked data.
+    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedRwLockWriteGuard<'a, R, U> {
+        let rwlock = this.rwlock;
+        let value = fun(unsafe { &mut *this.rwlock.inner.get() });
+        // Dont run the `drop` method for RwLockWriteGuard.  The ownership of the underlying
+        // locked state is being moved to the returned MappedRwLockWriteGuard.
+        mem::forget(this);
+        MappedRwLockWriteGuard {
+            state: &rwlock.state,
+            value,
+        }
+    }
+}
+
 impl<'a, R, T> Drop for RwLockWriteGuard<'a, R, T>
 where
     R: RawMutex,
@@ -366,8 +385,8 @@ where
     }
 }
 
-/// A handle to a held `Mutex` that has had a function applied to it via [`MutexGuard::map`] or
-/// [`MappedMutexGuard::map`].
+/// A handle to a held `RwLock` that has had a function applied to it via [`RwLockReadGuard::map`] or
+/// [`MappedRwLockReadGuard::map`].
 ///
 /// This can be used to hold a subfield of the protected data.
 #[clippy::has_significant_drop]
@@ -378,6 +397,22 @@ where
 {
     state: &'a BlockingMutex<M, RefCell<State>>,
     value: *const T,
+}
+
+impl<'a, M, T> MappedRwLockReadGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    /// Returns a locked view over a portion of the locked data.
+    pub fn map<U>(this: Self, fun: impl FnOnce(&T) -> &U) -> MappedRwLockReadGuard<'a, M, U> {
+        let rwlock = this.state;
+        let value = fun(unsafe { &*this.value });
+        // Dont run the `drop` method for RwLockReadGuard.  The ownership of the underlying
+        // locked state is being moved to the returned MappedRwLockReadGuard.
+        mem::forget(this);
+        MappedRwLockReadGuard { state: rwlock, value }
+    }
 }
 
 impl<'a, M, T> Deref for MappedRwLockReadGuard<'a, M, T>
@@ -443,8 +478,8 @@ where
     }
 }
 
-/// A handle to a held `Mutex` that has had a function applied to it via [`MutexGuard::map`] or
-/// [`MappedMutexGuard::map`].
+/// A handle to a held `RwLock` that has had a function applied to it via [`RwLockWriteGuard::map`] or
+/// [`MappedRwLockWriteGuard::map`].
 ///
 /// This can be used to hold a subfield of the protected data.
 #[clippy::has_significant_drop]
@@ -455,6 +490,22 @@ where
 {
     state: &'a BlockingMutex<M, RefCell<State>>,
     value: *mut T,
+}
+
+impl<'a, M, T> MappedRwLockWriteGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    /// Returns a locked view over a portion of the locked data.
+    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedRwLockWriteGuard<'a, M, U> {
+        let rwlock = this.state;
+        let value = fun(unsafe { &mut *this.value });
+        // Dont run the `drop` method for RwLockWriteGuard.  The ownership of the underlying
+        // locked state is being moved to the returned MappedRwLockWriteGuard.
+        mem::forget(this);
+        MappedRwLockWriteGuard { state: rwlock, value }
+    }
 }
 
 impl<'a, M, T> Deref for MappedRwLockWriteGuard<'a, M, T>
