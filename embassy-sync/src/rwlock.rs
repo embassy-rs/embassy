@@ -2,10 +2,10 @@
 //!
 //! This module provides a read-write lock that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
-use core::fmt;
 use core::future::{poll_fn, Future};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
+use core::{fmt, mem};
 
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
@@ -31,11 +31,11 @@ struct State {
 ///
 /// Which implementation you select depends on the context in which you're using the read-write lock.
 ///
-/// Use [`CriticalSectionMutex`] when data can be shared between threads and interrupts.
+/// Use [`CriticalSectionRawMutex`](crate::blocking_mutex::raw::CriticalSectionRawMutex) when data can be shared between threads and interrupts.
 ///
-/// Use [`NoopMutex`] when data is only shared between tasks running on the same executor.
+/// Use [`NoopRawMutex`](crate::blocking_mutex::raw::NoopRawMutex) when data is only shared between tasks running on the same executor.
 ///
-/// Use [`ThreadModeMutex`] when data is shared between tasks running on the same executor but you want a global singleton.
+/// Use [`ThreadModeRawMutex`](crate::blocking_mutex::raw::ThreadModeRawMutex) when data is shared between tasks running on the same executor but you want a singleton.
 ///
 
 pub struct RwLock<M, T>
@@ -51,9 +51,9 @@ unsafe impl<M: RawMutex + Send, T: ?Sized + Send> Send for RwLock<M, T> {}
 unsafe impl<M: RawMutex + Sync, T: ?Sized + Send> Sync for RwLock<M, T> {}
 
 /// Async read-write lock.
-impl<R, T> RwLock<R, T>
+impl<M, T> RwLock<M, T>
 where
-    R: RawMutex,
+    M: RawMutex,
 {
     /// Create a new read-write lock with the given value.
     pub const fn new(value: T) -> Self {
@@ -66,11 +66,17 @@ where
             })),
         }
     }
+}
 
+impl<M, T> RwLock<M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
     /// Lock the read-write lock for reading.
     ///
     /// This will wait for the lock to be available if it's already locked for writing.
-    pub fn read(&self) -> impl Future<Output = RwLockReadGuard<'_, R, T>> {
+    pub fn read(&self) -> impl Future<Output = RwLockReadGuard<'_, M, T>> {
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
                 let mut s = s.borrow_mut();
@@ -94,7 +100,7 @@ where
     /// Lock the read-write lock for writing.
     ///
     /// This will wait for the lock to be available if it's already locked for reading or writing.
-    pub fn write(&self) -> impl Future<Output = RwLockWriteGuard<'_, R, T>> {
+    pub fn write(&self) -> impl Future<Output = RwLockWriteGuard<'_, M, T>> {
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
                 let mut s = s.borrow_mut();
@@ -114,13 +120,43 @@ where
             }
         })
     }
-}
 
-impl<R, T> RwLock<R, T>
-where
-    R: RawMutex,
-    T: ?Sized,
-{
+    /// Attempt to immediately lock the rwlock.
+    ///
+    /// If the rwlock is already locked, this will return an error instead of waiting.
+    pub fn try_read(&self) -> Result<RwLockReadGuard<'_, M, T>, TryLockError> {
+        self.state
+            .lock(|s| {
+                let mut s = s.borrow_mut();
+                if s.writer {
+                    return Err(());
+                }
+                s.readers += 1;
+                Ok(())
+            })
+            .map_err(|_| TryLockError)?;
+
+        Ok(RwLockReadGuard { rwlock: self })
+    }
+
+    /// Attempt to immediately lock the rwlock.
+    ///
+    /// If the rwlock is already locked, this will return an error instead of waiting.
+    pub fn try_write(&self) -> Result<RwLockWriteGuard<'_, M, T>, TryLockError> {
+        self.state
+            .lock(|s| {
+                let mut s = s.borrow_mut();
+                if s.writer || s.readers > 0 {
+                    return Err(());
+                }
+                s.writer = true;
+                Ok(())
+            })
+            .map_err(|_| TryLockError)?;
+
+        Ok(RwLockWriteGuard { rwlock: self })
+    }
+
     /// Consumes this read-write lock, returning the underlying data.
     pub fn into_inner(self) -> T
     where
@@ -138,19 +174,34 @@ where
     }
 }
 
-impl<R: RawMutex, T> From<T> for RwLock<R, T> {
+impl<M: RawMutex, T> From<T> for RwLock<M, T> {
     fn from(from: T) -> Self {
         Self::new(from)
     }
 }
 
-impl<R, T> Default for RwLock<R, T>
+impl<M, T> Default for RwLock<M, T>
 where
-    R: RawMutex,
+    M: RawMutex,
     T: Default,
 {
     fn default() -> Self {
         Self::new(Default::default())
+    }
+}
+
+impl<M, T> fmt::Debug for RwLock<M, T>
+where
+    M: RawMutex,
+    T: ?Sized + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("RwLock");
+        match self.try_read() {
+            Ok(guard) => d.field("inner", &&*guard),
+            Err(TryLockError) => d.field("inner", &"Locked"),
+        }
+        .finish_non_exhaustive()
     }
 }
 
@@ -168,6 +219,27 @@ where
     T: ?Sized,
 {
     rwlock: &'a RwLock<R, T>,
+}
+
+impl<'a, M, T> RwLockReadGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    /// Map the contents of the `RwLockReadGuard` to a different type.
+    ///
+    /// This is useful for calling methods on the contents of the `RwLockReadGuard` without
+    /// moving out of the guard.
+    pub fn map<U>(this: Self, fun: impl FnOnce(&T) -> &U) -> MappedRwLockReadGuard<'a, M, U> {
+        let rwlock = this.rwlock;
+        let value = fun(unsafe { &mut *this.rwlock.inner.get() });
+
+        mem::forget(this);
+        MappedRwLockReadGuard {
+            state: &rwlock.state,
+            value,
+        }
+    }
 }
 
 impl<'a, M, T> Drop for RwLockReadGuard<'a, M, T>
@@ -287,6 +359,170 @@ where
 impl<'a, R, T> fmt::Display for RwLockWriteGuard<'a, R, T>
 where
     R: RawMutex,
+    T: ?Sized + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
+    }
+}
+
+/// A handle to a held `Mutex` that has had a function applied to it via [`MutexGuard::map`] or
+/// [`MappedMutexGuard::map`].
+///
+/// This can be used to hold a subfield of the protected data.
+#[clippy::has_significant_drop]
+pub struct MappedRwLockReadGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    state: &'a BlockingMutex<M, RefCell<State>>,
+    value: *const T,
+}
+
+impl<'a, M, T> Deref for MappedRwLockReadGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        // Safety: the MappedRwLockReadGuard represents shared access to the contents
+        // of the read-write lock, so it's OK to get it.
+        unsafe { &*self.value }
+    }
+}
+
+impl<'a, M, T> Drop for MappedRwLockReadGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    fn drop(&mut self) {
+        self.state.lock(|s| {
+            let mut s = unwrap!(s.try_borrow_mut());
+            s.readers -= 1;
+            if s.readers == 0 {
+                s.waker.wake();
+            }
+        })
+    }
+}
+
+unsafe impl<'a, M, T> Send for MappedRwLockReadGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+}
+
+unsafe impl<'a, M, T> Sync for MappedRwLockReadGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+}
+
+impl<'a, M, T> fmt::Debug for MappedRwLockReadGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<'a, M, T> fmt::Display for MappedRwLockReadGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized + fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
+    }
+}
+
+/// A handle to a held `Mutex` that has had a function applied to it via [`MutexGuard::map`] or
+/// [`MappedMutexGuard::map`].
+///
+/// This can be used to hold a subfield of the protected data.
+#[clippy::has_significant_drop]
+pub struct MappedRwLockWriteGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    state: &'a BlockingMutex<M, RefCell<State>>,
+    value: *mut T,
+}
+
+impl<'a, M, T> Deref for MappedRwLockWriteGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        // Safety: the MappedRwLockWriteGuard represents exclusive access to the contents
+        // of the read-write lock, so it's OK to get it.
+        unsafe { &*self.value }
+    }
+}
+
+impl<'a, M, T> DerefMut for MappedRwLockWriteGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // Safety: the MappedRwLockWriteGuard represents exclusive access to the contents
+        // of the read-write lock, so it's OK to get it.
+        unsafe { &mut *self.value }
+    }
+}
+
+impl<'a, M, T> Drop for MappedRwLockWriteGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+    fn drop(&mut self) {
+        self.state.lock(|s| {
+            let mut s = unwrap!(s.try_borrow_mut());
+            s.writer = false;
+            s.waker.wake();
+        })
+    }
+}
+
+unsafe impl<'a, M, T> Send for MappedRwLockWriteGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+}
+
+unsafe impl<'a, M, T> Sync for MappedRwLockWriteGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized,
+{
+}
+
+impl<'a, M, T> fmt::Debug for MappedRwLockWriteGuard<'a, M, T>
+where
+    M: RawMutex,
+    T: ?Sized + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<'a, M, T> fmt::Display for MappedRwLockWriteGuard<'a, M, T>
+where
+    M: RawMutex,
     T: ?Sized + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
