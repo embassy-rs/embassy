@@ -34,7 +34,7 @@ impl<S> SpawnToken<S> {
         }
     }
 
-    /// Returns the task if available, otherwise 0
+    /// Returns the task id if available, otherwise 0
     /// This can be used in combination with rtos-trace to match task names with id's
     pub fn id(&self) -> u32 {
         match self.raw_task {
