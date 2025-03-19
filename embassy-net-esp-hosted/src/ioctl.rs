@@ -5,7 +5,6 @@ use core::task::Poll;
 use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::fmt::Bytes;
-use crate::InterfaceType;
 
 #[derive(Clone, Copy)]
 pub struct PendingIoctl {

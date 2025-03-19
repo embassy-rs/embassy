@@ -3,7 +3,7 @@ use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use heapless::String;
 
 use crate::ioctl::Shared;
-use crate::proto::{self, CtrlMsg, CtrlWifiBw};
+use crate::proto::{self, CtrlMsg};
 
 /// Errors reported by control.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -38,8 +38,8 @@ enum WifiMode {
     ApSta = 3,
 }
 
-pub use proto::CtrlWifiSecProt as Security;
 pub use proto::CtrlWifiBw as Bandwidth;
+pub use proto::CtrlWifiSecProt as Security;
 
 use crate::proto::CtrlWifiMode::{Ap, Sta};
 
@@ -174,21 +174,24 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
-    pub async fn set_ap_mode(&mut self) -> Result<(),Error> {
+    /// Set the interface to AP mode
+    pub async fn set_ap_mode(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqSetMode { mode: Ap as u32 };
         ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
         self.shared.set_is_ap(true);
         Ok(())
     }
 
-    pub async fn set_sta_mode(&mut self) -> Result<(),Error> {
+    /// Set the interface to Sta mode
+    pub async fn set_sta_mode(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqSetMode { mode: Sta as u32 };
         ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
         self.shared.set_is_ap(false);
         Ok(())
     }
 
-    pub async fn start_ap(&mut self, ap_config: ApStatus) -> Result<(),Error> {
+    /// Start and configure an AP
+    pub async fn start_ap(&mut self, ap_config: ApStatus) -> Result<(), Error> {
         let req = proto::CtrlMsgReqStartSoftAp {
             ssid: ap_config.ssid,
             pwd: ap_config.psk,
@@ -196,13 +199,14 @@ impl<'a> Control<'a> {
             sec_prot: ap_config.security,
             max_conn: ap_config.max_connections,
             ssid_hidden: ap_config.hidden,
-            bw: ap_config.bandwidth as u32
+            bw: ap_config.bandwidth as u32,
         };
         ioctl!(self, ReqStartSoftAp, RespStartSoftAp, req, resp);
         Ok(())
     }
 
-    pub async fn stop_ap(&mut self, ap_config: ApStatus) -> Result<(),Error> {
+    /// Stop AP
+    pub async fn stop_ap(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqGetStatus {};
         ioctl!(self, ReqStopSoftAp, RespStopSoftAp, req, resp);
         Ok(())

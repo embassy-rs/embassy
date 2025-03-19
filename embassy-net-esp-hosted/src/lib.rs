@@ -216,7 +216,11 @@ where
                     tx_buf[12..][..packet.len()].copy_from_slice(packet);
 
                     let mut header = PayloadHeader {
-                        if_type_and_num: if self.shared.is_ap() { InterfaceType::Ap } else { InterfaceType::Sta } as _,
+                        if_type_and_num: if self.shared.is_ap() {
+                            InterfaceType::Ap
+                        } else {
+                            InterfaceType::Sta
+                        } as _,
                         len: packet.len() as _,
                         offset: PayloadHeader::SIZE as _,
                         seq_num: self.next_seq,
