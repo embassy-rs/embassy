@@ -9,6 +9,12 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-mspm0"
 
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-mspm0-v$VERSION/embassy-mspm0/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-mspm0/src/"
+
+features = ["defmt", "unstable-pac", "time-driver-any"]
+
 [package.metadata.docs.rs]
 features = ["defmt", "unstable-pac", "time-driver-any", "time", "mspm0g3507"]
 rustdoc-args = ["--cfg", "docsrs"]
@@ -105,7 +111,7 @@ time-driver-tima0 = ["_time-driver"]
 time-driver-tima1 = ["_time-driver"]
 
 #! ## Chip-selection features
-#! Select your chip by specifying the model as a feature, e.g. `mspm0g3507`.
+#! Select your chip by specifying the model as a feature, e.g. `mspm0g350x`.
 #! Check the `Cargo.toml` for the latest list of supported chips.
 #!
 #! **Important:** Do not forget to adapt the target chip in your toolchain,
