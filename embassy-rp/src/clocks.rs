@@ -861,7 +861,6 @@ impl<'d, T: GpinPin> Gpin<'d, T> {
         #[cfg(feature = "_rp235x")]
         gpin.gpio().ctrl().write(|w| w.set_funcsel(0x09));
 
-
         #[cfg(feature = "_rp235x")]
         gpin.pad_ctrl().write(|w| {
             w.set_iso(false);
@@ -951,7 +950,6 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
         // On RP2350 GPOUT changed from F8 toF9
         #[cfg(feature = "_rp235x")]
         gpout.gpio().ctrl().write(|w| w.set_funcsel(0x09));
-
 
         #[cfg(feature = "_rp235x")]
         gpout.pad_ctrl().write(|w| {
