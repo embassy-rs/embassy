@@ -3,7 +3,7 @@ use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use heapless::String;
 
 use crate::ioctl::Shared;
-use crate::proto::{self, CtrlMsg};
+use crate::proto::{self, CtrlMsg, CtrlWifiBw};
 
 /// Errors reported by control.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -39,11 +39,14 @@ enum WifiMode {
 }
 
 pub use proto::CtrlWifiSecProt as Security;
+pub use proto::CtrlWifiBw as Bandwidth;
 
-/// WiFi status.
+use crate::proto::CtrlWifiMode::{Ap, Sta};
+
+/// WiFi station status.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Status {
+pub struct StaStatus {
     /// Service Set Identifier.
     pub ssid: String<32>,
     /// Basic Service Set Identifier.
@@ -54,6 +57,26 @@ pub struct Status {
     pub channel: u32,
     /// Security mode.
     pub security: Security,
+}
+
+/// WiFi access point status.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ApStatus {
+    /// Service Set Identifier.
+    pub ssid: String<32>,
+    /// Password.
+    pub psk: String<32>,
+    /// WiFi channel.
+    pub channel: u32,
+    /// Security mode.
+    pub security: Security,
+    /// Max number of connections.
+    pub max_connections: u32,
+    /// SSID Hidden
+    pub hidden: bool,
+    /// Bandwidth
+    pub bandwidth: Bandwidth,
 }
 
 macro_rules! ioctl {
@@ -99,17 +122,33 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
-    /// Get the current status.
-    pub async fn get_status(&mut self) -> Result<Status, Error> {
+    /// Get the current station status.
+    pub async fn get_sta_status(&mut self) -> Result<StaStatus, Error> {
         let req = proto::CtrlMsgReqGetApConfig {};
         ioctl!(self, ReqGetApConfig, RespGetApConfig, req, resp);
         trim_nulls(&mut resp.ssid);
-        Ok(Status {
+        Ok(StaStatus {
             ssid: resp.ssid,
             bssid: parse_mac(&resp.bssid)?,
             rssi: resp.rssi as _,
             channel: resp.chnl,
             security: resp.sec_prot,
+        })
+    }
+
+    /// Get the current access point status.
+    pub async fn get_ap_status(&mut self) -> Result<ApStatus, Error> {
+        let req = proto::CtrlMsgReqGetSoftApConfig {};
+        ioctl!(self, ReqGetSoftApConfig, RespGetSoftapConfig, req, resp);
+        trim_nulls(&mut resp.ssid);
+        Ok(ApStatus {
+            ssid: resp.ssid,
+            psk: resp.pwd,
+            channel: resp.chnl,
+            security: resp.sec_prot,
+            max_connections: resp.max_conn,
+            hidden: resp.ssid_hidden,
+            bandwidth: Bandwidth::Ht20,
         })
     }
 
@@ -135,19 +174,54 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
-    /// duration in seconds, clamped to [10, 3600]
-    async fn set_heartbeat(&mut self, duration: u32) -> Result<(), Error> {
-        let req = proto::CtrlMsgReqConfigHeartbeat { enable: true, duration };
-        ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp);
+    pub async fn set_ap_mode(&mut self) -> Result<(),Error> {
+        let req = proto::CtrlMsgReqSetMode { mode: Ap as u32 };
+        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
+        self.shared.set_is_ap(true);
         Ok(())
     }
 
-    async fn get_mac_addr(&mut self) -> Result<[u8; 6], Error> {
+    pub async fn set_sta_mode(&mut self) -> Result<(),Error> {
+        let req = proto::CtrlMsgReqSetMode { mode: Sta as u32 };
+        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
+        self.shared.set_is_ap(false);
+        Ok(())
+    }
+
+    pub async fn start_ap(&mut self, ap_config: ApStatus) -> Result<(),Error> {
+        let req = proto::CtrlMsgReqStartSoftAp {
+            ssid: ap_config.ssid,
+            pwd: ap_config.psk,
+            chnl: ap_config.channel,
+            sec_prot: ap_config.security,
+            max_conn: ap_config.max_connections,
+            ssid_hidden: ap_config.hidden,
+            bw: ap_config.bandwidth as u32
+        };
+        ioctl!(self, ReqStartSoftAp, RespStartSoftAp, req, resp);
+        Ok(())
+    }
+
+    pub async fn stop_ap(&mut self, ap_config: ApStatus) -> Result<(),Error> {
+        let req = proto::CtrlMsgReqGetStatus {};
+        ioctl!(self, ReqStopSoftAp, RespStopSoftAp, req, resp);
+        Ok(())
+    }
+
+    /// Get Station mac address
+    pub async fn get_mac_addr(&mut self) -> Result<[u8; 6], Error> {
         let req = proto::CtrlMsgReqGetMacAddress {
             mode: WifiMode::Sta as _,
         };
         ioctl!(self, ReqGetMacAddress, RespGetMacAddress, req, resp);
         parse_mac(&resp.mac)
+    }
+
+    /// duration in seconds, clamped to [10, 3600]
+    async fn set_heartbeat(&mut self, duration: u32) -> Result<(), Error> {
+        let req = proto::CtrlMsgReqConfigHeartbeat { enable: true, duration };
+        ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp);
+        Ok(())
     }
 
     async fn set_wifi_mode(&mut self, mode: u32) -> Result<(), Error> {
@@ -160,7 +234,7 @@ impl<'a> Control<'a> {
     async fn ioctl(&mut self, msg: &mut CtrlMsg) -> Result<(), Error> {
         debug!("ioctl req: {:?}", &msg);
 
-        let mut buf = [0u8; 128];
+        let mut buf = [0u8; 256];
 
         let req_len = noproto::write(msg, &mut buf).map_err(|_| {
             warn!("failed to serialize control request");

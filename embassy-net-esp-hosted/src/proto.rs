@@ -411,15 +411,15 @@ pub(crate) enum CtrlMsgPayload {
     #[noproto(tag = "108")]
     ReqDisconnectAp(CtrlMsgReqGetStatus),
     #[noproto(tag = "109")]
-    ReqGetSoftapConfig(CtrlMsgReqGetSoftApConfig),
+    ReqGetSoftApConfig(CtrlMsgReqGetSoftApConfig),
     #[noproto(tag = "110")]
-    ReqSetSoftapVendorSpecificIe(CtrlMsgReqSetSoftApVendorSpecificIe),
+    ReqSetSoftApVendorSpecificIe(CtrlMsgReqSetSoftApVendorSpecificIe),
     #[noproto(tag = "111")]
-    ReqStartSoftap(CtrlMsgReqStartSoftAp),
+    ReqStartSoftAp(CtrlMsgReqStartSoftAp),
     #[noproto(tag = "112")]
-    ReqSoftapConnectedStasList(CtrlMsgReqSoftApConnectedSta),
+    ReqSoftApConnectedStasList(CtrlMsgReqSoftApConnectedSta),
     #[noproto(tag = "113")]
-    ReqStopSoftap(CtrlMsgReqGetStatus),
+    ReqStopSoftAp(CtrlMsgReqGetStatus),
     #[noproto(tag = "114")]
     ReqSetPowerSaveMode(CtrlMsgReqSetMode),
     #[noproto(tag = "115")]
@@ -458,11 +458,11 @@ pub(crate) enum CtrlMsgPayload {
     #[noproto(tag = "210")]
     RespSetSoftapVendorSpecificIe(CtrlMsgRespSetSoftApVendorSpecificIe),
     #[noproto(tag = "211")]
-    RespStartSoftap(CtrlMsgRespStartSoftAp),
+    RespStartSoftAp(CtrlMsgRespStartSoftAp),
     #[noproto(tag = "212")]
-    RespSoftapConnectedStasList(CtrlMsgRespSoftApConnectedSta),
+    RespSoftApConnectedStasList(CtrlMsgRespSoftApConnectedSta),
     #[noproto(tag = "213")]
-    RespStopSoftap(CtrlMsgRespGetStatus),
+    RespStopSoftAp(CtrlMsgRespGetStatus),
     #[noproto(tag = "214")]
     RespSetPowerSaveMode(CtrlMsgRespSetMode),
     #[noproto(tag = "215")]
@@ -523,10 +523,11 @@ pub(crate) enum CtrlWifiMode {
     Apsta = 3,
 }
 
+#[allow(missing_docs)]
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) enum CtrlWifiBw {
+pub enum CtrlWifiBw {
     #[default]
     BwInvalid = 0,
     Ht20 = 1,

@@ -216,7 +216,7 @@ where
                     tx_buf[12..][..packet.len()].copy_from_slice(packet);
 
                     let mut header = PayloadHeader {
-                        if_type_and_num: InterfaceType::Sta as _,
+                        if_type_and_num: if self.shared.is_ap() { InterfaceType::Ap } else { InterfaceType::Sta } as _,
                         len: packet.len() as _,
                         offset: PayloadHeader::SIZE as _,
                         seq_num: self.next_seq,
@@ -285,6 +285,14 @@ where
         match if_type_and_num & 0x0f {
             // STA
             0 => match self.ch.try_rx_buf() {
+                Some(buf) => {
+                    buf[..payload.len()].copy_from_slice(payload);
+                    self.ch.rx_done(payload.len())
+                }
+                None => warn!("failed to push rxd packet to the channel."),
+            },
+            // AP
+            1 => match self.ch.try_rx_buf() {
                 Some(buf) => {
                     buf[..payload.len()].copy_from_slice(payload);
                     self.ch.rx_done(payload.len())

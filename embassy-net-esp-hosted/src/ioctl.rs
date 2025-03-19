@@ -5,6 +5,7 @@ use core::task::Poll;
 use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::fmt::Bytes;
+use crate::InterfaceType;
 
 #[derive(Clone, Copy)]
 pub struct PendingIoctl {
@@ -26,6 +27,7 @@ struct SharedInner {
     is_init: bool,
     control_waker: WakerRegistration,
     runner_waker: WakerRegistration,
+    is_ap: bool,
 }
 
 impl Shared {
@@ -35,7 +37,16 @@ impl Shared {
             is_init: false,
             control_waker: WakerRegistration::new(),
             runner_waker: WakerRegistration::new(),
+            is_ap: false,
         }))
+    }
+
+    pub fn set_is_ap(&self, is_ap: bool) {
+        self.0.borrow_mut().is_ap = is_ap;
+    }
+
+    pub fn is_ap(&self) -> bool {
+        self.0.borrow().is_ap
     }
 
     pub fn ioctl_wait_complete(&self) -> impl Future<Output = usize> + '_ {
