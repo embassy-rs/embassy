@@ -50,6 +50,20 @@ impl<R: RawMutex, T> Mutex<R, T> {
             f(inner)
         })
     }
+
+    /// Creates a critical section and grants temporary mutable access to the protected data.
+    ///
+    /// # Safety
+    /// This method is unsafe because calling this method when the mutex is already locked,
+    /// either using this method or `lock`, violates Rust's aliasing rules.
+    pub unsafe fn lock_mut<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
+        self.raw.lock(|| {
+            let ptr = self.data.get() as *mut T;
+            // Safety: we have exclusive access to the data, as long as this mutex is not locked re-entrantly
+            let inner = unsafe { &mut *ptr };
+            f(inner)
+        })
+    }
 }
 
 impl<R, T> Mutex<R, T> {
