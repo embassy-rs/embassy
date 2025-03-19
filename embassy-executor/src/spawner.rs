@@ -34,6 +34,15 @@ impl<S> SpawnToken<S> {
         }
     }
 
+    /// Returns the task id if available, otherwise 0
+    /// This can be used in combination with rtos-trace to match task names with id's
+    pub fn id(&self) -> u32 {
+        match self.raw_task {
+            None => 0,
+            Some(t) => t.as_ptr() as u32,
+        }
+    }
+
     /// Return a SpawnToken that represents a failed spawn.
     pub fn new_failed() -> Self {
         Self {
