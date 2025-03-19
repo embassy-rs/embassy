@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
-use embassy_net::{Ipv4Cidr, Ipv4Address, StackResources};
+use embassy_net::{Ipv4Address, Ipv4Cidr, StackResources};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
@@ -76,7 +76,7 @@ async fn main(spawner: Spawner) -> ! {
         p.PG13,
         p.PG12,
         p.PG11,
-        GenericPhy::new(0),    
+        GenericPhy::new(0),
         mac_addr,
     );
 
@@ -110,7 +110,10 @@ async fn main(spawner: Spawner) -> ! {
     let socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
     loop {
         // You need to start a server on the host machine, for example: `nc -lu 8000`
-        socket.send_to(b"Hello, world", remote_endpoint).await.expect("Buffer sent");
+        socket
+            .send_to(b"Hello, world", remote_endpoint)
+            .await
+            .expect("Buffer sent");
         Timer::after_secs(1).await;
     }
 }
