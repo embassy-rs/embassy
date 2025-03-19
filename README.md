@@ -19,6 +19,7 @@ Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows 
     - Embassy HAL support for Espressif chips, as well as Async WiFi, Bluetooth and ESP-NOW,  is being developed in the [esp-rs/esp-hal](https://github.com/esp-rs/esp-hal) repository.
   - <a href="https://github.com/ch32-rs/ch32-hal">ch32-hal</a>, for the WCH 32-bit RISC-V(CH32V) series of chips.
   - <a href="https://github.com/AlexCharlton/mpfs-hal">mpfs-hal</a>, for the Microchip PolarFire SoC.
+  - <a href="https://github.com/py32-rs/py32-hal">py32-hal</a>, for the Puya Semiconductor PY32 series of microcontrollers.
 
 - **Time that Just Works** - 
 No more messing with hardware timers. <a href="https://docs.embassy.dev/embassy-time">embassy_time</a> provides Instant, Duration and Timer types that are globally available and never overflow.
