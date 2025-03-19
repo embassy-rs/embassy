@@ -126,11 +126,28 @@ impl Config {
         )
     }
 }
+
+struct SckPinRef<'d> {
+    pin: PeripheralRef<'d, AnyPin>,
+    _af_num: u8,
+}
+
+impl<'d> SckPinRef<'d> {
+    pub fn new<T: Instance>(sck: impl Peripheral<P = impl SckPin<T>> + 'd, config: &Config) -> Self {
+        let pin_ref = sck.into_ref();
+        let af_num = pin_ref.af_num();
+        pin_ref.set_as_af(af_num, config.sck_af());
+        let pin = pin_ref.map_into();
+
+        Self { pin, _af_num: af_num }
+    }
+}
+
 /// SPI driver.
 pub struct Spi<'d, M: PeriMode> {
     pub(crate) info: &'static Info,
     kernel_clock: Hertz,
-    sck: Option<PeripheralRef<'d, AnyPin>>,
+    sck: Option<SckPinRef<'d>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
     miso: Option<PeripheralRef<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
@@ -143,7 +160,7 @@ pub struct Spi<'d, M: PeriMode> {
 impl<'d, M: PeriMode> Spi<'d, M> {
     fn new_inner<T: Instance>(
         _peri: impl Peripheral<P = T> + 'd,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
+        sck: Option<SckPinRef<'d>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
@@ -268,7 +285,8 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         {
             self.rise_fall_speed = config.rise_fall_speed;
             if let Some(sck) = self.sck.as_ref() {
-                sck.set_speed(config.rise_fall_speed);
+                sck.pin.set_speed(config.rise_fall_speed);
+                sck.pin.set_as_af(sck._af_num, config.sck_af());
             }
             if let Some(mosi) = self.mosi.as_ref() {
                 mosi.set_speed(config.rise_fall_speed);
@@ -473,7 +491,7 @@ impl<'d> Spi<'d, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(sck, config.sck_af()),
+            Some(SckPinRef::new(sck, &config)),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
             None,
@@ -491,7 +509,7 @@ impl<'d> Spi<'d, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(sck, config.sck_af()),
+            Some(SckPinRef::new(sck, &config)),
             None,
             new_pin!(miso, AfType::input(config.miso_pull)),
             None,
@@ -509,7 +527,7 @@ impl<'d> Spi<'d, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(sck, config.sck_af()),
+            Some(SckPinRef::new(sck, &config)),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             None,
             None,
@@ -551,7 +569,7 @@ impl<'d> Spi<'d, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(sck, config.sck_af()),
+            Some(SckPinRef::new(sck, &config)),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
             new_dma!(tx_dma),
@@ -571,7 +589,7 @@ impl<'d> Spi<'d, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(sck, config.sck_af()),
+            Some(SckPinRef::new(sck, &config)),
             None,
             new_pin!(miso, AfType::input(config.miso_pull)),
             #[cfg(any(spi_v1, spi_f1, spi_v2))]
@@ -593,7 +611,7 @@ impl<'d> Spi<'d, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(sck, config.sck_af()),
+            Some(SckPinRef::new(sck, &config)),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             None,
             new_dma!(tx_dma),
@@ -883,7 +901,7 @@ impl<'d> Spi<'d, Async> {
 
 impl<'d, M: PeriMode> Drop for Spi<'d, M> {
     fn drop(&mut self) {
-        self.sck.as_ref().map(|x| x.set_as_disconnected());
+        self.sck.as_ref().map(|x| x.pin.set_as_disconnected());
         self.mosi.as_ref().map(|x| x.set_as_disconnected());
         self.miso.as_ref().map(|x| x.set_as_disconnected());
 
