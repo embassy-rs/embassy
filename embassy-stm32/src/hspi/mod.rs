@@ -24,7 +24,8 @@ use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
 
 /// HSPI driver config.
-#[derive(Clone, Copy, defmt::Format)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Fifo threshold used by the peripheral to generate the interrupt indicating data
     /// or space is available in the FIFO
