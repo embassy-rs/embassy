@@ -51,6 +51,9 @@ use super::SpawnToken;
 #[cfg(feature = "drs-scheduler")]
 use cordyceps::{stack, Linked};
 
+#[cfg(feature = "drs-scheduler")]
+pub use run_queue::Deadline;
+
 /// Raw task header for use in task pointers.
 ///
 /// A task can be in one of the following states:
@@ -106,6 +109,9 @@ pub(crate) struct TaskHeader {
     // more context on the choices here.
     #[cfg(feature = "drs-scheduler")]
     pub(crate) links: stack::Links<TaskHeader>,
+
+    #[cfg(feature = "drs-scheduler")]
+    pub(crate) deadline: SyncUnsafeCell<u64>,
 
     // TODO(AJM): We could potentially replace RunQueueItem for other runqueue impls, though
     // right now cordyceps doesn't work on non-atomic systems
@@ -229,6 +235,8 @@ impl<F: Future + 'static> TaskStorage<F> {
                 run_queue_item: RunQueueItem::new(),
                 #[cfg(feature = "drs-scheduler")]
                 links: stack::Links::new(),
+                #[cfg(feature = "drs-scheduler")]
+                deadline: SyncUnsafeCell::new(0u64),
                 state: State::new(),
                 executor: AtomicPtr::new(core::ptr::null_mut()),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
@@ -315,6 +323,10 @@ impl<F: Future + 'static> AvailableTask<F> {
         unsafe {
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
+
+            // TODO(AJM): Some other way of setting this? Just a placeholder
+            #[cfg(feature = "drs-scheduler")]
+            self.task.raw.deadline.set(u64::MAX);
 
             let task = TaskRef::new(self.task);
 
