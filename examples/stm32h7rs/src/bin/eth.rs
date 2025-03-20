@@ -96,7 +96,7 @@ async fn main(spawner: Spawner) -> ! {
     unwrap!(spawner.spawn(net_task(runner)));
 
     // Ensure DHCP configuration is up before trying connect
-    stack.wait_config_up().await;
+    //stack.wait_config_up().await;
 
     info!("Network task initialized");
 
