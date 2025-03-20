@@ -1,0 +1,22 @@
+[package]
+edition = "2021"
+name = "embassy-avr-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+avr-device = { version = "0.6", features = ["atmega328p"] }
+embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-avr", "executor-thread", "nightly"] }
+panic-halt = "1"
+
+[profile.dev]
+panic = "abort"
+lto = true
+opt-level = "s"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+debug = true
+lto = true
+opt-level = "s"
