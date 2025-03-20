@@ -208,11 +208,11 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver
     pub fn new<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -231,11 +231,11 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with request-to-send and clear-to-send pins
     pub fn new_with_rtscts<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
         cts: Peri<'d, impl CtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -256,10 +256,10 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with only the RTS pin as the DE pin
     pub fn new_with_rts_as_de<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -280,10 +280,10 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with only the request-to-send pin
     pub fn new_with_rts<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -305,10 +305,10 @@ impl<'d> BufferedUart<'d> {
     #[cfg(not(any(usart_v1, usart_v2)))]
     pub fn new_with_de<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         de: Peri<'d, impl DePin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,

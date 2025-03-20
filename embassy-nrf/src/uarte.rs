@@ -155,9 +155,9 @@ impl<'d, T: Instance> Uarte<'d, T> {
     /// Create a new UARTE without hardware flow control
     pub fn new(
         uarte: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rxd: Peri<'d, impl GpioPin>,
         txd: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(uarte, rxd.into(), txd.into(), None, None, config)
@@ -166,11 +166,11 @@ impl<'d, T: Instance> Uarte<'d, T> {
     /// Create a new UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
         uarte: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rxd: Peri<'d, impl GpioPin>,
         txd: Peri<'d, impl GpioPin>,
         cts: Peri<'d, impl GpioPin>,
         rts: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
