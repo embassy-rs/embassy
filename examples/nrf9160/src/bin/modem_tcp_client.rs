@@ -127,8 +127,8 @@ async fn main(spawner: Spawner) {
     let uart = BufferedUarteTx::new(
         //let trace_uart = BufferedUarteTx::new(
         unsafe { peripherals::SERIAL0::steal() },
-        Irqs,
         unsafe { peripherals::P0_01::steal() },
+        Irqs,
         //unsafe { peripherals::P0_14::steal() },
         config,
         unsafe { &mut *addr_of_mut!(TRACE_BUF) },
