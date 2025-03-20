@@ -64,7 +64,6 @@ trybuild = "1.0"
 embassy-sync = { path = "../embassy-sync" }
 
 [features]
-
 ## Enable nightly-only features
 nightly = ["embassy-executor-macros/nightly"]
 
@@ -99,7 +98,7 @@ trace = []
 ## Enable support for rtos-trace framework
 rtos-trace = ["dep:rtos-trace", "trace", "dep:embassy-time-driver"]
 ## Enable "Deadline Rank Scheduler"
-drs-scheduler = ["dep:cordyceps"]
+drs-scheduler = ["dep:cordyceps", "dep:embassy-time-driver"]
 
 #! ### Timer Item Payload Size
 #! Sets the size of the payload for timer items, allowing integrated timer implementors to store
