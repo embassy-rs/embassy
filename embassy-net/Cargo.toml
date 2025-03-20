@@ -61,6 +61,10 @@ medium-ip = ["smoltcp/medium-ip"]
 medium-ieee802154 = ["smoltcp/medium-ieee802154"]
 ## Enable multicast support (for both ipv4 and/or ipv6 if enabled)
 multicast = ["smoltcp/multicast"]
+## Enable smoltcp std feature (necessary if using "managed" crate std feature)
+std = ["smoltcp/std"]
+## Enable smoltcp alloc feature (necessary if using "managed" crate alloc feature)
+alloc = ["smoltcp/alloc"]
 
 [dependencies]
 
