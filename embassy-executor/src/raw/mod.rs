@@ -7,7 +7,14 @@
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
 //! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_executor_macros::task) macro, which are fully safe.
 
-#[cfg_attr(target_has_atomic = "ptr", path = "run_queue_atomics.rs")]
+#[cfg_attr(
+    all(not(feature = "drs-scheduler"), target_has_atomic = "ptr"),
+    path = "run_queue_atomics.rs",
+)]
+#[cfg_attr(
+    all(feature = "drs-scheduler", target_has_atomic = "ptr"),
+    path = "run_queue_drs_atomics.rs",
+)]
 #[cfg_attr(not(target_has_atomic = "ptr"), path = "run_queue_critical_section.rs")]
 mod run_queue;
 
@@ -28,14 +35,21 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
+#[cfg(feature = "drs-scheduler")]
+use core::ptr::addr_of_mut;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::{Context, Poll};
 
-use self::run_queue::{RunQueue, RunQueueItem};
+use self::run_queue::RunQueue;
+#[cfg(not(feature = "drs-scheduler"))]
+use self::run_queue::RunQueueItem;
 use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
+
+#[cfg(feature = "drs-scheduler")]
+use cordyceps::{stack, Linked};
 
 /// Raw task header for use in task pointers.
 ///
@@ -76,14 +90,53 @@ use super::SpawnToken;
 /// - 4: A run-queued task exits - `TaskStorage::poll -> Poll::Ready`
 /// - 5: Task is dequeued. The task's future is not polled, because exiting the task replaces its `poll_fn`.
 /// - 6: A task is waken when it is not spawned - `wake_task -> State::run_enqueue`
+#[cfg_attr(feature = "drs-scheduler", repr(C))]
 pub(crate) struct TaskHeader {
-    pub(crate) state: State,
+    // TODO(AJM): Make a decision whether we want to support the spicier "pointer recast"/"type punning"
+    // method of implementing the `cordyceps::Linked` trait or not.
+    //
+    // Currently, I do the safer version with `addr_of_mut!`, which doesn't REQUIRE that the first
+    // element is the `links` field, at the potential cost of a little extra pointer math.
+    //
+    // The optimizer *might* (total guess) notice that we are always doing an offset of zero in the
+    // call to `addr_of_mut` in the `impl Linked for TaskHeader` below, and get the best of both worlds,
+    // but right now this is maybe a little over cautious.
+    //
+    // See https://docs.rs/cordyceps/latest/cordyceps/trait.Linked.html#implementing-linkedlinks for
+    // more context on the choices here.
+    #[cfg(feature = "drs-scheduler")]
+    pub(crate) links: stack::Links<TaskHeader>,
+
+    // TODO(AJM): We could potentially replace RunQueueItem for other runqueue impls, though
+    // right now cordyceps doesn't work on non-atomic systems
+    #[cfg(not(feature = "drs-scheduler"))]
     pub(crate) run_queue_item: RunQueueItem,
+
+    pub(crate) state: State,
     pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
+}
+
+#[cfg(feature = "drs-scheduler")]
+unsafe impl Linked<stack::Links<TaskHeader>> for TaskHeader {
+    type Handle = TaskRef;
+
+    fn into_ptr(r: Self::Handle) -> NonNull<Self> {
+        r.ptr.cast()
+    }
+
+    unsafe fn from_ptr(ptr: NonNull<Self>) -> Self::Handle {
+        let ptr: NonNull<TaskHeader> = ptr;
+        TaskRef { ptr }
+    }
+
+    unsafe fn links(ptr: NonNull<Self>) -> NonNull<stack::Links<TaskHeader>> {
+        let ptr: *mut TaskHeader = ptr.as_ptr();
+        NonNull::new_unchecked(addr_of_mut!((*ptr).links))
+    }
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
@@ -172,8 +225,11 @@ impl<F: Future + 'static> TaskStorage<F> {
     pub const fn new() -> Self {
         Self {
             raw: TaskHeader {
-                state: State::new(),
+                #[cfg(not(feature = "drs-scheduler"))]
                 run_queue_item: RunQueueItem::new(),
+                #[cfg(feature = "drs-scheduler")]
+                links: stack::Links::new(),
+                state: State::new(),
                 executor: AtomicPtr::new(core::ptr::null_mut()),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
