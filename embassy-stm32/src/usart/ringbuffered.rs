@@ -8,7 +8,9 @@ use embassy_hal_internal::PeripheralRef;
 use embedded_io_async::ReadReady;
 use futures_util::future::{select, Either};
 
-use super::{rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx};
+use super::{
+    clear_interrupt_flags, rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx,
+};
 use crate::dma::ReadableRingBuffer;
 use crate::gpio::{AnyPin, SealedPin as _};
 use crate::mode::Async;
@@ -97,6 +99,8 @@ impl<'d> RingBufferedUartRx<'d> {
             // enable idle line interrupt
             w.set_idleie(true);
         });
+        // Clear all potential error interrupt flags
+        clear_interrupt_flags(r, sr(r).read());
         r.cr3().modify(|w| {
             // enable Error Interrupt: (Frame error, Noise error, Overrun error)
             w.set_eie(true);
@@ -140,14 +144,15 @@ impl<'d> RingBufferedUartRx<'d> {
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let r = self.info.regs;
 
-        // Start DMA and Uart if it was not already started,
-        // otherwise check for errors in status register.
+        // (Re-)start DMA and Uart if it is not running (has not been started yet or has failed),
+        // and check for errors in status register. Error flags are cleared in `start_uart()` so
+        // they need to be read first without returning yet.
         let sr = clear_idle_flag(r);
+        let res = check_for_errors(sr);
         if !r.cr3().read().dmar() {
             self.start_uart();
-        } else {
-            check_for_errors(sr)?;
         }
+        res?;
 
         loop {
             match self.ring_buf.read(buf) {
