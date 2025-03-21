@@ -133,6 +133,20 @@ impl<'d> RingBufferedUartRx<'d> {
         compiler_fence(Ordering::SeqCst);
     }
 
+    /// (Re-)start DMA and Uart if it is not running (has not been started yet or has failed), and
+    /// check for errors in status register. Error flags are cleared in `start_uart()` so they need
+    /// to be read first without returning yet.
+    fn start_dma_or_check_errors(&mut self) -> Result<(), Error> {
+        let r = self.info.regs;
+
+        let sr = clear_idle_flag(r);
+        let res = check_for_errors(sr);
+        if !r.cr3().read().dmar() {
+            self.start_uart();
+        }
+        res
+    }
+
     /// Read bytes that are readily available in the ring buffer.
     /// If no bytes are currently available in the buffer the call waits until the some
     /// bytes are available (at least one byte and at most half the buffer size)
@@ -142,17 +156,7 @@ impl<'d> RingBufferedUartRx<'d> {
     /// Receive in the background is terminated if an error is returned.
     /// It must then manually be started again by calling `start()` or by re-calling `read()`.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        let r = self.info.regs;
-
-        // (Re-)start DMA and Uart if it is not running (has not been started yet or has failed),
-        // and check for errors in status register. Error flags are cleared in `start_uart()` so
-        // they need to be read first without returning yet.
-        let sr = clear_idle_flag(r);
-        let res = check_for_errors(sr);
-        if !r.cr3().read().dmar() {
-            self.start_uart();
-        }
-        res?;
+        self.start_dma_or_check_errors()?;
 
         loop {
             match self.ring_buf.read(buf) {
@@ -279,6 +283,29 @@ impl embedded_io_async::Read for RingBufferedUartRx<'_> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.read(buf).await
     }
+}
+
+impl embedded_hal_nb::serial::Read for RingBufferedUartRx<'_> {
+    fn read(&mut self) -> nb::Result<u8, Self::Error> {
+        self.start_dma_or_check_errors()?;
+
+        let mut buf = [0u8; 1];
+        match self.ring_buf.read(&mut buf) {
+            Ok((0, _)) => Err(nb::Error::WouldBlock),
+            Ok((len, _)) => {
+                assert!(len == 1);
+                Ok(buf[0])
+            }
+            Err(_) => {
+                self.stop_uart();
+                Err(nb::Error::Other(Error::Overrun))
+            }
+        }
+    }
+}
+
+impl embedded_hal_nb::serial::ErrorType for RingBufferedUartRx<'_> {
+    type Error = Error;
 }
 
 impl ReadReady for RingBufferedUartRx<'_> {
