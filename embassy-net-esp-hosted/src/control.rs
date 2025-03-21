@@ -257,7 +257,8 @@ impl<'a> Control<'a> {
     async fn ioctl(&mut self, msg: &mut CtrlMsg) -> Result<(), Error> {
         debug!("ioctl req: {:?}", &msg);
 
-        let mut buf = [0u8; 256];
+        //Network scan result is 67 bytes max of 16 can be returned
+        let mut buf = [0u8; 1072];
 
         let req_len = noproto::write(msg, &mut buf).map_err(|_| {
             warn!("failed to serialize control request");
