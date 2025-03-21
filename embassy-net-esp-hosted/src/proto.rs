@@ -4,9 +4,10 @@ use heapless::{String, Vec};
 
 /// internal supporting structures for CtrlMsg
 
+#[allow(missing_docs)]
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) struct ScanResult {
+pub struct ScanResult {
     #[noproto(tag = "1")]
     pub ssid: String<32>,
     #[noproto(tag = "2")]
@@ -403,7 +404,7 @@ pub(crate) enum CtrlMsgPayload {
     #[noproto(tag = "104")]
     ReqSetWifiMode(CtrlMsgReqSetMode),
     #[noproto(tag = "105")]
-    ReqScanApList(CtrlMsgReqScanResult),
+    ReqGetApScanList(CtrlMsgReqScanResult),
     #[noproto(tag = "106")]
     ReqGetApConfig(CtrlMsgReqGetApConfig),
     #[noproto(tag = "107")]

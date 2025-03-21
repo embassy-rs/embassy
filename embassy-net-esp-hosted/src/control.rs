@@ -1,6 +1,6 @@
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
-use heapless::String;
+use heapless::{String, Vec};
 
 use crate::ioctl::Shared;
 use crate::proto::{self, CtrlMsg};
@@ -38,8 +38,7 @@ enum WifiMode {
     ApSta = 3,
 }
 
-pub use proto::CtrlWifiBw as Bandwidth;
-pub use proto::CtrlWifiSecProt as Security;
+pub use proto::{CtrlWifiBw as Bandwidth, CtrlWifiSecProt as Security, ScanResult as Network};
 
 use crate::proto::CtrlWifiMode::{Ap, Sta};
 
@@ -77,6 +76,16 @@ pub struct ApStatus {
     pub hidden: bool,
     /// Bandwidth
     pub bandwidth: Bandwidth,
+}
+
+/// WiFi Scan Result.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ScanResult {
+    /// Number of networks found.
+    pub count: u32,
+    /// Networks found
+    pub entries: Vec<Network, 16>,
 }
 
 macro_rules! ioctl {
@@ -210,6 +219,16 @@ impl<'a> Control<'a> {
         let req = proto::CtrlMsgReqGetStatus {};
         ioctl!(self, ReqStopSoftAp, RespStopSoftAp, req, resp);
         Ok(())
+    }
+
+    /// Get AP Scan List
+    pub async fn get_scan_network_list(&mut self) -> Result<ScanResult, Error> {
+        let req = proto::CtrlMsgReqScanResult {};
+        ioctl!(self, ReqGetApScanList, RespScanApList, req, resp);
+        Ok(ScanResult {
+            count: resp.count,
+            entries: resp.entries,
+        })
     }
 
     /// Get Station mac address
