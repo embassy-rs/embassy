@@ -1026,6 +1026,11 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, In> {
         })
         .await
     }
+
+    fn is_enabled(&self) -> bool {
+        let ep_index = self.info.addr.index();
+        self.regs.diepctl(ep_index).read().usbaep()
+    }
 }
 
 impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, Out> {
@@ -1046,6 +1051,11 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, Out> {
             }
         })
         .await
+    }
+
+    fn is_enabled(&self) -> bool {
+        let ep_index = self.info.addr.index();
+        self.regs.diepctl(ep_index).read().usbaep()
     }
 }
 
