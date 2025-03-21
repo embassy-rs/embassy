@@ -1,0 +1,11 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace MSPM0C1104 with your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --chip MSPM0C1104 --protocol=swd"
+
+[build]
+target = "thumbv6m-none-eabi"
+
+[env]
+DEFMT_LOG = "debug"
+# defmt's buffer needs to be shrunk since the MSPM0C1104 only has 1KB of ram.
+DEFMT_RTT_BUFFER_SIZE = "72"
