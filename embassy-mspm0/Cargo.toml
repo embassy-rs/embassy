@@ -14,6 +14,11 @@ src_base = "https://github.com/embassy-rs/embassy/blob/embassy-mspm0-v$VERSION/e
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-mspm0/src/"
 
 features = ["defmt", "unstable-pac", "time-driver-any"]
+flavors = [
+    { regex_feature = "mspm0c.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "mspm0l.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "mspm0g.*", target = "thumbv6m-none-eabi" },
+]
 
 [package.metadata.docs.rs]
 features = ["defmt", "unstable-pac", "time-driver-any", "time", "mspm0g3507"]
