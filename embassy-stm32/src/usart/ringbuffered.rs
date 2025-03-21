@@ -261,14 +261,13 @@ fn clear_idle_flag(r: Regs) -> Sr {
 
     let sr = sr(r).read();
 
-    // This read also clears the error and idle interrupt flags on v1.
-    unsafe { rdr(r).read_volatile() };
     #[cfg(any(usart_v3, usart_v4))]
-    {
-        let mut clear_idle = regs::Icr(0);
-        clear_idle.set_idle(true);
-        r.icr().write_value(clear_idle);
-    }
+    r.icr().write(|w| w.set_idle(true));
+    #[cfg(not(any(usart_v3, usart_v4)))]
+    unsafe {
+        // This read also clears the error and idle interrupt flags on v1.
+        rdr(r).read_volatile()
+    };
 
     r.cr1().modify(|w| w.set_idleie(true));
 
