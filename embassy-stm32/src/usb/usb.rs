@@ -7,6 +7,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_time::Timer;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
@@ -886,6 +887,16 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             }
         })
         .await;
+
+        // Errata for STM32H5, 2.20.1:
+        // During OUT transfers, the correct transfer interrupt (CTR) is triggered a little before the last USB SRAM accesses
+        // have completed. If the software responds quickly to the interrupt, the full buffer contents may not be correct.
+        //
+        // Workaround:
+        // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
+        // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
+        #[cfg(stm32h5)]
+        Timer::after_nanos(800).await;
 
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
