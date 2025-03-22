@@ -131,6 +131,23 @@ pub enum CallbackResult {
     Stop,
 }
 
+/// Value returned by the SAADC callback, deciding what happens next.
+///
+/// On each callback to process new samples, this enum
+/// provides the next buffer to use for double buffering
+/// in the format for Vec raw parts.
+///
+/// The buffers could be alternating between the same two
+/// or could be dynamically allocated and swapped out.
+#[derive(PartialEq)]
+pub enum DoubleBufferCallbackResult {
+    /// The sampler processed a buffer and will use this one for the next buffer.
+    /// (ptr, length, capacity)
+    Swap((*mut i16, usize, usize)),
+    /// The sampler is done processing samples.
+    Stop,
+}
+
 /// One-shot and continuous SAADC.
 pub struct Saadc<'d, const N: usize> {
     _p: PeripheralRef<'d, peripherals::SAADC>,
@@ -257,6 +274,146 @@ impl<'d, const N: usize> Saadc<'d, N> {
         .await;
 
         drop(on_drop);
+    }
+
+    /// Continuous sampling with double buffers.
+    ///
+    /// A TIMER and two PPI peripherals are passed in so that precise sampling
+    /// can be attained. The sampling interval is expressed by selecting a
+    /// timer clock frequency to use along with a counter threshold to be reached.
+    /// For example, 1KHz can be achieved using a frequency of 1MHz and a counter
+    /// threshold of 1000.
+    ///
+    /// A sampler closure is provided that receives the buffer of samples, noting
+    /// that the size of this buffer can be less than the original buffer's size.
+    /// A command is return from the closure that indicates whether the sampling
+    /// should continue or stop.
+    ///
+    /// NOTE: The time spent within the callback supplied should not exceed the time
+    /// taken to acquire the samples into a single buffer. You should measure the
+    /// time taken by the callback and set the sample buffer size accordingly.
+    /// Exceeding this time can lead to samples becoming dropped.
+    ///
+    /// The sampling is stopped prior to returning in order to reduce power consumption (power
+    /// consumption remains higher if sampling is not stopped explicitly), and to
+    /// free the buffers from being used by the peripheral. Cancellation will
+    /// also cause the sampling to be stopped.
+    pub async fn run_task_sampler_alloc<F, T: TimerInstance>(
+        &mut self,
+        timer: &mut T,
+        ppi_ch1: &mut impl ConfigurableChannel,
+        ppi_ch2: &mut impl ConfigurableChannel,
+        frequency: Frequency,
+        sample_rate_divisor: u16,
+        vec_raw_parts: &mut [(*mut i16, usize, usize); 2],
+        mut callback: F,
+    ) where
+        F: FnMut((*mut i16, usize, usize)) -> DoubleBufferCallbackResult,
+    {
+        let r = Self::regs();
+
+        // We want the task start to effectively short with the last one ending so
+        // we don't miss any samples. It'd be great for the SAADC to offer a SHORTS
+        // register instead, but it doesn't, so we must use PPI.
+        let mut start_ppi = Ppi::new_one_to_one(
+            ppi_ch1,
+            Event::from_reg(r.events_end()),
+            Task::from_reg(r.tasks_start()),
+        );
+        start_ppi.enable();
+
+        let timer = Timer::new(timer);
+        timer.set_frequency(frequency);
+        timer.cc(0).write(sample_rate_divisor as u32);
+        timer.cc(0).short_compare_clear();
+
+        let timer_cc = timer.cc(0);
+
+        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer_cc.event_compare(), Task::from_reg(r.tasks_sample()));
+
+        timer.start();
+        let mut init = || {
+            sample_ppi.enable();
+        };
+
+        // In case the future is dropped, stop the task and wait for it to end.
+        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
+
+        let r = Self::regs();
+
+        // Establish mode and sample rate
+        r.samplerate().write(|w| {
+            w.set_cc(0);
+            w.set_mode(vals::SamplerateMode::TASK);
+        });
+
+        // Set up the initial DMA
+        r.result().ptr().write_value(vec_raw_parts[0].0 as u32);
+        r.result().maxcnt().write(|w| w.set_maxcnt(vec_raw_parts[0].1 as _));
+
+        // Reset and enable the events
+        r.events_end().write_value(0);
+        r.events_started().write_value(0);
+        r.intenset().write(|w| {
+            w.set_end(true);
+            w.set_started(true);
+        });
+
+        // Don't reorder the ADC start event before the previous writes. Hopefully self
+        // wouldn't happen anyway.
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_start().write_value(1);
+
+        let mut inited = false;
+
+        let mut current_buffer = 0;
+
+        // Wait for events and complete when the sampler indicates it has had enough.
+        let r = poll_fn(|cx| {
+            let r = Self::regs();
+
+            WAKER.register(cx.waker());
+
+            if r.events_end().read() != 0 {
+                compiler_fence(Ordering::SeqCst);
+
+                r.events_end().write_value(0);
+                r.intenset().write(|w| w.set_end(true));
+
+                match callback(vec_raw_parts[current_buffer]) {
+                    DoubleBufferCallbackResult::Swap(buf) => {
+                        vec_raw_parts[current_buffer] = buf;
+                        let next_buffer = 1 - current_buffer;
+                        current_buffer = next_buffer;
+                    }
+                    DoubleBufferCallbackResult::Stop => {
+                        vec_raw_parts[current_buffer] = (0 as _, 0, 0);
+                        return Poll::Ready(());
+                    }
+                }
+            }
+
+            if r.events_started().read() != 0 {
+                r.events_started().write_value(0);
+                r.intenset().write(|w| w.set_started(true));
+
+                if !inited {
+                    init();
+                    inited = true;
+                }
+
+                let next_buffer = 1 - current_buffer;
+                r.result().ptr().write_value(vec_raw_parts[next_buffer].0 as u32);
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        drop(on_drop);
+
+        r
     }
 
     /// Continuous sampling with double buffers.
@@ -465,6 +622,10 @@ impl<'d, const N: usize> Drop for Saadc<'d, N> {
     fn drop(&mut self) {
         let r = Self::regs();
         r.enable().write(|w| w.set_enable(false));
+        for i in 0..N {
+            let channel = r.ch(i);
+            channel.config().write_value(nrf_pac::saadc::regs::Config::default());
+        }
     }
 }
 
