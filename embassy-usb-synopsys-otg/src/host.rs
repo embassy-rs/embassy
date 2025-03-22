@@ -1008,13 +1008,12 @@ impl UsbHostBus {
         let hcfg = self.regs.hcfg().read();
         let hprt = self.regs.hprt().read();
         if hcfg.fslspcs() != hprt.pspd() {
+            // NOTE: Bus reset required after fslspcs change [RM0390]
             warn!("Changed FSLSPCS, would require bus reset");
             self.regs.hcfg().modify(|w| {
                 // [CherryUSB] Align clock for Full-speed/Low-speed
                 w.set_fslspcs(hprt.pspd());
             });
-            // FIXME: Required after fslspcs change [RM0390]
-            // self.bus_reset().await;
         }
 
         // NOTE: hfir & fslspcs only required for FS/LS PHY
@@ -1070,9 +1069,9 @@ impl UsbHostDriver for UsbHostBus {
         };
 
         // FIXME: max_packet_size should be independent to buffer-size but due to how buffer-dma works this seems difficult to configure
-        //  (maybe we should realloc upon receiving a larger IN/OUT request)
+        //  (maybe we should realloc upon receiving a larger IN/OUT request, or just ask user to provide buffers up-front?)
         let mut channel =
-            OtgChannel::<T, D>::new_alloc(self.regs, new_index as u8, (endpoint.max_packet_size * 16) as usize);
+            OtgChannel::<T, D>::new_alloc(self.regs, new_index as u8, (endpoint.max_packet_size * 4) as usize);
         channel.retarget_channel(dev_addr, endpoint, pre)?;
         Ok(channel)
     }
@@ -1082,7 +1081,6 @@ impl UsbHostDriver for UsbHostBus {
             let hprt = self.regs.hprt().read();
             trace!("Polling device event hprt={}", hprt.0);
 
-            // FIXME: this is not reliable
             if !self.dev_conn.load(core::sync::atomic::Ordering::Relaxed) {
                 // NOTE: de-bounce skipped here; could be done interrupt poll
                 // crate::rom::ets_delay_us(30_000);
