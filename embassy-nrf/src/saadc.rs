@@ -465,6 +465,10 @@ impl<'d, const N: usize> Drop for Saadc<'d, N> {
     fn drop(&mut self) {
         let r = Self::regs();
         r.enable().write(|w| w.set_enable(false));
+        for i in 0..N {
+            r.ch(i).pselp().write(|w| w.set_pselp(InputChannel::NC));
+            r.ch(i).pseln().write(|w| w.set_pseln(InputChannel::NC));
+        }
     }
 }
 
