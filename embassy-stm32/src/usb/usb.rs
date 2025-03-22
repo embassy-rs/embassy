@@ -7,7 +7,6 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::Timer;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
@@ -896,7 +895,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
         // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
         #[cfg(stm32h5)]
-        Timer::after_nanos(800).await;
+        embassy_time::Timer::after_nanos(800).await;
 
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
