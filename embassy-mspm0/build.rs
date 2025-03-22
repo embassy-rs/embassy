@@ -381,7 +381,7 @@ fn generate_peripheral_instances() -> TokenStream {
         // Will be filled in when uart implementation is finished
         let _ = peri;
         let tokens = match peripheral.kind {
-            // "uart" => Some(quote! { impl_uart_instance!(#peri); }),
+            "uart" => Some(quote! { impl_uart_instance!(#peri); }),
             _ => None,
         };
 
@@ -412,10 +412,10 @@ fn generate_pin_trait_impls() -> TokenStream {
             let _ = pf;
 
             let tokens = match key {
-                // ("uart", "TX") => Some(quote! { impl_uart_tx_pin!(#peri, #pin_name, #pf); }),
-                // ("uart", "RX") => Some(quote! { impl_uart_rx_pin!(#peri, #pin_name, #pf); }),
-                // ("uart", "CTS") => Some(quote! { impl_uart_cts_pin!(#peri, #pin_name, #pf); }),
-                // ("uart", "RTS") => Some(quote! { impl_uart_rts_pin!(#peri, #pin_name, #pf); }),
+                ("uart", "TX") => Some(quote! { impl_uart_tx_pin!(#peri, #pin_name, #pf); }),
+                ("uart", "RX") => Some(quote! { impl_uart_rx_pin!(#peri, #pin_name, #pf); }),
+                ("uart", "CTS") => Some(quote! { impl_uart_cts_pin!(#peri, #pin_name, #pf); }),
+                ("uart", "RTS") => Some(quote! { impl_uart_rts_pin!(#peri, #pin_name, #pf); }),
                 _ => None,
             };
 
