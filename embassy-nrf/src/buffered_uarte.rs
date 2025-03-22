@@ -227,9 +227,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch1: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_ch2: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_group: impl Peripheral<P = impl Group> + 'd,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
@@ -263,11 +263,11 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch1: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_ch2: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_group: impl Peripheral<P = impl Group> + 'd,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         cts: impl Peripheral<P = impl GpioPin> + 'd,
         rts: impl Peripheral<P = impl GpioPin> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
@@ -379,8 +379,8 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     /// Create a new BufferedUarteTx without hardware flow control.
     pub fn new(
         uarte: impl Peripheral<P = U> + 'd,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         tx_buffer: &'d mut [u8],
     ) -> Self {
@@ -395,9 +395,9 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     /// Panics if `rx_buffer.len()` is odd.
     pub fn new_with_cts(
         uarte: impl Peripheral<P = U> + 'd,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         cts: impl Peripheral<P = impl GpioPin> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         tx_buffer: &'d mut [u8],
     ) -> Self {
@@ -593,9 +593,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         ppi_ch1: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_ch2: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_group: impl Peripheral<P = impl Group> + 'd,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         rts: impl Peripheral<P = impl GpioPin> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         rx_buffer: &'d mut [u8],
     ) -> Self {
