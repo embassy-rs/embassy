@@ -348,7 +348,7 @@ pub struct AudioSettings {
 impl Default for AudioSettings {
     fn default() -> Self {
         AudioSettings {
-            muted: [true; MAX_AUDIO_CHANNEL_COUNT],
+            muted: [false; MAX_AUDIO_CHANNEL_COUNT],
             volume_8q8_db: [MAX_VOLUME_DB * VOLUME_STEPS_PER_DB; MAX_AUDIO_CHANNEL_COUNT],
         }
     }
