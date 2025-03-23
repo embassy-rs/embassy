@@ -135,9 +135,6 @@ fn get_singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
         });
     }
 
-    // TODO: Remove `/` signals from metapac (PA1/NRST on C110x for example)
-    singletons.retain(|s| !s.name.contains('/'));
-
     singletons.sort_by(|a, b| a.name.cmp(&b.name));
     singletons
 }
@@ -403,11 +400,6 @@ fn generate_pin_trait_impls() -> TokenStream {
 
     for peripheral in METADATA.peripherals {
         for pin in peripheral.pins {
-            // TODO: Remove `/` signals from metapac (PA1/NRST on C110x for example)
-            if pin.pin.contains('/') {
-                continue;
-            }
-
             let key = (peripheral.kind, pin.signal);
 
             let pin_name = format_ident!("{}", pin.pin);
