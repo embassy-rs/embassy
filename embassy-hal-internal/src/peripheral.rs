@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
+use core::ops::Deref;
 
 /// An exclusive reference to a peripheral.
 ///
@@ -126,7 +126,14 @@ impl<'a, T> Deref for PeripheralRef<'a, T> {
 ///
 /// `.into_ref()` on an owned `T` yields a `PeripheralRef<'static, T>`.
 /// `.into_ref()` on an `&'a mut T` yields a `PeripheralRef<'a, T>`.
-pub trait Peripheral: Sized {
+///
+/// # Safety
+///
+/// Implementing this trait is unsound on types that can be obtained again even after calling `into_ref`.
+/// For example, implementing this trait for `MutexGuard<P>` is unsound, as the guard is dropped to
+/// turn it into a `PeripheralRef<'static, P>`, which allows the `Mutex` to be immediately re-acquired,
+/// potentially resulting in multiple copies of `PeripheralRef<'static, P>`.
+pub unsafe trait Peripheral: Sized {
     /// Peripheral singleton type
     type P;
 
@@ -155,19 +162,19 @@ pub trait Peripheral: Sized {
     }
 }
 
-impl<'b, T: DerefMut> Peripheral for T
+unsafe impl<'b, T> Peripheral for &'b mut T
 where
-    T::Target: Peripheral,
+    T: Peripheral,
 {
-    type P = <T::Target as Peripheral>::P;
+    type P = <T as Peripheral>::P;
 
     #[inline]
     unsafe fn clone_unchecked(&self) -> Self::P {
-        T::Target::clone_unchecked(self)
+        T::clone_unchecked(self)
     }
 }
 
-impl<'b, T: Peripheral> Peripheral for PeripheralRef<'_, T> {
+unsafe impl<'b, T: Peripheral> Peripheral for PeripheralRef<'_, T> {
     type P = T::P;
 
     #[inline]

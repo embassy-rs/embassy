@@ -122,7 +122,7 @@ macro_rules! into_ref {
 #[macro_export]
 macro_rules! impl_peripheral {
     ($type:ident) => {
-        impl $crate::Peripheral for $type {
+        unsafe impl $crate::Peripheral for $type {
             type P = $type;
 
             #[inline]
