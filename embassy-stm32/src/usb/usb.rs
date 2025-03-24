@@ -895,7 +895,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
         // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
         #[cfg(stm32h5)]
-        embassy_time::Timer::after_nanos(800).await;
+        embassy_time::block_for(embassy_time::Duration::from_nanos(800));
 
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
