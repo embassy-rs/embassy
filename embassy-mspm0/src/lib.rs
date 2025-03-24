@@ -8,6 +8,25 @@ pub(crate) mod fmt;
 pub mod gpio;
 pub mod timer;
 
+/// Operating modes for peripherals.
+pub mod mode {
+    trait SealedMode {}
+
+    /// Operating mode for a peripheral.
+    #[allow(private_bounds)]
+    pub trait Mode: SealedMode {}
+
+    /// Blocking mode.
+    pub struct Blocking;
+    impl SealedMode for Blocking {}
+    impl Mode for Blocking {}
+
+    /// Async mode.
+    pub struct Async;
+    impl SealedMode for Async {}
+    impl Mode for Async {}
+}
+
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 

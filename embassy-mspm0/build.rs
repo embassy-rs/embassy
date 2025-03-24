@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -23,48 +24,128 @@ fn generate_code() {
 
     cfgs.declare_all(&["gpio_pb", "gpio_pc", "int_group1"]);
 
-    let mut singletons = Vec::new();
+    let mut singletons = get_singletons(&mut cfgs);
 
-    // Generate singletons for GPIO pins. To only consider pins available on a family, use the name of
-    // the pins from the pincm mappings.
-    for pincm_mapping in METADATA.pincm_mappings.iter() {
-        singletons.push(pincm_mapping.pin.to_string());
-    }
+    time_driver(&mut singletons, &mut cfgs);
 
-    for peri in METADATA.peripherals {
-        match peri.kind {
-            // Specially generated.
-            "gpio" => match peri.name {
-                "GPIOB" => cfgs.enable("gpio_pb"),
-                "GPIOC" => cfgs.enable("gpio_pc"),
-                _ => (),
-            },
-
-            // These peripherals are managed internally by the hal.
-            "iomux" | "cpuss" => {}
-
-            _ => singletons.push(peri.name.to_string()),
-        }
-    }
-
-    time_driver(&singletons, &mut cfgs);
-
-    // ========
-    // Write singletons
     let mut g = TokenStream::new();
 
-    let singleton_tokens: Vec<_> = singletons.iter().map(|s| format_ident!("{}", s)).collect();
+    g.extend(generate_singletons(&singletons));
+    g.extend(generate_pincm_mapping());
+    g.extend(generate_pin());
+    g.extend(generate_timers());
+    g.extend(generate_interrupts());
+    g.extend(generate_peripheral_instances());
+    g.extend(generate_pin_trait_impls());
 
-    g.extend(quote! {
-        embassy_hal_internal::peripherals_definition!(#(#singleton_tokens),*);
-    });
+    let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
+    fs::write(&out_file, g.to_string()).unwrap();
+    rustfmt(&out_file);
+}
 
-    g.extend(quote! {
-        embassy_hal_internal::peripherals_struct!(#(#singleton_tokens),*);
-    });
+#[derive(Debug, Clone)]
+struct Singleton {
+    name: String,
 
-    // ========
-    // Generate GPIO pincm lookup tables.
+    cfg: Option<TokenStream>,
+}
+
+impl PartialEq for Singleton {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for Singleton {}
+
+impl PartialOrd for Singleton {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Singleton {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+
+fn get_singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
+    let mut singletons = Vec::<Singleton>::new();
+
+    for peripheral in METADATA.peripherals {
+        // Some peripherals do not generate a singleton, but generate a singleton for each pin.
+        let skip_peripheral_singleton = match peripheral.kind {
+            "gpio" => {
+                // Also enable ports that are present.
+                match peripheral.name {
+                    "GPIOB" => cfgs.enable("gpio_pb"),
+                    "GPIOC" => cfgs.enable("gpio_pc"),
+                    _ => (),
+                }
+
+                true
+            }
+
+            // Each channel gets a singleton, handled separately.
+            "dma" => true,
+
+            // These peripherals do not exist as singletons, and have no signals but are managed
+            // by the HAL.
+            "iomux" | "cpuss" => true,
+
+            _ => false,
+        };
+
+        if !skip_peripheral_singleton {
+            singletons.push(Singleton {
+                name: peripheral.name.to_string(),
+                cfg: None,
+            });
+        }
+
+        let mut signals = BTreeSet::new();
+
+        // Pick out each unique signal. There may be multiple instances of each signal due to
+        // iomux mappings.
+        for pin in peripheral.pins {
+            let signal = if peripheral.name.starts_with("GPIO")
+                || peripheral.name.starts_with("VREF")
+                || peripheral.name.starts_with("RTC")
+            {
+                pin.signal.to_string()
+            } else {
+                format!("{}_{}", peripheral.name, pin.signal)
+            };
+
+            // We need to rename some signals to become valid Rust identifiers.
+            let signal = make_valid_identifier(&signal);
+            signals.insert(signal);
+        }
+
+        singletons.extend(signals);
+    }
+
+    // DMA channels get their own singletons
+    for dma_channel in METADATA.dma_channels.iter() {
+        singletons.push(Singleton {
+            name: format!("DMA_CH{}", dma_channel.number),
+            cfg: None,
+        });
+    }
+
+    singletons.sort_by(|a, b| a.name.cmp(&b.name));
+    singletons
+}
+
+fn make_valid_identifier(s: &str) -> Singleton {
+    let name = s.replace('+', "_P").replace("-", "_N");
+
+    Singleton { name, cfg: None }
+}
+
+fn generate_pincm_mapping() -> TokenStream {
     let pincms = METADATA.pincm_mappings.iter().map(|mapping| {
         let port_letter = mapping.pin.strip_prefix("P").unwrap();
         let port_base = (port_letter.chars().next().unwrap() as u8 - b'A') * 32;
@@ -81,7 +162,7 @@ fn generate_code() {
         }
     });
 
-    g.extend(quote! {
+    quote! {
         #[doc = "Get the mapping from GPIO pin port to IOMUX PINCM index. This is required since the mapping from IO to PINCM index is not consistent across parts."]
         pub(crate) fn gpio_pincm(pin_port: u8) -> u8 {
             match pin_port {
@@ -89,9 +170,11 @@ fn generate_code() {
                 _ => unreachable!(),
             }
         }
-    });
+    }
+}
 
-    for pincm_mapping in METADATA.pincm_mappings.iter() {
+fn generate_pin() -> TokenStream {
+    let pin_impls = METADATA.pincm_mappings.iter().map(|pincm_mapping| {
         let name = Ident::new(&pincm_mapping.pin, Span::call_site());
         let port_letter = pincm_mapping.pin.strip_prefix("P").unwrap();
         let port_letter = port_letter.chars().next().unwrap();
@@ -101,78 +184,19 @@ fn generate_code() {
 
         // TODO: Feature gate pins that can be used as NRST
 
-        g.extend(quote! {
+        quote! {
             impl_pin!(#name, crate::gpio::Port::#port, #pin_number);
-        });
-    }
-
-    // Generate timers
-    for peripheral in METADATA.peripherals.iter().filter(|p| p.name.starts_with("TIM")) {
-        let name = Ident::new(&peripheral.name, Span::call_site());
-        let timers = &*TIMERS;
-
-        let timer = timers.get(peripheral.name).expect("Timer does not exist");
-        assert!(timer.bits == 16 || timer.bits == 32);
-        let bits = if timer.bits == 16 {
-            quote! { Bits16 }
-        } else {
-            quote! { Bits32 }
-        };
-
-        g.extend(quote! {
-            impl_timer!(#name, #bits);
-        });
-    }
-
-    // Generate interrupt module
-    let interrupts: Vec<Ident> = METADATA
-        .interrupts
-        .iter()
-        .map(|interrupt| Ident::new(interrupt.name, Span::call_site()))
-        .collect();
-
-    g.extend(quote! {
-        embassy_hal_internal::interrupt_mod! {
-            #(#interrupts),*
         }
     });
 
-    let group_interrupt_enables = METADATA
-        .interrupts
-        .iter()
-        .filter(|interrupt| interrupt.name.contains("GROUP"))
-        .map(|interrupt| {
-            let name = Ident::new(interrupt.name, Span::call_site());
-
-            quote! {
-                crate::interrupt::typelevel::#name::enable();
-            }
-        });
-
-    // Generate interrupt enables for groups
-    g.extend(quote! {
-        pub fn enable_group_interrupts(_cs: critical_section::CriticalSection) {
-            use crate::interrupt::typelevel::Interrupt;
-
-            unsafe {
-                #(#group_interrupt_enables)*
-            }
-        }
-    });
-
-    let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
-    fs::write(&out_file, g.to_string()).unwrap();
-    rustfmt(&out_file);
+    quote! {
+        #(#pin_impls)*
+    }
 }
 
-fn time_driver(singletons: &[String], cfgs: &mut CfgSet) {
+fn time_driver(singletons: &mut Vec<Singleton>, cfgs: &mut CfgSet) {
     // Timer features
-    for (timer, desc) in TIMERS.iter() {
-        if desc.bits != 16 {
-            continue;
-        }
-
+    for (timer, _) in TIMERS.iter() {
         let name = timer.to_lowercase();
         cfgs.declare(&format!("time_driver_{}", name));
     }
@@ -192,7 +216,7 @@ fn time_driver(singletons: &[String], cfgs: &mut CfgSet) {
     };
 
     // Verify the selected timer is available
-    let singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
+    let selected_timer = match time_driver.as_ref().map(|x| x.as_ref()) {
         None => "",
         Some("timg0") => "TIMG0",
         Some("timg1") => "TIMG1",
@@ -228,14 +252,181 @@ fn time_driver(singletons: &[String], cfgs: &mut CfgSet) {
                 "TIMA0", "TIMA1",
             ]
             .iter()
-            .find(|tim| singletons.contains(&tim.to_string()))
+            .find(|tim| singletons.iter().any(|s| s.name == **tim))
             .expect("Could not find any timer")
         }
         _ => panic!("unknown time_driver {:?}", time_driver),
     };
 
-    if !singleton.is_empty() {
-        cfgs.enable(format!("time_driver_{}", singleton.to_lowercase()));
+    if !selected_timer.is_empty() {
+        cfgs.enable(format!("time_driver_{}", selected_timer.to_lowercase()));
+    }
+
+    // Apply cfgs to each timer and it's pins
+    for singleton in singletons.iter_mut() {
+        if singleton.name.starts_with("TIM") {
+            // Remove suffixes for pin singletons.
+            let name = if singleton.name.contains("_CCP") {
+                singleton.name.split_once("_CCP").unwrap().0
+            } else if singleton.name.contains("_FAULT") {
+                singleton.name.split_once("_FAULT").unwrap().0
+            } else if singleton.name.contains("_IDX") {
+                singleton.name.split_once("_IDX").unwrap().0
+            } else {
+                &singleton.name
+            };
+
+            let feature = format!("time-driver-{}", name.to_lowercase());
+
+            if singleton.name.contains(selected_timer) {
+                singleton.cfg = Some(quote! { #[cfg(not(all(feature = "time-driver-any", feature = #feature)))] });
+            } else {
+                singleton.cfg = Some(quote! { #[cfg(not(feature = #feature))] });
+            }
+        }
+    }
+}
+
+fn generate_singletons(singletons: &[Singleton]) -> TokenStream {
+    let singletons = singletons
+        .iter()
+        .map(|s| {
+            let cfg = s.cfg.clone().unwrap_or_default();
+
+            let ident = format_ident!("{}", s.name);
+
+            quote! {
+                #cfg
+                #ident
+            }
+        })
+        .collect::<Vec<_>>();
+
+    quote! {
+        embassy_hal_internal::peripherals_definition!(#(#singletons),*);
+        embassy_hal_internal::peripherals_struct!(#(#singletons),*);
+    }
+}
+
+fn generate_timers() -> TokenStream {
+    // Generate timers
+    let timer_impls = METADATA
+        .peripherals
+        .iter()
+        .filter(|p| p.name.starts_with("TIM"))
+        .map(|peripheral| {
+            let name = Ident::new(&peripheral.name, Span::call_site());
+            let timers = &*TIMERS;
+
+            let timer = timers.get(peripheral.name).expect("Timer does not exist");
+            assert!(timer.bits == 16 || timer.bits == 32);
+            let bits = if timer.bits == 16 {
+                quote! { Bits16 }
+            } else {
+                quote! { Bits32 }
+            };
+
+            quote! {
+                impl_timer!(#name, #bits);
+            }
+        });
+
+    quote! {
+        #(#timer_impls)*
+    }
+}
+
+fn generate_interrupts() -> TokenStream {
+    // Generate interrupt module
+    let interrupts: Vec<Ident> = METADATA
+        .interrupts
+        .iter()
+        .map(|interrupt| Ident::new(interrupt.name, Span::call_site()))
+        .collect();
+
+    let group_interrupt_enables = METADATA
+        .interrupts
+        .iter()
+        .filter(|interrupt| interrupt.name.contains("GROUP"))
+        .map(|interrupt| {
+            let name = Ident::new(interrupt.name, Span::call_site());
+
+            quote! {
+                crate::interrupt::typelevel::#name::enable();
+            }
+        });
+
+    // Generate interrupt enables for groups
+    quote! {
+        embassy_hal_internal::interrupt_mod! {
+            #(#interrupts),*
+        }
+
+        pub fn enable_group_interrupts(_cs: critical_section::CriticalSection) {
+            use crate::interrupt::typelevel::Interrupt;
+
+            unsafe {
+                #(#group_interrupt_enables)*
+            }
+        }
+    }
+}
+
+fn generate_peripheral_instances() -> TokenStream {
+    let mut impls = Vec::<TokenStream>::new();
+
+    for peripheral in METADATA.peripherals {
+        let peri = format_ident!("{}", peripheral.name);
+
+        // Will be filled in when uart implementation is finished
+        let _ = peri;
+        let tokens = match peripheral.kind {
+            // "uart" => Some(quote! { impl_uart_instance!(#peri); }),
+            _ => None,
+        };
+
+        if let Some(tokens) = tokens {
+            impls.push(tokens);
+        }
+    }
+
+    quote! {
+        #(#impls)*
+    }
+}
+
+fn generate_pin_trait_impls() -> TokenStream {
+    let mut impls = Vec::<TokenStream>::new();
+
+    for peripheral in METADATA.peripherals {
+        for pin in peripheral.pins {
+            let key = (peripheral.kind, pin.signal);
+
+            let pin_name = format_ident!("{}", pin.pin);
+            let peri = format_ident!("{}", peripheral.name);
+            let pf = pin.pf;
+
+            // Will be filled in when uart implementation is finished
+            let _ = pin_name;
+            let _ = peri;
+            let _ = pf;
+
+            let tokens = match key {
+                // ("uart", "TX") => Some(quote! { impl_uart_tx_pin!(#peri, #pin_name, #pf); }),
+                // ("uart", "RX") => Some(quote! { impl_uart_rx_pin!(#peri, #pin_name, #pf); }),
+                // ("uart", "CTS") => Some(quote! { impl_uart_cts_pin!(#peri, #pin_name, #pf); }),
+                // ("uart", "RTS") => Some(quote! { impl_uart_rts_pin!(#peri, #pin_name, #pf); }),
+                _ => None,
+            };
+
+            if let Some(tokens) = tokens {
+                impls.push(tokens);
+            }
+        }
+    }
+
+    quote! {
+        #(#impls)*
     }
 }
 
