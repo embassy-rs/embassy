@@ -3,11 +3,20 @@ use crate::raw::{SyncExecutor, TaskRef};
 
 #[cfg(not(feature = "rtos-trace"))]
 extern "Rust" {
+    fn _embassy_trace_poll_start(executor_id: u32);
     fn _embassy_trace_task_new(executor_id: u32, task_id: u32);
     fn _embassy_trace_task_exec_begin(executor_id: u32, task_id: u32);
     fn _embassy_trace_task_exec_end(excutor_id: u32, task_id: u32);
     fn _embassy_trace_task_ready_begin(executor_id: u32, task_id: u32);
     fn _embassy_trace_executor_idle(executor_id: u32);
+}
+
+#[inline]
+pub(crate) fn poll_start(executor: &SyncExecutor) {
+    #[cfg(not(feature = "rtos-trace"))]
+    unsafe {
+        _embassy_trace_poll_start(executor as *const _ as u32)
+    }
 }
 
 #[inline]
