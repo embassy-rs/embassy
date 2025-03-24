@@ -10,7 +10,11 @@ use core::task::Poll;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use sdio_host::sd::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR, SD};
+use sdio_host::{
+    common_cmd::{self, Resp, ResponseLen},
+    sd::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CIC, CID, CSD, OCR, RCA, SCR, SD},
+    sd_cmd, Cmd,
+};
 
 #[cfg(sdmmc_v1)]
 use crate::dma::ChannelAndRequest;
@@ -136,6 +140,8 @@ pub enum Error {
     UnsupportedCardVersion,
     /// Unsupported card type.
     UnsupportedCardType,
+    /// Unsupported voltage.
+    UnsupportedVoltage,
     /// CRC error.
     Crc,
     /// No card inserted.
@@ -149,13 +155,6 @@ pub enum Error {
     StBitErr,
 }
 
-/// A SD command
-struct Cmd {
-    cmd: u8,
-    arg: u32,
-    resp: Response,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 /// SD Card
 pub struct Card {
@@ -164,7 +163,7 @@ pub struct Card {
     /// Operation Conditions Register
     pub ocr: OCR<SD>,
     /// Relative Card Address
-    pub rca: u32,
+    pub rca: u16,
     /// Card ID
     pub cid: CID<SD>,
     /// Card Specific Data
@@ -189,22 +188,12 @@ enum PowerCtrl {
     On = 0b11,
 }
 
-#[repr(u32)]
-#[allow(dead_code)]
-#[allow(non_camel_case_types)]
-enum CmdAppOper {
-    VOLTAGE_WINDOW_SD = 0x8010_0000,
-    HIGH_CAPACITY = 0x4000_0000,
-    SDMMC_STD_CAPACITY = 0x0000_0000,
-    SDMMC_CHECK_PATTERN = 0x0000_01AA,
-    SD_SWITCH_1_8V_CAPACITY = 0x0100_0000,
-}
-
-#[derive(Eq, PartialEq, Copy, Clone)]
-enum Response {
-    None = 0,
-    Short = 1,
-    Long = 3,
+fn get_waitresp_val(rlen: ResponseLen) -> u8 {
+    match rlen {
+        common_cmd::ResponseLen::Zero => 0,
+        common_cmd::ResponseLen::R48 => 1,
+        common_cmd::ResponseLen::R136 => 3,
+    }
 }
 
 /// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
@@ -710,7 +699,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             6,
         );
         InterruptHandler::<T>::data_interrupts(true);
-        Self::cmd(Cmd::cmd6(set_function), true)?; // CMD6
+        Self::cmd(sd_cmd::cmd6(set_function), true)?; // CMD6
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -769,7 +758,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         let regs = T::regs();
         let rca = card.rca;
 
-        Self::cmd(Cmd::card_status(rca << 16), false)?; // CMD13
+        Self::cmd(common_cmd::card_status(rca, false), false)?; // CMD13
 
         let r1 = regs.respr(0).read().cardstatus();
         Ok(r1.into())
@@ -785,8 +774,8 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             None => &mut CmdBlock::new(),
         };
 
-        Self::cmd(Cmd::set_block_length(64), false)?; // CMD16
-        Self::cmd(Cmd::app_cmd(rca << 16), false)?; // APP
+        Self::cmd(common_cmd::set_block_length(64), false)?; // CMD16
+        Self::cmd(common_cmd::app_cmd(rca), false)?; // APP
 
         let status = cmd_block;
 
@@ -803,7 +792,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             6,
         );
         InterruptHandler::<T>::data_interrupts(true);
-        Self::cmd(Cmd::card_status(0), true)?;
+        Self::cmd(sd_cmd::sd_status(), true)?;
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -846,9 +835,9 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     /// _Stand-by State_
     fn select_card(&self, card: Option<&Card>) -> Result<(), Error> {
         // Determine Relative Card Address (RCA) of given card
-        let rca = card.map(|c| c.rca << 16).unwrap_or(0);
+        let rca = card.map(|c| c.rca).unwrap_or(0);
 
-        let r = Self::cmd(Cmd::sel_desel_card(rca), false);
+        let r = Self::cmd(common_cmd::select_card(rca), false);
         match (r, rca) {
             (Err(Error::Timeout), 0) => Ok(()),
             _ => r,
@@ -891,8 +880,8 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
     async fn get_scr(&mut self, card: &mut Card) -> Result<(), Error> {
         // Read the 64-bit SCR register
-        Self::cmd(Cmd::set_block_length(8), false)?; // CMD16
-        Self::cmd(Cmd::app_cmd(card.rca << 16), false)?;
+        Self::cmd(common_cmd::set_block_length(8), false)?; // CMD16
+        Self::cmd(common_cmd::app_cmd(card.rca), false)?;
 
         let cmd_block = match self.cmd_block.as_deref_mut() {
             Some(x) => x,
@@ -913,7 +902,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             3,
         );
         InterruptHandler::<T>::data_interrupts(true);
-        Self::cmd(Cmd::cmd51(), true)?;
+        Self::cmd(sd_cmd::send_scr(), true)?;
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -952,7 +941,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
     /// Send command to card
     #[allow(unused_variables)]
-    fn cmd(cmd: Cmd, data: bool) -> Result<(), Error> {
+    fn cmd<R: Resp>(cmd: Cmd<R>, data: bool) -> Result<(), Error> {
         let regs = T::regs();
 
         Self::clear_interrupt_flags();
@@ -965,7 +954,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         // Command index and start CP State Machine
         regs.cmdr().write(|w| {
             w.set_waitint(false);
-            w.set_waitresp(cmd.resp as u8);
+            w.set_waitresp(get_waitresp_val(cmd.response_len()));
             w.set_cmdindex(cmd.cmd);
             w.set_cpsmen(true);
 
@@ -980,7 +969,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         });
 
         let mut status;
-        if cmd.resp == Response::None {
+        if cmd.response_len() == ResponseLen::Zero {
             // Wait for CMDSENT or a timeout
             while {
                 status = regs.star().read();
@@ -1016,7 +1005,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             // Command index and start CP State Machine
             regs.cmdr().write(|w| {
                 w.set_waitint(false);
-                w.set_waitresp(Response::Short as u8);
+                w.set_waitresp(get_waitresp_val(ResponseLen::R48));
                 w.set_cmdindex(12);
                 w.set_cpsmen(true);
 
@@ -1061,29 +1050,30 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         });
 
         regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
-        Self::cmd(Cmd::idle(), false)?;
+        Self::cmd(common_cmd::idle(), false)?;
 
         // Check if cards supports CMD8 (with pattern)
-        Self::cmd(Cmd::hs_send_ext_csd(0x1AA), false)?;
-        let r1 = regs.respr(0).read().cardstatus();
+        Self::cmd(sd_cmd::send_if_cond(1, 0xAA), false)?;
+        let cic = CIC::from(regs.respr(0).read().cardstatus());
 
-        let mut card = if r1 == 0x1AA {
-            // Card echoed back the pattern. Must be at least v2
-            Card::default()
-        } else {
+        if cic.pattern() != 0xAA {
             return Err(Error::UnsupportedCardVersion);
-        };
+        }
+
+        if cic.voltage_accepted() & 1 == 0 {
+            return Err(Error::UnsupportedVoltage);
+        }
+
+        let mut card = Card::default();
 
         let ocr = loop {
             // Signal that next command is a app command
-            Self::cmd(Cmd::app_cmd(0), false)?; // CMD55
+            Self::cmd(common_cmd::app_cmd(0), false)?; // CMD55
 
-            let arg = CmdAppOper::VOLTAGE_WINDOW_SD as u32
-                | CmdAppOper::HIGH_CAPACITY as u32
-                | CmdAppOper::SD_SWITCH_1_8V_CAPACITY as u32;
-
+            // 3.2-3.3V
+            let voltage_window = 1 << 5;
             // Initialize card
-            match Self::cmd(Cmd::app_op_cmd(arg), false) {
+            match Self::cmd(sd_cmd::sd_send_op_cond(true, false, true, voltage_window), false) {
                 // ACMD41
                 Ok(_) => (),
                 Err(Error::Crc) => (),
@@ -1104,7 +1094,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         }
         card.ocr = ocr;
 
-        Self::cmd(Cmd::all_send_cid(), false)?; // CMD2
+        Self::cmd(common_cmd::all_send_cid(), false)?; // CMD2
         let cid0 = regs.respr(0).read().cardstatus() as u128;
         let cid1 = regs.respr(1).read().cardstatus() as u128;
         let cid2 = regs.respr(2).read().cardstatus() as u128;
@@ -1112,10 +1102,11 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         let cid = (cid0 << 96) | (cid1 << 64) | (cid2 << 32) | (cid3);
         card.cid = cid.into();
 
-        Self::cmd(Cmd::send_rel_addr(), false)?;
-        card.rca = regs.respr(0).read().cardstatus() >> 16;
+        Self::cmd(sd_cmd::send_relative_address(), false)?;
+        let rca = RCA::<SD>::from(regs.respr(0).read().cardstatus());
+        card.rca = rca.address();
 
-        Self::cmd(Cmd::send_csd(card.rca << 16), false)?;
+        Self::cmd(common_cmd::send_csd(card.rca), false)?;
         let csd0 = regs.respr(0).read().cardstatus() as u128;
         let csd1 = regs.respr(1).read().cardstatus() as u128;
         let csd2 = regs.respr(2).read().cardstatus() as u128;
@@ -1133,8 +1124,8 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             BusWidth::Four if card.scr.bus_width_four() => (BusWidth::Four, 2),
             _ => (BusWidth::One, 0),
         };
-        Self::cmd(Cmd::app_cmd(card.rca << 16), false)?;
-        Self::cmd(Cmd::cmd6(acmd_arg), false)?;
+        Self::cmd(common_cmd::app_cmd(card.rca), false)?;
+        Self::cmd(sd_cmd::cmd6(acmd_arg), false)?;
 
         // CPSMACT and DPSMACT must be 0 to set WIDBUS
         Self::wait_idle();
@@ -1196,7 +1187,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             CardCapacity::StandardCapacity => block_idx * 512,
             _ => block_idx,
         };
-        Self::cmd(Cmd::set_block_length(512), false)?; // CMD16
+        Self::cmd(common_cmd::set_block_length(512), false)?; // CMD16
 
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
@@ -1210,7 +1201,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             9,
         );
         InterruptHandler::<T>::data_interrupts(true);
-        Self::cmd(Cmd::read_single_block(address), true)?;
+        Self::cmd(common_cmd::read_single_block(address), true)?;
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -1255,20 +1246,20 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             CardCapacity::StandardCapacity => block_idx * 512,
             _ => block_idx,
         };
-        Self::cmd(Cmd::set_block_length(512), false)?; // CMD16
+        Self::cmd(common_cmd::set_block_length(512), false)?; // CMD16
 
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
         // sdmmc_v1 uses different cmd/dma order than v2, but only for writes
         #[cfg(sdmmc_v1)]
-        Self::cmd(Cmd::write_single_block(address), true)?;
+        Self::cmd(common_cmd::write_single_block(address), true)?;
 
         let transfer = self.prepare_datapath_write(buffer, 512, 9);
         InterruptHandler::<T>::data_interrupts(true);
 
         #[cfg(sdmmc_v2)]
-        Self::cmd(Cmd::write_single_block(address), true)?;
+        Self::cmd(common_cmd::write_single_block(address), true)?;
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -1360,93 +1351,6 @@ impl<'d, T: Instance> Drop for Sdmmc<'d, T> {
                 x.set_as_disconnected();
             }
         });
-    }
-}
-
-/// SD card Commands
-impl Cmd {
-    const fn new(cmd: u8, arg: u32, resp: Response) -> Cmd {
-        Cmd { cmd, arg, resp }
-    }
-
-    /// CMD0: Idle
-    const fn idle() -> Cmd {
-        Cmd::new(0, 0, Response::None)
-    }
-
-    /// CMD2: Send CID
-    const fn all_send_cid() -> Cmd {
-        Cmd::new(2, 0, Response::Long)
-    }
-
-    /// CMD3: Send Relative Address
-    const fn send_rel_addr() -> Cmd {
-        Cmd::new(3, 0, Response::Short)
-    }
-
-    /// CMD6: Switch Function Command
-    /// ACMD6: Bus Width
-    const fn cmd6(arg: u32) -> Cmd {
-        Cmd::new(6, arg, Response::Short)
-    }
-
-    /// CMD7: Select one card and put it into the _Tranfer State_
-    const fn sel_desel_card(rca: u32) -> Cmd {
-        Cmd::new(7, rca, Response::Short)
-    }
-
-    /// CMD8:
-    const fn hs_send_ext_csd(arg: u32) -> Cmd {
-        Cmd::new(8, arg, Response::Short)
-    }
-
-    /// CMD9:
-    const fn send_csd(rca: u32) -> Cmd {
-        Cmd::new(9, rca, Response::Long)
-    }
-
-    /// CMD12:
-    //const fn stop_transmission() -> Cmd {
-    //    Cmd::new(12, 0, Response::Short)
-    //}
-
-    /// CMD13: Ask card to send status register
-    /// ACMD13: SD Status
-    const fn card_status(rca: u32) -> Cmd {
-        Cmd::new(13, rca, Response::Short)
-    }
-
-    /// CMD16:
-    const fn set_block_length(blocklen: u32) -> Cmd {
-        Cmd::new(16, blocklen, Response::Short)
-    }
-
-    /// CMD17: Block Read
-    const fn read_single_block(addr: u32) -> Cmd {
-        Cmd::new(17, addr, Response::Short)
-    }
-
-    /// CMD18: Multiple Block Read
-    //const fn read_multiple_blocks(addr: u32) -> Cmd {
-    //    Cmd::new(18, addr, Response::Short)
-    //}
-
-    /// CMD24: Block Write
-    const fn write_single_block(addr: u32) -> Cmd {
-        Cmd::new(24, addr, Response::Short)
-    }
-
-    const fn app_op_cmd(arg: u32) -> Cmd {
-        Cmd::new(41, arg, Response::Short)
-    }
-
-    const fn cmd51() -> Cmd {
-        Cmd::new(51, 0, Response::Short)
-    }
-
-    /// App Command. Indicates that next command will be a app command
-    const fn app_cmd(rca: u32) -> Cmd {
-        Cmd::new(55, rca, Response::Short)
     }
 }
 
