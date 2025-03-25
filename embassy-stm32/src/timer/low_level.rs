@@ -6,13 +6,19 @@
 //!
 //! The available functionality depends on the timer type.
 
+use core::future::Future;
 use core::mem::ManuallyDrop;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 use embassy_hal_internal::Peri;
 // Re-export useful enums
+pub(super) use mode::Mode;
+pub use mode::{NoIrq, WithIrq};
 pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
+use crate::interrupt::typelevel::Binding;
 use crate::pac::timer::vals;
 use crate::rcc;
 use crate::time::Hertz;
@@ -179,30 +185,113 @@ impl From<OutputPolarity> for bool {
     }
 }
 
-/// Low-level timer driver.
-pub struct Timer<'d, T: CoreInstance> {
-    tim: Peri<'d, T>,
+/// Interrupt modes
+pub mod mode {
+    trait SealedMode {}
+
+    /// Trait for timers with interrupts
+    #[allow(private_bounds)]
+    pub trait Mode: SealedMode {}
+
+    /// Mode in which the time doesn't have interrupts bound
+    pub struct NoIrq;
+
+    /// Mode in which the timer has interrupts bound
+    pub struct WithIrq;
+
+    impl SealedMode for NoIrq {}
+    impl Mode for NoIrq {}
+
+    impl SealedMode for WithIrq {}
+    impl Mode for WithIrq {}
 }
 
-impl<'d, T: CoreInstance> Drop for Timer<'d, T> {
+/// Low-level timer driver.
+pub struct Timer<'d, T: CoreInstance, I: Mode> {
+    tim: Peri<'d, T>,
+    phantom: PhantomData<I>,
+}
+
+impl<'d, T: CoreInstance, I: Mode> Drop for Timer<'d, T, I> {
     fn drop(&mut self) {
         rcc::disable::<T>();
     }
 }
 
-impl<'d, T: CoreInstance> Timer<'d, T> {
+impl<'d, T: CoreInstance> Timer<'d, T, mode::NoIrq> {
     /// Create a new timer driver.
     pub fn new(tim: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
-        Self { tim }
+        Self {
+            tim,
+            phantom: PhantomData::<mode::NoIrq>,
+        }
     }
 
     pub(crate) unsafe fn clone_unchecked(&self) -> ManuallyDrop<Self> {
         let tim = unsafe { self.tim.clone_unchecked() };
-        ManuallyDrop::new(Self { tim })
+        ManuallyDrop::new(Self {
+            tim,
+            phantom: PhantomData::<mode::NoIrq>,
+        })
+    }
+}
+
+impl<'d, T: CoreInstance> Timer<'d, T, mode::WithIrq> {
+    /// Create a new timer driver with the update interrupt.
+    pub fn new_with_interrupt(
+        tim: Peri<'d, T>,
+        _irq: impl Binding<T::UpdateInterrupt, UpdateInterruptHandler<T>> + 'd,
+    ) -> Self {
+        rcc::enable_and_reset::<T>();
+
+        Self {
+            tim,
+            phantom: PhantomData::<mode::WithIrq>,
+        }
     }
 
+    /// Wait for the update interrupt to fire
+    pub async fn wait_for_update(&mut self) {
+        self.enable_update_interrupt(true);
+        TimerUpdateFuture {
+            phantom: PhantomData::<T>,
+        }
+        .await
+    }
+}
+
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct TimerUpdateFuture<T: CoreInstance> {
+    phantom: PhantomData<T>,
+}
+
+impl<T: CoreInstance> Drop for TimerUpdateFuture<T> {
+    fn drop(&mut self) {
+        critical_section::with(|_| {
+            let regs = unsafe { crate::pac::timer::TimCore::from_ptr(T::regs()) };
+            regs.dier().modify(|w| w.set_uie(false));
+        })
+    }
+}
+
+impl<T: CoreInstance> Future for TimerUpdateFuture<T> {
+    type Output = ();
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        T::state().up_waker.register(cx.waker());
+
+        let regs = unsafe { crate::pac::timer::TimCore::from_ptr(T::regs()) };
+
+        if !regs.dier().read().uie() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+impl<'d, T: CoreInstance, I: Mode> Timer<'d, T, I> {
     /// Get access to the virutal core 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -365,7 +454,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     }
 }
 
-impl<'d, T: BasicNoCr2Instance> Timer<'d, T> {
+impl<'d, T: BasicNoCr2Instance, I: Mode> Timer<'d, T, I> {
     /// Get access to the Baisc 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -387,7 +476,7 @@ impl<'d, T: BasicNoCr2Instance> Timer<'d, T> {
     }
 }
 
-impl<'d, T: BasicInstance> Timer<'d, T> {
+impl<'d, T: BasicInstance, I: Mode> Timer<'d, T, I> {
     /// Get access to the Baisc 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -399,7 +488,7 @@ impl<'d, T: BasicInstance> Timer<'d, T> {
     }
 }
 
-impl<'d, T: GeneralInstance1Channel> Timer<'d, T> {
+impl<'d, T: GeneralInstance1Channel, I: Mode> Timer<'d, T, I> {
     /// Get access to the general purpose 1 channel 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -455,7 +544,7 @@ impl<'d, T: GeneralInstance1Channel> Timer<'d, T> {
     }
 }
 
-impl<'d, T: GeneralInstance2Channel> Timer<'d, T> {
+impl<'d, T: GeneralInstance2Channel, I: Mode> Timer<'d, T, I> {
     /// Get access to the general purpose 2 channel 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -467,7 +556,7 @@ impl<'d, T: GeneralInstance2Channel> Timer<'d, T> {
     }
 }
 
-impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
+impl<'d, T: GeneralInstance4Channel, I: Mode> Timer<'d, T, I> {
     /// Get access to the general purpose 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -652,7 +741,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 }
 
 #[cfg(not(stm32l0))]
-impl<'d, T: GeneralInstance32bit4Channel> Timer<'d, T> {
+impl<'d, T: GeneralInstance32bit4Channel, I: Mode> Timer<'d, T, I> {
     /// Get access to the general purpose 32bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -665,7 +754,7 @@ impl<'d, T: GeneralInstance32bit4Channel> Timer<'d, T> {
 }
 
 #[cfg(not(stm32l0))]
-impl<'d, T: AdvancedInstance1Channel> Timer<'d, T> {
+impl<'d, T: AdvancedInstance1Channel, I: Mode> Timer<'d, T, I> {
     /// Get access to the general purpose 1 channel with one complementary 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -718,7 +807,7 @@ impl<'d, T: AdvancedInstance1Channel> Timer<'d, T> {
 }
 
 #[cfg(not(stm32l0))]
-impl<'d, T: AdvancedInstance2Channel> Timer<'d, T> {
+impl<'d, T: AdvancedInstance2Channel, I: Mode> Timer<'d, T, I> {
     /// Get access to the general purpose 2 channel with one complementary 16bit timer registers.
     ///
     /// Note: This works even if the timer is more capable, because registers
@@ -731,7 +820,7 @@ impl<'d, T: AdvancedInstance2Channel> Timer<'d, T> {
 }
 
 #[cfg(not(stm32l0))]
-impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
+impl<'d, T: AdvancedInstance4Channel, I: Mode> Timer<'d, T, I> {
     /// Get access to the advanced timer registers.
     pub fn regs_advanced(&self) -> crate::pac::timer::TimAdv {
         unsafe { crate::pac::timer::TimAdv::from_ptr(T::regs()) }

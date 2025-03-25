@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: stm32/i2c in master mode (blocking): subsequent transmissions failed after a NACK was received
 - feat: stm32/timer: add set_polarity functions for main and complementary outputs in complementary_pwm
 - Add I2S support for STM32F1, STM32C0, STM32F0, STM32F3, STM32F7, STM32G0, STM32WL, STM32H5, STM32H7RS
+- Added `low_level::Timer::new_with_interrupt` as well as a mode generic
+  parameter to `low_level::Timer` to distinguish between timers with and without
+  a update interrupt binding. Existing code should add
+  `timer::low_level::mode::NoIrq`.
+- Added `low_level::Timer::wait_for_update` to asynchronously wait for an update
+  interrupt.
+
 ### Fixed
 
 - STM32: Prevent dropped DacChannel from disabling Dac peripheral if another DacChannel is still in scope ([#4577](https://github.com/embassy-rs/embassy/pull/4577))

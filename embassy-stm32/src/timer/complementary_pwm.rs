@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 
 pub use stm32_metapac::timer::vals::{Ckd, Ossi, Ossr};
 
-use super::low_level::{CountingMode, OutputPolarity, Timer};
+use super::low_level::{CountingMode, NoIrq, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::gpio::{AnyPin, OutputType};
@@ -40,7 +40,7 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel> ComplementaryPwmPin<'d, T
 
 /// PWM driver with support for standard and complementary outputs.
 pub struct ComplementaryPwm<'d, T: AdvancedInstance4Channel> {
-    inner: Timer<'d, T>,
+    inner: Timer<'d, T, NoIrq>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

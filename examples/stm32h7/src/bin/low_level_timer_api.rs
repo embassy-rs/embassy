@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AfType, Flex, OutputType, Speed};
 use embassy_stm32::time::{khz, Hertz};
-use embassy_stm32::timer::low_level::{OutputCompareMode, Timer as LLTimer};
+use embassy_stm32::timer::low_level::{NoIrq, OutputCompareMode, Timer as LLTimer};
 use embassy_stm32::timer::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance32bit4Channel, TimerPin};
 use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
@@ -57,7 +57,7 @@ async fn main(_spawner: Spawner) {
     }
 }
 pub struct SimplePwm32<'d, T: GeneralInstance32bit4Channel> {
-    tim: LLTimer<'d, T>,
+    tim: LLTimer<'d, T, NoIrq>,
     _ch1: Flex<'d>,
     _ch2: Flex<'d>,
     _ch3: Flex<'d>,

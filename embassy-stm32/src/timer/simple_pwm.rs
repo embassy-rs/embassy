@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
-use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
+use super::low_level::{CountingMode, NoIrq, OutputCompareMode, OutputPolarity, Timer};
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerBits, TimerChannel, TimerPin};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
@@ -72,7 +72,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel> PwmPin<'d, T, C> {
 /// It is not possible to change the pwm frequency because
 /// the frequency configuration is shared with all four channels.
 pub struct SimplePwmChannel<'d, T: GeneralInstance4Channel> {
-    timer: ManuallyDrop<Timer<'d, T>>,
+    timer: ManuallyDrop<Timer<'d, T, NoIrq>>,
     channel: Channel,
 }
 
@@ -173,7 +173,7 @@ pub struct SimplePwmChannels<'d, T: GeneralInstance4Channel> {
 
 /// Simple PWM driver.
 pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
-    inner: Timer<'d, T>,
+    inner: Timer<'d, T, NoIrq>,
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {

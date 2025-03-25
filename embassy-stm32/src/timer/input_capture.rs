@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
+use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, NoIrq, Timer};
 use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
 use crate::gpio::{AfType, AnyPin, Pull};
@@ -34,7 +34,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel> CapturePin<'d, T, C> {
 
 /// Input capture driver.
 pub struct InputCapture<'d, T: GeneralInstance4Channel> {
-    inner: Timer<'d, T>,
+    inner: Timer<'d, T, NoIrq>,
 }
 
 impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {

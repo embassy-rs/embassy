@@ -6,6 +6,7 @@ use core::cell::{Cell, RefCell};
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
+use embassy_stm32::timer::low_level::NoIrq;
 use embassy_stm32::{bind_interrupts, interrupt, peripherals, timer, usb, Config};
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::blocking_mutex::Mutex;
@@ -23,7 +24,7 @@ bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
 
-static TIMER: Mutex<CriticalSectionRawMutex, RefCell<Option<timer::low_level::Timer<peripherals::TIM2>>>> =
+static TIMER: Mutex<CriticalSectionRawMutex, RefCell<Option<timer::low_level::Timer<peripherals::TIM2, NoIrq>>>> =
     Mutex::new(RefCell::new(None));
 
 // A counter signal that is written by the feedback timer, once every `FEEDBACK_REFRESH_PERIOD`.

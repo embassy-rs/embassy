@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 
 use stm32_metapac::timer::vals;
 
-use super::low_level::Timer;
+use super::low_level::{NoIrq, Timer};
 pub use super::{Ch1, Ch2};
 use super::{GeneralInstance4Channel, TimerPin};
 use crate::gpio::{AfType, AnyPin, Pull};
@@ -53,7 +53,7 @@ impl SealedQeiChannel for Ch2 {}
 
 /// Quadrature decoder driver.
 pub struct Qei<'d, T: GeneralInstance4Channel> {
-    inner: Timer<'d, T>,
+    inner: Timer<'d, T, NoIrq>,
 }
 
 impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {

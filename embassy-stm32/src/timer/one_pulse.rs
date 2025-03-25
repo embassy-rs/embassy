@@ -7,7 +7,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use super::low_level::{
-    CountingMode, FilterValue, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource as Ts,
+    CountingMode, FilterValue, InputCaptureMode, InputTISelection, NoIrq, SlaveMode, Timer, TriggerSource as Ts,
 };
 use super::{CaptureCompareInterruptHandler, Channel, ExternalTriggerPin, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2};
@@ -123,7 +123,7 @@ impl<'d, T: GeneralInstance4Channel, C: TriggerSource> TriggerPin<'d, T, C> {
 ///
 /// Generates a pulse after a trigger and some configurable delay.
 pub struct OnePulse<'d, T: GeneralInstance4Channel> {
-    inner: Timer<'d, T>,
+    inner: Timer<'d, T, NoIrq>,
 }
 
 impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
@@ -354,7 +354,7 @@ pub struct OnePulseChannels<'d, T: GeneralInstance4Channel> {
 /// It is not possible to change the pulse end tick because the end tick
 /// configuration is shared with all four channels.
 pub struct OnePulseChannel<'d, T: GeneralInstance4Channel> {
-    inner: ManuallyDrop<Timer<'d, T>>,
+    inner: ManuallyDrop<Timer<'d, T, NoIrq>>,
     channel: Channel,
 }
 
