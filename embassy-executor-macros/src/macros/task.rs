@@ -81,6 +81,8 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
 
     let mut args = Vec::new();
     let mut fargs = f.sig.inputs.clone();
+    let mut min_arg_cnt = 0usize;
+    let mut max_arg_cnt = 0usize;
 
     for arg in fargs.iter_mut() {
         match arg {
@@ -93,6 +95,10 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
                     syn::Pat::Ident(id) => {
                         id.mutability = None;
                         args.push((id.clone(), t.attrs.clone()));
+                        max_arg_cnt += 1;
+                        if t.attrs.len() == 0 {
+                            min_arg_cnt += 1;
+                        }
                     }
                     _ => {
                         error(
@@ -118,11 +124,21 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     // including any attributes that may have
     // been applied previously
     let mut full_args = Vec::new();
-    for (arg, cfgs) in args {
+    for (arg, cfgs) in args.into_iter() {
         full_args.push(quote!(
             #(#cfgs)*
             #arg
         ));
+    }
+
+    // Generate T0, T1, T2, ... lists for the _EmbassyInternalTaskFn trait impls
+    let mut targss = Vec::new();
+    for i in min_arg_cnt..=max_arg_cnt {
+        let mut targs = Vec::new();
+        for j in 0..i {
+            targs.push(format_ident!("T{}", j));
+        }
+        targss.push(targs);
     }
 
     #[cfg(feature = "nightly")]
@@ -145,9 +161,57 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     };
     #[cfg(not(feature = "nightly"))]
     let mut task_outer_body = quote! {
+        trait _EmbassyInternalTaskFn<Args>: Copy {
+            type Fut: ::core::future::Future + 'static;
+        }
+        #(
+            impl<F, Fut, #(#targss,)*> _EmbassyInternalTaskFn<(#(#targss,)*)> for F
+            where
+                F: Copy + FnOnce(#(#targss,)*) -> Fut,
+                Fut: ::core::future::Future + 'static,
+            {
+                type Fut = Fut;
+            }
+        )*
+
+        const fn __task_pool_size<F, Args>(_: F) -> usize
+        where
+            F: _EmbassyInternalTaskFn<Args>,
+        {
+            ::core::mem::size_of::<
+            #embassy_executor::raw::TaskPool<F::Fut, POOL_SIZE>
+            >()
+        }
+        const fn __task_pool_align<F, Args>(_: F) -> usize
+        where
+            F: _EmbassyInternalTaskFn<Args>,
+        {
+            ::core::mem::align_of::<
+                #embassy_executor::raw::TaskPool<F::Fut, POOL_SIZE>
+            >()
+        }
+
+        const fn __task_pool_new<F, Args>(_: F) -> #embassy_executor::raw::TaskPool<F::Fut, POOL_SIZE>
+        where
+            F: _EmbassyInternalTaskFn<Args>,
+        {
+            #embassy_executor::raw::TaskPool::new()
+        }
+
+        const fn __get_pool<F, Args>(_: F) -> &'static #embassy_executor::raw::TaskPool<F::Fut, POOL_SIZE>
+        where
+            F: _EmbassyInternalTaskFn<Args>
+        {
+            unsafe { ::core::mem::transmute(&POOL_BYTES) }
+        }
+
         const POOL_SIZE: usize = #pool_size;
-        static POOL: #embassy_executor::_export::TaskPoolRef = #embassy_executor::_export::TaskPoolRef::new();
-        unsafe { POOL.get::<_, POOL_SIZE>()._spawn_async_fn(move || #task_inner_ident(#(#full_args,)*)) }
+        type PoolBytes = #embassy_executor::_export::SyncUnsafeCell<(
+            [::core::mem::MaybeUninit<u8>; __task_pool_size(#task_inner_ident)],
+            #embassy_executor::_export::elain::Align<{ __task_pool_align(#task_inner_ident) }>,
+        )>;
+        static POOL_BYTES: PoolBytes = unsafe { ::core::mem::transmute(__task_pool_new(#task_inner_ident)) };
+        unsafe { __get_pool(#task_inner_ident)._spawn_async_fn(move || #task_inner_ident(#(#full_args,)*)) }
     };
 
     let task_outer_attrs = task_inner.attrs.clone();
