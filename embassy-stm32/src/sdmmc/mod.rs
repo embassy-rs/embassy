@@ -12,7 +12,8 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
-use crate::dma::NoDma;
+#[cfg(sdmmc_v1)]
+use crate::dma::ChannelAndRequest;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
@@ -301,10 +302,10 @@ impl Default for Config {
 }
 
 /// Sdmmc device
-pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
+pub struct Sdmmc<'d, T: Instance> {
     _peri: PeripheralRef<'d, T>,
-    #[allow(unused)]
-    dma: PeripheralRef<'d, Dma>,
+    #[cfg(sdmmc_v1)]
+    dma: ChannelAndRequest<'d>,
 
     clk: PeripheralRef<'d, AnyPin>,
     cmd: PeripheralRef<'d, AnyPin>,
@@ -334,18 +335,18 @@ const CMD_AF: AfType = AfType::output_pull(OutputType::PushPull, Speed::VeryHigh
 const DATA_AF: AfType = CMD_AF;
 
 #[cfg(sdmmc_v1)]
-impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
+impl<'d, T: Instance> Sdmmc<'d, T> {
     /// Create a new SDMMC driver, with 1 data lane.
     pub fn new_1bit(
         sdmmc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        dma: impl Peripheral<P = impl SdmmcDma<T>> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(clk, cmd, d0);
+        into_ref!(dma, clk, cmd, d0);
 
         critical_section::with(|_| {
             clk.set_as_af(clk.af_num(), CLK_AF);
@@ -355,7 +356,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 
         Self::new_inner(
             sdmmc,
-            dma,
+            new_dma_nonopt!(dma),
             clk.map_into(),
             cmd.map_into(),
             d0.map_into(),
@@ -370,7 +371,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
     pub fn new_4bit(
         sdmmc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        dma: impl Peripheral<P = impl SdmmcDma<T>> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
@@ -392,7 +393,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 
         Self::new_inner(
             sdmmc,
-            dma,
+            new_dma_nonopt!(dma),
             clk.map_into(),
             cmd.map_into(),
             d0.map_into(),
@@ -405,7 +406,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 }
 
 #[cfg(sdmmc_v2)]
-impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
+impl<'d, T: Instance> Sdmmc<'d, T> {
     /// Create a new SDMMC driver, with 1 data lane.
     pub fn new_1bit(
         sdmmc: impl Peripheral<P = T> + 'd,
@@ -425,7 +426,6 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
 
         Self::new_inner(
             sdmmc,
-            NoDma.into_ref(),
             clk.map_into(),
             cmd.map_into(),
             d0.map_into(),
@@ -461,7 +461,6 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
 
         Self::new_inner(
             sdmmc,
-            NoDma.into_ref(),
             clk.map_into(),
             cmd.map_into(),
             d0.map_into(),
@@ -473,10 +472,10 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
     }
 }
 
-impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
+impl<'d, T: Instance> Sdmmc<'d, T> {
     fn new_inner(
         sdmmc: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        #[cfg(sdmmc_v1)] dma: ChannelAndRequest<'d>,
         clk: PeripheralRef<'d, AnyPin>,
         cmd: PeripheralRef<'d, AnyPin>,
         d0: PeripheralRef<'d, AnyPin>,
@@ -485,7 +484,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         d3: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(sdmmc, dma);
+        into_ref!(sdmmc);
 
         rcc::enable_and_reset::<T>();
 
@@ -514,6 +513,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
         Self {
             _peri: sdmmc,
+            #[cfg(sdmmc_v1)]
             dma,
 
             clk,
@@ -567,7 +567,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     #[allow(unused_variables)]
     fn prepare_datapath_read<'a>(
         config: &Config,
-        dma: &'a mut PeripheralRef<'d, Dma>,
+        #[cfg(sdmmc_v1)] dma: &'a mut ChannelAndRequest<'d>,
         buffer: &'a mut [u32],
         length_bytes: u32,
         block_size: u8,
@@ -583,16 +583,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
         #[cfg(sdmmc_v1)]
-        let transfer = unsafe {
-            let request = dma.request();
-            Transfer::new_read(
-                dma,
-                request,
-                regs.fifor().as_ptr() as *mut u32,
-                buffer,
-                DMA_TRANSFER_OPTIONS,
-            )
-        };
+        let transfer = unsafe { dma.read(regs.fifor().as_ptr() as *mut u32, buffer, DMA_TRANSFER_OPTIONS) };
         #[cfg(sdmmc_v2)]
         let transfer = {
             regs.idmabase0r().write(|w| w.set_idmabase0(buffer.as_mut_ptr() as u32));
@@ -632,14 +623,8 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
-            let request = self.dma.request();
-            Transfer::new_write(
-                &mut self.dma,
-                request,
-                buffer,
-                regs.fifor().as_ptr() as *mut u32,
-                DMA_TRANSFER_OPTIONS,
-            )
+            self.dma
+                .write(buffer, regs.fifor().as_ptr() as *mut u32, DMA_TRANSFER_OPTIONS)
         };
         #[cfg(sdmmc_v2)]
         let transfer = {
@@ -735,7 +720,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, status.as_mut(), 64, 6);
+        let transfer = Self::prepare_datapath_read(
+            &self.config,
+            #[cfg(sdmmc_v1)]
+            &mut self.dma,
+            status.as_mut(),
+            64,
+            6,
+        );
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd6(set_function), true)?; // CMD6
 
@@ -821,7 +813,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, status.as_mut(), 64, 6);
+        let transfer = Self::prepare_datapath_read(
+            &self.config,
+            #[cfg(sdmmc_v1)]
+            &mut self.dma,
+            status.as_mut(),
+            64,
+            6,
+        );
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::card_status(0), true)?;
 
@@ -924,7 +923,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, scr, 8, 3);
+        let transfer = Self::prepare_datapath_read(
+            &self.config,
+            #[cfg(sdmmc_v1)]
+            &mut self.dma,
+            scr,
+            8,
+            3,
+        );
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd51(), true)?;
 
@@ -1214,7 +1220,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
-        let transfer = Self::prepare_datapath_read(&self.config, &mut self.dma, buffer, 512, 9);
+        let transfer = Self::prepare_datapath_read(
+            &self.config,
+            #[cfg(sdmmc_v1)]
+            &mut self.dma,
+            buffer,
+            512,
+            9,
+        );
         InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::read_single_block(address), true)?;
 
@@ -1347,7 +1360,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     }
 }
 
-impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Drop for Sdmmc<'d, T, Dma> {
+impl<'d, T: Instance> Drop for Sdmmc<'d, T> {
     fn drop(&mut self) {
         T::Interrupt::disable();
         Self::on_drop();
@@ -1484,15 +1497,6 @@ pin_trait!(D7Pin, Instance);
 #[cfg(sdmmc_v1)]
 dma_trait!(SdmmcDma, Instance);
 
-/// DMA instance trait.
-///
-/// This is only implemented for `NoDma`, since SDMMCv2 has DMA built-in, instead of
-/// using ST's system-wide DMA peripheral.
-#[cfg(sdmmc_v2)]
-pub trait SdmmcDma<T: Instance> {}
-#[cfg(sdmmc_v2)]
-impl<T: Instance> SdmmcDma<T> for NoDma {}
-
 foreach_peripheral!(
     (sdmmc, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
@@ -1512,7 +1516,7 @@ foreach_peripheral!(
     };
 );
 
-impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> block_device_driver::BlockDevice<512> for Sdmmc<'d, T, Dma> {
+impl<'d, T: Instance> block_device_driver::BlockDevice<512> for Sdmmc<'d, T> {
     type Error = Error;
     type Align = aligned::A4;
 
