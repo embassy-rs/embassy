@@ -100,20 +100,18 @@ pub enum ValueArray<'a> {
 ///
 /// If you want to use both channels, either together or independently,
 /// create a [`Dac`] first and use it to access each channel.
-pub struct DacChannel<'d, T: Instance, const N: u8, DMA = NoDma> {
-    phantom: PhantomData<&'d mut T>,
+pub struct DacChannel<'d, T: Instance, C: Channel, DMA = NoDma> {
+    phantom: PhantomData<&'d mut (T, C)>,
     #[allow(unused)]
     dma: PeripheralRef<'d, DMA>,
 }
 
 /// DAC channel 1 type alias.
-pub type DacCh1<'d, T, DMA = NoDma> = DacChannel<'d, T, 1, DMA>;
+pub type DacCh1<'d, T, DMA = NoDma> = DacChannel<'d, T, Ch1, DMA>;
 /// DAC channel 2 type alias.
-pub type DacCh2<'d, T, DMA = NoDma> = DacChannel<'d, T, 2, DMA>;
+pub type DacCh2<'d, T, DMA = NoDma> = DacChannel<'d, T, Ch2, DMA>;
 
-impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
-    const IDX: usize = (N - 1) as usize;
-
+impl<'d, T: Instance, C: Channel, DMA> DacChannel<'d, T, C, DMA> {
     /// Create a new `DacChannel` instance, consuming the underlying DAC peripheral.
     ///
     /// If you're not using DMA, pass [`dma::NoDma`] for the `dma` argument.
@@ -127,7 +125,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = DMA> + 'd,
-        pin: impl Peripheral<P = impl DacPin<T, N> + crate::gpio::Pin> + 'd,
+        pin: impl Peripheral<P = impl DacPin<T, C> + crate::gpio::Pin> + 'd,
     ) -> Self {
         into_ref!(dma, pin);
         pin.set_as_analog();
@@ -173,7 +171,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     pub fn set_enable(&mut self, on: bool) {
         critical_section::with(|_| {
             T::regs().cr().modify(|reg| {
-                reg.set_en(Self::IDX, on);
+                reg.set_en(C::IDX, on);
             });
         });
     }
@@ -194,8 +192,8 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     pub fn set_trigger(&mut self, source: TriggerSel) {
         critical_section::with(|_| {
             T::regs().cr().modify(|reg| {
-                reg.set_en(Self::IDX, false);
-                reg.set_tsel(Self::IDX, source as u8);
+                reg.set_en(C::IDX, false);
+                reg.set_tsel(C::IDX, source as u8);
             });
         });
     }
@@ -204,7 +202,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     pub fn set_triggering(&mut self, on: bool) {
         critical_section::with(|_| {
             T::regs().cr().modify(|reg| {
-                reg.set_ten(Self::IDX, on);
+                reg.set_ten(C::IDX, on);
             });
         });
     }
@@ -212,7 +210,7 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     /// Software trigger this channel.
     pub fn trigger(&mut self) {
         T::regs().swtrigr().write(|reg| {
-            reg.set_swtrig(Self::IDX, true);
+            reg.set_swtrig(C::IDX, true);
         });
     }
 
@@ -223,10 +221,10 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     pub fn set_mode(&mut self, mode: Mode) {
         critical_section::with(|_| {
             T::regs().cr().modify(|reg| {
-                reg.set_en(Self::IDX, false);
+                reg.set_en(C::IDX, false);
             });
             T::regs().mcr().modify(|reg| {
-                reg.set_mode(Self::IDX, mode.mode());
+                reg.set_mode(C::IDX, mode.mode());
             });
         });
     }
@@ -237,15 +235,15 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
     /// it will be output after the next trigger.
     pub fn set(&mut self, value: Value) {
         match value {
-            Value::Bit8(v) => T::regs().dhr8r(Self::IDX).write(|reg| reg.set_dhr(v)),
-            Value::Bit12Left(v) => T::regs().dhr12l(Self::IDX).write(|reg| reg.set_dhr(v)),
-            Value::Bit12Right(v) => T::regs().dhr12r(Self::IDX).write(|reg| reg.set_dhr(v)),
+            Value::Bit8(v) => T::regs().dhr8r(C::IDX).write(|reg| reg.set_dhr(v)),
+            Value::Bit12Left(v) => T::regs().dhr12l(C::IDX).write(|reg| reg.set_dhr(v)),
+            Value::Bit12Right(v) => T::regs().dhr12r(C::IDX).write(|reg| reg.set_dhr(v)),
         }
     }
 
     /// Read the current output value of the DAC.
     pub fn read(&self) -> u16 {
-        T::regs().dor(Self::IDX).read().dor()
+        T::regs().dor(C::IDX).read().dor()
     }
 
     /// Set HFSEL as appropriate for the current peripheral clock frequency.
@@ -277,84 +275,75 @@ impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
             });
         }
     }
+
+    /// Write `data` to this channel via DMA.
+    ///
+    /// To prevent delays or glitches when outputing a periodic waveform, the `circular`
+    /// flag can be set. This configures a circular DMA transfer that continually outputs
+    /// `data`. Note that for performance reasons in circular mode the transfer-complete
+    /// interrupt is disabled.
+    #[cfg(not(gpdma))]
+    pub async fn write(&mut self, data: ValueArray<'_>, circular: bool)
+    where
+        DMA: Dma<T, C>,
+    {
+        // Enable DAC and DMA
+        T::regs().cr().modify(|w| {
+            w.set_en(C::IDX, true);
+            w.set_dmaen(C::IDX, true);
+        });
+
+        let tx_request = self.dma.request();
+        let dma_channel = &mut self.dma;
+
+        let tx_options = crate::dma::TransferOptions {
+            circular,
+            half_transfer_ir: false,
+            complete_transfer_ir: !circular,
+            ..Default::default()
+        };
+
+        // Initiate the correct type of DMA transfer depending on what data is passed
+        let tx_f = match data {
+            ValueArray::Bit8(buf) => unsafe {
+                crate::dma::Transfer::new_write(
+                    dma_channel,
+                    tx_request,
+                    buf,
+                    T::regs().dhr8r(C::IDX).as_ptr() as *mut u8,
+                    tx_options,
+                )
+            },
+            ValueArray::Bit12Left(buf) => unsafe {
+                crate::dma::Transfer::new_write(
+                    dma_channel,
+                    tx_request,
+                    buf,
+                    T::regs().dhr12l(C::IDX).as_ptr() as *mut u16,
+                    tx_options,
+                )
+            },
+            ValueArray::Bit12Right(buf) => unsafe {
+                crate::dma::Transfer::new_write(
+                    dma_channel,
+                    tx_request,
+                    buf,
+                    T::regs().dhr12r(C::IDX).as_ptr() as *mut u16,
+                    tx_options,
+                )
+            },
+        };
+
+        tx_f.await;
+
+        T::regs().cr().modify(|w| {
+            w.set_en(C::IDX, false);
+            w.set_dmaen(C::IDX, false);
+        });
+    }
 }
 
-macro_rules! impl_dma_methods {
-    ($n:literal, $trait:ident) => {
-        impl<'d, T: Instance, DMA> DacChannel<'d, T, $n, DMA>
-        where
-            DMA: $trait<T>,
-        {
-            /// Write `data` to this channel via DMA.
-            ///
-            /// To prevent delays or glitches when outputing a periodic waveform, the `circular`
-            /// flag can be set. This configures a circular DMA transfer that continually outputs
-            /// `data`. Note that for performance reasons in circular mode the transfer-complete
-            /// interrupt is disabled.
-            #[cfg(not(gpdma))]
-            pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) {
-                // Enable DAC and DMA
-                T::regs().cr().modify(|w| {
-                    w.set_en(Self::IDX, true);
-                    w.set_dmaen(Self::IDX, true);
-                });
-
-                let tx_request = self.dma.request();
-                let dma_channel = &mut self.dma;
-
-                let tx_options = crate::dma::TransferOptions {
-                    circular,
-                    half_transfer_ir: false,
-                    complete_transfer_ir: !circular,
-                    ..Default::default()
-                };
-
-                // Initiate the correct type of DMA transfer depending on what data is passed
-                let tx_f = match data {
-                    ValueArray::Bit8(buf) => unsafe {
-                        crate::dma::Transfer::new_write(
-                            dma_channel,
-                            tx_request,
-                            buf,
-                            T::regs().dhr8r(Self::IDX).as_ptr() as *mut u8,
-                            tx_options,
-                        )
-                    },
-                    ValueArray::Bit12Left(buf) => unsafe {
-                        crate::dma::Transfer::new_write(
-                            dma_channel,
-                            tx_request,
-                            buf,
-                            T::regs().dhr12l(Self::IDX).as_ptr() as *mut u16,
-                            tx_options,
-                        )
-                    },
-                    ValueArray::Bit12Right(buf) => unsafe {
-                        crate::dma::Transfer::new_write(
-                            dma_channel,
-                            tx_request,
-                            buf,
-                            T::regs().dhr12r(Self::IDX).as_ptr() as *mut u16,
-                            tx_options,
-                        )
-                    },
-                };
-
-                tx_f.await;
-
-                T::regs().cr().modify(|w| {
-                    w.set_en(Self::IDX, false);
-                    w.set_dmaen(Self::IDX, false);
-                });
-            }
-        }
-    };
-}
-
-impl_dma_methods!(1, DacDma1);
-impl_dma_methods!(2, DacDma2);
-
-impl<'d, T: Instance, const N: u8, DMA> Drop for DacChannel<'d, T, N, DMA> {
+impl<'d, T: Instance, C: Channel, DMA> Drop for DacChannel<'d, T, C, DMA> {
     fn drop(&mut self) {
         rcc::disable::<T>();
     }
@@ -371,8 +360,8 @@ impl<'d, T: Instance, const N: u8, DMA> Drop for DacChannel<'d, T, N, DMA> {
 /// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, NoDma, NoDma, p.PA4, p.PA5).split();
 /// ```
 pub struct Dac<'d, T: Instance, DMACh1 = NoDma, DMACh2 = NoDma> {
-    ch1: DacChannel<'d, T, 1, DMACh1>,
-    ch2: DacChannel<'d, T, 2, DMACh2>,
+    ch1: DacChannel<'d, T, Ch1, DMACh1>,
+    ch2: DacChannel<'d, T, Ch2, DMACh2>,
 }
 
 impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
@@ -392,8 +381,8 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
         _peri: impl Peripheral<P = T> + 'd,
         dma_ch1: impl Peripheral<P = DMACh1> + 'd,
         dma_ch2: impl Peripheral<P = DMACh2> + 'd,
-        pin_ch1: impl Peripheral<P = impl DacPin<T, 1> + crate::gpio::Pin> + 'd,
-        pin_ch2: impl Peripheral<P = impl DacPin<T, 2> + crate::gpio::Pin> + 'd,
+        pin_ch1: impl Peripheral<P = impl DacPin<T, Ch1> + crate::gpio::Pin> + 'd,
+        pin_ch2: impl Peripheral<P = impl DacPin<T, Ch2> + crate::gpio::Pin> + 'd,
     ) -> Self {
         into_ref!(dma_ch1, dma_ch2, pin_ch1, pin_ch2);
         pin_ch1.set_as_analog();
@@ -514,11 +503,30 @@ trait SealedInstance {
 /// DAC instance.
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + RccPeripheral + 'static {}
-dma_trait!(DacDma1, Instance);
-dma_trait!(DacDma2, Instance);
 
-/// Marks a pin that can be used with the DAC
-pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
+/// Channel 1 marker type.
+pub enum Ch1 {}
+/// Channel 2 marker type.
+pub enum Ch2 {}
+
+trait SealedChannel {
+    const IDX: usize;
+}
+/// DAC channel trait.
+#[allow(private_bounds)]
+pub trait Channel: SealedChannel {}
+
+impl SealedChannel for Ch1 {
+    const IDX: usize = 0;
+}
+impl SealedChannel for Ch2 {
+    const IDX: usize = 1;
+}
+impl Channel for Ch1 {}
+impl Channel for Ch2 {}
+
+dma_trait!(Dma, Instance, Channel);
+pin_trait!(DacPin, Instance, Channel);
 
 foreach_peripheral!(
     (dac, $inst:ident) => {
@@ -531,9 +539,3 @@ foreach_peripheral!(
         impl crate::dac::Instance for peripherals::$inst {}
     };
 );
-
-macro_rules! impl_dac_pin {
-    ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::dac::DacPin<peripherals::$inst, $ch> for crate::peripherals::$pin {}
-    };
-}
