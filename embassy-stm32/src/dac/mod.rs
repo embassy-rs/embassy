@@ -3,9 +3,10 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::into_ref;
 
-use crate::dma::NoDma;
+use crate::dma::ChannelAndRequest;
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
 use crate::rcc::{self, RccPeripheral};
@@ -100,21 +101,19 @@ pub enum ValueArray<'a> {
 ///
 /// If you want to use both channels, either together or independently,
 /// create a [`Dac`] first and use it to access each channel.
-pub struct DacChannel<'d, T: Instance, C: Channel, DMA = NoDma> {
-    phantom: PhantomData<&'d mut (T, C)>,
+pub struct DacChannel<'d, T: Instance, C: Channel, M: PeriMode> {
+    phantom: PhantomData<&'d mut (T, C, M)>,
     #[allow(unused)]
-    dma: PeripheralRef<'d, DMA>,
+    dma: Option<ChannelAndRequest<'d>>,
 }
 
 /// DAC channel 1 type alias.
-pub type DacCh1<'d, T, DMA = NoDma> = DacChannel<'d, T, Ch1, DMA>;
+pub type DacCh1<'d, T, M> = DacChannel<'d, T, Ch1, M>;
 /// DAC channel 2 type alias.
-pub type DacCh2<'d, T, DMA = NoDma> = DacChannel<'d, T, Ch2, DMA>;
+pub type DacCh2<'d, T, M> = DacChannel<'d, T, Ch2, M>;
 
-impl<'d, T: Instance, C: Channel, DMA> DacChannel<'d, T, C, DMA> {
+impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
     /// Create a new `DacChannel` instance, consuming the underlying DAC peripheral.
-    ///
-    /// If you're not using DMA, pass [`dma::NoDma`] for the `dma` argument.
     ///
     /// The channel is enabled on creation and begin to drive the output pin.
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
@@ -123,21 +122,18 @@ impl<'d, T: Instance, C: Channel, DMA> DacChannel<'d, T, C, DMA> {
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
     pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = DMA> + 'd,
-        pin: impl Peripheral<P = impl DacPin<T, C> + crate::gpio::Pin> + 'd,
+        peri: impl Peripheral<P = T> + 'd,
+        dma: impl Peripheral<P = impl Dma<T, C>> + 'd,
+        pin: impl Peripheral<P = impl DacPin<T, C>> + 'd,
     ) -> Self {
         into_ref!(dma, pin);
         pin.set_as_analog();
-        rcc::enable_and_reset::<T>();
-        let mut dac = Self {
-            phantom: PhantomData,
-            dma,
-        };
-        #[cfg(any(dac_v5, dac_v6, dac_v7))]
-        dac.set_hfsel();
-        dac.enable();
-        dac
+        Self::new_inner(
+            peri,
+            new_dma!(dma),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+            Mode::NormalExternalBuffered,
+        )
     }
 
     /// Create a new `DacChannel` instance where the external output pin is not used,
@@ -148,13 +144,99 @@ impl<'d, T: Instance, C: Channel, DMA> DacChannel<'d, T, C, DMA> {
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will disable the
     /// channel; you must re-enable it with `enable()`.
     ///
-    /// If you're not using DMA, pass [`dma::NoDma`] for the `dma` argument.
+    /// By default, triggering is disabled, but it can be enabled using
+    /// [`DacChannel::set_trigger()`].
+    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
+    pub fn new_internal(peri: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = impl Dma<T, C>> + 'd) -> Self {
+        into_ref!(dma);
+        Self::new_inner(peri, new_dma!(dma), Mode::NormalInternalUnbuffered)
+    }
+
+    /// Write `data` to this channel via DMA.
+    ///
+    /// To prevent delays or glitches when outputing a periodic waveform, the `circular`
+    /// flag can be set. This configures a circular DMA transfer that continually outputs
+    /// `data`. Note that for performance reasons in circular mode the transfer-complete
+    /// interrupt is disabled.
+    #[cfg(not(gpdma))]
+    pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) {
+        // Enable DAC and DMA
+        T::regs().cr().modify(|w| {
+            w.set_en(C::IDX, true);
+            w.set_dmaen(C::IDX, true);
+        });
+
+        let dma = self.dma.as_mut().unwrap();
+
+        let tx_options = crate::dma::TransferOptions {
+            circular,
+            half_transfer_ir: false,
+            complete_transfer_ir: !circular,
+            ..Default::default()
+        };
+
+        // Initiate the correct type of DMA transfer depending on what data is passed
+        let tx_f = match data {
+            ValueArray::Bit8(buf) => unsafe { dma.write(buf, T::regs().dhr8r(C::IDX).as_ptr() as *mut u8, tx_options) },
+            ValueArray::Bit12Left(buf) => unsafe {
+                dma.write(buf, T::regs().dhr12l(C::IDX).as_ptr() as *mut u16, tx_options)
+            },
+            ValueArray::Bit12Right(buf) => unsafe {
+                dma.write(buf, T::regs().dhr12r(C::IDX).as_ptr() as *mut u16, tx_options)
+            },
+        };
+
+        tx_f.await;
+
+        T::regs().cr().modify(|w| {
+            w.set_en(C::IDX, false);
+            w.set_dmaen(C::IDX, false);
+        });
+    }
+}
+
+impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Blocking> {
+    /// Create a new `DacChannel` instance, consuming the underlying DAC peripheral.
+    ///
+    /// The channel is enabled on creation and begin to drive the output pin.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
+    /// disable the channel; you must re-enable it with `enable()`.
+    ///
+    /// By default, triggering is disabled, but it can be enabled using
+    /// [`DacChannel::set_trigger()`].
+    pub fn new_blocking(peri: impl Peripheral<P = T> + 'd, pin: impl Peripheral<P = impl DacPin<T, C>> + 'd) -> Self {
+        into_ref!(pin);
+        pin.set_as_analog();
+        Self::new_inner(
+            peri,
+            None,
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+            Mode::NormalExternalBuffered,
+        )
+    }
+
+    /// Create a new `DacChannel` instance where the external output pin is not used,
+    /// so the DAC can only be used to generate internal signals.
+    /// The GPIO pin is therefore available to be used for other functions.
+    ///
+    /// The channel is set to [`Mode::NormalInternalUnbuffered`] and enabled on creation.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will disable the
+    /// channel; you must re-enable it with `enable()`.
     ///
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal(_peri: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = DMA> + 'd) -> Self {
-        into_ref!(dma);
+    pub fn new_internal_blocking(peri: impl Peripheral<P = T> + 'd) -> Self {
+        Self::new_inner(peri, None, Mode::NormalInternalUnbuffered)
+    }
+}
+
+impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
+    fn new_inner(
+        _peri: impl Peripheral<P = T> + 'd,
+        dma: Option<ChannelAndRequest<'d>>,
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
+    ) -> Self {
         rcc::enable_and_reset::<T>();
         let mut dac = Self {
             phantom: PhantomData,
@@ -162,7 +244,8 @@ impl<'d, T: Instance, C: Channel, DMA> DacChannel<'d, T, C, DMA> {
         };
         #[cfg(any(dac_v5, dac_v6, dac_v7))]
         dac.set_hfsel();
-        dac.set_mode(Mode::NormalInternalUnbuffered);
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+        dac.set_mode(mode);
         dac.enable();
         dac
     }
@@ -275,75 +358,9 @@ impl<'d, T: Instance, C: Channel, DMA> DacChannel<'d, T, C, DMA> {
             });
         }
     }
-
-    /// Write `data` to this channel via DMA.
-    ///
-    /// To prevent delays or glitches when outputing a periodic waveform, the `circular`
-    /// flag can be set. This configures a circular DMA transfer that continually outputs
-    /// `data`. Note that for performance reasons in circular mode the transfer-complete
-    /// interrupt is disabled.
-    #[cfg(not(gpdma))]
-    pub async fn write(&mut self, data: ValueArray<'_>, circular: bool)
-    where
-        DMA: Dma<T, C>,
-    {
-        // Enable DAC and DMA
-        T::regs().cr().modify(|w| {
-            w.set_en(C::IDX, true);
-            w.set_dmaen(C::IDX, true);
-        });
-
-        let tx_request = self.dma.request();
-        let dma_channel = &mut self.dma;
-
-        let tx_options = crate::dma::TransferOptions {
-            circular,
-            half_transfer_ir: false,
-            complete_transfer_ir: !circular,
-            ..Default::default()
-        };
-
-        // Initiate the correct type of DMA transfer depending on what data is passed
-        let tx_f = match data {
-            ValueArray::Bit8(buf) => unsafe {
-                crate::dma::Transfer::new_write(
-                    dma_channel,
-                    tx_request,
-                    buf,
-                    T::regs().dhr8r(C::IDX).as_ptr() as *mut u8,
-                    tx_options,
-                )
-            },
-            ValueArray::Bit12Left(buf) => unsafe {
-                crate::dma::Transfer::new_write(
-                    dma_channel,
-                    tx_request,
-                    buf,
-                    T::regs().dhr12l(C::IDX).as_ptr() as *mut u16,
-                    tx_options,
-                )
-            },
-            ValueArray::Bit12Right(buf) => unsafe {
-                crate::dma::Transfer::new_write(
-                    dma_channel,
-                    tx_request,
-                    buf,
-                    T::regs().dhr12r(C::IDX).as_ptr() as *mut u16,
-                    tx_options,
-                )
-            },
-        };
-
-        tx_f.await;
-
-        T::regs().cr().modify(|w| {
-            w.set_en(C::IDX, false);
-            w.set_dmaen(C::IDX, false);
-        });
-    }
 }
 
-impl<'d, T: Instance, C: Channel, DMA> Drop for DacChannel<'d, T, C, DMA> {
+impl<'d, T: Instance, C: Channel, M: PeriMode> Drop for DacChannel<'d, T, C, M> {
     fn drop(&mut self) {
         rcc::disable::<T>();
     }
@@ -357,14 +374,14 @@ impl<'d, T: Instance, C: Channel, DMA> Drop for DacChannel<'d, T, C, DMA> {
 ///
 /// ```ignore
 /// // Pins may need to be changed for your specific device.
-/// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, NoDma, NoDma, p.PA4, p.PA5).split();
+/// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new_blocking(p.DAC1, p.PA4, p.PA5).split();
 /// ```
-pub struct Dac<'d, T: Instance, DMACh1 = NoDma, DMACh2 = NoDma> {
-    ch1: DacChannel<'d, T, Ch1, DMACh1>,
-    ch2: DacChannel<'d, T, Ch2, DMACh2>,
+pub struct Dac<'d, T: Instance, M: PeriMode> {
+    ch1: DacChannel<'d, T, Ch1, M>,
+    ch2: DacChannel<'d, T, Ch2, M>,
 }
 
-impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
+impl<'d, T: Instance> Dac<'d, T, Async> {
     /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
     ///
     /// This struct allows you to access both channels of the DAC, where available. You can either
@@ -378,37 +395,22 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
     pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
-        dma_ch1: impl Peripheral<P = DMACh1> + 'd,
-        dma_ch2: impl Peripheral<P = DMACh2> + 'd,
+        peri: impl Peripheral<P = T> + 'd,
+        dma_ch1: impl Peripheral<P = impl Dma<T, Ch1>> + 'd,
+        dma_ch2: impl Peripheral<P = impl Dma<T, Ch2>> + 'd,
         pin_ch1: impl Peripheral<P = impl DacPin<T, Ch1> + crate::gpio::Pin> + 'd,
         pin_ch2: impl Peripheral<P = impl DacPin<T, Ch2> + crate::gpio::Pin> + 'd,
     ) -> Self {
         into_ref!(dma_ch1, dma_ch2, pin_ch1, pin_ch2);
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
-
-        // Enable twice to increment the DAC refcount for each channel.
-        rcc::enable_and_reset::<T>();
-        rcc::enable_and_reset::<T>();
-
-        let mut ch1 = DacCh1 {
-            phantom: PhantomData,
-            dma: dma_ch1,
-        };
-        #[cfg(any(dac_v5, dac_v6, dac_v7))]
-        ch1.set_hfsel();
-        ch1.enable();
-
-        let mut ch2 = DacCh2 {
-            phantom: PhantomData,
-            dma: dma_ch2,
-        };
-        #[cfg(any(dac_v5, dac_v6, dac_v7))]
-        ch2.set_hfsel();
-        ch2.enable();
-
-        Self { ch1, ch2 }
+        Self::new_inner(
+            peri,
+            new_dma!(dma_ch1),
+            new_dma!(dma_ch2),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+            Mode::NormalExternalBuffered,
+        )
     }
 
     /// Create a new `Dac` instance where the external output pins are not used,
@@ -427,11 +429,77 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
     /// method on the underlying channels.
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
     pub fn new_internal(
-        _peri: impl Peripheral<P = T> + 'd,
-        dma_ch1: impl Peripheral<P = DMACh1> + 'd,
-        dma_ch2: impl Peripheral<P = DMACh2> + 'd,
+        peri: impl Peripheral<P = T> + 'd,
+        dma_ch1: impl Peripheral<P = impl Dma<T, Ch1>> + 'd,
+        dma_ch2: impl Peripheral<P = impl Dma<T, Ch2>> + 'd,
     ) -> Self {
         into_ref!(dma_ch1, dma_ch2);
+        Self::new_inner(
+            peri,
+            new_dma!(dma_ch1),
+            new_dma!(dma_ch2),
+            Mode::NormalInternalUnbuffered,
+        )
+    }
+}
+
+impl<'d, T: Instance> Dac<'d, T, Blocking> {
+    /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
+    ///
+    /// This struct allows you to access both channels of the DAC, where available. You can either
+    /// call `split()` to obtain separate `DacChannel`s, or use methods on `Dac` to use
+    /// the two channels together.
+    ///
+    /// The channels are enabled on creation and begin to drive their output pins.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
+    /// disable the channel; you must re-enable them with `enable()`.
+    ///
+    /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
+    /// method on the underlying channels.
+    pub fn new_blocking(
+        peri: impl Peripheral<P = T> + 'd,
+        pin_ch1: impl Peripheral<P = impl DacPin<T, Ch1> + crate::gpio::Pin> + 'd,
+        pin_ch2: impl Peripheral<P = impl DacPin<T, Ch2> + crate::gpio::Pin> + 'd,
+    ) -> Self {
+        into_ref!(pin_ch1, pin_ch2);
+        pin_ch1.set_as_analog();
+        pin_ch2.set_as_analog();
+        Self::new_inner(
+            peri,
+            None,
+            None,
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+            Mode::NormalExternalBuffered,
+        )
+    }
+
+    /// Create a new `Dac` instance where the external output pins are not used,
+    /// so the DAC can only be used to generate internal signals but the GPIO
+    /// pins remain available for other functions.
+    ///
+    /// This struct allows you to access both channels of the DAC, where available. You can either
+    /// call `split()` to obtain separate `DacChannel`s, or use methods on `Dac` to use the two
+    /// channels together.
+    ///
+    /// The channels are set to [`Mode::NormalInternalUnbuffered`] and enabled on creation.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will disable the
+    /// channel; you must re-enable them with `enable()`.
+    ///
+    /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
+    /// method on the underlying channels.
+    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
+    pub fn new_internal(peri: impl Peripheral<P = T> + 'd) -> Self {
+        Self::new_inner(peri, None, None, Mode::NormalInternalUnbuffered)
+    }
+}
+
+impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
+    fn new_inner(
+        _peri: impl Peripheral<P = T> + 'd,
+        dma_ch1: Option<ChannelAndRequest<'d>>,
+        dma_ch2: Option<ChannelAndRequest<'d>>,
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
+    ) -> Self {
         // Enable twice to increment the DAC refcount for each channel.
         rcc::enable_and_reset::<T>();
         rcc::enable_and_reset::<T>();
@@ -442,7 +510,8 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
         };
         #[cfg(any(dac_v5, dac_v6, dac_v7))]
         ch1.set_hfsel();
-        ch1.set_mode(Mode::NormalInternalUnbuffered);
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+        ch1.set_mode(mode);
         ch1.enable();
 
         let mut ch2 = DacCh2 {
@@ -451,7 +520,8 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
         };
         #[cfg(any(dac_v5, dac_v6, dac_v7))]
         ch2.set_hfsel();
-        ch2.set_mode(Mode::NormalInternalUnbuffered);
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+        ch2.set_mode(mode);
         ch2.enable();
 
         Self { ch1, ch2 }
@@ -460,17 +530,17 @@ impl<'d, T: Instance, DMACh1, DMACh2> Dac<'d, T, DMACh1, DMACh2> {
     /// Split this `Dac` into separate channels.
     ///
     /// You can access and move the channels around separately after splitting.
-    pub fn split(self) -> (DacCh1<'d, T, DMACh1>, DacCh2<'d, T, DMACh2>) {
+    pub fn split(self) -> (DacCh1<'d, T, M>, DacCh2<'d, T, M>) {
         (self.ch1, self.ch2)
     }
 
     /// Temporarily access channel 1.
-    pub fn ch1(&mut self) -> &mut DacCh1<'d, T, DMACh1> {
+    pub fn ch1(&mut self) -> &mut DacCh1<'d, T, M> {
         &mut self.ch1
     }
 
     /// Temporarily access channel 2.
-    pub fn ch2(&mut self) -> &mut DacCh2<'d, T, DMACh2> {
+    pub fn ch2(&mut self) -> &mut DacCh2<'d, T, M> {
         &mut self.ch2
     }
 
