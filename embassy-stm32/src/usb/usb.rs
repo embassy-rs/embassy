@@ -887,6 +887,16 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         })
         .await;
 
+        // Errata for STM32H5, 2.20.1:
+        // During OUT transfers, the correct transfer interrupt (CTR) is triggered a little before the last USB SRAM accesses
+        // have completed. If the software responds quickly to the interrupt, the full buffer contents may not be correct.
+        //
+        // Workaround:
+        // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
+        // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
+        #[cfg(stm32h5)]
+        embassy_time::block_for(embassy_time::Duration::from_nanos(800));
+
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
         if stat == Stat::DISABLED {
