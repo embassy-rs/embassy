@@ -262,6 +262,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     ///
     /// `sequence` iterator and `readings` must have the same length.
     ///
+    /// Note: The order of values in `readings` is defined by the pin ADC
+    /// channel number and not the pin order in `sequence`.
+    ///
     /// Example
     /// ```rust,ignore
     /// use embassy_stm32::adc::{Adc, AdcChannel}
