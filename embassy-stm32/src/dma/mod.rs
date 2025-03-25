@@ -108,17 +108,6 @@ impl Channel for AnyChannel {}
 const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();
 static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT];
 
-/// "No DMA" placeholder.
-///
-/// You may pass this in place of a real DMA channel when creating a driver
-/// to indicate it should not use DMA.
-///
-/// This often causes async functionality to not be available on the instance,
-/// leaving only blocking functionality.
-pub struct NoDma;
-
-impl_peripheral!(NoDma);
-
 // safety: must be called only once at startup
 pub(crate) unsafe fn init(
     cs: critical_section::CriticalSection,

@@ -39,10 +39,10 @@ impl<'d> ChannelAndRequest<'d> {
         Transfer::new_write(&mut self.channel, self.request, buf, peri_addr, options)
     }
 
-    pub unsafe fn write_raw<'a, W: Word>(
+    pub unsafe fn write_raw<'a, MW: Word, PW: Word>(
         &'a mut self,
-        buf: *const [W],
-        peri_addr: *mut W,
+        buf: *const [MW],
+        peri_addr: *mut PW,
         options: TransferOptions,
     ) -> Transfer<'a> {
         Transfer::new_write_raw(&mut self.channel, self.request, buf, peri_addr, options)

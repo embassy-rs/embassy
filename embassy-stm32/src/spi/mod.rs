@@ -839,7 +839,7 @@ impl<'d> Spi<'d, Async> {
         let rx_src = self.info.regs.rx_ptr();
         let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read_raw(rx_src, read, Default::default()) };
 
-        let tx_dst = self.info.regs.tx_ptr();
+        let tx_dst: *mut W = self.info.regs.tx_ptr();
         let tx_f = unsafe {
             self.tx_dma
                 .as_mut()

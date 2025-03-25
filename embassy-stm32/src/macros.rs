@@ -85,6 +85,18 @@ macro_rules! dma_trait_impl {
     };
 }
 
+#[allow(unused)]
+macro_rules! new_dma_nonopt {
+    ($name:ident) => {{
+        let dma = $name.into_ref();
+        let request = dma.request();
+        crate::dma::ChannelAndRequest {
+            channel: dma.map_into(),
+            request,
+        }
+    }};
+}
+
 macro_rules! new_dma {
     ($name:ident) => {{
         let dma = $name.into_ref();
