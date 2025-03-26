@@ -935,15 +935,32 @@ impl<'d> InputFuture<'d> {
     fn new(pin: PeripheralRef<'d, AnyPin>, polarity: Polarity) -> Self {
         let block = pin.block();
 
+        // Before clearing any previous edge events, we must disable events.
+        //
+        // If we don't do this, it is possible that after we clear the interrupt, the current event
+        // the hardware is listening for may not be the same event we will configure. This may result
+        // in RIS being set. Then when interrupts are unmasked and RIS is set, we may get the wrong event
+        // causing an interrupt.
+        //
+        // Selecting which polarity events happen is a RMW operation.
+        critical_section::with(|_cs| {
+            if pin.bit_index() >= 16 {
+                block.polarity31_16().modify(|w| {
+                    w.set_dio(pin.bit_index() - 16, Polarity::DISABLE);
+                });
+            } else {
+                block.polarity15_0().modify(|w| {
+                    w.set_dio(pin.bit_index(), Polarity::DISABLE);
+                });
+            };
+        });
+
         // First clear the bit for this event. Otherwise previous edge events may be recorded.
         block.cpu_int().iclr().write(|w| {
             w.set_dio(pin.bit_index(), true);
         });
 
-        // Selecting which polarity events happens is a RMW operation.
-        //
-        // Guard with a critical section in case two different threads try to select events at the
-        // same time.
+        // Selecting which polarity events happen is a RMW operation.
         critical_section::with(|_cs| {
             // Tell the hardware which pin event we want to receive.
             if pin.bit_index() >= 16 {
