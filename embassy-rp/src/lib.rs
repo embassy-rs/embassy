@@ -13,7 +13,7 @@ pub(crate) mod fmt;
 pub use rp_binary_info as binary_info;
 
 #[cfg(feature = "critical-section-impl")]
-mod critical_section_impl;
+pub mod critical_section_impl;
 
 #[cfg(feature = "rp2040")]
 mod intrinsics;

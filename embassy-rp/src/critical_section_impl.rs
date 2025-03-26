@@ -1,6 +1,8 @@
+//! Implementation of critical_section which is safe to use from both cores
+
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use crate::pac;
+use crate::{multicore::CoreId, pac};
 
 struct RpSpinlockCs;
 critical_section::set_impl!(RpSpinlockCs);
@@ -90,6 +92,32 @@ impl RpSpinlockCs {
             }
         }
     }
+}
+
+/// Gets which core currently holds the spinlock. Useful in combination with
+/// [`manually_release`] to determine if the current core needs to release the
+/// critical section.
+/// 
+/// Returns `None` if neither core currenly holds the lock.
+pub fn current_lock_owner() -> Option<CoreId> {
+    match LOCK_OWNER.load(Ordering::Acquire) {
+        1 => Some(CoreId::Core0),
+        2 => Some(CoreId::Core1),
+        _ => None,
+    }
+}
+
+/// Allows the spinlock to be released manually. This is useful for example if
+/// the panic handler is executed from within a critical section where there
+/// would be no other way for the lock to be relased.
+///
+/// # Safety
+/// 
+/// Only call this function if you are sure that the current core holds
+/// the lock and the critical section would never otherwise be released.
+#[inline(always)]
+pub unsafe fn manually_release(enable_interrupts: bool) {
+    RpSpinlockCs::release(enable_interrupts as _);
 }
 
 pub struct Spinlock<const N: usize>(core::marker::PhantomData<()>)
