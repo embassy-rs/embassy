@@ -20,7 +20,6 @@ cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 embedded-storage = "0.3.1"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.8", default-features = false }
 chrono = { version = "^0.4", default-features = false }
 

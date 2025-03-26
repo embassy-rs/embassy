@@ -38,7 +38,7 @@ async fn main(_spawner: Spawner) {
 
     let mut can = can::CanConfigurator::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
 
-    can.set_extended_filter(
+    can.properties().set_extended_filter(
         can::filter::ExtendedFilterSlot::_0,
         can::filter::ExtendedFilter::accept_all_into_fifo1(),
     );
@@ -128,7 +128,7 @@ async fn main(_spawner: Spawner) {
         }
     }
     i = 0;
-    let (mut tx, mut rx) = can.split();
+    let (mut tx, mut rx, _props) = can.split();
     // With split
     loop {
         let frame = can::frame::Frame::new_extended(0x123456F, &[i; 8]).unwrap();

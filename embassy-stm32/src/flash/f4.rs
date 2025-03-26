@@ -338,9 +338,8 @@ pub(crate) fn clear_all_err() {
 }
 
 pub(crate) async fn wait_ready() -> Result<(), Error> {
+    use core::future::poll_fn;
     use core::task::Poll;
-
-    use futures::future::poll_fn;
 
     poll_fn(|cx| {
         WAKER.register(cx.waker());

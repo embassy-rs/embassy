@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 # Change stm32f091rc to your chip name, if necessary.
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = [ "defmt", "memory-x", "stm32f091rc", "time-driver-any", "exti", "unstable-pac"] }

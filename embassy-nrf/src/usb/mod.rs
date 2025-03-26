@@ -471,18 +471,30 @@ impl<'d, T: Instance, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, T, Dir
     }
 
     async fn wait_enabled(&mut self) {
+        self.wait_enabled_state(true).await
+    }
+}
+
+#[allow(private_bounds)]
+impl<'d, T: Instance, Dir: EndpointDir> Endpoint<'d, T, Dir> {
+    async fn wait_enabled_state(&mut self, state: bool) {
         let i = self.info.addr.index();
         assert!(i != 0);
 
         poll_fn(move |cx| {
             Dir::waker(i).register(cx.waker());
-            if Dir::is_enabled(T::regs(), i) {
+            if Dir::is_enabled(T::regs(), i) == state {
                 Poll::Ready(())
             } else {
                 Poll::Pending
             }
         })
         .await
+    }
+
+    /// Wait for the endpoint to be disabled
+    pub async fn wait_disabled(&mut self) {
+        self.wait_enabled_state(false).await
     }
 }
 

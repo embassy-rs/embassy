@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     let mut bos_descriptor = [0; 256];
     let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
-    let request_handler = MyRequestHandler {};
+    let mut request_handler = MyRequestHandler {};
 
     let mut state = State::new();
 
@@ -63,7 +63,7 @@ async fn main(_spawner: Spawner) {
     // Create classes on the builder.
     let config = embassy_usb::class::hid::Config {
         report_descriptor: MouseReport::desc(),
-        request_handler: Some(&request_handler),
+        request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
     };
@@ -105,21 +105,21 @@ async fn main(_spawner: Spawner) {
 struct MyRequestHandler {}
 
 impl RequestHandler for MyRequestHandler {
-    fn get_report(&self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
+    fn get_report(&mut self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         info!("Get report for {:?}", id);
         None
     }
 
-    fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
+    fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
         info!("Set report for {:?}: {=[u8]}", id, data);
         OutResponse::Accepted
     }
 
-    fn set_idle_ms(&self, id: Option<ReportId>, dur: u32) {
+    fn set_idle_ms(&mut self, id: Option<ReportId>, dur: u32) {
         info!("Set idle rate for {:?} to {:?}", id, dur);
     }
 
-    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
+    fn get_idle_ms(&mut self, id: Option<ReportId>) -> Option<u32> {
         info!("Get idle rate for {:?}", id);
         None
     }

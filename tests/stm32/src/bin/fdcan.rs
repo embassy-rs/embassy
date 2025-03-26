@@ -24,7 +24,19 @@ bind_interrupts!(struct Irqs1 {
     FDCAN1_IT1 => can::IT1InterruptHandler<FDCAN1>;
 });
 
-#[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi", feature = "stm32h563zi"))]
+#[cfg(feature = "stm32h563zi")]
+fn options() -> (Config, TestOptions) {
+    info!("H563 config");
+    (
+        config(),
+        TestOptions {
+            max_latency: Duration::from_micros(1200),
+            max_buffered: 3,
+        },
+    )
+}
+
+#[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi"))]
 fn options() -> (Config, TestOptions) {
     use embassy_stm32::rcc;
     info!("H75 config");
@@ -88,11 +100,11 @@ async fn main(_spawner: Spawner) {
     can.set_bitrate(250_000);
     can2.set_bitrate(250_000);
 
-    can.set_extended_filter(
+    can.properties().set_extended_filter(
         can::filter::ExtendedFilterSlot::_0,
         can::filter::ExtendedFilter::accept_all_into_fifo1(),
     );
-    can2.set_extended_filter(
+    can2.properties().set_extended_filter(
         can::filter::ExtendedFilterSlot::_0,
         can::filter::ExtendedFilter::accept_all_into_fifo1(),
     );
@@ -106,8 +118,8 @@ async fn main(_spawner: Spawner) {
     info!("CAN Configured");
 
     // Test again with a split
-    let (mut tx, mut rx) = can.split();
-    let (mut tx2, mut rx2) = can2.split();
+    let (mut tx, mut rx, _props) = can.split();
+    let (mut tx2, mut rx2, _props) = can2.split();
     run_split_can_tests(&mut tx, &mut rx, &options).await;
     run_split_can_tests(&mut tx2, &mut rx2, &options).await;
 

@@ -1,10 +1,10 @@
 use core::future::{poll_fn, Future};
-use core::pin::Pin;
+use core::pin::{pin, Pin};
 use core::task::{Context, Poll};
 
 use futures_util::future::{select, Either};
 use futures_util::stream::FusedStream;
-use futures_util::{pin_mut, Stream};
+use futures_util::Stream;
 
 use crate::{Duration, Instant};
 
@@ -19,8 +19,7 @@ pub struct TimeoutError;
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
 pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, TimeoutError> {
     let timeout_fut = Timer::after(timeout);
-    pin_mut!(fut);
-    match select(fut, timeout_fut).await {
+    match select(pin!(fut), timeout_fut).await {
         Either::Left((r, _)) => Ok(r),
         Either::Right(_) => Err(TimeoutError),
     }
@@ -32,8 +31,7 @@ pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Out
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
 pub async fn with_deadline<F: Future>(at: Instant, fut: F) -> Result<F::Output, TimeoutError> {
     let timeout_fut = Timer::at(at);
-    pin_mut!(fut);
-    match select(fut, timeout_fut).await {
+    match select(pin!(fut), timeout_fut).await {
         Either::Left((r, _)) => Ok(r),
         Either::Right(_) => Err(TimeoutError),
     }
