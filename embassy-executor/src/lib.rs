@@ -60,8 +60,6 @@ mod config {
 #[doc(hidden)]
 #[cfg(not(feature = "nightly"))]
 pub mod _export {
-    pub use elain;
-    pub use crate::raw::util::SyncUnsafeCell;
     use core::alloc::Layout;
     use core::cell::{Cell, UnsafeCell};
     use core::future::Future;
@@ -69,7 +67,9 @@ pub mod _export {
     use core::ptr::null_mut;
 
     use critical_section::{CriticalSection, Mutex};
+    pub use elain;
 
+    pub use crate::raw::util::SyncUnsafeCell;
     use crate::raw::TaskPool;
 
     struct Arena<const N: usize> {

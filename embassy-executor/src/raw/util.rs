@@ -29,6 +29,7 @@ impl<T> UninitCell<T> {
 
 unsafe impl<T> Sync for UninitCell<T> {}
 
+/// Wrapper around UnsafeCell that implements Sync
 #[repr(transparent)]
 pub struct SyncUnsafeCell<T> {
     value: UnsafeCell<T>,
@@ -37,6 +38,7 @@ pub struct SyncUnsafeCell<T> {
 unsafe impl<T: Sync> Sync for SyncUnsafeCell<T> {}
 
 impl<T> SyncUnsafeCell<T> {
+    /// Create a new SyncUnsafeCell
     #[inline]
     pub const fn new(value: T) -> Self {
         Self {
@@ -44,10 +46,12 @@ impl<T> SyncUnsafeCell<T> {
         }
     }
 
+    /// Set the underlying value
     pub unsafe fn set(&self, value: T) {
         *self.value.get() = value;
     }
 
+    /// Get the underlying value
     pub unsafe fn get(&self) -> T
     where
         T: Copy,
