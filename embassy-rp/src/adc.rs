@@ -205,11 +205,13 @@ impl<'d> Adc<'d, Async> {
 
     fn wait_for_ready() -> impl Future<Output = ()> {
         let r = Self::regs();
-        r.inte().write(|w| w.set_fifo(true));
-        compiler_fence(Ordering::SeqCst);
 
         poll_fn(move |cx| {
             WAKER.register(cx.waker());
+
+            r.inte().write(|w| w.set_fifo(true));
+            compiler_fence(Ordering::SeqCst);
+
             if r.cs().read().ready() {
                 return Poll::Ready(());
             }
