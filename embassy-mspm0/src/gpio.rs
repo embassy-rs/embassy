@@ -5,7 +5,7 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::pac::gpio::vals::*;
@@ -74,7 +74,7 @@ pub enum Port {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -83,11 +83,9 @@ impl<'d> Flex<'d> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        into_ref!(pin);
-
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into() }
     }
 
     /// Set the pin's pull.
@@ -345,7 +343,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input();
         pin.set_pull(pull);
@@ -421,7 +419,7 @@ pub struct Output<'d> {
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_output();
         pin.set_level(initial_output);
@@ -491,7 +489,7 @@ pub struct OutputOpenDrain<'d> {
 impl<'d> OutputOpenDrain<'d> {
     /// Create a new GPIO open drain output driver for a [Pin] with the provided [Level].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_level(initial_output);
         pin.set_as_input_output();
@@ -599,7 +597,7 @@ impl<'d> OutputOpenDrain<'d> {
 
 /// Type-erased GPIO pin
 pub struct AnyPin {
-    pin_port: u8,
+    pub(crate) pin_port: u8,
 }
 
 impl AnyPin {
@@ -608,8 +606,8 @@ impl AnyPin {
     /// # Safety
     /// - `pin_port` should not in use by another driver.
     #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Self {
-        Self { pin_port }
+    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_port })
     }
 }
 
@@ -625,13 +623,7 @@ impl SealedPin for AnyPin {
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_port: self.pin_port(),
-        }
-    }
-
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// The index of this pin in PINCM (pin control management) registers.
     #[inline]
     fn pin_cm(&self) -> u8 {
@@ -866,7 +858,9 @@ macro_rules! impl_pin {
 
         impl From<crate::peripherals::$name> for crate::gpio::AnyPin {
             fn from(val: crate::peripherals::$name) -> Self {
-                crate::gpio::Pin::degrade(val)
+                Self {
+                    pin_port: crate::gpio::SealedPin::pin_port(&val),
+                }
             }
         }
     };
@@ -928,11 +922,11 @@ pub(crate) trait SealedPin {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> InputFuture<'d> {
-    fn new(pin: PeripheralRef<'d, AnyPin>, polarity: Polarity) -> Self {
+    fn new(pin: Peri<'d, AnyPin>, polarity: Polarity) -> Self {
         let block = pin.block();
 
         // Before clearing any previous edge events, we must disable events.

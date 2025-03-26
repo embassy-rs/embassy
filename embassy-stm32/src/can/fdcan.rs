@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::interrupt::InterruptExt;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -13,7 +13,7 @@ use crate::can::fd::peripheral::Registers;
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
-use crate::{interrupt, peripherals, Peripheral};
+use crate::{interrupt, peripherals, Peri};
 
 pub(crate) mod fd;
 
@@ -175,15 +175,13 @@ impl<'d> CanConfigurator<'d> {
     /// Creates a new Fdcan instance, keeping the peripheral in sleep mode.
     /// You must call [Fdcan::enable_non_blocking] to use the peripheral.
     pub fn new<T: Instance>(
-        _peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        _peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
         _irqs: impl interrupt::typelevel::Binding<T::IT0Interrupt, IT0InterruptHandler<T>>
             + interrupt::typelevel::Binding<T::IT1Interrupt, IT1InterruptHandler<T>>
             + 'd,
     ) -> CanConfigurator<'d> {
-        into_ref!(_peri, rx, tx);
-
         rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
         tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
@@ -957,7 +955,7 @@ trait SealedInstance {
 
 /// Instance trait
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + 'static {
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + 'static {
     /// Interrupt 0
     type IT0Interrupt: crate::interrupt::typelevel::Interrupt;
     /// Interrupt 1
@@ -965,7 +963,7 @@ pub trait Instance: SealedInstance + RccPeripheral + 'static {
 }
 
 /// Fdcan Instance struct
-pub struct FdcanInstance<'a, T>(PeripheralRef<'a, T>);
+pub struct FdcanInstance<'a, T: Instance>(Peri<'a, T>);
 
 macro_rules! impl_fdcan {
     ($inst:ident,

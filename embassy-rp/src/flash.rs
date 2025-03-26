@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embedded_storage::nor_flash::{
     check_erase, check_read, check_write, ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind,
     ReadNorFlash,
@@ -114,7 +114,7 @@ impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, '
 
 /// Flash driver.
 pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
-    dma: Option<PeripheralRef<'d, AnyChannel>>,
+    dma: Option<Peri<'d, AnyChannel>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
@@ -253,7 +253,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE> {
     /// Create a new flash driver in blocking mode.
-    pub fn new_blocking(_flash: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new_blocking(_flash: Peri<'d, T>) -> Self {
         Self {
             dma: None,
             phantom: PhantomData,
@@ -263,10 +263,9 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
     /// Create a new flash driver in async mode.
-    pub fn new(_flash: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = impl Channel> + 'd) -> Self {
-        into_ref!(dma);
+    pub fn new(_flash: Peri<'d, T>, dma: Peri<'d, impl Channel>) -> Self {
         Self {
-            dma: Some(dma.map_into()),
+            dma: Some(dma.into()),
             phantom: PhantomData,
         }
     }
@@ -316,7 +315,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         const XIP_AUX_BASE: *const u32 = 0x50500000 as *const _;
         let transfer = unsafe {
             crate::dma::read(
-                self.dma.as_mut().unwrap(),
+                self.dma.as_mut().unwrap().reborrow(),
                 XIP_AUX_BASE,
                 data,
                 pac::dma::vals::TreqSel::XIP_STREAM,
@@ -965,7 +964,7 @@ trait SealedMode {}
 
 /// Flash instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance {}
+pub trait Instance: SealedInstance + PeripheralType {}
 /// Flash mode.
 #[allow(private_bounds)]
 pub trait Mode: SealedMode {}

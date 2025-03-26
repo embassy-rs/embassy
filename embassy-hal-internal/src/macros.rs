@@ -18,8 +18,8 @@ macro_rules! peripherals_definition {
                     ///
                     /// You must ensure that you're only using one instance of this type at a time.
                     #[inline]
-                    pub unsafe fn steal() -> Self {
-                        Self{ _private: ()}
+                    pub unsafe fn steal() -> $crate::Peri<'static, Self> {
+                        $crate::Peri::new_unchecked(Self{ _private: ()})
                     }
                 }
 
@@ -42,7 +42,7 @@ macro_rules! peripherals_struct {
             $(
                 #[doc = concat!(stringify!($name), " peripheral")]
                 $(#[$cfg])?
-                pub $name: peripherals::$name,
+                pub $name: $crate::Peri<'static, peripherals::$name>,
             )*
         }
 
@@ -108,28 +108,26 @@ macro_rules! peripherals {
     };
 }
 
-/// Convenience converting into reference.
-#[macro_export]
-macro_rules! into_ref {
-    ($($name:ident),*) => {
-        $(
-            let mut $name = $name.into_ref();
-        )*
-    }
-}
-
 /// Implement the peripheral trait.
 #[macro_export]
 macro_rules! impl_peripheral {
-    ($type:ident) => {
-        impl $crate::Peripheral for $type {
-            type P = $type;
-
-            #[inline]
-            unsafe fn clone_unchecked(&self) -> Self::P {
-                #[allow(clippy::needless_update)]
-                $type { ..*self }
+    ($type:ident<$($T:ident $(: $bound:tt $(+ $others:tt )*)?),*>) => {
+        impl<$($T: $($bound $(+$others)*)?),*> Copy for $type <$($T),*> {}
+        impl<$($T: $($bound $(+$others)*)?),*> Clone for $type <$($T),*> {
+            fn clone(&self) -> Self {
+                *self
             }
         }
+        impl<$($T: $($bound $(+$others)*)?),*> PeripheralType for $type <$($T),*> {}
+    };
+
+    ($type:ident) => {
+        impl Copy for $type {}
+        impl Clone for $type {
+            fn clone(&self) -> Self {
+                *self
+            }
+        }
+        impl $crate::PeripheralType for $type {}
     };
 }

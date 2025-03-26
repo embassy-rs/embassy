@@ -19,11 +19,12 @@ pub mod ieee802154;
 
 use core::marker::PhantomData;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::radio::vals::State as RadioState;
 pub use pac::radio::vals::Txpower as TxPower;
 
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// RADIO error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +95,7 @@ macro_rules! impl_radio {
 
 /// Radio peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

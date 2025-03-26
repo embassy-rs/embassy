@@ -36,7 +36,8 @@ async fn main(_spawner: Spawner) {
         );
 
         let channels_seqence: [&mut AnyAdcChannel<ADC1>; 3] = [&mut vref, &mut temp, &mut pin0];
-        adc.read(&mut dma, channels_seqence.into_iter(), &mut read_buffer).await;
+        adc.read(dma.reborrow(), channels_seqence.into_iter(), &mut read_buffer)
+            .await;
         // Values are ordered according to hardware ADC channel number!
         info!(
             "DMA ADC read in set: vref = {}, temp = {}, pin0 = {}.",
@@ -45,7 +46,7 @@ async fn main(_spawner: Spawner) {
 
         let hw_channel_selection: u32 =
             (1 << temp.get_hw_channel()) + (1 << vref.get_hw_channel()) + (1 << pin0.get_hw_channel());
-        adc.read_in_hw_order(&mut dma, hw_channel_selection, Scandir::UP, &mut read_buffer)
+        adc.read_in_hw_order(dma.reborrow(), hw_channel_selection, Scandir::UP, &mut read_buffer)
             .await;
         info!(
             "DMA ADC read in hardware order: vref = {}, temp = {}, pin0 = {}.",

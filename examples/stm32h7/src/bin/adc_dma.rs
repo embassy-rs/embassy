@@ -57,7 +57,7 @@ async fn main(_spawner: Spawner) {
 
     loop {
         adc.read(
-            &mut dma,
+            dma.reborrow(),
             [
                 (&mut vrefint_channel, SampleTime::CYCLES387_5),
                 (&mut pc0, SampleTime::CYCLES810_5),

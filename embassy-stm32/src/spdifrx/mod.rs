@@ -4,7 +4,6 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::ringbuffer::Error as RingbufferError;
@@ -16,7 +15,7 @@ use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::spdifrx::Spdifrx as Regs;
 use crate::rcc::{RccInfo, SealedRccPeripheral};
-use crate::{interrupt, peripherals, Peripheral};
+use crate::{interrupt, peripherals, Peri};
 
 /// Possible S/PDIF preamble types.
 #[allow(dead_code)]
@@ -36,10 +35,10 @@ enum PreambleType {
 
 macro_rules! new_spdifrx_pin {
     ($name:ident, $af_type:expr) => {{
-        let pin = $name.into_ref();
+        let pin = $name;
         let input_sel = pin.input_sel();
         pin.set_as_af(pin.af_num(), $af_type);
-        (Some(pin.map_into()), input_sel)
+        (Some(pin.into()), input_sel)
     }};
 }
 
@@ -61,8 +60,8 @@ macro_rules! impl_spdifrx_pin {
 /// Data is read by DMAs and stored in a ring buffer.
 #[cfg(not(gpdma))]
 pub struct Spdifrx<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
-    spdifrx_in: Option<PeripheralRef<'d, AnyPin>>,
+    _peri: Peri<'d, T>,
+    spdifrx_in: Option<Peri<'d, AnyPin>>,
     data_ring_buffer: ReadableRingBuffer<'d, u32>,
 }
 
@@ -131,17 +130,15 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
 
     /// Create a new `Spdifrx` instance.
     pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>> + 'd,
         config: Config,
-        spdifrx_in: impl Peripheral<P = impl InPin<T>> + 'd,
-        data_dma: impl Peripheral<P = impl Channel + Dma<T>> + 'd,
+        spdifrx_in: Peri<'d, impl InPin<T>>,
+        data_dma: Peri<'d, impl Channel + Dma<T>>,
         data_dma_buf: &'d mut [u32],
     ) -> Self {
         let (spdifrx_in, input_sel) = new_spdifrx_pin!(spdifrx_in, AfType::input(Pull::None));
         Self::setup(config, input_sel);
-
-        into_ref!(peri, data_dma);
 
         let regs = T::info().regs;
         let dr_request = data_dma.request();

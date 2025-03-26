@@ -40,15 +40,15 @@ async fn main(_spawner: Spawner) {
     // ======== Try 4bit. ==============
     info!("initializing in 4-bit mode...");
     let mut s = Sdmmc::new_4bit(
-        &mut sdmmc,
+        sdmmc.reborrow(),
         Irqs,
-        &mut dma,
-        &mut clk,
-        &mut cmd,
-        &mut d0,
-        &mut d1,
-        &mut d2,
-        &mut d3,
+        dma.reborrow(),
+        clk.reborrow(),
+        cmd.reborrow(),
+        d0.reborrow(),
+        d1.reborrow(),
+        d2.reborrow(),
+        d3.reborrow(),
         Default::default(),
     );
 
@@ -89,12 +89,12 @@ async fn main(_spawner: Spawner) {
     // ======== Try 1bit. ==============
     info!("initializing in 1-bit mode...");
     let mut s = Sdmmc::new_1bit(
-        &mut sdmmc,
+        sdmmc.reborrow(),
         Irqs,
-        &mut dma,
-        &mut clk,
-        &mut cmd,
-        &mut d0,
+        dma.reborrow(),
+        clk.reborrow(),
+        cmd.reborrow(),
+        d0.reborrow(),
         Default::default(),
     );
 

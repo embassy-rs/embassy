@@ -54,7 +54,7 @@ pub mod pio;
 pub(crate) mod relocate;
 
 // Reexports
-pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use rp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]

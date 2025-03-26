@@ -8,7 +8,7 @@ use core::ptr;
 #[cfg(hash_v2)]
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use stm32_metapac::hash::regs::*;
 
@@ -19,7 +19,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::mode::Async;
 use crate::mode::{Blocking, Mode};
 use crate::peripherals::HASH;
-use crate::{interrupt, pac, peripherals, rcc, Peripheral};
+use crate::{interrupt, pac, peripherals, rcc, Peri};
 
 #[cfg(hash_v1)]
 const NUM_CONTEXT_REGS: usize = 51;
@@ -119,7 +119,7 @@ type HmacKey<'k> = Option<&'k [u8]>;
 
 /// HASH driver.
 pub struct Hash<'d, T: Instance, M: Mode> {
-    _peripheral: PeripheralRef<'d, T>,
+    _peripheral: Peri<'d, T>,
     _phantom: PhantomData<M>,
     #[cfg(hash_v2)]
     dma: Option<ChannelAndRequest<'d>>,
@@ -128,11 +128,10 @@ pub struct Hash<'d, T: Instance, M: Mode> {
 impl<'d, T: Instance> Hash<'d, T, Blocking> {
     /// Instantiates, resets, and enables the HASH peripheral.
     pub fn new_blocking(
-        peripheral: impl Peripheral<P = T> + 'd,
+        peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<HASH>();
-        into_ref!(peripheral);
         let instance = Self {
             _peripheral: peripheral,
             _phantom: PhantomData,
@@ -396,12 +395,11 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
 impl<'d, T: Instance> Hash<'d, T, Async> {
     /// Instantiates, resets, and enables the HASH peripheral.
     pub fn new(
-        peripheral: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = impl Dma<T>> + 'd,
+        peripheral: Peri<'d, T>,
+        dma: Peri<'d, impl Dma<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<HASH>();
-        into_ref!(peripheral, dma);
         let instance = Self {
             _peripheral: peripheral,
             _phantom: PhantomData,
@@ -583,7 +581,7 @@ trait SealedInstance {
 
 /// HASH instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + crate::rcc::RccPeripheral + 'static + Send {
     /// Interrupt for this HASH instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

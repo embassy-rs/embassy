@@ -5,13 +5,13 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::InterruptExt;
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
-use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
+use crate::{interrupt, pac, peripherals, RegExt};
 
 #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
 pub(crate) const BANK0_PIN_COUNT: usize = 30;
@@ -115,7 +115,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input();
         pin.set_pull(pull);
@@ -266,11 +266,11 @@ fn IO_IRQ_QSPI() {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> InputFuture<'d> {
-    fn new(pin: PeripheralRef<'d, AnyPin>, level: InterruptTrigger) -> Self {
+    fn new(pin: Peri<'d, AnyPin>, level: InterruptTrigger) -> Self {
         let pin_group = (pin.pin() % 8) as usize;
         // first, clear the INTR register bits. without this INTR will still
         // contain reports of previous edges, causing the IRQ to fire early
@@ -359,7 +359,7 @@ pub struct Output<'d> {
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -440,7 +440,7 @@ pub struct OutputOpenDrain<'d> {
 impl<'d> OutputOpenDrain<'d> {
     /// Create GPIO output driver for a [Pin] in open drain mode with the provided [Level].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_low();
         match initial_output {
@@ -581,7 +581,7 @@ impl<'d> OutputOpenDrain<'d> {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -590,9 +590,7 @@ impl<'d> Flex<'d> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        into_ref!(pin);
-
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         pin.pad_ctrl().write(|w| {
             #[cfg(feature = "_rp235x")]
             w.set_iso(false);
@@ -606,7 +604,7 @@ impl<'d> Flex<'d> {
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIOB_PROC_0 as _);
         });
 
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into() }
     }
 
     #[inline]
@@ -829,7 +827,7 @@ impl<'d> Drop for Flex<'d> {
 
 /// Dormant wake driver.
 pub struct DormantWake<'w> {
-    pin: PeripheralRef<'w, AnyPin>,
+    pin: Peri<'w, AnyPin>,
     cfg: DormantWakeConfig,
 }
 
@@ -919,14 +917,7 @@ pub(crate) trait SealedPin: Sized {
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
-    /// Degrade to a generic pin struct
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_bank: self.pin_bank(),
-        }
-    }
-
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Returns the pin number within a bank
     #[inline]
     fn pin(&self) -> u8 {
@@ -951,8 +942,8 @@ impl AnyPin {
     /// # Safety
     ///
     /// You must ensure that you’re only using one instance of this type at a time.
-    pub unsafe fn steal(pin_bank: u8) -> Self {
-        Self { pin_bank }
+    pub unsafe fn steal(pin_bank: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_bank })
     }
 }
 
@@ -979,7 +970,9 @@ macro_rules! impl_pin {
 
         impl From<peripherals::$name> for crate::gpio::AnyPin {
             fn from(val: peripherals::$name) -> Self {
-                crate::gpio::Pin::degrade(val)
+                Self {
+                    pin_bank: val.pin_bank(),
+                }
             }
         }
     };

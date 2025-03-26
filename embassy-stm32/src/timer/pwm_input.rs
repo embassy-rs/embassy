@@ -1,12 +1,10 @@
 //! PWM Input driver.
 
-use embassy_hal_internal::into_ref;
-
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
 use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
 use crate::gpio::{AfType, Pull};
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::Peri;
 
 /// PWM Input driver.
 pub struct PwmInput<'d, T: GeneralInstance4Channel> {
@@ -16,34 +14,20 @@ pub struct PwmInput<'d, T: GeneralInstance4Channel> {
 
 impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     /// Create a new PWM input driver.
-    pub fn new(
-        tim: impl Peripheral<P = T> + 'd,
-        pin: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
-        pull: Pull,
-        freq: Hertz,
-    ) -> Self {
-        into_ref!(pin);
-
+    pub fn new(tim: Peri<'d, T>, pin: Peri<'d, impl Channel1Pin<T>>, pull: Pull, freq: Hertz) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch1, Channel::Ch2)
     }
 
     /// Create a new PWM input driver.
-    pub fn new_alt(
-        tim: impl Peripheral<P = T> + 'd,
-        pin: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
-        pull: Pull,
-        freq: Hertz,
-    ) -> Self {
-        into_ref!(pin);
-
+    pub fn new_alt(tim: Peri<'d, T>, pin: Peri<'d, impl Channel2Pin<T>>, pull: Pull, freq: Hertz) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch2, Channel::Ch1)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, ch1: Channel, ch2: Channel) -> Self {
+    fn new_inner(tim: Peri<'d, T>, freq: Hertz, ch1: Channel, ch2: Channel) -> Self {
         let mut inner = Timer::new(tim);
 
         inner.set_counting_mode(CountingMode::EdgeAlignedUp);

@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::Peri;
 
 use super::timer::Timer;
 #[cfg(not(any(lptim_v2a, lptim_v2b)))]
@@ -14,7 +14,6 @@ use super::{BasicInstance, Instance};
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
-use crate::Peripheral;
 
 /// Output marker type.
 pub enum Output {}
@@ -27,7 +26,7 @@ pub enum Ch2 {}
 ///
 /// This wraps a pin to make it usable with PWM.
 pub struct PwmPin<'d, T, C> {
-    _pin: PeripheralRef<'d, AnyPin>,
+    _pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -48,8 +47,7 @@ macro_rules! channel_impl {
     ($new_chx:ident, $new_chx_with_config:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, T: BasicInstance> PwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(
@@ -58,16 +56,12 @@ macro_rules! channel_impl {
                     );
                 });
                 PwmPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with config.")]
-            pub fn $new_chx_with_config(
-                pin: impl Peripheral<P = impl $pin_trait<T>> + 'd,
-                pin_config: PwmPinConfig,
-            ) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx_with_config(pin: Peri<'d, impl $pin_trait<T>>, pin_config: PwmPinConfig) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(
@@ -79,7 +73,7 @@ macro_rules! channel_impl {
                     );
                 });
                 PwmPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
@@ -102,7 +96,7 @@ pub struct Pwm<'d, T: Instance> {
 #[cfg(not(any(lptim_v2a, lptim_v2b)))]
 impl<'d, T: Instance> Pwm<'d, T> {
     /// Create a new PWM driver.
-    pub fn new(tim: impl Peripheral<P = T> + 'd, _output_pin: PwmPin<'d, T, Output>, freq: Hertz) -> Self {
+    pub fn new(tim: Peri<'d, T>, _output_pin: PwmPin<'d, T, Output>, freq: Hertz) -> Self {
         Self::new_inner(tim, freq)
     }
 
@@ -128,7 +122,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
 impl<'d, T: Instance> Pwm<'d, T> {
     /// Create a new PWM driver.
     pub fn new(
-        tim: impl Peripheral<P = T> + 'd,
+        tim: Peri<'d, T>,
         _ch1_pin: Option<PwmPin<'d, T, Ch1>>,
         _ch2_pin: Option<PwmPin<'d, T, Ch2>>,
         freq: Hertz,
@@ -174,7 +168,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
 }
 
 impl<'d, T: Instance> Pwm<'d, T> {
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz) -> Self {
+    fn new_inner(tim: Peri<'d, T>, freq: Hertz) -> Self {
         let mut this = Self { inner: Timer::new(tim) };
 
         this.inner.enable();

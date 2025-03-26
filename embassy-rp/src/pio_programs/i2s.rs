@@ -6,16 +6,16 @@ use crate::dma::{AnyChannel, Channel, Transfer};
 use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
-use crate::{into_ref, Peripheral, PeripheralRef};
+use crate::Peri;
 
 /// This struct represents an i2s output driver program
-pub struct PioI2sOutProgram<'a, PIO: Instance> {
-    prg: LoadedProgram<'a, PIO>,
+pub struct PioI2sOutProgram<'d, PIO: Instance> {
+    prg: LoadedProgram<'d, PIO>,
 }
 
-impl<'a, PIO: Instance> PioI2sOutProgram<'a, PIO> {
+impl<'d, PIO: Instance> PioI2sOutProgram<'d, PIO> {
     /// Load the program into the given pio
-    pub fn new(common: &mut Common<'a, PIO>) -> Self {
+    pub fn new(common: &mut Common<'d, PIO>) -> Self {
         let prg = pio::pio_asm!(
             ".side_set 2",
             "    set x, 14          side 0b01", // side 0bWB - W = Word Clock, B = Bit Clock
@@ -37,27 +37,25 @@ impl<'a, PIO: Instance> PioI2sOutProgram<'a, PIO> {
 }
 
 /// Pio backed I2s output driver
-pub struct PioI2sOut<'a, P: Instance, const S: usize> {
-    dma: PeripheralRef<'a, AnyChannel>,
-    sm: StateMachine<'a, P, S>,
+pub struct PioI2sOut<'d, P: Instance, const S: usize> {
+    dma: Peri<'d, AnyChannel>,
+    sm: StateMachine<'d, P, S>,
 }
 
-impl<'a, P: Instance, const S: usize> PioI2sOut<'a, P, S> {
+impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
     /// Configure a state machine to output I2s
     pub fn new(
-        common: &mut Common<'a, P>,
-        mut sm: StateMachine<'a, P, S>,
-        dma: impl Peripheral<P = impl Channel> + 'a,
-        data_pin: impl PioPin,
-        bit_clock_pin: impl PioPin,
-        lr_clock_pin: impl PioPin,
+        common: &mut Common<'d, P>,
+        mut sm: StateMachine<'d, P, S>,
+        dma: Peri<'d, impl Channel>,
+        data_pin: Peri<'d, impl PioPin>,
+        bit_clock_pin: Peri<'d, impl PioPin>,
+        lr_clock_pin: Peri<'d, impl PioPin>,
         sample_rate: u32,
         bit_depth: u32,
         channels: u32,
-        program: &PioI2sOutProgram<'a, P>,
+        program: &PioI2sOutProgram<'d, P>,
     ) -> Self {
-        into_ref!(dma);
-
         let data_pin = common.make_pio_pin(data_pin);
         let bit_clock_pin = common.make_pio_pin(bit_clock_pin);
         let left_right_clock_pin = common.make_pio_pin(lr_clock_pin);
@@ -82,10 +80,7 @@ impl<'a, P: Instance, const S: usize> PioI2sOut<'a, P, S> {
 
         sm.set_enable(true);
 
-        Self {
-            dma: dma.map_into(),
-            sm,
-        }
+        Self { dma: dma.into(), sm }
     }
 
     /// Return an in-prograss dma transfer future. Awaiting it will guarentee a complete transfer.

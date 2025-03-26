@@ -5,7 +5,7 @@ use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, Irq, LoadedProgram, PioPin, ShiftConfig, ShiftDirection,
     StateMachine,
 };
-use crate::{into_ref, Peripheral, PeripheralRef};
+use crate::Peri;
 
 /// This struct represents a HD44780 program that takes command words (<wait:24> <command:4> <0:4>)
 pub struct PioHD44780CommandWordProgram<'a, PIO: Instance> {
@@ -99,7 +99,7 @@ impl<'a, PIO: Instance> PioHD44780CommandSequenceProgram<'a, PIO> {
 
 /// Pio backed HD44780 driver
 pub struct PioHD44780<'l, P: Instance, const S: usize> {
-    dma: PeripheralRef<'l, AnyChannel>,
+    dma: Peri<'l, AnyChannel>,
     sm: StateMachine<'l, P, S>,
 
     buf: [u8; 40],
@@ -111,19 +111,17 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         common: &mut Common<'l, P>,
         mut sm: StateMachine<'l, P, S>,
         mut irq: Irq<'l, P, S>,
-        dma: impl Peripheral<P = impl Channel> + 'l,
-        rs: impl PioPin,
-        rw: impl PioPin,
-        e: impl PioPin,
-        db4: impl PioPin,
-        db5: impl PioPin,
-        db6: impl PioPin,
-        db7: impl PioPin,
+        mut dma: Peri<'l, impl Channel>,
+        rs: Peri<'l, impl PioPin>,
+        rw: Peri<'l, impl PioPin>,
+        e: Peri<'l, impl PioPin>,
+        db4: Peri<'l, impl PioPin>,
+        db5: Peri<'l, impl PioPin>,
+        db6: Peri<'l, impl PioPin>,
+        db7: Peri<'l, impl PioPin>,
         word_prg: &PioHD44780CommandWordProgram<'l, P>,
         seq_prg: &PioHD44780CommandSequenceProgram<'l, P>,
     ) -> PioHD44780<'l, P, S> {
-        into_ref!(dma);
-
         let rs = common.make_pio_pin(rs);
         let rw = common.make_pio_pin(rw);
         let e = common.make_pio_pin(e);
@@ -176,7 +174,7 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         sm.tx().dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1], false).await;
 
         Self {
-            dma: dma.map_into(),
+            dma: dma.into(),
             sm,
             buf: [0x20; 40],
         }

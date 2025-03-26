@@ -24,7 +24,7 @@ use embassy_futures::select::{select, Either};
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Pull};
-use embassy_rp::{bind_interrupts, peripherals};
+use embassy_rp::{bind_interrupts, peripherals, Peri};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::{channel, signal};

@@ -4,34 +4,34 @@
 
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::gpio::{convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, DISCONNECTED};
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pwm::vals;
 use crate::ppi::{Event, Task};
 use crate::util::slice_in_ram_or;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// SimplePwm is the traditional pwm interface you're probably used to, allowing
 /// to simply set a duty cycle across up to four channels.
 pub struct SimplePwm<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
+    _peri: Peri<'d, T>,
     duty: [u16; 4],
-    ch0: Option<PeripheralRef<'d, AnyPin>>,
-    ch1: Option<PeripheralRef<'d, AnyPin>>,
-    ch2: Option<PeripheralRef<'d, AnyPin>>,
-    ch3: Option<PeripheralRef<'d, AnyPin>>,
+    ch0: Option<Peri<'d, AnyPin>>,
+    ch1: Option<Peri<'d, AnyPin>>,
+    ch2: Option<Peri<'d, AnyPin>>,
+    ch3: Option<Peri<'d, AnyPin>>,
 }
 
 /// SequencePwm allows you to offload the updating of a sequence of duty cycles
 /// to up to four channels, as well as repeat that sequence n times.
 pub struct SequencePwm<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
-    ch0: Option<PeripheralRef<'d, AnyPin>>,
-    ch1: Option<PeripheralRef<'d, AnyPin>>,
-    ch2: Option<PeripheralRef<'d, AnyPin>>,
-    ch3: Option<PeripheralRef<'d, AnyPin>>,
+    _peri: Peri<'d, T>,
+    ch0: Option<Peri<'d, AnyPin>>,
+    ch1: Option<Peri<'d, AnyPin>>,
+    ch2: Option<Peri<'d, AnyPin>>,
+    ch3: Option<Peri<'d, AnyPin>>,
 }
 
 /// PWM error
@@ -54,78 +54,61 @@ pub const PWM_CLK_HZ: u32 = 16_000_000;
 impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Create a new 1-channel PWM
     #[allow(unused_unsafe)]
-    pub fn new_1ch(
-        pwm: impl Peripheral<P = T> + 'd,
-        ch0: impl Peripheral<P = impl GpioPin> + 'd,
-        config: Config,
-    ) -> Result<Self, Error> {
-        into_ref!(ch0);
-        Self::new_inner(pwm, Some(ch0.map_into()), None, None, None, config)
+    pub fn new_1ch(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: Config) -> Result<Self, Error> {
+        Self::new_inner(pwm, Some(ch0.into()), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_2ch(
-        pwm: impl Peripheral<P = T> + 'd,
-        ch0: impl Peripheral<P = impl GpioPin> + 'd,
-        ch1: impl Peripheral<P = impl GpioPin> + 'd,
+        pwm: Peri<'d, T>,
+        ch0: Peri<'d, impl GpioPin>,
+        ch1: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Result<Self, Error> {
-        into_ref!(ch0, ch1);
-        Self::new_inner(pwm, Some(ch0.map_into()), Some(ch1.map_into()), None, None, config)
+        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None, config)
     }
 
     /// Create a new 3-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_3ch(
-        pwm: impl Peripheral<P = T> + 'd,
-        ch0: impl Peripheral<P = impl GpioPin> + 'd,
-        ch1: impl Peripheral<P = impl GpioPin> + 'd,
-        ch2: impl Peripheral<P = impl GpioPin> + 'd,
+        pwm: Peri<'d, T>,
+        ch0: Peri<'d, impl GpioPin>,
+        ch1: Peri<'d, impl GpioPin>,
+        ch2: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Result<Self, Error> {
-        into_ref!(ch0, ch1, ch2);
-        Self::new_inner(
-            pwm,
-            Some(ch0.map_into()),
-            Some(ch1.map_into()),
-            Some(ch2.map_into()),
-            None,
-            config,
-        )
+        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None, config)
     }
 
     /// Create a new 4-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_4ch(
-        pwm: impl Peripheral<P = T> + 'd,
-        ch0: impl Peripheral<P = impl GpioPin> + 'd,
-        ch1: impl Peripheral<P = impl GpioPin> + 'd,
-        ch2: impl Peripheral<P = impl GpioPin> + 'd,
-        ch3: impl Peripheral<P = impl GpioPin> + 'd,
+        pwm: Peri<'d, T>,
+        ch0: Peri<'d, impl GpioPin>,
+        ch1: Peri<'d, impl GpioPin>,
+        ch2: Peri<'d, impl GpioPin>,
+        ch3: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Result<Self, Error> {
-        into_ref!(ch0, ch1, ch2, ch3);
         Self::new_inner(
             pwm,
-            Some(ch0.map_into()),
-            Some(ch1.map_into()),
-            Some(ch2.map_into()),
-            Some(ch3.map_into()),
+            Some(ch0.into()),
+            Some(ch1.into()),
+            Some(ch2.into()),
+            Some(ch3.into()),
             config,
         )
     }
 
     fn new_inner(
-        _pwm: impl Peripheral<P = T> + 'd,
-        ch0: Option<PeripheralRef<'d, AnyPin>>,
-        ch1: Option<PeripheralRef<'d, AnyPin>>,
-        ch2: Option<PeripheralRef<'d, AnyPin>>,
-        ch3: Option<PeripheralRef<'d, AnyPin>>,
+        _pwm: Peri<'d, T>,
+        ch0: Option<Peri<'d, AnyPin>>,
+        ch1: Option<Peri<'d, AnyPin>>,
+        ch2: Option<Peri<'d, AnyPin>>,
+        ch3: Option<Peri<'d, AnyPin>>,
         config: Config,
     ) -> Result<Self, Error> {
-        into_ref!(_pwm);
-
         let r = T::regs();
 
         if let Some(pin) = &ch0 {
@@ -610,74 +593,54 @@ pub enum CounterMode {
 impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Create a new 1-channel PWM
     #[allow(unused_unsafe)]
-    pub fn new_1ch(pwm: impl Peripheral<P = T> + 'd, ch0: impl Peripheral<P = impl GpioPin> + 'd) -> Self {
-        unsafe {
-            into_ref!(ch0);
-            Self::new_inner(pwm, Some(ch0.map_into()), None, None, None)
-        }
+    pub fn new_1ch(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>) -> Self {
+        unsafe { Self::new_inner(pwm, Some(ch0.into()), None, None, None) }
     }
 
     /// Create a new 2-channel PWM
     #[allow(unused_unsafe)]
-    pub fn new_2ch(
-        pwm: impl Peripheral<P = T> + 'd,
-        ch0: impl Peripheral<P = impl GpioPin> + 'd,
-        ch1: impl Peripheral<P = impl GpioPin> + 'd,
-    ) -> Self {
-        into_ref!(ch0, ch1);
-        Self::new_inner(pwm, Some(ch0.map_into()), Some(ch1.map_into()), None, None)
+    pub fn new_2ch(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, ch1: Peri<'d, impl GpioPin>) -> Self {
+        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None)
     }
 
     /// Create a new 3-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_3ch(
-        pwm: impl Peripheral<P = T> + 'd,
-        ch0: impl Peripheral<P = impl GpioPin> + 'd,
-        ch1: impl Peripheral<P = impl GpioPin> + 'd,
-        ch2: impl Peripheral<P = impl GpioPin> + 'd,
+        pwm: Peri<'d, T>,
+        ch0: Peri<'d, impl GpioPin>,
+        ch1: Peri<'d, impl GpioPin>,
+        ch2: Peri<'d, impl GpioPin>,
     ) -> Self {
-        unsafe {
-            into_ref!(ch0, ch1, ch2);
-            Self::new_inner(
-                pwm,
-                Some(ch0.map_into()),
-                Some(ch1.map_into()),
-                Some(ch2.map_into()),
-                None,
-            )
-        }
+        unsafe { Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None) }
     }
 
     /// Create a new 4-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_4ch(
-        pwm: impl Peripheral<P = T> + 'd,
-        ch0: impl Peripheral<P = impl GpioPin> + 'd,
-        ch1: impl Peripheral<P = impl GpioPin> + 'd,
-        ch2: impl Peripheral<P = impl GpioPin> + 'd,
-        ch3: impl Peripheral<P = impl GpioPin> + 'd,
+        pwm: Peri<'d, T>,
+        ch0: Peri<'d, impl GpioPin>,
+        ch1: Peri<'d, impl GpioPin>,
+        ch2: Peri<'d, impl GpioPin>,
+        ch3: Peri<'d, impl GpioPin>,
     ) -> Self {
         unsafe {
-            into_ref!(ch0, ch1, ch2, ch3);
             Self::new_inner(
                 pwm,
-                Some(ch0.map_into()),
-                Some(ch1.map_into()),
-                Some(ch2.map_into()),
-                Some(ch3.map_into()),
+                Some(ch0.into()),
+                Some(ch1.into()),
+                Some(ch2.into()),
+                Some(ch3.into()),
             )
         }
     }
 
     fn new_inner(
-        _pwm: impl Peripheral<P = T> + 'd,
-        ch0: Option<PeripheralRef<'d, AnyPin>>,
-        ch1: Option<PeripheralRef<'d, AnyPin>>,
-        ch2: Option<PeripheralRef<'d, AnyPin>>,
-        ch3: Option<PeripheralRef<'d, AnyPin>>,
+        _pwm: Peri<'d, T>,
+        ch0: Option<Peri<'d, AnyPin>>,
+        ch1: Option<Peri<'d, AnyPin>>,
+        ch2: Option<Peri<'d, AnyPin>>,
+        ch3: Option<Peri<'d, AnyPin>>,
     ) -> Self {
-        into_ref!(_pwm);
-
         let r = T::regs();
 
         for (i, ch) in [&ch0, &ch1, &ch2, &ch3].into_iter().enumerate() {
@@ -896,7 +859,7 @@ pub(crate) trait SealedInstance {
 
 /// PWM peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

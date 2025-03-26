@@ -90,17 +90,15 @@ pub(crate) fn init_buffers<'d, T: Instance + 'd>(
 impl<'d, T: Instance> BufferedUart<'d, T> {
     /// Create a buffered UART instance.
     pub fn new(
-        _uart: impl Peripheral<P = T> + 'd,
+        _uart: Peri<'d, T>,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, impl RxPin<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx);
-
-        super::Uart::<'d, T, Async>::init(Some(tx.map_into()), Some(rx.map_into()), None, None, config);
+        super::Uart::<'d, T, Async>::init(Some(tx.into()), Some(rx.into()), None, None, config);
         init_buffers::<T>(irq, Some(tx_buffer), Some(rx_buffer));
 
         Self {
@@ -111,23 +109,21 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
 
     /// Create a buffered UART instance with flow control.
     pub fn new_with_rtscts(
-        _uart: impl Peripheral<P = T> + 'd,
+        _uart: Peri<'d, T>,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx, cts, rts);
-
         super::Uart::<'d, T, Async>::init(
-            Some(tx.map_into()),
-            Some(rx.map_into()),
-            Some(rts.map_into()),
-            Some(cts.map_into()),
+            Some(tx.into()),
+            Some(rx.into()),
+            Some(rts.into()),
+            Some(cts.into()),
             config,
         );
         init_buffers::<T>(irq, Some(tx_buffer), Some(rx_buffer));
@@ -184,15 +180,13 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
 impl<'d, T: Instance> BufferedUartRx<'d, T> {
     /// Create a new buffered UART RX.
     pub fn new(
-        _uart: impl Peripheral<P = T> + 'd,
+        _uart: Peri<'d, T>,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        rx: Peri<'d, impl RxPin<T>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(rx);
-
-        super::Uart::<'d, T, Async>::init(None, Some(rx.map_into()), None, None, config);
+        super::Uart::<'d, T, Async>::init(None, Some(rx.into()), None, None, config);
         init_buffers::<T>(irq, None, Some(rx_buffer));
 
         Self { phantom: PhantomData }
@@ -200,16 +194,14 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
 
     /// Create a new buffered UART RX with flow control.
     pub fn new_with_rts(
-        _uart: impl Peripheral<P = T> + 'd,
+        _uart: Peri<'d, T>,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        rx: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(rx, rts);
-
-        super::Uart::<'d, T, Async>::init(None, Some(rx.map_into()), Some(rts.map_into()), None, config);
+        super::Uart::<'d, T, Async>::init(None, Some(rx.into()), Some(rts.into()), None, config);
         init_buffers::<T>(irq, None, Some(rx_buffer));
 
         Self { phantom: PhantomData }
@@ -338,15 +330,13 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
 impl<'d, T: Instance> BufferedUartTx<'d, T> {
     /// Create a new buffered UART TX.
     pub fn new(
-        _uart: impl Peripheral<P = T> + 'd,
+        _uart: Peri<'d, T>,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        tx: Peri<'d, impl TxPin<T>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(tx);
-
-        super::Uart::<'d, T, Async>::init(Some(tx.map_into()), None, None, None, config);
+        super::Uart::<'d, T, Async>::init(Some(tx.into()), None, None, None, config);
         init_buffers::<T>(irq, Some(tx_buffer), None);
 
         Self { phantom: PhantomData }
@@ -354,16 +344,14 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
 
     /// Create a new buffered UART TX with flow control.
     pub fn new_with_cts(
-        _uart: impl Peripheral<P = T> + 'd,
+        _uart: Peri<'d, T>,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        tx: Peri<'d, impl TxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(tx, cts);
-
-        super::Uart::<'d, T, Async>::init(Some(tx.map_into()), None, None, Some(cts.map_into()), config);
+        super::Uart::<'d, T, Async>::init(Some(tx.into()), None, None, Some(cts.into()), config);
         init_buffers::<T>(irq, Some(tx_buffer), None);
 
         Self { phantom: PhantomData }

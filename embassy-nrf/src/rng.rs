@@ -10,11 +10,11 @@ use core::task::Poll;
 
 use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -56,7 +56,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 ///
 /// It has a non-blocking API, and a blocking api through `rand`.
 pub struct Rng<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
+    _peri: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Rng<'d, T> {
@@ -67,11 +67,9 @@ impl<'d, T: Instance> Rng<'d, T> {
     ///
     /// The synchronous API is safe.
     pub fn new(
-        rng: impl Peripheral<P = T> + 'd,
+        rng: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        into_ref!(rng);
-
         let this = Self { _peri: rng };
 
         this.stop();
@@ -250,7 +248,7 @@ pub(crate) trait SealedInstance {
 
 /// RNG peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

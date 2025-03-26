@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
+use core::ops::Deref;
 
 /// An exclusive reference to a peripheral.
 ///
@@ -9,20 +9,26 @@ use core::ops::{Deref, DerefMut};
 /// - Memory efficiency: Peripheral singletons are typically either zero-sized (for concrete
 ///   peripherals like `PA9` or `SPI4`) or very small (for example `AnyPin`, which is 1 byte).
 ///   However `&mut T` is always 4 bytes for 32-bit targets, even if T is zero-sized.
-///   PeripheralRef stores a copy of `T` instead, so it's the same size.
+///   Peripheral stores a copy of `T` instead, so it's the same size.
 /// - Code size efficiency. If the user uses the same driver with both `SPI4` and `&mut SPI4`,
-///   the driver code would be monomorphized two times. With PeripheralRef, the driver is generic
-///   over a lifetime only. `SPI4` becomes `PeripheralRef<'static, SPI4>`, and `&mut SPI4` becomes
-///   `PeripheralRef<'a, SPI4>`. Lifetimes don't cause monomorphization.
-pub struct PeripheralRef<'a, T> {
+///   the driver code would be monomorphized two times. With Peri, the driver is generic
+///   over a lifetime only. `SPI4` becomes `Peri<'static, SPI4>`, and `&mut SPI4` becomes
+///   `Peri<'a, SPI4>`. Lifetimes don't cause monomorphization.
+pub struct Peri<'a, T: PeripheralType> {
     inner: T,
     _lifetime: PhantomData<&'a mut T>,
 }
 
-impl<'a, T> PeripheralRef<'a, T> {
-    /// Create a new reference to a peripheral.
+impl<'a, T: PeripheralType> Peri<'a, T> {
+    /// Create a new owned a peripheral.
+    ///
+    /// For use by HALs only.
+    ///
+    /// If you're an end user you shouldn't use this, you should use `steal()`
+    /// on the actual peripheral types instead.
     #[inline]
-    pub fn new(inner: T) -> Self {
+    #[doc(hidden)]
+    pub unsafe fn new_unchecked(inner: T) -> Self {
         Self {
             inner,
             _lifetime: PhantomData,
@@ -38,46 +44,38 @@ impl<'a, T> PeripheralRef<'a, T> {
     /// create two SPI drivers on `SPI1`, because they will "fight" each other.
     ///
     /// You should strongly prefer using `reborrow()` instead. It returns a
-    /// `PeripheralRef` that borrows `self`, which allows the borrow checker
+    /// `Peri` that borrows `self`, which allows the borrow checker
     /// to enforce this at compile time.
-    pub unsafe fn clone_unchecked(&self) -> PeripheralRef<'a, T>
-    where
-        T: Peripheral<P = T>,
-    {
-        PeripheralRef::new(self.inner.clone_unchecked())
+    pub unsafe fn clone_unchecked(&self) -> Peri<'a, T> {
+        Peri::new_unchecked(self.inner)
     }
 
-    /// Reborrow into a "child" PeripheralRef.
+    /// Reborrow into a "child" Peri.
     ///
-    /// `self` will stay borrowed until the child PeripheralRef is dropped.
-    pub fn reborrow(&mut self) -> PeripheralRef<'_, T>
-    where
-        T: Peripheral<P = T>,
-    {
-        // safety: we're returning the clone inside a new PeripheralRef that borrows
+    /// `self` will stay borrowed until the child Peripheral is dropped.
+    pub fn reborrow(&mut self) -> Peri<'_, T> {
+        // safety: we're returning the clone inside a new Peripheral that borrows
         // self, so user code can't use both at the same time.
-        PeripheralRef::new(unsafe { self.inner.clone_unchecked() })
+        unsafe { self.clone_unchecked() }
     }
 
     /// Map the inner peripheral using `Into`.
     ///
-    /// This converts from `PeripheralRef<'a, T>` to `PeripheralRef<'a, U>`, using an
+    /// This converts from `Peri<'a, T>` to `Peri<'a, U>`, using an
     /// `Into` impl to convert from `T` to `U`.
     ///
-    /// For example, this can be useful to degrade GPIO pins: converting from PeripheralRef<'a, PB11>` to `PeripheralRef<'a, AnyPin>`.
+    /// For example, this can be useful to.into() GPIO pins: converting from Peri<'a, PB11>` to `Peri<'a, AnyPin>`.
     #[inline]
-    pub fn map_into<U>(self) -> PeripheralRef<'a, U>
+    pub fn into<U>(self) -> Peri<'a, U>
     where
         T: Into<U>,
+        U: PeripheralType,
     {
-        PeripheralRef {
-            inner: self.inner.into(),
-            _lifetime: PhantomData,
-        }
+        unsafe { Peri::new_unchecked(self.inner.into()) }
     }
 }
 
-impl<'a, T> Deref for PeripheralRef<'a, T> {
+impl<'a, T: PeripheralType> Deref for Peri<'a, T> {
     type Target = T;
 
     #[inline]
@@ -86,92 +84,5 @@ impl<'a, T> Deref for PeripheralRef<'a, T> {
     }
 }
 
-/// Trait for any type that can be used as a peripheral of type `P`.
-///
-/// This is used in driver constructors, to allow passing either owned peripherals (e.g. `TWISPI0`),
-/// or borrowed peripherals (e.g. `&mut TWISPI0`).
-///
-/// For example, if you have a driver with a constructor like this:
-///
-/// ```ignore
-/// impl<'d, T: Instance> Twim<'d, T> {
-///     pub fn new(
-///         twim: impl Peripheral<P = T> + 'd,
-///         irq: impl Peripheral<P = T::Interrupt> + 'd,
-///         sda: impl Peripheral<P = impl GpioPin> + 'd,
-///         scl: impl Peripheral<P = impl GpioPin> + 'd,
-///         config: Config,
-///     ) -> Self { .. }
-/// }
-/// ```
-///
-/// You may call it with owned peripherals, which yields an instance that can live forever (`'static`):
-///
-/// ```ignore
-/// let mut twi: Twim<'static, ...> = Twim::new(p.TWISPI0, irq, p.P0_03, p.P0_04, config);
-/// ```
-///
-/// Or you may call it with borrowed peripherals, which yields an instance that can only live for as long
-/// as the borrows last:
-///
-/// ```ignore
-/// let mut twi: Twim<'_, ...> = Twim::new(&mut p.TWISPI0, &mut irq, &mut p.P0_03, &mut p.P0_04, config);
-/// ```
-///
-/// # Implementation details, for HAL authors
-///
-/// When writing a HAL, the intended way to use this trait is to take `impl Peripheral<P = ..>` in
-/// the HAL's public API (such as driver constructors), calling `.into_ref()` to obtain a `PeripheralRef`,
-/// and storing that in the driver struct.
-///
-/// `.into_ref()` on an owned `T` yields a `PeripheralRef<'static, T>`.
-/// `.into_ref()` on an `&'a mut T` yields a `PeripheralRef<'a, T>`.
-pub trait Peripheral: Sized {
-    /// Peripheral singleton type
-    type P;
-
-    /// Unsafely clone (duplicate) a peripheral singleton.
-    ///
-    /// # Safety
-    ///
-    /// This returns an owned clone of the peripheral. You must manually ensure
-    /// only one copy of the peripheral is in use at a time. For example, don't
-    /// create two SPI drivers on `SPI1`, because they will "fight" each other.
-    ///
-    /// You should strongly prefer using `into_ref()` instead. It returns a
-    /// `PeripheralRef`, which allows the borrow checker to enforce this at compile time.
-    unsafe fn clone_unchecked(&self) -> Self::P;
-
-    /// Convert a value into a `PeripheralRef`.
-    ///
-    /// When called on an owned `T`, yields a `PeripheralRef<'static, T>`.
-    /// When called on an `&'a mut T`, yields a `PeripheralRef<'a, T>`.
-    #[inline]
-    fn into_ref<'a>(self) -> PeripheralRef<'a, Self::P>
-    where
-        Self: 'a,
-    {
-        PeripheralRef::new(unsafe { self.clone_unchecked() })
-    }
-}
-
-impl<'b, T: DerefMut> Peripheral for T
-where
-    T::Target: Peripheral,
-{
-    type P = <T::Target as Peripheral>::P;
-
-    #[inline]
-    unsafe fn clone_unchecked(&self) -> Self::P {
-        T::Target::clone_unchecked(self)
-    }
-}
-
-impl<'b, T: Peripheral> Peripheral for PeripheralRef<'_, T> {
-    type P = T::P;
-
-    #[inline]
-    unsafe fn clone_unchecked(&self) -> Self::P {
-        T::clone_unchecked(self)
-    }
-}
+/// Marker trait for peripheral types.
+pub trait PeripheralType: Copy + Sized {}

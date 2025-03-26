@@ -3,16 +3,15 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::into_ref;
-
 use crate::dma::ChannelAndRequest;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
+use crate::{peripherals, Peri};
 
 mod tsel;
+use embassy_hal_internal::PeripheralType;
 pub use tsel::TriggerSel;
 
 /// Operating mode for DAC channel
@@ -121,12 +120,7 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
     ///
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
-    pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = impl Dma<T, C>> + 'd,
-        pin: impl Peripheral<P = impl DacPin<T, C>> + 'd,
-    ) -> Self {
-        into_ref!(dma, pin);
+    pub fn new(peri: Peri<'d, T>, dma: Peri<'d, impl Dma<T, C>>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
         pin.set_as_analog();
         Self::new_inner(
             peri,
@@ -147,8 +141,7 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal(peri: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = impl Dma<T, C>> + 'd) -> Self {
-        into_ref!(dma);
+    pub fn new_internal(peri: Peri<'d, T>, dma: Peri<'d, impl Dma<T, C>>) -> Self {
         Self::new_inner(peri, new_dma!(dma), Mode::NormalInternalUnbuffered)
     }
 
@@ -204,8 +197,7 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Blocking> {
     ///
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
-    pub fn new_blocking(peri: impl Peripheral<P = T> + 'd, pin: impl Peripheral<P = impl DacPin<T, C>> + 'd) -> Self {
-        into_ref!(pin);
+    pub fn new_blocking(peri: Peri<'d, T>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
         pin.set_as_analog();
         Self::new_inner(
             peri,
@@ -226,14 +218,14 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Blocking> {
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal_blocking(peri: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new_internal_blocking(peri: Peri<'d, T>) -> Self {
         Self::new_inner(peri, None, Mode::NormalInternalUnbuffered)
     }
 }
 
 impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
     fn new_inner(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peri: Peri<'d, T>,
         dma: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
     ) -> Self {
@@ -395,13 +387,12 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
     pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
-        dma_ch1: impl Peripheral<P = impl Dma<T, Ch1>> + 'd,
-        dma_ch2: impl Peripheral<P = impl Dma<T, Ch2>> + 'd,
-        pin_ch1: impl Peripheral<P = impl DacPin<T, Ch1> + crate::gpio::Pin> + 'd,
-        pin_ch2: impl Peripheral<P = impl DacPin<T, Ch2> + crate::gpio::Pin> + 'd,
+        peri: Peri<'d, T>,
+        dma_ch1: Peri<'d, impl Dma<T, Ch1>>,
+        dma_ch2: Peri<'d, impl Dma<T, Ch2>>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
     ) -> Self {
-        into_ref!(dma_ch1, dma_ch2, pin_ch1, pin_ch2);
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
         Self::new_inner(
@@ -429,11 +420,10 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
     /// method on the underlying channels.
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
     pub fn new_internal(
-        peri: impl Peripheral<P = T> + 'd,
-        dma_ch1: impl Peripheral<P = impl Dma<T, Ch1>> + 'd,
-        dma_ch2: impl Peripheral<P = impl Dma<T, Ch2>> + 'd,
+        peri: Peri<'d, T>,
+        dma_ch1: Peri<'d, impl Dma<T, Ch1>>,
+        dma_ch2: Peri<'d, impl Dma<T, Ch2>>,
     ) -> Self {
-        into_ref!(dma_ch1, dma_ch2);
         Self::new_inner(
             peri,
             new_dma!(dma_ch1),
@@ -457,11 +447,10 @@ impl<'d, T: Instance> Dac<'d, T, Blocking> {
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
     pub fn new_blocking(
-        peri: impl Peripheral<P = T> + 'd,
-        pin_ch1: impl Peripheral<P = impl DacPin<T, Ch1> + crate::gpio::Pin> + 'd,
-        pin_ch2: impl Peripheral<P = impl DacPin<T, Ch2> + crate::gpio::Pin> + 'd,
+        peri: Peri<'d, T>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
     ) -> Self {
-        into_ref!(pin_ch1, pin_ch2);
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
         Self::new_inner(
@@ -488,14 +477,14 @@ impl<'d, T: Instance> Dac<'d, T, Blocking> {
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal(peri: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new_internal(peri: Peri<'d, T>) -> Self {
         Self::new_inner(peri, None, None, Mode::NormalInternalUnbuffered)
     }
 }
 
 impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
     fn new_inner(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peri: Peri<'d, T>,
         dma_ch1: Option<ChannelAndRequest<'d>>,
         dma_ch2: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
@@ -572,7 +561,7 @@ trait SealedInstance {
 
 /// DAC instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + 'static {}
 
 /// Channel 1 marker type.
 pub enum Ch1 {}

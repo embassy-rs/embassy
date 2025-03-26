@@ -8,7 +8,7 @@ use super::{
 };
 use crate::dma::Transfer;
 use crate::time::Hertz;
-use crate::{pac, rcc, Peripheral};
+use crate::{pac, rcc, Peri};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -154,8 +154,7 @@ pub enum Averaging {
 
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: impl Peripheral<P = T> + 'd, sample_time: SampleTime, resolution: Resolution) -> Self {
-        embassy_hal_internal::into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>, sample_time: SampleTime, resolution: Resolution) -> Self {
         rcc::enable_and_reset::<T>();
 
         T::regs().cfgr2().modify(|w| w.set_ckmode(Ckmode::SYSCLK));
@@ -319,7 +318,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self::apply_channel_conf()
     }
 
-    async fn dma_convert(&mut self, rx_dma: &mut impl RxDma<T>, readings: &mut [u16]) {
+    async fn dma_convert(&mut self, rx_dma: Peri<'_, impl RxDma<T>>, readings: &mut [u16]) {
         // Enable overrun control, so no new DMA requests will be generated until
         // previous DR values is read.
         T::regs().isr().modify(|reg| {
@@ -374,7 +373,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// TODO(chudsaviet): externalize generic code and merge with read().
     pub async fn read_in_hw_order(
         &mut self,
-        rx_dma: &mut impl RxDma<T>,
+        rx_dma: Peri<'_, impl RxDma<T>>,
         hw_channel_selection: u32,
         scandir: Scandir,
         readings: &mut [u16],
@@ -415,7 +414,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     // For other channels, use `read_in_hw_order()` or blocking read.
     pub async fn read(
         &mut self,
-        rx_dma: &mut impl RxDma<T>,
+        rx_dma: Peri<'_, impl RxDma<T>>,
         channel_sequence: impl ExactSizeIterator<Item = &mut AnyAdcChannel<T>>,
         readings: &mut [u16],
     ) {

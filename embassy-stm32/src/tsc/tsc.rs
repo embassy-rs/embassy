@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::ops::BitOr;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::Peri;
 
 use super::acquisition_banks::*;
 use super::config::*;
@@ -14,7 +14,7 @@ use super::types::*;
 use super::{Instance, InterruptHandler, TSC_NUM_GROUPS};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::{interrupt, rcc, Peripheral};
+use crate::{interrupt, rcc};
 
 /// Internal structure holding masks for different types of TSC IOs.
 ///
@@ -31,7 +31,7 @@ struct IOMasks {
 
 /// TSC driver
 pub struct Tsc<'d, T: Instance, K: PeriMode> {
-    _peri: PeripheralRef<'d, T>,
+    _peri: Peri<'d, T>,
     _pin_groups: PinGroups<'d, T>,
     state: State,
     config: Config,
@@ -218,13 +218,7 @@ impl<'d, T: Instance, K: PeriMode> Tsc<'d, T, K> {
         groups
     }
 
-    fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
-        pin_groups: PinGroups<'d, T>,
-        config: Config,
-    ) -> Result<Self, GroupError> {
-        into_ref!(peri);
-
+    fn new_inner(peri: Peri<'d, T>, pin_groups: PinGroups<'d, T>, config: Config) -> Result<Self, GroupError> {
         pin_groups.check()?;
 
         let masks = IOMasks {
@@ -410,7 +404,7 @@ impl<'d, T: Instance, K: PeriMode> Drop for Tsc<'d, T, K> {
 impl<'d, T: Instance> Tsc<'d, T, Async> {
     /// Create a Tsc instance that can be awaited for completion
     pub fn new_async(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
         pin_groups: PinGroups<'d, T>,
         config: Config,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -441,11 +435,7 @@ impl<'d, T: Instance> Tsc<'d, T, Async> {
 
 impl<'d, T: Instance> Tsc<'d, T, Blocking> {
     /// Create a Tsc instance that must be polled for completion
-    pub fn new_blocking(
-        peri: impl Peripheral<P = T> + 'd,
-        pin_groups: PinGroups<'d, T>,
-        config: Config,
-    ) -> Result<Self, GroupError> {
+    pub fn new_blocking(peri: Peri<'d, T>, pin_groups: PinGroups<'d, T>, config: Config) -> Result<Self, GroupError> {
         Self::new_inner(peri, pin_groups, config)
     }
 

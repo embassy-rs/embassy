@@ -4,13 +4,13 @@ use core::cmp::min;
 use core::marker::PhantomData;
 use core::ptr;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{ChannelAndRequest, TransferOptions};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
-use crate::{interrupt, pac, peripherals, rcc, Peripheral};
+use crate::{interrupt, pac, peripherals, rcc};
 
 const DES_BLOCK_SIZE: usize = 8; // 64 bits
 const AES_BLOCK_SIZE: usize = 16; // 128 bits
@@ -988,7 +988,7 @@ pub enum Direction {
 
 /// Crypto Accelerator Driver
 pub struct Cryp<'d, T: Instance, M: Mode> {
-    _peripheral: PeripheralRef<'d, T>,
+    _peripheral: Peri<'d, T>,
     _phantom: PhantomData<M>,
     indma: Option<ChannelAndRequest<'d>>,
     outdma: Option<ChannelAndRequest<'d>>,
@@ -997,11 +997,10 @@ pub struct Cryp<'d, T: Instance, M: Mode> {
 impl<'d, T: Instance> Cryp<'d, T, Blocking> {
     /// Create a new CRYP driver in blocking mode.
     pub fn new_blocking(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
-        into_ref!(peri);
         let instance = Self {
             _peripheral: peri,
             _phantom: PhantomData,
@@ -1461,13 +1460,12 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
 impl<'d, T: Instance> Cryp<'d, T, Async> {
     /// Create a new CRYP driver.
     pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
-        indma: impl Peripheral<P = impl DmaIn<T>> + 'd,
-        outdma: impl Peripheral<P = impl DmaOut<T>> + 'd,
+        peri: Peri<'d, T>,
+        indma: Peri<'d, impl DmaIn<T>>,
+        outdma: Peri<'d, impl DmaOut<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
-        into_ref!(peri, indma, outdma);
         let instance = Self {
             _peripheral: peri,
             _phantom: PhantomData,
@@ -1879,7 +1877,7 @@ trait SealedInstance {
 
 /// CRYP instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + crate::rcc::RccPeripheral + 'static + Send {
     /// Interrupt for this CRYP instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

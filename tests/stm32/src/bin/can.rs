@@ -43,7 +43,7 @@ async fn main(_spawner: Spawner) {
     // To synchronise to the bus the RX input needs to see a high level.
     // Use `mem::forget()` to release the borrow on the pin but keep the
     // pull-up resistor enabled.
-    let rx_pin = Input::new(&mut rx, Pull::Up);
+    let rx_pin = Input::new(rx.reborrow(), Pull::Up);
     core::mem::forget(rx_pin);
 
     let mut can = embassy_stm32::can::Can::new(can, rx, tx, Irqs);

@@ -2,7 +2,6 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
 #[cfg(adc_l0)]
 use stm32_metapac::adc::vals::Ckmode;
 
@@ -10,7 +9,7 @@ use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC1;
-use crate::{interrupt, rcc, Peripheral};
+use crate::{interrupt, rcc, Peri};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const VREF_INT: u32 = 1230;
@@ -63,10 +62,9 @@ impl super::SealedAdcChannel<ADC1> for Temperature {
 
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
-        adc: impl Peripheral<P = T> + 'd,
+        adc: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        into_ref!(adc);
         rcc::enable_and_reset::<T>();
 
         // Delay 1μs when using HSI14 as the ADC clock.
