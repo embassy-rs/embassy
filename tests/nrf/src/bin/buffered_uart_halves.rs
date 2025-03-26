@@ -28,8 +28,8 @@ async fn main(_spawner: Spawner) {
 
         let mut tx = BufferedUarteTx::new(
             &mut peri!(p, UART1),
-            irqs!(UART1_BUFFERED),
             &mut peri!(p, PIN_A),
+            irqs!(UART1_BUFFERED),
             config.clone(),
             &mut tx_buffer,
         );

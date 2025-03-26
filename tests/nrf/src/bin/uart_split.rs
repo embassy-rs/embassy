@@ -22,9 +22,9 @@ async fn main(_spawner: Spawner) {
 
     let uarte = Uarte::new(
         &mut peri!(p, UART0),
-        irqs!(UART0),
         &mut peri!(p, PIN_A),
         &mut peri!(p, PIN_B),
+        irqs!(UART0),
         config.clone(),
     );
     let (mut tx, mut rx) = uarte.split();

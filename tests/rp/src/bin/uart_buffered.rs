@@ -73,7 +73,7 @@ async fn main(_spawner: Spawner) {
         let config = Config::default();
         let tx_buf = &mut [0u8; 16];
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUart::new(&mut uart, Irqs, &mut tx, &mut rx, tx_buf, rx_buf, config);
+        let mut uart = BufferedUart::new(&mut uart, &mut tx, &mut rx, Irqs, tx_buf, rx_buf, config);
 
         // Make sure we send more bytes than fits in the FIFO, to test the actual
         // bufferedUart.
@@ -93,7 +93,7 @@ async fn main(_spawner: Spawner) {
         let config = Config::default();
         let tx_buf = &mut [0u8; 16];
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUart::new(&mut uart, Irqs, &mut tx, &mut rx, tx_buf, rx_buf, config);
+        let mut uart = BufferedUart::new(&mut uart, &mut tx, &mut rx, Irqs, tx_buf, rx_buf, config);
 
         // Make sure we send more bytes than fits in the FIFO, to test the actual
         // bufferedUart.
@@ -128,7 +128,7 @@ async fn main(_spawner: Spawner) {
         config.baudrate = 1000;
         let tx_buf = &mut [0u8; 16];
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUart::new(&mut uart, Irqs, &mut tx, &mut rx, tx_buf, rx_buf, config);
+        let mut uart = BufferedUart::new(&mut uart, &mut tx, &mut rx, Irqs, tx_buf, rx_buf, config);
 
         // break on empty buffer
         uart.send_break(20).await;

@@ -18,7 +18,7 @@ async fn main(_spawner: Spawner) {
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;
 
-    let uart = uarte::Uarte::new(p.UARTE0, Irqs, p.P0_08, p.P0_06, config);
+    let uart = uarte::Uarte::new(p.UARTE0, p.P0_08, p.P0_06, Irqs, config);
     let (mut tx, mut rx) = uart.split_with_idle(p.TIMER0, p.PPI_CH0, p.PPI_CH1);
 
     info!("uarte initialized!");
