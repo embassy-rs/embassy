@@ -1,11 +1,78 @@
 #![no_std]
 
+#[cfg(not(any(feature = "lpc55", feature = "mimxrt633s", feature = "mimxrt685s",)))]
+compile_error!(
+    "No chip feature activated. You must activate exactly one of the following features:
+	lpc55,
+	mimxrt633s,
+	mimxrt685s
+"
+);
+
+#[cfg(feature = "_gpio")]
 pub mod gpio;
-mod pac_utils;
+
+#[cfg(feature = "_pint")]
 pub mod pint;
 
+#[cfg(feature = "lpc55")]
+mod pac_utils;
+
+// This mod MUST go last, so that it sees all the `impl_foo!` macros.
+#[cfg_attr(feature = "lpc55", path = "chips/lpc55.rs")]
+#[cfg_attr(feature = "mimxrt633s", path = "chips/mimxrt633s.rs")]
+#[cfg_attr(feature = "mimxrt685s", path = "chips/mimxrt685s.rs")]
+mod chip;
+
+/// Macro to bind interrupts to handlers.
+///
+/// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
+/// and implements the right \[`Binding`\]s for it. You can pass this struct to drivers to
+/// prove at compile-time that the right interrupts have been bound.
+///
+/// Example of how to bind one interrupt:
+///
+/// ```rust,ignore
+/// use embassy_imxrt::{bind_interrupts, flexspi, peripherals};
+///
+/// bind_interrupts!(struct Irqs {
+///     FLEXSPI_IRQ => flexspi::InterruptHandler<peripherals::FLEXSPI>;
+/// });
+/// ```
+///
+// developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
+#[macro_export]
+macro_rules! bind_interrupts {
+    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+            #[derive(Copy, Clone)]
+            $vis struct $name;
+
+        $(
+            #[allow(non_snake_case)]
+            #[no_mangle]
+            unsafe extern "C" fn $irq() {
+                $(
+                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                )*
+            }
+
+            $(
+                unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
+            )*
+        )*
+    };
+}
+
+#[cfg(feature = "unstable-pac")]
+pub use chip::pac;
+#[cfg(not(feature = "unstable-pac"))]
+pub(crate) use chip::pac;
+pub use chip::{peripherals, Peripherals};
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
-pub use lpc55_pac as pac;
+
+pub use crate::chip::interrupt;
+#[cfg(feature = "rt")]
+pub use crate::pac::NVIC_PRIO_BITS;
 
 /// Initialize the `embassy-nxp` HAL with the provided configuration.
 ///
@@ -13,79 +80,13 @@ pub use lpc55_pac as pac;
 ///
 /// This should only be called once and at startup, otherwise it panics.
 pub fn init(_config: config::Config) -> Peripherals {
+    #[cfg(feature = "_gpio")]
     gpio::init();
+
+    #[cfg(feature = "_pint")]
     pint::init();
 
     crate::Peripherals::take()
-}
-
-embassy_hal_internal::peripherals! {
-    // External pins. These are not only GPIOs, they are multi-purpose pins and can be used by other
-    // peripheral types (e.g. I2C).
-    PIO0_0,
-    PIO0_1,
-    PIO0_2,
-    PIO0_3,
-    PIO0_4,
-    PIO0_5,
-    PIO0_6,
-    PIO0_7,
-    PIO0_8,
-    PIO0_9,
-    PIO0_10,
-    PIO0_11,
-    PIO0_12,
-    PIO0_13,
-    PIO0_14,
-    PIO0_15,
-    PIO0_16,
-    PIO0_17,
-    PIO0_18,
-    PIO0_19,
-    PIO0_20,
-    PIO0_21,
-    PIO0_22,
-    PIO0_23,
-    PIO0_24,
-    PIO0_25,
-    PIO0_26,
-    PIO0_27,
-    PIO0_28,
-    PIO0_29,
-    PIO0_30,
-    PIO0_31,
-    PIO1_0,
-    PIO1_1,
-    PIO1_2,
-    PIO1_3,
-    PIO1_4,
-    PIO1_5,
-    PIO1_6,
-    PIO1_7,
-    PIO1_8,
-    PIO1_9,
-    PIO1_10,
-    PIO1_11,
-    PIO1_12,
-    PIO1_13,
-    PIO1_14,
-    PIO1_15,
-    PIO1_16,
-    PIO1_17,
-    PIO1_18,
-    PIO1_19,
-    PIO1_20,
-    PIO1_21,
-    PIO1_22,
-    PIO1_23,
-    PIO1_24,
-    PIO1_25,
-    PIO1_26,
-    PIO1_27,
-    PIO1_28,
-    PIO1_29,
-    PIO1_30,
-    PIO1_31,
 }
 
 /// HAL configuration for the NXP board.

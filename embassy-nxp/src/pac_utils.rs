@@ -4,8 +4,8 @@
 /// Due to the type system of peripherals, access to the settings of a single pin is possible only
 /// by a single thread at a time. Read/Write operations on a single registers are NOT atomic. You
 /// must ensure that the GPIO registers are not accessed concurrently by multiple threads.
-pub(crate) fn gpio_reg() -> &'static lpc55_pac::gpio::RegisterBlock {
-    unsafe { &*lpc55_pac::GPIO::ptr() }
+pub(crate) fn gpio_reg() -> &'static crate::pac::gpio::RegisterBlock {
+    unsafe { &*crate::pac::GPIO::ptr() }
 }
 
 /// Get the IOCON register block.
@@ -13,8 +13,8 @@ pub(crate) fn gpio_reg() -> &'static lpc55_pac::gpio::RegisterBlock {
 /// # Safety
 /// Read/Write operations on a single registers are NOT atomic. You must ensure that the GPIO
 /// registers are not accessed concurrently by multiple threads.
-pub(crate) fn iocon_reg() -> &'static lpc55_pac::iocon::RegisterBlock {
-    unsafe { &*lpc55_pac::IOCON::ptr() }
+pub(crate) fn iocon_reg() -> &'static crate::pac::iocon::RegisterBlock {
+    unsafe { &*crate::pac::IOCON::ptr() }
 }
 
 /// Get the INPUTMUX register block.
@@ -22,8 +22,8 @@ pub(crate) fn iocon_reg() -> &'static lpc55_pac::iocon::RegisterBlock {
 /// # Safety
 /// Read/Write operations on a single registers are NOT atomic. You must ensure that the GPIO
 /// registers are not accessed concurrently by multiple threads.
-pub(crate) fn inputmux_reg() -> &'static lpc55_pac::inputmux::RegisterBlock {
-    unsafe { &*lpc55_pac::INPUTMUX::ptr() }
+pub(crate) fn inputmux_reg() -> &'static crate::pac::inputmux::RegisterBlock {
+    unsafe { &*crate::pac::INPUTMUX::ptr() }
 }
 
 /// Get the SYSCON register block.
@@ -31,8 +31,8 @@ pub(crate) fn inputmux_reg() -> &'static lpc55_pac::inputmux::RegisterBlock {
 /// # Safety
 /// Read/Write operations on a single registers are NOT atomic. You must ensure that the GPIO
 /// registers are not accessed concurrently by multiple threads.
-pub(crate) fn syscon_reg() -> &'static lpc55_pac::syscon::RegisterBlock {
-    unsafe { &*lpc55_pac::SYSCON::ptr() }
+pub(crate) fn syscon_reg() -> &'static crate::pac::syscon::RegisterBlock {
+    unsafe { &*crate::pac::SYSCON::ptr() }
 }
 
 /// Get the PINT register block.
@@ -40,8 +40,8 @@ pub(crate) fn syscon_reg() -> &'static lpc55_pac::syscon::RegisterBlock {
 /// # Safety
 /// Read/Write operations on a single registers are NOT atomic. You must ensure that the GPIO
 /// registers are not accessed concurrently by multiple threads.
-pub(crate) fn pint_reg() -> &'static lpc55_pac::pint::RegisterBlock {
-    unsafe { &*lpc55_pac::PINT::ptr() }
+pub(crate) fn pint_reg() -> &'static crate::pac::pint::RegisterBlock {
+    unsafe { &*crate::pac::PINT::ptr() }
 }
 
 /// Match the pin bank and number of a pin to the corresponding IOCON register.

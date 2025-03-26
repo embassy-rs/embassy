@@ -7,11 +7,47 @@ edition = "2021"
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.0"
 critical-section = "1.1.2"
-embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
+embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
-lpc55-pac = "0.5.0"
+
+# PACs
+lpc55-pac = { version = "0.5.0", optional = true }
+mimxrt685s-pac = { version = "0.4.0", optional = true }
+mimxrt633s-pac = { version = "0.4.0", optional = true }
+
 defmt = "0.3.8"
 
 [features]
 default = ["rt"]
-rt = ["lpc55-pac/rt"]
+rt = [
+   "lpc55-pac?/rt",
+   "mimxrt633s-pac?/rt",
+   "mimxrt685s-pac?/rt",
+]
+
+#! ### Chip selection features
+## LPC55
+lpc55 = ["lpc55-pac", "_lpc55"]
+
+## MIMXRT633S
+mimxrt633s = ["mimxrt633s-pac", "_mimxrt633s"]
+
+## MIMXRT685S
+mimxrt685s = ["mimxrt685s-pac", "_mimxrt685s"]
+
+## Reexport the PAC for the currently enabled chip at `embassy-nxp::pac`
+## (unstable)
+unstable-pac = []
+
+# Features starting with `_` are for internal use only. They're not intended to
+# be enabled by other crates, and are not covered by semver guarantees.
+
+# Drivers
+_gpio = []
+_pint = []
+
+# Chips
+_lpc55 = ["_pint", "_gpio"]
+_mimxrt633s = []
+_mimxrt685s = []
+
