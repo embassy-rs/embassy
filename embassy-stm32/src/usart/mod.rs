@@ -18,11 +18,6 @@ use crate::gpio::{self, AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed}
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
-#[allow(unused_imports)]
-#[cfg(not(any(usart_v1, usart_v2)))]
-use crate::pac::usart::regs::Isr as Sr;
-#[cfg(any(usart_v1, usart_v2))]
-use crate::pac::usart::regs::Sr;
 #[cfg(not(any(usart_v1, usart_v2)))]
 use crate::pac::usart::Lpuart as Regs;
 #[cfg(any(usart_v1, usart_v2))]

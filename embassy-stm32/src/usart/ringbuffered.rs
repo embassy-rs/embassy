@@ -8,16 +8,12 @@ use embassy_hal_internal::PeripheralRef;
 use embedded_io_async::ReadReady;
 use futures_util::future::{select, Either};
 
-use super::{
-    clear_interrupt_flags, rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx,
-};
+use super::{rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx};
 use crate::dma::ReadableRingBuffer;
 use crate::gpio::{AnyPin, SealedPin as _};
 use crate::mode::Async;
-#[cfg(any(usart_v3, usart_v4))]
-use crate::pac::usart::regs;
 use crate::time::Hertz;
-use crate::usart::{Regs, Sr};
+use crate::usart::Regs;
 
 /// Rx-only Ring-buffered UART Driver
 ///
