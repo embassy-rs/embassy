@@ -16,7 +16,7 @@ bind_interrupts!(struct Irqs {
 async fn main(_p: Spawner) {
     let mut p = embassy_nrf::init(Default::default());
     let config = Config::default();
-    let channel_config = ChannelConfig::single_ended(&mut p.P0_02);
+    let channel_config = ChannelConfig::single_ended(p.P0_02.reborrow());
     let mut saadc = Saadc::new(p.SAADC, Irqs, config, [channel_config]);
 
     loop {

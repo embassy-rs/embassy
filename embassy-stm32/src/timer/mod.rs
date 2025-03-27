@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::Peripheral;
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]
@@ -66,7 +66,7 @@ impl State {
     }
 }
 
-trait SealedInstance: RccPeripheral + Peripheral<P = Self> {
+trait SealedInstance: RccPeripheral + PeripheralType {
     /// Async state for this timer
     fn state() -> &'static State;
 }

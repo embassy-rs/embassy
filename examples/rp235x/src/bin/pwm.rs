@@ -11,6 +11,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::{PIN_25, PIN_4, PWM_SLICE2, PWM_SLICE4};
 use embassy_rp::pwm::{Config, Pwm, SetDutyCycle};
+use embassy_rp::Peri;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -26,7 +27,7 @@ async fn main(spawner: Spawner) {
 /// Using the onboard led, if You are using a different Board than plain Pico2 (i.e. W variant)
 /// you must use another slice & pin and an appropriate resistor.
 #[embassy_executor::task]
-async fn pwm_set_config(slice4: PWM_SLICE4, pin25: PIN_25) {
+async fn pwm_set_config(slice4: Peri<'static, PWM_SLICE4>, pin25: Peri<'static, PIN_25>) {
     let mut c = Config::default();
     c.top = 32_768;
     c.compare_b = 8;
@@ -44,7 +45,7 @@ async fn pwm_set_config(slice4: PWM_SLICE4, pin25: PIN_25) {
 ///
 /// Using GP4 in Slice2, make sure to use an appropriate resistor.
 #[embassy_executor::task]
-async fn pwm_set_dutycycle(slice2: PWM_SLICE2, pin4: PIN_4) {
+async fn pwm_set_dutycycle(slice2: Peri<'static, PWM_SLICE2>, pin4: Peri<'static, PIN_4>) {
     // If we aim for a specific frequency, here is how we can calculate the top value.
     // The top value sets the period of the PWM cycle, so a counter goes from 0 to top and then wraps around to 0.
     // Every such wraparound is one PWM cycle. So here is how we get 25KHz:

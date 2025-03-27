@@ -5,12 +5,12 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use rand_core::{CryptoRng, RngCore};
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, pac, peripherals, rcc, Peripheral};
+use crate::{interrupt, pac, peripherals, rcc, Peri};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -43,17 +43,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 /// RNG driver.
 pub struct Rng<'d, T: Instance> {
-    _inner: PeripheralRef<'d, T>,
+    _inner: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Rng<'d, T> {
     /// Create a new RNG driver.
     pub fn new(
-        inner: impl Peripheral<P = T> + 'd,
+        inner: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
-        into_ref!(inner);
         let mut random = Self { _inner: inner };
         random.reset();
 
@@ -228,7 +227,7 @@ trait SealedInstance {
 
 /// RNG instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + crate::rcc::RccPeripheral + 'static + Send {
     /// Interrupt for this RNG instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

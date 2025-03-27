@@ -5,7 +5,7 @@ use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, Ordering};
 use embassy_futures::select::{select, Either};
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Delay, Timer};
 use pac::uart::regs::Uartris;
@@ -15,7 +15,7 @@ use crate::dma::{AnyChannel, Channel};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::io::vals::{Inover, Outover};
-use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
+use crate::{interrupt, pac, peripherals, RegExt};
 
 mod buffered;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
@@ -142,30 +142,29 @@ pub struct Uart<'d, T: Instance, M: Mode> {
 
 /// UART TX driver.
 pub struct UartTx<'d, T: Instance, M: Mode> {
-    tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+    tx_dma: Option<Peri<'d, AnyChannel>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
 /// UART RX driver.
 pub struct UartRx<'d, T: Instance, M: Mode> {
-    rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+    rx_dma: Option<Peri<'d, AnyChannel>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
 impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
     /// Create a new DMA-enabled UART which can only send data
     pub fn new(
-        _uart: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl Channel> + 'd,
+        _uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        tx_dma: Peri<'d, impl Channel>,
         config: Config,
     ) -> Self {
-        into_ref!(tx, tx_dma);
-        Uart::<T, M>::init(Some(tx.map_into()), None, None, None, config);
-        Self::new_inner(Some(tx_dma.map_into()))
+        Uart::<T, M>::init(Some(tx.into()), None, None, None, config);
+        Self::new_inner(Some(tx_dma.into()))
     }
 
-    fn new_inner(tx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
+    fn new_inner(tx_dma: Option<Peri<'d, AnyChannel>>) -> Self {
         Self {
             tx_dma,
             phantom: PhantomData,
@@ -225,13 +224,8 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
 
 impl<'d, T: Instance> UartTx<'d, T, Blocking> {
     /// Create a new UART TX instance for blocking mode operations.
-    pub fn new_blocking(
-        _uart: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(tx);
-        Uart::<T, Blocking>::init(Some(tx.map_into()), None, None, None, config);
+    pub fn new_blocking(_uart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
+        Uart::<T, Blocking>::init(Some(tx.into()), None, None, None, config);
         Self::new_inner(None)
     }
 
@@ -251,7 +245,7 @@ impl<'d, T: Instance> UartTx<'d, T, Blocking> {
 impl<'d, T: Instance> UartTx<'d, T, Async> {
     /// Write to UART TX from the provided buffer using DMA.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        let ch = self.tx_dma.as_mut().unwrap();
+        let ch = self.tx_dma.as_mut().unwrap().reborrow();
         let transfer = unsafe {
             T::regs().uartdmacr().write_set(|reg| {
                 reg.set_txdmae(true);
@@ -268,18 +262,17 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
 impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
     /// Create a new DMA-enabled UART which can only receive data
     pub fn new(
-        _uart: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        _uart: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
-        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        rx_dma: Peri<'d, impl Channel>,
         config: Config,
     ) -> Self {
-        into_ref!(rx, rx_dma);
-        Uart::<T, M>::init(None, Some(rx.map_into()), None, None, config);
-        Self::new_inner(true, Some(rx_dma.map_into()))
+        Uart::<T, M>::init(None, Some(rx.into()), None, None, config);
+        Self::new_inner(true, Some(rx_dma.into()))
     }
 
-    fn new_inner(has_irq: bool, rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
+    fn new_inner(has_irq: bool, rx_dma: Option<Peri<'d, AnyChannel>>) -> Self {
         debug_assert_eq!(has_irq, rx_dma.is_some());
         if has_irq {
             // disable all error interrupts initially
@@ -346,13 +339,8 @@ impl<'d, T: Instance, M: Mode> Drop for UartRx<'d, T, M> {
 
 impl<'d, T: Instance> UartRx<'d, T, Blocking> {
     /// Create a new UART RX instance for blocking mode operations.
-    pub fn new_blocking(
-        _uart: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(rx);
-        Uart::<T, Blocking>::init(None, Some(rx.map_into()), None, None, config);
+    pub fn new_blocking(_uart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
+        Uart::<T, Blocking>::init(None, Some(rx.into()), None, None, config);
         Self::new_inner(false, None)
     }
 
@@ -419,7 +407,7 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
         // start a dma transfer. if errors have happened in the interim some error
         // interrupt flags will have been raised, and those will be picked up immediately
         // by the interrupt handler.
-        let ch = self.rx_dma.as_mut().unwrap();
+        let ch = self.rx_dma.as_mut().unwrap().reborrow();
         T::regs().uartimsc().write_set(|w| {
             w.set_oeim(true);
             w.set_beim(true);
@@ -566,7 +554,7 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
         // start a dma transfer. if errors have happened in the interim some error
         // interrupt flags will have been raised, and those will be picked up immediately
         // by the interrupt handler.
-        let mut ch = self.rx_dma.as_mut().unwrap();
+        let ch = self.rx_dma.as_mut().unwrap();
         T::regs().uartimsc().write_set(|w| {
             w.set_oeim(true);
             w.set_beim(true);
@@ -583,7 +571,7 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
                 // If we don't assign future to a variable, the data register pointer
                 // is held across an await and makes the future non-Send.
                 crate::dma::read(
-                    &mut ch,
+                    ch.reborrow(),
                     T::regs().uartdr().as_ptr() as *const _,
                     sbuffer,
                     T::RX_DREQ.into(),
@@ -700,41 +688,29 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
 impl<'d, T: Instance> Uart<'d, T, Blocking> {
     /// Create a new UART without hardware flow control
     pub fn new_blocking(
-        uart: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, impl RxPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx);
-        Self::new_inner(
-            uart,
-            tx.map_into(),
-            rx.map_into(),
-            None,
-            None,
-            false,
-            None,
-            None,
-            config,
-        )
+        Self::new_inner(uart, tx.into(), rx.into(), None, None, false, None, None, config)
     }
 
     /// Create a new UART with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts_blocking(
-        uart: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx, cts, rts);
         Self::new_inner(
             uart,
-            tx.map_into(),
-            rx.map_into(),
-            Some(rts.map_into()),
-            Some(cts.map_into()),
+            tx.into(),
+            rx.into(),
+            Some(rts.into()),
+            Some(cts.into()),
             false,
             None,
             None,
@@ -762,50 +738,48 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
 impl<'d, T: Instance> Uart<'d, T, Async> {
     /// Create a new DMA enabled UART without hardware flow control
     pub fn new(
-        uart: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, impl RxPin<T>>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
-        tx_dma: impl Peripheral<P = impl Channel> + 'd,
-        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        tx_dma: Peri<'d, impl Channel>,
+        rx_dma: Peri<'d, impl Channel>,
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx, tx_dma, rx_dma);
         Self::new_inner(
             uart,
-            tx.map_into(),
-            rx.map_into(),
+            tx.into(),
+            rx.into(),
             None,
             None,
             true,
-            Some(tx_dma.map_into()),
-            Some(rx_dma.map_into()),
+            Some(tx_dma.into()),
+            Some(rx_dma.into()),
             config,
         )
     }
 
     /// Create a new DMA enabled UART with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
-        uart: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
-        tx_dma: impl Peripheral<P = impl Channel> + 'd,
-        rx_dma: impl Peripheral<P = impl Channel> + 'd,
+        tx_dma: Peri<'d, impl Channel>,
+        rx_dma: Peri<'d, impl Channel>,
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx, cts, rts, tx_dma, rx_dma);
         Self::new_inner(
             uart,
-            tx.map_into(),
-            rx.map_into(),
-            Some(rts.map_into()),
-            Some(cts.map_into()),
+            tx.into(),
+            rx.into(),
+            Some(rts.into()),
+            Some(cts.into()),
             true,
-            Some(tx_dma.map_into()),
-            Some(rx_dma.map_into()),
+            Some(tx_dma.into()),
+            Some(rx_dma.into()),
             config,
         )
     }
@@ -813,14 +787,14 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
 
 impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
     fn new_inner(
-        _uart: impl Peripheral<P = T> + 'd,
-        mut tx: PeripheralRef<'d, AnyPin>,
-        mut rx: PeripheralRef<'d, AnyPin>,
-        mut rts: Option<PeripheralRef<'d, AnyPin>>,
-        mut cts: Option<PeripheralRef<'d, AnyPin>>,
+        _uart: Peri<'d, T>,
+        mut tx: Peri<'d, AnyPin>,
+        mut rx: Peri<'d, AnyPin>,
+        mut rts: Option<Peri<'d, AnyPin>>,
+        mut cts: Option<Peri<'d, AnyPin>>,
         has_irq: bool,
-        tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
-        rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+        tx_dma: Option<Peri<'d, AnyChannel>>,
+        rx_dma: Option<Peri<'d, AnyChannel>>,
         config: Config,
     ) -> Self {
         Self::init(
@@ -838,10 +812,10 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
     }
 
     fn init(
-        tx: Option<PeripheralRef<'_, AnyPin>>,
-        rx: Option<PeripheralRef<'_, AnyPin>>,
-        rts: Option<PeripheralRef<'_, AnyPin>>,
-        cts: Option<PeripheralRef<'_, AnyPin>>,
+        tx: Option<Peri<'_, AnyPin>>,
+        rx: Option<Peri<'_, AnyPin>>,
+        rts: Option<Peri<'_, AnyPin>>,
+        cts: Option<Peri<'_, AnyPin>>,
         config: Config,
     ) {
         let r = T::regs();
@@ -1326,7 +1300,7 @@ impl_mode!(Async);
 
 /// UART instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance {
+pub trait Instance: SealedInstance + PeripheralType {
     /// Interrupt for this instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

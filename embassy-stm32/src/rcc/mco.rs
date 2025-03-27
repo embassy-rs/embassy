@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_internal::into_ref;
+use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Speed};
 #[cfg(not(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37)))]
@@ -32,7 +32,7 @@ pub use crate::pac::rcc::vals::Mcosel as McoSource;
 ))]
 pub use crate::pac::rcc::vals::{Mco1sel as Mco1Source, Mco2sel as Mco2Source};
 use crate::pac::RCC;
-use crate::{peripherals, Peripheral};
+use crate::{peripherals, Peri};
 
 #[cfg(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
@@ -43,7 +43,7 @@ pub enum McoPrescaler {
 pub(crate) trait SealedMcoInstance {}
 
 #[allow(private_bounds)]
-pub trait McoInstance: SealedMcoInstance + 'static {
+pub trait McoInstance: PeripheralType + SealedMcoInstance + 'static {
     type Source;
 
     #[doc(hidden)]
@@ -91,14 +91,7 @@ pub struct Mco<'d, T: McoInstance> {
 
 impl<'d, T: McoInstance> Mco<'d, T> {
     /// Create a new MCO instance.
-    pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
-        pin: impl Peripheral<P = impl McoPin<T>> + 'd,
-        source: T::Source,
-        prescaler: McoPrescaler,
-    ) -> Self {
-        into_ref!(pin);
-
+    pub fn new(_peri: Peri<'d, T>, pin: Peri<'d, impl McoPin<T>>, source: T::Source, prescaler: McoPrescaler) -> Self {
         critical_section::with(|_| unsafe {
             T::_apply_clock_settings(source, prescaler);
             pin.set_as_af(pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));

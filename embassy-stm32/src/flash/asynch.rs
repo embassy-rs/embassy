@@ -2,7 +2,6 @@ use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::into_ref;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
@@ -12,18 +11,16 @@ use super::{
 };
 use crate::interrupt::InterruptExt;
 use crate::peripherals::FLASH;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, Peri};
 
 pub(super) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 impl<'d> Flash<'d, Async> {
     /// Create a new flash driver with async capabilities.
     pub fn new(
-        p: impl Peripheral<P = FLASH> + 'd,
+        p: Peri<'d, FLASH>,
         _irq: impl interrupt::typelevel::Binding<crate::interrupt::typelevel::FLASH, InterruptHandler> + 'd,
     ) -> Self {
-        into_ref!(p);
-
         crate::interrupt::FLASH.unpend();
         unsafe { crate::interrupt::FLASH.enable() };
 

@@ -3,12 +3,11 @@ use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
 use pac::i2c;
 
 use crate::i2c::{set_up_i2c_pin, AbortReason, Instance, InterruptHandler, SclPin, SdaPin, FIFO_SIZE};
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{pac, Peripheral};
+use crate::{pac, Peri};
 
 /// I2C error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -87,14 +86,12 @@ pub struct I2cSlave<'d, T: Instance> {
 impl<'d, T: Instance> I2cSlave<'d, T> {
     /// Create a new instance.
     pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        _peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(_peri, scl, sda);
-
         assert!(config.addr != 0);
 
         // Configure SCL & SDA pins

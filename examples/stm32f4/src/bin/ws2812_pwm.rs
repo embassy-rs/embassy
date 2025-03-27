@@ -92,7 +92,7 @@ async fn main(_spawner: Spawner) {
     loop {
         for &color in color_list {
             // with &mut, we can easily reuse same DMA channel multiple times
-            ws2812_pwm.waveform_up(&mut dp.DMA1_CH2, pwm_channel, color).await;
+            ws2812_pwm.waveform_up(dp.DMA1_CH2.reborrow(), pwm_channel, color).await;
             // ws2812 need at least 50 us low level input to confirm the input data and change it's state
             Timer::after_micros(50).await;
             // wait until ticker tick

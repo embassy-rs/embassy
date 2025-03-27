@@ -10,6 +10,7 @@ use crate::rcc::RccPeripheral;
 mod channel;
 #[cfg(any(lptim_v2a, lptim_v2b))]
 pub use channel::Channel;
+use embassy_hal_internal::PeripheralType;
 
 pin_trait!(OutputPin, BasicInstance);
 pin_trait!(Channel1Pin, BasicInstance);
@@ -22,7 +23,7 @@ pub(crate) trait SealedBasicInstance: RccPeripheral {}
 
 /// LPTIM basic instance trait.
 #[allow(private_bounds)]
-pub trait BasicInstance: SealedBasicInstance + 'static {}
+pub trait BasicInstance: PeripheralType + SealedBasicInstance + 'static {}
 
 /// LPTIM instance trait.
 #[allow(private_bounds)]

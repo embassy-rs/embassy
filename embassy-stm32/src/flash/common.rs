@@ -2,27 +2,24 @@ use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::{
     family, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE,
     READ_SIZE, WRITE_SIZE,
 };
+use crate::Peri;
 use crate::_generated::FLASH_BASE;
 use crate::peripherals::FLASH;
-use crate::Peripheral;
 
 /// Internal flash memory driver.
 pub struct Flash<'d, MODE = Async> {
-    pub(crate) inner: PeripheralRef<'d, FLASH>,
+    pub(crate) inner: Peri<'d, FLASH>,
     pub(crate) _mode: PhantomData<MODE>,
 }
 
 impl<'d> Flash<'d, Blocking> {
     /// Create a new flash driver, usable in blocking mode.
-    pub fn new_blocking(p: impl Peripheral<P = FLASH> + 'd) -> Self {
-        into_ref!(p);
-
+    pub fn new_blocking(p: Peri<'d, FLASH>) -> Self {
         Self {
             inner: p,
             _mode: PhantomData,

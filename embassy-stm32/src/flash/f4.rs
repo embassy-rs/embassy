@@ -13,8 +13,7 @@ use crate::pac;
 mod alt_regions {
     use core::marker::PhantomData;
 
-    use embassy_hal_internal::PeripheralRef;
-
+    use crate::Peri;
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
     use crate::_generated::FLASH_SIZE;
     use crate::flash::{asynch, Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashRegion};
@@ -50,10 +49,10 @@ mod alt_regions {
         &ALT_BANK2_REGION3,
     ];
 
-    pub struct AltBank1Region3<'d, MODE = Async>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
-    pub struct AltBank2Region1<'d, MODE = Async>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
-    pub struct AltBank2Region2<'d, MODE = Async>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
-    pub struct AltBank2Region3<'d, MODE = Async>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
+    pub struct AltBank1Region3<'d, MODE = Async>(pub &'static FlashRegion, Peri<'d, FLASH>, PhantomData<MODE>);
+    pub struct AltBank2Region1<'d, MODE = Async>(pub &'static FlashRegion, Peri<'d, FLASH>, PhantomData<MODE>);
+    pub struct AltBank2Region2<'d, MODE = Async>(pub &'static FlashRegion, Peri<'d, FLASH>, PhantomData<MODE>);
+    pub struct AltBank2Region3<'d, MODE = Async>(pub &'static FlashRegion, Peri<'d, FLASH>, PhantomData<MODE>);
 
     pub struct AltFlashLayout<'d, MODE = Async> {
         pub bank1_region1: Bank1Region1<'d, MODE>,

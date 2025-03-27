@@ -9,7 +9,7 @@ use core::future::Future;
 use core::iter;
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{Peripheral, PeripheralRef};
+use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
@@ -131,8 +131,8 @@ pub struct I2c<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    scl: Option<PeripheralRef<'d, AnyPin>>,
-    sda: Option<PeripheralRef<'d, AnyPin>>,
+    scl: Option<Peri<'d, AnyPin>>,
+    sda: Option<Peri<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     #[cfg(feature = "time")]
@@ -143,14 +143,14 @@ pub struct I2c<'d, M: Mode> {
 impl<'d> I2c<'d, Async> {
     /// Create a new I2C driver.
     pub fn new<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
             + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
             + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         freq: Hertz,
         config: Config,
     ) -> Self {
@@ -169,9 +169,9 @@ impl<'d> I2c<'d, Async> {
 impl<'d> I2c<'d, Blocking> {
     /// Create a new blocking I2C driver.
     pub fn new_blocking<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         freq: Hertz,
         config: Config,
     ) -> Self {
@@ -190,9 +190,9 @@ impl<'d> I2c<'d, Blocking> {
 impl<'d, M: Mode> I2c<'d, M> {
     /// Create a new I2C driver.
     fn new_inner<T: Instance>(
-        _peri: impl Peripheral<P = T> + 'd,
-        scl: Option<PeripheralRef<'d, AnyPin>>,
-        sda: Option<PeripheralRef<'d, AnyPin>>,
+        _peri: Peri<'d, T>,
+        scl: Option<Peri<'d, AnyPin>>,
+        sda: Option<Peri<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         freq: Hertz,

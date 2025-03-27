@@ -55,11 +55,11 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pin, Pull};
-use embassy_nrf::Peripherals;
+use embassy_nrf::{Peri, Peripherals};
 
 // Declare async tasks
 #[embassy_executor::task]
-async fn blink(pin: AnyPin) {
+async fn blink(pin: Peri<'static, AnyPin>) {
     let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
 
     loop {
@@ -77,7 +77,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
     // Spawned tasks run in the background, concurrently.
-    spawner.spawn(blink(p.P0_13.degrade())).unwrap();
+    spawner.spawn(blink(p.P0_13.into())).unwrap();
 
     let mut button = Input::new(p.P0_11, Pull::Up);
     loop {

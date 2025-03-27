@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
@@ -16,7 +16,7 @@ use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
 use crate::rcc::RccPeripheral;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, Peri};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -290,13 +290,12 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Create a new USB driver with start-of-frame (SOF) output.
     #[cfg(not(stm32l1))]
     pub fn new_with_sof(
-        _usb: impl Peripheral<P = T> + 'd,
+        _usb: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
-        sof: impl Peripheral<P = impl SofPin<T>> + 'd,
+        dp: Peri<'d, impl DpPin<T>>,
+        dm: Peri<'d, impl DmPin<T>>,
+        sof: Peri<'d, impl SofPin<T>>,
     ) -> Self {
-        into_ref!(sof);
         {
             use crate::gpio::{AfType, OutputType, Speed};
             sof.set_as_af(sof.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
@@ -307,13 +306,11 @@ impl<'d, T: Instance> Driver<'d, T> {
 
     /// Create a new USB driver.
     pub fn new(
-        _usb: impl Peripheral<P = T> + 'd,
+        _usb: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        dp: Peri<'d, impl DpPin<T>>,
+        dm: Peri<'d, impl DmPin<T>>,
     ) -> Self {
-        into_ref!(dp, dm);
-
         super::common_init::<T>();
 
         let regs = T::regs();
@@ -1236,7 +1233,7 @@ trait SealedInstance {
 
 /// USB instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + 'static {
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + 'static {
     /// Interrupt for this USB instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

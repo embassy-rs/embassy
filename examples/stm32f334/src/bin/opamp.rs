@@ -48,7 +48,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut vrefint = adc.enable_vref();
     let mut temperature = adc.enable_temperature();
-    let mut buffer = opamp.buffer_ext(&mut p.PA7, &mut p.PA6, OpAmpGain::Mul1);
+    let mut buffer = opamp.buffer_ext(p.PA7.reborrow(), p.PA6.reborrow(), OpAmpGain::Mul1);
 
     loop {
         let vref = adc.read(&mut vrefint).await;

@@ -3,15 +3,13 @@
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
-
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
 use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, TimerBits};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::Peri;
 
 /// Channel 1 marker type.
 pub enum Ch1 {}
@@ -26,7 +24,7 @@ pub enum Ch4 {}
 ///
 /// This wraps a pin to make it usable with PWM.
 pub struct PwmPin<'d, T, C> {
-    _pin: PeripheralRef<'d, AnyPin>,
+    _pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -47,24 +45,19 @@ macro_rules! channel_impl {
     ($new_chx:ident, $new_chx_with_config:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, T: GeneralInstance4Channel> PwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, output_type: OutputType) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>, output_type: OutputType) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
                 });
                 PwmPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
 
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with config.")]
-            pub fn $new_chx_with_config(
-                pin: impl Peripheral<P = impl $pin_trait<T>> + 'd,
-                pin_config: PwmPinConfig,
-            ) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx_with_config(pin: Peri<'d, impl $pin_trait<T>>, pin_config: PwmPinConfig) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(
@@ -76,7 +69,7 @@ macro_rules! channel_impl {
                     );
                 });
                 PwmPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
@@ -202,7 +195,7 @@ pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Create a new simple PWM driver.
     pub fn new(
-        tim: impl Peripheral<P = T> + 'd,
+        tim: Peri<'d, T>,
         _ch1: Option<PwmPin<'d, T, Ch1>>,
         _ch2: Option<PwmPin<'d, T, Ch2>>,
         _ch3: Option<PwmPin<'d, T, Ch3>>,
@@ -213,7 +206,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         Self::new_inner(tim, freq, counting_mode)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
+    fn new_inner(tim: Peri<'d, T>, freq: Hertz, counting_mode: CountingMode) -> Self {
         let mut this = Self { inner: Timer::new(tim) };
 
         this.inner.set_counting_mode(counting_mode);
@@ -331,14 +324,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(
-        &mut self,
-        dma: impl Peripheral<P = impl super::UpDma<T>>,
-        channel: Channel,
-        duty: &[u16],
-    ) {
-        into_ref!(dma);
-
+    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
 
@@ -368,7 +354,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             };
 
             Transfer::new_write(
-                &mut dma,
+                dma,
                 req,
                 duty,
                 self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
@@ -399,10 +385,8 @@ macro_rules! impl_waveform_chx {
     ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
         impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             /// Generate a sequence of PWM waveform
-            pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u16]) {
+            pub async fn $fn_name(&mut self, dma: Peri<'_, impl super::$dma_ch<T>>, duty: &[u16]) {
                 use crate::pac::timer::vals::Ccds;
-
-                into_ref!(dma);
 
                 #[allow(clippy::let_unit_value)] // eg. stm32f334
                 let req = dma.request();
@@ -443,7 +427,7 @@ macro_rules! impl_waveform_chx {
                     match self.inner.bits() {
                         TimerBits::Bits16 => {
                             Transfer::new_write(
-                                &mut dma,
+                                dma,
                                 req,
                                 duty,
                                 self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u16,
@@ -458,7 +442,7 @@ macro_rules! impl_waveform_chx {
 
                             #[cfg(any(bdma, gpdma))]
                             Transfer::new_write(
-                                &mut dma,
+                                dma,
                                 req,
                                 duty,
                                 self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u32,

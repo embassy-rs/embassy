@@ -10,8 +10,8 @@ use core::marker::PhantomData;
 
 use embassy_time::Duration;
 
-use crate::pac;
 use crate::peripherals::WATCHDOG;
+use crate::{pac, Peri};
 
 /// The reason for a system reset from the watchdog.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -30,7 +30,7 @@ pub struct Watchdog {
 
 impl Watchdog {
     /// Create a new `Watchdog`
-    pub fn new(_watchdog: WATCHDOG) -> Self {
+    pub fn new(_watchdog: Peri<'static, WATCHDOG>) -> Self {
         Self {
             phantom: PhantomData,
             load_value: 0,

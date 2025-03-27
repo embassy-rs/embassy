@@ -5,14 +5,14 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
 use cfg_if::cfg_if;
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 
+use crate::pac;
 use crate::pac::common::{Reg, RW};
 use crate::pac::gpio;
 use crate::pac::gpio::vals;
 #[cfg(not(feature = "_nrf51"))]
 use crate::pac::shared::{regs::Psel, vals::Connect};
-use crate::{pac, Peripheral};
 
 /// A GPIO port with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
@@ -49,7 +49,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
 
@@ -210,7 +210,7 @@ pub struct Output<'d> {
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDriver] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, drive: OutputDrive) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -310,7 +310,7 @@ fn convert_pull(pull: Pull) -> vals::Pull {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d> {
-    pub(crate) pin: PeripheralRef<'d, AnyPin>,
+    pub(crate) pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -319,10 +319,9 @@ impl<'d> Flex<'d> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        into_ref!(pin);
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into() }
     }
 
     /// Put the pin into input mode.
@@ -503,7 +502,7 @@ pub(crate) trait SealedPin {
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
@@ -529,19 +528,11 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
     fn psel_bits(&self) -> pac::shared::regs::Psel {
         pac::shared::regs::Psel(self.pin_port() as u32)
     }
-
-    /// Convert from concrete pin type PX_XX to type erased `AnyPin`.
-    #[inline]
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_port: self.pin_port(),
-        }
-    }
 }
 
 /// Type-erased GPIO pin
 pub struct AnyPin {
-    pin_port: u8,
+    pub(crate) pin_port: u8,
 }
 
 impl AnyPin {
@@ -550,8 +541,8 @@ impl AnyPin {
     /// # Safety
     /// - `pin_port` should not in use by another driver.
     #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Self {
-        Self { pin_port }
+    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_port })
     }
 }
 
@@ -573,7 +564,7 @@ pub(crate) trait PselBits {
 }
 
 #[cfg(not(feature = "_nrf51"))]
-impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
+impl<'a, P: Pin> PselBits for Option<Peri<'a, P>> {
     #[inline]
     fn psel_bits(&self) -> pac::shared::regs::Psel {
         match self {
@@ -611,8 +602,10 @@ macro_rules! impl_pin {
         }
 
         impl From<peripherals::$type> for crate::gpio::AnyPin {
-            fn from(val: peripherals::$type) -> Self {
-                crate::gpio::Pin::degrade(val)
+            fn from(_val: peripherals::$type) -> Self {
+                Self {
+                    pin_port: $port_num * 32 + $pin_num,
+                }
             }
         }
     };

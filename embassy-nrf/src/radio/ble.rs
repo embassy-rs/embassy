@@ -5,7 +5,6 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use pac::radio::vals::Mode;
 #[cfg(not(feature = "_nrf51"))]
 use pac::radio::vals::Plen as PreambleLength;
@@ -15,20 +14,19 @@ use crate::pac::radio::vals;
 use crate::radio::*;
 pub use crate::radio::{Error, TxPower};
 use crate::util::slice_in_ram_or;
+use crate::Peri;
 
 /// Radio driver.
 pub struct Radio<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Radio<'d, T> {
     /// Create a new radio driver.
     pub fn new(
-        radio: impl Peripheral<P = T> + 'd,
+        radio: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        into_ref!(radio);
-
         let r = T::regs();
 
         r.pcnf1().write(|w| {

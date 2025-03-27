@@ -7,13 +7,12 @@ use core::marker::PhantomData;
 use core::sync::atomic::AtomicU16;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
 use pac::clocks::vals::*;
 
 use crate::gpio::{AnyPin, SealedPin};
 #[cfg(feature = "rp2040")]
 use crate::pac::common::{Reg, RW};
-use crate::{pac, reset, Peripheral};
+use crate::{pac, reset, Peri};
 
 // NOTE: all gpin handling is commented out for future reference.
 // gpin is not usually safe to use during the boot init() call, so it won't
@@ -200,8 +199,8 @@ impl ClockConfig {
 
     // pub fn bind_gpin<P: GpinPin>(&mut self, gpin: Gpin<'static, P>, hz: u32) {
     //     match P::NR {
-    //         0 => self.gpin0 = Some((hz, gpin.map_into())),
-    //         1 => self.gpin1 = Some((hz, gpin.map_into())),
+    //         0 => self.gpin0 = Some((hz, gpin.into())),
+    //         1 => self.gpin1 = Some((hz, gpin.into())),
     //         _ => unreachable!(),
     //     }
     //     // pin is now provisionally bound. if the config is applied it must be forgotten,
@@ -845,15 +844,13 @@ impl_gpinpin!(PIN_22, 22, 1);
 
 /// General purpose clock input driver.
 pub struct Gpin<'d, T: GpinPin> {
-    gpin: PeripheralRef<'d, AnyPin>,
+    gpin: Peri<'d, AnyPin>,
     _phantom: PhantomData<T>,
 }
 
 impl<'d, T: GpinPin> Gpin<'d, T> {
     /// Create new gpin driver.
-    pub fn new(gpin: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(gpin);
-
+    pub fn new(gpin: Peri<'d, T>) -> Self {
         #[cfg(feature = "rp2040")]
         gpin.gpio().ctrl().write(|w| w.set_funcsel(0x08));
 
@@ -867,14 +864,10 @@ impl<'d, T: GpinPin> Gpin<'d, T> {
         });
 
         Gpin {
-            gpin: gpin.map_into(),
+            gpin: gpin.into(),
             _phantom: PhantomData,
         }
     }
-
-    // fn map_into(self) -> Gpin<'d, AnyPin> {
-    //     unsafe { core::mem::transmute(self) }
-    // }
 }
 
 impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
@@ -936,14 +929,12 @@ pub enum GpoutSrc {
 
 /// General purpose clock output driver.
 pub struct Gpout<'d, T: GpoutPin> {
-    gpout: PeripheralRef<'d, T>,
+    gpout: Peri<'d, T>,
 }
 
 impl<'d, T: GpoutPin> Gpout<'d, T> {
     /// Create new general purpose clock output.
-    pub fn new(gpout: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(gpout);
-
+    pub fn new(gpout: Peri<'d, T>) -> Self {
         #[cfg(feature = "rp2040")]
         gpout.gpio().ctrl().write(|w| w.set_funcsel(0x08));
 

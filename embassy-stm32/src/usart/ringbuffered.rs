@@ -4,7 +4,6 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::PeripheralRef;
 use embedded_io_async::ReadReady;
 use futures_util::future::{select, Either};
 
@@ -18,6 +17,7 @@ use crate::mode::Async;
 use crate::pac::usart::regs;
 use crate::time::Hertz;
 use crate::usart::{Regs, Sr};
+use crate::Peri;
 
 /// Rx-only Ring-buffered UART Driver
 ///
@@ -26,8 +26,8 @@ pub struct RingBufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<PeripheralRef<'d, AnyPin>>,
-    rts: Option<PeripheralRef<'d, AnyPin>>,
+    rx: Option<Peri<'d, AnyPin>>,
+    rts: Option<Peri<'d, AnyPin>>,
     ring_buf: ReadableRingBuffer<'d, u8>,
 }
 
