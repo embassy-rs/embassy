@@ -53,18 +53,20 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
         }
     }
 
-    async fn try_register(bus: &H, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
+    async fn try_register(bus: &H, enum_info: &EnumerationInfo<'_>) -> Result<Self, RegisterError> {
         let iface = enum_info
             .cfg_desc
             .iter_interface()
-            .find(|v| match v {
-                InterfaceDescriptor {
-                    interface_class: 0x09,
-                    interface_subclass: 0x0,
-                    interface_protocol: 0x0,
-                    ..
-                } => true,
-                _ => false,
+            .find(|v| {
+                matches!(
+                    v,
+                    InterfaceDescriptor {
+                        interface_class: 0x09,
+                        interface_subclass: 0x0,
+                        interface_protocol: 0x0,
+                        ..
+                    }
+                )
             })
             .ok_or(RegisterError::NoSupportedInterface)?;
 
@@ -176,24 +178,22 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
 }
 
 impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
-    async fn enumerate_port(
+    async fn enumerate_port<'a>(
         &mut self,
         port: u8,
         speed: Speed,
         new_device_address: u8,
-    ) -> Result<EnumerationInfo, HostError> {
+        descriptor_buf: &'a mut [u8],
+    ) -> Result<EnumerationInfo<'a>, HostError> {
         // NOTE: we probably could do this in the wait loop but it would require a arc mutex registry which seems unnecessary
         self.port_feature(true, PortFeature::Reset, port, 0).await?;
         Timer::after_millis(50).await;
         self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
 
-        let ls_pre = match (speed, self.speed) {
-            (Speed::Low, Speed::Full | Speed::High) => true,
-            _ => false,
-        };
+        let ls_pre = matches!((speed, self.speed), (Speed::Low, Speed::Full | Speed::High));
 
         self.control_channel
-            .enumerate_device(speed, new_device_address, ls_pre)
+            .enumerate_device(speed, new_device_address, ls_pre, descriptor_buf)
             .await
     }
 
@@ -209,11 +209,11 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
                 Request::CLEAR_FEATURE
             },
             value: feature as u16,
-            index: (selector as u16) << 8 | (port + 1) as u16,
+            index: ((selector as u16) << 8) | (port + 1) as u16,
             length: 0,
         };
 
-        self.control_channel.control_out(&setup, &mut []).await?;
+        self.control_channel.control_out(&setup, &[]).await?;
         Ok(())
     }
 
@@ -245,7 +245,7 @@ pub struct HubInterrupt<'a>(&'a mut [u8]);
 impl<'a> HubInterrupt<'a> {
     fn is_hub_change(&self) -> bool {
         // SAFETY: at least one byte is required by construction
-        return unsafe { self.0.get_unchecked(0) } & 1 != 0;
+        (unsafe { self.0.get_unchecked(0) } & 1 != 0)
     }
 
     fn take_port_change(&mut self) -> Option<u8> {

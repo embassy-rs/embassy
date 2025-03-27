@@ -45,7 +45,7 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
         super::StaticHandlerSpec { device_filter: None }
     }
 
-    async fn try_register(bus: &H, enum_info: EnumerationInfo) -> Result<Self, RegisterError> {
+    async fn try_register(bus: &H, enum_info: &EnumerationInfo<'_>) -> Result<Self, RegisterError> {
         let iface = enum_info
             .cfg_desc
             .iter_interface()

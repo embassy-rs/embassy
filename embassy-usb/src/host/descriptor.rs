@@ -1,5 +1,5 @@
 use crate::descriptor::descriptor_type;
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
+use embassy_usb_driver::{host::HostError, Direction, EndpointInfo, EndpointType};
 use heapless::Vec;
 
 type StringIndex = u8;
@@ -36,7 +36,7 @@ pub struct DeviceDescriptor {
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
-pub struct ConfigurationDescriptor {
+pub struct ConfigurationDescriptor<'a> {
     pub len: u8,
     pub descriptor_type: u8,
     pub total_len: u16,
@@ -46,9 +46,7 @@ pub struct ConfigurationDescriptor {
     pub attributes: u8,
     pub max_power: u8,
 
-    /// All additional bytes end up in this buffer.
-    /// This includes the interface descriptors
-    pub buffer: [u8; 256],
+    pub buffer: &'a [u8],
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -141,13 +139,12 @@ impl USBDescriptor for DeviceDescriptor {
     }
 }
 
-impl USBDescriptor for ConfigurationDescriptor {
+impl USBDescriptor for ConfigurationDescriptor<'_> {
     const SIZE: usize = 9;
 
     const DESC_TYPE: u8 = descriptor_type::CONFIGURATION;
     type Error = ();
 
-    // TODO(perf): ConfigurationDescriptor::try_from_bytes (and similar) `clone`s the descriptor; but should be parsable with lazy or zero copy (current only used in read-only)
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() < Self::SIZE {
             return Err(());
@@ -155,9 +152,6 @@ impl USBDescriptor for ConfigurationDescriptor {
         if bytes[1] != Self::DESC_TYPE {
             return Err(());
         }
-        let mut buffer = [0u8; 256];
-        let rest_of_desc = &bytes[Self::SIZE..];
-        buffer[..rest_of_desc.len()].copy_from_slice(rest_of_desc);
 
         Ok(Self {
             len: bytes[0],
@@ -168,7 +162,7 @@ impl USBDescriptor for ConfigurationDescriptor {
             configuration_name: bytes[6],
             attributes: bytes[7],
             max_power: bytes[8],
-            buffer,
+            buffer: &[],
         })
     }
 }
@@ -176,7 +170,7 @@ impl USBDescriptor for ConfigurationDescriptor {
 pub struct InterfaceIterator<'a> {
     num_interface: usize,
     index: usize,
-    cfg_desc: &'a ConfigurationDescriptor,
+    cfg_desc: &'a ConfigurationDescriptor<'a>,
 }
 
 impl<'a> Iterator for InterfaceIterator<'a> {
@@ -193,8 +187,32 @@ impl<'a> Iterator for InterfaceIterator<'a> {
     }
 }
 
-impl ConfigurationDescriptor {
-    pub fn iter_interface<'a>(&'a self) -> InterfaceIterator<'a> {
+impl<'a> ConfigurationDescriptor<'a> {
+    /// Parses a full Configuration Descriptor with reference to sub-descriptors
+    pub fn try_from_slice(buf: &'a [u8]) -> Result<ConfigurationDescriptor<'a>, HostError> {
+        if buf.len() < Self::SIZE {
+            return Err(HostError::InvalidDescriptor);
+        }
+        if buf[1] != Self::DESC_TYPE {
+            return Err(HostError::InvalidDescriptor);
+        }
+
+        let total_length = u16::from_le_bytes([buf[2], buf[3]]);
+        Ok(Self {
+            len: buf[0],
+            descriptor_type: buf[1],
+            total_len: total_length,
+            num_interfaces: buf[4],
+            configuration_value: buf[5],
+            configuration_name: buf[6],
+            attributes: buf[7],
+            max_power: buf[8],
+            buffer: &buf[buf[0] as usize..total_length as usize],
+        })
+    }
+
+    /// Iterate over all interface descriptors of this Configuration
+    pub fn iter_interface(&self) -> InterfaceIterator<'_> {
         InterfaceIterator {
             num_interface: self.num_interfaces as usize,
             index: 0,
@@ -203,7 +221,7 @@ impl ConfigurationDescriptor {
     }
 
     /// Try to find and parse the interface with interface number `index`
-    pub fn parse_interface<'a>(&'a self, index: usize) -> Option<InterfaceDescriptor<'a>> {
+    pub fn parse_interface(&self, index: usize) -> Option<InterfaceDescriptor<'_>> {
         if index >= self.num_interfaces as usize {
             return None;
         }
@@ -223,7 +241,7 @@ impl ConfigurationDescriptor {
         }
 
         // start is relative to current dest_buffer.
-        let Some(start) = start else { return None };
+        let start = start?;
 
         // Find next interface if any
         let next_interface_buffer = &dest_buffer[start + InterfaceDescriptor::SIZE..];
@@ -273,7 +291,7 @@ pub struct EndpointIterator<'a> {
     iface_desc: &'a InterfaceDescriptor<'a>,
 }
 
-impl<'a> Iterator for EndpointIterator<'a> {
+impl Iterator for EndpointIterator<'_> {
     type Item = EndpointDescriptor;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -479,7 +497,7 @@ mod test {
             1,
         ];
 
-        let cfg = ConfigurationDescriptor::try_from_bytes(desc_bytes.as_slice()).unwrap();
+        let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
         assert_eq!(cfg.num_interfaces, 2);
 
         let interface0 = cfg.parse_interface(0).unwrap();
@@ -506,7 +524,7 @@ mod test {
             1,
         ];
 
-        let cfg = ConfigurationDescriptor::try_from_bytes(desc_bytes.as_slice()).unwrap();
+        let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
         assert_eq!(cfg.num_interfaces, 2);
 
         let interface0 = cfg.parse_interface(0).unwrap();
@@ -571,7 +589,7 @@ mod test {
             1,
         ];
 
-        let cfg = ConfigurationDescriptor::try_from_bytes(desc_bytes.as_slice()).unwrap();
+        let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
         assert_eq!(cfg.num_interfaces, 2);
 
         let interface0 = cfg.parse_interface(0).unwrap();
