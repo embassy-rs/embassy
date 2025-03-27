@@ -41,6 +41,7 @@ pub mod rom_data;
 #[cfg(feature = "rp2040")]
 pub mod rtc;
 pub mod spi;
+mod spinlock;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
 #[cfg(feature = "_rp235x")]
