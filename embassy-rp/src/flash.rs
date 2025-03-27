@@ -19,7 +19,7 @@ pub const FLASH_BASE: *const u32 = 0x10000000 as _;
 
 /// Address for xip setup function set up by the 235x bootrom.
 #[cfg(feature = "_rp235x")]
-pub const BOOTROM_BASE: *const u32 = 0x400e0000 as _;
+pub const BOOTRAM_BASE: *const u32 = 0x400e0000 as _;
 
 /// If running from RAM, we might have no boot2. Use bootrom `flash_enter_cmd_xip` instead.
 // TODO: when run-from-ram is set, completely skip the "pause cores and jumpp to RAM" dance.
@@ -527,7 +527,7 @@ mod ram_helpers {
             #[cfg(feature = "rp2040")]
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             #[cfg(feature = "_rp235x")]
-            core::ptr::copy_nonoverlapping(BOOTROM_BASE as *const u8, boot2.as_mut_ptr() as *mut u8, 256);
+            core::ptr::copy_nonoverlapping(BOOTRAM_BASE as *const u8, boot2.as_mut_ptr() as *mut u8, 256);
             flash_function_pointers_with_boot2(true, false, &boot2)
         } else {
             flash_function_pointers(true, false)
@@ -560,7 +560,7 @@ mod ram_helpers {
             #[cfg(feature = "rp2040")]
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             #[cfg(feature = "_rp235x")]
-            core::ptr::copy_nonoverlapping(BOOTROM_BASE as *const u8, (boot2).as_mut_ptr() as *mut u8, 256);
+            core::ptr::copy_nonoverlapping(BOOTRAM_BASE as *const u8, (boot2).as_mut_ptr() as *mut u8, 256);
             flash_function_pointers_with_boot2(true, true, &boot2)
         } else {
             flash_function_pointers(true, true)
@@ -598,7 +598,7 @@ mod ram_helpers {
             #[cfg(feature = "rp2040")]
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             #[cfg(feature = "_rp235x")]
-            core::ptr::copy_nonoverlapping(BOOTROM_BASE as *const u8, boot2.as_mut_ptr() as *mut u8, 256);
+            core::ptr::copy_nonoverlapping(BOOTRAM_BASE as *const u8, boot2.as_mut_ptr() as *mut u8, 256);
             flash_function_pointers_with_boot2(false, true, &boot2)
         } else {
             flash_function_pointers(false, true)
