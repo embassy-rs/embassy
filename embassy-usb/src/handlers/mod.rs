@@ -1,6 +1,6 @@
 //! Implementations of common Host-side drivers
 
-use core::num::NonZeroU8;
+use core::{num::NonZeroU8, ops::Deref};
 
 use embassy_usb_driver::{
     host::{channel, HostError, UsbChannel, UsbHostDriver},
@@ -29,7 +29,15 @@ impl StaticHandlerSpec {
     }
 }
 
-pub struct EnumerationInfo {
+pub struct OwnedConfigurationDescriptor<const C: usize>([u8; C]);
+
+impl<const C: usize> OwnedConfigurationDescriptor<C> {
+    pub fn as_cfg_desc(&self) -> Result<ConfigurationDescriptor<'_>, HostError> {
+        ConfigurationDescriptor::try_from_slice(&self.0)
+    }
+}
+
+pub struct EnumerationInfo<'a> {
     /// Device address
     pub device_address: u8,
     /// Used to indicate a low-speed device over a full-speed or higher interface
@@ -39,7 +47,8 @@ pub struct EnumerationInfo {
     // Device Specs
     pub device_desc: DeviceDescriptor,
     /// Device Configuration
-    pub cfg_desc: ConfigurationDescriptor,
+    /// TODO: make actual device descriptor (incl subdescriptors)
+    pub cfg_desc: ConfigurationDescriptor<'a>,
 }
 
 #[derive(Debug)]
@@ -54,6 +63,7 @@ pub enum HandlerEvent<T> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RegisterError {
     NoSupportedInterface,
+    InvalidDescriptor,
     HostError(HostError),
 }
 
@@ -83,7 +93,7 @@ pub trait UsbHostHandler: Sized {
     /// finally the appropriate channels are allocated andn stored in the resulting handler
     ///
     /// NOTE: Channels are expected to self-clean on `Drop`. FIXME: this is not the case for stm32
-    async fn try_register(bus: &Self::Driver, enum_info: EnumerationInfo) -> Result<Self, RegisterError>;
+    async fn try_register(bus: &Self::Driver, enum_info: &EnumerationInfo<'_>) -> Result<Self, RegisterError>;
 
     /// Wait for changes to handler, the handler is expected to defer (`yield_now` or Timer::after) whenever idle.
     /// Handler users should not use `select` or `join` to avoid dropping futures.
