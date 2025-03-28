@@ -3,6 +3,7 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Hsidiv as HsiSysDiv, Hsikerdiv as HsiKerDiv, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -121,9 +122,16 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    let rtc = config.ls.init();
+
     let sys = match config.sys {
         Sysclk::HSISYS => unwrap!(hsisys),
         Sysclk::HSE => unwrap!(hse),
+        Sysclk::LSI => {
+            assert!(config.ls.lsi);
+            LSI_FREQ
+        }
+        Sysclk::LSE => unwrap!(config.ls.lse).frequency,
         _ => unreachable!(),
     };
 
@@ -161,8 +169,6 @@ pub(crate) unsafe fn init(config: Config) {
     if config.hsi.is_none() {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
-
-    let rtc = config.ls.init();
 
     config.mux.init();
 
