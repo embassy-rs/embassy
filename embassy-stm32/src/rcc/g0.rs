@@ -241,7 +241,10 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::HSI => unwrap!(hsisys),
         Sysclk::HSE => unwrap!(hse),
         Sysclk::PLL1_R => unwrap!(pll.pll_r),
-        Sysclk::LSI => { assert!(config.ls.lsi); LSI_FREQ }
+        Sysclk::LSI => {
+            assert!(config.ls.lsi);
+            LSI_FREQ
+        }
         Sysclk::LSE => unwrap!(config.ls.lse).frequency,
         _ => unreachable!(),
     };

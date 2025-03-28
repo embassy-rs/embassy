@@ -127,7 +127,10 @@ pub(crate) unsafe fn init(config: Config) {
     let sys = match config.sys {
         Sysclk::HSISYS => unwrap!(hsisys),
         Sysclk::HSE => unwrap!(hse),
-        Sysclk::LSI => { assert!(config.ls.lsi); LSI_FREQ }
+        Sysclk::LSI => {
+            assert!(config.ls.lsi);
+            LSI_FREQ
+        }
         Sysclk::LSE => unwrap!(config.ls.lse).frequency,
         _ => unreachable!(),
     };
