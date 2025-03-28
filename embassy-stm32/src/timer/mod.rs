@@ -41,6 +41,15 @@ impl Channel {
     }
 }
 
+/// Channel 1 marker type.
+pub enum Ch1 {}
+/// Channel 2 marker type.
+pub enum Ch2 {}
+/// Channel 3 marker type.
+pub enum Ch3 {}
+/// Channel 4 marker type.
+pub enum Ch4 {}
+
 /// Amount of bits of a timer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

@@ -12,19 +12,11 @@ use super::{
     CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin,
     GeneralInstance4Channel,
 };
+pub use super::{Ch1, Ch2, Ch3, Ch4};
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::Peripheral;
-
-/// Channel 1 marker type.
-pub enum Ch1 {}
-/// Channel 2 marker type.
-pub enum Ch2 {}
-/// Channel 3 marker type.
-pub enum Ch3 {}
-/// Channel 4 marker type.
-pub enum Ch4 {}
 
 /// Capture pin wrapper.
 ///
