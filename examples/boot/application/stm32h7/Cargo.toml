@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-sync = { version = "0.6.2", path = "../../../../embassy-sync" }
-embassy-executor = { version = "0.7.0", path = "../../../../embassy-executor", features = ["task-arena-size-8192", "arch-cortex-m", "executor-thread"] }
+embassy-executor = { version = "0.7.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.4.0", path = "../../../../embassy-time", features = [ "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.2.0", path = "../../../../embassy-stm32", features = ["stm32h743zi", "time-driver-any", "exti"]  }
 embassy-boot-stm32 = { version = "0.2.0", path = "../../../../embassy-boot-stm32", features = [] }
