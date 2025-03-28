@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-sync = { version = "0.6.2", path = "../../embassy-sync", features = ["log"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["task-arena-size-32768", "arch-std", "executor-thread", "log"] }
+embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-std", "executor-thread", "log"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["log", "std", ] }
 embassy-net = { version = "0.7.0", path = "../../embassy-net", features=[ "log", "medium-ethernet", "medium-ip", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6"] }
 embassy-net-tuntap = { version = "0.1.0", path = "../../embassy-net-tuntap" }

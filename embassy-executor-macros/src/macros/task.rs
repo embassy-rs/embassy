@@ -145,9 +145,43 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     };
     #[cfg(not(feature = "nightly"))]
     let mut task_outer_body = quote! {
+        const fn __task_pool_size<F, Args>(_: F) -> usize
+        where
+            F: #embassy_executor::_export::TaskFn<Args>,
+        {
+            ::core::mem::size_of::<
+                #embassy_executor::raw::TaskPool<F::Fut, POOL_SIZE>
+            >()
+        }
+        const fn __task_pool_align<F, Args>(_: F) -> usize
+        where
+            F: #embassy_executor::_export::TaskFn<Args>,
+        {
+            ::core::mem::align_of::<
+                #embassy_executor::raw::TaskPool<F::Fut, POOL_SIZE>
+            >()
+        }
+
+        const fn __task_pool_new<F, Args>(_: F) -> #embassy_executor::raw::TaskPool<F::Fut, POOL_SIZE>
+        where
+            F: #embassy_executor::_export::TaskFn<Args>,
+        {
+            #embassy_executor::raw::TaskPool::new()
+        }
+
+        const fn __task_pool_get<F, Args>(_: F) -> &'static #embassy_executor::raw::TaskPool<F::Fut, POOL_SIZE>
+        where
+            F: #embassy_executor::_export::TaskFn<Args>
+        {
+            unsafe { &*POOL.get().cast() }
+        }
+
         const POOL_SIZE: usize = #pool_size;
-        static POOL: #embassy_executor::_export::TaskPoolRef = #embassy_executor::_export::TaskPoolRef::new();
-        unsafe { POOL.get::<_, POOL_SIZE>()._spawn_async_fn(move || #task_inner_ident(#(#full_args,)*)) }
+        static POOL: #embassy_executor::_export::TaskPoolHolder<
+            {__task_pool_size(#task_inner_ident)},
+            {__task_pool_align(#task_inner_ident)},
+        > = unsafe { ::core::mem::transmute(__task_pool_new(#task_inner_ident)) };
+        unsafe { __task_pool_get(#task_inner_ident)._spawn_async_fn(move || #task_inner_ident(#(#full_args,)*)) }
     };
 
     let task_outer_attrs = task_inner.attrs.clone();

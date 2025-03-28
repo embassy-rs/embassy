@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 # Specific examples only for stm32f469
 embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = ["defmt", "stm32f469ni", "unstable-pac", "memory-x", "time-driver-any", "exti", "chrono"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 
 defmt = "0.3"
