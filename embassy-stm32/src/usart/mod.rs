@@ -716,7 +716,6 @@ impl<'d> UartRx<'d, Async> {
 
         // make sure USART state is restored to neutral state when this future is dropped
         let on_drop = OnDrop::new(move || {
-            // defmt::trace!("Clear all USART interrupts and DMA Read Request");
             // clear all interrupts and DMA Rx Request
             r.cr1().modify(|w| {
                 // disable RXNE interrupt
