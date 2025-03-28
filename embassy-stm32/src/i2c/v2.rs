@@ -855,13 +855,22 @@ impl<'d, M: Mode> SetConfig for I2c<'d, M> {
     type Config = Hertz;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_pe(false);
+        });
+
         let timings = Timings::new(self.kernel_clock, *config);
+
         self.info.regs.timingr().write(|reg| {
             reg.set_presc(timings.prescale);
             reg.set_scll(timings.scll);
             reg.set_sclh(timings.sclh);
             reg.set_sdadel(timings.sdadel);
             reg.set_scldel(timings.scldel);
+        });
+
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_pe(true);
         });
 
         Ok(())
