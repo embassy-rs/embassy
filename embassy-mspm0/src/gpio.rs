@@ -836,6 +836,31 @@ impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d> {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct PfType {
+    pull: Pull,
+    input: bool,
+    invert: bool,
+}
+
+impl PfType {
+    pub const fn input(pull: Pull, invert: bool) -> Self {
+        Self {
+            pull,
+            input: true,
+            invert,
+        }
+    }
+
+    pub const fn output(pull: Pull, invert: bool) -> Self {
+        Self {
+            pull,
+            input: false,
+            invert,
+        }
+    }
+}
+
 /// The pin function to disconnect peripherals from the pin.
 ///
 /// This is also the pin function used to connect to analog peripherals, such as an ADC.
@@ -908,6 +933,40 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
+    fn set_as_analog(&self) {
+        let pincm = pac::IOMUX.pincm(self._pin_cm() as usize);
+
+        pincm.modify(|w| {
+            w.set_pf(DISCONNECT_PF);
+            w.set_pipu(false);
+            w.set_pipd(false);
+        });
+    }
+
+    fn update_pf(&self, ty: PfType) {
+        let pincm = pac::IOMUX.pincm(self._pin_cm() as usize);
+        let pf = pincm.read().pf();
+
+        set_pf(self._pin_cm() as usize, pf, ty);
+    }
+
+    fn set_as_pf(&self, pf: u8, ty: PfType) {
+        set_pf(self._pin_cm() as usize, pf, ty)
+    }
+
+    /// Set the pin as "disconnected", ie doing nothing and consuming the lowest
+    /// amount of power possible.
+    ///
+    /// This is currently the same as [`Self::set_as_analog()`] but is semantically different
+    /// really. Drivers should `set_as_disconnected()` pins when dropped.
+    ///
+    /// Note that this also disables the internal weak pull-up and pull-down resistors.
+    #[inline]
+    fn set_as_disconnected(&self) {
+        self.set_as_analog();
+    }
+
+    #[inline]
     fn block(&self) -> gpio::Gpio {
         match self.pin_port() / 32 {
             0 => pac::GPIOA,
@@ -918,6 +977,18 @@ pub(crate) trait SealedPin {
             _ => unreachable!(),
         }
     }
+}
+
+#[inline(never)]
+fn set_pf(pincm: usize, pf: u8, ty: PfType) {
+    pac::IOMUX.pincm(pincm).modify(|w| {
+        w.set_pf(pf);
+        w.set_pc(true);
+        w.set_pipu(ty.pull == Pull::Up);
+        w.set_pipd(ty.pull == Pull::Down);
+        w.set_inena(ty.input);
+        w.set_inv(ty.invert);
+    });
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
