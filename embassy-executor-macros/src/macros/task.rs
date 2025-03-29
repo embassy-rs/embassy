@@ -145,35 +145,6 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     };
     #[cfg(not(feature = "nightly"))]
     let mut task_outer_body = quote! {
-        // We use Fut instead of F::Fut because F::Fut causes the compiler to generate some ugly
-        // unrelated errors when the task has a compile error.
-        const fn __task_pool_size<F, Args, Fut>(_: F) -> usize
-        where
-            F: #embassy_executor::_export::TaskFn<Args, Fut = Fut>,
-            Fut: ::core::future::Future + 'static,
-        {
-            ::core::mem::size_of::<
-                #embassy_executor::raw::TaskPool<Fut, POOL_SIZE>
-            >()
-        }
-        const fn __task_pool_align<F, Args, Fut>(_: F) -> usize
-        where
-            F: #embassy_executor::_export::TaskFn<Args, Fut = Fut>,
-            Fut: ::core::future::Future + 'static,
-        {
-            ::core::mem::align_of::<
-                #embassy_executor::raw::TaskPool<Fut, POOL_SIZE>
-            >()
-        }
-
-        const fn __task_pool_new<F, Args, Fut>(_: F) -> #embassy_executor::raw::TaskPool<Fut, POOL_SIZE>
-        where
-            F: #embassy_executor::_export::TaskFn<Args, Fut = Fut>,
-            Fut: ::core::future::Future + 'static,
-        {
-            #embassy_executor::raw::TaskPool::new()
-        }
-
         const fn __task_pool_get<F, Args, Fut>(_: F) -> &'static #embassy_executor::raw::TaskPool<Fut, POOL_SIZE>
         where
             F: #embassy_executor::_export::TaskFn<Args, Fut = Fut>,
@@ -184,9 +155,9 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
 
         const POOL_SIZE: usize = #pool_size;
         static POOL: #embassy_executor::_export::TaskPoolHolder<
-            {__task_pool_size(#task_inner_ident)},
-            {__task_pool_align(#task_inner_ident)},
-        > = unsafe { ::core::mem::transmute(__task_pool_new(#task_inner_ident)) };
+            {#embassy_executor::_export::task_pool_size::<_, _, _, POOL_SIZE>(#task_inner_ident)},
+            {#embassy_executor::_export::task_pool_align::<_, _, _, POOL_SIZE>(#task_inner_ident)},
+        > = unsafe { ::core::mem::transmute(#embassy_executor::_export::task_pool_new::<_, _, _, POOL_SIZE>(#task_inner_ident)) };
         unsafe { __task_pool_get(#task_inner_ident)._spawn_async_fn(move || #task_inner_ident(#(#full_args,)*)) }
     };
 
