@@ -59,6 +59,8 @@ pub mod _export {
     use core::future::Future;
     use core::mem::MaybeUninit;
 
+    use crate::raw::TaskPool;
+
     pub trait TaskFn<Args>: Copy {
         type Fut: Future + 'static;
     }
@@ -114,6 +116,30 @@ pub mod _export {
         pub const fn get(&self) -> *const u8 {
             self.data.get().cast()
         }
+    }
+
+    pub const fn task_pool_size<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
+    where
+        F: TaskFn<Args, Fut = Fut>,
+        Fut: Future + 'static,
+    {
+        size_of::<TaskPool<Fut, POOL_SIZE>>()
+    }
+
+    pub const fn task_pool_align<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
+    where
+        F: TaskFn<Args, Fut = Fut>,
+        Fut: Future + 'static,
+    {
+        align_of::<TaskPool<Fut, POOL_SIZE>>()
+    }
+
+    pub const fn task_pool_new<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> TaskPool<Fut, POOL_SIZE>
+    where
+        F: TaskFn<Args, Fut = Fut>,
+        Fut: Future + 'static,
+    {
+        TaskPool::new()
     }
 
     #[allow(private_bounds)]
