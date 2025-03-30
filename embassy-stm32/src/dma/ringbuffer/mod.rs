@@ -3,6 +3,14 @@ use core::task::{Poll, Waker};
 
 use crate::dma::word::Word;
 
+/// The current buffer half (e.g. for DMA or the user application).
+#[derive(Debug, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum BufferHalf {
+    First,
+    Second,
+}
+
 pub trait DmaCtrl {
     /// Get the NDTR register value, i.e. the space left in the underlying
     /// buffer until the dma writer wraps.
@@ -90,16 +98,6 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             write_index: Default::default(),
             read_index: Default::default(),
         }
-    }
-
-    /// The current ring-buffer read index.
-    pub fn read_index(&self, offset: usize) -> usize {
-        self.read_index.as_index(self.cap(), offset)
-    }
-
-    /// The current ring-buffer write index.
-    pub fn write_index(&self, offset: usize) -> usize {
-        self.write_index.as_index(self.cap(), offset)
     }
 
     /// Reset the ring buffer to its initial state.
@@ -218,14 +216,13 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         }
     }
 
-    /// The current ring-buffer read index.
-    pub fn read_index(&self, offset: usize) -> usize {
-        self.read_index.as_index(self.cap(), offset)
-    }
-
-    /// The current ring-buffer write index.
-    pub fn write_index(&self, offset: usize) -> usize {
-        self.write_index.as_index(self.cap(), offset)
+    /// The buffer half that is in use by the DMA.
+    fn dma_half(&self) -> BufferHalf {
+        if self.read_index.as_index(self.cap(), 0) < self.cap() / 2 {
+            BufferHalf::First
+        } else {
+            BufferHalf::Second
+        }
     }
 
     /// Reset the ring buffer to its initial state. The buffer after the reset will be full.
@@ -305,6 +302,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     /// Write an exact number of elements to the ringbuffer.
     ///
     /// Returns the remaining write capacity in the buffer.
+    #[allow(dead_code)]
     pub async fn write_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<usize, Error> {
         let mut written_len = 0;
         let buffer_len = buffer.len();
@@ -327,31 +325,41 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         .await
     }
 
-    /// Write until a given write index.
+    /// Write the user's current buffer half - not used by the DMA.
     ///
     /// Returns a tuple of the written length, and the remaining write capacity in the buffer.
-    pub async fn write_until(
-        &mut self,
-        dma: &mut impl DmaCtrl,
-        buffer: &[W],
-        index: usize,
-    ) -> Result<(usize, usize), Error> {
+    #[allow(dead_code)]
+    pub async fn write_half(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<(usize, usize), Error> {
         let mut written_len = 0;
-        let write_len = index
-            .saturating_sub(self.write_index.as_index(self.cap(), 0))
-            .min(buffer.len());
-
-        if write_len == 0 {
-            return Err(Error::Overrun);
-        }
+        let buffer_len = buffer.len();
 
         poll_fn(|cx| {
             dma.set_waker(cx.waker());
 
-            match self.write(dma, &buffer[written_len..write_len]) {
+            let dma_half = self.dma_half();
+            // let user_half = self.user_half();
+
+            // if dma_half == user_half {
+            //     info!("ups");
+            //     return Poll::Ready(Err(Error::Overrun));
+            // }
+
+            let write_index = self.write_index.as_index(self.cap(), 0);
+            let target_write_len = match dma_half {
+                BufferHalf::First => self.cap().saturating_sub(write_index),
+                BufferHalf::Second => (self.cap() / 2).saturating_sub(write_index),
+            };
+            let write_end_index = (target_write_len + written_len).min(buffer_len);
+
+            // info!(
+            //     "buf_len: {}, write_len: {}, write_index: {}",
+            //     buffer_len, target_write_len, write_index
+            // );
+
+            match self.write(dma, &buffer[written_len..write_end_index]) {
                 Ok((len, remaining)) => {
                     written_len += len;
-                    if written_len == write_len {
+                    if written_len == write_end_index {
                         Poll::Ready(Ok((written_len, remaining)))
                     } else {
                         Poll::Pending
