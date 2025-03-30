@@ -382,23 +382,21 @@ impl AnyChannel {
 /// Linked-list DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
-    channel: PeripheralRef<'a, AnyChannel>,
+    channel: Peri<'a, AnyChannel>,
 }
 
 impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
     /// Create a new linked-list transfer.
     pub unsafe fn new_linked_list<const N: usize>(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         table: Table<ITEM_COUNT>,
         options: TransferOptions,
     ) -> Self {
-        into_ref!(channel);
-
-        Self::new_inner_linked_list(channel.map_into(), table, options)
+        Self::new_inner_linked_list(channel.into(), table, options)
     }
 
     unsafe fn new_inner_linked_list(
-        channel: PeripheralRef<'a, AnyChannel>,
+        channel: Peri<'a, AnyChannel>,
         table: Table<ITEM_COUNT>,
         options: TransferOptions,
     ) -> Self {
@@ -576,7 +574,7 @@ impl<'a> Transfer<'a> {
         assert!(mem_len > 0 && mem_len <= 0xFFFF);
 
         channel.configure(
-            _request,
+            request,
             dir,
             peri_addr,
             mem_addr,
