@@ -2,7 +2,7 @@
 
 use core::future::{poll_fn, Future};
 use core::pin::Pin;
-use core::sync::atomic::{fence, AtomicUsize, Ordering};
+use core::sync::atomic::{fence, AtomicUsize, AtomicBool, Ordering};
 use core::task::{Context, Poll, Waker};
 
 use embassy_hal_internal::Peri;
@@ -27,11 +27,16 @@ pub(crate) struct ChannelInfo {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub struct TransferOptions {}
+pub struct TransferOptions {
+    /// If true, the half transfer interrupt will call the waker.
+    pub half_transfer_ir: bool
+}
 
 impl Default for TransferOptions {
     fn default() -> Self {
-        Self {}
+        Self {
+            half_transfer_ir: false
+        }
     }
 }
 
@@ -49,6 +54,7 @@ pub(crate) struct ChannelState {
     waker: AtomicWaker,
     circular_address: AtomicUsize,
     complete_count: AtomicUsize,
+    is_wake_on_half_transfer: AtomicBool,
 }
 
 impl ChannelState {
@@ -56,6 +62,7 @@ impl ChannelState {
         waker: AtomicWaker::new(),
         circular_address: AtomicUsize::new(0),
         complete_count: AtomicUsize::new(0),
+        is_wake_on_half_transfer: AtomicBool::new(false),
     };
 }
 
@@ -93,6 +100,7 @@ impl AnyChannel {
                 info.num
             );
         }
+
         if sr.usef() {
             panic!(
                 "DMA: user settings error on DMA@{:08x} channel {}",
@@ -101,7 +109,23 @@ impl AnyChannel {
             );
         }
 
-        if sr.suspf() || sr.tcf() {
+        if sr.htf() {
+            //clear the flag for the half transfer complete
+            ch.fcr().modify(|w| w.set_htf(true));
+            if state.is_wake_on_half_transfer.load(Ordering::Relaxed) {
+                state.waker.wake();
+            }
+        }
+
+        if sr.tcf() {
+            //clear the flag for the transfer complete so circular transfers can resume
+            ch.fcr().modify(|w| w.set_tcf(true));
+            state.complete_count.fetch_add(1, Ordering::Relaxed);
+            state.waker.wake();
+            return;
+        }
+
+        if sr.suspf() {
             // disable all xxIEs to prevent the irq from firing again.
             ch.cr().write(|_| {});
 
@@ -343,7 +367,7 @@ impl<'a> Future for Transfer<'a> {
     }
 }
 
-struct DmaCtrlImpl<'a>(PeripheralRef<'a, AnyChannel>, WordSize);
+struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>, WordSize);
 
 impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     fn get_remaining_transfers(&self) -> usize {
@@ -376,7 +400,7 @@ impl AnyChannel {
         dir: Dir,
         peri_addr: *mut W,
         buffer: &'a mut [W],
-        _options: TransferOptions,
+        options: TransferOptions,
     ) {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
@@ -392,9 +416,12 @@ impl AnyChannel {
         if mem_addr & 0b11 != 0 {
             panic!("circular address must be 4-byte aligned");
         }
+        let state = &STATE[self.id as usize];
+        defmt::info!("Circular address: {:#x}", mem_addr);
+        state.circular_address.store(mem_addr, Ordering::Release);
+        state.is_wake_on_half_transfer.store(options.half_transfer_ir, Ordering::Release);
 
-        STATE[info.num].circular_address.store(mem_addr, Ordering::Release);
-        let lli = STATE[info.num].circular_address.as_ptr() as u32;
+        let lli = state.circular_address.as_ptr() as u32;
         ch.llr().write(|w| {
             match dir {
                 Dir::MemoryToPeripheral => w.set_usa(true),
@@ -507,21 +534,20 @@ impl AnyChannel {
 /// This is a Readable ring buffer. It reads data from a peripheral into a buffer. The reads happen in circular mode.
 /// There are interrupts on complete and half complete. You should read half the buffer on every read.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: PeripheralRef<'a, AnyChannel>,
+    channel: Peri<'a, AnyChannel>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new Readable ring buffer.
     pub unsafe fn new(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
     ) -> Self {
-        into_ref!(channel);
-        let channel = channel.map_into();
+        let channel: Peri<'a, AnyChannel> = channel.into();
 
         #[cfg(dmamux)]
         super::dmamux::configure_dmamux(&mut channel, request);
@@ -614,21 +640,20 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 /// This is a Writable ring buffer. It writes data from a buffer to a peripheral. The writes happen in circular mode.
 pub struct WritableRingBuffer<'a, W: Word> {
     #[allow(dead_code)] //this is only read by the DMA controller
-    channel: PeripheralRef<'a, AnyChannel>,
+    channel: Peri<'a, AnyChannel>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new Writable ring buffer.
     pub unsafe fn new(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
     ) -> Self {
-        into_ref!(channel);
-        let channel = channel.map_into();
+        let channel: Peri<'a, AnyChannel> = channel.into();
 
         #[cfg(dmamux)]
         super::dmamux::configure_dmamux(&mut channel, request);
@@ -664,6 +689,13 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// This can be used to fill the buffer before starting the DMA transfer.
     pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
         self.ringbuf.write_immediate(buf)
+    }
+
+    /// Wait for any ring buffer write error.
+    pub async fn wait_write_error(&mut self) -> Result<usize, Error> {
+        self.ringbuf
+            .wait_write_error(&mut DmaCtrlImpl(self.channel.reborrow(), W::size()))
+            .await
     }
 
     /// Clear the buffers internal pointers.
