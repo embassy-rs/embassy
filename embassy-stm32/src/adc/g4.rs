@@ -171,7 +171,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_advregen(true);
         });
 
-        blocking_delay_us(10);
+        blocking_delay_us(20);
     }
 
     fn configure_differential_inputs(&mut self) {
@@ -191,6 +191,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         while T::regs().cr().read().adcal() {}
 
+        blocking_delay_us(20);
+
         T::regs().cr().modify(|w| {
             w.set_adcaldif(Adcaldif::DIFFERENTIAL);
         });
@@ -198,6 +200,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_adcal(true));
 
         while T::regs().cr().read().adcal() {}
+
+        blocking_delay_us(20);
     }
 
     fn enable(&mut self) {
