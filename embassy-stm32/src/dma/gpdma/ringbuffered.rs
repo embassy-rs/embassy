@@ -20,11 +20,11 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
         let state = &STATE[self.0.id as usize];
         let current_remaining = self.0.get_remaining_transfers() as usize;
 
-        let lli_count = state.lli_state.count.load(Ordering::Relaxed);
+        let lli_count = state.lli_state.count.load(Ordering::Acquire);
 
         if lli_count > 0 {
-            let lli_index = state.lli_state.index.load(Ordering::Relaxed);
-            let single_transfer_count = state.lli_state.transfer_count.load(Ordering::Relaxed) / lli_count;
+            let lli_index = state.lli_state.index.load(Ordering::Acquire);
+            let single_transfer_count = state.lli_state.transfer_count.load(Ordering::Acquire) / lli_count;
 
             (lli_count - lli_index - 1) * single_transfer_count + current_remaining
         } else {
