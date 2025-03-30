@@ -222,14 +222,12 @@ pub struct WritableRingBuffer<'a, W: Word> {
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
-    ///
-    /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
         channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
-        mut options: TransferOptions,
+        _options: TransferOptions,
     ) -> Self {
         into_ref!(channel);
         let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
@@ -237,12 +235,9 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
-        options.half_transfer_ir = false;
-        options.complete_transfer_ir = true;
-
         let items = [
-            LinearItem::new_write(request, &mut buffer[..half_len], peri_addr, options),
-            LinearItem::new_write(request, &mut buffer[half_len..], peri_addr, options),
+            LinearItem::new_write(request, &mut buffer[..half_len], peri_addr),
+            LinearItem::new_write(request, &mut buffer[half_len..], peri_addr),
         ];
         let table = Table::new(items);
 
@@ -279,16 +274,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
-        unsafe {
-            self.channel.configure_linked_list(
-                &self.table,
-                TransferOptions {
-                    half_transfer_ir: false,
-                    complete_transfer_ir: true,
-                    ..Default::default()
-                },
-            )
-        };
+        unsafe { self.channel.configure_linked_list(&self.table, Default::default()) };
         self.table.link(RunMode::Repeat);
         self.channel.start();
     }
