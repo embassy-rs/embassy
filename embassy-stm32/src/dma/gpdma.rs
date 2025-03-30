@@ -2,7 +2,7 @@
 
 use core::future::{poll_fn, Future};
 use core::pin::Pin;
-use core::sync::atomic::{fence, AtomicUsize, AtomicBool, Ordering};
+use core::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
 
 use embassy_hal_internal::Peri;
@@ -29,13 +29,13 @@ pub(crate) struct ChannelInfo {
 #[non_exhaustive]
 pub struct TransferOptions {
     /// If true, the half transfer interrupt will call the waker.
-    pub half_transfer_ir: bool
+    pub half_transfer_ir: bool,
 }
 
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
-            half_transfer_ir: false
+            half_transfer_ir: false,
         }
     }
 }
@@ -419,7 +419,9 @@ impl AnyChannel {
         let state = &STATE[self.id as usize];
         defmt::info!("Circular address: {:#x}", mem_addr);
         state.circular_address.store(mem_addr, Ordering::Release);
-        state.is_wake_on_half_transfer.store(options.half_transfer_ir, Ordering::Release);
+        state
+            .is_wake_on_half_transfer
+            .store(options.half_transfer_ir, Ordering::Release);
 
         let lli = state.circular_address.as_ptr() as u32;
         ch.llr().write(|w| {
@@ -472,7 +474,6 @@ impl AnyChannel {
         let sr = ch.sr().read();
         !sr.idlef() && !sr.suspf()
     }
-
 
     async fn stop(ch: stm32_metapac::gpdma::Channel, set_waker: &mut dyn FnMut(&Waker)) {
         //wait until cr.susp reads as true
@@ -591,7 +592,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
     /// Error::Overrun is returned if the portion to be read was overwritten by the DMA controller.
     pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow(), W::size()), buf)
+        self.ringbuf
+            .read(&mut DmaCtrlImpl(self.channel.reborrow(), W::size()), buf)
     }
 
     /// Read an exact number of elements from the ringbuffer.
@@ -706,7 +708,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
     pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
-        self.ringbuf.write(&mut DmaCtrlImpl(self.channel.reborrow(), W::size()), buf)
+        self.ringbuf
+            .write(&mut DmaCtrlImpl(self.channel.reborrow(), W::size()), buf)
     }
 
     /// Write an exact number of elements to the ringbuffer.
