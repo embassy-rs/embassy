@@ -129,6 +129,7 @@ pub(super) fn clear_exti_pending(pin: u8) {
 ///
 /// # Returns
 /// `true` if an interrupt is pending, `false` otherwise
+#[cfg(feature = "exti-with-custom-handlers")]
 pub(super) fn is_exti_pending(pin: u8) -> bool {
     let pin = pin as usize;
 
