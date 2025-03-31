@@ -1,10 +1,10 @@
 //! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
 use core::marker::PhantomData;
 
-use embassy_hal_internal::into_ref;
+use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::{rcc, Peripheral};
+use crate::{rcc, Peri};
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
@@ -21,7 +21,7 @@ where
     ///
     /// **Note:** This is currently used to provide access to some basic FMC functions
     /// for manual configuration for memory types that stm32-fmc does not support.
-    pub fn new_raw(_instance: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new_raw(_instance: Peri<'d, T>) -> Self {
         Self { peri: PhantomData }
     }
 
@@ -74,8 +74,7 @@ where
 
 macro_rules! config_pins {
     ($($pin:ident),*) => {
-        into_ref!($($pin),*);
-        $(
+                $(
             $pin.set_as_af($pin.af_num(), AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
         )*
     };
@@ -92,12 +91,12 @@ macro_rules! fmc_sdram_constructor {
     )) => {
         /// Create a new FMC instance.
         pub fn $name<CHIP: stm32_fmc::SdramChip>(
-            _instance: impl Peripheral<P = T> + 'd,
-            $($addr_pin_name: impl Peripheral<P = impl $addr_signal<T>> + 'd),*,
-            $($ba_pin_name: impl Peripheral<P = impl $ba_signal<T>> + 'd),*,
-            $($d_pin_name: impl Peripheral<P = impl $d_signal<T>> + 'd),*,
-            $($nbl_pin_name: impl Peripheral<P = impl $nbl_signal<T>> + 'd),*,
-            $($ctrl_pin_name: impl Peripheral<P = impl $ctrl_signal<T>> + 'd),*,
+            _instance: Peri<'d, T>,
+            $($addr_pin_name: Peri<'d, impl $addr_signal<T>>),*,
+            $($ba_pin_name: Peri<'d, impl $ba_signal<T>>),*,
+            $($d_pin_name: Peri<'d, impl $d_signal<T>>),*,
+            $($nbl_pin_name: Peri<'d, impl $nbl_signal<T>>),*,
+            $($ctrl_pin_name: Peri<'d, impl $ctrl_signal<T>>),*,
             chip: CHIP
         ) -> stm32_fmc::Sdram<Fmc<'d, T>, CHIP> {
 
@@ -245,7 +244,7 @@ trait SealedInstance: crate::rcc::RccPeripheral {
 
 /// FMC instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + 'static {}
 
 foreach_peripheral!(
     (fmc, $inst:ident) => {

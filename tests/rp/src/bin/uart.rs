@@ -56,7 +56,7 @@ async fn main(_spawner: Spawner) {
 
     {
         let config = Config::default();
-        let mut uart = Uart::new_blocking(&mut uart, &mut tx, &mut rx, config);
+        let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
 
         // We can't send too many bytes, they have to fit in the FIFO.
         // This is because we aren't sending+receiving at the same time.
@@ -69,7 +69,7 @@ async fn main(_spawner: Spawner) {
     info!("test overflow detection");
     {
         let config = Config::default();
-        let mut uart = Uart::new_blocking(&mut uart, &mut tx, &mut rx, config);
+        let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
 
         let data = [
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
@@ -93,7 +93,7 @@ async fn main(_spawner: Spawner) {
     info!("test break detection");
     {
         let config = Config::default();
-        let mut uart = Uart::new_blocking(&mut uart, &mut tx, &mut rx, config);
+        let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
 
         // break on empty fifo
         uart.send_break(20).await;
@@ -113,11 +113,11 @@ async fn main(_spawner: Spawner) {
     // parity detection. here we bitbang to not require two uarts.
     info!("test parity error detection");
     {
-        let mut pin = Output::new(&mut tx, Level::High);
+        let mut pin = Output::new(tx.reborrow(), Level::High);
         let mut config = Config::default();
         config.baudrate = 1000;
         config.parity = Parity::ParityEven;
-        let mut uart = UartRx::new_blocking(&mut uart, &mut rx, config);
+        let mut uart = UartRx::new_blocking(uart.reborrow(), rx.reborrow(), config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, parity: u8) {
             send(pin, v, Some(parity != 0)).await;
@@ -140,10 +140,10 @@ async fn main(_spawner: Spawner) {
     // framing error detection. here we bitbang because there's no other way.
     info!("test framing error detection");
     {
-        let mut pin = Output::new(&mut tx, Level::High);
+        let mut pin = Output::new(tx.reborrow(), Level::High);
         let mut config = Config::default();
         config.baudrate = 1000;
-        let mut uart = UartRx::new_blocking(&mut uart, &mut rx, config);
+        let mut uart = UartRx::new_blocking(uart.reborrow(), rx.reborrow(), config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, good: bool) {
             if good {

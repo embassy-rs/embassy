@@ -77,14 +77,19 @@ async fn main(_spawner: Spawner) {
     };
 
     let mut sai_transmitter = new_sai_transmitter(
-        &mut p.SAI4,
-        &mut p.PD13,
-        &mut p.PC1,
-        &mut p.PD12,
-        &mut p.BDMA_CH0,
+        p.SAI4.reborrow(),
+        p.PD13.reborrow(),
+        p.PC1.reborrow(),
+        p.PD12.reborrow(),
+        p.BDMA_CH0.reborrow(),
         sai_buffer,
     );
-    let mut spdif_receiver = new_spdif_receiver(&mut p.SPDIFRX1, &mut p.PD7, &mut p.DMA2_CH7, spdifrx_buffer);
+    let mut spdif_receiver = new_spdif_receiver(
+        p.SPDIFRX1.reborrow(),
+        p.PD7.reborrow(),
+        p.DMA2_CH7.reborrow(),
+        spdifrx_buffer,
+    );
     spdif_receiver.start();
 
     let mut renew_sai = false;
@@ -96,11 +101,11 @@ async fn main(_spawner: Spawner) {
             trace!("Renew SAI.");
             drop(sai_transmitter);
             sai_transmitter = new_sai_transmitter(
-                &mut p.SAI4,
-                &mut p.PD13,
-                &mut p.PC1,
-                &mut p.PD12,
-                &mut p.BDMA_CH0,
+                p.SAI4.reborrow(),
+                p.PD13.reborrow(),
+                p.PC1.reborrow(),
+                p.PD12.reborrow(),
+                p.BDMA_CH0.reborrow(),
                 sai_buffer,
             );
         }
@@ -111,7 +116,12 @@ async fn main(_spawner: Spawner) {
                 Err(spdifrx::Error::RingbufferError(_)) => {
                     trace!("SPDIFRX ringbuffer error. Renew.");
                     drop(spdif_receiver);
-                    spdif_receiver = new_spdif_receiver(&mut p.SPDIFRX1, &mut p.PD7, &mut p.DMA2_CH7, spdifrx_buffer);
+                    spdif_receiver = new_spdif_receiver(
+                        p.SPDIFRX1.reborrow(),
+                        p.PD7.reborrow(),
+                        p.DMA2_CH7.reborrow(),
+                        spdifrx_buffer,
+                    );
                     spdif_receiver.start();
                     continue;
                 }

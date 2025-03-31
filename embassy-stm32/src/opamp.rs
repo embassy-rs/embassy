@@ -1,10 +1,10 @@
 //! Operational Amplifier (OPAMP)
 #![macro_use]
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 
 use crate::pac::opamp::vals::*;
-use crate::Peripheral;
+use crate::Peri;
 
 /// Gain
 #[allow(missing_docs)]
@@ -52,16 +52,14 @@ pub struct OpAmpInternalOutput<'d, T: Instance> {
 
 /// OpAmp driver.
 pub struct OpAmp<'d, T: Instance> {
-    _inner: PeripheralRef<'d, T>,
+    _inner: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> OpAmp<'d, T> {
     /// Create a new driver instance.
     ///
     /// Does not enable the opamp, but does set the speed mode on some families.
-    pub fn new(opamp: impl Peripheral<P = T> + 'd, #[cfg(opamp_g4)] speed: OpAmpSpeed) -> Self {
-        into_ref!(opamp);
-
+    pub fn new(opamp: Peri<'d, T>, #[cfg(opamp_g4)] speed: OpAmpSpeed) -> Self {
         #[cfg(opamp_g4)]
         T::regs().csr().modify(|w| {
             w.set_opahsm(speed.into());
@@ -82,12 +80,10 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// [`OpAmpOutput`] is dropped.
     pub fn buffer_ext(
         &mut self,
-        in_pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::Pin>,
-        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin>,
+        in_pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
+        out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
     ) -> OpAmpOutput<'_, T> {
-        into_ref!(in_pin);
-        into_ref!(out_pin);
         in_pin.set_as_analog();
         out_pin.set_as_analog();
 
@@ -119,11 +115,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// directly used as an ADC input. The opamp will be disabled when the
     /// [`OpAmpOutput`] is dropped.
     #[cfg(opamp_g4)]
-    pub fn buffer_dac(
-        &mut self,
-        out_pin: impl Peripheral<P = impl OutputPin<T> + crate::gpio::Pin>,
-    ) -> OpAmpOutput<'_, T> {
-        into_ref!(out_pin);
+    pub fn buffer_dac(&mut self, out_pin: Peri<'_, impl OutputPin<T> + crate::gpio::Pin>) -> OpAmpOutput<'_, T> {
         out_pin.set_as_analog();
 
         T::regs().csr().modify(|w| {
@@ -149,10 +141,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     #[cfg(opamp_g4)]
     pub fn buffer_int(
         &mut self,
-        pin: impl Peripheral<P = impl NonInvertingPin<T> + crate::gpio::Pin>,
+        pin: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
         gain: OpAmpGain,
     ) -> OpAmpInternalOutput<'_, T> {
-        into_ref!(pin);
         pin.set_as_analog();
 
         // PGA_GAIN value may have different meaning in different MCU serials, use with caution.
@@ -211,7 +202,7 @@ pub(crate) trait SealedOutputPin<T: Instance> {}
 
 /// Opamp instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + 'static {}
 /// Non-inverting pin trait.
 #[allow(private_bounds)]
 pub trait NonInvertingPin<T: Instance>: SealedNonInvertingPin<T> {}

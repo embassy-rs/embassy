@@ -20,14 +20,14 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_p: Spawner) {
-    let mut p = embassy_nrf::init(Default::default());
+    let p = embassy_nrf::init(Default::default());
     let mut config = Config::default();
     // Pins are correct for the onboard microphone on the Feather nRF52840 Sense.
     config.frequency = Frequency::_1280K; // 16 kHz sample rate
     config.ratio = Ratio::RATIO80;
     config.operation_mode = OperationMode::Mono;
     config.gain_left = I7F1::from_bits(5); // 2.5 dB
-    let mut pdm = Pdm::new(p.PDM, Irqs, &mut p.P0_00, &mut p.P0_01, config);
+    let mut pdm = Pdm::new(p.PDM, Irqs, p.P0_00, p.P0_01, config);
 
     let mut bufs = [[0; 1024]; 2];
 

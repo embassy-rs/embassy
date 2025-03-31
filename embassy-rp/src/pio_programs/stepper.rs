@@ -7,6 +7,7 @@ use fixed::types::extra::U8;
 use fixed::FixedU32;
 
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin, StateMachine};
+use crate::Peri;
 
 /// This struct represents a Stepper driver program loaded into pio instruction memory.
 pub struct PioStepperProgram<'a, PIO: Instance> {
@@ -50,10 +51,10 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,
         irq: Irq<'d, T, SM>,
-        pin0: impl PioPin,
-        pin1: impl PioPin,
-        pin2: impl PioPin,
-        pin3: impl PioPin,
+        pin0: Peri<'d, impl PioPin>,
+        pin1: Peri<'d, impl PioPin>,
+        pin2: Peri<'d, impl PioPin>,
+        pin3: Peri<'d, impl PioPin>,
         program: &PioStepperProgram<'d, T>,
     ) -> Self {
         let pin0 = pio.make_pio_pin(pin0);

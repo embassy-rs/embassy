@@ -51,7 +51,7 @@ use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
-use crate::{gpio, install_stack_guard, interrupt, pac};
+use crate::{gpio, install_stack_guard, interrupt, pac, Peri};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
@@ -139,7 +139,7 @@ unsafe fn SIO_IRQ_FIFO() {
 }
 
 /// Spawn a function on this core
-pub fn spawn_core1<F, const SIZE: usize>(_core1: CORE1, stack: &'static mut Stack<SIZE>, entry: F)
+pub fn spawn_core1<F, const SIZE: usize>(_core1: Peri<'static, CORE1>, stack: &'static mut Stack<SIZE>, entry: F)
 where
     F: FnOnce() -> bad::Never + Send + 'static,
 {

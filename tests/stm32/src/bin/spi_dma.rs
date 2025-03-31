@@ -27,12 +27,12 @@ async fn main(_spawner: Spawner) {
     spi_config.frequency = Hertz(1_000_000);
 
     let mut spi = Spi::new(
-        &mut spi_peri,
-        &mut sck,  // Arduino D13
-        &mut mosi, // Arduino D11
-        &mut miso, // Arduino D12
-        &mut tx_dma,
-        &mut rx_dma,
+        spi_peri.reborrow(),
+        sck.reborrow(),  // Arduino D13
+        mosi.reborrow(), // Arduino D11
+        miso.reborrow(), // Arduino D12
+        tx_dma.reborrow(),
+        rx_dma.reborrow(),
         spi_config,
     );
 
@@ -42,28 +42,34 @@ async fn main(_spawner: Spawner) {
 
     // test rx-only configuration
     let mut spi = Spi::new_rxonly(
-        &mut spi_peri,
-        &mut sck,
-        &mut miso,
+        spi_peri.reborrow(),
+        sck.reborrow(),
+        miso.reborrow(),
         // SPIv1/f1 requires txdma even if rxonly.
         #[cfg(not(feature = "spi-v345"))]
-        &mut tx_dma,
-        &mut rx_dma,
+        tx_dma.reborrow(),
+        rx_dma.reborrow(),
         spi_config,
     );
-    let mut mosi_out = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
+    let mut mosi_out = Output::new(mosi.reborrow(), Level::Low, Speed::VeryHigh);
 
     test_rx::<u8>(&mut spi, &mut mosi_out).await;
     test_rx::<u16>(&mut spi, &mut mosi_out).await;
     drop(spi);
     drop(mosi_out);
 
-    let mut spi = Spi::new_txonly(&mut spi_peri, &mut sck, &mut mosi, &mut tx_dma, spi_config);
+    let mut spi = Spi::new_txonly(
+        spi_peri.reborrow(),
+        sck.reborrow(),
+        mosi.reborrow(),
+        tx_dma.reborrow(),
+        spi_config,
+    );
     test_tx::<u8>(&mut spi).await;
     test_tx::<u16>(&mut spi).await;
     drop(spi);
 
-    let mut spi = Spi::new_txonly_nosck(&mut spi_peri, &mut mosi, &mut tx_dma, spi_config);
+    let mut spi = Spi::new_txonly_nosck(spi_peri.reborrow(), mosi.reborrow(), tx_dma.reborrow(), spi_config);
     test_tx::<u8>(&mut spi).await;
     test_tx::<u16>(&mut spi).await;
     drop(spi);

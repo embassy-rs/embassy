@@ -1,6 +1,7 @@
 //! OneWire pio driver
 
 use crate::pio::{Common, Config, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine};
+use crate::Peri;
 
 /// This struct represents an onewire driver program
 pub struct PioOneWireProgram<'a, PIO: Instance> {
@@ -69,7 +70,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
     pub fn new(
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
-        pin: impl PioPin,
+        pin: Peri<'d, impl PioPin>,
         program: &PioOneWireProgram<'d, PIO>,
     ) -> Self {
         let pin = common.make_pio_pin(pin);

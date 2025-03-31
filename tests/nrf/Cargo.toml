@@ -33,7 +33,7 @@ portable-atomic = { version = "1.6.0" }
 nrf51422 = ["embassy-nrf/nrf51",         "portable-atomic/unsafe-assume-single-core"]
 nrf52832 = ["embassy-nrf/nrf52832",      "easydma"]
 nrf52833 = ["embassy-nrf/nrf52833",      "easydma", "two-uarts"]
-nrf52840 = ["embassy-nrf/nrf52840",      "easydma", "two-uarts", "embassy-executor/task-arena-size-16384"]
+nrf52840 = ["embassy-nrf/nrf52840",      "easydma", "two-uarts"]
 nrf5340  = ["embassy-nrf/nrf5340-app-s", "easydma", "two-uarts"]
 nrf9160  = ["embassy-nrf/nrf9160-s",     "easydma", "two-uarts"]
 

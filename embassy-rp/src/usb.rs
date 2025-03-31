@@ -5,6 +5,7 @@ use core::slice;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
@@ -12,7 +13,7 @@ use embassy_usb_driver::{
 };
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
+use crate::{interrupt, pac, peripherals, Peri, RegExt};
 
 trait SealedInstance {
     fn regs() -> crate::pac::usb::Usb;
@@ -21,7 +22,7 @@ trait SealedInstance {
 
 /// USB peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -107,7 +108,7 @@ pub struct Driver<'d, T: Instance> {
 
 impl<'d, T: Instance> Driver<'d, T> {
     /// Create a new USB driver.
-    pub fn new(_usb: impl Peripheral<P = T> + 'd, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
+    pub fn new(_usb: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 

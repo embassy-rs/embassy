@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 embassy-embedded-hal = { version = "0.3.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
 embassy-sync = { version = "0.6.2", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.4.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
 embassy-usb = { version = "0.4.0", path = "../../embassy-usb", features = ["defmt"] }
@@ -28,7 +28,7 @@ serde = { version = "1.0.203", default-features = false, features = ["derive"] }
 serde-json-core = "0.5.1"
 
 # for assign resources example
-assign-resources = { git = "https://github.com/adamgreig/assign-resources", rev = "94ad10e2729afdf0fd5a77cd12e68409a982f58a" }
+assign-resources = { git = "https://github.com/adamgreig/assign-resources", rev = "bd22cb7a92031fb16f74a5da42469d466c33383e" }
 
 # for TB6612FNG example
 tb6612fng = "1.0.0"

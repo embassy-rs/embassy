@@ -8,14 +8,15 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
-use embassy_stm32::gpio::{AnyPin, Level, Output, Pin, Pull, Speed};
+use embassy_stm32::gpio::{AnyPin, Level, Output, Pull, Speed};
+use embassy_stm32::Peri;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 static BLINK_MS: AtomicU32 = AtomicU32::new(0);
 
 #[embassy_executor::task]
-async fn led_task(led: AnyPin) {
+async fn led_task(led: Peri<'static, AnyPin>) {
     // Configure the LED pin as a push pull output and obtain handler.
     // On the Nucleo F091RC there's an on-board LED connected to pin PA5.
     let mut led = Output::new(led, Level::Low, Speed::Low);
@@ -45,7 +46,7 @@ async fn main(spawner: Spawner) {
     BLINK_MS.store(del_var, Ordering::Relaxed);
 
     // Spawn LED blinking task
-    spawner.spawn(led_task(p.PA5.degrade())).unwrap();
+    spawner.spawn(led_task(p.PA5.into())).unwrap();
 
     loop {
         // Check if button got pressed

@@ -65,12 +65,12 @@ async fn main(_spawner: Spawner) {
     {
         let config = Config::default();
         let mut uart = Uart::new(
-            &mut uart,
-            &mut tx,
-            &mut rx,
+            uart.reborrow(),
+            tx.reborrow(),
+            rx.reborrow(),
             Irqs,
-            &mut p.DMA_CH0,
-            &mut p.DMA_CH1,
+            p.DMA_CH0.reborrow(),
+            p.DMA_CH1.reborrow(),
             config,
         );
 
@@ -86,12 +86,12 @@ async fn main(_spawner: Spawner) {
     {
         let config = Config::default();
         let mut uart = Uart::new(
-            &mut uart,
-            &mut tx,
-            &mut rx,
+            uart.reborrow(),
+            tx.reborrow(),
+            rx.reborrow(),
             Irqs,
-            &mut p.DMA_CH0,
-            &mut p.DMA_CH1,
+            p.DMA_CH0.reborrow(),
+            p.DMA_CH1.reborrow(),
             config,
         );
 
@@ -115,12 +115,12 @@ async fn main(_spawner: Spawner) {
     {
         let config = Config::default();
         let (mut tx, mut rx) = Uart::new(
-            &mut uart,
-            &mut tx,
-            &mut rx,
+            uart.reborrow(),
+            tx.reborrow(),
+            rx.reborrow(),
             Irqs,
-            &mut p.DMA_CH0,
-            &mut p.DMA_CH1,
+            p.DMA_CH0.reborrow(),
+            p.DMA_CH1.reborrow(),
             config,
         )
         .split();
@@ -156,12 +156,12 @@ async fn main(_spawner: Spawner) {
     // parity detection. here we bitbang to not require two uarts.
     info!("test parity error detection");
     {
-        let mut pin = Output::new(&mut tx, Level::High);
+        let mut pin = Output::new(tx.reborrow(), Level::High);
         // choose a very slow baud rate to make tests reliable even with O0
         let mut config = Config::default();
         config.baudrate = 1000;
         config.parity = Parity::ParityEven;
-        let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
+        let mut uart = UartRx::new(uart.reborrow(), rx.reborrow(), Irqs, p.DMA_CH0.reborrow(), config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
@@ -202,11 +202,11 @@ async fn main(_spawner: Spawner) {
     // framing error detection. here we bitbang because there's no other way.
     info!("test framing error detection");
     {
-        let mut pin = Output::new(&mut tx, Level::High);
+        let mut pin = Output::new(tx.reborrow(), Level::High);
         // choose a very slow baud rate to make tests reliable even with O0
         let mut config = Config::default();
         config.baudrate = 1000;
-        let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
+        let mut uart = UartRx::new(uart.reborrow(), rx.reborrow(), Irqs, p.DMA_CH0.reborrow(), config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, good: bool) {
             if good {

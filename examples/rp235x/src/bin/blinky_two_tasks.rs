@@ -11,7 +11,7 @@ use embassy_rp::gpio;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
-use gpio::{AnyPin, Level, Output};
+use gpio::{Level, Output};
 use {defmt_rtt as _, panic_probe as _};
 
 type LedType = Mutex<ThreadModeRawMutex, Option<Output<'static>>>;
@@ -21,7 +21,7 @@ static LED: LedType = Mutex::new(None);
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     // set the content of the global LED reference to the real LED pin
-    let led = Output::new(AnyPin::from(p.PIN_25), Level::High);
+    let led = Output::new(p.PIN_25, Level::High);
     // inner scope is so that once the mutex is written to, the MutexGuard is dropped, thus the
     // Mutex is released
     {

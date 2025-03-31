@@ -3,9 +3,11 @@
 //! This HAL implements a basic watchdog timer with 1..=8 handles.
 //! Once the watchdog has been started, it cannot be stopped.
 
+use core::marker::PhantomData;
+
 use crate::pac::wdt::vals;
 pub use crate::pac::wdt::vals::{Halt as HaltConfig, Sleep as SleepConfig};
-use crate::peripherals;
+use crate::{peripherals, Peri};
 
 const MIN_TICKS: u32 = 15;
 
@@ -61,7 +63,7 @@ impl Default for Config {
 
 /// Watchdog driver.
 pub struct Watchdog {
-    _private: (),
+    _wdt: Peri<'static, peripherals::WDT>,
 }
 
 impl Watchdog {
@@ -74,9 +76,9 @@ impl Watchdog {
     /// `N` must be between 1 and 8, inclusive.
     #[inline]
     pub fn try_new<const N: usize>(
-        wdt: peripherals::WDT,
+        wdt: Peri<'static, peripherals::WDT>,
         config: Config,
-    ) -> Result<(Self, [WatchdogHandle; N]), peripherals::WDT> {
+    ) -> Result<(Self, [WatchdogHandle; N]), Peri<'static, peripherals::WDT>> {
         assert!(N >= 1 && N <= 8);
 
         let r = crate::pac::WDT;
@@ -110,11 +112,19 @@ impl Watchdog {
             r.tasks_start().write_value(1);
         }
 
-        let this = Self { _private: () };
+        let this = Self { _wdt: wdt };
 
-        let mut handles = [const { WatchdogHandle { index: 0 } }; N];
+        let mut handles = [const {
+            WatchdogHandle {
+                _wdt: PhantomData,
+                index: 0,
+            }
+        }; N];
         for i in 0..N {
-            handles[i] = WatchdogHandle { index: i as u8 };
+            handles[i] = WatchdogHandle {
+                _wdt: PhantomData,
+                index: i as u8,
+            };
             handles[i].pet();
         }
 
@@ -155,6 +165,7 @@ impl Watchdog {
 
 /// Watchdog handle.
 pub struct WatchdogHandle {
+    _wdt: PhantomData<Peri<'static, peripherals::WDT>>,
     index: u8,
 }
 
@@ -183,6 +194,9 @@ impl WatchdogHandle {
     /// Watchdog must be initialized and `index` must be between `0` and `N-1`
     /// where `N` is the handle count when initializing.
     pub unsafe fn steal(index: u8) -> Self {
-        Self { index }
+        Self {
+            _wdt: PhantomData,
+            index,
+        }
     }
 }

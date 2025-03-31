@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::program::pio_asm;
-use embassy_rp::{bind_interrupts, pio};
+use embassy_rp::{bind_interrupts, pio, Peri};
 use embassy_time::Timer;
 use fixed::traits::ToFixed;
 use pio::{Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftDirection, StateMachine};
@@ -37,8 +37,8 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
     pub fn new(
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,
-        pin_a: impl PioPin,
-        pin_b: impl PioPin,
+        pin_a: Peri<'d, impl PioPin>,
+        pin_b: Peri<'d, impl PioPin>,
     ) -> Self {
         let mut pin_a = pio.make_pio_pin(pin_a);
         let mut pin_b = pio.make_pio_pin(pin_b);

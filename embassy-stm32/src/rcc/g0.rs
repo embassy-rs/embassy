@@ -5,6 +5,7 @@ pub use crate::pac::rcc::vals::{
     Pllr as PllRDiv, Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -234,10 +235,17 @@ pub(crate) unsafe fn init(config: Config) {
         })
         .unwrap_or_default();
 
+    let rtc = config.ls.init();
+
     let sys = match config.sys {
         Sysclk::HSI => unwrap!(hsisys),
         Sysclk::HSE => unwrap!(hse),
         Sysclk::PLL1_R => unwrap!(pll.pll_r),
+        Sysclk::LSI => {
+            assert!(config.ls.lsi);
+            LSI_FREQ
+        }
+        Sysclk::LSE => unwrap!(config.ls.lse).frequency,
         _ => unreachable!(),
     };
 
@@ -285,8 +293,6 @@ pub(crate) unsafe fn init(config: Config) {
         assert!(sys <= Hertz(2_000_000));
         PWR.cr1().modify(|w| w.set_lpr(true));
     }
-
-    let rtc = config.ls.init();
 
     config.mux.init();
 

@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::ops::Not;
 use core::task::Poll;
 
-use embassy_hal_internal::Peripheral;
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use rand_core::Error;
 
@@ -20,7 +20,7 @@ trait SealedInstance {
 
 /// TRNG peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance {
+pub trait Instance: SealedInstance + PeripheralType {
     /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
@@ -158,11 +158,7 @@ const TRNG_BLOCK_SIZE_BYTES: usize = TRNG_BLOCK_SIZE_BITS / 8;
 
 impl<'d, T: Instance> Trng<'d, T> {
     /// Create a new TRNG driver.
-    pub fn new(
-        _trng: impl Peripheral<P = T> + 'd,
-        _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        config: Config,
-    ) -> Self {
+    pub fn new(_trng: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd, config: Config) -> Self {
         let regs = T::regs();
 
         regs.rng_imr().write(|w| w.set_ehr_valid_int_mask(false));

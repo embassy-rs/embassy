@@ -1,23 +1,18 @@
-use embassy_hal_internal::{into_ref, PeripheralRef};
-
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
-use crate::{rcc, Peripheral};
+use crate::{rcc, Peri};
 
 /// CRC driver.
 pub struct Crc<'d> {
-    _peri: PeripheralRef<'d, CRC>,
+    _peri: Peri<'d, CRC>,
 }
 
 impl<'d> Crc<'d> {
     /// Instantiates the CRC32 peripheral and initializes it to default values.
-    pub fn new(peripheral: impl Peripheral<P = CRC> + 'd) -> Self {
-        into_ref!(peripheral);
-
+    pub fn new(peripheral: Peri<'d, CRC>) -> Self {
         // Note: enable and reset come from RccPeripheral.
         // enable CRC clock in RCC.
         rcc::enable_and_reset::<CRC>();
-        // Peripheral the peripheral
         let mut instance = Self { _peri: peripheral };
         instance.reset();
         instance

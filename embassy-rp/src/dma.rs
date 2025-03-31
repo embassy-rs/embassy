@@ -4,7 +4,7 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma::vals::DataSize;
 
@@ -42,7 +42,7 @@ pub(crate) unsafe fn init() {
 ///
 /// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn read<'a, C: Channel, W: Word>(
-    ch: impl Peripheral<P = C> + 'a,
+    ch: Peri<'a, C>,
     from: *const W,
     to: *mut [W],
     dreq: vals::TreqSel,
@@ -63,7 +63,7 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
 ///
 /// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn write<'a, C: Channel, W: Word>(
-    ch: impl Peripheral<P = C> + 'a,
+    ch: Peri<'a, C>,
     from: *const [W],
     to: *mut W,
     dreq: vals::TreqSel,
@@ -87,7 +87,7 @@ static mut DUMMY: u32 = 0;
 ///
 /// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
-    ch: impl Peripheral<P = C> + 'a,
+    ch: Peri<'a, C>,
     to: *mut W,
     len: usize,
     dreq: vals::TreqSel,
@@ -107,11 +107,7 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
 /// DMA copy between slices.
 ///
 /// SAFETY: Slices must point to locations reachable by DMA.
-pub unsafe fn copy<'a, C: Channel, W: Word>(
-    ch: impl Peripheral<P = C> + 'a,
-    from: &[W],
-    to: &mut [W],
-) -> Transfer<'a, C> {
+pub unsafe fn copy<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: &[W], to: &mut [W]) -> Transfer<'a, C> {
     let from_len = from.len();
     let to_len = to.len();
     assert_eq!(from_len, to_len);
@@ -128,7 +124,7 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(
 }
 
 fn copy_inner<'a, C: Channel>(
-    ch: impl Peripheral<P = C> + 'a,
+    ch: Peri<'a, C>,
     from: *const u32,
     to: *mut u32,
     len: usize,
@@ -137,8 +133,6 @@ fn copy_inner<'a, C: Channel>(
     incr_write: bool,
     dreq: vals::TreqSel,
 ) -> Transfer<'a, C> {
-    into_ref!(ch);
-
     let p = ch.regs();
 
     p.read_addr().write_value(from as u32);
@@ -171,13 +165,11 @@ fn copy_inner<'a, C: Channel>(
 /// DMA transfer driver.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a, C: Channel> {
-    channel: PeripheralRef<'a, C>,
+    channel: Peri<'a, C>,
 }
 
 impl<'a, C: Channel> Transfer<'a, C> {
-    pub(crate) fn new(channel: impl Peripheral<P = C> + 'a) -> Self {
-        into_ref!(channel);
-
+    pub(crate) fn new(channel: Peri<'a, C>) -> Self {
         Self { channel }
     }
 }
@@ -219,18 +211,13 @@ trait SealedWord {}
 
 /// DMA channel interface.
 #[allow(private_bounds)]
-pub trait Channel: Peripheral<P = Self> + SealedChannel + Into<AnyChannel> + Sized + 'static {
+pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Channel number.
     fn number(&self) -> u8;
 
     /// Channel registry block.
     fn regs(&self) -> pac::dma::Channel {
         pac::DMA.ch(self.number() as _)
-    }
-
-    /// Convert into type-erased [AnyChannel].
-    fn degrade(self) -> AnyChannel {
-        AnyChannel { number: self.number() }
     }
 }
 
@@ -287,7 +274,7 @@ macro_rules! channel {
 
         impl From<peripherals::$name> for crate::dma::AnyChannel {
             fn from(val: peripherals::$name) -> Self {
-                crate::dma::Channel::degrade(val)
+                Self { number: val.number() }
             }
         }
     };

@@ -6,7 +6,7 @@ use crate::dma::Transfer;
 pub use crate::pac::adc::regs::Adc4Chselrmod0;
 pub use crate::pac::adc::vals::{Adc4Presc as Presc, Adc4Res as Resolution, Adc4SampleTime as SampleTime};
 use crate::time::Hertz;
-use crate::{pac, rcc, Peripheral};
+use crate::{pac, rcc, Peri};
 
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
@@ -169,13 +169,13 @@ pub trait SealedInstance {
     fn regs() -> crate::pac::adc::Adc4;
 }
 
-pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {
+pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeripheral {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 pub struct Adc4<'d, T: Instance> {
     #[allow(unused)]
-    adc: crate::PeripheralRef<'d, T>,
+    adc: crate::Peri<'d, T>,
 }
 
 #[derive(Debug)]
@@ -186,8 +186,7 @@ pub enum Adc4Error {
 
 impl<'d, T: Instance> Adc4<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
-        embassy_hal_internal::into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
         let prescaler = Prescaler::from_ker_ck(T::frequency());
 
@@ -379,15 +378,15 @@ impl<'d, T: Instance> Adc4<'d, T> {
     /// let mut adc4 = adc4::Adc4::new(p.ADC4);
     /// let mut adc4_pin1 = p.PC1;
     /// let mut adc4_pin2 = p.PC0;
-    /// let mut degraded41 = adc4_pin1.degrade_adc();
-    /// let mut degraded42 = adc4_pin2.degrade_adc();
+    /// let mut.into()d41 = adc4_pin1.into();
+    /// let mut.into()d42 = adc4_pin2.into();
     /// let mut measurements = [0u16; 2];
     /// // not that the channels must be in ascending order
     /// adc4.read(
     ///     &mut p.GPDMA1_CH1,
     ///    [
-    ///        &mut degraded42,
-    ///        &mut degraded41,
+    ///        &mut.into()d42,
+    ///        &mut.into()d41,
     ///    ]
     ///    .into_iter(),
     ///    &mut measurements,
@@ -395,7 +394,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
     /// ```
     pub async fn read(
         &mut self,
-        rx_dma: &mut impl RxDma4<T>,
+        rx_dma: Peri<'_, impl RxDma4<T>>,
         sequence: impl ExactSizeIterator<Item = &mut AnyAdcChannel<T>>,
         readings: &mut [u16],
     ) -> Result<(), Adc4Error> {

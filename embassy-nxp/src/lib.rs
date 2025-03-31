@@ -4,7 +4,7 @@ pub mod gpio;
 mod pac_utils;
 pub mod pint;
 
-pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::Peri;
 pub use lpc55_pac as pac;
 
 /// Initialize the `embassy-nxp` HAL with the provided configuration.

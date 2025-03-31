@@ -324,7 +324,7 @@ fn main() {
         let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
         flash_regions.extend(quote! {
             #[cfg(flash)]
-            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
+            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
         });
     }
 
@@ -356,7 +356,7 @@ fn main() {
 
         #[cfg(flash)]
         impl<'d, MODE> FlashLayout<'d, MODE> {
-            pub(crate) fn new(p: embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
+            pub(crate) fn new(p: embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>) -> Self {
                 Self {
                     #(#inits),*,
                     _mode: core::marker::PhantomData,
@@ -1151,6 +1151,8 @@ fn main() {
         (("tsc", "G8_IO2"), quote!(crate::tsc::G8IO2Pin)),
         (("tsc", "G8_IO3"), quote!(crate::tsc::G8IO3Pin)),
         (("tsc", "G8_IO4"), quote!(crate::tsc::G8IO4Pin)),
+        (("dac", "OUT1"), quote!(crate::dac::DacPin<Ch1>)),
+        (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
     ].into();
 
     for p in METADATA.peripherals {
@@ -1250,17 +1252,6 @@ fn main() {
                     }
                 }
 
-                // DAC is special
-                if regs.kind == "dac" {
-                    let peri = format_ident!("{}", p.name);
-                    let pin_name = format_ident!("{}", pin.pin);
-                    let ch: u8 = pin.signal.strip_prefix("OUT").unwrap().parse().unwrap();
-
-                    g.extend(quote! {
-                    impl_dac_pin!( #peri, #pin_name, #ch);
-                    })
-                }
-
                 if regs.kind == "spdifrx" {
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
@@ -1304,8 +1295,8 @@ fn main() {
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
         (("octospi", "OCTOSPI1"), quote!(crate::ospi::OctoDma)),
         (("hspi", "HSPI1"), quote!(crate::hspi::HspiDma)),
-        (("dac", "CH1"), quote!(crate::dac::DacDma1)),
-        (("dac", "CH2"), quote!(crate::dac::DacDma2)),
+        (("dac", "CH1"), quote!(crate::dac::Dma<Ch1>)),
+        (("dac", "CH2"), quote!(crate::dac::Dma<Ch2>)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
         (("hash", "IN"), quote!(crate::hash::Dma)),
         (("cryp", "IN"), quote!(crate::cryp::DmaIn)),

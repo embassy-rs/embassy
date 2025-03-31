@@ -8,7 +8,7 @@ use core::ptr;
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
@@ -19,7 +19,7 @@ use crate::pac::qspi::vals;
 pub use crate::pac::qspi::vals::{
     Addrmode as AddressMode, Ppsize as WritePageSize, Readoc as ReadOpcode, Spimode as SpiMode, Writeoc as WriteOpcode,
 };
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// Deep power-down config.
 pub struct DeepPowerDownConfig {
@@ -139,7 +139,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 /// QSPI flash driver.
 pub struct Qspi<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
+    _peri: Peri<'d, T>,
     dpm_enabled: bool,
     capacity: u32,
 }
@@ -147,18 +147,16 @@ pub struct Qspi<'d, T: Instance> {
 impl<'d, T: Instance> Qspi<'d, T> {
     /// Create a new QSPI driver.
     pub fn new(
-        qspi: impl Peripheral<P = T> + 'd,
+        qspi: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        csn: impl Peripheral<P = impl GpioPin> + 'd,
-        io0: impl Peripheral<P = impl GpioPin> + 'd,
-        io1: impl Peripheral<P = impl GpioPin> + 'd,
-        io2: impl Peripheral<P = impl GpioPin> + 'd,
-        io3: impl Peripheral<P = impl GpioPin> + 'd,
+        sck: Peri<'d, impl GpioPin>,
+        csn: Peri<'d, impl GpioPin>,
+        io0: Peri<'d, impl GpioPin>,
+        io1: Peri<'d, impl GpioPin>,
+        io2: Peri<'d, impl GpioPin>,
+        io3: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(qspi, sck, csn, io0, io1, io2, io3);
-
         let r = T::regs();
 
         macro_rules! config_pin {
@@ -664,7 +662,7 @@ pub(crate) trait SealedInstance {
 
 /// QSPI peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

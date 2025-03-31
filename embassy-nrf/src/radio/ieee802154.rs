@@ -4,13 +4,12 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::{state, Error, Instance, InterruptHandler, RadioState, TxPower};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::pac::radio::vals;
-use crate::Peripheral;
+use crate::Peri;
 
 /// Default (IEEE compliant) Start of Frame Delimiter
 pub const DEFAULT_SFD: u8 = 0xA7;
@@ -33,18 +32,16 @@ pub enum Cca {
 
 /// IEEE 802.15.4 radio driver.
 pub struct Radio<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
     needs_enable: bool,
 }
 
 impl<'d, T: Instance> Radio<'d, T> {
     /// Create a new IEEE 802.15.4 radio driver.
     pub fn new(
-        radio: impl Peripheral<P = T> + 'd,
+        radio: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        into_ref!(radio);
-
         let r = T::regs();
 
         // Disable and enable to reset peripheral

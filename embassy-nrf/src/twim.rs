@@ -10,7 +10,7 @@ use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
@@ -23,7 +23,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::twim::vals;
 use crate::util::slice_in_ram;
-use crate::{gpio, interrupt, pac, Peripheral};
+use crate::{gpio, interrupt, pac};
 
 /// TWIM config.
 #[non_exhaustive]
@@ -114,20 +114,18 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 /// TWI driver.
 pub struct Twim<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Twim<'d, T> {
     /// Create a new TWI driver.
     pub fn new(
-        twim: impl Peripheral<P = T> + 'd,
+        twim: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        sda: impl Peripheral<P = impl GpioPin> + 'd,
-        scl: impl Peripheral<P = impl GpioPin> + 'd,
+        sda: Peri<'d, impl GpioPin>,
+        scl: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(twim, sda, scl);
-
         let r = T::regs();
 
         // Configure pins
@@ -847,7 +845,7 @@ pub(crate) trait SealedInstance {
 
 /// TWIM peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

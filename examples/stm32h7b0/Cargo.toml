@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = ["defmt", "stm32h7b0vb", "time-driver-tim2", "exti", "memory-x", "unstable-pac", "chrono"] }
 embassy-sync = { version = "0.6.2", path = "../../embassy-sync", features = ["defmt"] }
 embassy-embedded-hal = { version = "0.3.0", path = "../../embassy-embedded-hal" }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "proto-ipv6", "dns"] }
 embassy-usb = { version = "0.4.0", path = "../../embassy-usb", features = ["defmt"] }

@@ -22,6 +22,7 @@ use core::marker::PhantomData;
 #[allow(unused)]
 #[cfg(not(any(adc_f3_v2)))]
 pub use _version::*;
+use embassy_hal_internal::{impl_peripheral, PeripheralType};
 #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -42,7 +43,7 @@ dma_trait!(RxDma4, adc4::Instance);
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
-    adc: crate::PeripheralRef<'d, T>,
+    adc: crate::Peri<'d, T>,
     #[cfg(not(any(adc_f3_v2, adc_f3_v1_1)))]
     sample_time: SampleTime,
 }
@@ -111,7 +112,7 @@ pub(crate) fn blocking_delay_us(us: u32) {
     adc_c0
 )))]
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + crate::Peripheral<P = Self> {
+pub trait Instance: SealedInstance + crate::PeripheralType {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 /// ADC instance.
@@ -132,7 +133,7 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> {
     adc_c0
 ))]
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {
+pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeripheral {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
@@ -159,7 +160,7 @@ pub struct AnyAdcChannel<T> {
     channel: u8,
     _phantom: PhantomData<T>,
 }
-
+impl_peripheral!(AnyAdcChannel<T: Instance>);
 impl<T: Instance> AdcChannel<T> for AnyAdcChannel<T> {}
 impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<T> {
     fn channel(&self) -> u8 {
@@ -233,11 +234,11 @@ foreach_adc!(
 
 macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::adc::AdcChannel<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::peripherals::$pin {
+        impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
+        impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
             #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
             fn setup(&mut self) {
-                <Self as crate::gpio::SealedPin>::set_as_analog(self);
+                <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
             }
 
             fn channel(&self) -> u8 {

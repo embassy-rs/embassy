@@ -11,7 +11,7 @@ use super::{blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolut
 use crate::adc::SealedAdcChannel;
 use crate::dma::Transfer;
 use crate::time::Hertz;
-use crate::{pac, rcc, Peripheral};
+use crate::{pac, rcc, Peri};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -135,8 +135,7 @@ impl Prescaler {
 
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
-        embassy_hal_internal::into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         let prescaler = Prescaler::from_ker_ck(T::frequency());
@@ -172,7 +171,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_advregen(true);
         });
 
-        blocking_delay_us(10);
+        blocking_delay_us(20);
     }
 
     fn configure_differential_inputs(&mut self) {
@@ -192,6 +191,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         while T::regs().cr().read().adcal() {}
 
+        blocking_delay_us(20);
+
         T::regs().cr().modify(|w| {
             w.set_adcaldif(Adcaldif::DIFFERENTIAL);
         });
@@ -199,6 +200,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_adcal(true));
 
         while T::regs().cr().read().adcal() {}
+
+        blocking_delay_us(20);
     }
 
     fn enable(&mut self) {
@@ -364,8 +367,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// use embassy_stm32::adc::{Adc, AdcChannel}
     ///
     /// let mut adc = Adc::new(p.ADC1);
-    /// let mut adc_pin0 = p.PA0.degrade_adc();
-    /// let mut adc_pin1 = p.PA1.degrade_adc();
+    /// let mut adc_pin0 = p.PA0.into();
+    /// let mut adc_pin1 = p.PA1.into();
     /// let mut measurements = [0u16; 2];
     ///
     /// adc.read_async(
@@ -382,7 +385,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// ```
     pub async fn read(
         &mut self,
-        rx_dma: &mut impl RxDma<T>,
+        rx_dma: Peri<'_, impl RxDma<T>>,
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
         readings: &mut [u16],
     ) {

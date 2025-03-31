@@ -19,5 +19,6 @@ fn ui() {
     t.compile_fail("tests/ui/not_async.rs");
     t.compile_fail("tests/ui/self_ref.rs");
     t.compile_fail("tests/ui/self.rs");
+    t.compile_fail("tests/ui/type_error.rs");
     t.compile_fail("tests/ui/where_clause.rs");
 }

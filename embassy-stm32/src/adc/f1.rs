@@ -2,12 +2,10 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
-
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peripheral};
+use crate::{interrupt, rcc, Peri};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -48,8 +46,7 @@ impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
 
