@@ -18,11 +18,6 @@ use crate::gpio::{self, AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed}
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
-#[allow(unused_imports)]
-#[cfg(not(any(usart_v1, usart_v2)))]
-use crate::pac::usart::regs::Isr as Sr;
-#[cfg(any(usart_v1, usart_v2))]
-use crate::pac::usart::regs::Sr;
 #[cfg(not(any(usart_v1, usart_v2)))]
 use crate::pac::usart::Lpuart as Regs;
 #[cfg(any(usart_v1, usart_v2))]
@@ -403,7 +398,7 @@ pub struct UartRx<'d, M: Mode> {
     rx_dma: Option<ChannelAndRequest<'d>>,
     detect_previous_overrun: bool,
     #[cfg(any(usart_v1, usart_v2))]
-    buffered_sr: stm32_metapac::usart::regs::Sr,
+    buffered_sr: regs::Sr,
     _phantom: PhantomData<M>,
 }
 
@@ -950,7 +945,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
             rx_dma,
             detect_previous_overrun: config.detect_previous_overrun,
             #[cfg(any(usart_v1, usart_v2))]
-            buffered_sr: stm32_metapac::usart::regs::Sr(0),
+            buffered_sr: regs::Sr(0),
         };
         this.enable_and_configure(&config)?;
         Ok(this)
@@ -1449,7 +1444,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 rx_dma,
                 detect_previous_overrun: config.detect_previous_overrun,
                 #[cfg(any(usart_v1, usart_v2))]
-                buffered_sr: stm32_metapac::usart::regs::Sr(0),
+                buffered_sr: regs::Sr(0),
             },
         };
         this.enable_and_configure(&config)?;
