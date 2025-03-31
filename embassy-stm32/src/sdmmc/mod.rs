@@ -1292,12 +1292,12 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
                 // TODO: Make this configurable
                 let mut timeout: u32 = 0x00FF_FFFF;
 
-                // Try to read card status (ACMD13)
+                let card = self.card.as_ref().unwrap();
                 while timeout > 0 {
-                    match self.read_sd_status().await {
-                        Ok(_) => return Ok(()),
-                        Err(Error::Timeout) => (), // Try again
-                        Err(e) => return Err(e),
+                    let status = self.read_status(card)?;
+
+                    if status.ready_for_data() {
+                        return Ok(());
                     }
                     timeout -= 1;
                 }
