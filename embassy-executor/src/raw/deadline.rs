@@ -2,6 +2,8 @@ use core::future::{poll_fn, Future};
 use core::task::Poll;
 
 /// A type for interacting with the deadline of the current task
+///
+/// Requires the `drs-scheduler` feature
 pub struct Deadline {
     /// Deadline value in ticks, same time base and ticks as `embassy-time`
     pub instant_ticks: u64,
