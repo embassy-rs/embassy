@@ -7,14 +7,7 @@
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
 //! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_executor_macros::task) macro, which are fully safe.
 
-#[cfg_attr(
-    all(not(feature = "drs-scheduler"), target_has_atomic = "ptr"),
-    path = "run_queue_atomics.rs",
-)]
-#[cfg_attr(
-    all(feature = "drs-scheduler", target_has_atomic = "ptr"),
-    path = "run_queue_drs_atomics.rs",
-)]
+#[cfg_attr(target_has_atomic = "ptr", path = "run_queue_atomics.rs")]
 #[cfg_attr(not(target_has_atomic = "ptr"), path = "run_queue_critical_section.rs")]
 mod run_queue;
 
@@ -30,6 +23,9 @@ pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
+#[cfg(feature = "drs-scheduler")]
+mod deadline;
+
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem;
@@ -44,14 +40,14 @@ use core::task::{Context, Poll};
 #[cfg(feature = "arch-avr")]
 use portable_atomic::AtomicPtr;
 
+#[cfg(feature = "drs-scheduler")]
+pub use deadline::Deadline;
+
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
-
-#[cfg(feature = "drs-scheduler")]
-pub use run_queue::Deadline;
 
 /// Raw task header for use in task pointers.
 ///
