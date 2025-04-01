@@ -22,11 +22,6 @@
 //! Callbacks can be used by enabling the `trace` feature, and providing implementations of the
 //! `extern "Rust"` functions below. All callbacks must be implemented.
 //!
-//! ## Stability
-//!
-//! The `trace` interface is considered unstable. Callbacks may change, be added, or be removed
-//! in any minor or trivial release.
-//!
 //! ## Task Tracing lifecycle
 //!
 //! ```text
