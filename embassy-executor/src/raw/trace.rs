@@ -33,7 +33,7 @@
 //!   ╚═════════╝     └─────────┘     └─────────┘          │
 //! │                 ▲         ▲     │    │    │
 //!                   │           (4)      │    │(6)       │
-//! │                 │         └ ─ ─ ┘    │    │
+//! │                 │(7)      └ ─ ─ ┘    │    │
 //!                   │                    │    │          │
 //! │             ┌──────┐             (5) │    │  ┌─────┐
 //!               │ IDLE │◀────────────────┘    └─▶│ END │ │
@@ -43,7 +43,7 @@
 //!   └──────────────────────┘
 //! ```
 //!
-//! 1. A task is spawned. `_embassy_trace_task_new` is called
+//! 1. A task is spawned, `_embassy_trace_task_new` is called
 //! 2. A task is enqueued for the first time, `_embassy_trace_task_ready_begin` is called
 //! 3. A task is polled, `_embassy_trace_task_exec_begin` is called
 //! 4. WHILE a task is polled, the task is re-awoken, and `_embassy_trace_task_ready_begin` is
@@ -51,7 +51,8 @@
 //!      RUNNING state is existed. `_embassy_trace_task_exec_end` is called when polling is
 //!      complete, marking the transition to WAITING
 //! 5. Polling is complete, `_embassy_trace_task_exec_end` is called
-//! 6. The task has completed, and `_embassy_trace_task_end` is called.
+//! 6. The task has completed, and `_embassy_trace_task_end` is called
+//! 7. A task is awoken, `_embassy_trace_task_ready_begin` is called
 //!
 //! ## Executor Tracing lifecycle
 //!
@@ -73,10 +74,10 @@
 //! 1. The executor is started (no associated trace)
 //! 2. A task on this executor is awoken. `_embassy_trace_task_ready_begin` is called
 //!      when this occurs, and `_embassy_trace_poll_start` is called when the executor
-//!      actually begins running.
-//! 3. The executor has decided a task to poll. `_embassy_trace_task_exec_begin` is called.
-//! 4. The executor finishes polling the task. `_embassy_trace_task_exec_end` is called.
-//! 5. The executor has finished polling tasks. `_embassy_trace_executor_idle` is called.
+//!      actually begins running
+//! 3. The executor has decided a task to poll. `_embassy_trace_task_exec_begin` is called
+//! 4. The executor finishes polling the task. `_embassy_trace_task_exec_end` is called
+//! 5. The executor has finished polling tasks. `_embassy_trace_executor_idle` is called
 
 #![allow(unused)]
 
@@ -129,6 +130,9 @@ extern "Rust" {
     ///
     /// If the given task is currently IDLE, this marks the TASK state transition
     /// from IDLE -> WAITING.
+    ///
+    /// NOTE: This may be called from an interrupt, outside the context of the current
+    /// task or executor.
     fn _embassy_trace_task_ready_begin(executor_id: u32, task_id: u32);
 
     /// This callback is called AFTER all dequeued tasks in a single call to poll
