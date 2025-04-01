@@ -2,6 +2,29 @@ use super::{TaskHeader, TaskRef};
 use cordyceps::{SortedList, TransferStack};
 use core::future::{Future, poll_fn};
 use core::task::Poll;
+use core::ptr::{addr_of_mut, NonNull};
+use cordyceps::sorted_list::Links;
+use cordyceps::Linked;
+
+pub(crate) type RunQueueItem = Links<TaskHeader>;
+
+unsafe impl Linked<Links<TaskHeader>> for super::TaskHeader {
+    type Handle = TaskRef;
+
+    fn into_ptr(r: Self::Handle) -> NonNull<Self> {
+        r.ptr.cast()
+    }
+
+    unsafe fn from_ptr(ptr: NonNull<Self>) -> Self::Handle {
+        let ptr: NonNull<TaskHeader> = ptr;
+        TaskRef { ptr }
+    }
+
+    unsafe fn links(ptr: NonNull<Self>) -> NonNull<Links<TaskHeader>> {
+        let ptr: *mut TaskHeader = ptr.as_ptr();
+        NonNull::new_unchecked(addr_of_mut!((*ptr).run_queue_item))
+    }
+}
 
 /// Atomic task queue using a very, very simple lock-free linked-list queue:
 ///
@@ -39,10 +62,10 @@ impl RunQueue {
     /// NOTE: It is OK for `on_task` to enqueue more tasks. In this case they're left in the queue
     /// and will be processed by the *next* call to `dequeue_all`, *not* the current one.
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
-        let mut sorted = SortedList::<TaskHeader>::new(|lhs, rhs| unsafe {
-            // TODO: Do we need any kind of access control here? Not if we say that
-            // tasks can only set their own priority, which they can't do if we're in
-            // the scheduler
+        // SAFETY: `deadline` can only be set through the `Deadline` interface, which
+        // only allows access to this value while the given task is being polled.
+        // This acts as mutual exclusion for access.
+        let mut sorted = SortedList::<TaskHeader>::new_custom(|lhs, rhs| unsafe {
             lhs.deadline.get().cmp(&rhs.deadline.get())
         });
 
