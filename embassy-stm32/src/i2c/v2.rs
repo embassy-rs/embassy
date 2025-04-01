@@ -617,9 +617,10 @@ impl<'d> I2c<'d, Async> {
                     restart,
                     timeout,
                 )?;
-            } else if remaining_len == 0 {
-                return Poll::Ready(Ok(()));
-            } else if !(isr.tcr() || isr.tc()) {
+                if total_len <= 255 {
+                    return Poll::Ready(Ok(()));
+                }
+            } else if isr.tcr() {
                 // poll_fn was woken without an interrupt present
                 return Poll::Pending;
             } else {
@@ -627,6 +628,11 @@ impl<'d> I2c<'d, Async> {
 
                 if let Err(e) = Self::master_continue(self.info, remaining_len.min(255), !last_piece, timeout) {
                     return Poll::Ready(Err(e));
+                }
+                // Return here if we are on last chunk,
+                // end of transfer will be awaited with the DMA below
+                if last_piece {
+                    return Poll::Ready(Ok(()));
                 }
                 self.info.regs.cr1().modify(|w| w.set_tcie(true));
             }
