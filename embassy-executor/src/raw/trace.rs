@@ -139,7 +139,7 @@ extern "Rust" {
     /// have been processed. This will always be paired with a call to
     /// `_embassy_trace_executor_idle`.
     ///
-    /// This marks the EXECUTOR state transition from
+    /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
     fn _embassy_trace_executor_idle(executor_id: u32);
 }
 
