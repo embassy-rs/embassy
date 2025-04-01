@@ -1,7 +1,9 @@
 use core::ptr::{addr_of_mut, NonNull};
 
 use cordyceps::sorted_list::Links;
-use cordyceps::{Linked, SortedList, TransferStack};
+#[cfg(feature = "drs-scheduler")]
+use cordyceps::SortedList;
+use cordyceps::{Linked, TransferStack};
 
 use super::{TaskHeader, TaskRef};
 
