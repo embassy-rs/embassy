@@ -84,6 +84,7 @@
 //! 5. The executor has finished polling tasks. `_embassy_trace_executor_idle` is called.
 
 #![allow(unused)]
+
 use crate::raw::{SyncExecutor, TaskRef};
 
 #[cfg(not(feature = "rtos-trace"))]
@@ -163,10 +164,10 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
 }
 
 #[inline]
-pub(crate) fn task_end(executor: &SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
     #[cfg(not(feature = "rtos-trace"))]
     unsafe {
-        _embassy_trace_task_end(executor as *const _ as u32, task.as_ptr() as u32)
+        _embassy_trace_task_end(executor as u32, task.as_ptr() as u32)
     }
 }
 

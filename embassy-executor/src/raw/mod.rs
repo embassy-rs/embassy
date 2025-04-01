@@ -219,6 +219,9 @@ impl<F: Future + 'static> TaskStorage<F> {
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
+                #[cfg(feature = "trace")]
+                let exec_ptr: *const SyncExecutor = this.raw.executor.load(Ordering::Relaxed);
+
                 // As the future has finished and this function will not be called
                 // again, we can safely drop the future here.
                 this.future.drop_in_place();
@@ -232,7 +235,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 this.raw.state.despawn();
 
                 #[cfg(feature = "trace")]
-                trace::task_end(self, &task);
+                trace::task_end(exec_ptr, &p);
             }
             Poll::Pending => {}
         }
