@@ -1,19 +1,36 @@
-use core::ptr;
-use core::ptr::NonNull;
-use core::sync::atomic::{AtomicPtr, Ordering};
+use core::ptr::{addr_of_mut, NonNull};
+
+use cordyceps::sorted_list::Links;
+use cordyceps::{Linked, SortedList, TransferStack};
 
 use super::{TaskHeader, TaskRef};
-use crate::raw::util::SyncUnsafeCell;
 
-pub(crate) struct RunQueueItem {
-    next: SyncUnsafeCell<Option<TaskRef>>,
-}
+/// Use `cordyceps::sorted_list::Links` as the singly linked list
+/// for RunQueueItems.
+pub(crate) type RunQueueItem = Links<TaskHeader>;
 
-impl RunQueueItem {
-    pub const fn new() -> Self {
-        Self {
-            next: SyncUnsafeCell::new(None),
-        }
+/// Implements the `Linked` trait, allowing for singly linked list usage
+/// of any of cordyceps' `TransferStack` (used for the atomic runqueue),
+/// `SortedList` (used with the DRS scheduler), or `Stack`, which is
+/// popped atomically from the `TransferStack`.
+unsafe impl Linked<Links<TaskHeader>> for TaskHeader {
+    type Handle = TaskRef;
+
+    // Convert a TaskRef into a TaskHeader ptr
+    fn into_ptr(r: TaskRef) -> NonNull<TaskHeader> {
+        r.ptr
+    }
+
+    // Convert a TaskHeader into a TaskRef
+    unsafe fn from_ptr(ptr: NonNull<TaskHeader>) -> TaskRef {
+        TaskRef { ptr }
+    }
+
+    // Given a pointer to a TaskHeader, obtain a pointer to the Links structure,
+    // which can be used to traverse to other TaskHeader nodes in the linked list
+    unsafe fn links(ptr: NonNull<TaskHeader>) -> NonNull<Links<TaskHeader>> {
+        let ptr: *mut TaskHeader = ptr.as_ptr();
+        NonNull::new_unchecked(addr_of_mut!((*ptr).run_queue_item))
     }
 }
 
@@ -29,13 +46,13 @@ impl RunQueueItem {
 /// current batch is completely processed, so even if a task enqueues itself instantly (for example
 /// by waking its own waker) can't prevent other tasks from running.
 pub(crate) struct RunQueue {
-    head: AtomicPtr<TaskHeader>,
+    stack: TransferStack<TaskHeader>,
 }
 
 impl RunQueue {
     pub const fn new() -> Self {
         Self {
-            head: AtomicPtr::new(ptr::null_mut()),
+            stack: TransferStack::new(),
         }
     }
 
@@ -46,43 +63,52 @@ impl RunQueue {
     /// `item` must NOT be already enqueued in any queue.
     #[inline(always)]
     pub(crate) unsafe fn enqueue(&self, task: TaskRef, _: super::state::Token) -> bool {
-        let mut was_empty = false;
-
-        self.head
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |prev| {
-                was_empty = prev.is_null();
-                unsafe {
-                    // safety: the pointer is either null or valid
-                    let prev = NonNull::new(prev).map(|ptr| TaskRef::from_ptr(ptr.as_ptr()));
-                    // safety: there are no concurrent accesses to `next`
-                    task.header().run_queue_item.next.set(prev);
-                }
-                Some(task.as_ptr() as *mut _)
-            })
-            .ok();
-
-        was_empty
+        self.stack.push_was_empty(task)
     }
 
     /// Empty the queue, then call `on_task` for each task that was in the queue.
     /// NOTE: It is OK for `on_task` to enqueue more tasks. In this case they're left in the queue
     /// and will be processed by the *next* call to `dequeue_all`, *not* the current one.
+    #[cfg(not(feature = "drs-scheduler"))]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
-        // Atomically empty the queue.
-        let ptr = self.head.swap(ptr::null_mut(), Ordering::AcqRel);
+        let taken = self.stack.take_all();
+        for taskref in taken {
+            taskref.header().state.run_dequeue();
+            on_task(taskref);
+        }
+    }
 
-        // safety: the pointer is either null or valid
-        let mut next = unsafe { NonNull::new(ptr).map(|ptr| TaskRef::from_ptr(ptr.as_ptr())) };
+    /// Empty the queue, then call `on_task` for each task that was in the queue.
+    /// NOTE: It is OK for `on_task` to enqueue more tasks. In this case they're left in the queue
+    /// and will be processed by the *next* call to `dequeue_all`, *not* the current one.
+    #[cfg(feature = "drs-scheduler")]
+    pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
+        // SAFETY: `deadline` can only be set through the `Deadline` interface, which
+        // only allows access to this value while the given task is being polled.
+        // This acts as mutual exclusion for access.
+        let mut sorted =
+            SortedList::<TaskHeader>::new_custom(|lhs, rhs| unsafe { lhs.deadline.get().cmp(&rhs.deadline.get()) });
 
-        // Iterate the linked list of tasks that were previously in the queue.
-        while let Some(task) = next {
-            // If the task re-enqueues itself, the `next` pointer will get overwritten.
-            // Therefore, first read the next pointer, and only then process the task.
-            // safety: there are no concurrent accesses to `next`
-            next = unsafe { task.header().run_queue_item.next.get() };
+        loop {
+            // For each loop, grab any newly pended items
+            let taken = self.stack.take_all();
 
-            task.header().state.run_dequeue();
-            on_task(task);
+            // Sort these into the list - this is potentially expensive! We do an
+            // insertion sort of new items, which iterates the linked list.
+            //
+            // Something on the order of `O(n * m)`, where `n` is the number
+            // of new tasks, and `m` is the number of already pending tasks.
+            sorted.extend(taken);
+
+            // Pop the task with the SOONEST deadline. If there are no tasks
+            // pending, then we are done.
+            let Some(taskref) = sorted.pop_front() else {
+                return;
+            };
+
+            // We got one task, mark it as dequeued, and process the task.
+            taskref.header().state.run_dequeue();
+            on_task(taskref);
         }
     }
 }
