@@ -66,6 +66,8 @@ impl RunQueue {
         self.stack.push_was_empty(task)
     }
 
+    /// # Standard atomic runqueue
+    ///
     /// Empty the queue, then call `on_task` for each task that was in the queue.
     /// NOTE: It is OK for `on_task` to enqueue more tasks. In this case they're left in the queue
     /// and will be processed by the *next* call to `dequeue_all`, *not* the current one.
@@ -78,9 +80,20 @@ impl RunQueue {
         }
     }
 
-    /// Empty the queue, then call `on_task` for each task that was in the queue.
-    /// NOTE: It is OK for `on_task` to enqueue more tasks. In this case they're left in the queue
-    /// and will be processed by the *next* call to `dequeue_all`, *not* the current one.
+    /// # Deadline Ranked Sorted Scheduler
+    ///
+    /// This algorithm will loop until all enqueued tasks are processed.
+    ///
+    /// Before polling a task, all currently enqueued tasks will be popped from the
+    /// runqueue, and will be added to the working `sorted` list, a linked-list that
+    /// sorts tasks by their deadline, with nearest deadline items in the front, and
+    /// furthest deadline items in the back.
+    ///
+    /// After popping and sorting all pending tasks, the SOONEST task will be popped
+    /// from the front of the queue, and polled by calling `on_task` on it.
+    ///
+    /// This process will repeat until the local `sorted` queue AND the global
+    /// runqueue are both empty, at which point this function will return.
     #[cfg(feature = "drs-scheduler")]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
         // SAFETY: `deadline` can only be set through the `Deadline` interface, which
