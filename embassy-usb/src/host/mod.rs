@@ -5,18 +5,15 @@
 
 #![allow(async_fn_in_trait)]
 
-use core::future::Future;
-use core::marker::PhantomData;
+use core::num::NonZeroU8;
 
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::{MappedMutexGuard, Mutex, MutexGuard};
 use embassy_time::Timer;
 use embassy_usb_driver::host::channel::{Control, Direction, InOut};
 use embassy_usb_driver::{
     host::{channel, ChannelError, DeviceEvent, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver},
     Speed,
 };
-use embassy_usb_driver::{Endpoint, EndpointInfo, EndpointType};
+use embassy_usb_driver::{EndpointInfo, EndpointType};
 
 use crate::control::Request;
 use crate::handlers::EnumerationInfo;
@@ -25,15 +22,24 @@ pub mod descriptor;
 
 use descriptor::*;
 
-// type NoopMutex<T> = Mutex<NoopRawMutex, T>;
-// type NoopMutexGuard<'a, T> = MutexGuard<'a, NoopRawMutex, T>;
-// type NoopMappedMutexGuard<'a, T> = MappedMutexGuard<'a, NoopRawMutex, T>;
+impl ConfigurationDescriptor<'_> {
+    pub async fn set_configuration<D: channel::IsOut, C: UsbChannel<channel::Control, D>>(
+        &self,
+        channel: &mut C,
+    ) -> Result<(), HostError> {
+        channel.set_configuration(self.configuration_value).await
+    }
+}
 
 /// Extension trait with convenience methods for control channels
 pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control, D> {
     // CONTROL IN methods
     /// Request and try to parse the device descriptor.
-    async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(&mut self, class: bool) -> Result<T, HostError>
+    async fn request_descriptor<T: USBDescriptor, const SIZE: usize>(
+        &mut self,
+        index: u8,
+        class: bool,
+    ) -> Result<T, HostError>
     where
         D: channel::IsIn,
     {
@@ -41,7 +47,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
         // The wValue field specifies the descriptor type in the high byte
         // and the descriptor index in the low byte.
-        let value = (T::DESC_TYPE as u16) << 8;
+        let value = ((T::DESC_TYPE as u16) << 8) | index as u16;
 
         let ty = if class {
             RequestType::TYPE_CLASS
@@ -70,13 +76,17 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Request the underlying bytes for a descriptor of a specific type.
     /// bytes.len() determines how many bytes are read at maximum.
     /// This can be used for descriptors of varying length, which are parsed by the caller.
-    async fn request_descriptor_bytes<T: USBDescriptor>(&mut self, buf: &mut [u8]) -> Result<usize, HostError>
+    async fn request_descriptor_bytes<T: USBDescriptor>(
+        &mut self,
+        index: u8,
+        buf: &mut [u8],
+    ) -> Result<usize, HostError>
     where
         D: channel::IsIn,
     {
         // The wValue field specifies the descriptor type in the high byte
         // and the descriptor index in the low byte.
-        let value = (T::DESC_TYPE as u16) << 8;
+        let value = ((T::DESC_TYPE as u16) << 8) | index as u16;
 
         let packet = SetupPacket {
             request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
@@ -115,6 +125,27 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
         let len = self.control_in(&packet, buf).await?;
         Ok(len)
+    }
+
+    /// GET_CONFIGURATION control request.
+    /// Retrieves the configurationValue of the active configuration
+    async fn active_configuration_value(&mut self) -> Result<Option<NonZeroU8>, HostError>
+    where
+        D: channel::IsIn,
+    {
+        let packet = SetupPacket {
+            request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
+            request: Request::GET_CONFIGURATION,
+            value: 0,
+            index: 0,
+            length: 1,
+        };
+
+        let mut config_buf = [0u8; 1];
+
+        self.control_in(&packet, &mut config_buf).await?;
+
+        Ok(NonZeroU8::new(config_buf[0]))
     }
 
     // CONTROL OUT methods
@@ -189,8 +220,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         speed: Speed,
         new_device_address: u8,
         ls_over_fs: bool,
-        cfg_desc_buf: &'a mut [u8],
-    ) -> Result<EnumerationInfo<'a>, HostError>
+    ) -> Result<EnumerationInfo, HostError>
     where
         D: channel::IsIn + channel::IsOut,
     {
@@ -205,7 +235,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
             let mut max_retries = 10;
             loop {
                 match self
-                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(false)
+                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(0, false)
                     .await
                 {
                     Ok(desc) => break desc.max_packet_size0,
@@ -246,7 +276,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
         let device_desc = async {
             for _ in 0..retries {
                 match self
-                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(false)
+                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(0, false)
                     .await
                 {
                     Err(HostError::ChannelError(ChannelError::Timeout)) => {
@@ -262,33 +292,11 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
 
         trace!("Device Descriptor: {:?}", device_desc);
 
-        let cfg_desc_short = self
-            .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>(false)
-            .await?;
-
-        let total_len = cfg_desc_short.total_len as usize;
-        let dest_buffer = &mut cfg_desc_buf[0..total_len];
-
-        self.request_descriptor_bytes::<ConfigurationDescriptor>(dest_buffer)
-            .await?;
-
-        trace!(
-            "Full Configuration Descriptor [{}]: {:?}",
-            cfg_desc_short.total_len,
-            dest_buffer
-        );
-
-        self.set_configuration(cfg_desc_short.configuration_value).await?;
-
-        let cfg_desc =
-            ConfigurationDescriptor::try_from_slice(dest_buffer).map_err(|_| HostError::InvalidDescriptor)?;
-
         Ok(EnumerationInfo {
             device_address: new_device_address,
             ls_over_fs,
             speed,
             device_desc,
-            cfg_desc,
         })
     }
 }
@@ -297,25 +305,19 @@ impl<D: channel::Direction, C> ControlChannelExt<D> for C where C: UsbChannel<ch
 
 /// Extensions for the UsbHostDriver trait
 pub trait UsbHostBusExt: UsbHostDriver {
-    /// Enumerates the root port of the device
-    async fn enumerate_root<'a>(
+    /// Enumerates the root port of the device, without selecting a configuration
+    async fn enumerate_root_bare(
         &mut self,
         speed: Speed,
         new_device_address: u8,
-        desctiptor_buf: &'a mut [u8],
-    ) -> Result<EnumerationInfo<'a>, HostError> {
-        // Need to reset bus to initialize device?
-        self.bus_reset().await;
-
+    ) -> Result<EnumerationInfo, HostError> {
         let mut channel = self.alloc_channel::<Control, InOut>(
             0,
             &EndpointInfo::new(0.into(), EndpointType::Control, speed.max_packet_size()),
             false,
         )?;
 
-        channel
-            .enumerate_device(speed, new_device_address, false, desctiptor_buf)
-            .await
+        channel.enumerate_device(speed, new_device_address, false).await
     }
 }
 

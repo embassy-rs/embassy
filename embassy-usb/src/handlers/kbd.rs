@@ -1,6 +1,8 @@
+//! Host driver for basic keyboard HID inputs
+
 use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
 use crate::host::{
-    descriptor::{InterfaceDescriptor, USBDescriptor},
+    descriptor::{InterfaceDescriptor, USBDescriptor, DEFAULT_MAX_DESCRIPTOR_SIZE},
     ControlChannelExt,
 };
 use core::num::NonZeroU8;
@@ -45,9 +47,23 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
         super::StaticHandlerSpec { device_filter: None }
     }
 
-    async fn try_register(bus: &H, enum_info: &EnumerationInfo<'_>) -> Result<Self, RegisterError> {
-        let iface = enum_info
-            .cfg_desc
+    async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
+        let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
+            enum_info.device_address,
+            &EndpointInfo::new(
+                0.into(),
+                EndpointType::Control,
+                (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed.max_packet_size()),
+            ),
+            enum_info.ls_over_fs,
+        )?;
+
+        let mut cfg_desc_buf = [0u8; DEFAULT_MAX_DESCRIPTOR_SIZE];
+        let configuration = enum_info
+            .active_config_or_set_default(&mut control_channel, &mut cfg_desc_buf)
+            .await?;
+
+        let iface = configuration
             .iter_interface()
             .find(|v| {
                 matches!(
@@ -67,19 +83,11 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
             .find(|v| v.ep_type() == EndpointType::Interrupt && v.ep_dir() == Direction::In)
             .ok_or(RegisterError::NoSupportedInterface)?;
 
+        configuration.set_configuration(&mut control_channel).await?;
+
         let interrupt_channel = bus.alloc_channel::<channel::Interrupt, channel::In>(
             enum_info.device_address,
             &interrupt_ep.into(),
-            enum_info.ls_over_fs,
-        )?;
-
-        let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
-            enum_info.device_address,
-            &EndpointInfo::new(
-                0.into(),
-                EndpointType::Control,
-                (enum_info.device_desc.max_packet_size0 as u16).min(enum_info.speed.max_packet_size()),
-            ),
             enum_info.ls_over_fs,
         )?;
 
