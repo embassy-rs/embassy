@@ -138,6 +138,12 @@ impl TaskRef {
     pub(crate) fn as_ptr(self) -> *const TaskHeader {
         self.ptr.as_ptr()
     }
+
+    /// Get the ID for a task
+    #[cfg(feature = "trace")]
+    pub fn as_id(self) -> u32 {
+        self.ptr.as_ptr() as u32
+    }
 }
 
 /// Raw storage in which a task can be spawned.
@@ -224,6 +230,9 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // Make sure we despawn last, so that other threads can only spawn the task
                 // after we're done with it.
                 this.raw.state.despawn();
+
+                #[cfg(feature = "trace")]
+                trace::task_end(self, &task);
             }
             Poll::Pending => {}
         }
@@ -420,6 +429,9 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
+        #[cfg(feature = "trace")]
+        trace::poll_start(self);
+
         self.run_queue.dequeue_all(|p| {
             let task = p.header();
 
