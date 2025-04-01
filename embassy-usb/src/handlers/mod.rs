@@ -1,26 +1,31 @@
 //! Implementations of common Host-side drivers
 
-use core::{num::NonZeroU8, ops::Deref};
+use core::num::NonZeroU8;
 
 use embassy_usb_driver::{
-    host::{channel, HostError, UsbChannel, UsbHostDriver},
+    host::{
+        channel::{self, Direction, IsIn, IsOut},
+        HostError, UsbChannel, UsbHostDriver,
+    },
     Speed,
 };
 
-use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor};
+use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
+use crate::host::ControlChannelExt;
 
 pub mod hub;
 pub mod kbd;
 
 pub struct DeviceFilter {
-    base_class: Option<NonZeroU8>, // 0 would mean it's defined on an interface-level
-    sub_class: Option<u8>,
-    protocol: Option<u8>,
+    /// Device base-class, 0 would mean it's defined on an interface-level
+    pub base_class: Option<NonZeroU8>,
+    pub sub_class: Option<u8>,
+    pub protocol: Option<u8>,
 }
 
 pub struct StaticHandlerSpec {
     /// A non-exaustive filter for devices; the final filter is done inside try_register
-    device_filter: Option<DeviceFilter>,
+    pub device_filter: Option<DeviceFilter>,
 }
 
 impl StaticHandlerSpec {
@@ -29,26 +34,120 @@ impl StaticHandlerSpec {
     }
 }
 
-pub struct OwnedConfigurationDescriptor<const C: usize>([u8; C]);
-
-impl<const C: usize> OwnedConfigurationDescriptor<C> {
-    pub fn as_cfg_desc(&self) -> Result<ConfigurationDescriptor<'_>, HostError> {
-        ConfigurationDescriptor::try_from_slice(&self.0)
-    }
-}
-
-pub struct EnumerationInfo<'a> {
+/// Information obtained through preliminary enumeration, required for further configuration
+#[derive(Debug)]
+pub struct EnumerationInfo {
     /// Device address
     pub device_address: u8,
     /// Used to indicate a low-speed device over a full-speed or higher interface
     pub ls_over_fs: bool,
     /// Negotiated speed of the device
     pub speed: Speed,
-    // Device Specs
+    /// Device Specs
     pub device_desc: DeviceDescriptor,
-    /// Device Configuration
-    /// TODO: make actual device descriptor (incl subdescriptors)
-    pub cfg_desc: ConfigurationDescriptor<'a>,
+}
+
+impl EnumerationInfo {
+    /// Retrieves active device configuration or sets the default if not yet configured
+    ///
+    /// A USB device can only have a single configuration active, this method ensures any previously
+    ///  configured mode is maintained for interface/endpoint configuration
+    pub async fn active_config_or_set_default<'a, D: IsIn + IsOut, C: UsbChannel<channel::Control, D>>(
+        &self,
+        channel: &mut C,
+        cfg_desc_buf: &'a mut [u8],
+    ) -> Result<ConfigurationDescriptor<'a>, HostError> {
+        // FIXME: We can't just call `get_active_configuration`, as of writing this is an unfortunate limitation of the borrow checker (see https://users.rust-lang.org/t/yet-another-returning-this-value-requires-that-x-is-borrowed-for-a/112604/2)
+        Ok(match channel.active_configuration_value().await? {
+            Some(_) => self.get_active_configuration(channel, cfg_desc_buf).await?.unwrap(),
+            None => {
+                // No active configuration, set default
+                let default_cfg = self.get_configuration(0, channel, cfg_desc_buf).await?;
+                default_cfg.set_configuration(channel).await?;
+                default_cfg
+            }
+        })
+    }
+
+    /// Retrieves the active device configuration, `None` if currently no configuration is active.
+    pub async fn get_active_configuration<'a, D: IsIn, C: UsbChannel<channel::Control, D>>(
+        &self,
+        channel: &mut C,
+        cfg_desc_buf: &'a mut [u8],
+    ) -> Result<Option<ConfigurationDescriptor<'a>>, HostError> {
+        let cfg_id = channel.active_configuration_value().await?;
+
+        let cfg_id = match cfg_id {
+            Some(v) => v.into(),
+            None => return Ok(None),
+        };
+
+        let mut index = None;
+        for i in 0..self.device_desc.num_configurations {
+            let cfg_desc_short = channel
+                .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>(i, false)
+                .await?;
+
+            if cfg_desc_short.configuration_value == cfg_id {
+                if cfg_desc_short.total_len as usize > cfg_desc_buf.len() {
+                    return Err(HostError::InsufficientMemory);
+                }
+
+                index.replace(i);
+                break;
+            }
+        }
+
+        let index = index.ok_or(HostError::Other(
+            "Active Configuration not found on device, bad device?",
+        ))?;
+
+        channel
+            .request_descriptor_bytes::<ConfigurationDescriptor>(index, cfg_desc_buf)
+            .await?;
+
+        let cfg_desc =
+            ConfigurationDescriptor::try_from_slice(cfg_desc_buf).map_err(|_| HostError::InvalidDescriptor)?;
+
+        Ok(Some(cfg_desc))
+    }
+
+    /// Retrieve a device configuration by index up to a max of [`DeviceDescriptor::num_configurations`]
+    pub async fn get_configuration<'a, D: channel::IsIn, C: UsbChannel<channel::Control, D>>(
+        &self,
+        index: u8,
+        channel: &mut C,
+        cfg_desc_buf: &'a mut [u8],
+    ) -> Result<ConfigurationDescriptor<'a>, HostError> {
+        if self.device_desc.num_configurations > index {
+            return Err(HostError::InvalidDescriptor);
+        }
+
+        let cfg_desc_short = channel
+            .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>(index, false)
+            .await?;
+
+        let total_len = cfg_desc_short.total_len as usize;
+        if total_len > cfg_desc_buf.len() {
+            return Err(HostError::InsufficientMemory);
+        }
+        let dest_buffer = &mut cfg_desc_buf[0..total_len];
+
+        channel
+            .request_descriptor_bytes::<ConfigurationDescriptor>(index, dest_buffer)
+            .await?;
+
+        trace!(
+            "Full Configuration Descriptor [{}]: {:?}",
+            cfg_desc_short.total_len,
+            dest_buffer
+        );
+
+        let cfg_desc =
+            ConfigurationDescriptor::try_from_slice(dest_buffer).map_err(|_| HostError::InvalidDescriptor)?;
+
+        Ok(cfg_desc)
+    }
 }
 
 #[derive(Debug)]
@@ -93,7 +192,7 @@ pub trait UsbHostHandler: Sized {
     /// finally the appropriate channels are allocated andn stored in the resulting handler
     ///
     /// NOTE: Channels are expected to self-clean on `Drop`. FIXME: this is not the case for stm32
-    async fn try_register(bus: &Self::Driver, enum_info: &EnumerationInfo<'_>) -> Result<Self, RegisterError>;
+    async fn try_register(bus: &Self::Driver, enum_info: &EnumerationInfo) -> Result<Self, RegisterError>;
 
     /// Wait for changes to handler, the handler is expected to defer (`yield_now` or Timer::after) whenever idle.
     /// Handler users should not use `select` or `join` to avoid dropping futures.

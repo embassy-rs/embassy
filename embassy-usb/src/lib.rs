@@ -2,6 +2,10 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+#[cfg(test)]
+#[macro_use]
+extern crate std;
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
@@ -533,7 +537,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     self.device_state = UsbDeviceState::Configured;
 
                     // Enable all endpoints of selected alt settings.
-                    let cfg_desc = ConfigurationDescriptor::try_from_slice(&self.config_descriptor).unwrap();
+                    let cfg_desc = ConfigurationDescriptor::try_from_slice(self.config_descriptor).unwrap();
                     cfg_desc.iter_interface().for_each(|iface| {
                         iface.iter_endpoints().for_each(|ep| {
                             let current_iface = &self.interfaces[iface.interface_number as usize];
@@ -557,7 +561,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         self.device_state = UsbDeviceState::Addressed;
 
                         // Disable all endpoints.
-                        let cfg_desc = ConfigurationDescriptor::try_from_slice(&self.config_descriptor).unwrap();
+                        let cfg_desc = ConfigurationDescriptor::try_from_slice(self.config_descriptor).unwrap();
                         cfg_desc.iter_interface().for_each(|iface| {
                             iface.iter_endpoints().for_each(|ep| {
                                 self.bus.endpoint_set_enabled(ep.endpoint_address.into(), false);
@@ -591,7 +595,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         iface.current_alt_setting = new_altsetting;
 
                         // Enable/disable EPs of this interface as needed.
-                        let cfg_desc = ConfigurationDescriptor::try_from_slice(&self.config_descriptor).unwrap();
+                        let cfg_desc = ConfigurationDescriptor::try_from_slice(self.config_descriptor).unwrap();
                         cfg_desc.iter_interface().for_each(|niface| {
                             niface.iter_endpoints().for_each(|ep| {
                                 if niface.interface_number == iface_num.0 {

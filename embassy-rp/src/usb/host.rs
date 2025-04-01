@@ -1,24 +1,31 @@
-
 use core::{future::poll_fn, marker::PhantomData, task::Poll};
 
 use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
 use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, EndpointDescriptor, HostError, SetupPacket, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::{
+    channel, ChannelError, DeviceEvent, EndpointDescriptor, HostError, SetupPacket, UsbChannel, UsbHostDriver,
+};
 use embassy_usb_driver::EndpointType;
 
-use rp_pac::usb_dpram::vals::EpControlEndpointType;
-use crate::{interrupt::{self, typelevel::{Binding, Interrupt}}, usb::EP_MEMORY_SIZE};
 use crate::RegExt;
+use crate::{
+    interrupt::{
+        self,
+        typelevel::{Binding, Interrupt},
+    },
+    usb::EP_MEMORY_SIZE,
+};
+use rp_pac::usb_dpram::vals::EpControlEndpointType;
 
 use super::{EndpointBuffer, Instance, SealedInstance, BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY};
 
 const MAIN_BUFFER_SIZE: usize = 1024;
 
 /// Current channel with ongoing transfer
-/// 
-/// 0 means None 
-static CURRENT_CHANNEL: AtomicUsize = AtomicUsize::new(0); 
+///
+/// 0 means None
+static CURRENT_CHANNEL: AtomicUsize = AtomicUsize::new(0);
 
 /// RP2040 USB host driver handle.
 pub struct Driver<'d, T: Instance> {
@@ -29,12 +36,9 @@ pub struct Driver<'d, T: Instance> {
     channel_index: AtomicUsize,
 }
 
-impl<'d, T: Instance> Driver<'d, T> {    
+impl<'d, T: Instance> Driver<'d, T> {
     /// Create a new USB driver.
-    pub fn new(
-        _usb: impl Peripheral<P = T> + 'd,
-        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>
-    ) -> Self {
+    pub fn new(_usb: impl Peripheral<P = T> + 'd, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         let regs = T::regs();
         unsafe {
             // FIXME(magic):
@@ -68,7 +72,7 @@ impl<'d, T: Instance> Driver<'d, T> {
             w.set_keep_alive_en(true);
             w.set_pulldown_en(true);
         });
-        
+
         regs.inte().write(|w| {
             w.set_buff_status(true);
             w.set_host_resume(true);
@@ -76,10 +80,10 @@ impl<'d, T: Instance> Driver<'d, T> {
             w.set_error_crc(true);
             w.set_error_bit_stuff(true);
         });
-        
+
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-        
+
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
 
@@ -100,7 +104,7 @@ pub struct Channel<'d, T: Instance, E, D> {
     index: usize,
     buf: EndpointBuffer<T>,
     dev_addr: u8,
-    
+
     max_packet_size: u16,
     ep_addr: u8,
 
@@ -115,16 +119,7 @@ pub struct Channel<'d, T: Instance, E, D> {
 
 impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E, D> {
     /// [EP_MEMORY]-relative address
-    fn new(
-        index: usize, 
-        buf_addr: u16, 
-        buf_len: u16,
-        
-        desc: &EndpointDescriptor,
-        
-        dev_addr: u8,
-        pre: bool,
-    ) -> Self {
+    fn new(index: usize, buf_addr: u16, buf_len: u16, desc: &EndpointDescriptor, dev_addr: u8, pre: bool) -> Self {
         // TODO: assert only in debug?
         assert!(desc.ep_type() == E::ep_type());
         assert!(buf_addr + buf_len <= EP_MEMORY_SIZE as u16);
@@ -134,13 +129,13 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         assert!(E::ep_type() != EndpointType::Isochronous);
         assert!(E::ep_type() != EndpointType::Bulk);
         assert!(!(E::ep_type() == EndpointType::Interrupt && D::is_out()));
-        
+
         if desc.ep_type() == EndpointType::Interrupt {
             assert!(index > 0 && index < 16);
         } else {
             assert!(index >= 16);
         }
-        
+
         Self {
             _phantom: PhantomData,
             index,
@@ -165,10 +160,10 @@ type AddrControlReg = rp_pac::common::Reg<rp_pac::usb::regs::AddrEndpX, rp_pac::
 impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E, D> {
     /// Get channel waker
     fn waker(&self) -> &AtomicWaker {
-        if Self::is_interrupt_in() { 
+        if Self::is_interrupt_in() {
             &EP_IN_WAKERS[self.index]
-        } else { 
-            &EP_IN_WAKERS[0] 
+        } else {
+            &EP_IN_WAKERS[0]
         }
     }
 
@@ -180,18 +175,18 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         } else {
             0
         };
-        T::dpram().ep_in_buffer_control(index)        
+        T::dpram().ep_in_buffer_control(index)
     }
 
     /// Get endpoint control register
     fn ep_control(&self) -> EpControlReg {
         if Self::is_interrupt_in() {
-            T::dpram().ep_in_control(self.index - 1)        
+            T::dpram().ep_in_control(self.index - 1)
         } else {
             T::dpram_epx_control()
         }
     }
-    
+
     /// Get interrupt endpoint address control
     fn addr_endp_host(&self) -> AddrControlReg {
         assert!(Self::is_interrupt_in());
@@ -201,7 +196,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     fn is_interrupt_in() -> bool {
         E::ep_type() == EndpointType::Interrupt && D::is_in()
     }
-    
+
     /// Wait for buffer to be available
     /// Returns stall status
     async fn wait_available(&self) -> bool {
@@ -216,13 +211,14 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             if self.is_ready_for_transaction() {
                 self.clear_sie_status();
             }
-            
+
             // FIXME: Stall derived from other place
             match reg.available(0) {
                 true => Poll::Pending,
                 false => Poll::Ready(false),
             }
-        }).await
+        })
+        .await
     }
 
     /// Is hardware configured to perform transaction with this buffer
@@ -239,27 +235,28 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     async fn wait_ready_for_transaction(&self) {
         // Wait transfer buffer to be free
         self.wait_available().await;
-        
+
         trace!("CHANNEL {} WAIT READY", self.index);
         // Wait for other transaction end
         poll_fn(|cx| {
-           self.waker().register(cx.waker());
+            self.waker().register(cx.waker());
 
             // Other transaction in progress
             if !self.is_ready_for_transaction() {
-                return Poll::Pending
+                return Poll::Pending;
             }
-            
+
             Poll::Ready(())
-        }).await;
+        })
+        .await;
     }
-    
+
     // FIXME: RX Timeout with LS device on hub
     /// Start transaction and wait it to be complete
     async fn wait_transaction(&self) -> Result<(), ChannelError> {
         assert!(!Self::is_interrupt_in());
         let regs = T::regs();
-        
+
         // Enable error and cplt interrupts
         regs.inte().modify(|w| {
             w.set_trans_complete(true);
@@ -267,7 +264,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             w.set_error_rx_timeout(false);
             w.set_error_rx_overflow(true);
         });
-        
+
         // Start transaction
         // This field should be modified separately after delay
         cortex_m::asm::delay(12);
@@ -282,11 +279,11 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             let stat = regs.sie_status().read();
             if stat.trans_complete() {
                 regs.sie_status().write_clear(|w| w.set_trans_complete(true));
-                return Poll::Ready(Ok(()))
+                return Poll::Ready(Ok(()));
             }
             if stat.stall_rec() {
                 regs.sie_status().write_clear(|w| w.set_stall_rec(true));
-                return Poll::Ready(Err(ChannelError::Stall))
+                return Poll::Ready(Err(ChannelError::Stall));
             }
             // if stat.rx_timeout() {
             //     regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
@@ -294,42 +291,48 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             // }
             if stat.rx_overflow() {
                 regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
-                return Poll::Ready(Err(ChannelError::BufferOverflow))
+                return Poll::Ready(Err(ChannelError::BufferOverflow));
             }
-            
+
             Poll::Pending
-        }).await;
-        
+        })
+        .await;
+
         res
     }
 
     /// Mark this channel as currently used and configure endpoint type
-    /// 
+    ///
     /// Call once on creation for interrupt pipe
     fn set_current(&self) {
         let regs = T::regs();
         let dpram = T::dpram();
         trace!(
-            "SET CURRENT: {} CHANNEL {}: dev: {}, ep: {}, max_packet: {}, preamble: {}", 
-            E::ep_type(), self.index, self.dev_addr, self.ep_addr, self.max_packet_size, self.pre
+            "SET CURRENT: {} CHANNEL {}: dev: {}, ep: {}, max_packet: {}, preamble: {}",
+            E::ep_type(),
+            self.index,
+            self.dev_addr,
+            self.ep_addr,
+            self.max_packet_size,
+            self.pre
         );
         if Self::is_interrupt_in() {
             self.ep_control().write(|w| {
                 w.set_endpoint_type(EpControlEndpointType::INTERRUPT);
                 w.set_interrupt_per_buff(true);
-                 
+
                 // FIXME: host_poll_interval (bits 16:25)
                 let interval = self.interval as u32 - 1;
                 w.0 |= interval << 16;
-                
+
                 w.set_buffer_address(self.buf.addr);
                 w.set_enable(true);
             });
 
             // FIXME: What is this for?
-            regs.sie_ctrl().modify(|w| { w.set_sof_sync(true) });
-            
-            self.addr_endp_host().write(|w| { 
+            regs.sie_ctrl().modify(|w| w.set_sof_sync(true));
+
+            self.addr_endp_host().write(|w| {
                 w.set_address(self.dev_addr);
                 w.set_endpoint(self.ep_addr);
                 // FIXME: INTERRUPT OUT?
@@ -338,12 +341,12 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             });
         } else {
             CURRENT_CHANNEL.store(self.index, Ordering::Relaxed);
-            
+
             T::regs().addr_endp().write(|w| {
                 w.set_address(self.dev_addr);
                 w.set_endpoint(self.ep_addr);
             });
-            
+
             self.ep_control().modify(|w| {
                 w.set_enable(true);
                 w.set_interrupt_per_buff(true);
@@ -358,13 +361,13 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 
                 w.set_endpoint_type(epty);
             });
-            
-            regs.sie_ctrl().modify(|w| { w.set_preamble_en(self.pre) });
+
+            regs.sie_ctrl().modify(|w| w.set_preamble_en(self.pre));
         }
     }
-    
+
     /// Clear current active channel and disable interrupt
-    /// 
+    ///
     /// Safe to call outside of transfer context
     fn clear_current(&self) {
         // If this channel is selected
@@ -372,7 +375,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             if !Self::is_interrupt_in() {
                 CURRENT_CHANNEL.store(0, Ordering::Relaxed);
             }
-            
+
             self.ep_control().modify(|w| {
                 w.set_interrupt_per_buff(false);
                 w.set_enable(false);
@@ -385,26 +388,26 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     }
 
     /// Copy setup packet to buffer and set SETUP transaction
-    /// 
+    ///
     /// Set PID = 1 for next transaction
     fn set_setup_packet(&mut self, setup: &SetupPacket) {
         assert!(E::ep_type() == EndpointType::Control);
         let dpram = T::dpram();
         dpram.setup_packet_low().write(|w| {
-            w.set_bmrequesttype(setup.request_type.bits()); 
+            w.set_bmrequesttype(setup.request_type.bits());
             w.set_brequest(setup.request);
             w.set_wvalue(setup.value);
         });
         dpram.setup_packet_high().write(|w| {
             w.set_windex(setup.index);
-            w.set_wlength(setup.length); 
+            w.set_wlength(setup.length);
         });
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(false);
             w.set_receive_data(false);
             w.set_send_setup(true);
         });
-        
+
         self.pid = true;
     }
 
@@ -426,7 +429,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         // T::regs().sie_ctrl().modify(|w| {
         //     w.set_sof_en(true);
         //     w.set_keep_alive_en(true);
-        //     w.set_pulldown_en(true); 
+        //     w.set_pulldown_en(true);
         // });
 
         // FIXME: delay reason
@@ -435,24 +438,24 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
             w.set_int_ep_active(w.int_ep_active() | 1 << (self.index - 1));
         });
     }
-    
+
     /// Set DATA IN transaction
-    /// 
+    ///
     /// WARNING: This flips PID
     fn set_data_in(&mut self, len: u16) {
         assert!(E::ep_type() != EndpointType::Interrupt);
-        
+
         self.buffer_control().write(|w| {
             w.set_pid(0, self.pid);
             w.set_full(0, false);
             w.set_length(0, len);
             w.set_last(0, true);
             w.set_reset(true);
-            w.set_available(0, true); 
+            w.set_available(0, true);
         });
-        
+
         self.pid = !self.pid;
-        
+
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(false);
             w.set_send_setup(false);
@@ -462,17 +465,17 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 
     /// Set DATA OUT transaction and copy data to buffer
     /// Returns count of copied bytes
-    fn set_data_out(&mut self, data: &[u8]) -> usize {        
+    fn set_data_out(&mut self, data: &[u8]) -> usize {
         assert!(E::ep_type() != EndpointType::Interrupt);
 
         let chunk = if data.len() > 0 {
-           data.chunks(self.max_packet_size as _).next().unwrap() 
+            data.chunks(self.max_packet_size as _).next().unwrap()
         } else {
             &[]
         };
-        
+
         self.buf.write(&chunk);
-        
+
         self.buffer_control().write(|w| {
             w.set_available(0, true);
             w.set_pid(0, self.pid);
@@ -483,7 +486,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         });
 
         self.pid = !self.pid;
-        
+
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(true);
             w.set_send_setup(false);
@@ -503,19 +506,19 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     }
 
     /// Send SETUP packet
-    /// 
+    ///
     /// WARNING: This flips PID
     async fn send_setup(&mut self, setup: &SetupPacket) -> Result<(), ChannelError> {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
-        
+
         // Set this channel for transaction
         self.set_current();
-        
+
         trace!("SEND SETUP");
         // Prepare HW
         self.set_setup_packet(setup);
-        
+
         // Wait for SETUP end
         let res = self.wait_transaction().await;
 
@@ -528,10 +531,10 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     async fn control_status(&mut self, active_direction_out: bool) -> Result<(), ChannelError> {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
-        
+
         // Set this channel for transaction
         self.set_current();
-        
+
         // Status packet always have DATA1
         trace!("SEND STATUS");
         self.pid = true;
@@ -540,7 +543,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
         } else {
             self.set_data_out(&[]);
         }
-        
+
         let res = self.wait_transaction().await;
 
         self.clear_current();
@@ -551,9 +554,10 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
 
 impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> for Channel<'d, T, E, D> {
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
-    where 
+    where
         E: channel::IsControl,
-        D: channel::IsIn {
+        D: channel::IsIn,
+    {
         trace!("CONTROL IN: {}", setup);
         // Setup stage
         // TODO: Whole transaction error handling?
@@ -573,9 +577,10 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
     }
 
     async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
-    where 
+    where
         E: channel::IsControl,
-        D: channel::IsOut {
+        D: channel::IsOut,
+    {
         trace!("CONTROL OUT: {}", setup);
         // Setup stage
         // TODO: Whole transaction error handling?
@@ -595,14 +600,15 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
-    where 
-        D: channel::IsIn {
+    where
+        D: channel::IsIn,
+    {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
-        
+
         // Set this channel for transaction
         self.set_current();
-        
+
         let mut count: usize = 0;
 
         let res = loop {
@@ -612,12 +618,12 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
                 self.wait_available().await;
             } else {
                 trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
-                self.set_data_in(buf[count..].len() as _,);
+                self.set_data_in(buf[count..].len() as _);
                 if let Err(e) = self.wait_transaction().await {
                     break Err(e);
                 }
             }
-            
+
             let free = &mut buf[count..];
             let rx_len = self.buffer_control().read().length(0) as usize;
             trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
@@ -625,7 +631,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
             if rx_len > free.len() {
                 break Err(ChannelError::BufferOverflow);
             }
-            
+
             self.buf.read(&mut free[..rx_len]);
             count += rx_len;
 
@@ -635,20 +641,21 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
                 break Ok(count);
             }
         };
-        
+
         self.clear_current();
-        
+
         res
     }
 
     async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
-    where 
-        D: channel::IsOut {
+    where
+        D: channel::IsOut,
+    {
         // Wait transfer buffer to be free
         self.wait_ready_for_transaction().await;
-        
+
         let regs = T::regs();
-        
+
         // Set this channel for transaction
         self.set_current();
 
@@ -657,22 +664,22 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         let res = loop {
             trace!("CHANNEL {} START WRITE", self.index);
             let packet = self.set_data_out(buf);
-            
+
             if let Err(e) = self.wait_transaction().await {
-                break Err(e)
+                break Err(e);
             }
-            
+
             trace!("WRITE DONE, tx_len = {}", packet);
 
             count += packet;
-            
+
             if count == buf.len() {
-                break Ok(count)
+                break Ok(count);
             }
         };
 
         self.clear_current();
-               
+
         res
     }
 }
@@ -683,27 +690,32 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
     async fn wait_for_device_event(&self) -> DeviceEvent {
         let is_connected = |status: u8| match status {
             0b01 | 0b10 => true,
-            _ => false
+            _ => false,
         };
-        
+
         // Read current state
         let was = is_connected(T::regs().sie_status().read().speed());
-        
+
         // Clear interrupt status
-        T::regs().sie_status().write_clear(|w| { w.set_speed(0b11); });
-        
+        T::regs().sie_status().write_clear(|w| {
+            w.set_speed(0b11);
+        });
+
         // Enable conn/dis irq
-        T::regs().inte().modify(|w| { w.set_host_conn_dis(true); });
+        T::regs().inte().modify(|w| {
+            w.set_host_conn_dis(true);
+        });
         let ev = poll_fn(|cx| {
             BUS_WAKER.register(cx.waker());
-            
+
             let now = is_connected(T::regs().sie_status().read().speed());
             match (was, now) {
                 (true, false) => Poll::Ready(DeviceEvent::Disconnected),
                 (false, true) => Poll::Ready(DeviceEvent::Connected),
-                _ => Poll::Pending
-            }        
-        }).await;
+                _ => Poll::Pending,
+            }
+        })
+        .await;
         ev
     }
 
@@ -716,7 +728,7 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
     }
 
     fn retarget_channel<D: channel::Direction>(
-        &self, 
+        &self,
         channel: &mut Self::Channel<channel::Control, D>,
         addr: u8,
         max_packet_size: u8,
@@ -739,7 +751,7 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
             let free_index = (1..16)
                 .find(|i| alloc & (1 << i) == 0)
                 .ok_or(HostError::OutOfChannels)? as u8;
-        
+
             self.allocated_pipes.store(alloc | 1 << free_index, Ordering::Release);
             // Use fixed layout
             let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
@@ -747,14 +759,18 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
             Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
         } else {
             let index = self.channel_index.fetch_add(1, Ordering::Relaxed);
-            Ok(Channel::new(index, DPRAM_DATA_OFFSET, MAIN_BUFFER_SIZE as u16, endpoint, dev_addr, pre))
-        }        
+            Ok(Channel::new(
+                index,
+                DPRAM_DATA_OFFSET,
+                MAIN_BUFFER_SIZE as u16,
+                endpoint,
+                dev_addr,
+                pre,
+            ))
+        }
     }
 
-    fn drop_channel<E: channel::Type, D: channel::Direction>(
-        &self, 
-        channel: &mut Self::Channel<E, D>
-    ) {
+    fn drop_channel<E: channel::Type, D: channel::Direction>(&self, channel: &mut Self::Channel<E, D>) {
         if E::ep_type() == EndpointType::Interrupt {
             // Clear interrupts
             channel.clear_current();
@@ -772,8 +788,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let regs = T::regs();
         let ints = regs.ints().read();
-        
-        let ev = {    
+
+        let ev = {
             if ints.host_conn_dis() {
                 regs.inte().write_clear(|w| w.set_host_conn_dis(true));
                 match regs.sie_status().read().speed() {
@@ -781,49 +797,40 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     0b10 => "attached full speed",
                     _ => "detached",
                 }
-            }
-            else if ints.host_resume() {
+            } else if ints.host_resume() {
                 regs.sie_status().write_clear(|w| w.set_resume(true));
                 "resume"
-            }
-            else if ints.error_crc() {
+            } else if ints.error_crc() {
                 regs.sie_status().write_clear(|w| w.set_crc_error(true));
                 "crc error"
-            }
-            else if ints.error_bit_stuff() {
+            } else if ints.error_bit_stuff() {
                 regs.sie_status().write_clear(|w| w.set_bit_stuff_error(true));
                 "bit stuff error"
-            }
-            else if ints.error_data_seq() {
+            } else if ints.error_data_seq() {
                 regs.sie_status().write_clear(|w| w.set_data_seq_error(true));
                 "data sequence error"
-            }
-            else if ints.stall() {
+            } else if ints.stall() {
                 regs.inte().write_clear(|w| w.set_stall(true));
                 EP_IN_WAKERS[0].wake();
                 "stall"
-            }
-            else if ints.error_rx_overflow() {
+            } else if ints.error_rx_overflow() {
                 regs.inte().write_clear(|w| w.set_error_rx_overflow(true));
                 EP_IN_WAKERS[0].wake();
                 "rx overflow"
-            }
-            else if ints.trans_complete() {
+            } else if ints.trans_complete() {
                 regs.inte().write_clear(|w| w.set_trans_complete(true));
                 EP_IN_WAKERS[0].wake();
                 "transaction complete"
-            }
-            else if ints.error_rx_timeout() {
+            } else if ints.error_rx_timeout() {
                 regs.inte().write_clear(|w| w.set_error_rx_timeout(true));
                 EP_IN_WAKERS[0].wake();
                 "rx timeout"
-            }
-            else if ints.buff_status() {
+            } else if ints.buff_status() {
                 let status = regs.buff_status().read().0;
                 for i in 0..32 {
                     // ith bit set
                     if (status >> i) & 1 == 1 {
-                        regs.buff_status().write_clear(|w| w.0 = 1 << i );
+                        regs.buff_status().write_clear(|w| w.0 = 1 << i);
                         // control transfers (buffer 0)
                         if i != 0 {
                             let idx = i / 2;
@@ -836,12 +843,11 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                             trace!("USB IRQ: EPx");
                             EP_IN_WAKERS[0].wake();
                         }
-                        break
+                        break;
                     }
                 }
                 "^^^"
-            }
-            else if ints.host_sof() {
+            } else if ints.host_sof() {
                 // Prevent nonstop SOF interrupt
                 T::regs().inte().write_clear(|w| w.set_host_sof(true));
                 "sof"
@@ -849,9 +855,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 "???"
             }
         };
-        
+
         trace!("USB IRQ: {:08x} :: {}", ints.0, ev);
-        
+
         BUS_WAKER.wake();
     }
 }

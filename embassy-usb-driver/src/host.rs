@@ -1,6 +1,8 @@
 //! USB host driver traits and data types.
 
-use crate::{Direction, EndpointInfo, EndpointType, Speed};
+use core::time::Duration;
+
+use crate::{EndpointInfo, EndpointType, Speed};
 
 /// Errors returned by [`ChannelOut::write`] and [`ChannelIn::read`]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -126,6 +128,7 @@ pub enum HostError {
     OutOfSlots,
     OutOfChannels,
     NoSuchDevice,
+    InsufficientMemory,
     Other(&'static str),
 }
 
@@ -138,9 +141,12 @@ impl From<ChannelError> for HostError {
 /// Async USB Host Driver trait.
 /// To be implemented by the HAL.
 pub trait UsbHostDriver: Sized {
+    /// Channel implementation of this UsbHostDriver
     type Channel<T: channel::Type, D: channel::Direction>: UsbChannel<T, D>;
 
     /// Wait for device connect or disconnect
+    ///
+    /// When connected, this function must issue a bus reset before the speed is reported
     async fn wait_for_device_event(&self) -> DeviceEvent;
 
     /// Issue a bus reset.
@@ -237,22 +243,40 @@ pub mod channel {
     }
 
     #[diagnostic::on_unimplemented(message = "This is not an IN channel")]
-    pub trait IsIn {}
+    pub trait IsIn: Direction {}
     impl IsIn for In {}
     impl IsIn for InOut {}
 
     #[diagnostic::on_unimplemented(message = "This is not an OUT channel")]
-    pub trait IsOut {}
+    pub trait IsOut: Direction {}
     impl IsOut for Out {}
     impl IsOut for InOut {}
 }
 
-/// ## Interrupt Channels
-/// There are two ways to soundly implement Interrupt channels in the curren trait
-/// - Start & repeat the poll upon call of request_*
-/// - Poll in background/hardware and stop polling once a valid response is returned holding that value until read
+/// Specify the timeout of a channel
+pub struct TimeoutConfig {
+    /// Maximum response timeout for transactions with a Data Stage
+    pub data_timeout: Duration,
+    /// Maximum response timeout for transactions without a data stage
+    pub standard_timeout: Duration,
+}
+
+impl Default for TimeoutConfig {
+    fn default() -> Self {
+        TimeoutConfig {
+            data_timeout: Duration::from_millis(500),
+            standard_timeout: Duration::from_millis(50),
+        }
+    }
+}
+
+/// ## Virtual USB Channels
+/// These contain the required information to send a packet correctly to a device endpoint.
+/// The information is carried with the channel on creation (see [`UsbHostDriver::alloc_channel`]) and can be changed with [`UsbChannel::retarget_channel`].
 ///
-/// Implementing it differently can cause dropped packet
+/// It is up to the hal's driver how to implement concurrent requests, some hardware IP may allow for multiple hardware channels
+///  while others may only have a single channel which needs to be multiplexed in software, while others still use DMA request linked-lists.
+/// Any of these are compatibile with the UsbChannel with varying degrees of sync primitives required.
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
@@ -279,13 +303,7 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsOut;
-}
 
-// Convenience impl for combined inout channel
-// impl<T, I, O> UsbChannel<T, channel::InOut> for (O, I)
-// where
-//     T: channel::Type,
-//     I: UsbChannel<T, channel::In>,
-//     O: UsbChannel<T, channel::Out>,
-// {
-// }
+    /// Configure the timeouts of this channel
+    async fn set_timeout(&mut self, timeout: TimeoutConfig);
+}
