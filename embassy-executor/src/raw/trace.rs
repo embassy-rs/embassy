@@ -1,6 +1,3 @@
-#![allow(unused)]
-use crate::raw::{SyncExecutor, TaskRef};
-
 //! # Tracing
 //!
 //! The `trace` feature enables a number of callbacks that can be used to track the
@@ -85,6 +82,9 @@ use crate::raw::{SyncExecutor, TaskRef};
 //! 3. The executor has decided a task to poll. `_embassy_trace_task_exec_begin` is called.
 //! 4. The executor finishes polling the task. `_embassy_trace_task_exec_end` is called.
 //! 5. The executor has finished polling tasks. `_embassy_trace_executor_idle` is called.
+
+#![allow(unused)]
+use crate::raw::{SyncExecutor, TaskRef};
 
 #[cfg(not(feature = "rtos-trace"))]
 extern "Rust" {
