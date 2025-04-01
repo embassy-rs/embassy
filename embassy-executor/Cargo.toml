@@ -77,9 +77,11 @@ js-sys = { version = "0.3", optional = true }
 avr-device = { version = "0.7.0", optional = true }
 
 [dependencies.cordyceps]
+# note: targeting v0.3.3, to be released when
+# https://github.com/hawkw/mycelium/pull/520 is merged
 version = "0.3"
 git = "https://github.com/hawkw/mycelium"
-rev = "aaad19480d175bfc290f1d4dc2d435c6eb3d9fc5"
+rev = "9649db0525b9972b95937d83d52d3f51cc486281"
 optional = true
 
 [dev-dependencies]
