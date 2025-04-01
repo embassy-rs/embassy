@@ -101,14 +101,14 @@ extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static
 /// - 5: Task is dequeued. The task's future is not polled, because exiting the task replaces its `poll_fn`.
 /// - 6: A task is waken when it is not spawned - `wake_task -> State::run_enqueue`
 pub(crate) struct TaskHeader {
+    pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
 
-    #[cfg(feature = "drs-scheduler")]
     /// Deadline Rank Scheduler Deadline. This field should not be accessed outside the context of
     /// the task itself as it being polled by the executor.
+    #[cfg(feature = "drs-scheduler")]
     pub(crate) deadline: SyncUnsafeCell<u64>,
 
-    pub(crate) state: State,
     pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
@@ -211,10 +211,12 @@ impl<F: Future + 'static> TaskStorage<F> {
     pub const fn new() -> Self {
         Self {
             raw: TaskHeader {
+                state: State::new(),
                 run_queue_item: RunQueueItem::new(),
+                // NOTE: The deadline is set to zero to allow the initializer to reside in `.bss`. This
+                // will be lazily initalized in `initialize_impl`
                 #[cfg(feature = "drs-scheduler")]
                 deadline: SyncUnsafeCell::new(0u64),
-                state: State::new(),
                 executor: AtomicPtr::new(core::ptr::null_mut()),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
@@ -311,7 +313,8 @@ impl<F: Future + 'static> AvailableTask<F> {
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
 
-            // TODO(AJM): Some other way of setting this? Just a placeholder
+            // By default, deadlines are set to the maximum value, so that any task WITH
+            // a set deadline will ALWAYS be scheduled BEFORE a task WITHOUT a set deadline
             #[cfg(feature = "drs-scheduler")]
             self.task.raw.deadline.set(u64::MAX);
 
