@@ -1,6 +1,5 @@
 //! Host driver for USB hubs.
 //!
-//! It has it's own enumerate implementation to deal with the deferred `bus_reset` and state/speed detection.
 //! It requires the usb-driver to implement/support `Interrupt` `ChannelIn` endpoints (which resolves a call to `[ChannelIn::read]`).
 
 use crate::host::{ConfigurationDescriptor, InterfaceDescriptor};

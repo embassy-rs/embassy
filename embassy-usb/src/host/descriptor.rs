@@ -2,7 +2,15 @@ use crate::descriptor::descriptor_type;
 use embassy_usb_driver::{host::HostError, Direction, EndpointInfo, EndpointType};
 use heapless::Vec;
 
+pub(crate) const DEFAULT_MAX_DESCRIPTOR_SIZE: usize = 512;
 type StringIndex = u8;
+
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum DescriptorError {
+    BadDescriptorType,
+    UnexpectedEndOfBuffer,
+}
 
 /// First 8 bytes of the DeviceDescriptor. This is used to figure out the `max_packet_size0` value to reconfigure channel 0.
 /// All USB devices support max_packet_size0=8 which is why the first 8 bytes of the descriptor can always be read.
@@ -167,9 +175,10 @@ impl USBDescriptor for ConfigurationDescriptor<'_> {
     }
 }
 
+/// Iterates over the InterfaceDescriptors of a single configuration
 pub struct InterfaceIterator<'a> {
-    num_interface: usize,
-    index: usize,
+    index: u8,
+    offset: usize,
     cfg_desc: &'a ConfigurationDescriptor<'a>,
 }
 
@@ -177,12 +186,16 @@ impl<'a> Iterator for InterfaceIterator<'a> {
     type Item = InterfaceDescriptor<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.num_interface {
+        if self.index >= self.cfg_desc.num_interfaces {
             None
         } else {
-            let res = self.cfg_desc.parse_interface(self.index);
+            // Assuming spec compliant descriptors the next descriptor should always be at our offset
+            let remaining_buf = &self.cfg_desc.buffer[self.offset..];
+            // FIXME: Fallible, propegate errors?
+            let iface = InterfaceDescriptor::try_from_bytes(remaining_buf).ok()?;
+            self.offset += iface.len as usize + iface.buffer.len();
             self.index += 1;
-            res
+            Some(iface)
         }
     }
 }
@@ -214,13 +227,14 @@ impl<'a> ConfigurationDescriptor<'a> {
     /// Iterate over all interface descriptors of this Configuration
     pub fn iter_interface(&self) -> InterfaceIterator<'_> {
         InterfaceIterator {
-            num_interface: self.num_interfaces as usize,
             index: 0,
+            offset: 0,
             cfg_desc: self,
         }
     }
 
     /// Try to find and parse the interface with interface number `index`
+    #[deprecated(note = "Use `iter_interface()` with filter instead")]
     pub fn parse_interface(&self, index: usize) -> Option<InterfaceDescriptor<'_>> {
         if index >= self.num_interfaces as usize {
             return None;
@@ -263,6 +277,7 @@ impl<'a> ConfigurationDescriptor<'a> {
     }
 
     // Returns the offset to the next interface descriptor as well as the interface_number (index in descriptor)
+    #[deprecated(note = "Use the iterators instead")]
     fn identify_interface(slice: &[u8]) -> Option<(usize, u8)> {
         let mut offset = 0;
         let mut desc_len = slice[offset] as usize;
@@ -285,6 +300,29 @@ impl<'a> ConfigurationDescriptor<'a> {
     }
 }
 
+/// Iterates over raw descriptors (assuming correctly formed), returning the byte offset & buffer
+pub struct RawDescriptorIterator<'a> {
+    buf: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> Iterator for RawDescriptorIterator<'a> {
+    type Item = (usize, &'a [u8]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.offset >= self.buf.len() {
+            return None;
+        }
+        let pre_offset = self.offset;
+        let len = self.buf[pre_offset] as usize;
+        self.offset += len;
+        Some((pre_offset, &self.buf[pre_offset..self.offset]))
+    }
+}
+
+/// Iterates over the endpoints of an interface
+//
+/// Equivalent to `RawDescriptorIterator{}.take_while(|v| v[1] != InterfaceDescriptor::DESC_TYPE).filter_map(|v| EndpointDescriptor::try_from_bytes(v).ok())`
 pub struct EndpointIterator<'a> {
     buffer_idx: usize,
     index: usize,
@@ -298,16 +336,15 @@ impl Iterator for EndpointIterator<'_> {
         if self.index >= self.iface_desc.num_endpoints as usize {
             None
         } else {
-            let mut working_buffer = &self.iface_desc.buffer[self.buffer_idx..];
-            if let Some(endpoint) = InterfaceDescriptor::identify_descriptor::<EndpointDescriptor>(working_buffer)
-                .and_then(|i| {
-                    working_buffer = &working_buffer[i..];
-                    EndpointDescriptor::try_from_bytes(working_buffer).ok()
-                })
-            {
-                self.buffer_idx += EndpointDescriptor::SIZE;
-                self.index += 1;
-                return Some(endpoint);
+            // Cannot assume a only standard descriptors https://wiki.osdev.org/Universal_Serial_Bus#Standard_USB_Descriptors:~:text=Therefore%2C%20the%20system%20software,least%20the%20expected%20length.
+
+            while self.buffer_idx + 7 <= self.iface_desc.buffer.len() {
+                let working_buffer = &self.iface_desc.buffer[self.buffer_idx..];
+                self.buffer_idx += working_buffer[0] as usize;
+                if let Ok(descr) = EndpointDescriptor::try_from_bytes(working_buffer) {
+                    self.index += 1;
+                    return Some(descr);
+                }
             }
             None
         }
@@ -328,6 +365,24 @@ impl<'a> InterfaceDescriptor<'a> {
         if bytes[1] != Self::DESC_TYPE {
             return Err(());
         }
+
+        // Interface descriptor contains no container length info, so we'll have to check each endpoint for their length
+        let endpoints = &bytes[bytes[0] as usize..];
+
+        let mut raw_desc_iter = RawDescriptorIterator {
+            buf: endpoints,
+            offset: 0,
+        };
+
+        // Find boundary of this interface (needs to be parsed linearly unfortunately)
+        let next_iface_index = raw_desc_iter
+            .find_map(|(index, v)| {
+                v.get(1)
+                    .is_some_and(|v| *v == InterfaceDescriptor::DESC_TYPE)
+                    .then_some(index)
+            })
+            .unwrap_or(endpoints.len());
+
         Ok(Self {
             len: bytes[0],
             descriptor_type: bytes[1],
@@ -338,7 +393,7 @@ impl<'a> InterfaceDescriptor<'a> {
             interface_subclass: bytes[6],
             interface_protocol: bytes[7],
             interface_name: bytes[8],
-            buffer: &bytes[Self::SIZE..],
+            buffer: &endpoints[..next_iface_index],
         })
     }
 
@@ -358,6 +413,7 @@ impl<'a> InterfaceDescriptor<'a> {
 
     /// Parse up to `L` endpoints corresponding to this interface.
     /// Returns a vector of EndpointDescriptors. The length of the vector is `min(L, self.num_endpoints)`.
+    #[deprecated(note = "Use `iter_endpoints()` instead")]
     pub fn parse_endpoints<const L: usize>(&self) -> Vec<EndpointDescriptor, L> {
         let mut endpoints: Vec<EndpointDescriptor, L> = Vec::new();
 
@@ -464,14 +520,14 @@ impl USBDescriptor for EndpointDescriptor {
     const SIZE: usize = 7;
 
     const DESC_TYPE: u8 = descriptor_type::ENDPOINT;
-    type Error = ();
+    type Error = DescriptorError;
 
     fn try_from_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        if bytes.len() < Self::SIZE {
-            return Err(());
+        if bytes.len() < Self::SIZE || bytes.len() < bytes[0] as usize {
+            return Err(DescriptorError::UnexpectedEndOfBuffer);
         }
         if bytes[1] != Self::DESC_TYPE {
-            return Err(());
+            return Err(DescriptorError::BadDescriptorType);
         }
         Ok(Self {
             len: bytes[0],
@@ -487,6 +543,49 @@ impl USBDescriptor for EndpointDescriptor {
 #[cfg(test)]
 mod test {
     use super::{ConfigurationDescriptor, USBDescriptor};
+    use crate::host::EndpointDescriptor;
+    use heapless::Vec;
+
+    #[test]
+    fn test_parse_extended_endpoint_descriptor() {
+        // This configuration descriptor has 2 HID interfaces with HID descriptors
+        // The first endpoint descriptor is extended with 2 bytes such as seen in the MIDI 2.0
+        // bRefresh, bSynchAddress (those two bytes are set to 99 in the test bytes below to make them easy to identify).
+        let desc_bytes = [
+            9, 2, 68, 0, 2, 1, 0, 160, 101, // Configuration descriptor
+            9, 4, 0, 0, 1, 3, 1, 1, 0, // Interface 0
+            9, 33, 16, 1, 0, 1, 34, 63, 0, // HID Descriptor
+            9, 5, 129, 3, 8, 0, 1, 99, 99, // Endpoint 1 (extended for MIDI 2.0)
+            9, 4, 1, 0, 2, 3, 1, 0, 0, // Interface 1
+            9, 33, 16, 1, 0, 1, 34, 39, 0, // HID Descriptor
+            7, 5, 131, 3, 64, 0, 1, // Endpoint 1
+            7, 5, 3, 3, 64, 0, 1, // Endpoint 2
+        ];
+
+        let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
+        assert_eq!(cfg.num_interfaces, 2);
+
+        println!("{:?}", cfg.buffer);
+
+        let interface0 = cfg.iter_interface().next().unwrap();
+        assert_eq!(interface0.interface_number, 0);
+
+        assert_eq!(interface0.num_endpoints, 1);
+
+        let endpoints: Vec<EndpointDescriptor, 2> = interface0.iter_endpoints().collect();
+        assert_eq!(endpoints.len(), 1);
+
+        let ep = endpoints[0];
+        assert_eq!(ep.endpoint_address, 0x81);
+        assert_eq!(ep.max_packet_size, 8);
+
+        let interface1 = cfg.iter_interface().nth(1).unwrap();
+        assert_eq!(interface1.interface_number, 1);
+        assert_eq!(interface1.num_endpoints, 2);
+
+        let endpoints: Vec<EndpointDescriptor, 2> = interface1.iter_endpoints().collect();
+        assert_eq!(endpoints.len(), 2);
+    }
 
     #[test]
     fn test_parse_interface_descriptor() {
@@ -499,14 +598,15 @@ mod test {
 
         let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
         assert_eq!(cfg.num_interfaces, 2);
+        // assert!(cfg.buffer_sliced().len() > 16);
 
-        let interface0 = cfg.parse_interface(0).unwrap();
+        let interface0 = cfg.iter_interface().next().unwrap();
         assert_eq!(interface0.interface_number, 0);
 
         let interface0_buffer_ref = [9u8, 33, 16, 1, 0, 1, 34, 63, 0, 7, 5, 129, 3, 8, 0, 1];
         assert_eq!(interface0.buffer.len(), interface0_buffer_ref.len());
 
-        let interface1 = cfg.parse_interface(1).unwrap();
+        let interface1 = cfg.iter_interface().nth(1).unwrap();
         assert_eq!(interface1.interface_number, 1);
 
         let interface1_buffer_ref = [
@@ -527,23 +627,23 @@ mod test {
         let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
         assert_eq!(cfg.num_interfaces, 2);
 
-        let interface0 = cfg.parse_interface(0).unwrap();
+        let interface0 = cfg.iter_interface().next().unwrap();
         assert_eq!(interface0.interface_number, 0);
 
         assert_eq!(interface0.num_endpoints, 1);
 
-        let endpoints = interface0.parse_endpoints::<2>();
+        let endpoints: Vec<EndpointDescriptor, 2> = interface0.iter_endpoints().collect();
         assert_eq!(endpoints.len(), 1);
 
         let ep = endpoints[0];
         assert_eq!(ep.endpoint_address, 0x81);
         assert_eq!(ep.max_packet_size, 8);
 
-        let interface1 = cfg.parse_interface(1).unwrap();
+        let interface1 = cfg.iter_interface().nth(1).unwrap();
         assert_eq!(interface1.interface_number, 1);
         assert_eq!(interface1.num_endpoints, 2);
 
-        let endpoints = interface1.parse_endpoints::<2>();
+        let endpoints: Vec<EndpointDescriptor, 2> = interface1.iter_endpoints().collect();
         assert_eq!(endpoints.len(), 2);
     }
 
@@ -592,7 +692,7 @@ mod test {
         let cfg = ConfigurationDescriptor::try_from_slice(desc_bytes.as_slice()).unwrap();
         assert_eq!(cfg.num_interfaces, 2);
 
-        let interface0 = cfg.parse_interface(0).unwrap();
+        let interface0 = cfg.iter_interface().next().unwrap();
         assert_eq!(interface0.interface_number, 0);
 
         let hid_desc: HIDDescriptor = interface0.parse_class_descriptor().unwrap();

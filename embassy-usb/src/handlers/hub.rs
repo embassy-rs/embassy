@@ -11,6 +11,7 @@ use crate::{
     host::{
         descriptor::{
             ConfigurationDescriptor, DeviceDescriptor, DeviceDescriptorPartial, InterfaceDescriptor, USBDescriptor,
+            DEFAULT_MAX_DESCRIPTOR_SIZE,
         },
         ControlChannelExt,
     },
@@ -53,9 +54,26 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
         }
     }
 
-    async fn try_register(bus: &H, enum_info: &EnumerationInfo<'_>) -> Result<Self, RegisterError> {
-        let iface = enum_info
-            .cfg_desc
+    async fn try_register(bus: &H, enum_info: &EnumerationInfo) -> Result<Self, RegisterError> {
+        let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
+            enum_info.device_address,
+            &EndpointInfo::new(
+                0.into(),
+                EndpointType::Control,
+                enum_info
+                    .device_desc
+                    .max_packet_size0
+                    .min(if enum_info.ls_over_fs { 8 } else { 64 }) as u16,
+            ),
+            enum_info.ls_over_fs,
+        )?;
+
+        let mut cfg_desc_buf = [0u8; DEFAULT_MAX_DESCRIPTOR_SIZE];
+        let configuration = enum_info
+            .active_config_or_set_default(&mut control_channel, &mut cfg_desc_buf)
+            .await?;
+
+        let iface = configuration
             .iter_interface()
             .find(|v| {
                 matches!(
@@ -81,20 +99,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
             enum_info.ls_over_fs,
         )?;
 
-        let mut control_channel = bus.alloc_channel::<channel::Control, channel::InOut>(
-            enum_info.device_address,
-            &EndpointInfo::new(
-                0.into(),
-                EndpointType::Control,
-                enum_info
-                    .device_desc
-                    .max_packet_size0
-                    .min(if enum_info.ls_over_fs { 8 } else { 64 }) as u16,
-            ),
-            enum_info.ls_over_fs,
-        )?;
-
-        let desc = control_channel.request_descriptor::<HubDescriptor, 64>(true).await?;
+        let desc = control_channel.request_descriptor::<HubDescriptor, 64>(0, true).await?;
 
         let mut hub = HubHandler {
             interrupt_channel,
@@ -183,8 +188,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         port: u8,
         speed: Speed,
         new_device_address: u8,
-        descriptor_buf: &'a mut [u8],
-    ) -> Result<EnumerationInfo<'a>, HostError> {
+    ) -> Result<EnumerationInfo, HostError> {
         // NOTE: we probably could do this in the wait loop but it would require a arc mutex registry which seems unnecessary
         self.port_feature(true, PortFeature::Reset, port, 0).await?;
         Timer::after_millis(50).await;
@@ -193,7 +197,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> HubHandler<H, MAX_PORTS> {
         let ls_pre = matches!((speed, self.speed), (Speed::Low, Speed::Full | Speed::High));
 
         self.control_channel
-            .enumerate_device(speed, new_device_address, ls_pre, descriptor_buf)
+            .enumerate_device(speed, new_device_address, ls_pre)
             .await
     }
 
