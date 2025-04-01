@@ -14,7 +14,7 @@
 //! at any time.
 //!
 //! IDs are only guaranteed to be unique for the duration of time the item is valid. If a task
-//! ends, and is respond, it MAY or MAY NOT have the same ID. For tasks, this time is defined
+//! ends, and is re-spawned, it MAY or MAY NOT have the same ID. For tasks, this valid time is defined
 //! as the time between `_embassy_trace_task_new` and `_embassy_trace_task_end` for a given task.
 //! For executors, this time is not defined, but is often "forever" for practical embedded
 //! programs.
