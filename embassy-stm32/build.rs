@@ -62,7 +62,13 @@ fn main() {
     // generate one singleton per peripheral (with many exceptions...)
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" || r.kind == "otg" || r.kind == "octospi" {
+            if r.kind == "adccommon"
+                || r.kind == "sai"
+                || r.kind == "ucpd"
+                || r.kind == "otg"
+                || r.kind == "octospi"
+                || r.kind == "xspi"
+            {
                 // TODO: should we emit this for all peripherals? if so, we will need a list of all
                 // possible peripherals across all chips, so that we can declare the configs
                 // (replacing the hard-coded list of `peri_*` cfgs below)

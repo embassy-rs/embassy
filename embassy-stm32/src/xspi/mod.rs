@@ -14,8 +14,9 @@ pub use enums::*;
 use crate::dma::{word, ChannelAndRequest};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::pac::xspi::{vals::*, Xspi as Regs};
-#[cfg(xspim_v2_1)]
+use crate::pac::xspi::vals::*;
+use crate::pac::xspi::Xspi as Regs;
+#[cfg(xspim_v1)]
 use crate::pac::xspim::Xspim;
 use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peripheral};
@@ -41,7 +42,7 @@ pub struct Config {
     /// Indicates the wrap size corresponding to the external device configuration
     pub wrap_size: WrapSize,
     /// Specified the prescaler factor used for generating the external clock based
-    /// on the AHB clock
+    /// on the AHB clock. 0 = Fkernel, 1 = Fkernel/2, 2 = Fkernel/3 etc.
     pub clock_prescaler: u8,
     /// Allows the delay of 1/2 cycle the data sampling to account for external
     /// signal delays
@@ -196,47 +197,35 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         self.configure_command(&read_config, None)?;
 
         let reg = T::REGS;
-        while reg.xspi_sr().read().busy() {}
+        while reg.sr().read().busy() {}
 
-        reg.xspi_ccr().modify(|r| {
-            r.set_dqse(XspiCcrDqse::B_0X0);
+        reg.ccr().modify(|r| {
+            r.set_dqse(false);
         });
 
         // Set wrting configurations, there are separate registers for write configurations in memory mapped mode
-        reg.xspi_wccr().modify(|w| {
-            w.set_imode(XspiWccrImode::from_bits(write_config.iwidth.into()));
-            let idtr = match write_config.idtr {
-                true => XspiWccrIdtr::B_0X1,
-                false => XspiWccrIdtr::B_0X0,
-            };
-            w.set_idtr(idtr);
-            w.set_isize(XspiWccrIsize::from_bits(write_config.isize.into()));
+        reg.wccr().modify(|w| {
+            w.set_imode(WccrImode::from_bits(write_config.iwidth.into()));
+            w.set_idtr(write_config.idtr);
+            w.set_isize(WccrIsize::from_bits(write_config.isize.into()));
 
-            w.set_admode(XspiWccrAdmode::from_bits(write_config.adwidth.into()));
-            let addtr = match write_config.idtr {
-                true => XspiWccrAddtr::B_0X1,
-                false => XspiWccrAddtr::B_0X0,
-            };
-            w.set_addtr(addtr);
-            w.set_adsize(XspiWccrAdsize::from_bits(write_config.adsize.into()));
+            w.set_admode(WccrAdmode::from_bits(write_config.adwidth.into()));
+            w.set_addtr(write_config.idtr);
+            w.set_adsize(WccrAdsize::from_bits(write_config.adsize.into()));
 
-            w.set_dmode(XspiWccrDmode::from_bits(write_config.dwidth.into()));
-            let ddtr = match write_config.idtr {
-                true => XspiWccrDdtr::B_0X1,
-                false => XspiWccrDdtr::B_0X0,
-            };
-            w.set_ddtr(ddtr);
+            w.set_dmode(WccrDmode::from_bits(write_config.dwidth.into()));
+            w.set_ddtr(write_config.idtr);
 
-            w.set_abmode(XspiWccrAbmode::from_bits(write_config.abwidth.into()));
-            w.set_dqse(XspiWccrDqse::B_0X1);
+            w.set_abmode(WccrAbmode::from_bits(write_config.abwidth.into()));
+            w.set_dqse(true);
         });
 
-        reg.xspi_wtcr().modify(|w| w.set_dcyc(write_config.dummy.into()));
+        reg.wtcr().modify(|w| w.set_dcyc(write_config.dummy.into()));
 
         // Enable memory mapped mode
-        reg.xspi_cr().modify(|r| {
+        reg.cr().modify(|r| {
             r.set_fmode(Fmode::B_0X3);
-            r.set_tcen(Tcen::B_0X0);
+            r.set_tcen(false);
         });
         Ok(())
     }
@@ -245,19 +234,19 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
     pub fn disable_memory_mapped_mode(&mut self) {
         let reg = T::REGS;
 
-        reg.xspi_cr().modify(|r| {
+        reg.cr().modify(|r| {
             r.set_fmode(Fmode::B_0X0);
-            r.set_abort(Abort::B_0X1);
-            r.set_dmaen(Dmaen::B_0X0);
-            r.set_en(En::B_0X0);
+            r.set_abort(true);
+            r.set_dmaen(false);
+            r.set_en(false);
         });
 
         // Clear transfer complete flag
-        reg.xspi_fcr().write(|w| w.set_ctcf(true));
+        reg.fcr().write(|w| w.set_ctcf(true));
 
         // Re-enable ospi
-        reg.xspi_cr().modify(|r| {
-            r.set_en(En::B_0X1);
+        reg.cr().modify(|r| {
+            r.set_en(true);
         });
     }
 
@@ -291,18 +280,18 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
     ) -> Self {
         into_ref!(peri);
 
-        #[cfg(xspim_v2_1)]
+        #[cfg(xspim_v1)]
         {
             // RCC for xspim should be enabled before writing register
             crate::pac::RCC.ahb5enr().modify(|w| w.set_iomngren(true));
 
             // Disable XSPI peripheral first
-            T::REGS.xspi_cr().modify(|w| {
-                w.set_en(En::B_0X0);
+            T::REGS.cr().modify(|w| {
+                w.set_en(false);
             });
 
             // XSPI IO Manager has been enabled before
-            T::SPIM_REGS.xspim_cr().modify(|w| {
+            T::SPIM_REGS.cr().modify(|w| {
                 w.set_muxen(false);
                 w.set_req2ack_time(0xff);
             });
@@ -310,74 +299,70 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
 
         // System configuration
         rcc::enable_and_reset::<T>();
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
         // Device configuration
-        T::REGS.xspi_dcr1().modify(|w| {
+        T::REGS.dcr1().modify(|w| {
             w.set_devsize(config.device_size.into());
             w.set_mtyp(Mtyp::from_bits(config.memory_type.into()));
             w.set_csht(Csht::from_bits(config.chip_select_high_time.into()));
-            w.set_frck(Frck::B_0X0);
+            w.set_frck(false);
             w.set_ckmode(Ckmode::from_bits(config.clock_mode.into()));
         });
 
-        T::REGS.xspi_dcr2().modify(|w| {
+        T::REGS.dcr2().modify(|w| {
             w.set_wrapsize(Wrapsize::from_bits(config.wrap_size.into()));
         });
 
-        T::REGS.xspi_dcr3().modify(|w| {
+        T::REGS.dcr3().modify(|w| {
             w.set_csbound(Csbound::from_bits(config.chip_select_boundary.into()));
-            #[cfg(xspi_v2_1)]
+            #[cfg(xspi_v1)]
             {
                 w.set_maxtran(Maxtran::from_bits(config.max_transfer.into()));
             }
         });
 
-        T::REGS.xspi_dcr4().modify(|w| {
+        T::REGS.dcr4().modify(|w| {
             w.set_refresh(Refresh::from_bits(config.refresh.into()));
         });
 
-        T::REGS.xspi_cr().modify(|w| {
+        T::REGS.cr().modify(|w| {
             w.set_fthres(Fthres::from_bits(config.fifo_threshold.into()));
         });
 
         // Wait for busy flag to clear
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
-        T::REGS.xspi_dcr2().modify(|w| {
-            w.set_prescaler(Prescaler::from_bits(config.clock_prescaler.into()));
+        T::REGS.dcr2().modify(|w| {
+            w.set_prescaler(config.clock_prescaler);
         });
 
-        T::REGS.xspi_cr().modify(|w| {
-            w.set_dmm(match dual_quad {
-                true => Dmm::B_0X1,
-                false => Dmm::B_0X0,
-            });
+        T::REGS.cr().modify(|w| {
+            w.set_dmm(dual_quad);
         });
 
-        T::REGS.xspi_tcr().modify(|w| {
-            w.set_sshift(match config.sample_shifting {
-                true => XspiTcrSshift::B_0X1,
-                false => XspiTcrSshift::B_0X0,
-            });
-            w.set_dhqc(match config.delay_hold_quarter_cycle {
-                true => XspiTcrDhqc::B_0X1,
-                false => XspiTcrDhqc::B_0X0,
-            });
+        T::REGS.tcr().modify(|w| {
+            w.set_sshift(config.sample_shifting);
+            w.set_dhqc(config.delay_hold_quarter_cycle);
+        });
+
+        // TODO: at the moment only ncs1 seems to get passed in?
+        // Only one must be selected
+        assert!(!(ncs1.is_some() && ncs2.is_some()));
+        assert!(!(ncs1.is_none() && ncs2.is_none()));
+        T::REGS.cr().modify(|w| {
+            w.set_cssel(if ncs1.is_some() { Cssel::B_0X0 } else { Cssel::B_0X1 });
         });
 
         // Enable peripheral
-        T::REGS.xspi_cr().modify(|w| {
-            w.set_en(En::B_0X1);
+        T::REGS.cr().modify(|w| {
+            w.set_en(true);
         });
 
         // Free running clock needs to be set after peripheral enable
         if config.free_running_clock {
-            T::REGS.xspi_dcr1().modify(|w| {
-                w.set_frck(match config.free_running_clock {
-                    true => Frck::B_0X1,
-                    false => Frck::B_0X0,
-                });
+            T::REGS.dcr1().modify(|w| {
+                w.set_frck(config.free_running_clock);
             });
         }
 
@@ -422,87 +407,78 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             return Err(XspiError::InvalidCommand);
         }
 
-        T::REGS.xspi_cr().modify(|w| {
+        T::REGS.cr().modify(|w| {
             w.set_fmode(0.into());
         });
 
         // Configure alternate bytes
         if let Some(ab) = command.alternate_bytes {
-            T::REGS.xspi_abr().write(|v| v.set_alternate(ab));
-            T::REGS.xspi_ccr().modify(|w| {
-                w.set_abmode(XspiCcrAbmode::from_bits(command.abwidth.into()));
-                w.set_abdtr(XspiCcrAbdtr::from_bits(command.abdtr.into()));
-                w.set_absize(XspiCcrAbsize::from_bits(command.absize.into()));
+            T::REGS.abr().write(|v| v.set_alternate(ab));
+            T::REGS.ccr().modify(|w| {
+                w.set_abmode(CcrAbmode::from_bits(command.abwidth.into()));
+                w.set_abdtr(command.abdtr);
+                w.set_absize(CcrAbsize::from_bits(command.absize.into()));
             })
         }
 
         // Configure dummy cycles
-        T::REGS.xspi_tcr().modify(|w| {
+        T::REGS.tcr().modify(|w| {
             w.set_dcyc(command.dummy.into());
         });
 
         // Configure data
         if let Some(data_length) = data_len {
-            T::REGS.xspi_dlr().write(|v| {
+            T::REGS.dlr().write(|v| {
                 v.set_dl((data_length - 1) as u32);
             })
         } else {
-            T::REGS.xspi_dlr().write(|v| {
+            T::REGS.dlr().write(|v| {
                 v.set_dl((0) as u32);
             })
         }
 
         // Configure instruction/address/data modes
-        T::REGS.xspi_ccr().modify(|w| {
-            w.set_imode(XspiCcrImode::from_bits(command.iwidth.into()));
-            w.set_idtr(match command.idtr {
-                true => XspiCcrIdtr::B_0X1,
-                false => XspiCcrIdtr::B_0X0,
-            });
-            w.set_isize(XspiCcrIsize::from_bits(command.isize.into()));
+        T::REGS.ccr().modify(|w| {
+            w.set_imode(CcrImode::from_bits(command.iwidth.into()));
+            w.set_idtr(command.idtr);
+            w.set_isize(CcrIsize::from_bits(command.isize.into()));
 
-            w.set_admode(XspiCcrAdmode::from_bits(command.adwidth.into()));
-            w.set_addtr(match command.idtr {
-                true => XspiCcrAddtr::B_0X1,
-                false => XspiCcrAddtr::B_0X0,
-            });
-            w.set_adsize(XspiCcrAdsize::from_bits(command.adsize.into()));
+            w.set_admode(CcrAdmode::from_bits(command.adwidth.into()));
+            w.set_addtr(command.idtr);
+            w.set_adsize(CcrAdsize::from_bits(command.adsize.into()));
 
-            w.set_dmode(XspiCcrDmode::from_bits(command.dwidth.into()));
-            w.set_ddtr(match command.ddtr {
-                true => XspiCcrDdtr::B_0X1,
-                false => XspiCcrDdtr::B_0X0,
-            });
+            w.set_dmode(CcrDmode::from_bits(command.dwidth.into()));
+            w.set_ddtr(command.ddtr);
         });
 
         // Set information required to initiate transaction
         if let Some(instruction) = command.instruction {
             if let Some(address) = command.address {
-                T::REGS.xspi_ir().write(|v| {
+                T::REGS.ir().write(|v| {
                     v.set_instruction(instruction);
                 });
 
-                T::REGS.xspi_ar().write(|v| {
+                T::REGS.ar().write(|v| {
                     v.set_address(address);
                 });
             } else {
                 // Double check requirements for delay hold and sample shifting
                 // if let None = command.data_len {
                 //     if self.config.delay_hold_quarter_cycle && command.idtr {
-                //         T::REGS.xspi_ccr().modify(|w| {
+                //         T::REGS.ccr().modify(|w| {
                 //             w.set_ddtr(true);
                 //         });
                 //     }
                 // }
 
-                warn!("instruction: {:#x}", instruction);
-                T::REGS.xspi_ir().write(|v| {
+                // warn!("instruction: {:#x}", instruction);
+                T::REGS.ir().write(|v| {
                     v.set_instruction(instruction);
                 });
             }
         } else {
             if let Some(address) = command.address {
-                T::REGS.xspi_ar().write(|v| {
+                T::REGS.ar().write(|v| {
                     v.set_address(address);
                 });
             } else {
@@ -517,14 +493,14 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
     /// Function used to control or configure the target device without data transfer
     pub fn blocking_command(&mut self, command: &TransferConfig) -> Result<(), XspiError> {
         // Wait for peripheral to be free
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
         // Need additional validation that command configuration doesn't have data set
         self.configure_command(command, None)?;
 
         // Transaction initiated by setting final configuration, i.e the instruction register
-        while !T::REGS.xspi_sr().read().tcf() {}
-        T::REGS.xspi_fcr().write(|w| {
+        while !T::REGS.sr().read().tcf() {}
+        T::REGS.fcr().write(|w| {
             w.set_ctcf(true);
         });
 
@@ -538,36 +514,36 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         }
 
         // Wait for peripheral to be free
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
         // Ensure DMA is not enabled for this transaction
-        T::REGS.xspi_cr().modify(|w| {
-            w.set_dmaen(Dmaen::B_0X0);
+        T::REGS.cr().modify(|w| {
+            w.set_dmaen(false);
         });
 
         // self.configure_command(&transaction, Some(buf.len()))?;
         self.configure_command(&transaction, Some(buf.len())).unwrap();
 
-        let current_address = T::REGS.xspi_ar().read().address();
-        let current_instruction = T::REGS.xspi_ir().read().instruction();
+        let current_address = T::REGS.ar().read().address();
+        let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
         T::REGS
-            .xspi_cr()
+            .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectRead.into())));
-        if T::REGS.xspi_ccr().read().admode() == XspiCcrAdmode::B_0X0 {
-            T::REGS.xspi_ir().write(|v| v.set_instruction(current_instruction));
+        if T::REGS.ccr().read().admode() == CcrAdmode::B_0X0 {
+            T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
-            T::REGS.xspi_ar().write(|v| v.set_address(current_address));
+            T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
         for idx in 0..buf.len() {
-            while !T::REGS.xspi_sr().read().tcf() && !T::REGS.xspi_sr().read().ftf() {}
-            buf[idx] = unsafe { (T::REGS.xspi_dr().as_ptr() as *mut W).read_volatile() };
+            while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
+            buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut W).read_volatile() };
         }
 
-        while !T::REGS.xspi_sr().read().tcf() {}
-        T::REGS.xspi_fcr().write(|v| v.set_ctcf(true));
+        while !T::REGS.sr().read().tcf() {}
+        T::REGS.fcr().write(|v| v.set_ctcf(true));
 
         Ok(())
     }
@@ -579,25 +555,25 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         }
 
         // Wait for peripheral to be free
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
-        T::REGS.xspi_cr().modify(|w| {
-            w.set_dmaen(Dmaen::B_0X0);
+        T::REGS.cr().modify(|w| {
+            w.set_dmaen(false);
         });
 
         self.configure_command(&transaction, Some(buf.len()))?;
 
         T::REGS
-            .xspi_cr()
+            .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectWrite.into())));
 
         for idx in 0..buf.len() {
-            while !T::REGS.xspi_sr().read().ftf() {}
-            unsafe { (T::REGS.xspi_dr().as_ptr() as *mut W).write_volatile(buf[idx]) };
+            while !T::REGS.sr().read().ftf() {}
+            unsafe { (T::REGS.dr().as_ptr() as *mut W).write_volatile(buf[idx]) };
         }
 
-        while !T::REGS.xspi_sr().read().tcf() {}
-        T::REGS.xspi_fcr().write(|v| v.set_ctcf(true));
+        while !T::REGS.sr().read().tcf() {}
+        T::REGS.fcr().write(|v| v.set_ctcf(true));
 
         Ok(())
     }
@@ -605,75 +581,66 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
     /// Set new bus configuration
     pub fn set_config(&mut self, config: &Config) {
         // Wait for busy flag to clear
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
         // Disable DMA channel while configuring the peripheral
-        T::REGS.xspi_cr().modify(|w| {
-            w.set_dmaen(Dmaen::B_0X0);
+        T::REGS.cr().modify(|w| {
+            w.set_dmaen(false);
         });
 
         // Device configuration
-        T::REGS.xspi_dcr1().modify(|w| {
+        T::REGS.dcr1().modify(|w| {
             w.set_devsize(config.device_size.into());
             w.set_mtyp(Mtyp::from_bits(config.memory_type.into()));
             w.set_csht(Csht::from_bits(config.chip_select_high_time.into()));
-            w.set_frck(Frck::B_0X0);
+            w.set_frck(false);
             w.set_ckmode(match config.clock_mode {
                 true => Ckmode::B_0X1,
                 false => Ckmode::B_0X0,
             });
         });
 
-        T::REGS.xspi_dcr2().modify(|w| {
+        T::REGS.dcr2().modify(|w| {
             w.set_wrapsize(Wrapsize::from_bits(config.wrap_size.into()));
         });
 
-        T::REGS.xspi_dcr3().modify(|w| {
+        T::REGS.dcr3().modify(|w| {
             w.set_csbound(Csbound::from_bits(config.chip_select_boundary.into()));
-            #[cfg(xspi_v2_1)]
+            #[cfg(xspi_v1)]
             {
                 w.set_maxtran(Maxtran::from_bits(config.max_transfer.into()));
             }
         });
 
-        T::REGS.xspi_dcr4().modify(|w| {
+        T::REGS.dcr4().modify(|w| {
             w.set_refresh(Refresh::from_bits(config.refresh.into()));
         });
 
-        T::REGS.xspi_cr().modify(|w| {
+        T::REGS.cr().modify(|w| {
             w.set_fthres(Fthres::from_bits(config.fifo_threshold.into()));
         });
 
         // Wait for busy flag to clear
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
-        T::REGS.xspi_dcr2().modify(|w| {
-            w.set_prescaler(Prescaler::from_bits(config.clock_prescaler.into()));
+        T::REGS.dcr2().modify(|w| {
+            w.set_prescaler(config.clock_prescaler);
         });
 
-        T::REGS.xspi_tcr().modify(|w| {
-            w.set_sshift(match config.sample_shifting {
-                true => XspiTcrSshift::B_0X1,
-                false => XspiTcrSshift::B_0X0,
-            });
-            w.set_dhqc(match config.delay_hold_quarter_cycle {
-                true => XspiTcrDhqc::B_0X1,
-                false => XspiTcrDhqc::B_0X0,
-            });
+        T::REGS.tcr().modify(|w| {
+            w.set_sshift(config.sample_shifting);
+            w.set_dhqc(config.delay_hold_quarter_cycle);
         });
 
         // Enable peripheral
-        T::REGS.xspi_cr().modify(|w| {
-            w.set_en(En::B_0X1);
+        T::REGS.cr().modify(|w| {
+            w.set_en(true);
         });
 
         // Free running clock needs to be set after peripheral enable
         if config.free_running_clock {
-            T::REGS.xspi_dcr1().modify(|w| {
-                w.set_frck(match config.free_running_clock {
-                    true => Frck::B_0X1,
-                    false => Frck::B_0X0,
-                });
+            T::REGS.dcr1().modify(|w| {
+                w.set_frck(config.free_running_clock);
             });
         }
 
@@ -1143,31 +1110,31 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         }
 
         // Wait for peripheral to be free
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
         self.configure_command(&transaction, Some(buf.len()))?;
 
-        let current_address = T::REGS.xspi_ar().read().address();
-        let current_instruction = T::REGS.xspi_ir().read().instruction();
+        let current_address = T::REGS.ar().read().address();
+        let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
         T::REGS
-            .xspi_cr()
+            .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectRead.into())));
-        if T::REGS.xspi_ccr().read().admode() == XspiCcrAdmode::B_0X0 {
-            T::REGS.xspi_ir().write(|v| v.set_instruction(current_instruction));
+        if T::REGS.ccr().read().admode() == CcrAdmode::B_0X0 {
+            T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
-            T::REGS.xspi_ar().write(|v| v.set_address(current_address));
+            T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
         let transfer = unsafe {
             self.dma
                 .as_mut()
                 .unwrap()
-                .read(T::REGS.xspi_dr().as_ptr() as *mut W, buf, Default::default())
+                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
         };
 
-        T::REGS.xspi_cr().modify(|w| w.set_dmaen(Dmaen::B_0X1));
+        T::REGS.cr().modify(|w| w.set_dmaen(true));
 
         transfer.blocking_wait();
 
@@ -1183,21 +1150,21 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         }
 
         // Wait for peripheral to be free
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
         self.configure_command(&transaction, Some(buf.len()))?;
         T::REGS
-            .xspi_cr()
+            .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectWrite.into())));
 
         let transfer = unsafe {
             self.dma
                 .as_mut()
                 .unwrap()
-                .write(buf, T::REGS.xspi_dr().as_ptr() as *mut W, Default::default())
+                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
         };
 
-        T::REGS.xspi_cr().modify(|w| w.set_dmaen(Dmaen::B_0X1));
+        T::REGS.cr().modify(|w| w.set_dmaen(true));
 
         transfer.blocking_wait();
 
@@ -1213,31 +1180,31 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         }
 
         // Wait for peripheral to be free
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
         self.configure_command(&transaction, Some(buf.len()))?;
 
-        let current_address = T::REGS.xspi_ar().read().address();
-        let current_instruction = T::REGS.xspi_ir().read().instruction();
+        let current_address = T::REGS.ar().read().address();
+        let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
         T::REGS
-            .xspi_cr()
+            .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectRead.into())));
-        if T::REGS.xspi_ccr().read().admode() == XspiCcrAdmode::B_0X0 {
-            T::REGS.xspi_ir().write(|v| v.set_instruction(current_instruction));
+        if T::REGS.ccr().read().admode() == CcrAdmode::B_0X0 {
+            T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
-            T::REGS.xspi_ar().write(|v| v.set_address(current_address));
+            T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
         let transfer = unsafe {
             self.dma
                 .as_mut()
                 .unwrap()
-                .read(T::REGS.xspi_dr().as_ptr() as *mut W, buf, Default::default())
+                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
         };
 
-        T::REGS.xspi_cr().modify(|w| w.set_dmaen(Dmaen::B_0X1));
+        T::REGS.cr().modify(|w| w.set_dmaen(true));
 
         transfer.await;
 
@@ -1253,21 +1220,21 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         }
 
         // Wait for peripheral to be free
-        while T::REGS.xspi_sr().read().busy() {}
+        while T::REGS.sr().read().busy() {}
 
         self.configure_command(&transaction, Some(buf.len()))?;
         T::REGS
-            .xspi_cr()
+            .cr()
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectWrite.into())));
 
         let transfer = unsafe {
             self.dma
                 .as_mut()
                 .unwrap()
-                .write(buf, T::REGS.xspi_dr().as_ptr() as *mut W, Default::default())
+                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
         };
 
-        T::REGS.xspi_cr().modify(|w| w.set_dmaen(Dmaen::B_0X1));
+        T::REGS.cr().modify(|w| w.set_dmaen(true));
 
         transfer.await;
 
@@ -1306,16 +1273,16 @@ impl<'d, T: Instance, M: PeriMode> Drop for Xspi<'d, T, M> {
 }
 
 fn finish_dma(regs: Regs) {
-    while !regs.xspi_sr().read().tcf() {}
-    regs.xspi_fcr().write(|v| v.set_ctcf(true));
+    while !regs.sr().read().tcf() {}
+    regs.fcr().write(|v| v.set_ctcf(true));
 
-    regs.xspi_cr().modify(|w| {
-        w.set_dmaen(Dmaen::B_0X0);
+    regs.cr().modify(|w| {
+        w.set_dmaen(false);
     });
 }
 
 /// XSPI I/O manager instance trait.
-#[cfg(xspim_v2_1)]
+#[cfg(xspim_v1)]
 pub(crate) trait SealedXspimInstance {
     const SPIM_REGS: Xspim;
     const SPI_IDX: u8;
@@ -1327,12 +1294,12 @@ pub(crate) trait SealedInstance {
 }
 
 /// XSPI instance trait.
-#[cfg(xspim_v2_1)]
+#[cfg(xspim_v1)]
 #[allow(private_bounds)]
 pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral + SealedXspimInstance {}
 
 /// XSPI instance trait.
-#[cfg(not(xspim_v2_1))]
+#[cfg(not(xspim_v1))]
 #[allow(private_bounds)]
 pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
 
@@ -1361,20 +1328,20 @@ pin_trait!(NCLKPin, Instance);
 dma_trait!(XDma, Instance);
 
 // Hard-coded the xspi index, for SPIM
-#[cfg(xspim_v2_1)]
+#[cfg(xspim_v1)]
 impl SealedXspimInstance for peripherals::XSPI1 {
     const SPIM_REGS: Xspim = crate::pac::XSPIM;
     const SPI_IDX: u8 = 1;
 }
 
-// #[cfg(all(xspim_v2_1, peri_xspi2))]
-#[cfg(xspim_v2_1)]
+// Some cubedb files are missing XSPI2, for example STM32H7R3Z8
+#[cfg(all(xspim_v1, peri_xspi2))]
 impl SealedXspimInstance for peripherals::XSPI2 {
     const SPIM_REGS: Xspim = crate::pac::XSPIM;
     const SPI_IDX: u8 = 2;
 }
 
-#[cfg(xspim_v2_1)]
+#[cfg(xspim_v1)]
 foreach_peripheral!(
     (xspi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {
@@ -1385,7 +1352,7 @@ foreach_peripheral!(
     };
 );
 
-#[cfg(not(xspim_v2_1))]
+#[cfg(not(xspim_v1))]
 foreach_peripheral!(
     (xspi, $inst:ident) => {
         impl SealedInstance for peripherals::$inst {

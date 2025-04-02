@@ -1,10 +1,11 @@
 //! Enums used in Xspi configuration.
-#[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub(crate) enum XspiMode {
     IndirectWrite,
     IndirectRead,
+    #[expect(dead_code)]
     AutoPolling,
+    #[expect(dead_code)]
     MemoryMapped,
 }
 
@@ -20,7 +21,6 @@ impl Into<u8> for XspiMode {
 }
 
 /// Xspi lane width
-#[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub enum XspiWidth {
     /// None
@@ -47,27 +47,7 @@ impl Into<u8> for XspiWidth {
     }
 }
 
-/// Flash bank selection
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
-pub enum FlashSelection {
-    /// Bank 1
-    Flash1,
-    /// Bank 2
-    Flash2,
-}
-
-impl Into<bool> for FlashSelection {
-    fn into(self) -> bool {
-        match self {
-            FlashSelection::Flash1 => false,
-            FlashSelection::Flash2 => true,
-        }
-    }
-}
-
 /// Wrap Size
-#[allow(dead_code)]
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
 pub enum WrapSize {
@@ -92,7 +72,6 @@ impl Into<u8> for WrapSize {
 
 /// Memory Type
 #[allow(missing_docs)]
-#[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub enum MemoryType {
     Micron,
