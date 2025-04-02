@@ -46,7 +46,7 @@ portable-atomic = { version = "1.5", optional = true }
 cortex-m = { version = "0.7.6", optional = true }
 
 # arch-cortex-ar dependencies
-cortex-ar = { version = "0.1", optional = true }
+cortex-ar = { git = "https://github.com/rust-embedded/cortex-ar.git", optional = true }
 
 # arch-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
