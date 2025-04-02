@@ -335,21 +335,22 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_prescaler(config.clock_prescaler);
         });
 
+        // Wait for busy flag to clear after changing prescaler, during calibration
+        while T::REGS.sr().read().busy() {}
+
         T::REGS.cr().modify(|w| {
             w.set_dmm(dual_quad);
+
+            // TODO: at the moment only ncs1 seems to get passed in?
+            // Only one must be selected
+            assert!(!(ncs1.is_some() && ncs2.is_some()));
+            assert!(!(ncs1.is_none() && ncs2.is_none()));
+            w.set_cssel(if ncs1.is_some() { Cssel::B_0X0 } else { Cssel::B_0X1 });
         });
 
         T::REGS.tcr().modify(|w| {
             w.set_sshift(config.sample_shifting);
             w.set_dhqc(config.delay_hold_quarter_cycle);
-        });
-
-        // TODO: at the moment only ncs1 seems to get passed in?
-        // Only one must be selected
-        assert!(!(ncs1.is_some() && ncs2.is_some()));
-        assert!(!(ncs1.is_none() && ncs2.is_none()));
-        T::REGS.cr().modify(|w| {
-            w.set_cssel(if ncs1.is_some() { Cssel::B_0X0 } else { Cssel::B_0X1 });
         });
 
         // Enable peripheral
