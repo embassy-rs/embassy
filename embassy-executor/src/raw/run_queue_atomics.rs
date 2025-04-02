@@ -102,7 +102,7 @@ impl RunQueue {
         // only allows access to this value while the given task is being polled.
         // This acts as mutual exclusion for access.
         let mut sorted =
-            SortedList::<TaskHeader>::new_custom(|lhs, rhs| unsafe { lhs.deadline.get().cmp(&rhs.deadline.get()) });
+            SortedList::<TaskHeader>::new_with_cmp(|lhs, rhs| unsafe { lhs.deadline.get().cmp(&rhs.deadline.get()) });
 
         loop {
             // For each loop, grab any newly pended items
