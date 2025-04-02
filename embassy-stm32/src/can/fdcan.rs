@@ -698,7 +698,9 @@ impl RxMode {
             let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
             Some(Ok(Envelope { ts, frame }))
         } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
+            if T::registers().regs.cccr().read().pxhd() {
+                return None;
+            }
             Some(Err(err))
         } else {
             None
@@ -713,7 +715,9 @@ impl RxMode {
             let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
             Some(Ok(FdEnvelope { ts, frame }))
         } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
+            if T::registers().regs.cccr().read().pxhd() {
+                return None;
+            }
             Some(Err(err))
         } else {
             None
@@ -732,7 +736,9 @@ impl RxMode {
             let ts = info.calc_timestamp(state.ns_per_timer_tick, ts);
             Some(Ok((msg, ts)))
         } else if let Some(err) = info.regs.curr_error() {
-            // TODO: this is probably wrong
+            if info.regs.regs.cccr().read().pxhd() {
+                return None;
+            }
             Some(Err(err))
         } else {
             None
