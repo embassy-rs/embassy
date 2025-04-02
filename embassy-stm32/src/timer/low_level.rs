@@ -425,6 +425,36 @@ impl<'d, T: GeneralInstance1Channel> Timer<'d, T> {
             TimerBits::Bits32 => self.regs_gp32_unchecked().arr().read(),
         }
     }
+
+    /// Set the max compare value.
+    ///
+    /// An update event is generated to load the new value. The update event is
+    /// generated such that it will not cause an interrupt or DMA request.
+    pub fn set_max_compare_value(&self, ticks: u32) {
+        match T::BITS {
+            TimerBits::Bits16 => {
+                let arr = unwrap!(u16::try_from(ticks));
+
+                let regs = self.regs_1ch();
+                regs.arr().write(|r| r.set_arr(arr));
+
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
+                regs.egr().write(|r| r.set_ug(true));
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
+            }
+            #[cfg(not(stm32l0))]
+            TimerBits::Bits32 => {
+                let arr = ticks;
+
+                let regs = self.regs_gp32_unchecked();
+                regs.arr().write_value(arr);
+
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
+                regs.egr().write(|r| r.set_ug(true));
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
+            }
+        }
+    }
 }
 
 impl<'d, T: GeneralInstance2Channel> Timer<'d, T> {
