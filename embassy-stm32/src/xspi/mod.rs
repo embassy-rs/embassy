@@ -8,7 +8,7 @@ pub mod enums;
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::{GetConfig, SetConfig};
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 pub use enums::*;
 
 use crate::dma::{word, ChannelAndRequest};
@@ -19,7 +19,7 @@ use crate::pac::xspi::Xspi as Regs;
 #[cfg(xspim_v1)]
 use crate::pac::xspim::Xspim;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
+use crate::{peripherals, Peri};
 
 /// XPSI driver config.
 #[derive(Clone, Copy)]
@@ -157,28 +157,28 @@ pub enum XspiError {
 
 /// XSPI driver.
 pub struct Xspi<'d, T: Instance, M: PeriMode> {
-    _peri: PeripheralRef<'d, T>,
-    clk: Option<PeripheralRef<'d, AnyPin>>,
-    d0: Option<PeripheralRef<'d, AnyPin>>,
-    d1: Option<PeripheralRef<'d, AnyPin>>,
-    d2: Option<PeripheralRef<'d, AnyPin>>,
-    d3: Option<PeripheralRef<'d, AnyPin>>,
-    d4: Option<PeripheralRef<'d, AnyPin>>,
-    d5: Option<PeripheralRef<'d, AnyPin>>,
-    d6: Option<PeripheralRef<'d, AnyPin>>,
-    d7: Option<PeripheralRef<'d, AnyPin>>,
-    d8: Option<PeripheralRef<'d, AnyPin>>,
-    d9: Option<PeripheralRef<'d, AnyPin>>,
-    d10: Option<PeripheralRef<'d, AnyPin>>,
-    d11: Option<PeripheralRef<'d, AnyPin>>,
-    d12: Option<PeripheralRef<'d, AnyPin>>,
-    d13: Option<PeripheralRef<'d, AnyPin>>,
-    d14: Option<PeripheralRef<'d, AnyPin>>,
-    d15: Option<PeripheralRef<'d, AnyPin>>,
-    ncs1: Option<PeripheralRef<'d, AnyPin>>,
-    ncs2: Option<PeripheralRef<'d, AnyPin>>,
-    dqs0: Option<PeripheralRef<'d, AnyPin>>,
-    dqs1: Option<PeripheralRef<'d, AnyPin>>,
+    _peri: Peri<'d, T>,
+    clk: Option<Peri<'d, AnyPin>>,
+    d0: Option<Peri<'d, AnyPin>>,
+    d1: Option<Peri<'d, AnyPin>>,
+    d2: Option<Peri<'d, AnyPin>>,
+    d3: Option<Peri<'d, AnyPin>>,
+    d4: Option<Peri<'d, AnyPin>>,
+    d5: Option<Peri<'d, AnyPin>>,
+    d6: Option<Peri<'d, AnyPin>>,
+    d7: Option<Peri<'d, AnyPin>>,
+    d8: Option<Peri<'d, AnyPin>>,
+    d9: Option<Peri<'d, AnyPin>>,
+    d10: Option<Peri<'d, AnyPin>>,
+    d11: Option<Peri<'d, AnyPin>>,
+    d12: Option<Peri<'d, AnyPin>>,
+    d13: Option<Peri<'d, AnyPin>>,
+    d14: Option<Peri<'d, AnyPin>>,
+    d15: Option<Peri<'d, AnyPin>>,
+    ncs1: Option<Peri<'d, AnyPin>>,
+    ncs2: Option<Peri<'d, AnyPin>>,
+    dqs0: Option<Peri<'d, AnyPin>>,
+    dqs1: Option<Peri<'d, AnyPin>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -251,35 +251,33 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
     }
 
     fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: Option<PeripheralRef<'d, AnyPin>>,
-        d1: Option<PeripheralRef<'d, AnyPin>>,
-        d2: Option<PeripheralRef<'d, AnyPin>>,
-        d3: Option<PeripheralRef<'d, AnyPin>>,
-        d4: Option<PeripheralRef<'d, AnyPin>>,
-        d5: Option<PeripheralRef<'d, AnyPin>>,
-        d6: Option<PeripheralRef<'d, AnyPin>>,
-        d7: Option<PeripheralRef<'d, AnyPin>>,
-        d8: Option<PeripheralRef<'d, AnyPin>>,
-        d9: Option<PeripheralRef<'d, AnyPin>>,
-        d10: Option<PeripheralRef<'d, AnyPin>>,
-        d11: Option<PeripheralRef<'d, AnyPin>>,
-        d12: Option<PeripheralRef<'d, AnyPin>>,
-        d13: Option<PeripheralRef<'d, AnyPin>>,
-        d14: Option<PeripheralRef<'d, AnyPin>>,
-        d15: Option<PeripheralRef<'d, AnyPin>>,
-        clk: Option<PeripheralRef<'d, AnyPin>>,
-        ncs1: Option<PeripheralRef<'d, AnyPin>>,
-        ncs2: Option<PeripheralRef<'d, AnyPin>>,
-        dqs0: Option<PeripheralRef<'d, AnyPin>>,
-        dqs1: Option<PeripheralRef<'d, AnyPin>>,
+        peri: Peri<'d, T>,
+        d0: Option<Peri<'d, AnyPin>>,
+        d1: Option<Peri<'d, AnyPin>>,
+        d2: Option<Peri<'d, AnyPin>>,
+        d3: Option<Peri<'d, AnyPin>>,
+        d4: Option<Peri<'d, AnyPin>>,
+        d5: Option<Peri<'d, AnyPin>>,
+        d6: Option<Peri<'d, AnyPin>>,
+        d7: Option<Peri<'d, AnyPin>>,
+        d8: Option<Peri<'d, AnyPin>>,
+        d9: Option<Peri<'d, AnyPin>>,
+        d10: Option<Peri<'d, AnyPin>>,
+        d11: Option<Peri<'d, AnyPin>>,
+        d12: Option<Peri<'d, AnyPin>>,
+        d13: Option<Peri<'d, AnyPin>>,
+        d14: Option<Peri<'d, AnyPin>>,
+        d15: Option<Peri<'d, AnyPin>>,
+        clk: Option<Peri<'d, AnyPin>>,
+        ncs1: Option<Peri<'d, AnyPin>>,
+        ncs2: Option<Peri<'d, AnyPin>>,
+        dqs0: Option<Peri<'d, AnyPin>>,
+        dqs1: Option<Peri<'d, AnyPin>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         width: XspiWidth,
         dual_quad: bool,
     ) -> Self {
-        into_ref!(peri);
-
         #[cfg(xspim_v1)]
         {
             // RCC for xspim should be enabled before writing register
@@ -656,11 +654,11 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
 impl<'d, T: Instance> Xspi<'d, T, Blocking> {
     /// Create new blocking XSPI driver for a single spi external chip
     pub fn new_blocking_singlespi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -695,11 +693,11 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
 
     /// Create new blocking XSPI driver for a dualspi external chip
     pub fn new_blocking_dualspi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -737,13 +735,13 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
 
     /// Create new blocking XSPI driver for a quadspi external chip
     pub fn new_blocking_quadspi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -781,17 +779,17 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
 
     /// Create new blocking XSPI driver for two quadspi external chips
     pub fn new_blocking_dualquadspi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -829,17 +827,17 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
 
     /// Create new blocking XSPI driver for xspi external chips
     pub fn new_blocking_xspi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -879,12 +877,12 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
 impl<'d, T: Instance> Xspi<'d, T, Async> {
     /// Create new blocking XSPI driver for a single spi external chip
     pub fn new_singlespi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
-        dma: impl Peripheral<P = impl XDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
+        dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -919,12 +917,12 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
 
     /// Create new blocking XSPI driver for a dualspi external chip
     pub fn new_dualspi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
-        dma: impl Peripheral<P = impl XDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
+        dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -962,14 +960,14 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
 
     /// Create new blocking XSPI driver for a quadspi external chip
     pub fn new_quadspi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
-        dma: impl Peripheral<P = impl XDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
+        dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1007,18 +1005,18 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
 
     /// Create new blocking XSPI driver for two quadspi external chips
     pub fn new_dualquadspi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
-        dma: impl Peripheral<P = impl XDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
+        dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1056,18 +1054,18 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
 
     /// Create new blocking XSPI driver for xspi external chips
     pub fn new_xspi(
-        peri: impl Peripheral<P = T> + 'd,
-        clk: impl Peripheral<P = impl CLKPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        ncs: impl Peripheral<P = impl NCS1Pin<T>> + 'd,
-        dma: impl Peripheral<P = impl XDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        ncs: Peri<'d, impl NCS1Pin<T>>,
+        dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1296,12 +1294,12 @@ pub(crate) trait SealedInstance {
 /// XSPI instance trait.
 #[cfg(xspim_v1)]
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral + SealedXspimInstance {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + SealedXspimInstance {}
 
 /// XSPI instance trait.
 #[cfg(not(xspim_v1))]
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
 
 pin_trait!(D0Pin, Instance);
 pin_trait!(D1Pin, Instance);
