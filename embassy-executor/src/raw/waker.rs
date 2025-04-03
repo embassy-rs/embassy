@@ -26,7 +26,7 @@ pub(crate) unsafe fn from_task(p: TaskRef) -> Waker {
 /// (1 word) instead of full Wakers (2 words). This saves a bit of RAM and helps
 /// avoid dynamic dispatch.
 ///
-/// You can use the returned task pointer to wake the task with [`wake_task`](super::wake_task).
+/// You can use the returned task pointer to wake the task with [`wake_task`].
 ///
 /// # Panics
 ///
