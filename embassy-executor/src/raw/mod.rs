@@ -303,7 +303,7 @@ impl<F: Future + 'static> AvailableTask<F> {
             // By default, deadlines are set to the maximum value, so that any task WITH
             // a set deadline will ALWAYS be scheduled BEFORE a task WITHOUT a set deadline
             #[cfg(feature = "drs-scheduler")]
-            self.task.raw.deadline.set(u64::MAX);
+            self.task.raw.deadline.set(deadline::Deadline::UNSET_DEADLINE_TICKS);
 
             let task = TaskRef::new(self.task);
 
