@@ -5,8 +5,12 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+// This must be declared early as well for
+mod macros;
+
 pub mod gpio;
 pub mod timer;
+pub mod uart;
 
 /// Operating modes for peripherals.
 pub mod mode {
