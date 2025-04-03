@@ -208,8 +208,8 @@ impl<'d> Flex<'d> {
     /// or technical reference manual for additional details.
     #[inline]
     pub fn set_pf_unchecked(&mut self, pf: u8) {
-        // Per SLAU893, PF is only 5 bits
-        assert!((pf & 0x3F) != 0, "PF is out of range");
+        // Per SLAU893 and SLAU846B, PF is only 6 bits
+        assert_eq!(pf & 0xC0, 0, "PF is out of range");
 
         let pincm = pac::IOMUX.pincm(self.pin.pin_cm() as usize);
 
