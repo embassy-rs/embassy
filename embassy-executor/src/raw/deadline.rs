@@ -10,6 +10,16 @@ pub struct Deadline {
 }
 
 impl Deadline {
+    /// Sentinel value representing an "unset" deadline, which has lower priority
+    /// than any other set deadline value
+    pub const UNSET_DEADLINE_TICKS: u64 = u64::MAX;
+
+    /// Does the given Deadline represent an "unset" deadline?
+    #[inline]
+    pub fn is_unset(&self) -> bool {
+        self.instant_ticks == Self::UNSET_DEADLINE_TICKS
+    }
+
     /// Set the current task's deadline at exactly `instant_ticks`
     ///
     /// This method is a future in order to access the currently executing task's
@@ -17,7 +27,7 @@ impl Deadline {
     ///
     /// Analogous to `Timer::at`.
     ///
-    /// TODO: Should we check/panic if the deadline is in the past?
+    /// This method does NOT check whether the deadline has already passed.
     #[must_use = "Setting deadline must be polled to be effective"]
     pub fn set_current_task_deadline(instant_ticks: u64) -> impl Future<Output = ()> {
         poll_fn(move |cx| {
@@ -32,16 +42,16 @@ impl Deadline {
     }
 
     /// Set the current task's deadline `duration_ticks` in the future from when
-    /// this future is polled.
+    /// this future is polled. This deadline is saturated to the max tick value.
     ///
     /// This method is a future in order to access the currently executing task's
-    /// header which contains the deadline
+    /// header which contains the deadline.
     ///
-    /// Analogous to `Timer::after`
+    /// Analogous to `Timer::after`.
     ///
-    /// TODO: Do we want to return what the deadline is?
+    /// Returns the deadline that was set.
     #[must_use = "Setting deadline must be polled to be effective"]
-    pub fn set_current_task_deadline_after(duration_ticks: u64) -> impl Future<Output = ()> {
+    pub fn set_current_task_deadline_after(duration_ticks: u64) -> impl Future<Output = Deadline> {
         poll_fn(move |cx| {
             let task = super::task_from_waker(cx.waker());
             let now = embassy_time_driver::now();
@@ -56,11 +66,15 @@ impl Deadline {
             unsafe {
                 task.header().deadline.set(deadline);
             }
-            Poll::Ready(())
+            Poll::Ready(Deadline {
+                instant_ticks: deadline,
+            })
         })
     }
 
     /// Set the current task's deadline `increment_ticks` from the previous deadline.
+    ///
+    /// This deadline is saturated to the max tick value.
     ///
     /// Note that by default (unless otherwise set), tasks start life with the deadline
     /// u64::MAX, which means this method will have no effect.
@@ -70,9 +84,9 @@ impl Deadline {
     ///
     /// Analogous to one increment of `Ticker::every().next()`.
     ///
-    /// TODO: Do we want to return what the deadline is?
+    /// Returns the deadline that was set.
     #[must_use = "Setting deadline must be polled to be effective"]
-    pub fn increment_current_task_deadline(increment_ticks: u64) -> impl Future<Output = ()> {
+    pub fn increment_current_task_deadline(increment_ticks: u64) -> impl Future<Output = Deadline> {
         poll_fn(move |cx| {
             let task = super::task_from_waker(cx.waker());
 
@@ -89,8 +103,11 @@ impl Deadline {
 
                 // Store the new value
                 task.header().deadline.set(deadline);
+
+                Poll::Ready(Deadline {
+                    instant_ticks: deadline,
+                })
             }
-            Poll::Ready(())
         })
     }
 
@@ -105,6 +122,31 @@ impl Deadline {
             // SAFETY: A task can only modify its own deadline, while the task is being
             // polled, meaning that there cannot be concurrent access to the deadline.
             let deadline = unsafe { task.header().deadline.get() };
+            Poll::Ready(Self {
+                instant_ticks: deadline,
+            })
+        })
+    }
+
+    /// Clear the current task's deadline, returning the previous value.
+    ///
+    /// This sets the deadline to the default value of `u64::MAX`, meaning all
+    /// tasks with set deadlines will be scheduled BEFORE this task.
+    pub fn clear_current_task_deadline() -> impl Future<Output = Self> {
+        poll_fn(move |cx| {
+            let task = super::task_from_waker(cx.waker());
+
+            // SAFETY: A task can only modify its own deadline, while the task is being
+            // polled, meaning that there cannot be concurrent access to the deadline.
+            let deadline = unsafe {
+                // get the old value
+                let d = task.header().deadline.get();
+                // Store the default value
+                task.header().deadline.set(Self::UNSET_DEADLINE_TICKS);
+                // return the old value
+                d
+            };
+
             Poll::Ready(Self {
                 instant_ticks: deadline,
             })
