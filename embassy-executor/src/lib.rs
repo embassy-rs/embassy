@@ -26,6 +26,7 @@ macro_rules! check_at_most_one {
 check_at_most_one!(
     "arch-avr",
     "arch-cortex-m",
+    "arch-cortex-ar",
     "arch-riscv32",
     "arch-std",
     "arch-wasm",
@@ -35,6 +36,7 @@ check_at_most_one!(
 #[cfg(feature = "_arch")]
 #[cfg_attr(feature = "arch-avr", path = "arch/avr.rs")]
 #[cfg_attr(feature = "arch-cortex-m", path = "arch/cortex_m.rs")]
+#[cfg_attr(feature = "arch-cortex-ar", path = "arch/cortex_ar.rs")]
 #[cfg_attr(feature = "arch-riscv32", path = "arch/riscv32.rs")]
 #[cfg_attr(feature = "arch-std", path = "arch/std.rs")]
 #[cfg_attr(feature = "arch-wasm", path = "arch/wasm.rs")]
