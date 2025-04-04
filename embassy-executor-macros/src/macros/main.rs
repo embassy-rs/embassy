@@ -52,6 +52,8 @@ pub static ARCH_WASM: Arch = Arch {
 struct Args {
     #[darling(default)]
     entry: Option<String>,
+    #[darling(default)]
+    executor: Option<String>,
 }
 
 pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
@@ -123,6 +125,12 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
         },
     };
 
+    let executor = TokenStream::from_str(args.executor.as_deref().unwrap_or("::embassy_executor::Executor"))
+        .unwrap_or_else(|e| {
+            error(&mut errors, &f.sig, e);
+            TokenStream::new()
+        });
+
     let f_body = f.body;
     let out = &f.sig.output;
 
@@ -134,7 +142,7 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
                     ::core::mem::transmute(t)
                 }
 
-                let mut executor = ::embassy_executor::Executor::new();
+                let mut executor = #executor::new();
                 let executor = unsafe { __make_static(&mut executor) };
                 executor.run(|spawner| {
                     spawner.must_spawn(__embassy_main(spawner));
@@ -144,7 +152,7 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
         Flavor::Wasm => (
             quote!(Result<(), wasm_bindgen::JsValue>),
             quote! {
-                let executor = ::std::boxed::Box::leak(::std::boxed::Box::new(::embassy_executor::Executor::new()));
+                let executor = ::std::boxed::Box::leak(::std::boxed::Box::new(#executor::new()));
 
                 executor.start(|spawner| {
                     spawner.must_spawn(__embassy_main(spawner));
