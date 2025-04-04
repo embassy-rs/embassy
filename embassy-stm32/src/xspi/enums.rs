@@ -160,9 +160,9 @@ impl Into<u8> for MemorySize {
 #[derive(Copy, Clone)]
 pub enum AddressSize {
     /// 8-bit address
-    _8Bit,
+    _8bit,
     /// 16-bit address
-    _16Bit,
+    _16bit,
     /// 24-bit address
     _24bit,
     /// 32-bit address
@@ -172,8 +172,8 @@ pub enum AddressSize {
 impl Into<u8> for AddressSize {
     fn into(self) -> u8 {
         match self {
-            AddressSize::_8Bit => 0b00,
-            AddressSize::_16Bit => 0b01,
+            AddressSize::_8bit => 0b00,
+            AddressSize::_16bit => 0b01,
             AddressSize::_24bit => 0b10,
             AddressSize::_32bit => 0b11,
         }

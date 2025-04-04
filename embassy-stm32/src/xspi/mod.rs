@@ -122,17 +122,17 @@ impl Default for TransferConfig {
         Self {
             iwidth: XspiWidth::NONE,
             instruction: None,
-            isize: AddressSize::_8Bit,
+            isize: AddressSize::_8bit,
             idtr: false,
 
             adwidth: XspiWidth::NONE,
             address: None,
-            adsize: AddressSize::_8Bit,
+            adsize: AddressSize::_8bit,
             addtr: false,
 
             abwidth: XspiWidth::NONE,
             alternate_bytes: None,
-            absize: AddressSize::_8Bit,
+            absize: AddressSize::_8bit,
             abdtr: false,
 
             dwidth: XspiWidth::NONE,
@@ -214,11 +214,11 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_isize(WccrIsize::from_bits(write_config.isize.into()));
 
             w.set_admode(WccrAdmode::from_bits(write_config.adwidth.into()));
-            w.set_addtr(write_config.idtr);
+            w.set_addtr(write_config.addtr);
             w.set_adsize(WccrAdsize::from_bits(write_config.adsize.into()));
 
             w.set_dmode(WccrDmode::from_bits(write_config.dwidth.into()));
-            w.set_ddtr(write_config.idtr);
+            w.set_ddtr(write_config.ddtr);
 
             w.set_abmode(WccrAbmode::from_bits(write_config.abwidth.into()));
             w.set_dqse(true);
@@ -283,6 +283,13 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         width: XspiWidth,
         dual_quad: bool,
     ) -> Self {
+        // Enable the interface
+        match T::SPI_IDX {
+            1 => crate::pac::PWR.csr2().modify(|r| r.set_en_xspim1(true)),
+            2 => crate::pac::PWR.csr2().modify(|r| r.set_en_xspim2(true)),
+            _ => unreachable!(),
+        };
+
         #[cfg(xspim_v1)]
         {
             // RCC for xspim should be enabled before writing register
@@ -447,7 +454,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_isize(CcrIsize::from_bits(command.isize.into()));
 
             w.set_admode(CcrAdmode::from_bits(command.adwidth.into()));
-            w.set_addtr(command.idtr);
+            w.set_addtr(command.addtr);
             w.set_adsize(CcrAdsize::from_bits(command.adsize.into()));
 
             w.set_dmode(CcrDmode::from_bits(command.dwidth.into()));
@@ -686,7 +693,10 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             ncs.sel(),
-            new_pin!(ncs, AfType::output(OutputType::OpenDrain, Speed::VeryHigh)),
+            new_pin!(
+                ncs,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             None,
@@ -915,7 +925,10 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             ncs.sel(),
-            new_pin!(ncs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                ncs,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
             None,
             None,
             None,
