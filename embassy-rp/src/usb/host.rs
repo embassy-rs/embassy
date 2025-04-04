@@ -4,7 +4,7 @@ use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
 use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    channel, ChannelError, DeviceEvent, EndpointDescriptor, HostError, SetupPacket, UsbChannel, UsbHostDriver,
+    channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
 };
 use embassy_usb_driver::EndpointType;
 
@@ -18,7 +18,7 @@ use crate::{
 };
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
 
-use super::{EndpointBuffer, Instance, SealedInstance, BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY};
+use super::{EndpointBuffer, Instance, BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY};
 
 const MAIN_BUFFER_SIZE: usize = 1024;
 
