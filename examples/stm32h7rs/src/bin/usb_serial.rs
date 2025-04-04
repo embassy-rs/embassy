@@ -49,6 +49,7 @@ async fn main(_spawner: Spawner) {
         config.rcc.apb5_pre = APBPrescaler::DIV2; // 150 MHz
         config.rcc.voltage_scale = VoltageScale::HIGH;
         config.rcc.mux.usbphycsel = mux::Usbphycsel::HSE;
+        config.rcc.supply_config = SupplyConfig::DirectSMPS;
     }
 
     let p = embassy_stm32::init(config);

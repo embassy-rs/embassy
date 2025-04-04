@@ -33,11 +33,12 @@ async fn main(_spawner: Spawner) {
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 150 Mhz
         config.rcc.apb5_pre = APBPrescaler::DIV2; // 150 Mhz
         config.rcc.voltage_scale = VoltageScale::HIGH;
+        config.rcc.supply_config = SupplyConfig::DirectSMPS;
     }
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    let mut led = Output::new(p.PD10, Level::High, Speed::Low);
+    let mut led = Output::new(p.PD12, Level::High, Speed::Low);
 
     loop {
         info!("high");
