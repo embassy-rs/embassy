@@ -127,6 +127,8 @@ pub mod usart;
 pub mod usb;
 #[cfg(iwdg)]
 pub mod wdg;
+#[cfg(xspi)]
+pub mod xspi;
 
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
 pub(crate) mod _generated {

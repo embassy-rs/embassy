@@ -60,6 +60,17 @@ macro_rules! pin_trait_impl {
     };
 }
 
+#[allow(unused_macros)]
+macro_rules! sel_trait_impl {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $sel:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
+            fn sel(&self) -> u8 {
+                $sel
+            }
+        }
+    };
+}
+
 // ====================
 
 macro_rules! dma_trait {
