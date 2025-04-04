@@ -21,22 +21,6 @@ use super::{
     Dir,
 };
 
-/// USB peripheral instance.
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {
-    /// Interrupt for this peripheral.
-    type Interrupt: interrupt::typelevel::Interrupt;
-}
-
-impl crate::usb::SealedInstance for peripherals::USB {
-    fn regs() -> pac::usb::Usb {
-        pac::USB
-    }
-    fn dpram() -> crate::pac::usb_dpram::UsbDpram {
-        pac::USB_DPRAM
-    }
-}
-
 impl crate::usb::Instance for peripherals::USB {
     type Interrupt = crate::interrupt::typelevel::USBCTRL_IRQ;
 }
