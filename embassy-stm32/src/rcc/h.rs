@@ -352,6 +352,17 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(any(stm32h7rs))]
     while !PWR.sr1().read().actvosrdy() {}
 
+    #[cfg(any(stm32h7rs))]
+    {
+        // Enable the xspi power domains. These are required to do anything
+        // with the xspi periperals and the GPIO ports that are connected to
+        // them.
+        PWR.csr2().modify(|w| {
+            w.set_en_xspim1(true);
+            w.set_en_xspim2(true);
+        });
+    }
+
     // Configure voltage scale.
     #[cfg(any(pwr_h5, pwr_h50))]
     {
