@@ -44,6 +44,8 @@ mod arch;
 #[cfg(feature = "_arch")]
 #[allow(unused_imports)] // don't warn if the module is empty.
 pub use arch::*;
+#[cfg(not(feature = "_arch"))]
+pub use embassy_executor_macros::main_unspecified as main;
 
 pub mod raw;
 

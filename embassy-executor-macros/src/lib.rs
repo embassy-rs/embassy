@@ -173,3 +173,27 @@ pub fn main_std(args: TokenStream, item: TokenStream) -> TokenStream {
 pub fn main_wasm(args: TokenStream, item: TokenStream) -> TokenStream {
     main::run(args.into(), item.into(), &main::ARCH_WASM).into()
 }
+
+/// Creates a new `executor` instance and declares an application entry point for an unspecified architecture, spawning the corresponding function body as an async task.
+///
+/// The following restrictions apply:
+///
+/// * The function must accept exactly 1 parameter, an `embassy_executor::Spawner` handle that it can use to spawn additional tasks.
+/// * The function must be declared `async`.
+/// * The function must not use generics.
+/// * Only a single `main` task may be declared.
+///
+/// A user-defined entry macro and executor type must be provided via the `entry` and `executor` arguments of the `main` macro.
+///
+/// ## Examples
+/// Spawning a task:
+/// ``` rust
+/// #[embassy_executor::main(entry = "your_hal::entry", executor = "your_hal::Executor")]
+/// async fn main(_s: embassy_executor::Spawner) {
+///     // Function body
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn main_unspecified(args: TokenStream, item: TokenStream) -> TokenStream {
+    main::run(args.into(), item.into(), &main::ARCH_UNSPECIFIED).into()
+}
