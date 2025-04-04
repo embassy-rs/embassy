@@ -123,7 +123,11 @@ defmt = [
     "embassy-usb-synopsys-otg/defmt",
 ]
 
+## Enables the EXTI module
 exti = []
+## Disables EXTI interrupt handlers to allow custom handlers (e.g., for RTIC)
+exti-with-custom-handlers = ["exti"]
+
 low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]
 low-power-debug-with-sleep = []
 
