@@ -16,13 +16,6 @@ use crate::{interrupt, pac, Peripheral, RegExt};
 
 use super::{
     Instance, 
-    EndpointBuffer, 
-    EP_MEMORY, 
-    EP_MEMORY_SIZE,
-    BUS_WAKER, 
-    EP_COUNT, 
-    EP_IN_WAKERS, 
-    EP_OUT_WAKERS,
     In,
     Out,
     Dir,
