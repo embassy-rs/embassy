@@ -175,8 +175,12 @@ pub struct Xspi<'d, T: Instance, M: PeriMode> {
     d13: Option<Peri<'d, AnyPin>>,
     d14: Option<Peri<'d, AnyPin>>,
     d15: Option<Peri<'d, AnyPin>>,
-    ncs1: Option<Peri<'d, AnyPin>>,
-    ncs2: Option<Peri<'d, AnyPin>>,
+    ncs: Option<Peri<'d, AnyPin>>,
+    // TODO: allow switching between multiple chips
+    ncs_alt: Option<Peri<'d, AnyPin>>,
+    // false if ncs == NCS1, true if ncs == NCS2
+    // (ncs_alt will be the opposite to ncs).
+    _cssel_swap: bool,
     dqs0: Option<Peri<'d, AnyPin>>,
     dqs1: Option<Peri<'d, AnyPin>>,
     dma: Option<ChannelAndRequest<'d>>,
@@ -269,8 +273,9 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         d14: Option<Peri<'d, AnyPin>>,
         d15: Option<Peri<'d, AnyPin>>,
         clk: Option<Peri<'d, AnyPin>>,
-        ncs1: Option<Peri<'d, AnyPin>>,
-        ncs2: Option<Peri<'d, AnyPin>>,
+        ncs_cssel: u8,
+        ncs: Option<Peri<'d, AnyPin>>,
+        ncs_alt: Option<Peri<'d, AnyPin>>,
         dqs0: Option<Peri<'d, AnyPin>>,
         dqs1: Option<Peri<'d, AnyPin>>,
         dma: Option<ChannelAndRequest<'d>>,
@@ -341,11 +346,9 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         T::REGS.cr().modify(|w| {
             w.set_dmm(dual_quad);
 
-            // TODO: at the moment only ncs1 seems to get passed in?
-            // Only one must be selected
-            assert!(!(ncs1.is_some() && ncs2.is_some()));
-            assert!(!(ncs1.is_none() && ncs2.is_none()));
-            w.set_cssel(if ncs1.is_some() { Cssel::B_0X0 } else { Cssel::B_0X1 });
+            assert!(ncs_alt.is_none(), "ncs_alt TODO");
+            let cssel = if ncs_cssel == 0 { Cssel::B_0X0 } else { Cssel::B_0X1 };
+            w.set_cssel(cssel);
         });
 
         T::REGS.tcr().modify(|w| {
@@ -384,8 +387,9 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             d13,
             d14,
             d15,
-            ncs1,
-            ncs2,
+            ncs,
+            ncs_alt,
+            _cssel_swap: ncs_cssel == 1,
             dqs0,
             dqs1,
             dma,
@@ -659,7 +663,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -681,6 +685,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(ncs, AfType::output(OutputType::OpenDrain, Speed::VeryHigh)),
             None,
             None,
@@ -698,7 +703,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -720,6 +725,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(
                 ncs,
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
@@ -742,7 +748,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -764,6 +770,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(
                 ncs,
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
@@ -790,7 +797,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
         d5: Peri<'d, impl D5Pin<T>>,
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -812,6 +819,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(
                 ncs,
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
@@ -838,7 +846,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
         d5: Peri<'d, impl D5Pin<T>>,
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -860,6 +868,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(
                 ncs,
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
@@ -882,7 +891,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
@@ -905,6 +914,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(ncs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             None,
@@ -922,7 +932,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
@@ -945,6 +955,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(
                 ncs,
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
@@ -967,7 +978,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
@@ -990,6 +1001,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(
                 ncs,
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
@@ -1016,7 +1028,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         d5: Peri<'d, impl D5Pin<T>>,
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
@@ -1039,6 +1051,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(
                 ncs,
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
@@ -1065,7 +1078,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         d5: Peri<'d, impl D5Pin<T>>,
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
-        ncs: Peri<'d, impl NCS1Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
         dma: Peri<'d, impl XDma<T>>,
         config: Config,
     ) -> Self {
@@ -1088,6 +1101,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
             new_pin!(
                 ncs,
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
@@ -1262,8 +1276,8 @@ impl<'d, T: Instance, M: PeriMode> Drop for Xspi<'d, T, M> {
         self.d13.as_ref().map(|x| x.set_as_disconnected());
         self.d14.as_ref().map(|x| x.set_as_disconnected());
         self.d15.as_ref().map(|x| x.set_as_disconnected());
-        self.ncs1.as_ref().map(|x| x.set_as_disconnected());
-        self.ncs2.as_ref().map(|x| x.set_as_disconnected());
+        self.ncs.as_ref().map(|x| x.set_as_disconnected());
+        self.ncs_alt.as_ref().map(|x| x.set_as_disconnected());
         self.dqs0.as_ref().map(|x| x.set_as_disconnected());
         self.dqs1.as_ref().map(|x| x.set_as_disconnected());
 
@@ -1320,11 +1334,16 @@ pin_trait!(D14Pin, Instance);
 pin_trait!(D15Pin, Instance);
 pin_trait!(DQS0Pin, Instance);
 pin_trait!(DQS1Pin, Instance);
-pin_trait!(NCS1Pin, Instance);
-pin_trait!(NCS2Pin, Instance);
+pin_trait!(NCSPin, Instance);
 pin_trait!(CLKPin, Instance);
 pin_trait!(NCLKPin, Instance);
 dma_trait!(XDma, Instance);
+
+/// Trait for either NCS1 or NCS2 pins
+pub trait NCSEither<T: Instance>: NCSPin<T> {
+    /// Get the CSSEL for this NCS pin
+    fn sel(&self) -> u8;
+}
 
 // Hard-coded the xspi index, for SPIM
 #[cfg(xspim_v1)]

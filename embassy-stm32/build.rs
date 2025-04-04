@@ -1123,8 +1123,8 @@ fn main() {
         (("xspi", "IO15"), quote!(crate::xspi::D15Pin)),
         (("xspi", "DQS0"), quote!(crate::xspi::DQS0Pin)),
         (("xspi", "DQS1"), quote!(crate::xspi::DQS1Pin)),
-        (("xspi", "NCS1"), quote!(crate::xspi::NCS1Pin)),
-        (("xspi", "NCS2"), quote!(crate::xspi::NCS2Pin)),
+        (("xspi", "NCS1"), quote!(crate::xspi::NCSPin)),
+        (("xspi", "NCS2"), quote!(crate::xspi::NCSPin)),
         (("xspi", "CLK"), quote!(crate::xspi::CLKPin)),
         (("xspi", "NCLK"), quote!(crate::xspi::NCLKPin)),
         (("xspim", "P1_IO0"), quote!(crate::xspi::D0Pin)),
@@ -1145,8 +1145,8 @@ fn main() {
         (("xspim", "P1_IO15"), quote!(crate::xspi::D15Pin)),
         (("xspim", "P1_DQS0"), quote!(crate::xspi::DQS0Pin)),
         (("xspim", "P1_DQS1"), quote!(crate::xspi::DQS1Pin)),
-        (("xspim", "P1_NCS1"), quote!(crate::xspi::NCS1Pin)),
-        (("xspim", "P1_NCS2"), quote!(crate::xspi::NCS2Pin)),
+        (("xspim", "P1_NCS1"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P1_NCS2"), quote!(crate::xspi::NCSPin)),
         (("xspim", "P1_CLK"), quote!(crate::xspi::CLKPin)),
         (("xspim", "P1_NCLK"), quote!(crate::xspi::NCLKPin)),
         (("xspim", "P2_IO0"), quote!(crate::xspi::D0Pin)),
@@ -1167,8 +1167,8 @@ fn main() {
         (("xspim", "P2_IO15"), quote!(crate::xspi::D15Pin)),
         (("xspim", "P2_DQS0"), quote!(crate::xspi::DQS0Pin)),
         (("xspim", "P2_DQS1"), quote!(crate::xspi::DQS1Pin)),
-        (("xspim", "P2_NCS1"), quote!(crate::xspi::NCS1Pin)),
-        (("xspim", "P2_NCS2"), quote!(crate::xspi::NCS2Pin)),
+        (("xspim", "P2_NCS1"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P2_NCS2"), quote!(crate::xspi::NCSPin)),
         (("xspim", "P2_CLK"), quote!(crate::xspi::CLKPin)),
         (("xspim", "P2_NCLK"), quote!(crate::xspi::NCLKPin)),
         (("hspi", "IO0"), quote!(crate::hspi::D0Pin)),
@@ -1272,6 +1272,18 @@ fn main() {
                         } else {
                             panic! {"malformed XSPIM pin: {:?}", pin}
                         }
+                    }
+
+                    // XSPI NCS pin to CSSEL mapping
+                    if pin.signal.ends_with("NCS1") {
+                        g.extend(quote! {
+                            sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 0);
+                        })
+                    }
+                    if pin.signal.ends_with("NCS2") {
+                        g.extend(quote! {
+                            sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 1);
+                        })
                     }
 
                     g.extend(quote! {
