@@ -23,6 +23,9 @@ pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
+#[cfg(feature = "drs-scheduler")]
+mod deadline;
+
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem;
@@ -30,6 +33,9 @@ use core::pin::Pin;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::{Context, Poll};
+
+#[cfg(feature = "drs-scheduler")]
+pub use deadline::Deadline;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
@@ -79,6 +85,12 @@ use super::SpawnToken;
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
+
+    /// Deadline Rank Scheduler Deadline. This field should not be accessed outside the context of
+    /// the task itself as it being polled by the executor.
+    #[cfg(feature = "drs-scheduler")]
+    pub(crate) deadline: SyncUnsafeCell<u64>,
+
     pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
@@ -180,6 +192,10 @@ impl<F: Future + 'static> TaskStorage<F> {
             raw: TaskHeader {
                 state: State::new(),
                 run_queue_item: RunQueueItem::new(),
+                // NOTE: The deadline is set to zero to allow the initializer to reside in `.bss`. This
+                // will be lazily initalized in `initialize_impl`
+                #[cfg(feature = "drs-scheduler")]
+                deadline: SyncUnsafeCell::new(0u64),
                 executor: AtomicPtr::new(core::ptr::null_mut()),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
@@ -271,6 +287,11 @@ impl<F: Future + 'static> AvailableTask<F> {
         unsafe {
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
+
+            // By default, deadlines are set to the maximum value, so that any task WITH
+            // a set deadline will ALWAYS be scheduled BEFORE a task WITHOUT a set deadline
+            #[cfg(feature = "drs-scheduler")]
+            self.task.raw.deadline.set(deadline::Deadline::UNSET_DEADLINE_TICKS);
 
             let task = TaskRef::new(self.task);
 
