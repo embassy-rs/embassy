@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use stm32_metapac::timer::vals;
 
 use super::low_level::Timer;
+pub use super::{Ch1, Ch2};
 use super::{Channel1Pin, Channel2Pin, GeneralInstance4Channel};
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::Peri;
@@ -16,11 +17,6 @@ pub enum Direction {
     /// Counting down.
     Downcounting,
 }
-
-/// Channel 1 marker type.
-pub enum Ch1 {}
-/// Channel 2 marker type.
-pub enum Ch2 {}
 
 /// Wrapper for using a pin with QEI.
 pub struct QeiPin<'d, T, Channel> {
