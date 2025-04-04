@@ -1,9 +1,15 @@
-#![cfg_attr(gpdma, allow(unused))]
-
 use core::future::poll_fn;
 use core::task::{Poll, Waker};
 
 use crate::dma::word::Word;
+
+/// The current buffer half (e.g. for DMA or the user application).
+#[derive(Debug, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum BufferHalf {
+    First,
+    Second,
+}
 
 pub trait DmaCtrl {
     /// Get the NDTR register value, i.e. the space left in the underlying
@@ -210,6 +216,15 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         }
     }
 
+    /// The buffer half that is in use by the DMA.
+    fn dma_half(&self) -> BufferHalf {
+        if self.read_index.as_index(self.cap(), 0) < self.cap() / 2 {
+            BufferHalf::First
+        } else {
+            BufferHalf::Second
+        }
+    }
+
     /// Reset the ring buffer to its initial state. The buffer after the reset will be full.
     pub fn reset(&mut self, dma: &mut impl DmaCtrl) {
         dma.reset_complete_count();
@@ -285,18 +300,67 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     /// Write an exact number of elements to the ringbuffer.
+    ///
+    /// Returns the remaining write capacity in the buffer.
+    #[allow(dead_code)]
     pub async fn write_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<usize, Error> {
-        let mut written_data = 0;
+        let mut written_len = 0;
         let buffer_len = buffer.len();
 
         poll_fn(|cx| {
             dma.set_waker(cx.waker());
 
-            match self.write(dma, &buffer[written_data..buffer_len]) {
+            match self.write(dma, &buffer[written_len..buffer_len]) {
                 Ok((len, remaining)) => {
-                    written_data += len;
-                    if written_data == buffer_len {
+                    written_len += len;
+                    if written_len == buffer_len {
                         Poll::Ready(Ok(remaining))
+                    } else {
+                        Poll::Pending
+                    }
+                }
+                Err(e) => Poll::Ready(Err(e)),
+            }
+        })
+        .await
+    }
+
+    /// Write the user's current buffer half - not used by the DMA.
+    ///
+    /// Returns a tuple of the written length, and the remaining write capacity in the buffer.
+    #[allow(dead_code)]
+    pub async fn write_half(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<(usize, usize), Error> {
+        let mut written_len = 0;
+        let buffer_len = buffer.len();
+
+        poll_fn(|cx| {
+            dma.set_waker(cx.waker());
+
+            let dma_half = self.dma_half();
+            // let user_half = self.user_half();
+
+            // if dma_half == user_half {
+            //     info!("ups");
+            //     return Poll::Ready(Err(Error::Overrun));
+            // }
+
+            let write_index = self.write_index.as_index(self.cap(), 0);
+            let target_write_len = match dma_half {
+                BufferHalf::First => self.cap().saturating_sub(write_index),
+                BufferHalf::Second => (self.cap() / 2).saturating_sub(write_index),
+            };
+            let write_end_index = (target_write_len + written_len).min(buffer_len);
+
+            // info!(
+            //     "buf_len: {}, write_len: {}, write_index: {}",
+            //     buffer_len, target_write_len, write_index
+            // );
+
+            match self.write(dma, &buffer[written_len..write_end_index]) {
+                Ok((len, remaining)) => {
+                    written_len += len;
+                    if written_len == write_end_index {
+                        Poll::Ready(Ok((written_len, remaining)))
                     } else {
                         Poll::Pending
                     }
