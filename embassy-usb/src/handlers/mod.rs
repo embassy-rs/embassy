@@ -119,7 +119,7 @@ impl EnumerationInfo {
         channel: &mut C,
         cfg_desc_buf: &'a mut [u8],
     ) -> Result<ConfigurationDescriptor<'a>, HostError> {
-        if self.device_desc.num_configurations > index {
+        if index >= self.device_desc.num_configurations {
             return Err(HostError::InvalidDescriptor);
         }
 
