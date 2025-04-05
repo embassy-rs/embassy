@@ -224,6 +224,14 @@ impl<'a> ConfigurationDescriptor<'a> {
         })
     }
 
+    /// Iterate over all (raw) descriptors contained in this Configuration
+    pub fn iter_descriptors(&self) -> RawDescriptorIterator<'_> {
+        RawDescriptorIterator {
+            buf: self.buffer,
+            offset: 0,
+        }
+    }
+
     /// Iterate over all interface descriptors of this Configuration
     pub fn iter_interface(&self) -> InterfaceIterator<'_> {
         InterfaceIterator {
@@ -398,8 +406,17 @@ impl<'a> InterfaceDescriptor<'a> {
     }
 
     /// Try to parse a class descriptor of a given type
+    #[deprecated(note = "Use `iter_descriptors()` with `filter_map`/`find_map` instead")]
     pub fn parse_class_descriptor<T: USBDescriptor>(&self) -> Option<T> {
         Self::identify_descriptor::<T>(self.buffer).and_then(|i| T::try_from_bytes(&self.buffer[i..]).ok())
+    }
+
+    /// Iterate over (raw) descriptors in this Interface
+    pub fn iter_descriptors(&self) -> RawDescriptorIterator<'_> {
+        RawDescriptorIterator {
+            buf: self.buffer,
+            offset: 0,
+        }
     }
 
     /// Iterate over endpoints
@@ -433,6 +450,7 @@ impl<'a> InterfaceDescriptor<'a> {
     }
 
     // Returns the offset to the first matching descriptor in the slice
+    #[deprecated(note = "Use `iter_endpoints()` or `iter_descriptors()` instead")]
     fn identify_descriptor<T: USBDescriptor>(slice: &[u8]) -> Option<usize> {
         let mut offset = 0;
         let mut desc_len = slice[offset] as usize;
@@ -695,7 +713,10 @@ mod test {
         let interface0 = cfg.iter_interface().next().unwrap();
         assert_eq!(interface0.interface_number, 0);
 
-        let hid_desc: HIDDescriptor = interface0.parse_class_descriptor().unwrap();
+        let hid_desc: HIDDescriptor = interface0
+            .iter_descriptors()
+            .find_map(|v| HIDDescriptor::try_from_bytes(v.1).ok())
+            .unwrap();
 
         assert_eq!(hid_desc.len, 9);
         assert_eq!(hid_desc.descriptor_type, 33);
