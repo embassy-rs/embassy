@@ -70,7 +70,7 @@ turbowakers = []
 #! ### Architecture
 _arch = [] # some arch was picked
 ## std
-arch-std = ["_arch", "critical-section/std"]
+arch-std = ["_arch"]
 ## Cortex-M
 arch-cortex-m = ["_arch", "dep:cortex-m"]
 ## RISC-V 32
