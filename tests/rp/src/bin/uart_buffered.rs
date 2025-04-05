@@ -75,9 +75,9 @@ async fn main(_spawner: Spawner) {
         let rx_buf = &mut [0u8; 16];
         let mut uart = BufferedUart::new(
             uart.reborrow(),
-            Irqs,
             tx.reborrow(),
             rx.reborrow(),
+            Irqs,
             tx_buf,
             rx_buf,
             config,
@@ -103,9 +103,9 @@ async fn main(_spawner: Spawner) {
         let rx_buf = &mut [0u8; 16];
         let mut uart = BufferedUart::new(
             uart.reborrow(),
-            Irqs,
             tx.reborrow(),
             rx.reborrow(),
+            Irqs,
             tx_buf,
             rx_buf,
             config,
@@ -146,9 +146,9 @@ async fn main(_spawner: Spawner) {
         let rx_buf = &mut [0u8; 16];
         let mut uart = BufferedUart::new(
             uart.reborrow(),
-            Irqs,
             tx.reborrow(),
             rx.reborrow(),
+            Irqs,
             tx_buf,
             rx_buf,
             config,

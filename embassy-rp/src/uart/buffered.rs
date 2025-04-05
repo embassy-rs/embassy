@@ -91,9 +91,9 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
     /// Create a buffered UART instance.
     pub fn new(
         _uart: Peri<'d, T>,
-        irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         rx: Peri<'d, impl RxPin<T>>,
+        irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -110,11 +110,11 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
     /// Create a buffered UART instance with flow control.
     pub fn new_with_rtscts(
         _uart: Peri<'d, T>,
-        irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         rx: Peri<'d, impl RxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
         cts: Peri<'d, impl CtsPin<T>>,
+        irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,

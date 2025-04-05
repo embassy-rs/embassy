@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+- Modify BufferedUart initialization to take pins before interrupts ([#3983](https://github.com/embassy-rs/embassy/pull/3983))
+
 ## 0.2.0 - 2025-01-10
 
 Starting 2025 strong with a release packed with new, exciting good stuff! 🚀

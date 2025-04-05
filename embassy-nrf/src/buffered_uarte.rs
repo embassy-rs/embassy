@@ -227,9 +227,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
         ppi_group: Peri<'d, impl Group>,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rxd: Peri<'d, impl GpioPin>,
         txd: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
@@ -262,11 +262,11 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
         ppi_group: Peri<'d, impl Group>,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rxd: Peri<'d, impl GpioPin>,
         txd: Peri<'d, impl GpioPin>,
         cts: Peri<'d, impl GpioPin>,
         rts: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
@@ -377,8 +377,8 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     /// Create a new BufferedUarteTx without hardware flow control.
     pub fn new(
         uarte: Peri<'d, U>,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         txd: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         tx_buffer: &'d mut [u8],
     ) -> Self {
@@ -392,9 +392,9 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     /// Panics if `rx_buffer.len()` is odd.
     pub fn new_with_cts(
         uarte: Peri<'d, U>,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         txd: Peri<'d, impl GpioPin>,
         cts: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         tx_buffer: &'d mut [u8],
     ) -> Self {
@@ -588,9 +588,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel>,
         ppi_group: Peri<'d, impl Group>,
-        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rxd: Peri<'d, impl GpioPin>,
         rts: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         config: Config,
         rx_buffer: &'d mut [u8],
     ) -> Self {
