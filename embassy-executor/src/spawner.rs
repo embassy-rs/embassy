@@ -173,6 +173,11 @@ impl Spawner {
     pub fn make_send(&self) -> SendSpawner {
         SendSpawner::new(&self.executor.inner)
     }
+
+    /// Return the unique ID of this Spawner's Executor.
+    pub fn executor_id(&self) -> usize {
+        self.executor.id()
+    }
 }
 
 /// Handle to spawn tasks into an executor from any thread.

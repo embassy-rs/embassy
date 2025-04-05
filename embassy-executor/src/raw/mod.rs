@@ -555,6 +555,11 @@ impl Executor {
     pub fn spawner(&'static self) -> super::Spawner {
         super::Spawner::new(self)
     }
+
+    /// Get a unique ID for this Executor.
+    pub fn id(&'static self) -> usize {
+        &self.inner as *const SyncExecutor as usize
+    }
 }
 
 /// Wake a task by `TaskRef`.
