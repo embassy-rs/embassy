@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
 
     let mut err = None;
     loop {
-        match s.init_card(mhz(24)).await {
+        match s.init_sd_card(mhz(24)).await {
             Ok(_) => break,
             Err(e) => {
                 if err != Some(e) {
@@ -100,7 +100,7 @@ async fn main(_spawner: Spawner) {
 
     let mut err = None;
     loop {
-        match s.init_card(mhz(24)).await {
+        match s.init_sd_card(mhz(24)).await {
             Ok(_) => break,
             Err(e) => {
                 if err != Some(e) {
