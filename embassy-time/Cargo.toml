@@ -45,7 +45,7 @@ defmt-timestamp-uptime-tus = ["defmt"]
 ## Create a `MockDriver` that can be manually advanced for testing purposes.
 mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for `std` environments.
-std = ["tick-hz-1_000_000", "critical-section/std", "dep:embassy-time-queue-utils"]
+std = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for WASM.
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 
