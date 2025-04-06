@@ -17,7 +17,7 @@ use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::timer::vals::Etp;
 use crate::time::Hertz;
-use crate::{into_ref, Peripheral, PeripheralRef};
+use crate::Peri;
 
 /// External input marker type.
 pub enum Ext {}
@@ -44,7 +44,7 @@ impl From<ExternalTriggerPolarity> for Etp {
 ///
 /// This wraps a pin to make it usable as a timer trigger.
 pub struct TriggerPin<'d, T, C> {
-    _pin: PeripheralRef<'d, AnyPin>,
+    _pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -52,11 +52,10 @@ macro_rules! channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " trigger pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, pull: Pull) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>, pull: Pull) -> Self {
                 pin.set_as_af(pin.af_num(), AfType::input(pull));
                 TriggerPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
@@ -81,7 +80,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     /// The pulse is triggered by a channel 1 input pin on both rising and
     /// falling edges. Channel 1 will unusable as an output.
     pub fn new_ch1_edge_detect(
-        tim: impl Peripheral<P = T> + 'd,
+        tim: Peri<'d, T>,
         _pin: TriggerPin<'d, T, Ch1>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
@@ -105,7 +104,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     /// The pulse is triggered by a channel 1 input pin. Channel 1 will unusable
     /// as an output.
     pub fn new_ch1(
-        tim: impl Peripheral<P = T> + 'd,
+        tim: Peri<'d, T>,
         _pin: TriggerPin<'d, T, Ch1>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
@@ -131,7 +130,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     /// The pulse is triggered by a channel 2 input pin. Channel 2 will unusable
     /// as an output.
     pub fn new_ch2(
-        tim: impl Peripheral<P = T> + 'd,
+        tim: Peri<'d, T>,
         _pin: TriggerPin<'d, T, Ch1>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
@@ -156,7 +155,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ///
     /// The pulse is triggered by a external trigger input pin.
     pub fn new_ext(
-        tim: impl Peripheral<P = T> + 'd,
+        tim: Peri<'d, T>,
         _pin: TriggerPin<'d, T, Ext>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
