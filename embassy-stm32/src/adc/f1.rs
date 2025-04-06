@@ -4,8 +4,10 @@ use core::task::Poll;
 
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::{self};
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peri};
+use crate::{rcc, Peri};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -20,12 +22,9 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         if T::regs().sr().read().eoc() {
-            T::regs().cr1().modify(|w| w.set_eocie(false));
-        } else {
-            return;
+            T::regs().cr1().modify(|w| w.set_eocie(false)); // End of Convert interrupt disable
+            T::state().waker.wake();
         }
-
-        T::state().waker.wake();
     }
 }
 
@@ -68,6 +67,9 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // One cycle after calibration
         blocking_delay_us((1_000_000 * 1) / Self::freq().0 + 1);
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self {
             adc,
