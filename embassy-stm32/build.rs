@@ -1056,7 +1056,7 @@ fn main() {
         (("sdmmc", "D4"), quote!(crate::sdmmc::D4Pin)),
         (("sdmmc", "D5"), quote!(crate::sdmmc::D5Pin)),
         (("sdmmc", "D6"), quote!(crate::sdmmc::D6Pin)),
-        (("sdmmc", "D6"), quote!(crate::sdmmc::D7Pin)),
+        (("sdmmc", "D7"), quote!(crate::sdmmc::D7Pin)),
         (("sdmmc", "D8"), quote!(crate::sdmmc::D8Pin)),
         (("quadspi", "BK1_IO0"), quote!(crate::qspi::BK1D0Pin)),
         (("quadspi", "BK1_IO1"), quote!(crate::qspi::BK1D1Pin)),
