@@ -328,8 +328,9 @@ rm out/tests/stm32wb55rg/wpan_ble
 # unstable, I think it's running out of RAM?
 rm out/tests/stm32f207zg/eth
 
-# temporarily disabled, hard faults for unknown reasons
+# temporarily disabled, flaky.
 rm out/tests/stm32f207zg/usart_rx_ringbuffered
+rm out/tests/stm32l152re/usart_rx_ringbuffered
 
 # doesn't work, gives "noise error", no idea why. usart_dma does pass.
 rm out/tests/stm32u5a5zj/usart

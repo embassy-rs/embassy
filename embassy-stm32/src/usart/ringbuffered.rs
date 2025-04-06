@@ -150,6 +150,16 @@ impl<'d> RingBufferedUartRx<'d> {
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.start_dma_or_check_errors()?;
 
+        // In half-duplex mode, we need to disable the Transmitter and enable the Receiver
+        // since they can't operate simultaneously on the shared line
+        let r = self.info.regs;
+        if r.cr3().read().hdsel() && r.cr1().read().te() {
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
+        }
+
         loop {
             match self.ring_buf.read(buf) {
                 Ok((0, _)) => {}
