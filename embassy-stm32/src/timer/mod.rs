@@ -9,6 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub mod complementary_pwm;
 pub mod input_capture;
 pub mod low_level;
+pub mod one_pulse;
 pub mod pwm_input;
 pub mod qei;
 pub mod simple_pwm;
@@ -40,6 +41,15 @@ impl Channel {
         }
     }
 }
+
+/// Channel 1 marker type.
+pub enum Ch1 {}
+/// Channel 2 marker type.
+pub enum Ch2 {}
+/// Channel 3 marker type.
+pub enum Ch3 {}
+/// Channel 4 marker type.
+pub enum Ch4 {}
 
 /// Amount of bits of a timer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
