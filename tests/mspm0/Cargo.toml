@@ -1,0 +1,58 @@
+[package]
+edition = "2021"
+name = "embassy-mspm0-tests"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+
+[features]
+mspm0g3507 = [ "embassy-mspm0/mspm0g350x" ]
+
+[dependencies]
+teleprobe-meta = "1.1"
+
+embassy-sync = { version = "0.6.2", path = "../../embassy-sync", features = [ "defmt" ] }
+embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = [ "arch-cortex-m", "executor-thread", "defmt" ] }
+embassy-time = { version = "0.4.0", path = "../../embassy-time", features = [ "defmt" ] }
+embassy-mspm0 = { version = "0.1.0", path = "../../embassy-mspm0", features = [ "rt", "defmt", "unstable-pac", "time-driver-any" ]  }
+embassy-embedded-hal = { version = "0.3.0", path = "../../embassy-embedded-hal/"}
+
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
+
+cortex-m = { version = "0.7.6", features = [ "inline-asm", "critical-section-single-core" ]}
+cortex-m-rt = "0.7.0"
+embedded-hal = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+panic-probe = { version = "0.3.0", features = ["print-defmt"] }
+static_cell = "2"
+portable-atomic = { version = "1.5", features = ["critical-section"] }
+
+[profile.dev]
+debug = 2
+debug-assertions = true
+opt-level = 's'
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = "fat"
+opt-level = 's'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false

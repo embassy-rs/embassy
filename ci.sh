@@ -308,6 +308,7 @@ cargo batch \
     --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52840 --artifact-dir out/tests/nrf52840-dk \
     --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf5340 --artifact-dir out/tests/nrf5340-dk \
     --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf9160 --artifact-dir out/tests/nrf9160-dk \
+    --- build --release --manifest-path tests/mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3507 --artifact-dir out/tests/mspm0g3507 \
     --- build --release --manifest-path tests/riscv32/Cargo.toml --target riscv32imac-unknown-none-elf \
     $BUILD_EXTRA
 
@@ -321,6 +322,9 @@ DEFMT_RTT_BUFFER_SIZE="72" cargo batch \
 rm -rf out/tests/stm32f103c8
 rm -rf out/tests/nrf52840-dk
 rm -rf out/tests/nrf52833-dk
+
+# disabled because these boards are not on the shelf
+rm -rf out/tests/mspm0g3507
 
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
