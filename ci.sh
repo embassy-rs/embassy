@@ -343,6 +343,7 @@ rm out/tests/stm32u5a5zj/usart
 # As of 2025-02-17 these tests work when run from flash
 rm out/tests/pimoroni-pico-plus-2/multicore
 rm out/tests/pimoroni-pico-plus-2/gpio_multicore
+rm out/tests/pimoroni-pico-plus-2/spinlock_mutex_multicore
 # Doesn't work when run from ram on the 2350
 rm out/tests/pimoroni-pico-plus-2/flash
 # This test passes locally but fails on the HIL, no idea why
