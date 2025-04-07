@@ -28,7 +28,7 @@ mod config {
 
 use embassy_futures::select::{select, Either};
 use heapless::Vec;
-use host::descriptor::{ConfigurationDescriptor, USBDescriptor};
+use host::descriptor::ConfigurationDescriptor;
 
 pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbVersion};
 use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};

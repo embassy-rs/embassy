@@ -10,7 +10,7 @@ use crate::{
     control::Request,
     host::{
         descriptor::{
-            ConfigurationDescriptor, DeviceDescriptor, DeviceDescriptorPartial, InterfaceDescriptor, USBDescriptor,
+            InterfaceDescriptor, USBDescriptor,
             DEFAULT_MAX_DESCRIPTOR_SIZE,
         },
         ControlChannelExt,

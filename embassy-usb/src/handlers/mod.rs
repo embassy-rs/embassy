@@ -4,7 +4,7 @@ use core::num::NonZeroU8;
 
 use embassy_usb_driver::{
     host::{
-        channel::{self, Direction, IsIn, IsOut},
+        channel::{self, IsIn, IsOut},
         HostError, UsbChannel, UsbHostDriver,
     },
     Speed,
