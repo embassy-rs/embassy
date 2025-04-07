@@ -6,7 +6,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
 };
-use embassy_usb_driver::{EndpointType, EndpointInfo};
+use embassy_usb_driver::{EndpointType, EndpointInfo, Speed};
 
 use crate::RegExt;
 use crate::{
@@ -715,10 +715,15 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
         let ev = poll_fn(|cx| {
             BUS_WAKER.register(cx.waker());
 
-            let now = is_connected(T::regs().sie_status().read().speed());
-            match (was, now) {
+            let now = T::regs().sie_status().read().speed();
+            let speed_now: DeviceEvent =  match now {
+                    0b01 => DeviceEvent::Connected(Speed::Low),
+                    0b10 => DeviceEvent::Connected(Speed::Full),
+                    _ => DeviceEvent::Disconnected,
+                };
+            match (was, is_connected(now)) {
                 (true, false) => Poll::Ready(DeviceEvent::Disconnected),
-                (false, true) => Poll::Ready(DeviceEvent::Connected),
+                (false, true) => Poll::Ready(speed_now),
                 _ => Poll::Pending,
             }
         })
