@@ -869,7 +869,7 @@ fn set_baudrate_inner(regs: Regs, clock: u32, baudrate: u32) -> Result<(), Confi
     //  maximum speed is limited to UARTclk/16."
     //
     // Based on these requirements, prioritize higher oversampling first to increase tolerance to clock
-    // deviation. If no valid BRD valud can be found satisifying the highest sample rate, then reduce
+    // deviation. If no valid BRD value can be found satisifying the highest sample rate, then reduce
     // sample rate until valid parameters are found.
     const OVS: [(u8, vals::Hse); 3] = [(16, vals::Hse::OVS16), (8, vals::Hse::OVS8), (3, vals::Hse::OVS3)];
 
@@ -882,21 +882,47 @@ fn set_baudrate_inner(regs: Regs, clock: u32, baudrate: u32) -> Result<(), Confi
     };
     let mut found = None;
 
-    for &(oversampling, hse_value) in &OVS {
-        if matches!(hse_value, vals::Hse::OVS3) && !x3_invalid {
+    'outer: for &(oversampling, hse_value) in &OVS {
+        if matches!(hse_value, vals::Hse::OVS3) && x3_invalid {
+            continue;
+        }
+
+        // Verify that the selected oversampling does not require a clock faster than what the hardware
+        // is provided.
+        let Some(min_clock) = baudrate.checked_mul(oversampling as u32) else {
+            trace!(
+                "{}x oversampling would cause overflow for clock: {} Hz",
+                oversampling,
+                clock
+            );
+            continue;
+        };
+
+        if min_clock > clock {
+            trace!("{} oversampling is too high for clock: {} Hz", oversampling, clock);
             continue;
         }
 
         for &(div, div_value) in &DIVS {
+            trace!(
+                "Trying div: {}, oversampling {} for {} baud",
+                div,
+                oversampling,
+                baudrate
+            );
+
             let Some((ibrd, fbrd)) = calculate_brd(clock, div, baudrate, oversampling) else {
+                trace!("Calculating BRD overflowed: trying another divider");
                 continue;
             };
 
             if ibrd < MIN_IBRD || fbrd > MAX_FBRD {
+                trace!("BRD was invalid: trying another divider");
                 continue;
             }
 
             found = Some((hse_value, div_value, ibrd, fbrd));
+            break 'outer;
         }
     }
 
