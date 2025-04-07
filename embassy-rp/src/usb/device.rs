@@ -21,10 +21,6 @@ use super::{
     Dir,
 };
 
-impl crate::usb::Instance for peripherals::USB {
-    type Interrupt = crate::interrupt::typelevel::USBCTRL_IRQ;
-}
-
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
 const EP_MEMORY: *mut u8 = pac::USB_DPRAM.as_ptr() as *mut u8;
