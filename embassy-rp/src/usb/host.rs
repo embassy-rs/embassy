@@ -119,18 +119,18 @@ pub struct Channel<'d, T: Instance, E, D> {
 
 impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E, D> {
     /// [EP_MEMORY]-relative address
-    fn new(index: usize, buf_addr: u16, buf_len: u16, desc: &EndpointDescriptor, dev_addr: u8, pre: bool) -> Self {
+    fn new(index: usize, buf_addr: u16, buf_len: u16, ep_info: &EndpointInfo, dev_addr: u8, pre: bool) -> Self {
         // TODO: assert only in debug?
-        assert!(desc.ep_type() == E::ep_type());
+        assert!(ep_info.ep_type == E::ep_type());
         assert!(buf_addr + buf_len <= EP_MEMORY_SIZE as u16);
-        assert!(desc.max_packet_size <= buf_len);
+        assert!(ep_info.max_packet_size <= buf_len);
 
         // TODO: Support isochronous, bulk, and interrupt OUT
         assert!(E::ep_type() != EndpointType::Isochronous);
         assert!(E::ep_type() != EndpointType::Bulk);
         assert!(!(E::ep_type() == EndpointType::Interrupt && D::is_out()));
 
-        if desc.ep_type() == EndpointType::Interrupt {
+        if ep_info.ep_type == EndpointType::Interrupt {
             assert!(index > 0 && index < 16);
         } else {
             assert!(index >= 16);
@@ -145,9 +145,9 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
                 len: buf_len,
                 _phantom: PhantomData,
             },
-            max_packet_size: desc.max_packet_size,
-            ep_addr: desc.endpoint_address,
-            interval: desc.interval,
+            max_packet_size: ep_info.max_packet_size,
+            ep_addr: ep_info.addr.into(),
+            interval: ep_info.interval_ms,
             pid: false,
             pre,
         }
@@ -742,7 +742,7 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
     fn alloc_channel<E: channel::Type, D: channel::Direction>(
         &self,
         dev_addr: u8,
-        endpoint: &EndpointDescriptor,
+        endpoint: &EndpointInfo,
         pre: bool,
     ) -> Result<Self::Channel<E, D>, HostError> {
         if E::ep_type() == EndpointType::Interrupt {
