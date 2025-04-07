@@ -1,6 +1,6 @@
 //! USB Host implementation
 //!
-//! Requires an [USBHostDriver] implementation.
+//! Requires an [UsbHostDriver] implementation.
 //!
 
 #![allow(async_fn_in_trait)]
