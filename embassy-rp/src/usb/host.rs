@@ -6,7 +6,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
 };
-use embassy_usb_driver::EndpointType;
+use embassy_usb_driver::{EndpointType, EndpointInfo};
 
 use crate::RegExt;
 use crate::{
@@ -599,6 +599,13 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         Ok(0)
     }
 
+    fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError> {
+        self.pre = pre;
+        self.dev_addr = addr;
+        self.max_packet_size = endpoint.max_packet_size;
+        Ok(())
+    }
+
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsIn,
@@ -725,19 +732,6 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
         });
 
         embassy_time::Timer::after_millis(50).await;
-    }
-
-    fn retarget_channel<D: channel::Direction>(
-        &self,
-        channel: &mut Self::Channel<channel::Control, D>,
-        addr: u8,
-        max_packet_size: u8,
-        pre: bool,
-    ) -> Result<(), HostError> {
-        channel.pre = pre;
-        channel.dev_addr = addr;
-        channel.max_packet_size = max_packet_size as u16;
-        Ok(())
     }
 
     fn alloc_channel<E: channel::Type, D: channel::Direction>(
