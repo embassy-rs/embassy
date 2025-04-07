@@ -132,15 +132,15 @@ bitflags! {
     /// Commond keyboard state options
     pub struct KeyboardState: u8 {
         /// Enables NumLock
-        const NumLock   = 1 << 0;
+        const NUM_LOCK   = 1 << 0;
         /// Enables CapsLock
-        const CapsLock     = 1 << 1;
+        const CAPS_LOCK     = 1 << 1;
         /// Enables ScrollLock
-        const ScrollLock   = 1 << 2;
+        const SCROLL_LOCK   = 1 << 2;
         /// Enables Compose-mode
-        const Compose = 1 << 3;
+        const COMPOSE = 1 << 3;
         /// Enables Kana-mode
-        const Kana    = 1 << 4;
+        const KANA    = 1 << 4;
     }
 }
 
