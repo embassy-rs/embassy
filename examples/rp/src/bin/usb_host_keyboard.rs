@@ -3,30 +3,24 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::{bind_interrupts, gpio, peripherals::USB};
-use embassy_time::{Duration, Timer};
-use embassy_usb::host::{Channel, ControlChannelExt, DeviceDescriptor, USBDescriptor, UsbDeviceRegistry, UsbHost};
-use embassy_usb_driver::host::{channel, UsbHostDriver};
-use gpio::{Level, Output};
-use heapless::Vec;
-
+use embassy_rp::{bind_interrupts, peripherals::USB};
+use embassy_usb_driver::host::UsbHostDriver;
+use embassy_usb_driver::host::DeviceEvent::Connected;
+use embassy_usb::host::UsbHostBusExt;
+use embassy_usb::handlers::{UsbHostHandler, kbd::KbdHandler};
 use {defmt_rtt as _, panic_probe as _};
-
-use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => embassy_rp::usb::host::InterruptHandler<USB>;
 });
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     // Initialise Peripherals
     let p = embassy_rp::init(Default::default());
 
     // Create the driver, from the HAL.
-    let mut driver = embassy_rp::usb::host::Driver::new(p.USB, Irqs);
-    usbhost.start();
-    // let mut host = UsbHost::new(driver);
+    let mut usbhost = embassy_rp::usb::host::Driver::new(p.USB, Irqs);
 
     debug!("Detecting device");
     // Wait for root-port to detect device
@@ -39,9 +33,8 @@ async fn main(spawner: Spawner) {
 
     println!("Found device with speed = {:?}", speed);
 
-    let mut descriptor_buf = [0u8; 512];
-    let enum_info = usbhost.enumerate_root(speed, 1, &mut descriptor_buf).await.unwrap();
-    let mut kbd = KbdHandler::try_register(&usbhost, enum_info)
+    let enum_info = usbhost.enumerate_root_bare(speed, 1).await.unwrap();
+    let mut kbd = KbdHandler::try_register(&usbhost, &enum_info)
         .await
         .expect("Couldn't register keyboard");
 
