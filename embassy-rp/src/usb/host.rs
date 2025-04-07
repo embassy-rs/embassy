@@ -4,7 +4,7 @@ use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
 use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
+    channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, TimeoutConfig,
 };
 use embassy_usb_driver::{EndpointType, EndpointInfo, Speed};
 
@@ -688,6 +688,10 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         self.clear_current();
 
         res
+    }
+
+    async fn set_timeout(&mut self, _: TimeoutConfig) {
+        todo!();
     }
 }
 
