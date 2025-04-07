@@ -8,9 +8,9 @@
 use core::num::NonZeroU8;
 
 use embassy_time::Timer;
-use embassy_usb_driver::host::channel::{Control, Direction, InOut};
+use embassy_usb_driver::host::channel::{Control, InOut};
 use embassy_usb_driver::{
-    host::{channel, ChannelError, DeviceEvent, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver},
+    host::{channel, ChannelError, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver},
     Speed,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType};
