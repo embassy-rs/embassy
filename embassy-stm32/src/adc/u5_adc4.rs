@@ -193,7 +193,7 @@ impl<'d, T: Instance> Adc4<'d, T> {
         T::regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
 
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
-        info!("ADC4 frequency set to {} Hz", frequency.0);
+        info!("ADC4 frequency set to {} Hz", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
             panic!("Maximal allowed frequency for ADC4 is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
