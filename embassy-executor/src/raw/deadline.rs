@@ -135,6 +135,7 @@ impl Deadline {
     ///
     /// This sets the deadline to the default value of `u64::MAX`, meaning all
     /// tasks with set deadlines will be scheduled BEFORE this task.
+    #[must_use = "Clearing deadline must be polled to be effective"]
     pub fn clear_current_task_deadline() -> impl Future<Output = Self> {
         poll_fn(move |cx| {
             let task = super::task_from_waker(cx.waker());
