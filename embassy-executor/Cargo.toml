@@ -61,10 +61,7 @@ avr-device = { version = "0.7.0", optional = true }
 # `run_queue_atomics` would be enabled, and NOT when `run_queue_critical_section`
 # would be enabled.
 [target.'cfg(target_has_atomic="ptr")'.dependencies.cordyceps]
-# TODO: targeting v0.3.3, to be released soon
-version = "0.3"
-git = "https://github.com/hawkw/mycelium"
-rev = "1dad987b483078b248ac3e2e7a75f1ff2b463cc4"
+version = "0.3.3"
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
