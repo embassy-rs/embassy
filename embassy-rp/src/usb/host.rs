@@ -306,7 +306,6 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Channel<'d, T, E,
     /// Call once on creation for interrupt pipe
     fn set_current(&self) {
         let regs = T::regs();
-        let dpram = T::dpram();
         trace!(
             "SET CURRENT: {} CHANNEL {}: dev: {}, ep: {}, max_packet: {}, preamble: {}",
             E::ep_type(),
@@ -576,7 +575,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         Ok(read)
     }
 
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
+    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
     where
         E: channel::IsControl,
         D: channel::IsOut,
@@ -587,16 +586,12 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         self.send_setup(setup).await?;
 
         // Data stage
-        let written = if setup.length > 0 {
-            self.request_out(&buf[..setup.length as usize]).await?
-        } else {
-            0
-        };
+        self.request_out(&buf[..setup.length as usize]).await?
 
         // Status stage
         self.control_status(true).await?;
 
-        Ok(0)
+        Ok(())
     }
 
     fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError> {
@@ -654,7 +649,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         res
     }
 
-    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
+    async fn request_out(&mut self, buf: &[u8]) -> Result<(), ChannelError>
     where
         D: channel::IsOut,
     {
@@ -681,12 +676,11 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
             count += packet;
 
             if count == buf.len() {
-                break Ok(count);
+                break Ok(());
             }
         };
 
         self.clear_current();
-
         res
     }
 

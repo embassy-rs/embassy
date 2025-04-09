@@ -263,7 +263,7 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
         D: channel::IsIn;
 
     /// Send OUT control request
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
+    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut;
@@ -278,7 +278,7 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
         D: channel::IsIn;
 
     /// Send OUT request of type other from control
-    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
+    async fn request_out(&mut self, buf: &[u8]) -> Result<(), ChannelError>
     where
         D: channel::IsOut;
 

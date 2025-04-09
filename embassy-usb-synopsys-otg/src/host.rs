@@ -530,7 +530,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
         Ok(setup.length as usize)
     }
 
-    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<usize, ChannelError>
+    async fn control_out(&mut self, setup: &SetupPacket, buf: &[u8]) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut,
@@ -584,7 +584,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
 
         self.wait_for_txresult(false).await?;
 
-        Ok(transfer_size as usize)
+        Ok(())
     }
 
     fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError> {
@@ -714,7 +714,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
         }
     }
 
-    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
+    async fn request_out(&mut self, buf: &[u8]) -> Result<(), ChannelError>
     where
         D: channel::IsOut,
     {
@@ -817,7 +817,7 @@ impl<T: Type, D: Direction> UsbChannel<T, D> for OtgChannel<T, D> {
                     .reset_interval(self.regs.hfnum().read().frnum())
             }
 
-            return Ok(buf.len());
+            return Ok(());
         }
     }
 }
