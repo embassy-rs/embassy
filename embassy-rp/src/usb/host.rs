@@ -4,9 +4,9 @@ use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
 use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    channel, ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver, TimeoutConfig,
+    channel, ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver,
 };
-use embassy_usb_driver::{EndpointType, EndpointInfo, Speed};
+use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
 use crate::RegExt;
 use crate::{
@@ -695,6 +695,17 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
     }
 }
 
+// TODO: channel should have reference to `allocated_pipes`
+// impl<'d, T: Instance, E: channel::Type, D: channel::Direction> Drop for Channel<'d, T, E, D> {
+//     fn drop(&mut self) {
+//         if E::ep_type() == EndpointType::Interrupt {
+//             // Clear interrupts
+//             channel.clear_current();
+//             self.allocated_pipes.fetch_and(!(1 << channel.index), Ordering::Relaxed);
+//         }
+//     }
+// }
+
 impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
     type Channel<E: channel::Type, D: channel::Direction> = Channel<'d, T, E, D>;
 
@@ -720,11 +731,11 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
             BUS_WAKER.register(cx.waker());
 
             let now = T::regs().sie_status().read().speed();
-            let speed_now: DeviceEvent =  match now {
-                    0b01 => DeviceEvent::Connected(Speed::Low),
-                    0b10 => DeviceEvent::Connected(Speed::Full),
-                    _ => DeviceEvent::Disconnected,
-                };
+            let speed_now: DeviceEvent = match now {
+                0b01 => DeviceEvent::Connected(Speed::Low),
+                0b10 => DeviceEvent::Connected(Speed::Full),
+                _ => DeviceEvent::Disconnected,
+            };
             match (was, is_connected(now)) {
                 (true, false) => Poll::Ready(DeviceEvent::Disconnected),
                 (false, true) => Poll::Ready(speed_now),
@@ -770,14 +781,6 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
                 dev_addr,
                 pre,
             ))
-        }
-    }
-
-    fn drop_channel<E: channel::Type, D: channel::Direction>(&self, channel: &mut Self::Channel<E, D>) {
-        if E::ep_type() == EndpointType::Interrupt {
-            // Clear interrupts
-            channel.clear_current();
-            self.allocated_pipes.fetch_and(!(1 << channel.index), Ordering::Relaxed);
         }
     }
 }
