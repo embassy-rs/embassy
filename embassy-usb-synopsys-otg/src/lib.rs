@@ -1118,7 +1118,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                             if frame_is_odd {
                                 r.set_sd0pid_sevnfrm(true);
                             } else {
-                                r.set_sd1pid_soddfrm(true);
+                                r.set_soddfrm(true);
                             }
                         });
                     }
@@ -1220,7 +1220,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
                     if frame_is_odd {
                         r.set_sd0pid_sevnfrm(true);
                     } else {
-                        r.set_sd1pid_soddfrm(true);
+                        r.set_soddfrm_sd1pid(true);
                     }
                 });
             }
