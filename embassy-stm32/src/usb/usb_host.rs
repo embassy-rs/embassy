@@ -462,7 +462,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         }
     }
 
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, ChannelError> {
+    async fn write(&mut self, buf: &[u8]) -> Result<(), ChannelError> {
         self.write_data(buf);
 
         let index = self.index;
@@ -492,7 +492,7 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
 
             let stat = self.reg().read().stat_tx();
             match stat {
-                Stat::DISABLED => Poll::Ready(Ok((buf.len()))),
+                Stat::DISABLED => Poll::Ready(Ok(())),
                 Stat::STALL => Poll::Ready(Err(ChannelError::Stall)),
                 Stat::NAK | Stat::VALID => Poll::Pending,
             }
@@ -598,7 +598,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         &mut self,
         setup: &embassy_usb_driver::host::SetupPacket,
         buf: &[u8],
-    ) -> Result<usize, ChannelError>
+    ) -> Result<(), ChannelError>
     where
         T: channel::IsControl,
         D: channel::IsOut,
@@ -621,7 +621,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         let mut status = [0u8; 0];
         self.read(&mut status).await?;
 
-        Ok(buf.len())
+        Ok()
     }
 
     fn retarget_channel(
@@ -657,7 +657,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         self.read(buf).await
     }
 
-    async fn request_out(&mut self, buf: &[u8]) -> Result<usize, ChannelError>
+    async fn request_out(&mut self, buf: &[u8]) -> Result<(), ChannelError>
     where
         D: channel::IsOut,
     {
