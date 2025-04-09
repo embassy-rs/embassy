@@ -28,8 +28,13 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicPtr, Ordering};
+#[cfg(not(feature = "arch-avr"))]
+use core::sync::atomic::AtomicPtr;
+use core::sync::atomic::Ordering;
 use core::task::{Context, Poll};
+
+#[cfg(feature = "arch-avr")]
+use portable_atomic::AtomicPtr;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
