@@ -18,7 +18,7 @@ embassy-sync = { version = "0.6.2", path = "../../embassy-sync", features = ["de
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0.0"
 
-mimxrt600-fcb = "0.1.0"
+mimxrt600-fcb = "0.2.2"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 rand = { version = "0.8.5", default-features = false }
 
