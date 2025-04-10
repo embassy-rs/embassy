@@ -21,6 +21,9 @@ pub mod clocks;
 pub mod gpio;
 pub mod iopctl;
 
+#[cfg(feature = "_time-driver")]
+pub mod rtc;
+
 // This mod MUST go last, so that it sees all the `impl_foo!' macros
 #[cfg_attr(feature = "mimxrt633s", path = "chips/mimxrt633s.rs")]
 #[cfg_attr(feature = "mimxrt685s", path = "chips/mimxrt685s.rs")]
@@ -86,12 +89,18 @@ pub mod config {
     pub struct Config {
         /// Clock configuration.
         pub clocks: ClockConfig,
+
+        /// RTC Time driver interrupt priority.
+        #[cfg(feature = "_time-driver")]
+        pub time_interrupt_priority: crate::interrupt::Priority,
     }
 
     impl Default for Config {
         fn default() -> Self {
             Self {
                 clocks: ClockConfig::crystal(),
+                #[cfg(feature = "_time-driver")]
+                time_interrupt_priority: crate::interrupt::Priority::P0,
             }
         }
     }
@@ -99,7 +108,11 @@ pub mod config {
     impl Config {
         /// Create a new configuration with the provided clock config.
         pub fn new(clocks: ClockConfig) -> Self {
-            Self { clocks }
+            Self {
+                clocks,
+                #[cfg(feature = "_time-driver")]
+                time_interrupt_priority: crate::interrupt::Priority::P0,
+            }
         }
     }
 }
@@ -121,6 +134,10 @@ pub fn init(config: config::Config) -> Peripherals {
         }
         gpio::init();
     }
+
+    // init RTC time driver
+    #[cfg(feature = "_time-driver")]
+    rtc::init(config.time_interrupt_priority);
 
     peripherals
 }
