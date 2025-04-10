@@ -128,7 +128,7 @@ impl ClassicData {
     pub fn raw(&self) -> &[u8] {
         &self.bytes
     }
-    
+
     /// Raw mutable read access to data.
     pub fn raw_mut(&mut self) -> &mut [u8] {
         &mut self.bytes
@@ -213,7 +213,7 @@ impl Frame {
     pub fn data(&self) -> &[u8] {
         &self.data.raw()
     }
-    
+
     /// Get mutable reference to data
     pub fn data_mut(&mut self) -> &mut [u8] {
         self.data.raw_mut()
@@ -323,7 +323,7 @@ impl FdData {
     pub fn raw(&self) -> &[u8] {
         &self.bytes
     }
-    
+
     /// Raw mutable read access to data.
     pub fn raw_mut(&mut self) -> &mut [u8] {
         &mut self.bytes
@@ -407,7 +407,7 @@ impl FdFrame {
     pub fn data(&self) -> &[u8] {
         &self.data.raw()
     }
-    
+
     /// Get mutable reference to data
     pub fn data_mut(&mut self) -> &mut [u8] {
         self.data.raw_mut()
