@@ -697,7 +697,6 @@ impl RxMode {
             let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok((msg, ts)))
         } else if let Some(err) = info.regs.curr_error() {
-            // TODO: this is probably wrong
             Some(Err(err))
         } else {
             None
