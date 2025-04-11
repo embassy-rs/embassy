@@ -18,6 +18,8 @@ compile_error!(
 pub(crate) mod fmt;
 
 pub mod clocks;
+pub mod dma;
+pub mod flexcomm;
 pub mod gpio;
 pub mod iopctl;
 
@@ -134,6 +136,9 @@ pub fn init(config: config::Config) -> Peripherals {
         }
         gpio::init();
     }
+
+    // init DMA driver
+    dma::init();
 
     // init RTC time driver
     #[cfg(feature = "_time-driver")]
