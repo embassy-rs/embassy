@@ -10,4 +10,4 @@ The link: link:https://github.com/embassy-rs/embassy/tree/main/embassy-imxrt[Emb
 The following peripherals have a HAL implementation at present
 
 * GPIO
-
+* RNG
