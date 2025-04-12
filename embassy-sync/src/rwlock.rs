@@ -2,10 +2,10 @@
 //!
 //! This module provides a read-write lock that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
+use core::fmt;
 use core::future::{poll_fn, Future};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
-use core::{fmt, mem};
 
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
@@ -221,27 +221,6 @@ where
     rwlock: &'a RwLock<R, T>,
 }
 
-impl<'a, M, T> RwLockReadGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    /// Map the contents of the `RwLockReadGuard` to a different type.
-    ///
-    /// This is useful for calling methods on the contents of the `RwLockReadGuard` without
-    /// moving out of the guard.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&T) -> &U) -> MappedRwLockReadGuard<'a, M, U> {
-        let rwlock = this.rwlock;
-        let value = fun(unsafe { &mut *this.rwlock.inner.get() });
-
-        mem::forget(this);
-        MappedRwLockReadGuard {
-            state: &rwlock.state,
-            value,
-        }
-    }
-}
-
 impl<'a, M, T> Drop for RwLockReadGuard<'a, M, T>
 where
     M: RawMutex,
@@ -307,25 +286,6 @@ where
     rwlock: &'a RwLock<R, T>,
 }
 
-impl<'a, R, T> RwLockWriteGuard<'a, R, T>
-where
-    R: RawMutex,
-    T: ?Sized,
-{
-    /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedRwLockWriteGuard<'a, R, U> {
-        let rwlock = this.rwlock;
-        let value = fun(unsafe { &mut *this.rwlock.inner.get() });
-        // Dont run the `drop` method for RwLockWriteGuard.  The ownership of the underlying
-        // locked state is being moved to the returned MappedRwLockWriteGuard.
-        mem::forget(this);
-        MappedRwLockWriteGuard {
-            state: &rwlock.state,
-            value,
-        }
-    }
-}
-
 impl<'a, R, T> Drop for RwLockWriteGuard<'a, R, T>
 where
     R: RawMutex,
@@ -378,202 +338,6 @@ where
 impl<'a, R, T> fmt::Display for RwLockWriteGuard<'a, R, T>
 where
     R: RawMutex,
-    T: ?Sized + fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&**self, f)
-    }
-}
-
-/// A handle to a held `RwLock` that has had a function applied to it via [`RwLockReadGuard::map`] or
-/// [`MappedRwLockReadGuard::map`].
-///
-/// This can be used to hold a subfield of the protected data.
-#[clippy::has_significant_drop]
-pub struct MappedRwLockReadGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    state: &'a BlockingMutex<M, RefCell<State>>,
-    value: *const T,
-}
-
-impl<'a, M, T> MappedRwLockReadGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&T) -> &U) -> MappedRwLockReadGuard<'a, M, U> {
-        let rwlock = this.state;
-        let value = fun(unsafe { &*this.value });
-        // Dont run the `drop` method for RwLockReadGuard.  The ownership of the underlying
-        // locked state is being moved to the returned MappedRwLockReadGuard.
-        mem::forget(this);
-        MappedRwLockReadGuard { state: rwlock, value }
-    }
-}
-
-impl<'a, M, T> Deref for MappedRwLockReadGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        // Safety: the MappedRwLockReadGuard represents shared access to the contents
-        // of the read-write lock, so it's OK to get it.
-        unsafe { &*self.value }
-    }
-}
-
-impl<'a, M, T> Drop for MappedRwLockReadGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    fn drop(&mut self) {
-        self.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
-            s.readers -= 1;
-            if s.readers == 0 {
-                s.waker.wake();
-            }
-        })
-    }
-}
-
-unsafe impl<'a, M, T> Send for MappedRwLockReadGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-}
-
-unsafe impl<'a, M, T> Sync for MappedRwLockReadGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-}
-
-impl<'a, M, T> fmt::Debug for MappedRwLockReadGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized + fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&**self, f)
-    }
-}
-
-impl<'a, M, T> fmt::Display for MappedRwLockReadGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized + fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&**self, f)
-    }
-}
-
-/// A handle to a held `RwLock` that has had a function applied to it via [`RwLockWriteGuard::map`] or
-/// [`MappedRwLockWriteGuard::map`].
-///
-/// This can be used to hold a subfield of the protected data.
-#[clippy::has_significant_drop]
-pub struct MappedRwLockWriteGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    state: &'a BlockingMutex<M, RefCell<State>>,
-    value: *mut T,
-}
-
-impl<'a, M, T> MappedRwLockWriteGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedRwLockWriteGuard<'a, M, U> {
-        let rwlock = this.state;
-        let value = fun(unsafe { &mut *this.value });
-        // Dont run the `drop` method for RwLockWriteGuard.  The ownership of the underlying
-        // locked state is being moved to the returned MappedRwLockWriteGuard.
-        mem::forget(this);
-        MappedRwLockWriteGuard { state: rwlock, value }
-    }
-}
-
-impl<'a, M, T> Deref for MappedRwLockWriteGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        // Safety: the MappedRwLockWriteGuard represents exclusive access to the contents
-        // of the read-write lock, so it's OK to get it.
-        unsafe { &*self.value }
-    }
-}
-
-impl<'a, M, T> DerefMut for MappedRwLockWriteGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        // Safety: the MappedRwLockWriteGuard represents exclusive access to the contents
-        // of the read-write lock, so it's OK to get it.
-        unsafe { &mut *self.value }
-    }
-}
-
-impl<'a, M, T> Drop for MappedRwLockWriteGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-    fn drop(&mut self) {
-        self.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
-            s.writer = false;
-            s.waker.wake();
-        })
-    }
-}
-
-unsafe impl<'a, M, T> Send for MappedRwLockWriteGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-}
-
-unsafe impl<'a, M, T> Sync for MappedRwLockWriteGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized,
-{
-}
-
-impl<'a, M, T> fmt::Debug for MappedRwLockWriteGuard<'a, M, T>
-where
-    M: RawMutex,
-    T: ?Sized + fmt::Debug,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&**self, f)
-    }
-}
-
-impl<'a, M, T> fmt::Display for MappedRwLockWriteGuard<'a, M, T>
-where
-    M: RawMutex,
     T: ?Sized + fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
