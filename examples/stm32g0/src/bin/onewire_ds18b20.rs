@@ -22,7 +22,7 @@ fn create_onewire(p: embassy_stm32::Peripherals) -> OneWire<UartTx<'static, Asyn
     });
 
     let mut config = Config::default();
-    config.tx_config = OutputConfig::OpenDrainExternal;
+    config.tx_config = OutputConfig::OpenDrain;
 
     let usart = Uart::new_half_duplex(
         p.USART1,
@@ -53,7 +53,7 @@ fn create_onewire(p: embassy_stm32::Peripherals) -> OneWire<BufferedUartTx<'stat
 
     const BUFFER_SIZE: usize = 16;
     let mut config = Confi::default();
-    config.tx_config = OutputConfig::OpenDrainExternal;
+    config.tx_config = OutputConfig::OpenDrain;
     let tx_buf: &mut [u8; BUFFER_SIZE] = singleton!(TX_BUF: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE]).unwrap();
     let rx_buf: &mut [u8; BUFFER_SIZE] = singleton!(RX_BUF: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE]).unwrap();
     let usart = BufferedUart::new_half_duplex(

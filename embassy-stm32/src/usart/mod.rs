@@ -142,20 +142,20 @@ pub enum HalfDuplexReadback {
 pub enum OutputConfig {
     /// Push pull allows for faster baudrates, no internal pullup
     PushPull,
-    /// Open drain output using external pull down resistor
-    OpenDrainExternal,
+    /// Open drain output (external pull up needed)
+    OpenDrain,
     #[cfg(not(gpio_v1))]
-    /// Open drain output using internal pull up resistor
-    OpenDrainInternal,
+    /// Open drain output with internal pull up resistor
+    OpenDrainPullUp,
 }
 
 impl OutputConfig {
     const fn af_type(self) -> AfType {
         match self {
             OutputConfig::PushPull => AfType::output(OutputType::PushPull, Speed::Medium),
-            OutputConfig::OpenDrainExternal => AfType::output(OutputType::OpenDrain, Speed::Medium),
+            OutputConfig::OpenDrain => AfType::output(OutputType::OpenDrain, Speed::Medium),
             #[cfg(not(gpio_v1))]
-            OutputConfig::OpenDrainInternal => AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up),
+            OutputConfig::OpenDrainPullUp => AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up),
         }
     }
 }
