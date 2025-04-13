@@ -1,10 +1,10 @@
-//! This example shows how to use the PIO module in the RP2040 chip to implement a duplex UART.
+//! This example shows how to use the PIO module in the RP235x chip to implement a duplex UART.
 //! The PIO module is a very powerful peripheral that can be used to implement many different
 //! protocols. It is a very flexible state machine that can be programmed to do almost anything.
 //!
 //! This example opens up a USB device that implements a CDC ACM serial port. It then uses the
 //! PIO module to implement a UART that is connected to the USB serial port. This allows you to
-//! communicate with a device connected to the RP2040 over USB serial.
+//! communicate with a device connected to the RP235x over USB serial.
 
 #![no_std]
 #![no_main]

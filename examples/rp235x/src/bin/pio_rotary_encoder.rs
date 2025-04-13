@@ -1,4 +1,4 @@
-//! This example shows how to use the PIO module in the RP2040 to read a quadrature rotary encoder.
+//! This example shows how to use the PIO module in the RP235x to read a quadrature rotary encoder.
 
 #![no_std]
 #![no_main]

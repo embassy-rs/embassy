@@ -1,4 +1,4 @@
-//! This example shows how to use USB (Universal Serial Bus) in the RP2040 chip.
+//! This example shows how to use USB (Universal Serial Bus) in the RP235x chip.
 //!
 //! This creates a WebUSB capable device that echoes data back to the host.
 //!

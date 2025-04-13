@@ -1,4 +1,4 @@
-//! This example shows how to use the PIO module in the RP2040 to implement a stepper motor driver
+//! This example shows how to use the PIO module in the RP235x to implement a stepper motor driver
 //! for a 5-wire stepper such as the 28BYJ-48. You can halt an ongoing rotation by dropping the future.
 
 #![no_std]

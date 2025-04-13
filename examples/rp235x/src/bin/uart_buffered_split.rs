@@ -1,4 +1,4 @@
-//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP2040 chip.
+//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP235x chip.
 //!
 //! No specific hardware is specified in this example. If you connect pin 0 and 1 you should get the same data back.
 //! The Raspberry Pi Debug Probe (https://www.raspberrypi.com/products/debug-probe/) could be used

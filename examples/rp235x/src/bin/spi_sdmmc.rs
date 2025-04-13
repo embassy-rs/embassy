@@ -1,4 +1,4 @@
-//! This example shows how to use `embedded-sdmmc` with the RP2040 chip, over SPI.
+//! This example shows how to use `embedded-sdmmc` with the RP235x chip, over SPI.
 //!
 //! The example will attempt to read a file `MY_FILE.TXT` from the root directory
 //! of the SD card and print its contents.

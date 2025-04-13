@@ -4,7 +4,7 @@ These are a list of unsorted, commonly asked questions and answers.
 
 Please feel free to add items to link:https://github.com/embassy-rs/embassy/edit/main/docs/pages/faq.adoc[this page], especially if someone in the chat answered a question for you!
 
-== How to deploy to RP2040 without a debugging probe.
+== How to deploy to RP2040 or RP235x without a debugging probe.
 
 Install link:https://github.com/JoNil/elf2uf2-rs[elf2uf2-rs] for converting the generated elf binary into a uf2 file.
 
