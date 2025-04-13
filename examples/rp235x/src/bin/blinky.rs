@@ -1,6 +1,6 @@
 //! This example test the RP Pico on board LED.
 //!
-//! It does not work with the RP Pico W board. See wifi_blinky.rs.
+//! It does not work with the RP Pico W board. See `blinky_wifi.rs`.
 
 #![no_std]
 #![no_main]
