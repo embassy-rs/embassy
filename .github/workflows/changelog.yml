@@ -51,6 +51,8 @@ jobs:
             - 'embassy-futures/**'
             embassy-imxrt:
             - 'embassy-imxrt/**'
+            embassy-microchip:
+            - 'embassy-microchip/**'
             embassy-mspm0:
             - 'embassy-mspm0/**'
             embassy-net:
@@ -185,6 +187,13 @@ jobs:
           changeLogPath: embassy-imxrt/CHANGELOG.md
           skipLabels: "skip-changelog"
           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-imxrt/CHANGELOG.md file."
+      - name: Check that changelog updated (embassy-microchip)
+        if: steps.changes.outputs.embassy-microchip == 'true'
+        uses: dangoslen/changelog-enforcer@v3
+        with:
+          changeLogPath: embassy-microchip/CHANGELOG.md
+          skipLabels: "skip-changelog"
+          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-microchip/CHANGELOG.md file."
       - name: Check that changelog updated (embassy-mspm0)
         if: steps.changes.outputs.embassy-mspm0 == 'true'
         uses: dangoslen/changelog-enforcer@v3

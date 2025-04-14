@@ -1,0 +1,14 @@
+[package]
+name = "microchip-blinky"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core", "inline-asm"] }
+cortex-m-rt = "0.7.5"
+defmt = "1.0"
+defmt-rtt = "1.0"
+embassy-executor = { version = "0.9.1", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-microchip = { version = "0.1.0", path = "../../embassy-microchip", features = ["mec1723n_b0_sz", "rt", "defmt", "unstable-pac", "time-driver-cct"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
