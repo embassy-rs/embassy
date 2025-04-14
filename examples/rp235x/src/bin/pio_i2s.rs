@@ -1,5 +1,5 @@
 //! This example shows generating audio and sending it to a connected i2s DAC using the PIO
-//! module of the RP2040.
+//! module of the RP235x.
 //!
 //! Connect the i2s DAC as follows:
 //!   bclk : GPIO 18

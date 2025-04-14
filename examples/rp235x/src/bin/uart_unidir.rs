@@ -1,4 +1,4 @@
-//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP2040 chip.
+//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP235x chip.
 //!
 //! Test TX-only and RX-only on two different UARTs. You need to connect GPIO0 to GPIO5 for
 //! this to work

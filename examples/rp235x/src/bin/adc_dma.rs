@@ -1,4 +1,4 @@
-//! This example shows how to use the RP2040 ADC with DMA, both single- and multichannel reads.
+//! This example shows how to use the RP235x ADC with DMA, both single- and multichannel reads.
 //! For multichannel, the samples are interleaved in the buffer:
 //! `[ch1, ch2, ch3, ch4, ch1, ch2, ch3, ch4, ...]`
 #![no_std]

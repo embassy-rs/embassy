@@ -1,4 +1,4 @@
-//! This example shows powerful PIO module in the RP2040 chip.
+//! This example shows powerful PIO module in the RP235x chip.
 
 #![no_std]
 #![no_main]

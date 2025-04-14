@@ -1,4 +1,4 @@
-//! This example shows how to create a pwm using the PIO module in the RP2040 chip.
+//! This example shows how to create a pwm using the PIO module in the RP235x chip.
 
 #![no_std]
 #![no_main]
