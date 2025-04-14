@@ -1,4 +1,4 @@
-o//! This example test the ADC (Analog to Digital Conversion) of the RP2350A pins 26, 27 and 28.
+//! This example test the ADC (Analog to Digital Conversion) of the RP2350A pins 26, 27 and 28.
 //! It also reads the temperature sensor in the chip.
 
 #![no_std]
