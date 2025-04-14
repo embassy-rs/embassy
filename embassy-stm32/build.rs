@@ -1338,6 +1338,18 @@ fn main() {
                         g.extend(quote! {
                             impl_opamp_vp_pin!( #peri, #pin_name, #ch);
                         })
+                    } else if pin.signal.starts_with("VINM") {
+                        // Impl NonInvertingPin for the VINM* signals ( VINM0, VINM1, etc)
+                        // STM32G4
+                        let peri = format_ident!("{}", p.name);
+                        let pin_name = format_ident!("{}", pin.pin);
+                        let ch: Result<u8, _> = pin.signal.strip_prefix("VINM").unwrap().parse();
+
+                        if let Ok(ch) = ch {
+                            g.extend(quote! {
+                                impl_opamp_vn_pin!( #peri, #pin_name, #ch);
+                            })
+                        }
                     } else if pin.signal == "VOUT" {
                         // Impl OutputPin for the VOUT pin
                         let peri = format_ident!("{}", p.name);
