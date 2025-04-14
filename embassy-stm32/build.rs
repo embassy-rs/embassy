@@ -1412,6 +1412,13 @@ fn main() {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
+    if chip_name.starts_with("stm32g4") {
+        let line_number = chip_name.chars().skip(8).next().unwrap();
+        if line_number == '3' || line_number == '4' {
+            signals.insert(("adc", "ADC5"), quote!(crate::adc::RxDma));
+        }
+    }
+
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
             // FIXME: stm32u5a crash on Cordic driver
