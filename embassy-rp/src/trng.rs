@@ -368,6 +368,9 @@ impl<'d, T: Instance> rand_core::RngCore for Trng<'d, T> {
         Ok(())
     }
 }
+
+impl<'d, T: Instance> rand_core::CryptoRng for Trng<'d, T> {}
+
 /// TRNG interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _trng: PhantomData<T>,
