@@ -18,12 +18,19 @@ pub struct Control<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_S
     status: Status,
     offset: usize,
     buf: AlignedBuffer<BLOCK_SIZE>,
-    reset: RST,
+    _rst: PhantomData<RST>,
+
+    #[cfg(feature = "_verify")]
+    public_key: &'static [u8; 32],
 }
 
 impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Control<'d, DFU, STATE, RST, BLOCK_SIZE> {
     /// Create a new DFU instance to handle DFU transfers.
-    pub fn new(updater: BlockingFirmwareUpdater<'d, DFU, STATE>, attrs: DfuAttributes, reset: RST) -> Self {
+    pub fn new(
+        updater: BlockingFirmwareUpdater<'d, DFU, STATE>,
+        attrs: DfuAttributes,
+        #[cfg(feature = "_verify")] public_key: &'static [u8; 32],
+    ) -> Self {
         Self {
             updater,
             attrs,
@@ -31,7 +38,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Co
             status: Status::Ok,
             offset: 0,
             buf: AlignedBuffer([0; BLOCK_SIZE]),
-            reset,
+            public_key,
+            _rst: PhantomData,
         }
     }
 
@@ -102,7 +110,23 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
                 if final_transfer {
                     debug!("Receiving final transfer");
 
-                    match self.updater.mark_updated() {
+                    #[cfg(feature = "_verify")]
+                    let update_res: Result<(), FirmwareUpdaterError> = {
+                        const SIGNATURE_LEN: usize = 64;
+
+                        let mut signature = [0; SIGNATURE_LEN];
+                        let update_len = (self.offset - SIGNATURE_LEN) as u32;
+
+                        self.updater.read_dfu(update_len, &mut signature).and_then(|_| {
+                            self.updater
+                                .verify_and_mark_updated(self.public_key, &mut signature, update_len)
+                        })
+                    };
+
+                    #[cfg(not(feature = "_verify"))]
+                    let update_res = self.updater.mark_updated();
+
+                    match update_res {
                         Ok(_) => {
                             self.status = Status::Ok;
                             self.state = State::ManifestSync;
