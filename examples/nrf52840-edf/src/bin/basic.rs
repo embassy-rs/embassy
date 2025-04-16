@@ -13,7 +13,9 @@
 #![no_main]
 
 use core::sync::atomic::{compiler_fence, Ordering};
-use embassy_executor::{raw::Deadline, Spawner};
+
+use embassy_executor::raw::Deadline;
+use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
