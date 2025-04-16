@@ -46,7 +46,7 @@ flavors = [
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabi"
 targets = ["thumbv7em-none-eabi"]
-features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "drs-scheduler"]
+features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "edf-scheduler"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -91,6 +91,7 @@ embassy-sync = { path = "../embassy-sync" }
 rustversion = "1.0.21"
 
 [features]
+
 ## Enable nightly-only features
 nightly = ["embassy-executor-macros/nightly"]
 
@@ -133,7 +134,7 @@ trace = ["_any_trace"]
 rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "dep:embassy-time-driver"]
 _any_trace = []
 
-## Enable "Deadline Rank Sorted" Scheduler, using soft-realtime "deadlines" to prioritize
+## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
 ## tasks based on the remaining time before their deadline. Adds some overhead. Requires
 ## hardware atomic support
-drs-scheduler = ["dep:embassy-time-driver"]
+edf-scheduler = ["dep:embassy-time-driver"]

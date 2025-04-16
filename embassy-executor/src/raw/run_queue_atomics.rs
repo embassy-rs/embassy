@@ -1,7 +1,7 @@
 use core::ptr::{addr_of_mut, NonNull};
 
 use cordyceps::sorted_list::Links;
-#[cfg(feature = "drs-scheduler")]
+#[cfg(feature = "edf-scheduler")]
 use cordyceps::SortedList;
 use cordyceps::{Linked, TransferStack};
 
@@ -73,7 +73,7 @@ impl RunQueue {
     /// Empty the queue, then call `on_task` for each task that was in the queue.
     /// NOTE: It is OK for `on_task` to enqueue more tasks. In this case they're left in the queue
     /// and will be processed by the *next* call to `dequeue_all`, *not* the current one.
-    #[cfg(not(feature = "drs-scheduler"))]
+    #[cfg(not(feature = "edf-scheduler"))]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
         let taken = self.stack.take_all();
         for taskref in taken {
@@ -82,7 +82,7 @@ impl RunQueue {
         }
     }
 
-    /// # Deadline Ranked Sorted Scheduler
+    /// # Earliest Deadline First Scheduler
     ///
     /// This algorithm will loop until all enqueued tasks are processed.
     ///
@@ -96,7 +96,7 @@ impl RunQueue {
     ///
     /// This process will repeat until the local `sorted` queue AND the global
     /// runqueue are both empty, at which point this function will return.
-    #[cfg(feature = "drs-scheduler")]
+    #[cfg(feature = "edf-scheduler")]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
         // SAFETY: `deadline` can only be set through the `Deadline` interface, which
         // only allows access to this value while the given task is being polled.
