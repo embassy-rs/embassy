@@ -26,7 +26,7 @@ flavors = [
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabi"
 targets = ["thumbv7em-none-eabi"]
-features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "drs-scheduler"]
+features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "edf-scheduler"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -69,6 +69,7 @@ trybuild = "1.0"
 embassy-sync = { path = "../embassy-sync" }
 
 [features]
+
 ## Enable nightly-only features
 nightly = ["embassy-executor-macros/nightly"]
 
@@ -104,10 +105,10 @@ executor-interrupt = []
 trace = []
 ## Enable support for rtos-trace framework
 rtos-trace = ["dep:rtos-trace", "trace", "dep:embassy-time-driver"]
-## Enable "Deadline Rank Sorted" Scheduler, using soft-realtime "deadlines" to prioritize
+## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
 ## tasks based on the remaining time before their deadline. Adds some overhead. Requires
 ## hardware atomic support
-drs-scheduler = ["dep:embassy-time-driver"]
+edf-scheduler = ["dep:embassy-time-driver"]
 
 #! ### Timer Item Payload Size
 #! Sets the size of the payload for timer items, allowing integrated timer implementors to store
