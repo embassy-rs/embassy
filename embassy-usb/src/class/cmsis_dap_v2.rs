@@ -39,13 +39,17 @@ impl State {
 pub struct CmsisDapV2Class<'d, D: Driver<'d>> {
     read_ep: D::EndpointOut,
     write_ep: D::EndpointIn,
+    trace_ep: Option<D::EndpointIn>,
     max_packet_size: u16,
 }
 
 impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
     /// Creates a new CmsisDapV2Class with the provided UsbBus and `max_packet_size` in bytes. For
     /// full-speed devices, `max_packet_size` has to be 64.
-    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State, max_packet_size: u16) -> Self {
+    ///
+    /// The `trace` parameter enables the trace output endpoint. This is optional and can be
+    /// disabled if the probe does not support trace output.
+    pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State, max_packet_size: u16, trace: bool) -> Self {
         // DAP - Custom Class 0
         let iface_string = builder.string();
         let mut function = builder.function(0xFF, 0, 0);
@@ -59,6 +63,11 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
         let mut alt = interface.alt_setting(0xFF, 0, 0, Some(iface_string));
         let read_ep = alt.endpoint_bulk_out(max_packet_size);
         let write_ep = alt.endpoint_bulk_in(max_packet_size);
+        let trace_ep = if trace {
+            Some(alt.endpoint_bulk_in(max_packet_size))
+        } else {
+            None
+        };
         drop(function);
 
         builder.handler(state.control.write(Control { iface_string }));
@@ -66,6 +75,7 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
         CmsisDapV2Class {
             read_ep,
             write_ep,
+            trace_ep,
             max_packet_size,
         }
     }
@@ -82,6 +92,23 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
         }
         if data.len() % self.max_packet_size as usize == 0 {
             self.write_ep.write(&[]).await?;
+        }
+        Ok(())
+    }
+
+    /// Write data to the host via the trace output endpoint.
+    ///
+    /// Returns `EndpointError::Disabled` if the trace output endpoint is not enabled.
+    pub async fn write_trace(&mut self, data: &[u8]) -> Result<(), EndpointError> {
+        let Some(ep) = self.trace_ep.as_mut() else {
+            return Err(EndpointError::Disabled);
+        };
+
+        for chunk in data.chunks(self.max_packet_size as usize) {
+            ep.write(chunk).await?;
+        }
+        if data.len() % self.max_packet_size as usize == 0 {
+            ep.write(&[]).await?;
         }
         Ok(())
     }
