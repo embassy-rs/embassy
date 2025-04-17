@@ -212,7 +212,7 @@ _stack_start = ORIGIN(RAM) + LENGTH(RAM);
 Please refer to the STM32 documentation for the specific values suitable for your board and setup. The STM32 Cube examples often contain a linker script `.ld` file. 
 Look for the `MEMORY` section and try to determine the FLASH and RAM sizes and section start.
 
-If you find a case where the memory.x is wrong, please report it on [this Github issue](https://github.com/embassy-rs/stm32-data/issues/301) so other users are not caught by surprise.
+If you find a case where the memory.x is wrong, please report it on link:https://github.com/embassy-rs/stm32-data/issues/301[this Github issue] so other users are not caught by surprise.
 
 == The USB examples are not working on my board, is there anything else I need to configure?
 
