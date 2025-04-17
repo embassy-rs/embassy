@@ -14,7 +14,8 @@ async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
 
     let mut hsem = HardwareSemaphore::new(p.HSEM);
-    hsem.one_step_lock(5).unwrap();
+    hsem.one_step_lock(1).unwrap();
+    hsem.two_step_lock(1, 0).unwrap();
 
     info!("Test OK");
     cortex_m::asm::bkpt();
