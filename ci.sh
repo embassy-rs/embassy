@@ -267,7 +267,6 @@ cargo batch \
     --- build --release --manifest-path examples/boot/application/stm32l4/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32l4 \
     --- build --release --manifest-path examples/boot/application/stm32wl/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32wl \
     --- build --release --manifest-path examples/boot/application/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/boot/stm32wb-dfu \
-    --- build --release --manifest-path examples/boot/application/stm32wb-dfu-verify/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/boot/stm32wb-dfu-verify \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \

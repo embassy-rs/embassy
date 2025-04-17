@@ -1,3 +1,10 @@
+/* 
+N.B. this memory map is different from the standard stm32wb-dfu example since the
+verification code requires more bootloader space. Thus, to use this bootloader
+example together with the standard "application" example, you would need to update
+memory.x for the application to match this memory map.
+*/
+
 MEMORY
 {
   /* NOTE 1 K = 1 KiBi = 1024 bytes */

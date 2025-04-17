@@ -38,8 +38,10 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Co
             status: Status::Ok,
             offset: 0,
             buf: AlignedBuffer([0; BLOCK_SIZE]),
-            public_key,
             _rst: PhantomData,
+
+            #[cfg(feature = "_verify")]
+            public_key,
         }
     }
 
