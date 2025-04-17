@@ -11,6 +11,7 @@ pub struct HsemLockFailed;
 ///
 /// On some chips, the Reference Manual calls this value MASTERID instead of COREID.
 #[repr(u8)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CoreId {
     #[cfg(any(stm32h7a3, stm32h7b3, stm32h7b0))]
     /// Cortex-M7, core 1. MASTERID = 1
@@ -37,12 +38,15 @@ pub enum CoreId {
 }
 
 impl CoreId {
-    #[cfg(any(feature = "_core-cm7", not(feature = "_core-cm4")))]
+    #[cfg(any(
+        all(stm32wl, not(feature = "_core-cm0p")),
+        all(not(stm32wl), any(feature = "_core-cm7", not(feature = "_core-cm4"))),
+    ))]
     const fn current() -> CoreId {
         CoreId::Core0
     }
 
-    #[cfg(feature = "_core-cm4")]
+    #[cfg(any(all(not(stm32wl), feature = "_core-cm4"), all(stm32wl, feature = "_core-cm0p")))]
     const fn current() -> CoreId {
         CoreId::Core1
     }
@@ -86,7 +90,10 @@ impl<'d> HardwareSemaphore<'d> {
             reg.procid() == process_id,
         ) {
             (true, true, true) => Ok(()),
-            _ => Err(HsemLockFailed),
+            v => {
+                error!("{}: {}", v, CoreId::current() as u8);
+                Err(HsemLockFailed)
+            }
         }
     }
 
@@ -99,7 +106,10 @@ impl<'d> HardwareSemaphore<'d> {
 
         match (reg.lock(), reg.coreid() == CoreId::current() as u8, reg.procid()) {
             (_, true, 0) => Ok(()),
-            _ => Err(HsemLockFailed),
+            v => {
+                error!("{}: Current: {} Actual: {}", v, CoreId::current() as u8, reg.coreid());
+                Err(HsemLockFailed)
+            }
         }
     }
 
