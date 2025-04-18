@@ -20,7 +20,7 @@ use crate::blocking_mutex::Mutex;
 
 /// A thread-safe reference-counting pointer. 'Arc' stands for 'Atomically Reference Counted'.
 ///
-/// This implementation uses CriticalSection for thread safety rather than atomic operations.
+/// This implementation uses embassy-sync blocking Mutex for thread safety rather than atomic operations.
 pub struct Arc<T: ?Sized> {
     ptr: NonNull<ArcInner<T>>,
     phantom: PhantomData<ArcInner<T>>,
