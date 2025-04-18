@@ -212,8 +212,8 @@ impl Frame {
         &self.data.raw()[..self.can_header.len as usize]
     }
 
-    /// Get reference to underlying 8-byte raw data buffer
-    pub(crate) fn raw_data(&self) -> &[u8] {
+    /// Get reference to underlying 8-byte raw data buffer, some bytes on the tail might be undefined.
+    pub fn raw_data(&self) -> &[u8] {
         self.data.raw()
     }
 
