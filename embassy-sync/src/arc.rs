@@ -15,29 +15,29 @@ use core::ptr::NonNull;
 extern crate alloc;
 use alloc::boxed::Box;
 
-use crate::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
+use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
 
 /// A thread-safe reference-counting pointer. 'Arc' stands for 'Atomically Reference Counted'.
 ///
 /// This implementation uses embassy-sync blocking Mutex for thread safety rather than atomic operations.
-pub struct Arc<T: ?Sized> {
-    ptr: NonNull<ArcInner<T>>,
-    phantom: PhantomData<ArcInner<T>>,
+pub struct Arc<T: ?Sized, M: RawMutex> {
+    ptr: NonNull<ArcInner<T, M>>,
+    phantom: PhantomData<ArcInner<T, M>>,
 }
 
-struct ArcInner<T: ?Sized, M: RawMutex = CriticalSectionRawMutex> {
+struct ArcInner<T: ?Sized, M: RawMutex> {
     count: Mutex<M, usize>,
     data: T,
 }
 
-unsafe impl<T: ?Sized + Sync + Send> Send for Arc<T> {}
-unsafe impl<T: ?Sized + Sync + Send> Sync for Arc<T> {}
+unsafe impl<T: ?Sized + Sync + Send, M: RawMutex> Send for Arc<T, M> {}
+unsafe impl<T: ?Sized + Sync + Send, M: RawMutex> Sync for Arc<T, M> {}
 
-impl<T> Arc<T> {
+impl<T, M: RawMutex> Arc<T, M> {
     /// Constructs a new `Arc<T>`.
     #[inline]
-    pub fn new(data: T) -> Arc<T> {
+    pub fn new(data: T) -> Arc<T, M> {
         let inner = Box::new(ArcInner {
             count: Mutex::new(1),
             data,
@@ -82,7 +82,7 @@ impl<T> Arc<T> {
     }
 }
 
-impl<T: ?Sized> Arc<T> {
+impl<T: ?Sized, M: RawMutex> Arc<T, M> {
     /// Gets the number of strong references to this value.
     #[inline]
     pub fn strong_count(this: &Self) -> usize {
@@ -100,7 +100,7 @@ impl<T: ?Sized> Arc<T> {
     }
 }
 
-impl<T: ?Sized> Clone for Arc<T> {
+impl<T: ?Sized, M: RawMutex> Clone for Arc<T, M> {
     #[inline]
     fn clone(&self) -> Self {
         let inner = unsafe { self.ptr.as_ref() };
@@ -115,7 +115,7 @@ impl<T: ?Sized> Clone for Arc<T> {
     }
 }
 
-impl<T: ?Sized> Deref for Arc<T> {
+impl<T: ?Sized, M: RawMutex> Deref for Arc<T, M> {
     type Target = T;
 
     #[inline]
@@ -125,7 +125,7 @@ impl<T: ?Sized> Deref for Arc<T> {
     }
 }
 
-impl<T: ?Sized> Drop for Arc<T> {
+impl<T: ?Sized, M: RawMutex> Drop for Arc<T, M> {
     #[inline]
     fn drop(&mut self) {
         let inner = unsafe { self.ptr.as_ref() };
@@ -142,42 +142,42 @@ impl<T: ?Sized> Drop for Arc<T> {
     }
 }
 
-impl<T: ?Sized + PartialEq> PartialEq for Arc<T> {
+impl<T: ?Sized + PartialEq, M: RawMutex> PartialEq for Arc<T, M> {
     #[inline]
-    fn eq(&self, other: &Arc<T>) -> bool {
+    fn eq(&self, other: &Arc<T, M>) -> bool {
         **self == **other
     }
 }
 
-impl<T: ?Sized + Eq> Eq for Arc<T> {}
+impl<T: ?Sized + Eq, M: RawMutex> Eq for Arc<T, M> {}
 
-impl<T: ?Sized + PartialOrd> PartialOrd for Arc<T> {
+impl<T: ?Sized + PartialOrd, M: RawMutex> PartialOrd for Arc<T, M> {
     #[inline]
-    fn partial_cmp(&self, other: &Arc<T>) -> Option<CmpOrdering> {
+    fn partial_cmp(&self, other: &Arc<T, M>) -> Option<CmpOrdering> {
         (**self).partial_cmp(&**other)
     }
 }
 
-impl<T: ?Sized + Ord> Ord for Arc<T> {
+impl<T: ?Sized + Ord, M: RawMutex> Ord for Arc<T, M> {
     #[inline]
-    fn cmp(&self, other: &Arc<T>) -> CmpOrdering {
+    fn cmp(&self, other: &Arc<T, M>) -> CmpOrdering {
         (**self).cmp(&**other)
     }
 }
 
-impl<T: ?Sized + Hash> Hash for Arc<T> {
+impl<T: ?Sized + Hash, M: RawMutex> Hash for Arc<T, M> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         (**self).hash(state)
     }
 }
 
-impl<T: ?Sized + fmt::Display> fmt::Display for Arc<T> {
+impl<T: ?Sized + fmt::Display, M: RawMutex> fmt::Display for Arc<T, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 
-impl<T: ?Sized + fmt::Debug> fmt::Debug for Arc<T> {
+impl<T: ?Sized + fmt::Debug, M: RawMutex> fmt::Debug for Arc<T, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
@@ -187,9 +187,11 @@ impl<T: ?Sized + fmt::Debug> fmt::Debug for Arc<T> {
 mod tests {
     use super::*;
 
+    use crate::blocking_mutex::raw::CriticalSectionRawMutex;
+
     #[test]
     fn test_arc_basic() {
-        let a = Arc::new(5);
+        let a = Arc::<_, CriticalSectionRawMutex>::new(5);
         assert_eq!(*a, 5);
 
         let b = Arc::clone(&a);
@@ -204,7 +206,7 @@ mod tests {
 
     #[test]
     fn test_arc_get_mut() {
-        let mut a = Arc::new(5);
+        let mut a = Arc::<_, CriticalSectionRawMutex>::new(5);
         assert_eq!(Arc::strong_count(&a), 1);
 
         *Arc::get_mut(&mut a).unwrap() = 10;
