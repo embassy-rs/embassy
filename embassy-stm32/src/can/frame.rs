@@ -212,6 +212,11 @@ impl Frame {
         &self.data.raw()[..self.can_header.len as usize]
     }
 
+    /// Get reference to underlying 8-byte raw data buffer
+    pub(crate) fn raw_data(&self) -> &[u8] {
+        self.data.raw()
+    }
+
     /// Get mutable reference to data
     pub fn data_mut(&mut self) -> &mut [u8] {
         &mut self.data.raw_mut()[..self.can_header.len as usize]
