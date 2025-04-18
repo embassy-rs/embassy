@@ -10,6 +10,8 @@ pub(crate) mod fmt;
 // internal use
 mod ring_buffer;
 
+#[cfg(feature = "alloc")]
+pub mod arc;
 pub mod blocking_mutex;
 pub mod channel;
 pub mod lazy_lock;
@@ -24,5 +26,3 @@ pub mod signal;
 pub mod waitqueue;
 pub mod watch;
 pub mod zerocopy_channel;
-#[cfg(feature = "alloc")]
-pub mod arc;
