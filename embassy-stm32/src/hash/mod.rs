@@ -101,6 +101,7 @@ pub enum DataType {
 
 /// Stores the state of the HASH peripheral for suspending/resuming
 /// digest calculation.
+#[derive(Clone)]
 pub struct Context<'c> {
     first_word_sent: bool,
     key_sent: bool,
