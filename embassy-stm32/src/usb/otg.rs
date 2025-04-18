@@ -335,7 +335,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         // Configuring Vbus sense and SOF output
         match core_id {
-            0x0000_1200 | 0x0000_1100 => self.inner.config_v1(),
+            0x0000_1200 | 0x0000_1100 | 0x0000_1000 => self.inner.config_v1(),
             0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => self.inner.config_v2v3(),
             0x0000_5000 => self.inner.config_v5(),
             _ => unimplemented!("Unknown USB core id {:X}", core_id),
