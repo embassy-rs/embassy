@@ -24,3 +24,5 @@ pub mod signal;
 pub mod waitqueue;
 pub mod watch;
 pub mod zerocopy_channel;
+#[cfg(feature = "alloc")]
+pub mod arc;

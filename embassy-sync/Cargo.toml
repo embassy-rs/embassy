@@ -20,8 +20,9 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/
 target = "thumbv7em-none-eabi"
 
 [features]
-std = []
+std = ["alloc"]
 turbowakers = []
+alloc = []
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
