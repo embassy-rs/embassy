@@ -186,7 +186,6 @@ impl<T: ?Sized + fmt::Debug, M: RawMutex> fmt::Debug for Arc<T, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use crate::blocking_mutex::raw::CriticalSectionRawMutex;
 
     #[test]
