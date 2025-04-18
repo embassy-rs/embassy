@@ -316,7 +316,6 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(dsihost)]
         dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
 
-        hsi_div488: hsi.map(|hsi| hsi/488u32),
         hsi_hse: None,
         afif: None,
     );

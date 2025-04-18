@@ -345,10 +345,8 @@ pub(crate) unsafe fn init(config: Config) {
         lse: lse,
         lsi: lsi,
         hse: hse,
-        hse_div_2: hse.map(|clk| clk / 2u32),
         hsi: hsi,
         pll1_p: pll1.p,
-        pll1_p_div_2: pll1.p.map(|clk| clk / 2u32),
         pll1_q: pll1.q,
         pll1_r: pll1.r,
         pll2_p: pll2.p,
@@ -363,9 +361,7 @@ pub(crate) unsafe fn init(config: Config) {
 
         // TODO
         audioclk: None,
-        hsi48_div_2: None,
         shsi: None,
-        shsi_div_2: None,
     );
 }
 

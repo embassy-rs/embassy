@@ -687,7 +687,6 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: hsi,
         hsi48: hsi48,
         csi: csi,
-        csi_div_122: csi.map(|c| c / 122u32),
         hse: hse,
 
         lse: None,
@@ -726,9 +725,9 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(stm32h7rs)]
         clk48mohci: None, // TODO
         #[cfg(stm32h7rs)]
-        hse_div_2: hse.map(|clk| clk / 2u32),
-        #[cfg(stm32h7rs)]
         usb: Some(Hertz(48_000_000)),
+        #[cfg(stm32h5)]
+        hse_div_rtcpre: None, // TODO
     );
 }
 
