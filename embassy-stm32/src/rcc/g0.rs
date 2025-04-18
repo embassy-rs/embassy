@@ -309,8 +309,6 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(crs)]
         hsi48: hsi48,
         rtc: rtc,
-        hsi_div_8: hsi.map(|h| h / 8u32),
-        hsi_div_488: hsi.map(|h| h / 488u32),
 
         // TODO
         lsi: None,

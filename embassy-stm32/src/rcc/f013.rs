@@ -289,9 +289,6 @@ pub(crate) unsafe fn init(config: Config) {
         out_freq
     });
 
-    #[cfg(stm32f3)]
-    let pll_mul_2 = pll.map(|pll| pll * 2u32);
-
     #[cfg(any(rcc_f1, rcc_f1cl, stm32f3, stm32f107))]
     let usb = match pll {
         Some(Hertz(72_000_000)) => Some(crate::pac::rcc::vals::Usbpre::DIV1_5),
@@ -483,9 +480,6 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: hsi,
         hse: hse,
         pll1_p: pll,
-        #[cfg(stm32f3)]
-        pll1_p_mul_2: pll_mul_2,
-        hsi_div_244: hsi.map(|h| h / 244u32),
         sys: Some(sys),
         pclk1: Some(pclk1),
         pclk2: Some(pclk2),

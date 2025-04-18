@@ -396,7 +396,7 @@ pub(crate) unsafe fn init(config: Config) {
         hsi48: hsi48,
 
         #[cfg(any(stm32l0, stm32l1))]
-        pll1_vco_div_2: pll.vco.map(|c| c/2u32),
+        pll1_vco: pll.vco,
 
         #[cfg(not(any(stm32l0, stm32l1)))]
         pll1_p: pll.p,
