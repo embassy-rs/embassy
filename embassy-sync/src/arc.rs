@@ -239,12 +239,10 @@ impl<T: ?Sized, M: RawMutex> Drop for Arc<T, M> {
                 *count == 0
             });
 
+            // SAFETY: We know this is the last strong reference, so it's safe to drop the data
             if should_drop {
-                // SAFETY: We know this is the last strong reference, so it's safe to drop the data
-                unsafe {
-                    // Drop the inner data first
-                    core::ptr::drop_in_place(&mut self.ptr.as_mut().data);
-                }
+                // Drop the inner data first
+                core::ptr::drop_in_place(&mut self.ptr.as_mut().data);
 
                 // Now check if we should deallocate the memory
                 let should_dealloc = inner.weak.lock_mut(|count| {
@@ -252,12 +250,10 @@ impl<T: ?Sized, M: RawMutex> Drop for Arc<T, M> {
                     *count == 0
                 });
 
+                // SAFETY: Both strong and weak counts are zero, so we can deallocate
                 if should_dealloc {
-                    // SAFETY: Both strong and weak counts are zero, so we can deallocate
-                    unsafe {
-                        // Convert to Box and drop to properly deallocate
-                        let _ = Box::from_raw(self.ptr.as_ptr());
-                    }
+                    // Convert to Box and drop to properly deallocate
+                    let _ = Box::from_raw(self.ptr.as_ptr());
                 }
             }
         };
@@ -324,12 +320,10 @@ impl<T: ?Sized, M: RawMutex> Drop for Weak<T, M> {
                 *count == 0
             });
 
+            // SAFETY: There are no more references, either strong or weak, so we can deallocate
             if should_dealloc {
-                // SAFETY: There are no more references, either strong or weak, so we can deallocate
-                unsafe {
-                    // Convert to Box and drop to properly deallocate
-                    let _ = Box::from_raw(self.ptr.as_ptr());
-                }
+                // Convert to Box and drop to properly deallocate
+                let _ = Box::from_raw(self.ptr.as_ptr());
             }
         };
     }
