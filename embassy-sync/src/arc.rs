@@ -8,7 +8,6 @@
 use core::cmp::Ordering as CmpOrdering;
 use core::fmt;
 use core::hash::{Hash, Hasher};
-use core::marker::PhantomData;
 use core::ops::Deref;
 use core::ptr::NonNull;
 
@@ -23,7 +22,6 @@ use crate::blocking_mutex::Mutex;
 /// This implementation uses embassy-sync blocking Mutex for thread safety rather than atomic operations.
 pub struct Arc<T: ?Sized, M: RawMutex> {
     ptr: NonNull<ArcInner<T, M>>,
-    phantom: PhantomData<ArcInner<T, M>>,
 }
 
 struct ArcInner<T: ?Sized, M: RawMutex> {
@@ -45,7 +43,6 @@ impl<T, M: RawMutex> Arc<T, M> {
 
         Arc {
             ptr: NonNull::new(Box::into_raw(inner)).unwrap(),
-            phantom: PhantomData,
         }
     }
 
@@ -108,10 +105,7 @@ impl<T: ?Sized, M: RawMutex> Clone for Arc<T, M> {
             inner.count.lock_mut(|count| *count += 1);
         }
 
-        Self {
-            ptr: self.ptr,
-            phantom: PhantomData,
-        }
+        Self { ptr: self.ptr }
     }
 }
 
