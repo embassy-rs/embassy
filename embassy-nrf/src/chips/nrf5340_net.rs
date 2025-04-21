@@ -299,6 +299,8 @@ impl_radio!(RADIO, RADIO, RADIO);
 
 impl_egu!(EGU0, EGU0, EGU0);
 
+impl_wdt!(WDT, WDT, WDT, 0);
+
 embassy_hal_internal::interrupt_mod!(
     CLOCK_POWER,
     RADIO,

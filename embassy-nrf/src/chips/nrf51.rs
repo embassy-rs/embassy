@@ -145,6 +145,8 @@ impl_pin!(P0_31, 0, 31);
 
 impl_radio!(RADIO, RADIO, RADIO);
 
+impl_wdt!(WDT, WDT, WDT, 0);
+
 embassy_hal_internal::interrupt_mod!(
     CLOCK_POWER,
     RADIO,

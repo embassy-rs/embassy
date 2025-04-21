@@ -109,7 +109,7 @@ nrf9161-ns = ["nrf9120-ns"]
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
 
-_nrf5340-app = ["_nrf5340", "nrf-pac/nrf5340-app"]
+_nrf5340-app = ["_nrf5340", "_multi_wdt", "nrf-pac/nrf5340-app"]
 _nrf5340-net = ["_nrf5340", "nrf-pac/nrf5340-net"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf54l15-app = ["_nrf54l15", "nrf-pac/nrf54l15-app"]
@@ -135,6 +135,9 @@ _gpio-p2 = []
 
 # Errata workarounds
 _nrf52832_anomaly_109 = []
+
+# watchdog timer
+_multi_wdt = []
 
 [dependencies]
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }

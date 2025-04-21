@@ -171,7 +171,8 @@ embassy_hal_internal::peripherals! {
     RTC1,
 
     // WDT
-    WDT,
+    WDT0,
+    WDT1,
 
     // NVMC
     NVMC,
@@ -472,6 +473,9 @@ impl_egu!(EGU2, EGU2, EGU2);
 impl_egu!(EGU3, EGU3, EGU3);
 impl_egu!(EGU4, EGU4, EGU4);
 impl_egu!(EGU5, EGU5, EGU5);
+
+impl_wdt!(WDT0, WDT0, WDT0, 0);
+impl_wdt!(WDT1, WDT1, WDT1, 1);
 
 embassy_hal_internal::interrupt_mod!(
     FPU,
