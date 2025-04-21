@@ -120,7 +120,7 @@ impl<T: Instance> Watchdog<T> {
 
         let mut handles = [const { WatchdogHandle { index: 0 } }; N];
         for i in 0..N {
-            handles[i] = unsafe { WatchdogHandle::steal(T::INDEX, i as u8) };
+            handles[i] = unsafe { WatchdogHandle::steal::<T>(i as u8) };
             handles[i].pet();
         }
 
@@ -202,18 +202,18 @@ impl WatchdogHandle {
     /// Steal a watchdog handle by index.
     ///
     /// # Safety
-    /// Watchdog must be initialized, `instance_index` must be the index
-    /// [`Instance::INDEX`], and `index` must be between `0` and `N-1` where `N`
-    /// is the handle count when initializing.
-    pub unsafe fn steal(instance_index: u8, index: u8) -> Self {
+    /// Watchdog must be initialized and `index` must be between `0` and `N-1`
+    /// where `N` is the handle count when initializing.
+    pub unsafe fn steal<T: Instance>(index: u8) -> Self {
         Self {
-            index: instance_index * 8 + index,
+            index: T::INDEX * 8 + index,
         }
     }
 }
 
 pub(crate) trait SealedInstance {
     const REGS: pac::wdt::Wdt;
+    const INDEX: u8;
 }
 
 /// WDT instance.
@@ -221,18 +221,16 @@ pub(crate) trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
-    /// Index of the watchdog instance.
-    const INDEX: u8;
 }
 
 macro_rules! impl_wdt {
     ($type:ident, $pac_type:ident, $irq:ident, $index:literal) => {
         impl crate::wdt::SealedInstance for peripherals::$type {
             const REGS: pac::wdt::Wdt = pac::$pac_type;
+            const INDEX: u8 = $index;
         }
         impl crate::wdt::Instance for peripherals::$type {
             type Interrupt = crate::interrupt::typelevel::$irq;
-            const INDEX: u8 = $index;
         }
     };
 }
