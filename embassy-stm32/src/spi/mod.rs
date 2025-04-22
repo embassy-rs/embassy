@@ -284,6 +284,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         {
+            self.info.regs.cr1().modify(|w| {
+                w.set_spe(false);
+            });
+
             self.info.regs.cfg2().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
@@ -291,6 +295,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             });
             self.info.regs.cfg1().modify(|w| {
                 w.set_mbr(br);
+            });
+
+            self.info.regs.cr1().modify(|w| {
+                w.set_spe(true);
             });
         }
         Ok(())
