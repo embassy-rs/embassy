@@ -586,7 +586,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         self.send_setup(setup).await?;
 
         // Data stage
-        self.request_out(&buf[..setup.length as usize]).await?
+        self.request_out(&buf[..setup.length as usize]).await?;
 
         // Status stage
         self.control_status(true).await?;
