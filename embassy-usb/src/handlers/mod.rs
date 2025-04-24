@@ -103,7 +103,7 @@ impl EnumerationInfo {
         ))?;
 
         channel
-            .request_descriptor_bytes::<ConfigurationDescriptor>(index, cfg_desc_buf)
+            .request_descriptor_bytes(ConfigurationDescriptor::DESC_TYPE, index, cfg_desc_buf)
             .await?;
 
         let cfg_desc =
@@ -134,7 +134,7 @@ impl EnumerationInfo {
         let dest_buffer = &mut cfg_desc_buf[0..total_len];
 
         channel
-            .request_descriptor_bytes::<ConfigurationDescriptor>(index, dest_buffer)
+            .request_descriptor_bytes(ConfigurationDescriptor::DESC_TYPE, index, dest_buffer)
             .await?;
 
         trace!(
