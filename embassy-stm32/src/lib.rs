@@ -616,3 +616,31 @@ fn init_hw(config: Config) -> Peripherals {
         p
     })
 }
+
+
+/// Re-initialize the `embassy-stm32` clock configuration with the provided configuration.
+///
+/// This is useful when you need to alter the CPU clock after configuring peripherals.
+/// For instance, configure an external clock via spi or i2c.
+///
+/// Please not this only re-configures the rcc and the time driver (not GPIO, EXTI, etc).
+///
+/// This should only be called after `init`.
+#[cfg(not(feature = "_dual-core"))]
+pub fn reinitialize_rcc(config: Config) {
+    critical_section::with(|cs| {
+        unsafe {
+            rcc::init(config.rcc);
+
+            // must be after rcc init
+            #[cfg(feature = "_time-driver")]
+            time_driver::init(cs);
+
+            #[cfg(feature = "low-power")]
+            {
+                crate::rcc::REFCOUNT_STOP2 = 0;
+                crate::rcc::REFCOUNT_STOP1 = 0;
+            }
+        }
+    })
+}
