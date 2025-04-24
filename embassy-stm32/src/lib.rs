@@ -222,6 +222,7 @@ pub(crate) use stm32_metapac as pac;
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
+use critical_section::CriticalSection;
 
 /// `embassy-stm32` global configuration.
 #[non_exhaustive]
@@ -600,17 +601,7 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(feature = "exti")]
             exti::init(cs);
 
-            rcc::init(config.rcc);
-
-            // must be after rcc init
-            #[cfg(feature = "_time-driver")]
-            time_driver::init(cs);
-
-            #[cfg(feature = "low-power")]
-            {
-                crate::rcc::REFCOUNT_STOP2 = 0;
-                crate::rcc::REFCOUNT_STOP1 = 0;
-            }
+            init_rcc(cs, config.rcc);
         }
 
         p
@@ -626,20 +617,23 @@ fn init_hw(config: Config) -> Peripherals {
 ///
 /// This should only be called after `init`.
 #[cfg(not(feature = "_dual-core"))]
-pub fn reinitialize_rcc(config: Config) {
-    critical_section::with(|_cs| {
-        unsafe {
-            rcc::init(config.rcc);
+pub fn reinit(config: rcc::Config) {
+    critical_section::with(|cs| init_rcc(cs, config))
+}
 
-            // must be after rcc init
-            #[cfg(feature = "_time-driver")]
-            time_driver::init(_cs);
+#[cfg(not(feature = "_dual-core"))]
+fn init_rcc(_cs: CriticalSection, config: rcc::Config) {
+    unsafe {
+        rcc::init(config);
 
-            #[cfg(feature = "low-power")]
-            {
-                crate::rcc::REFCOUNT_STOP2 = 0;
-                crate::rcc::REFCOUNT_STOP1 = 0;
-            }
+        // must be after rcc init
+        #[cfg(feature = "_time-driver")]
+        time_driver::init(_cs);
+
+        #[cfg(feature = "low-power")]
+        {
+            crate::rcc::REFCOUNT_STOP2 = 0;
+            crate::rcc::REFCOUNT_STOP1 = 0;
         }
-    })
+    }
 }
