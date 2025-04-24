@@ -213,7 +213,6 @@ macro_rules! bind_interrupts {
 
 // Reexports
 pub use _generated::{peripherals, Peripherals};
-#[cfg(not(feature = "_dual-core"))]
 use critical_section::CriticalSection;
 pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
@@ -622,7 +621,6 @@ pub fn reinit(config: rcc::Config) {
     critical_section::with(|cs| init_rcc(cs, config))
 }
 
-#[cfg(not(feature = "_dual-core"))]
 fn init_rcc(_cs: CriticalSection, config: rcc::Config) {
     unsafe {
         rcc::init(config);
