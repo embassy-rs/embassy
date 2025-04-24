@@ -617,7 +617,6 @@ fn init_hw(config: Config) -> Peripherals {
     })
 }
 
-
 /// Re-initialize the `embassy-stm32` clock configuration with the provided configuration.
 ///
 /// This is useful when you need to alter the CPU clock after configuring peripherals.
