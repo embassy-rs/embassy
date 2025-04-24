@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 - Modify BufferedUart initialization to take pins before interrupts ([#3983](https://github.com/embassy-rs/embassy/pull/3983))
+- Added a 'single-bank' and a 'dual-bank' feature so chips with configurable flash bank setups can be supported in embassy. The G4 series now supports this. ([#4125](https://github.com/embassy-rs/embassy/pull/4125))
 
 ## 0.2.0 - 2025-01-10
 
