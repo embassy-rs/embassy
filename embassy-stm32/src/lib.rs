@@ -213,6 +213,7 @@ macro_rules! bind_interrupts {
 
 // Reexports
 pub use _generated::{peripherals, Peripherals};
+#[cfg(not(feature = "_dual-core"))]
 use critical_section::CriticalSection;
 pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
