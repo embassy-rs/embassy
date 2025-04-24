@@ -134,6 +134,26 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         }
     }
 
+    /// Disable the UART receiver, if disabled in the middle of a reception, it will complete the current character
+    pub fn disable_rx(&mut self) {
+        UartRx::<'d, T, Async>::disable_inner();
+    }
+
+    /// Enable the UART receiver
+    pub fn enable_rx(&mut self) {
+        UartRx::<'d, T, Async>::enable_inner();
+    }
+
+    /// Disable the UART transmitter, if disabled in the middle of a transmission, it will complete the current character
+    pub fn disable_tx(&mut self) {
+        UartTx::<'d, T, Async>::disable_inner();
+    }
+
+    /// Enable the UART transmitter
+    pub fn enable_tx(&mut self) {
+        UartTx::<'d, T, Async>::enable_inner();
+    }
+
     /// Write to UART TX buffer blocking execution until done.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<usize, Error> {
         self.tx.blocking_write(buffer)
