@@ -213,6 +213,7 @@ macro_rules! bind_interrupts {
 
 // Reexports
 pub use _generated::{peripherals, Peripherals};
+use critical_section::CriticalSection;
 pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
@@ -222,7 +223,6 @@ pub(crate) use stm32_metapac as pac;
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
-use critical_section::CriticalSection;
 
 /// `embassy-stm32` global configuration.
 #[non_exhaustive]
