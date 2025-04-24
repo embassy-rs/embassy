@@ -627,13 +627,13 @@ fn init_hw(config: Config) -> Peripherals {
 /// This should only be called after `init`.
 #[cfg(not(feature = "_dual-core"))]
 pub fn reinitialize_rcc(config: Config) {
-    critical_section::with(|cs| {
+    critical_section::with(|_cs| {
         unsafe {
             rcc::init(config.rcc);
 
             // must be after rcc init
             #[cfg(feature = "_time-driver")]
-            time_driver::init(cs);
+            time_driver::init(_cs);
 
             #[cfg(feature = "low-power")]
             {
