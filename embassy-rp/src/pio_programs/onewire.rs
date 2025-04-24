@@ -27,8 +27,9 @@ impl<'a, PIO: Instance> PioOneWireProgram<'a, PIO> {
                 .origin 0
 
                 ; Tick rate is 1 tick per 6us, so all delays should be calculated back to that
-                ; All the instructions have a calculated delay in [], -1 for the instruction
-                ; The delay also be 0 which will take 6us for the instruction itself
+                ; All the instructions have a calculated delay XX in us as [(XX / CLK) - 1].
+                ; The - 1 is for the instruction which also takes one clock cyle.
+                ; The delay can be 0 which will result in just 6us for the instruction itself
                 .define CLK 6
 
                 ; Write the reset block after trigger
@@ -98,16 +99,13 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         cfg.use_program(&program.prg, &[&pin]);
         cfg.set_in_pins(&[&pin]);
 
-        cfg.shift_in = ShiftConfig {
+        let shift_cfg = ShiftConfig {
             auto_fill: true,
             direction: ShiftDirection::Right,
             threshold: 8,
         };
-        cfg.shift_out = ShiftConfig {
-            auto_fill: true,
-            direction: ShiftDirection::Right,
-            threshold: 8,
-        };
+        cfg.shift_in = shift_cfg;
+        cfg.shift_out = shift_cfg;
 
         let divider = (clk_sys_freq() / 1000000) as u16 * 6;
         cfg.clock_divider = divider.into();
