@@ -37,20 +37,10 @@ enum OpAmpDifferentialPair {
 
 /// Speed
 #[allow(missing_docs)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum OpAmpSpeed {
     Normal,
     HighSpeed,
-}
-
-#[cfg(opamp_g4)]
-impl From<OpAmpSpeed> for crate::pac::opamp::vals::Opahsm {
-    fn from(v: OpAmpSpeed) -> Self {
-        match v {
-            OpAmpSpeed::Normal => crate::pac::opamp::vals::Opahsm::NORMAL,
-            OpAmpSpeed::HighSpeed => crate::pac::opamp::vals::Opahsm::HIGH_SPEED,
-        }
-    }
 }
 
 /// OpAmp external outputs, wired to a GPIO pad.
@@ -80,7 +70,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     pub fn new(opamp: Peri<'d, T>, #[cfg(opamp_g4)] speed: OpAmpSpeed) -> Self {
         #[cfg(opamp_g4)]
         T::regs().csr().modify(|w| {
-            w.set_opahsm(speed.into());
+            w.set_opahsm(speed == OpAmpSpeed::HighSpeed);
         });
 
         Self { _inner: opamp }
@@ -113,7 +103,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
             w.set_vm_sel(vm_sel);
             #[cfg(opamp_g4)]
-            w.set_opaintoen(Opaintoen::OUTPUT_PIN);
+            w.set_opaintoen(false);
             w.set_opampen(true);
         });
 
@@ -166,7 +156,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             w.set_vm_sel(vm_sel);
             w.set_pga_gain(pga_gain);
             #[cfg(opamp_g4)]
-            w.set_opaintoen(Opaintoen::OUTPUT_PIN);
+            w.set_opaintoen(false);
             w.set_opampen(true);
         });
 
@@ -189,7 +179,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
             w.set_vm_sel(VmSel::OUTPUT);
             w.set_vp_sel(VpSel::DAC3_CH1);
-            w.set_opaintoen(Opaintoen::OUTPUT_PIN);
+            w.set_opaintoen(false);
             w.set_opampen(true);
         });
 
@@ -215,7 +205,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             w.set_vp_sel(VpSel::from_bits(pin.channel()));
             w.set_vm_sel(VmSel::OUTPUT);
             #[cfg(opamp_g4)]
-            w.set_opaintoen(Opaintoen::ADCCHANNEL);
+            w.set_opaintoen(true);
             w.set_opampen(true);
         });
 
@@ -251,7 +241,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             w.set_vp_sel(VpSel::from_bits(pin.channel()));
             w.set_vm_sel(VmSel::OUTPUT);
             w.set_pga_gain(pga_gain);
-            w.set_opaintoen(Opaintoen::ADCCHANNEL);
+            w.set_opaintoen(true);
             w.set_opampen(true);
         });
 
@@ -278,7 +268,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             use crate::pac::opamp::vals::*;
             w.set_vp_sel(VpSel::DAC3_CH1); // Actually DAC3_CHx
             w.set_vm_sel(VmSel::from_bits(m_pin.channel()));
-            w.set_opaintoen(Opaintoen::ADCCHANNEL);
+            w.set_opaintoen(true);
             w.set_opampen(true);
         });
 
@@ -308,7 +298,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             use crate::pac::opamp::vals::*;
             w.set_vp_sel(VpSel::DAC3_CH1); // Actually DAC3_CHx
             w.set_vm_sel(VmSel::from_bits(m_pin.channel()));
-            w.set_opaintoen(Opaintoen::OUTPUT_PIN);
+            w.set_opaintoen(false);
             w.set_opampen(true);
         });
 
@@ -340,7 +330,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             use crate::pac::opamp::vals::*;
             w.set_vp_sel(VpSel::from_bits(p_pin.channel()));
             w.set_vm_sel(VmSel::from_bits(m_pin.channel()));
-            w.set_opaintoen(Opaintoen::OUTPUT_PIN);
+            w.set_opaintoen(false);
             w.set_opampen(true);
         });
 
@@ -369,7 +359,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             use crate::pac::opamp::vals::*;
             w.set_vp_sel(VpSel::from_bits(p_pin.channel()));
             w.set_vm_sel(VmSel::from_bits(m_pin.channel()));
-            w.set_opaintoen(Opaintoen::ADCCHANNEL);
+            w.set_opaintoen(true);
             w.set_opampen(true);
         });
 
@@ -389,17 +379,14 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         T::regs().csr().modify(|w| {
             w.set_opampen(true);
             w.set_calon(true);
-            w.set_usertrim(Usertrim::USER);
+            w.set_usertrim(true);
         });
 
-        match T::regs().csr().read().opahsm() {
-            Opahsm::NORMAL => {
-                self.calibrate_differential_pair(OpAmpDifferentialPair::P);
-                self.calibrate_differential_pair(OpAmpDifferentialPair::N);
-            }
-            Opahsm::HIGH_SPEED => {
-                self.calibrate_differential_pair(OpAmpDifferentialPair::P);
-            }
+        if T::regs().csr().read().opahsm() {
+            self.calibrate_differential_pair(OpAmpDifferentialPair::P);
+        } else {
+            self.calibrate_differential_pair(OpAmpDifferentialPair::P);
+            self.calibrate_differential_pair(OpAmpDifferentialPair::N);
         }
 
         T::regs().csr().modify(|w| {
@@ -448,7 +435,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             // (with a maximum stabilization time remaining below 2 ms in any case) -- RM0440 25.3.7
             blocking_delay_ms(2);
 
-            if T::regs().csr().read().outcal() == Outcal::LOW {
+            if !T::regs().csr().read().calout() {
                 if mid == 0 {
                     break;
                 }
