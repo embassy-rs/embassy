@@ -20,6 +20,10 @@ pub struct Flash<'d, MODE = Async> {
 impl<'d> Flash<'d, Blocking> {
     /// Create a new flash driver, usable in blocking mode.
     pub fn new_blocking(p: Peri<'d, FLASH>) -> Self {
+        #[cfg(bank_setup_configurable)]
+        // Check if the configuration matches the embassy setup
+        super::check_bank_setup();
+
         Self {
             inner: p,
             _mode: PhantomData,
