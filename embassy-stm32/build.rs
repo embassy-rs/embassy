@@ -50,6 +50,48 @@ fn main() {
     }
 
     // ========
+    // Select the memory variant to use
+    let memory = {
+        let single_bank_selected = env::var("CARGO_FEATURE_SINGLE_BANK").is_ok();
+        let dual_bank_selected = env::var("CARGO_FEATURE_DUAL_BANK").is_ok();
+
+        let single_bank_memory = METADATA.memory.iter().find(|mem| {
+            mem.iter()
+                .filter(|region| region.kind == MemoryRegionKind::Flash)
+                .count()
+                == 1
+        });
+
+        let dual_bank_memory = METADATA.memory.iter().find(|mem| {
+            mem.iter()
+                .filter(|region| region.kind == MemoryRegionKind::Flash)
+                .count()
+                == 2
+        });
+
+        cfgs.set(
+            "bank_setup_configurable",
+            single_bank_memory.is_some() && dual_bank_memory.is_some(),
+        );
+
+        match (single_bank_selected, dual_bank_selected) {
+            (true, true) => panic!("Both 'single-bank' and 'dual-bank' features enabled"),
+            (true, false) => {
+                single_bank_memory.expect("The 'single-bank' feature is not supported on this dual bank chip")
+            }
+            (false, true) => {
+                dual_bank_memory.expect("The 'dual-bank' feature is not supported on this single bank chip")
+            }
+            (false, false) => {
+                if METADATA.memory.len() != 1 {
+                    panic!("Chip supports single and dual bank configuration. No Cargo feature to select one is enabled. Use the 'single-bank' or 'dual-bank' feature to make your selection")
+                }
+                METADATA.memory[0]
+            }
+        }
+    };
+
+    // ========
     // Generate singletons
 
     let mut singletons: Vec<String> = Vec::new();
@@ -290,8 +332,7 @@ fn main() {
     // ========
     // Generate FLASH regions
     let mut flash_regions = TokenStream::new();
-    let flash_memory_regions: Vec<_> = METADATA
-        .memory
+    let flash_memory_regions: Vec<_> = memory
         .iter()
         .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
         .collect();
@@ -1616,8 +1657,7 @@ fn main() {
     let mut pins_table: Vec<Vec<String>> = Vec::new();
     let mut adc_table: Vec<Vec<String>> = Vec::new();
 
-    for m in METADATA
-        .memory
+    for m in memory
         .iter()
         .filter(|m| m.kind == MemoryRegionKind::Flash && m.settings.is_some())
     {
@@ -1855,8 +1895,7 @@ fn main() {
     // ========
     // Generate flash constants
 
-    let flash_regions: Vec<&MemoryRegion> = METADATA
-        .memory
+    let flash_regions: Vec<&MemoryRegion> = memory
         .iter()
         .filter(|x| x.kind == MemoryRegionKind::Flash && x.name.starts_with("BANK_"))
         .collect();
@@ -1981,7 +2020,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     if cfg!(feature = "memory-x") {
-        gen_memory_x(out_dir);
+        gen_memory_x(memory, out_dir);
         println!("cargo:rustc-link-search={}", out_dir.display());
     }
 }
@@ -2070,11 +2109,11 @@ fn rustfmt(path: impl AsRef<Path>) {
     }
 }
 
-fn gen_memory_x(out_dir: &Path) {
+fn gen_memory_x(memory: &[MemoryRegion], out_dir: &Path) {
     let mut memory_x = String::new();
 
-    let flash = get_memory_range(MemoryRegionKind::Flash);
-    let ram = get_memory_range(MemoryRegionKind::Ram);
+    let flash = get_memory_range(memory, MemoryRegionKind::Flash);
+    let ram = get_memory_range(memory, MemoryRegionKind::Ram);
 
     write!(memory_x, "MEMORY\n{{\n").unwrap();
     writeln!(
@@ -2098,12 +2137,8 @@ fn gen_memory_x(out_dir: &Path) {
     std::fs::write(out_dir.join("memory.x"), memory_x.as_bytes()).unwrap();
 }
 
-fn get_memory_range(kind: MemoryRegionKind) -> (u32, u32, String) {
-    let mut mems: Vec<_> = METADATA
-        .memory
-        .iter()
-        .filter(|m| m.kind == kind && m.size != 0)
-        .collect();
+fn get_memory_range(memory: &[MemoryRegion], kind: MemoryRegionKind) -> (u32, u32, String) {
+    let mut mems: Vec<_> = memory.iter().filter(|m| m.kind == kind && m.size != 0).collect();
     mems.sort_by_key(|m| m.address);
 
     let mut start = u32::MAX;
