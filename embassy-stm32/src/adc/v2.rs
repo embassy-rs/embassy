@@ -1,10 +1,11 @@
+use stm32_metapac::adc::regs::{Cr1, Cr2, Dr, Sr};
+use stm32_metapac::common::{Reg, R, RW};
+
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::{rcc, Peri};
-use stm32_metapac::adc::regs::{Cr1, Cr2, Dr, Sr};
-use stm32_metapac::common::{Reg, R, RW};
 
 mod ringbuffered_v2;
 pub use ringbuffered_v2::{RingBufferedAdc, Sequence};
