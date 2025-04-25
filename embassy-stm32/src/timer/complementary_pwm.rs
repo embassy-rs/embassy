@@ -300,7 +300,7 @@ mod tests {
             TestRun {
                 value: 400,
                 ckd: Ckd::DIV1,
-                bits: 32 + (400u16 / 8) as u8,
+                bits: 210,
             },
             TestRun {
                 value: 600,
