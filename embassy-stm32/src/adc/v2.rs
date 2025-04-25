@@ -3,6 +3,8 @@ use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::{rcc, Peri};
+use stm32_metapac::adc::regs::{Cr1, Cr2, Dr, Sr};
+use stm32_metapac::common::{Reg, R, RW};
 
 mod ringbuffered_v2;
 pub use ringbuffered_v2::{RingBufferedAdc, Sequence};
@@ -111,6 +113,25 @@ where
             sample_time: SampleTime::from_bits(0),
         }
     }
+    /// Get access to the cr1 adc registers.
+    pub fn regs_cr1(&self) -> Reg<Cr1, RW> {
+        T::regs().cr1()
+    }
+
+    /// Get access to the cr2 adc registers.
+    pub fn regs_cr2(&self) -> Reg<Cr2, RW> {
+        T::regs().cr2()
+    }
+
+    /// Get access to the sr adc registers.
+    pub fn regs_sr(&self) -> Reg<Sr, RW> {
+        T::regs().sr()
+    }
+
+    /// Get access to the dr adc registers.
+    pub fn regs_dr(&self) -> Reg<Dr, R> {
+        T::regs().dr()
+    }
 
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
         self.sample_time = sample_time;
@@ -175,7 +196,7 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn setup_channel(&mut self, channel: &mut impl AdcChannel<T>) {
         channel.setup();
 
         // Configure ADC
@@ -186,7 +207,10 @@ where
 
         // Configure channel
         Self::set_channel_sample_time(channel, self.sample_time);
+    }
 
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+        self.setup_channel(channel);
         self.convert()
     }
 
