@@ -22,6 +22,10 @@ impl<M: RawMutex> GenericAtomicWaker<M> {
         self.waker.lock(|cell| {
             cell.set(match cell.replace(None) {
                 Some(w2) if (w2.will_wake(w)) => Some(w2),
+                Some(w2) => {
+                    w2.wake();
+                    Some(w.clone())
+                }
                 _ => Some(w.clone()),
             })
         })
