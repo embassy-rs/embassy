@@ -203,14 +203,31 @@ impl<'d, T: Instance> HardwareSemaphore<'d, T> {
     /// carried out from the HSEM_RLRx register.
     pub fn one_step_lock(&mut self, sem_id: SemId) -> Result<(), HsemError> {
         let reg = T::regs().rlr(sem_id.into()).read();
+        trace!(
+            "RLR (bits: 0x{:x}) - lock: {}, coreid: {}, procid: {}",
+            reg.0,
+            reg.lock(),
+            reg.coreid(),
+            reg.procid()
+        );
 
         match (
             reg.lock(),
             reg.coreid() == RlrCoreId::from(CoreId::get_current()) as u8,
             reg.procid(),
         ) {
-            (true, true, 0) => Ok(()),
-            _ => Err(HsemError::LockFailed),
+            (true, true, 0) => {
+                trace!(
+                    "Locked successfully (coreid: {}, procid: {})",
+                    reg.coreid(),
+                    reg.procid()
+                );
+                Ok(())
+            }
+            _ => {
+                trace!("Failed to lock (coreid: {}, procid: {})", reg.coreid(), reg.procid());
+                Err(HsemError::LockFailed)
+            }
         }
     }
 

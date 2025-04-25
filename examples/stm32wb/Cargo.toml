@@ -27,6 +27,7 @@ static_cell = "2"
 default = ["ble", "mac"]
 mac = ["embassy-stm32-wpan/mac", "dep:embassy-net"]
 ble = ["embassy-stm32-wpan/ble"]
+low-power = ["embassy-stm32/low-power"]
 
 [[bin]] 
 name = "tl_mbox_ble"
@@ -51,6 +52,10 @@ required-features = ["ble"]
 [[bin]] 
 name = "gatt_server"
 required-features = ["ble"]
+
+[[bin]]
+name = "low_power"
+required-features = ["low-power"]
 
 [profile.release]
 debug = 2
