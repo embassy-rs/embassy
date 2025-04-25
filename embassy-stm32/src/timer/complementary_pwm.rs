@@ -240,11 +240,11 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
         let (these_bits, result) = if target < 128 {
             (target as u8, target)
         } else if target < 255 {
-            (64 + (target / 2) as u8, (target - target % 2))
+            ((64 + (target / 2) as u8) | 128, (target - target % 2))
         } else if target < 508 {
-            (32 + (target / 8) as u8, (target - target % 8))
+            ((32 + (target / 8) as u8) | 192, (target - target % 8))
         } else if target < 1008 {
-            (32 + (target / 16) as u8, (target - target % 16))
+            ((32 + (target / 16) as u8) | 224, (target - target % 16))
         } else {
             (u8::MAX, 1008)
         };
@@ -300,7 +300,7 @@ mod tests {
             TestRun {
                 value: 400,
                 ckd: Ckd::DIV1,
-                bits: 32 + (400u16 / 8) as u8,
+                bits: 210,
             },
             TestRun {
                 value: 600,
