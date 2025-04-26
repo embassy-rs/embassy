@@ -1,0 +1,60 @@
+#![no_std]
+#![no_main]
+
+use defmt::*;
+use embassy_executor::Spawner;
+use embassy_rp::clocks::{clk_sys_freq, ClockConfig};
+use embassy_rp::config::Config;
+use embassy_rp::gpio::{Level, Output};
+use embassy_time::{Duration, Instant, Timer};
+use {defmt_rtt as _, panic_probe as _};
+
+const COUNT_TO: i32 = 1_000_000;
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) -> ! {
+    // Set up for clock frequency of 200 MHz
+    // We will need a clock config in the HAL config that supports this frequency
+    // The RP2040 can run at 200 MHz with a 12 MHz crystal
+    let config = Config::new(ClockConfig::crystal_freq(12_000_000, 200_000_000));
+
+    // Initialize the peripherals
+    let p = embassy_rp::init(config);
+
+    // Show CPU frequency for verification
+    let sys_freq = clk_sys_freq();
+    info!("System clock frequency: {} Hz", sys_freq);
+
+    // LED to indicate the system is running
+    let mut led = Output::new(p.PIN_25, Level::Low);
+
+    loop {
+        // Reset the counter at the start of measurement period
+        let mut counter = 0;
+
+        // Turn LED on while counting
+        led.set_high();
+
+        let start = Instant::now();
+
+        // Count to COUNT_TO
+        // This is a busy loop that will take some time to complete
+        while counter < COUNT_TO {
+            counter += 1;
+        }
+
+        let elapsed = start - Instant::now();
+
+        // Report the elapsed time
+        led.set_low();
+        info!(
+            "At {}Mhz: Elapsed time to count to {}: {}ms",
+            sys_freq / 1_000_000,
+            COUNT_TO,
+            elapsed.as_millis()
+        );
+
+        // Wait 2 seconds before starting the next measurement
+        Timer::after(Duration::from_secs(2)).await;
+    }
+}
