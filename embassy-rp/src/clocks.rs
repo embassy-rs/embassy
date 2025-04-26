@@ -69,6 +69,48 @@ pub enum PeriClkSrc {
     // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
 
+/// Core voltage scaling options for RP2040.
+/// See RP2040 Datasheet, Table 18.
+#[cfg(feature = "rp2040")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum VoltageScale {
+    /// 0.85V
+    V0_85 = 0b1000,
+    /// 0.90V
+    V0_90 = 0b1001,
+    /// 0.95V
+    V0_95 = 0b1010,
+    /// 1.00V
+    V1_00 = 0b1011,
+    /// 1.05V
+    V1_05 = 0b1100,
+    /// 1.10V (Default)
+    V1_10 = 0b1101,
+    /// 1.15V
+    V1_15 = 0b1110,
+    /// 1.20V
+    V1_20 = 0b1111,
+}
+
+#[cfg(feature = "rp2040")]
+impl VoltageScale {
+    /// Get the recommended Brown-Out Detection (BOD) setting for this voltage.
+    /// See RP2040 Datasheet, Table 19.
+    fn recommended_bod(self) -> u8 {
+        match self {
+            VoltageScale::V0_85 => 0b1000, // BOD recommends VSEL + 1
+            VoltageScale::V0_90 => 0b1001,
+            VoltageScale::V0_95 => 0b1010,
+            VoltageScale::V1_00 => 0b1011,
+            VoltageScale::V1_05 => 0b1100,
+            VoltageScale::V1_10 => 0b1101, // Default
+            VoltageScale::V1_15 => 0b1110,
+            VoltageScale::V1_20 => 0b1111,
+        }
+    }
+}
+
 /// CLock configuration.
 #[non_exhaustive]
 pub struct ClockConfig {
@@ -89,6 +131,9 @@ pub struct ClockConfig {
     /// RTC clock configuration.
     #[cfg(feature = "rp2040")]
     pub rtc_clk: Option<RtcClkConfig>,
+    /// Core voltage scaling (RP2040 only). Defaults to 1.10V if None.
+    #[cfg(feature = "rp2040")]
+    pub voltage_scale: Option<VoltageScale>,
     // gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
     // gpin1: Option<(u32, Gpin<'static, AnyPin>)>,
 }
@@ -152,6 +197,93 @@ impl ClockConfig {
                 div_frac: 0,
                 phase: 0,
             }),
+            #[cfg(feature = "rp2040")]
+            voltage_scale: None, // Use hardware default (1.10V)
+                                 // gpin0: None,
+                                 // gpin1: None,
+        }
+    }
+
+    /// Clock configuration derived from external crystal, targeting a specific SYS clock frequency for RP2040.
+    ///
+    /// This function calculates the required PLL settings and core voltage based on the target frequency.
+    ///
+    /// # Arguments
+    ///
+    /// * `crystal_hz`: The frequency of the external crystal (e.g., 12_000_000 for 12MHz).
+    /// * `sys_freq_hz`: The target system clock frequency.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested frequency is impossible to achieve with the given crystal,
+    /// or if the required voltage for the frequency is not supported or known.
+    ///
+    /// # Safety Notes (RP2040)
+    ///
+    /// *   Frequencies > 133MHz require increased core voltage.
+    /// *   This function automatically selects `VoltageScale::V1_15` for frequencies > 133MHz and <= 200MHz.
+    /// *   Frequencies > 200MHz might require `VoltageScale::V1_20` or higher and are considered overclocking beyond datasheet recommendations.
+    ///     This function will select `VoltageScale::V1_20` for frequencies > 200MHz, use with caution.
+    /// *   Ensure your hardware supports the selected voltage and frequency.
+    #[cfg(feature = "rp2040")]
+    pub fn crystal_freq(crystal_hz: u32, sys_freq_hz: u32) -> Self {
+        // Determine required voltage based on target frequency
+        let voltage_scale = match sys_freq_hz {
+            0..=133_000_000 => VoltageScale::V1_10,           // Default voltage is sufficient
+            133_000_001..=200_000_000 => VoltageScale::V1_15, // Requires 1.15V
+            _ => VoltageScale::V1_20, // Frequencies > 200MHz require at least 1.20V (Overclocking)
+        };
+
+        // Find suitable PLL parameters
+        let pll_params = find_pll_params(crystal_hz, sys_freq_hz)
+            .expect("Could not find valid PLL parameters for the requested frequency");
+
+        Self {
+            rosc: Some(RoscConfig {
+                hz: 6_500_000,
+                range: RoscRange::Medium,
+                drive_strength: [0; 8],
+                div: 16,
+            }),
+            xosc: Some(XoscConfig {
+                hz: crystal_hz,
+                sys_pll: Some(pll_params),
+                // Keep USB PLL at 48MHz for compatibility
+                usb_pll: Some(PllConfig {
+                    refdiv: 1,
+                    fbdiv: 120,
+                    post_div1: 6,
+                    post_div2: 5,
+                }),
+                delay_multiplier: 128,
+            }),
+            ref_clk: RefClkConfig {
+                src: RefClkSrc::Xosc,
+                div: 1,
+            },
+            sys_clk: SysClkConfig {
+                src: SysClkSrc::PllSys,
+                div_int: 1,
+                div_frac: 0,
+            },
+            peri_clk_src: Some(PeriClkSrc::Sys),
+            usb_clk: Some(UsbClkConfig {
+                src: UsbClkSrc::PllUsb,
+                div: 1,
+                phase: 0,
+            }),
+            adc_clk: Some(AdcClkConfig {
+                src: AdcClkSrc::PllUsb,
+                div: 1,
+                phase: 0,
+            }),
+            rtc_clk: Some(RtcClkConfig {
+                src: RtcClkSrc::PllUsb,
+                div_int: 1024,
+                div_frac: 0,
+                phase: 0,
+            }),
+            voltage_scale: Some(voltage_scale),
             // gpin0: None,
             // gpin1: None,
         }
@@ -192,8 +324,10 @@ impl ClockConfig {
                 div_frac: 171,
                 phase: 0,
             }),
-            // gpin0: None,
-            // gpin1: None,
+            #[cfg(feature = "rp2040")]
+            voltage_scale: None, // Use hardware default (1.10V)
+                                 // gpin0: None,
+                                 // gpin1: None,
         }
     }
 
@@ -405,6 +539,72 @@ pub struct RtcClkConfig {
     pub phase: u8,
 }
 
+/// Find valid PLL parameters (refdiv, fbdiv, post_div1, post_div2) for a target output frequency
+/// based on the input frequency.
+///
+/// See RP2040 Datasheet section 2.16.3. Reference Clock (ref) and 2.18.3. PLL
+#[cfg(feature = "rp2040")]
+fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
+    // Constraints from datasheet:
+    // REFDIV: 1..=63
+    // FBDIV: 16..=320
+    // POSTDIV1: 1..=7
+    // POSTDIV2: 1..=7 (must be <= POSTDIV1)
+    // VCO frequency (input_hz / refdiv * fbdiv): 400MHz ..= 1600MHz
+
+    for refdiv in 1..=63 {
+        let ref_clk = input_hz / refdiv;
+        // Reference clock must be >= 5MHz (implied by VCO min / FBDIV max)
+        if ref_clk < 5_000_000 {
+            continue;
+        }
+
+        for fbdiv in (16..=320).rev() {
+            // Iterate high fbdiv first for better VCO stability
+            let vco_freq = ref_clk * fbdiv;
+            if !(400_000_000..=1_600_000_000).contains(&vco_freq) {
+                continue;
+            }
+
+            // We want vco_freq / (post_div1 * post_div2) = target_hz
+            // So, post_div1 * post_div2 = vco_freq / target_hz
+            let target_post_div_product = vco_freq as f64 / target_hz as f64;
+            if target_post_div_product < 1.0 || target_post_div_product > 49.0 {
+                // 7*7 = 49
+                continue;
+            }
+            // Manual rounding: floor(x + 0.5)
+            let target_post_div_product_int = (target_post_div_product + 0.5) as u32;
+            if target_post_div_product_int == 0 {
+                continue;
+            }
+
+            // Check if the rounded product gives the target frequency
+            if vco_freq / target_post_div_product_int != target_hz {
+                continue;
+            }
+
+            for post_div1 in (1..=7).rev() {
+                // Iterate high post_div1 first
+                if target_post_div_product_int % post_div1 == 0 {
+                    let post_div2 = target_post_div_product_int / post_div1;
+                    if (1..=7).contains(&post_div2) && post_div2 <= post_div1 {
+                        // Found a valid combination
+                        return Some(PllConfig {
+                            refdiv: refdiv as u8, // Cast u32 to u8 (safe: 1..=63)
+                            fbdiv: fbdiv as u16,  // Cast u32 to u16 (safe: 16..=320)
+                            post_div1: post_div1 as u8,
+                            post_div2: post_div2 as u8,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    None // No valid parameters found
+}
+
 /// safety: must be called exactly once at bootup
 pub(crate) unsafe fn init(config: ClockConfig) {
     // Reset everything except:
@@ -447,23 +647,14 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     reset::reset(peris);
     reset::unreset_wait(peris);
 
-    // let gpin0_freq = config.gpin0.map_or(0, |p| {
-    //     core::mem::forget(p.1);
-    //     p.0
-    // });
-    // CLOCKS.gpin0.store(gpin0_freq, Ordering::Relaxed);
-    // let gpin1_freq = config.gpin1.map_or(0, |p| {
-    //     core::mem::forget(p.1);
-    //     p.0
-    // });
-    // CLOCKS.gpin1.store(gpin1_freq, Ordering::Relaxed);
-
+    // Configure ROSC first if present
     let rosc_freq = match config.rosc {
         Some(config) => configure_rosc(config),
         None => 0,
     };
     CLOCKS.rosc.store(rosc_freq, Ordering::Relaxed);
 
+    // Configure XOSC and PLLs if present
     let (xosc_freq, pll_sys_freq, pll_usb_freq) = match config.xosc {
         Some(config) => {
             // start XOSC
@@ -488,6 +679,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     CLOCKS.pll_sys.store(pll_sys_freq, Ordering::Relaxed);
     CLOCKS.pll_usb.store(pll_usb_freq, Ordering::Relaxed);
 
+    // Configure REF clock source and divider
     let (ref_src, ref_aux, clk_ref_freq) = {
         use {ClkRefCtrlAuxsrc as Aux, ClkRefCtrlSrc as Src};
         let div = config.ref_clk.div as u32;
@@ -514,7 +706,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         w.set_int(config.ref_clk.div);
     });
 
-    // Configure tick generation on the 2040.
+    // Configure tick generation using REF clock
     #[cfg(feature = "rp2040")]
     pac::WATCHDOG.tick().write(|w| {
         w.set_cycles((clk_ref_freq / 1_000_000) as u16);
@@ -532,6 +724,28 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         pac::TICKS.watchdog_ctrl().write(|w| w.set_enable(true));
     }
 
+    // Set Core Voltage (RP2040 only) BEFORE switching SYS clock to high speed PLL
+    #[cfg(feature = "rp2040")]
+    if let Some(voltage) = config.voltage_scale {
+        let vreg = pac::VREG_AND_CHIP_RESET;
+        let current_vsel = vreg.vreg().read().vsel();
+        let target_vsel = voltage as u8;
+
+        if target_vsel != current_vsel {
+            // Set voltage and recommended BOD level
+            vreg.bod().write(|w| w.set_vsel(voltage.recommended_bod()));
+            vreg.vreg().write(|w| w.set_vsel(target_vsel));
+
+            // Wait 10us for regulator to settle. Delay calculation uses REF clock
+            // as it's guaranteed to be stable here, before SYS potentially switches.
+            // 10 us = 1/100_000 s. cycles = freq * time.
+            let delay_cycles = clk_ref_freq / 100_000;
+            // delay(N) waits N+1 cycles.
+            cortex_m::asm::delay(delay_cycles.saturating_sub(1));
+        }
+    }
+
+    // Configure SYS clock source and divider
     let (sys_src, sys_aux, clk_sys_freq) = {
         use {ClkSysCtrlAuxsrc as Aux, ClkSysCtrlSrc as Src};
         let (src, aux, freq) = match config.sys_clk.src {
