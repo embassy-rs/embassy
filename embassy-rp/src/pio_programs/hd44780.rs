@@ -1,5 +1,6 @@
 //! [HD44780 display driver](https://www.sparkfun.com/datasheets/LCD/HD44780.pdf)
 
+use crate::clocks::clk_sys_freq;
 use crate::dma::{AnyChannel, Channel};
 use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, Irq, LoadedProgram, PioPin, ShiftConfig, ShiftDirection,
@@ -134,7 +135,12 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
 
         let mut cfg = Config::default();
         cfg.use_program(&word_prg.prg, &[&e]);
-        cfg.clock_divider = 125u8.into();
+
+        // Scale the divider based on system clock frequency
+        // Original: 125 at 125 MHz (1 MHz PIO clock)
+        let word_divider = (clk_sys_freq() / 1_000_000) as u8; // Target 1 MHz PIO clock
+        cfg.clock_divider = word_divider.into();
+
         cfg.set_out_pins(&[&db4, &db5, &db6, &db7]);
         cfg.shift_out = ShiftConfig {
             auto_fill: true,
@@ -160,7 +166,12 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
 
         let mut cfg = Config::default();
         cfg.use_program(&seq_prg.prg, &[&e]);
-        cfg.clock_divider = 8u8.into(); // ~64ns/insn
+
+        // Original: 8 at 125 MHz (~15.6 MHz PIO clock)
+        // Comment says ~64ns/insn which is 1/(15.6 MHz) = ~64ns
+        let seq_divider = (clk_sys_freq() / 15_600_000) as u8; // Target ~15.6 MHz PIO clock (~64ns/insn)
+        cfg.clock_divider = seq_divider.into();
+
         cfg.set_jmp_pin(&db7);
         cfg.set_set_pins(&[&rs, &rw]);
         cfg.set_out_pins(&[&db4, &db5, &db6, &db7]);

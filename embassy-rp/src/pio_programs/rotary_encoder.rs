@@ -2,6 +2,7 @@
 
 use fixed::traits::ToFixed;
 
+use crate::clocks::clk_sys_freq;
 use crate::gpio::Pull;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
@@ -48,7 +49,12 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         cfg.set_in_pins(&[&pin_a, &pin_b]);
         cfg.fifo_join = FifoJoin::RxOnly;
         cfg.shift_in.direction = ShiftDirection::Left;
-        cfg.clock_divider = 10_000.to_fixed();
+        
+        // Original: 10_000 at 125 MHz (12.5 KHz PIO clock)
+        // Scale divider to maintain same PIO clock frequency at different system clocks
+        let divider = (clk_sys_freq() as f32 / 12_500.0).to_fixed();
+        cfg.clock_divider = divider;
+        
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
         sm.set_enable(true);
