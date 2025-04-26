@@ -76,8 +76,9 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Request the underlying bytes for a descriptor of a specific type.
     /// bytes.len() determines how many bytes are read at maximum.
     /// This can be used for descriptors of varying length, which are parsed by the caller.
-    async fn request_descriptor_bytes<T: USBDescriptor>(
+    async fn request_descriptor_bytes(
         &mut self,
+        desc_type: u8,
         index: u8,
         buf: &mut [u8],
     ) -> Result<usize, HostError>
@@ -86,7 +87,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     {
         // The wValue field specifies the descriptor type in the high byte
         // and the descriptor index in the low byte.
-        let value = ((T::DESC_TYPE as u16) << 8) | index as u16;
+        let value = ((desc_type as u16) << 8) | index as u16;
 
         let packet = SetupPacket {
             request_type: RequestType::IN | RequestType::TYPE_STANDARD | RequestType::RECIPIENT_DEVICE,
