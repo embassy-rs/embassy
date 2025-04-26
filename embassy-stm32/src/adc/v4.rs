@@ -305,7 +305,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         T::regs().cfgr2().modify(|reg| {
             reg.set_rovse(enable);
-            reg.set_osvr(samples);
+            reg.set_ovsr(samples);
             reg.set_ovss(right_shift);
         })
     }
