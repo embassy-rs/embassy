@@ -75,7 +75,7 @@ impl Registers {
         let mailbox = self.tx_buffer_element(bufidx);
         mailbox.reset();
         put_tx_header(mailbox, header);
-        put_tx_data(mailbox, buffer);
+        put_tx_data(mailbox, &buffer[..header.len() as usize]);
 
         // Set <idx as Mailbox> as ready to transmit
         self.regs.txbar().modify(|w| w.set_ar(bufidx, true));
@@ -190,7 +190,7 @@ impl Registers {
                 DataLength::Fdcan(len) => len,
                 DataLength::Classic(len) => len,
             };
-            if len as usize > 8 {
+            if len as usize > ClassicData::MAX_DATA_LEN {
                 return None;
             }
 

@@ -104,13 +104,15 @@ pub trait CanHeader: Sized {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClassicData {
-    pub(crate) bytes: [u8; 8],
+    pub(crate) bytes: [u8; Self::MAX_DATA_LEN],
 }
 
 impl ClassicData {
+    pub(crate) const MAX_DATA_LEN: usize = 8;
     /// Creates a data payload from a raw byte slice.
     ///
-    /// Returns `FrameCreateError` if `data` is more than 8 bytes (which is the maximum).
+    /// Returns `None` if `data` is more than 64 bytes (which is the maximum) or
+    /// cannot be represented with an FDCAN DLC.
     pub fn new(data: &[u8]) -> Result<Self, FrameCreateError> {
         if data.len() > 8 {
             return Err(FrameCreateError::InvalidDataLength);
@@ -209,17 +211,12 @@ impl Frame {
 
     /// Get reference to data
     pub fn data(&self) -> &[u8] {
-        &self.data.raw()[..self.can_header.len as usize]
-    }
-
-    /// Get reference to underlying 8-byte raw data buffer, some bytes on the tail might be undefined.
-    pub fn raw_data(&self) -> &[u8] {
-        self.data.raw()
+        &self.data.raw()
     }
 
     /// Get mutable reference to data
     pub fn data_mut(&mut self) -> &mut [u8] {
-        &mut self.data.raw_mut()[..self.can_header.len as usize]
+        self.data.raw_mut()
     }
 
     /// Get priority of frame
@@ -263,7 +260,7 @@ impl embedded_can::Frame for Frame {
         self.can_header.len as usize
     }
     fn data(&self) -> &[u8] {
-        &self.data()
+        &self.data.raw()
     }
 }
 
@@ -408,12 +405,12 @@ impl FdFrame {
 
     /// Get reference to data
     pub fn data(&self) -> &[u8] {
-        &self.data.raw()[..self.can_header.len as usize]
+        &self.data.raw()
     }
 
     /// Get mutable reference to data
     pub fn data_mut(&mut self) -> &mut [u8] {
-        &mut self.data.raw_mut()[..self.can_header.len as usize]
+        self.data.raw_mut()
     }
 }
 
@@ -451,7 +448,7 @@ impl embedded_can::Frame for FdFrame {
         self.can_header.len as usize
     }
     fn data(&self) -> &[u8] {
-        &self.data()
+        &self.data.raw()
     }
 }
 

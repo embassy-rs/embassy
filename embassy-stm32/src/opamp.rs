@@ -422,13 +422,11 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
             T::regs().csr().modify(|w| match pair {
                 OpAmpDifferentialPair::P => {
-                    #[cfg(feature = "defmt")]
-                    defmt::debug!("opamp p calibration. offset: {}", mid);
+                    defmt::info!("p calibration. offset: {}", mid);
                     w.set_trimoffsetp(mid);
                 }
                 OpAmpDifferentialPair::N => {
-                    #[cfg(feature = "defmt")]
-                    defmt::debug!("opamp n calibration. offset: {}", mid);
+                    defmt::info!("n calibration. offset: {}", mid);
                     w.set_trimoffsetn(mid);
                 }
             });
