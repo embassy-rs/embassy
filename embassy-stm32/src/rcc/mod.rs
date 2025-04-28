@@ -384,7 +384,7 @@ pub fn reinit(config: Config) {
     critical_section::with(|cs| init_rcc(cs, config))
 }
 
-fn init_rcc(_cs: CriticalSection, config: Config) {
+pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
     unsafe {
         init(config);
 
