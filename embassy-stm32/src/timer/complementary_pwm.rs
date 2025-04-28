@@ -104,6 +104,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.enable_channel(channel, false);
     }
 
+    /// Enable interrupts.
+    pub fn enable_interrupt(&mut self) {
+        self.inner.enable_update_interrupt(true);
+    }
+
     /// Set PWM frequency.
     ///
     /// Note: when you call this, the max duty value changes, so you will have to
