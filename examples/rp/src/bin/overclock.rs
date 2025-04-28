@@ -3,22 +3,18 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::clocks::{clk_sys_freq, ClockConfig};
+use embassy_rp::clocks::{clk_sys_freq, ClockConfig, VoltageScale};
 use embassy_rp::config::Config;
 use embassy_rp::gpio::{Level, Output};
 use embassy_time::{Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-const COUNT_TO: i32 = 1_000_000;
+const COUNT_TO: i64 = 10_000_000;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     // Set up for clock frequency of 200 MHz
-    // We will need a clock config in the HAL config that supports this frequency
-    // The RP2040 can run at 200 MHz with a 12 MHz crystal
-    let config = Config::new(ClockConfig::crystal_freq(12_000_000, 200_000_000));
-
-    // Initialize the peripherals
+    let config = Config::new(ClockConfig::with_speed_mhz(200));
     let p = embassy_rp::init(config);
 
     // Show CPU frequency for verification
@@ -37,20 +33,19 @@ async fn main(_spawner: Spawner) -> ! {
 
         let start = Instant::now();
 
-        // Count to COUNT_TO
         // This is a busy loop that will take some time to complete
         while counter < COUNT_TO {
             counter += 1;
         }
 
-        let elapsed = start - Instant::now();
+        let elapsed = Instant::now() - start;
 
         // Report the elapsed time
         led.set_low();
         info!(
             "At {}Mhz: Elapsed time to count to {}: {}ms",
             sys_freq / 1_000_000,
-            COUNT_TO,
+            counter,
             elapsed.as_millis()
         );
 
@@ -58,3 +53,14 @@ async fn main(_spawner: Spawner) -> ! {
         Timer::after(Duration::from_secs(2)).await;
     }
 }
+
+// let config = Config::new(ClockConfig::with_speed_mhz_test_voltage(125, Some(VoltageScale::V1_10)));
+// let config = Config::default();
+// let config = Config::new(ClockConfig::with_speed_mhz_test_voltage_extended_delay(
+//     200,                       // Standard 125MHz clock
+//     Some(VoltageScale::V1_15), // 1.15V voltage
+//     Some(1000),                // 1000μs (1ms) stabilization delay - significantly longer than default
+// ));
+// Initialize the peripherals
+
+// let p = embassy_rp::init(Default::default()); //testing the bog standard

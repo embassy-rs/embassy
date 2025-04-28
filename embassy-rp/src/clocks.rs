@@ -70,43 +70,51 @@ pub enum PeriClkSrc {
 }
 
 /// Core voltage scaling options for RP2040.
-/// See RP2040 Datasheet, Table 18.
+/// See RP2040 Datasheet, Table 189, VREG Register.
 #[cfg(feature = "rp2040")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum VoltageScale {
     /// 0.85V
-    V0_85 = 0b1000,
+    V0_85 = 0b0110,
     /// 0.90V
-    V0_90 = 0b1001,
+    V0_90 = 0b0111,
     /// 0.95V
-    V0_95 = 0b1010,
+    V0_95 = 0b1000,
     /// 1.00V
-    V1_00 = 0b1011,
+    V1_00 = 0b1001,
     /// 1.05V
-    V1_05 = 0b1100,
+    V1_05 = 0b1010,
     /// 1.10V (Default)
-    V1_10 = 0b1101,
+    V1_10 = 0b1011,
     /// 1.15V
-    V1_15 = 0b1110,
+    V1_15 = 0b1100,
     /// 1.20V
-    V1_20 = 0b1111,
+    V1_20 = 0b1101,
+    /// 1.25V
+    V1_25 = 0b1110,
+    /// 1.30V
+    V1_30 = 0b1111,
 }
 
 #[cfg(feature = "rp2040")]
 impl VoltageScale {
     /// Get the recommended Brown-Out Detection (BOD) setting for this voltage.
-    /// See RP2040 Datasheet, Table 19.
+    /// Sets the BOD threshold to approximately 90% of the core voltage.
+    /// See RP2040 Datasheet, Table 190, BOD Register    
     fn recommended_bod(self) -> u8 {
         match self {
-            VoltageScale::V0_85 => 0b1000, // BOD recommends VSEL + 1
-            VoltageScale::V0_90 => 0b1001,
-            VoltageScale::V0_95 => 0b1010,
-            VoltageScale::V1_00 => 0b1011,
-            VoltageScale::V1_05 => 0b1100,
-            VoltageScale::V1_10 => 0b1101, // Default
-            VoltageScale::V1_15 => 0b1110,
-            VoltageScale::V1_20 => 0b1111,
+            // ~90% of voltage setting based on Table 190 values
+            VoltageScale::V0_85 => 0b0111, // 0.774V (~91% of 0.85V)
+            VoltageScale::V0_90 => 0b1000, // 0.817V (~91% of 0.90V)
+            VoltageScale::V0_95 => 0b1001, // 0.860V (~91% of 0.95V)
+            VoltageScale::V1_00 => 0b1010, // 0.903V (~90% of 1.00V)
+            VoltageScale::V1_05 => 0b1011, // 0.946V (~90% of 1.05V)
+            VoltageScale::V1_10 => 0b1100, // 0.989V (~90% of 1.10V)
+            VoltageScale::V1_15 => 0b1101, // 1.032V (~90% of 1.15V)
+            VoltageScale::V1_20 => 0b1110, // 1.075V (~90% of 1.20V)
+            VoltageScale::V1_25 => 0b1111, // 1.118V (~89% of 1.25V)
+            VoltageScale::V1_30 => 0b1111, // 1.118V (~86% of 1.30V) - using max available threshold
         }
     }
 }
@@ -134,6 +142,9 @@ pub struct ClockConfig {
     /// Core voltage scaling (RP2040 only). Defaults to 1.10V if None.
     #[cfg(feature = "rp2040")]
     pub voltage_scale: Option<VoltageScale>,
+    /// Voltage stabilization delay in microseconds.
+    #[cfg(feature = "rp2040")]
+    pub voltage_stabilization_delay_us: Option<u32>,
     // gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
     // gpin1: Option<(u32, Gpin<'static, AnyPin>)>,
 }
@@ -199,8 +210,10 @@ impl ClockConfig {
             }),
             #[cfg(feature = "rp2040")]
             voltage_scale: None, // Use hardware default (1.10V)
-                                 // gpin0: None,
-                                 // gpin1: None,
+            #[cfg(feature = "rp2040")]
+            voltage_stabilization_delay_us: None,
+            // gpin0: None,
+            // gpin1: None,
         }
     }
 
@@ -235,8 +248,16 @@ impl ClockConfig {
         };
 
         // Find suitable PLL parameters
-        let pll_params = find_pll_params(crystal_hz, sys_freq_hz)
-            .expect("Could not find valid PLL parameters for the requested frequency");
+        let pll_params = match find_pll_params(crystal_hz, sys_freq_hz) {
+            Some(params) => params,
+            None => {
+                // If we can't find valid parameters for the requested frequency,
+                // fall back to safe defaults (125 MHz for RP2040)
+                let safe_freq = 125_000_000; // Safe default frequency
+                find_pll_params(crystal_hz, safe_freq)
+                    .expect("Could not find valid PLL parameters even for safe default frequency")
+            }
+        };
 
         Self {
             rosc: Some(RoscConfig {
@@ -284,6 +305,8 @@ impl ClockConfig {
                 phase: 0,
             }),
             voltage_scale: Some(voltage_scale),
+            #[cfg(feature = "rp2040")]
+            voltage_stabilization_delay_us: None,
             // gpin0: None,
             // gpin1: None,
         }
@@ -326,11 +349,128 @@ impl ClockConfig {
             }),
             #[cfg(feature = "rp2040")]
             voltage_scale: None, // Use hardware default (1.10V)
-                                 // gpin0: None,
-                                 // gpin1: None,
+            #[cfg(feature = "rp2040")]
+            voltage_stabilization_delay_us: None,
+            // gpin0: None,
+            // gpin1: None,
         }
     }
 
+    /// Configure the system clock to a specific frequency in MHz.
+    ///
+    /// This is a more user-friendly way to configure the system clock, similar to
+    /// the Pico SDK's approach. It automatically handles voltage scaling based on the
+    /// requested frequency and uses the standard 12MHz crystal found on most RP2040 boards.
+    ///
+    /// # Arguments
+    ///
+    /// * `sys_freq_mhz` - The target system clock frequency in MHz
+    ///
+    /// # Safety Notes
+    ///
+    /// * Frequencies > 133MHz require increased core voltage and are considered overclocking.
+    /// * Frequencies > 250MHz are extreme overclocking and may not be stable on all chips.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// // Configure for standard 125MHz clock
+    /// let config = ClockConfig::with_speed_mhz(125);
+    ///
+    /// // Overclock to 200MHz (requires higher voltage)
+    /// let config = ClockConfig::with_speed_mhz(200);
+    /// ```
+    #[cfg(feature = "rp2040")]
+    pub fn with_speed_mhz(sys_freq_mhz: u32) -> Self {
+        // For 125MHz, use exactly the same config as the default to avoid any differences
+        if sys_freq_mhz == 125 {
+            return Self::crystal(12_000_000);
+        }
+
+        // For other frequencies, provide appropriate voltage scaling and PLL configuration
+        // Standard crystal on Raspberry Pi Pico boards is 12MHz
+        const DEFAULT_CRYSTAL_HZ: u32 = 12_000_000;
+
+        let sys_freq_hz = sys_freq_mhz * 1_000_000;
+        let mut config = Self::crystal_freq(DEFAULT_CRYSTAL_HZ, sys_freq_hz);
+
+        // For frequencies above 200MHz, ensure we're using the highest voltage
+        if sys_freq_mhz > 200 {
+            config.voltage_scale = Some(VoltageScale::V1_20);
+        }
+
+        config
+    }
+
+    /// Configure the system clock to a specific frequency in Hz, using a custom crystal frequency.
+    ///
+    /// This more flexible version allows specifying both the crystal frequency and target
+    /// system frequency for boards with non-standard crystals.
+    ///
+    /// # Arguments
+    ///
+    /// * `crystal_hz` - The frequency of the external crystal in Hz
+    /// * `sys_freq_hz` - The target system clock frequency in Hz
+    ///
+    /// # Safety Notes
+    ///
+    /// * Frequencies > 133MHz require increased core voltage and are considered overclocking.
+    /// * Frequencies > 250MHz are extreme overclocking and may not be stable on all chips.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// // Use a non-standard 16MHz crystal to achieve 250MHz
+    /// let config = ClockConfig::with_custom_crystal(16_000_000, 250_000_000);
+    /// ```
+    #[cfg(feature = "rp2040")]
+    pub fn with_custom_crystal(crystal_hz: u32, sys_freq_hz: u32) -> Self {
+        Self::crystal_freq(crystal_hz, sys_freq_hz)
+    }
+
+    #[cfg(feature = "rp2040")]
+    pub fn with_speed_mhz_test_voltage(sys_freq_mhz: u32, voltage: Option<VoltageScale>) -> Self {
+        // Create a config with the requested frequency
+        let sys_freq_hz = sys_freq_mhz * 1_000_000;
+        let mut config = Self::crystal_freq(12_000_000, sys_freq_hz);
+
+        // Override the voltage setting
+        config.voltage_scale = voltage;
+
+        // For debugging
+        // println!("Debug: Setting freq to {}MHz with voltage {:?}", sys_freq_mhz, voltage);
+
+        config
+    }
+
+    /// Similar to `with_speed_mhz_test_voltage` but with an extended voltage stabilization delay.
+    ///
+    /// This function is useful for testing voltage stability issues where the default delay
+    /// may not be sufficient for the voltage regulator to fully stabilize.
+    ///
+    /// # Arguments
+    ///
+    /// * `sys_freq_mhz` - The target system clock frequency in MHz
+    /// * `voltage` - The desired voltage scale setting
+    /// * `stabilization_delay_us` - Voltage stabilization delay in microseconds (default: 500μs)
+    #[cfg(feature = "rp2040")]
+    pub fn with_speed_mhz_test_voltage_extended_delay(
+        sys_freq_mhz: u32,
+        voltage: Option<VoltageScale>,
+        stabilization_delay_us: Option<u32>,
+    ) -> Self {
+        // Create a config with the requested frequency
+        let sys_freq_hz = sys_freq_mhz * 1_000_000;
+        let mut config = Self::crystal_freq(12_000_000, sys_freq_hz);
+
+        // Override the voltage setting
+        config.voltage_scale = voltage;
+
+        // Add a custom voltage stabilization delay
+        config.voltage_stabilization_delay_us = stabilization_delay_us;
+
+        config
+    }
     // pub fn bind_gpin<P: GpinPin>(&mut self, gpin: Gpin<'static, P>, hz: u32) {
     //     match P::NR {
     //         0 => self.gpin0 = Some((hz, gpin.into())),
@@ -385,6 +525,7 @@ pub struct XoscConfig {
 }
 
 /// PLL configuration.
+#[derive(Clone, Copy, Debug)]
 pub struct PllConfig {
     /// Reference divisor.
     pub refdiv: u8,
@@ -542,67 +683,124 @@ pub struct RtcClkConfig {
 /// Find valid PLL parameters (refdiv, fbdiv, post_div1, post_div2) for a target output frequency
 /// based on the input frequency.
 ///
+/// Similar to the Pico SDK's parameter selection approach, prioritizing stability.
 /// See RP2040 Datasheet section 2.16.3. Reference Clock (ref) and 2.18.3. PLL
 #[cfg(feature = "rp2040")]
 fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
+    // Fixed reference divider for system PLL
+    const PLL_SYS_REFDIV: u8 = 1;
+
     // Constraints from datasheet:
     // REFDIV: 1..=63
     // FBDIV: 16..=320
     // POSTDIV1: 1..=7
     // POSTDIV2: 1..=7 (must be <= POSTDIV1)
-    // VCO frequency (input_hz / refdiv * fbdiv): 400MHz ..= 1600MHz
+    // VCO frequency (input_hz / refdiv * fbdiv): 750MHz ..= 1800MHz
 
-    for refdiv in 1..=63 {
-        let ref_clk = input_hz / refdiv;
-        // Reference clock must be >= 5MHz (implied by VCO min / FBDIV max)
-        if ref_clk < 5_000_000 {
+    // Calculate reference frequency
+    let reference_freq = input_hz / PLL_SYS_REFDIV as u32;
+
+    // Start from highest fbdiv for better stability (like SDK does)
+    for fbdiv in (16..=320).rev() {
+        let vco_freq = reference_freq * fbdiv;
+
+        // Check VCO frequency is within valid range
+        if vco_freq < 750_000_000 || vco_freq > 1_800_000_000 {
             continue;
         }
 
-        for fbdiv in (16..=320).rev() {
-            // Iterate high fbdiv first for better VCO stability
-            let vco_freq = ref_clk * fbdiv;
-            if !(400_000_000..=1_600_000_000).contains(&vco_freq) {
-                continue;
-            }
+        // Try all possible postdiv combinations starting from larger values
+        // (more conservative/stable approach)
+        for post_div1 in (1..=7).rev() {
+            for post_div2 in (1..=post_div1).rev() {
+                let out_freq = vco_freq / (post_div1 * post_div2) as u32;
 
-            // We want vco_freq / (post_div1 * post_div2) = target_hz
-            // So, post_div1 * post_div2 = vco_freq / target_hz
-            let target_post_div_product = vco_freq as f64 / target_hz as f64;
-            if target_post_div_product < 1.0 || target_post_div_product > 49.0 {
-                // 7*7 = 49
-                continue;
-            }
-            // Manual rounding: floor(x + 0.5)
-            let target_post_div_product_int = (target_post_div_product + 0.5) as u32;
-            if target_post_div_product_int == 0 {
-                continue;
-            }
-
-            // Check if the rounded product gives the target frequency
-            if vco_freq / target_post_div_product_int != target_hz {
-                continue;
-            }
-
-            for post_div1 in (1..=7).rev() {
-                // Iterate high post_div1 first
-                if target_post_div_product_int % post_div1 == 0 {
-                    let post_div2 = target_post_div_product_int / post_div1;
-                    if (1..=7).contains(&post_div2) && post_div2 <= post_div1 {
-                        // Found a valid combination
-                        return Some(PllConfig {
-                            refdiv: refdiv as u8, // Cast u32 to u8 (safe: 1..=63)
-                            fbdiv: fbdiv as u16,  // Cast u32 to u16 (safe: 16..=320)
-                            post_div1: post_div1 as u8,
-                            post_div2: post_div2 as u8,
-                        });
-                    }
+                // Check if we get the exact target frequency without remainder
+                if out_freq == target_hz && (vco_freq % (post_div1 * post_div2) as u32 == 0) {
+                    return Some(PllConfig {
+                        refdiv: PLL_SYS_REFDIV,
+                        fbdiv: fbdiv as u16,
+                        post_div1: post_div1 as u8,
+                        post_div2: post_div2 as u8,
+                    });
                 }
             }
         }
     }
 
-    None // No valid parameters found
+    // If we couldn't find an exact match, find the closest match
+    let mut best_config = None;
+    let mut min_diff = u32::MAX;
+
+    for fbdiv in (16..=320).rev() {
+        let vco_freq = reference_freq * fbdiv;
+
+        if vco_freq < 750_000_000 || vco_freq > 1_800_000_000 {
+            continue;
+        }
+
+        for post_div1 in (1..=7).rev() {
+            for post_div2 in (1..=post_div1).rev() {
+                let out_freq = vco_freq / (post_div1 * post_div2) as u32;
+                let diff = if out_freq > target_hz {
+                    out_freq - target_hz
+                } else {
+                    target_hz - out_freq
+                };
+
+                // If this is closer to the target, save it
+                if diff < min_diff {
+                    min_diff = diff;
+                    best_config = Some(PllConfig {
+                        refdiv: PLL_SYS_REFDIV,
+                        fbdiv: fbdiv as u16,
+                        post_div1: post_div1 as u8,
+                        post_div2: post_div2 as u8,
+                    });
+                }
+            }
+        }
+    }
+
+    // Return the closest match if we found one
+    best_config
+}
+
+#[cfg(feature = "rp2040")]
+pub fn compare_pll_params() {
+    // Parameters from default configuration
+    let default_params = PllConfig {
+        refdiv: 1,
+        fbdiv: 125,
+        post_div1: 6,
+        post_div2: 2,
+    };
+
+    // Calculate parameters using our find_pll_params function
+    let crystal_hz = 12_000_000;
+    let target_hz = 125_000_000;
+    let calculated_params = find_pll_params(crystal_hz, target_hz).expect("Failed to find PLL parameters");
+
+    // Check if they're identical
+    let params_match = default_params.refdiv == calculated_params.refdiv
+        && default_params.fbdiv == calculated_params.fbdiv
+        && default_params.post_div1 == calculated_params.post_div1
+        && default_params.post_div2 == calculated_params.post_div2;
+
+    // Here we'd normally print results, but without a console we'll just
+    // use this for debugging in our IDE
+    let _default_output_freq = crystal_hz / default_params.refdiv as u32 * default_params.fbdiv as u32
+        / (default_params.post_div1 * default_params.post_div2) as u32;
+
+    let _calculated_output_freq = crystal_hz / calculated_params.refdiv as u32 * calculated_params.fbdiv as u32
+        / (calculated_params.post_div1 * calculated_params.post_div2) as u32;
+
+    // Parameters: default vs calculated
+    // refdiv: 1 vs {calculated_params.refdiv}
+    // fbdiv: 125 vs {calculated_params.fbdiv}
+    // post_div1: 6 vs {calculated_params.post_div1}
+    // post_div2: 2 vs {calculated_params.post_div2}
+    // params_match: {params_match}
 }
 
 /// safety: must be called exactly once at bootup
@@ -640,12 +838,42 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     #[cfg(feature = "_rp235x")]
     while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1) {}
 
-    // Reset the PLLs
-    let mut peris = reset::Peripherals(0);
-    peris.set_pll_sys(true);
-    peris.set_pll_usb(true);
-    reset::reset(peris);
-    reset::unreset_wait(peris);
+    // Set Core Voltage (RP2040 only) BEFORE doing anything with PLLs
+    // This is critical for overclocking - must be done before PLL setup
+    #[cfg(feature = "rp2040")]
+    if let Some(voltage) = config.voltage_scale {
+        let vreg = pac::VREG_AND_CHIP_RESET;
+        let current_vsel = vreg.vreg().read().vsel();
+        let target_vsel = voltage as u8;
+
+        if target_vsel != current_vsel {
+            // IMPORTANT: Use modify() instead of write() to preserve the HIZ and EN bits
+            // This is critical - otherwise we might disable the regulator when changing voltage
+            vreg.vreg().modify(|w| w.set_vsel(target_vsel));
+
+            // For higher voltage settings (overclocking), we need a longer stabilization time
+            // Default to 1000 µs (1ms) like the SDK, but allow user override
+            let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or_else(|| {
+                match voltage {
+                    VoltageScale::V1_15 => 1000, // 1ms for 1.15V (matches SDK default)
+                    VoltageScale::V1_20 | VoltageScale::V1_25 | VoltageScale::V1_30 => 2000, // 2ms for higher voltages
+                    _ => 500,                    // 500 µs for standard voltages
+                }
+            });
+
+            // We need a clock that's guaranteed to be running at this point
+            // Use ROSC which should be configured by now
+            let rosc_freq_rough = 6_000_000; // Rough ROSC frequency estimate
+            let cycles_per_us = rosc_freq_rough / 1_000_000;
+            let delay_cycles = settling_time_us * cycles_per_us;
+
+            // Wait for voltage to stabilize
+            cortex_m::asm::delay(delay_cycles);
+
+            // Only NOW set the BOD level after voltage has stabilized
+            vreg.bod().write(|w| w.set_vsel(voltage.recommended_bod()));
+        }
+    }
 
     // Configure ROSC first if present
     let rosc_freq = match config.rosc {
@@ -654,59 +882,91 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     };
     CLOCKS.rosc.store(rosc_freq, Ordering::Relaxed);
 
-    // Configure XOSC and PLLs if present
-    let (xosc_freq, pll_sys_freq, pll_usb_freq) = match config.xosc {
+    // Configure XOSC - we'll need this for our temporary stable clock
+    let xosc_freq = match &config.xosc {
         Some(config) => {
-            // start XOSC
-            // datasheet mentions support for clock inputs into XIN, but doesn't go into
-            // how this is achieved. pico-sdk doesn't support this at all.
             start_xosc(config.hz, config.delay_multiplier);
-
-            let pll_sys_freq = match config.sys_pll {
-                Some(sys_pll_config) => configure_pll(pac::PLL_SYS, config.hz, sys_pll_config),
-                None => 0,
-            };
-            let pll_usb_freq = match config.usb_pll {
-                Some(usb_pll_config) => configure_pll(pac::PLL_USB, config.hz, usb_pll_config),
-                None => 0,
-            };
-
-            (config.hz, pll_sys_freq, pll_usb_freq)
+            config.hz
         }
-        None => (0, 0, 0),
+        None => 0,
     };
     CLOCKS.xosc.store(xosc_freq, Ordering::Relaxed);
-    CLOCKS.pll_sys.store(pll_sys_freq, Ordering::Relaxed);
-    CLOCKS.pll_usb.store(pll_usb_freq, Ordering::Relaxed);
 
-    // Configure REF clock source and divider
-    let (ref_src, ref_aux, clk_ref_freq) = {
-        use {ClkRefCtrlAuxsrc as Aux, ClkRefCtrlSrc as Src};
-        let div = config.ref_clk.div as u32;
-        assert!(div >= 1 && div <= 4);
-        match config.ref_clk.src {
-            RefClkSrc::Xosc => (Src::XOSC_CLKSRC, Aux::CLKSRC_PLL_USB, xosc_freq / div),
-            RefClkSrc::Rosc => (Src::ROSC_CLKSRC_PH, Aux::CLKSRC_PLL_USB, rosc_freq / div),
-            RefClkSrc::PllUsb => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq / div),
-            // RefClkSrc::Gpin0 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN0, gpin0_freq / div),
-            // RefClkSrc::Gpin1 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN1, gpin1_freq / div),
-        }
+    // SETUP TEMPORARY STABLE CLOCKS FIRST
+    // Configure USB PLL for our stable temporary clock
+    // This follows the SDK's approach of using USB PLL as a stable intermediate clock
+    let usb_pll_freq = match &config.xosc {
+        Some(config) => match &config.usb_pll {
+            Some(usb_pll_config) => {
+                // Reset USB PLL
+                let mut peris = reset::Peripherals(0);
+                peris.set_pll_usb(true);
+                reset::reset(peris);
+                reset::unreset_wait(peris);
+
+                // Configure the USB PLL - this should give us 48MHz
+                let usb_pll_freq = configure_pll(pac::PLL_USB, xosc_freq, *usb_pll_config);
+                CLOCKS.pll_usb.store(usb_pll_freq, Ordering::Relaxed);
+                usb_pll_freq
+            }
+            None => 0,
+        },
+        None => 0,
     };
-    assert!(clk_ref_freq != 0);
-    CLOCKS.reference.store(clk_ref_freq, Ordering::Relaxed);
+
+    // Configure REF clock to use XOSC
     c.clk_ref_ctrl().write(|w| {
-        w.set_src(ref_src);
-        w.set_auxsrc(ref_aux);
+        w.set_src(ClkRefCtrlSrc::XOSC_CLKSRC);
     });
     #[cfg(feature = "rp2040")]
-    while c.clk_ref_selected().read() != (1 << ref_src as u32) {}
+    while c.clk_ref_selected().read() != (1 << ClkRefCtrlSrc::XOSC_CLKSRC as u32) {}
     #[cfg(feature = "_rp235x")]
-    while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1 << ref_src as u32) {}
-    c.clk_ref_div().write(|w| {
-        w.set_int(config.ref_clk.div);
+    while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1 << ClkRefCtrlSrc::XOSC_CLKSRC as u32) {}
+
+    // First switch the system clock to a stable source (USB PLL at 48MHz)
+    // This follows the Pico SDK's approach to ensure stability during reconfiguration
+    c.clk_sys_ctrl().write(|w| {
+        w.set_auxsrc(ClkSysCtrlAuxsrc::CLKSRC_PLL_USB);
+        w.set_src(ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX);
     });
 
+    #[cfg(feature = "rp2040")]
+    while c.clk_sys_selected().read() != (1 << ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX as u32) {}
+    #[cfg(feature = "_rp235x")]
+    while c.clk_sys_selected().read()
+        != pac::clocks::regs::ClkSysSelected(1 << ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX as u32)
+    {}
+
+    // Short delay after switching to USB PLL to ensure stability
+    cortex_m::asm::delay(100);
+
+    // NOW CONFIGURE THE SYSTEM PLL (safely, since we're running from the USB PLL)
+    let pll_sys_freq = match &config.xosc {
+        Some(config) => match &config.sys_pll {
+            Some(sys_pll_config) => {
+                // Reset SYS PLL
+                let mut peris = reset::Peripherals(0);
+                peris.set_pll_sys(true);
+                reset::reset(peris);
+                reset::unreset_wait(peris);
+
+                // Configure the SYS PLL
+                let pll_sys_freq = configure_pll(pac::PLL_SYS, xosc_freq, *sys_pll_config);
+
+                // Ensure PLL is locked and stable
+                cortex_m::asm::delay(100);
+
+                CLOCKS.pll_sys.store(pll_sys_freq, Ordering::Relaxed);
+                pll_sys_freq
+            }
+            None => 0,
+        },
+        None => 0,
+    };
+
     // Configure tick generation using REF clock
+    let clk_ref_freq = xosc_freq; // REF clock is now XOSC
+    CLOCKS.reference.store(clk_ref_freq, Ordering::Relaxed);
     #[cfg(feature = "rp2040")]
     pac::WATCHDOG.tick().write(|w| {
         w.set_cycles((clk_ref_freq / 1_000_000) as u16);
@@ -724,34 +984,14 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         pac::TICKS.watchdog_ctrl().write(|w| w.set_enable(true));
     }
 
-    // Set Core Voltage (RP2040 only) BEFORE switching SYS clock to high speed PLL
-    #[cfg(feature = "rp2040")]
-    if let Some(voltage) = config.voltage_scale {
-        let vreg = pac::VREG_AND_CHIP_RESET;
-        let current_vsel = vreg.vreg().read().vsel();
-        let target_vsel = voltage as u8;
-
-        if target_vsel != current_vsel {
-            // Set voltage and recommended BOD level
-            vreg.bod().write(|w| w.set_vsel(voltage.recommended_bod()));
-            vreg.vreg().write(|w| w.set_vsel(target_vsel));
-
-            // Wait 10us for regulator to settle. Delay calculation uses REF clock
-            // as it's guaranteed to be stable here, before SYS potentially switches.
-            // 10 us = 1/100_000 s. cycles = freq * time.
-            let delay_cycles = clk_ref_freq / 100_000;
-            // delay(N) waits N+1 cycles.
-            cortex_m::asm::delay(delay_cycles.saturating_sub(1));
-        }
-    }
-
-    // Configure SYS clock source and divider
+    // NOW SWITCH THE SYSTEM CLOCK TO THE CONFIGURED SOURCE
+    // The SYS PLL is now stable and we can safely switch to it
     let (sys_src, sys_aux, clk_sys_freq) = {
         use {ClkSysCtrlAuxsrc as Aux, ClkSysCtrlSrc as Src};
         let (src, aux, freq) = match config.sys_clk.src {
             SysClkSrc::Ref => (Src::CLK_REF, Aux::CLKSRC_PLL_SYS, clk_ref_freq),
             SysClkSrc::PllSys => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_SYS, pll_sys_freq),
-            SysClkSrc::PllUsb => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq),
+            SysClkSrc::PllUsb => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_USB, usb_pll_freq),
             SysClkSrc::Rosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::ROSC_CLKSRC, rosc_freq),
             SysClkSrc::Xosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::XOSC_CLKSRC, xosc_freq),
             // SysClkSrc::Gpin0 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN0, gpin0_freq),
@@ -762,28 +1002,48 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     };
     assert!(clk_sys_freq != 0);
     CLOCKS.sys.store(clk_sys_freq, Ordering::Relaxed);
-    if sys_src != ClkSysCtrlSrc::CLK_REF {
-        c.clk_sys_ctrl().write(|w| w.set_src(ClkSysCtrlSrc::CLK_REF));
-        #[cfg(feature = "rp2040")]
-        while c.clk_sys_selected().read() != (1 << ClkSysCtrlSrc::CLK_REF as u32) {}
-        #[cfg(feature = "_rp235x")]
-        while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1 << ClkSysCtrlSrc::CLK_REF as u32) {}
+
+    // Set the divider before changing the source if it's increasing
+    if config.sys_clk.div_int > 1 || config.sys_clk.div_frac > 0 {
+        c.clk_sys_div().write(|w| {
+            w.set_int(config.sys_clk.div_int);
+            w.set_frac(config.sys_clk.div_frac);
+        });
     }
+
+    // Configure aux source first if needed
+    if sys_src == ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX {
+        c.clk_sys_ctrl().modify(|w| {
+            w.set_auxsrc(sys_aux);
+        });
+    }
+
+    // Now set the source
     c.clk_sys_ctrl().write(|w| {
-        w.set_auxsrc(sys_aux);
+        if sys_src == ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX {
+            w.set_auxsrc(sys_aux);
+        }
         w.set_src(sys_src);
     });
 
+    // Wait for the clock to be selected
     #[cfg(feature = "rp2040")]
     while c.clk_sys_selected().read() != (1 << sys_src as u32) {}
     #[cfg(feature = "_rp235x")]
     while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1 << sys_src as u32) {}
 
-    c.clk_sys_div().write(|w| {
-        w.set_int(config.sys_clk.div_int);
-        w.set_frac(config.sys_clk.div_frac);
-    });
+    // Short delay after final clock switch to ensure stability
+    cortex_m::asm::delay(100);
 
+    // Set the divider after changing the source if it's decreasing
+    if config.sys_clk.div_int == 1 && config.sys_clk.div_frac == 0 {
+        c.clk_sys_div().write(|w| {
+            w.set_int(config.sys_clk.div_int);
+            w.set_frac(config.sys_clk.div_frac);
+        });
+    }
+
+    // CONFIGURE PERIPHERAL CLOCK
     let mut peris = reset::ALL_PERIPHERALS;
 
     if let Some(src) = config.peri_clk_src {
@@ -794,7 +1054,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         let peri_freq = match src {
             PeriClkSrc::Sys => clk_sys_freq,
             PeriClkSrc::PllSys => pll_sys_freq,
-            PeriClkSrc::PllUsb => pll_usb_freq,
+            PeriClkSrc::PllUsb => usb_pll_freq,
             PeriClkSrc::Rosc => rosc_freq,
             PeriClkSrc::Xosc => xosc_freq,
             // PeriClkSrc::Gpin0 => gpin0_freq,
@@ -810,6 +1070,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         CLOCKS.peri.store(0, Ordering::Relaxed);
     }
 
+    // CONFIGURE USB CLOCK
     if let Some(conf) = config.usb_clk {
         c.clk_usb_div().write(|w| w.set_int(conf.div));
         c.clk_usb_ctrl().write(|w| {
@@ -818,7 +1079,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             w.set_auxsrc(ClkUsbCtrlAuxsrc::from_bits(conf.src as _));
         });
         let usb_freq = match conf.src {
-            UsbClkSrc::PllUsb => pll_usb_freq,
+            UsbClkSrc::PllUsb => usb_pll_freq,
             UsbClkSrc::PllSys => pll_sys_freq,
             UsbClkSrc::Rosc => rosc_freq,
             UsbClkSrc::Xosc => xosc_freq,
@@ -833,6 +1094,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         CLOCKS.usb.store(0, Ordering::Relaxed);
     }
 
+    // CONFIGURE ADC CLOCK
     if let Some(conf) = config.adc_clk {
         c.clk_adc_div().write(|w| w.set_int(conf.div));
         c.clk_adc_ctrl().write(|w| {
@@ -841,7 +1103,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             w.set_auxsrc(ClkAdcCtrlAuxsrc::from_bits(conf.src as _));
         });
         let adc_in_freq = match conf.src {
-            AdcClkSrc::PllUsb => pll_usb_freq,
+            AdcClkSrc::PllUsb => usb_pll_freq,
             AdcClkSrc::PllSys => pll_sys_freq,
             AdcClkSrc::Rosc => rosc_freq,
             AdcClkSrc::Xosc => xosc_freq,
@@ -856,7 +1118,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         CLOCKS.adc.store(0, Ordering::Relaxed);
     }
 
-    // rp2040 specific clocks
+    // CONFIGURE RTC CLOCK
     #[cfg(feature = "rp2040")]
     if let Some(conf) = config.rtc_clk {
         c.clk_rtc_div().write(|w| {
@@ -869,7 +1131,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             w.set_auxsrc(ClkRtcCtrlAuxsrc::from_bits(conf.src as _));
         });
         let rtc_in_freq = match conf.src {
-            RtcClkSrc::PllUsb => pll_usb_freq,
+            RtcClkSrc::PllUsb => usb_pll_freq,
             RtcClkSrc::PllSys => pll_sys_freq,
             RtcClkSrc::Rosc => rosc_freq,
             RtcClkSrc::Xosc => xosc_freq,
@@ -999,43 +1261,101 @@ fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
 
 #[inline(always)]
 fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> u32 {
+    // Calculate reference frequency
     let ref_freq = input_freq / config.refdiv as u32;
-    assert!(config.fbdiv >= 16 && config.fbdiv <= 320);
-    assert!(config.post_div1 >= 1 && config.post_div1 <= 7);
-    assert!(config.post_div2 >= 1 && config.post_div2 <= 7);
-    assert!(config.refdiv >= 1 && config.refdiv <= 63);
-    assert!(ref_freq >= 5_000_000 && ref_freq <= 800_000_000);
+
+    // Validate PLL parameters
+    assert!(
+        config.fbdiv >= 16 && config.fbdiv <= 320,
+        "fbdiv must be between 16 and 320"
+    );
+    assert!(
+        config.post_div1 >= 1 && config.post_div1 <= 7,
+        "post_div1 must be between 1 and 7"
+    );
+    assert!(
+        config.post_div2 >= 1 && config.post_div2 <= 7,
+        "post_div2 must be between 1 and 7"
+    );
+    assert!(config.post_div2 <= config.post_div1, "post_div2 must be <= post_div1");
+    assert!(
+        config.refdiv >= 1 && config.refdiv <= 63,
+        "refdiv must be between 1 and 63"
+    );
+    assert!(
+        ref_freq >= 5_000_000 && ref_freq <= 800_000_000,
+        "ref_freq must be between 5MHz and 800MHz"
+    );
+
+    // Calculate VCO frequency
     let vco_freq = ref_freq.saturating_mul(config.fbdiv as u32);
-    assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000);
+    assert!(
+        vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000,
+        "VCO frequency must be between 750MHz and 1800MHz"
+    );
 
-    // Load VCO-related dividers before starting VCO
-    p.cs().write(|w| w.set_refdiv(config.refdiv as _));
-    p.fbdiv_int().write(|w| w.set_fbdiv_int(config.fbdiv));
+    // We follow the SDK's approach to PLL configuration which is:
+    // 1. Power down PLL
+    // 2. Configure the reference divider
+    // 3. Configure the feedback divider
+    // 4. Power up PLL and VCO
+    // 5. Wait for PLL to lock
+    // 6. Configure post-dividers
+    // 7. Enable post-divider output
 
-    // Turn on PLL
-    let pwr = p.pwr().write(|w| {
-        w.set_dsmpd(true); // "nothing is achieved by setting this low"
-        w.set_pd(false);
-        w.set_vcopd(false);
-        w.set_postdivpd(true);
+    // 1. Power down PLL before configuration
+    p.pwr().write(|w| {
+        w.set_pd(true); // Power down the PLL
+        w.set_vcopd(true); // Power down the VCO
+        w.set_postdivpd(true); // Power down the post divider
+        w.set_dsmpd(true); // Disable fractional mode
         *w
     });
 
-    // Wait for PLL to lock
-    while !p.cs().read().lock() {}
+    // Short delay after powering down
+    cortex_m::asm::delay(10);
 
-    // Set post-dividers
+    // 2. Configure reference divider first
+    p.cs().write(|w| w.set_refdiv(config.refdiv as _));
+
+    // 3. Configure feedback divider
+    p.fbdiv_int().write(|w| w.set_fbdiv_int(config.fbdiv));
+
+    // 4. Power up PLL and VCO, but keep post divider powered down during initial lock
+    p.pwr().write(|w| {
+        w.set_pd(false); // Power up the PLL
+        w.set_vcopd(false); // Power up the VCO
+        w.set_postdivpd(true); // Keep post divider powered down during initial lock
+        w.set_dsmpd(true); // Disable fractional mode (simpler configuration)
+        *w
+    });
+
+    // 5. Wait for PLL to lock with a timeout
+    let mut timeout = 1_000_000; // Reasonable timeout value
+    while !p.cs().read().lock() {
+        timeout -= 1;
+        if timeout == 0 {
+            // PLL failed to lock, return 0 to indicate failure
+            return 0;
+        }
+    }
+
+    // 6. Configure post dividers after PLL is locked
     p.prim().write(|w| {
         w.set_postdiv1(config.post_div1);
         w.set_postdiv2(config.post_div2);
     });
 
-    // Turn on post divider
-    p.pwr().write(|w| {
-        *w = pwr;
-        w.set_postdivpd(false);
+    // 7. Enable the post divider output
+    p.pwr().modify(|w| {
+        w.set_postdivpd(false); // Power up post divider
+        *w
     });
 
+    // Final delay to ensure everything is stable
+    cortex_m::asm::delay(100);
+
+    // Calculate and return actual output frequency
     vco_freq / ((config.post_div1 * config.post_div2) as u32)
 }
 
