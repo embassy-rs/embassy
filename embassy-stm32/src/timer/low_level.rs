@@ -607,6 +607,29 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         }
     }
 
+    /// Set auto-reload value.
+    pub fn set_auto_reload_value(&self, value: u32) {
+        match T::BITS {
+            TimerBits::Bits16 => {
+                let value = unwrap!(u16::try_from(value));
+                self.regs_gp16().arr().modify(|w| w.set_arr(value));
+            }
+            #[cfg(not(stm32l0))]
+            TimerBits::Bits32 => {
+                self.regs_gp32_unchecked().arr().write_value(value);
+            }
+        }
+    }
+
+    /// Get auto-reload value.
+    pub fn get_auto_reload_value(&self) -> u32 {
+        match T::BITS {
+            TimerBits::Bits16 => self.regs_gp16().arr().read().arr() as u32,
+            #[cfg(not(stm32l0))]
+            TimerBits::Bits32 => self.regs_gp32_unchecked().arr().read(),
+        }
+    }
+
     /// Get capture value for a channel.
     pub fn get_capture_value(&self, channel: Channel) -> u32 {
         self.get_compare_value(channel)
