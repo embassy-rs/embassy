@@ -1,8 +1,10 @@
 //! [ws2812](https://www.sparkfun.com/datasheets/LCD/HD44780.pdf)
 
+use core::convert::Infallible;
+
 use embassy_time::Timer;
 use fixed::types::U24F8;
-use smart_leds::RGB8;
+use smart_leds::{SmartLedsWriteAsync, RGB8};
 
 use crate::clocks::clk_sys_freq;
 use crate::dma::{AnyChannel, Channel};
@@ -115,5 +117,19 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
         self.sm.tx().dma_push(self.dma.reborrow(), &words, false).await;
 
         Timer::after_micros(55).await;
+    }
+}
+
+impl<'d, P: Instance, const S: usize, const N: usize> SmartLedsWriteAsync for PioWs2812<'d, P, S, N> {
+    type Error = Infallible;
+    type Color = RGB8;
+
+    async fn write<T, I>(&mut self, iterator: T) -> Result<(), Self::Error>
+    where
+        T: IntoIterator<Item = I>,
+        I: Into<RGB8>,
+    {
+        self.write(iterator).await;
+        Ok(())
     }
 }
