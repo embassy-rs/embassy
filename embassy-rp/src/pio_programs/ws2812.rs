@@ -97,11 +97,17 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
     }
 
     /// Write a buffer of [smart_leds::RGB8] to the ws2812 string
-    pub async fn write(&mut self, colors: &[RGB8; N]) {
+    pub async fn write<T, I>(&mut self, iterator: T)
+    where
+        T: IntoIterator<Item = I>,
+        I: Into<RGB8>,
+    {
         // Precompute the word bytes from the colors
         let mut words = [0u32; N];
-        for i in 0..N {
-            let word = (u32::from(colors[i].g) << 24) | (u32::from(colors[i].r) << 16) | (u32::from(colors[i].b) << 8);
+
+        for (i, c) in iterator.into_iter().enumerate() {
+            let color = c.into();
+            let word = (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8);
             words[i] = word;
         }
 
