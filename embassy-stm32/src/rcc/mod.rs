@@ -34,7 +34,6 @@ pub use _version::*;
 use stm32_metapac::RCC;
 
 pub use crate::_generated::{mux, Clocks};
-use crate::rcc;
 use crate::time::Hertz;
 
 #[cfg(feature = "low-power")]
