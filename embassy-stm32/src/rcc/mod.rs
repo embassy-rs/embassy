@@ -34,6 +34,7 @@ pub use _version::*;
 use stm32_metapac::RCC;
 
 pub use crate::_generated::{mux, Clocks};
+use crate::rcc;
 use crate::time::Hertz;
 
 #[cfg(feature = "low-power")]
@@ -368,4 +369,33 @@ pub fn enable_and_reset<T: RccPeripheral>() {
 // TODO: should this be `unsafe`?
 pub fn disable<T: RccPeripheral>() {
     T::RCC_INFO.disable();
+}
+
+/// Re-initialize the `embassy-stm32` clock configuration with the provided configuration.
+///
+/// This is useful when you need to alter the CPU clock after configuring peripherals.
+/// For instance, configure an external clock via spi or i2c.
+///
+/// Please not this only re-configures the rcc and the time driver (not GPIO, EXTI, etc).
+///
+/// This should only be called after `init`.
+#[cfg(not(feature = "_dual-core"))]
+pub fn reinit(config: Config) {
+    critical_section::with(|cs| init_rcc(cs, config))
+}
+
+fn init_rcc(_cs: CriticalSection, config: Config) {
+    unsafe {
+        init(config);
+
+        // must be after rcc init
+        #[cfg(feature = "_time-driver")]
+        crate::time_driver::init(_cs);
+
+        #[cfg(feature = "low-power")]
+        {
+            REFCOUNT_STOP2 = 0;
+            REFCOUNT_STOP1 = 0;
+        }
+    }
 }

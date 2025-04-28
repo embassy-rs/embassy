@@ -213,7 +213,6 @@ macro_rules! bind_interrupts {
 
 // Reexports
 pub use _generated::{peripherals, Peripherals};
-use critical_section::CriticalSection;
 pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
@@ -601,38 +600,9 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(feature = "exti")]
             exti::init(cs);
 
-            init_rcc(cs, config.rcc);
+            rcc::init_rcc(cs, config.rcc);
         }
 
         p
     })
-}
-
-/// Re-initialize the `embassy-stm32` clock configuration with the provided configuration.
-///
-/// This is useful when you need to alter the CPU clock after configuring peripherals.
-/// For instance, configure an external clock via spi or i2c.
-///
-/// Please not this only re-configures the rcc and the time driver (not GPIO, EXTI, etc).
-///
-/// This should only be called after `init`.
-#[cfg(not(feature = "_dual-core"))]
-pub fn reinit(config: rcc::Config) {
-    critical_section::with(|cs| init_rcc(cs, config))
-}
-
-fn init_rcc(_cs: CriticalSection, config: rcc::Config) {
-    unsafe {
-        rcc::init(config);
-
-        // must be after rcc init
-        #[cfg(feature = "_time-driver")]
-        time_driver::init(_cs);
-
-        #[cfg(feature = "low-power")]
-        {
-            crate::rcc::REFCOUNT_STOP2 = 0;
-            crate::rcc::REFCOUNT_STOP1 = 0;
-        }
-    }
 }
