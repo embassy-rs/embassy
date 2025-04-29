@@ -56,17 +56,13 @@ fn main() {
         let dual_bank_selected = env::var("CARGO_FEATURE_DUAL_BANK").is_ok();
 
         let single_bank_memory = METADATA.memory.iter().find(|mem| {
-            mem.iter()
-                .filter(|region| region.kind == MemoryRegionKind::Flash)
-                .count()
-                == 1
+            mem.iter().any(|region| region.name.contains("BANK_1"))
+                && !mem.iter().any(|region| region.name.contains("BANK_2"))
         });
 
         let dual_bank_memory = METADATA.memory.iter().find(|mem| {
-            mem.iter()
-                .filter(|region| region.kind == MemoryRegionKind::Flash)
-                .count()
-                == 2
+            mem.iter().any(|region| region.name.contains("BANK_1"))
+                && mem.iter().any(|region| region.name.contains("BANK_2"))
         });
 
         cfgs.set(
