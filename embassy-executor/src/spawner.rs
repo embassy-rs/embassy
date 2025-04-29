@@ -5,6 +5,8 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use super::raw;
+#[cfg(feature = "rtos-trace")]
+use super::raw::trace::TASK_REGISTRY;
 
 /// Token to spawn a newly-created task in an executor.
 ///
@@ -147,6 +149,31 @@ impl Spawner {
 
         match task {
             Some(task) => {
+                unsafe { self.executor.spawn(task) };
+                Ok(())
+            }
+            None => Err(SpawnError::Busy),
+        }
+    }
+
+    /// Spawns a new task with a specified name.
+    ///
+    /// # Arguments
+    /// * `name` - Static string name to associate with the task
+    /// * `token` - Token representing the task to spawn
+    ///
+    /// # Returns
+    /// Result indicating whether the spawn was successful
+    #[cfg(feature = "rtos-trace")]
+    pub fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        let task = token.raw_task;
+        mem::forget(token);
+
+        match task {
+            Some(task) => {
+                let task_id = task.as_ptr() as u32;
+                TASK_REGISTRY.register(task_id, Some(name));
+
                 unsafe { self.executor.spawn(task) };
                 Ok(())
             }

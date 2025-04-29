@@ -83,6 +83,129 @@
 
 use crate::raw::{SyncExecutor, TaskRef};
 
+use core::cell::UnsafeCell;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use rtos_trace::TaskInfo;
+
+const MAX_TASKS: usize = 1000;
+
+/// Represents a task being tracked in the task registry.
+///
+/// Contains the task's unique identifier and optional name.
+#[derive(Clone)]
+pub struct TrackedTask {
+    task_id: u32,
+    name: Option<&'static str>,
+}
+
+/// A thread-safe registry for tracking tasks in the system.
+///
+/// This registry maintains a list of active tasks with their IDs and optional names.
+/// It supports registering, unregistering, and querying information about tasks.
+/// The registry has a fixed capacity of `MAX_TASKS`.
+pub struct TaskRegistry {
+    tasks: [UnsafeCell<Option<TrackedTask>>; MAX_TASKS],
+    count: AtomicUsize,
+}
+
+impl TaskRegistry {
+    /// Creates a new empty task registry.
+    ///
+    /// This initializes a registry that can track up to `MAX_TASKS` tasks.  
+    pub const fn new() -> Self {
+        const EMPTY: UnsafeCell<Option<TrackedTask>> = UnsafeCell::new(None);
+        Self {
+            tasks: [EMPTY; MAX_TASKS],
+            count: AtomicUsize::new(0),
+        }
+    }
+
+    /// Registers a new task in the registry.
+    ///
+    /// # Arguments
+    /// * `task_id` - Unique identifier for the task
+    /// * `name` - Optional name for the task
+    ///
+    /// # Note
+    /// If the registry is full, the task will not be registered.
+    pub fn register(&self, task_id: u32, name: Option<&'static str>) {
+        let count = self.count.load(Ordering::Relaxed);
+        if count < MAX_TASKS {
+            for i in 0..MAX_TASKS {
+                unsafe {
+                    let slot = &self.tasks[i];
+                    let slot_ref = &mut *slot.get();
+                    if slot_ref.is_none() {
+                        *slot_ref = Some(TrackedTask { task_id, name });
+                        self.count.fetch_add(1, Ordering::Relaxed);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Removes a task from the registry.
+    ///
+    /// # Arguments
+    /// * `task_id` - Unique identifier of the task to remove
+    pub fn unregister(&self, task_id: u32) {
+        for i in 0..MAX_TASKS {
+            unsafe {
+                let slot = &self.tasks[i];
+                let slot_ref = &mut *slot.get();
+                if let Some(task) = slot_ref {
+                    if task.task_id == task_id {
+                        *slot_ref = None;
+                        self.count.fetch_sub(1, Ordering::Relaxed);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Returns an iterator over all registered tasks.
+    ///
+    /// This allows accessing information about all tasks currently in the registry.
+    pub fn get_all_tasks(&self) -> impl Iterator<Item = TrackedTask> + '_ {
+        (0..MAX_TASKS).filter_map(move |i| unsafe {
+            let slot = &self.tasks[i];
+            (*slot.get()).clone()
+        })
+    }
+
+    /// Retrieves the name of a task with the given ID.
+    ///
+    /// # Arguments
+    /// * `task_id` - Unique identifier of the task
+    ///
+    /// # Returns
+    /// The name of the task if found and named, or `None` otherwise
+    pub fn get_task_name(&self, task_id: u32) -> Option<&'static str> {
+        for i in 0..MAX_TASKS {
+            unsafe {
+                let slot = &self.tasks[i];
+                let slot_ref = &*slot.get();
+                if let Some(task) = slot_ref {
+                    if task.task_id == task_id {
+                        return task.name;
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+unsafe impl Sync for TaskRegistry {}
+unsafe impl Send for TaskRegistry {}
+
+/// Global task registry instance used for tracking all tasks in the system.
+///
+/// This provides a centralized registry accessible from anywhere in the application.
+pub static TASK_REGISTRY: TaskRegistry = TaskRegistry::new();
+
 #[cfg(not(feature = "rtos-trace"))]
 extern "Rust" {
     /// This callback is called when the executor begins polling. This will always
@@ -153,6 +276,8 @@ pub(crate) fn poll_start(executor: &SyncExecutor) {
 
 #[inline]
 pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
+    let task_id = task.as_ptr() as u32;
+
     #[cfg(not(feature = "rtos-trace"))]
     unsafe {
         _embassy_trace_task_new(executor as *const _ as u32, task.as_ptr() as u32)
@@ -164,10 +289,14 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
+    let task_id = task.as_ptr() as u32;
+
     #[cfg(not(feature = "rtos-trace"))]
     unsafe {
         _embassy_trace_task_end(executor as u32, task.as_ptr() as u32)
     }
+
+    TASK_REGISTRY.unregister(task_id);
 }
 
 #[inline]
@@ -213,7 +342,15 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
 #[cfg(feature = "rtos-trace")]
 impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
     fn task_list() {
-        // We don't know what tasks exist, so we can't send them.
+        for task in TASK_REGISTRY.get_all_tasks() {
+            let info = rtos_trace::TaskInfo {
+                name: TASK_REGISTRY.get_task_name(task.task_id).unwrap(),
+                priority: 0,
+                stack_base: 0,
+                stack_size: 0,
+            };
+            rtos_trace::trace::task_send_info(task.task_id, info);
+        }
     }
     fn time() -> u64 {
         const fn gcd(a: u64, b: u64) -> u64 {

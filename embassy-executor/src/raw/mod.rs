@@ -18,7 +18,7 @@ mod state;
 
 pub mod timer_queue;
 #[cfg(feature = "trace")]
-mod trace;
+pub mod trace;
 pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
