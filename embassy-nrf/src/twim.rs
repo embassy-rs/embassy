@@ -119,6 +119,12 @@ pub struct Twim<'d, T: Instance> {
 
 impl<'d, T: Instance> Twim<'d, T> {
     /// Create a new TWI driver.
+    ///
+    /// `tx_ram_buffer` is required if any write operations will be performed with data that is not in RAM.
+    /// Usually this is static data that the compiler locates in flash instead of RAM. The `tx_ram_buffer`
+    /// needs to be at least as large as the largest write operation that will be executed with a buffer
+    /// that is not in RAM. If all write operations will be performed from RAM, an empty buffer (`&[]`) may
+    /// be used.
     pub fn new(
         twim: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
