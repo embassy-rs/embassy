@@ -14,22 +14,22 @@ async fn main(_spawner: Spawner) {
 
     let ch1 = InputChannel::new(
         p.GPIOTE_CH0,
-        Input::new(p.P0_23, Pull::Up),
+        Input::new(p.P0_23, Pull::Up).into(),
         InputChannelPolarity::HiToLo,
     );
     let ch2 = InputChannel::new(
         p.GPIOTE_CH1,
-        Input::new(p.P0_24, Pull::Up),
+        Input::new(p.P0_24, Pull::Up).into(),
         InputChannelPolarity::LoToHi,
     );
     let ch3 = InputChannel::new(
         p.GPIOTE_CH2,
-        Input::new(p.P0_08, Pull::Up),
+        Input::new(p.P0_08, Pull::Up).into(),
         InputChannelPolarity::Toggle,
     );
     let ch4 = InputChannel::new(
         p.GPIOTE_CH3,
-        Input::new(p.P0_09, Pull::Up),
+        Input::new(p.P0_09, Pull::Up).into(),
         InputChannelPolarity::Toggle,
     );
 

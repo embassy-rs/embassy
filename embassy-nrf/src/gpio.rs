@@ -3,6 +3,7 @@
 
 use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
+use core::ops::{Deref, DerefMut};
 
 use cfg_if::cfg_if;
 use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
@@ -72,6 +73,56 @@ impl<'d> Input<'d> {
     #[inline]
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
+    }
+}
+
+/// A reference to an [`Input`] which can be either borrowed or owned.
+pub struct InputRef<'a, 'd> {
+    pub(crate) pin: FlexRef<'a, 'd>,
+}
+
+impl<'a, 'd> InputRef<'a, 'd> {
+    /// Reborrow into a "child" InputRef.
+    ///
+    /// `self` will stay borrowed until the child InputRef is dropped.
+    pub fn reborrow(&mut self) -> InputRef<'_, 'd> {
+        InputRef {
+            pin: self.pin.reborrow(),
+        }
+    }
+
+    /// Get whether the pin input level is high.
+    #[inline]
+    pub fn is_high(&self) -> bool {
+        self.pin.is_high()
+    }
+
+    /// Get whether the pin input level is low.
+    #[inline]
+    pub fn is_low(&self) -> bool {
+        self.pin.is_low()
+    }
+
+    /// Get the pin input level.
+    #[inline]
+    pub fn get_level(&self) -> Level {
+        self.pin.get_level()
+    }
+}
+
+impl<'a, 'd> From<Input<'d>> for InputRef<'a, 'd> {
+    fn from(value: Input<'d>) -> Self {
+        InputRef {
+            pin: FlexRef::Owned(value.pin),
+        }
+    }
+}
+
+impl<'a, 'd> From<&'a mut Input<'d>> for InputRef<'a, 'd> {
+    fn from(value: &'a mut Input<'d>) -> Self {
+        InputRef {
+            pin: FlexRef::Borrowed(&mut value.pin),
+        }
     }
 }
 
@@ -264,6 +315,80 @@ impl<'d> Output<'d> {
     }
 }
 
+/// A reference to an [`Output`] which can be either borrowed or owned.
+pub struct OutputRef<'a, 'd> {
+    pub(crate) pin: FlexRef<'a, 'd>,
+}
+
+impl<'a, 'd> OutputRef<'a, 'd> {
+    /// Reborrow into a "child" OutputRef.
+    ///
+    /// `self` will stay borrowed until the child OutputRef is dropped.
+    pub fn reborrow(&mut self) -> OutputRef<'_, 'd> {
+        OutputRef {
+            pin: self.pin.reborrow(),
+        }
+    }
+
+    /// Set the output as high.
+    #[inline]
+    pub fn set_high(&mut self) {
+        self.pin.set_high()
+    }
+
+    /// Set the output as low.
+    #[inline]
+    pub fn set_low(&mut self) {
+        self.pin.set_low()
+    }
+
+    /// Toggle the output level.
+    #[inline]
+    pub fn toggle(&mut self) {
+        self.pin.toggle()
+    }
+
+    /// Set the output level.
+    #[inline]
+    pub fn set_level(&mut self, level: Level) {
+        self.pin.set_level(level)
+    }
+
+    /// Get whether the output level is set to high.
+    #[inline]
+    pub fn is_set_high(&self) -> bool {
+        self.pin.is_set_high()
+    }
+
+    /// Get whether the output level is set to low.
+    #[inline]
+    pub fn is_set_low(&self) -> bool {
+        self.pin.is_set_low()
+    }
+
+    /// Get the current output level.
+    #[inline]
+    pub fn get_output_level(&self) -> Level {
+        self.pin.get_output_level()
+    }
+}
+
+impl<'a, 'd> From<Output<'d>> for OutputRef<'a, 'd> {
+    fn from(value: Output<'d>) -> Self {
+        OutputRef {
+            pin: FlexRef::Owned(value.pin),
+        }
+    }
+}
+
+impl<'a, 'd> From<&'a mut Output<'d>> for OutputRef<'a, 'd> {
+    fn from(value: &'a mut Output<'d>) -> Self {
+        OutputRef {
+            pin: FlexRef::Borrowed(&mut value.pin),
+        }
+    }
+}
+
 pub(crate) fn convert_drive(w: &mut pac::gpio::regs::PinCnf, drive: OutputDrive) {
     #[cfg(not(feature = "_nrf54l"))]
     {
@@ -326,7 +451,7 @@ impl<'d> Flex<'d> {
 
     /// Put the pin into input mode.
     #[inline]
-    pub fn set_as_input(&mut self, pull: Pull) {
+    pub fn set_as_input(&mut self, pull: Pull) -> InputRef<'_, 'd> {
         self.pin.conf().write(|w| {
             w.set_dir(vals::Dir::INPUT);
             w.set_input(vals::Input::CONNECT);
@@ -334,6 +459,10 @@ impl<'d> Flex<'d> {
             convert_drive(w, OutputDrive::Standard);
             w.set_sense(vals::Sense::DISABLED);
         });
+
+        InputRef {
+            pin: FlexRef::Borrowed(self),
+        }
     }
 
     /// Put the pin into output mode.
@@ -341,7 +470,7 @@ impl<'d> Flex<'d> {
     /// The pin level will be whatever was set before (or low by default). If you want it to begin
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
-    pub fn set_as_output(&mut self, drive: OutputDrive) {
+    pub fn set_as_output(&mut self, drive: OutputDrive) -> OutputRef<'_, 'd> {
         self.pin.conf().write(|w| {
             w.set_dir(vals::Dir::OUTPUT);
             w.set_input(vals::Input::DISCONNECT);
@@ -349,6 +478,10 @@ impl<'d> Flex<'d> {
             convert_drive(w, drive);
             w.set_sense(vals::Sense::DISABLED);
         });
+
+        OutputRef {
+            pin: FlexRef::Borrowed(self),
+        }
     }
 
     /// Put the pin into input + output mode.
@@ -450,6 +583,58 @@ impl<'d> Flex<'d> {
 impl<'d> Drop for Flex<'d> {
     fn drop(&mut self) {
         self.set_as_disconnected();
+    }
+}
+
+/// A reference to a [`Flex`] which can be either borrowed or owned.
+pub enum FlexRef<'a, 'd> {
+    /// An owned Flex
+    Owned(Flex<'d>),
+    /// A borrowed Flex
+    Borrowed(&'a mut Flex<'d>),
+}
+
+impl<'a, 'd> FlexRef<'a, 'd> {
+    /// Reborrow into a "child" FlexRef.
+    ///
+    /// `self` will stay borrowed until the child FlexRef is dropped.
+    pub fn reborrow(&mut self) -> FlexRef<'_, 'd> {
+        match self {
+            FlexRef::Owned(output) => FlexRef::Borrowed(&mut *output),
+            FlexRef::Borrowed(output) => FlexRef::Borrowed(&mut **output),
+        }
+    }
+}
+
+impl<'a, 'd> Deref for FlexRef<'a, 'd> {
+    type Target = Flex<'d>;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            FlexRef::Owned(output) => output,
+            FlexRef::Borrowed(output) => &**output,
+        }
+    }
+}
+
+impl<'a, 'd> DerefMut for FlexRef<'a, 'd> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            FlexRef::Owned(output) => output,
+            FlexRef::Borrowed(output) => &mut **output,
+        }
+    }
+}
+
+impl<'a, 'd> From<Flex<'d>> for FlexRef<'a, 'd> {
+    fn from(value: Flex<'d>) -> Self {
+        FlexRef::Owned(value)
+    }
+}
+
+impl<'a, 'd> From<&'a mut Flex<'d>> for FlexRef<'a, 'd> {
+    fn from(value: &'a mut Flex<'d>) -> Self {
+        FlexRef::Borrowed(value)
     }
 }
 
@@ -575,6 +760,17 @@ impl<'a, P: Pin> PselBits for Option<Peri<'a, P>> {
 }
 
 #[cfg(not(feature = "_nrf51"))]
+impl<'a, 'b> PselBits for Option<OutputRef<'a, 'b>> {
+    #[inline]
+    fn psel_bits(&self) -> pac::shared::regs::Psel {
+        match self {
+            Some(pin) => pin.pin.pin.psel_bits(),
+            None => DISCONNECTED,
+        }
+    }
+}
+
+#[cfg(not(feature = "_nrf51"))]
 #[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) const DISCONNECTED: Psel = Psel(1 << 31);
 
@@ -628,6 +824,18 @@ mod eh02 {
         }
     }
 
+    impl<'a, 'd> embedded_hal_02::digital::v2::InputPin for InputRef<'a, 'd> {
+        type Error = Infallible;
+
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
     impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
         type Error = Infallible;
 
@@ -653,6 +861,39 @@ mod eh02 {
     }
 
     impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            self.toggle();
+            Ok(())
+        }
+    }
+
+    impl<'a, 'd> embedded_hal_02::digital::v2::OutputPin for OutputRef<'a, 'd> {
+        type Error = Infallible;
+
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            self.set_high();
+            Ok(())
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            self.set_low();
+            Ok(())
+        }
+    }
+
+    impl<'a, 'd> embedded_hal_02::digital::v2::StatefulOutputPin for OutputRef<'a, 'd> {
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_high())
+        }
+
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_set_low())
+        }
+    }
+
+    impl<'a, 'd> embedded_hal_02::digital::v2::ToggleableOutputPin for OutputRef<'a, 'd> {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
@@ -708,6 +949,54 @@ mod eh02 {
             Ok(())
         }
     }
+
+    /// Implement [`embedded_hal_02::digital::v2::InputPin`] for [`Flex`];
+    ///
+    /// If the pin is not in input mode the result is unspecified.
+    impl<'a, 'd> embedded_hal_02::digital::v2::InputPin for FlexRef<'a, 'd> {
+        type Error = Infallible;
+
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok((**self).is_high())
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok((**self).is_low())
+        }
+    }
+
+    impl<'a, 'd> embedded_hal_02::digital::v2::OutputPin for FlexRef<'a, 'd> {
+        type Error = Infallible;
+
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            (**self).set_high();
+            Ok(())
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            (**self).set_low();
+            Ok(())
+        }
+    }
+
+    impl<'a, 'd> embedded_hal_02::digital::v2::StatefulOutputPin for FlexRef<'a, 'd> {
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            Ok((**self).is_set_high())
+        }
+
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            Ok((**self).is_set_low())
+        }
+    }
+
+    impl<'a, 'd> embedded_hal_02::digital::v2::ToggleableOutputPin for FlexRef<'a, 'd> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            (**self).toggle();
+            Ok(())
+        }
+    }
 }
 
 impl<'d> embedded_hal_1::digital::ErrorType for Input<'d> {
@@ -715,6 +1004,20 @@ impl<'d> embedded_hal_1::digital::ErrorType for Input<'d> {
 }
 
 impl<'d> embedded_hal_1::digital::InputPin for Input<'d> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_high())
+    }
+
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_low())
+    }
+}
+
+impl<'a, 'd> embedded_hal_1::digital::ErrorType for InputRef<'a, 'd> {
+    type Error = Infallible;
+}
+
+impl<'a, 'd> embedded_hal_1::digital::InputPin for InputRef<'a, 'd> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -741,6 +1044,32 @@ impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
 }
 
 impl<'d> embedded_hal_1::digital::StatefulOutputPin for Output<'d> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_high())
+    }
+
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_low())
+    }
+}
+
+impl<'a, 'd> embedded_hal_1::digital::ErrorType for OutputRef<'a, 'd> {
+    type Error = Infallible;
+}
+
+impl<'a, 'd> embedded_hal_1::digital::OutputPin for OutputRef<'a, 'd> {
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        self.set_high();
+        Ok(())
+    }
+
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        self.set_low();
+        Ok(())
+    }
+}
+
+impl<'a, 'd> embedded_hal_1::digital::StatefulOutputPin for OutputRef<'a, 'd> {
     fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_high())
     }
@@ -786,5 +1115,44 @@ impl<'d> embedded_hal_1::digital::StatefulOutputPin for Flex<'d> {
 
     fn is_set_low(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_low())
+    }
+}
+
+impl<'a, 'd> embedded_hal_1::digital::ErrorType for FlexRef<'a, 'd> {
+    type Error = Infallible;
+}
+
+/// Implement [`InputPin`] for [`FlexRef`];
+///
+/// If the pin is not in input mode the result is unspecified.
+impl<'a, 'd> embedded_hal_1::digital::InputPin for FlexRef<'a, 'd> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((**self).is_high())
+    }
+
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((**self).is_low())
+    }
+}
+
+impl<'a, 'd> embedded_hal_1::digital::OutputPin for FlexRef<'a, 'd> {
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        (**self).set_high();
+        Ok(())
+    }
+
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        (**self).set_low();
+        Ok(())
+    }
+}
+
+impl<'a, 'd> embedded_hal_1::digital::StatefulOutputPin for FlexRef<'a, 'd> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((**self).is_set_high())
+    }
+
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((**self).is_set_low())
     }
 }
