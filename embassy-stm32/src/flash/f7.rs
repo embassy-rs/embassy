@@ -169,3 +169,13 @@ mod tests {
         assert_sector(7, 0x080C_0000, LARGE_SECTOR_SIZE, 0x080F_FFFF);
     }
 }
+
+#[cfg(all(bank_setup_configurable))]
+pub(crate) fn check_bank_setup() {
+    if cfg!(feature = "single-bank") && !pac::FLASH.optcr().read().n_dbank() {
+        panic!("Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the ndbank value in the user option bytes or configure embassy to use dual-bank config");
+    }
+    if cfg!(feature = "dual-bank") && pac::FLASH.optcr().read().n_dbank() {
+        panic!("Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the ndbank value in the user option bytes or configure embassy to use single-bank config");
+    }
+}
