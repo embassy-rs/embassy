@@ -14,7 +14,18 @@ const COUNT_TO: i64 = 10_000_000;
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     // Set up for clock frequency of 200 MHz
-    let config = Config::new(ClockConfig::with_speed_mhz(200));
+    // This will set all the necessary defaults including slightly raised voltage
+    // See embassy_rp::clocks::ClockConfig for more options, including full manual control
+    let config = Config::new(ClockConfig::at_sys_frequency_mhz(200));
+
+    // Show the voltage scale and brownout-detection for verification
+    info!("System core voltage: {}", Debug2Format(&config.clocks.voltage_scale));
+    // info!(
+    //     "Brownout detection: {}",
+    //     Debug2Format(&config.clocks.brownout_detection)
+    // );
+
+    // Initialize the peripherals
     let p = embassy_rp::init(config);
 
     // Show CPU frequency for verification
