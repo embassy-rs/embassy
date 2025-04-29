@@ -513,11 +513,11 @@ mod eh02 {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_high())
+            Ok((*self.pin).is_high())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_low())
+            Ok((*self.pin).is_low())
         }
     }
 }
@@ -528,11 +528,11 @@ impl<'d, 'i> embedded_hal_1::digital::ErrorType for InputChannel<'d, 'i> {
 
 impl<'d, 'i> embedded_hal_1::digital::InputPin for InputChannel<'d, 'i> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
-        Ok(self.pin.is_high())
+        Ok((*self.pin).is_high())
     }
 
     fn is_low(&mut self) -> Result<bool, Self::Error> {
-        Ok(self.pin.is_low())
+        Ok((*self.pin).is_low())
     }
 }
 

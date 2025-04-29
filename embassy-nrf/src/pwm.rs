@@ -54,7 +54,7 @@ impl<'d, 'o, T: Instance> SequencePwm<'d, 'o, T> {
     /// Create a new 1-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_1ch(pwm: Peri<'d, T>, ch0: OutputRef<'d, 'o>, config: Config) -> Result<Self, Error> {
-        Self::new_inner(pwm, Some(ch0.into()), None, None, None, config)
+        Self::new_inner(pwm, Some(ch0), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
@@ -65,7 +65,7 @@ impl<'d, 'o, T: Instance> SequencePwm<'d, 'o, T> {
         ch1: OutputRef<'d, 'o>,
         config: Config,
     ) -> Result<Self, Error> {
-        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None, config)
+        Self::new_inner(pwm, Some(ch0), Some(ch1), None, None, config)
     }
 
     /// Create a new 3-channel PWM
@@ -77,7 +77,7 @@ impl<'d, 'o, T: Instance> SequencePwm<'d, 'o, T> {
         ch2: OutputRef<'d, 'o>,
         config: Config,
     ) -> Result<Self, Error> {
-        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None, config)
+        Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), None, config)
     }
 
     /// Create a new 4-channel PWM
@@ -90,14 +90,7 @@ impl<'d, 'o, T: Instance> SequencePwm<'d, 'o, T> {
         ch3: OutputRef<'d, 'o>,
         config: Config,
     ) -> Result<Self, Error> {
-        Self::new_inner(
-            pwm,
-            Some(ch0.into()),
-            Some(ch1.into()),
-            Some(ch2.into()),
-            Some(ch3.into()),
-            config,
-        )
+        Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), Some(ch3), config)
     }
 
     fn new_inner(
@@ -557,19 +550,19 @@ impl<'d, 'o, T: Instance> SimplePwm<'d, 'o, T> {
     /// Create a new 1-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_1ch(pwm: Peri<'d, T>, ch0: OutputRef<'d, 'o>) -> Self {
-        unsafe { Self::new_inner(pwm, Some(ch0.into()), None, None, None) }
+        unsafe { Self::new_inner(pwm, Some(ch0), None, None, None) }
     }
 
     /// Create a new 2-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_2ch(pwm: Peri<'d, T>, ch0: OutputRef<'d, 'o>, ch1: OutputRef<'d, 'o>) -> Self {
-        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None)
+        Self::new_inner(pwm, Some(ch0), Some(ch1), None, None)
     }
 
     /// Create a new 3-channel PWM
     #[allow(unused_unsafe)]
     pub fn new_3ch(pwm: Peri<'d, T>, ch0: OutputRef<'d, 'o>, ch1: OutputRef<'d, 'o>, ch2: OutputRef<'d, 'o>) -> Self {
-        unsafe { Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None) }
+        unsafe { Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), None) }
     }
 
     /// Create a new 4-channel PWM
@@ -581,15 +574,7 @@ impl<'d, 'o, T: Instance> SimplePwm<'d, 'o, T> {
         ch2: OutputRef<'d, 'o>,
         ch3: OutputRef<'d, 'o>,
     ) -> Self {
-        unsafe {
-            Self::new_inner(
-                pwm,
-                Some(ch0.into()),
-                Some(ch1.into()),
-                Some(ch2.into()),
-                Some(ch3.into()),
-            )
-        }
+        unsafe { Self::new_inner(pwm, Some(ch0), Some(ch1), Some(ch2), Some(ch3)) }
     }
 
     fn new_inner(
