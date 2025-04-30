@@ -4,7 +4,6 @@
 
 use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
 use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
@@ -17,7 +16,7 @@ use embassy_time::{Duration, Instant};
 use embedded_hal_1::i2c::Operation;
 pub use pac::twim::vals::Frequency;
 
-use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
@@ -75,8 +74,8 @@ pub enum Error {
     Transmit,
     /// Data reception failed.
     Receive,
-    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
-    BufferNotInRAM,
+    /// The buffer is not in data RAM and is larger than the RAM buffer. It's most likely in flash, and nRF's DMA cannot access flash.
+    RAMBufferTooSmall,
     /// Didn't receive an ACK bit after the address byte. Address might be wrong, or the i2c device chip might not be connected properly.
     AddressNack,
     /// Didn't receive an ACK bit after a data byte.
@@ -115,16 +114,24 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 /// TWI driver.
 pub struct Twim<'d, T: Instance> {
     _p: Peri<'d, T>,
+    tx_ram_buffer: &'d mut [u8],
 }
 
 impl<'d, T: Instance> Twim<'d, T> {
     /// Create a new TWI driver.
+    ///
+    /// `tx_ram_buffer` is required if any write operations will be performed with data that is not in RAM.
+    /// Usually this is static data that the compiler locates in flash instead of RAM. The `tx_ram_buffer`
+    /// needs to be at least as large as the largest write operation that will be executed with a buffer
+    /// that is not in RAM. If all write operations will be performed from RAM, an empty buffer (`&[]`) may
+    /// be used.
     pub fn new(
         twim: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sda: Peri<'d, impl GpioPin>,
         scl: Peri<'d, impl GpioPin>,
         config: Config,
+        tx_ram_buffer: &'d mut [u8],
     ) -> Self {
         let r = T::regs();
 
@@ -159,7 +166,10 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Enable TWIM instance.
         r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
 
-        let mut twim = Self { _p: twim };
+        let mut twim = Self {
+            _p: twim,
+            tx_ram_buffer,
+        };
 
         // Apply runtime peripheral configuration
         Self::set_config(&mut twim, &config).unwrap();
@@ -174,21 +184,17 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     /// Set TX buffer, checking that it is in RAM and has suitable length.
-    unsafe fn set_tx_buffer(
-        &mut self,
-        buffer: &[u8],
-        ram_buffer: Option<&mut [MaybeUninit<u8>; FORCE_COPY_BUFFER_SIZE]>,
-    ) -> Result<(), Error> {
+    unsafe fn set_tx_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let buffer = if slice_in_ram(buffer) {
             buffer
         } else {
-            let ram_buffer = ram_buffer.ok_or(Error::BufferNotInRAM)?;
+            if buffer.len() > self.tx_ram_buffer.len() {
+                return Err(Error::RAMBufferTooSmall);
+            }
             trace!("Copying TWIM tx buffer into RAM for DMA");
-            let ram_buffer = &mut ram_buffer[..buffer.len()];
-            // Inline implementation of the nightly API MaybeUninit::copy_from_slice(ram_buffer, buffer)
-            let uninit_src: &[MaybeUninit<u8>] = unsafe { core::mem::transmute(buffer) };
-            ram_buffer.copy_from_slice(uninit_src);
-            unsafe { &*(ram_buffer as *const [MaybeUninit<u8>] as *const [u8]) }
+            let ram_buffer = &mut self.tx_ram_buffer[..buffer.len()];
+            ram_buffer.copy_from_slice(buffer);
+            &*ram_buffer
         };
 
         if buffer.len() > EASY_DMA_SIZE {
@@ -358,7 +364,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         &mut self,
         address: u8,
         operations: &mut [Operation<'_>],
-        tx_ram_buffer: Option<&mut [MaybeUninit<u8>; FORCE_COPY_BUFFER_SIZE]>,
         last_op: Option<&Operation<'_>>,
         inten: bool,
     ) -> Result<usize, Error> {
@@ -397,7 +402,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
                 // Set up DMA buffers.
                 unsafe {
-                    self.set_tx_buffer(wr_buffer, tx_ram_buffer)?;
+                    self.set_tx_buffer(wr_buffer)?;
                     self.set_rx_buffer(rd_buffer)?;
                 }
 
@@ -450,7 +455,7 @@ impl<'d, T: Instance> Twim<'d, T> {
             {
                 // Set up DMA buffers.
                 unsafe {
-                    self.set_tx_buffer(wr_buffer, tx_ram_buffer)?;
+                    self.set_tx_buffer(wr_buffer)?;
                     self.set_rx_buffer(rd_buffer)?;
                 }
 
@@ -472,7 +477,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
                 // Set up DMA buffers.
                 unsafe {
-                    self.set_tx_buffer(buffer, tx_ram_buffer)?;
+                    self.set_tx_buffer(buffer)?;
                 }
 
                 // Start write operation.
@@ -539,28 +544,9 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// An `Operation::Write` following an `Operation::Read` must have a
     /// non-empty buffer.
     pub fn blocking_transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
         let mut last_op = None;
         while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, false)?;
-            let (in_progress, rest) = operations.split_at_mut(ops);
-            self.blocking_wait();
-            self.check_operations(in_progress)?;
-            last_op = in_progress.last();
-            operations = rest;
-        }
-        Ok(())
-    }
-
-    /// Same as [`blocking_transaction`](Twim::blocking_transaction) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub fn blocking_transaction_from_ram(
-        &mut self,
-        address: u8,
-        mut operations: &mut [Operation<'_>],
-    ) -> Result<(), Error> {
-        let mut last_op = None;
-        while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, None, last_op, false)?;
+            let ops = self.setup_operations(address, operations, last_op, false)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
             self.blocking_wait();
             self.check_operations(in_progress)?;
@@ -580,30 +566,9 @@ impl<'d, T: Instance> Twim<'d, T> {
         mut operations: &mut [Operation<'_>],
         timeout: Duration,
     ) -> Result<(), Error> {
-        let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
         let mut last_op = None;
         while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, false)?;
-            let (in_progress, rest) = operations.split_at_mut(ops);
-            self.blocking_wait_timeout(timeout)?;
-            self.check_operations(in_progress)?;
-            last_op = in_progress.last();
-            operations = rest;
-        }
-        Ok(())
-    }
-
-    /// Same as [`blocking_transaction_timeout`](Twim::blocking_transaction_timeout) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    #[cfg(feature = "time")]
-    pub fn blocking_transaction_from_ram_timeout(
-        &mut self,
-        address: u8,
-        mut operations: &mut [Operation<'_>],
-        timeout: Duration,
-    ) -> Result<(), Error> {
-        let mut last_op = None;
-        while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, None, last_op, false)?;
+            let ops = self.setup_operations(address, operations, last_op, false)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
             self.blocking_wait_timeout(timeout)?;
             self.check_operations(in_progress)?;
@@ -624,28 +589,9 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// An `Operation::Write` following an `Operation::Read` must have a
     /// non-empty buffer.
     pub async fn transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
         let mut last_op = None;
         while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, true)?;
-            let (in_progress, rest) = operations.split_at_mut(ops);
-            self.async_wait().await?;
-            self.check_operations(in_progress)?;
-            last_op = in_progress.last();
-            operations = rest;
-        }
-        Ok(())
-    }
-
-    /// Same as [`transaction`](Twim::transaction) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn transaction_from_ram(
-        &mut self,
-        address: u8,
-        mut operations: &mut [Operation<'_>],
-    ) -> Result<(), Error> {
-        let mut last_op = None;
-        while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, None, last_op, true)?;
+            let ops = self.setup_operations(address, operations, last_op, true)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
             self.async_wait().await?;
             self.check_operations(in_progress)?;
@@ -665,11 +611,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         self.blocking_transaction(address, &mut [Operation::Write(buffer)])
     }
 
-    /// Same as [`blocking_write`](Twim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub fn blocking_write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.blocking_transaction_from_ram(address, &mut [Operation::Write(buffer)])
-    }
-
     /// Read from an I2C slave.
     ///
     /// The buffer must have a length of at most 255 bytes on the nRF52832
@@ -687,16 +628,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         self.blocking_transaction(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
     }
 
-    /// Same as [`blocking_write_read`](Twim::blocking_write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub fn blocking_write_read_from_ram(
-        &mut self,
-        address: u8,
-        wr_buffer: &[u8],
-        rd_buffer: &mut [u8],
-    ) -> Result<(), Error> {
-        self.blocking_transaction_from_ram(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
-    }
-
     // ===========================================
 
     /// Write to an I2C slave with timeout.
@@ -705,17 +636,6 @@ impl<'d, T: Instance> Twim<'d, T> {
     #[cfg(feature = "time")]
     pub fn blocking_write_timeout(&mut self, address: u8, buffer: &[u8], timeout: Duration) -> Result<(), Error> {
         self.blocking_transaction_timeout(address, &mut [Operation::Write(buffer)], timeout)
-    }
-
-    /// Same as [`blocking_write`](Twim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    #[cfg(feature = "time")]
-    pub fn blocking_write_from_ram_timeout(
-        &mut self,
-        address: u8,
-        buffer: &[u8],
-        timeout: Duration,
-    ) -> Result<(), Error> {
-        self.blocking_transaction_from_ram_timeout(address, &mut [Operation::Write(buffer)], timeout)
     }
 
     /// Read from an I2C slave.
@@ -747,22 +667,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         )
     }
 
-    /// Same as [`blocking_write_read`](Twim::blocking_write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    #[cfg(feature = "time")]
-    pub fn blocking_write_read_from_ram_timeout(
-        &mut self,
-        address: u8,
-        wr_buffer: &[u8],
-        rd_buffer: &mut [u8],
-        timeout: Duration,
-    ) -> Result<(), Error> {
-        self.blocking_transaction_from_ram_timeout(
-            address,
-            &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)],
-            timeout,
-        )
-    }
-
     // ===========================================
 
     /// Read from an I2C slave.
@@ -781,12 +685,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         self.transaction(address, &mut [Operation::Write(buffer)]).await
     }
 
-    /// Same as [`write`](Twim::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.transaction_from_ram(address, &mut [Operation::Write(buffer)])
-            .await
-    }
-
     /// Write data to an I2C slave, then read data from the slave without
     /// triggering a stop condition between the two.
     ///
@@ -794,17 +692,6 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// and at most 65535 bytes on the nRF52840.
     pub async fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Error> {
         self.transaction(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
-            .await
-    }
-
-    /// Same as [`write_read`](Twim::write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn write_read_from_ram(
-        &mut self,
-        address: u8,
-        wr_buffer: &[u8],
-        rd_buffer: &mut [u8],
-    ) -> Result<(), Error> {
-        self.transaction_from_ram(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
             .await
     }
 }
@@ -904,7 +791,7 @@ impl embedded_hal_1::i2c::Error for Error {
             Self::RxBufferTooLong => embedded_hal_1::i2c::ErrorKind::Other,
             Self::Transmit => embedded_hal_1::i2c::ErrorKind::Other,
             Self::Receive => embedded_hal_1::i2c::ErrorKind::Other,
-            Self::BufferNotInRAM => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::RAMBufferTooSmall => embedded_hal_1::i2c::ErrorKind::Other,
             Self::AddressNack => {
                 embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
             }
