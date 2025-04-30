@@ -97,6 +97,8 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
 
 pub(crate) trait SealedRccPeripheral {
     fn frequency() -> Hertz;
+    #[allow(dead_code)]
+    fn bus_frequency() -> Hertz;
     const RCC_INFO: RccInfo;
 }
 
