@@ -549,7 +549,7 @@ foreach_interrupt!(
 );
 
 fn calculate_trdt<T: Instance>(speed: Dspd) -> u8 {
-    let ahb_freq = T::frequency().0;
+    let ahb_freq = T::bus_frequency().0;
     match speed {
         Dspd::HIGH_SPEED => {
             // From RM0431 (F72xx), RM0090 (F429), RM0390 (F446)
