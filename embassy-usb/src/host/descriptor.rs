@@ -178,8 +178,8 @@ impl USBDescriptor for ConfigurationDescriptor<'_> {
 }
 
 /// Iterates over the InterfaceDescriptors of a single configuration
+/// Note that, there might be more InterfaceDescriptors than interfaces.
 pub struct InterfaceIterator<'a> {
-    index: u8,
     offset: usize,
     cfg_desc: &'a ConfigurationDescriptor<'a>,
 }
@@ -188,7 +188,7 @@ impl<'a> Iterator for InterfaceIterator<'a> {
     type Item = InterfaceDescriptor<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.cfg_desc.num_interfaces {
+        if self.offset >= self.cfg_desc.buffer.len() {
             None
         } else {
             // Assuming spec compliant descriptors the next descriptor should always be at our offset
@@ -196,7 +196,6 @@ impl<'a> Iterator for InterfaceIterator<'a> {
             // FIXME: Fallible, propegate errors?
             let iface = InterfaceDescriptor::try_from_bytes(remaining_buf).ok()?;
             self.offset += iface.len as usize + iface.buffer.len();
-            self.index += 1;
             Some(iface)
         }
     }
@@ -237,7 +236,6 @@ impl<'a> ConfigurationDescriptor<'a> {
     /// Iterate over all interface descriptors of this Configuration
     pub fn iter_interface(&self) -> InterfaceIterator<'_> {
         InterfaceIterator {
-            index: 0,
             offset: 0,
             cfg_desc: self,
         }
