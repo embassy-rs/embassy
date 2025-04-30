@@ -147,56 +147,30 @@ pub enum PeriClkSrc {
 /// Core voltage scaling options for RP2040.
 ///
 /// The RP2040 voltage regulator can be configured for different output voltages.
-/// Higher voltages allow for higher clock frequencies but increase power consumption.
-///
-/// # Typical Use Cases
-///
-/// - `V0_85` to `V1_05`: Power saving for lower frequencies (below 100MHz)
-/// - `V1_10`: Default voltage, safe for standard 125MHz operation
-/// - `V1_15`: Required for frequencies above 133MHz (e.g., 200MHz overclocking)
-/// - `V1_20`: For more extreme overclocking (200MHz+)
-/// - `V1_25` and `V1_30`: Highest voltage settings, use with caution
-///
-/// # Overclocking Notes
-///
-/// When overclocking:
-/// - Frequencies up to 133MHz are typically stable at default voltage (`V1_10`)
-/// - Frequencies from 133MHz to 200MHz generally require `V1_15`
-/// - Frequencies above 200MHz typically require `V1_20` or higher
-///
-/// # Power Consumption
-///
-/// Higher voltages increase power consumption and heat generation. In battery-powered
-/// applications, consider using lower voltages when maximum performance is not required.
-///
-/// # Safety
-///
-/// Increased voltage can reduce the lifespan of the chip if used for extended periods,
-/// especially at `V1_25` and `V1_30`. These higher voltages should be used with
-/// consideration of thermal management.
+/// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
 #[cfg(feature = "rp2040")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum VoltageScale {
-    /// 0.85V - Lowest power consumption, suitable for low frequencies
+    /// 0.85V
     V0_85 = 0b0110,
-    /// 0.90V - Low power consumption
+    /// 0.90V
     V0_90 = 0b0111,
-    /// 0.95V - Low power consumption
+    /// 0.95V
     V0_95 = 0b1000,
-    /// 1.00V - Medium power consumption
+    /// 1.00V
     V1_00 = 0b1001,
-    /// 1.05V - Medium power consumption
+    /// 1.05V
     V1_05 = 0b1010,
-    /// 1.10V (Default) - Standard voltage for 125MHz operation
+    /// 1.10V
     V1_10 = 0b1011,
-    /// 1.15V - Required for frequencies above 133MHz
+    /// 1.15V
     V1_15 = 0b1100,
-    /// 1.20V - For higher overclocking (200MHz+)
+    /// 1.20V
     V1_20 = 0b1101,
-    /// 1.25V - High voltage, use with caution
+    /// 1.25V
     V1_25 = 0b1110,
-    /// 1.30V - Maximum voltage, use with extreme caution
+    /// 1.30V
     V1_30 = 0b1111,
 }
 
@@ -204,10 +178,8 @@ pub enum VoltageScale {
 impl VoltageScale {
     /// Get the recommended Brown-Out Detection (BOD) setting for this voltage.
     /// Sets the BOD threshold to approximately 90% of the core voltage.
-    /// See RP2040 Datasheet, Table 190, BOD Register    
     fn recommended_bod(self) -> u8 {
         match self {
-            // ~90% of voltage setting based on Table 190 values
             VoltageScale::V0_85 => 0b0111, // 0.774V (~91% of 0.85V)
             VoltageScale::V0_90 => 0b1000, // 0.817V (~91% of 0.90V)
             VoltageScale::V0_95 => 0b1001, // 0.860V (~91% of 0.95V)
@@ -246,7 +218,7 @@ pub struct ClockConfig {
     #[cfg(feature = "rp2040")]
     pub voltage_scale: Option<VoltageScale>,
     /// Voltage stabilization delay in microseconds.
-    /// If not set, appropriate defaults will be used based on voltage level.
+    /// If not set, defaults will be used based on voltage level.
     #[cfg(feature = "rp2040")]
     pub voltage_stabilization_delay_us: Option<u32>,
     // gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
@@ -409,7 +381,7 @@ impl ClockConfig {
 
     /// Configure the system clock to a specific frequency in MHz.
     ///
-    /// This is a more user-friendly way to configure the system clock, similar to
+    /// This is a user-friendly way to configure the system clock, similar to
     /// the Pico SDK's approach. It automatically handles voltage scaling based on the
     /// requested frequency and uses the standard 12MHz crystal found on most RP2040 boards.
     ///
@@ -420,9 +392,6 @@ impl ClockConfig {
     /// # Example
     ///
     /// ```
-    /// // Configure for standard 125MHz clock
-    /// let config = ClockConfig::at_sys_frequency_mhz(125);
-    ///
     /// // Overclock to 200MHz
     /// let config = ClockConfig::at_sys_frequency_mhz(200);
     /// ```
@@ -551,6 +520,98 @@ impl ClockConfig {
             voltage_stabilization_delay_us: None,
         }
     }
+
+    /// Configure with manual PLL settings for full control over system clock
+    ///
+    /// This method provides a simple way to configure the system with custom PLL parameters
+    /// without needing to understand the full nested configuration structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `xosc_hz` - The frequency of the external crystal in Hz
+    /// * `pll_config` - The PLL configuration parameters to achieve desired frequency
+    /// * `voltage_scale` - Optional voltage scaling for overclocking (required for >133MHz)
+    ///
+    /// # Returns
+    ///
+    /// A ClockConfig configured with the specified PLL parameters
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Configure for 200MHz operation
+    /// let config = Config::default();
+    /// config.clocks = ClockConfig::manual_pll(
+    ///     12_000_000,
+    ///     PllConfig {
+    ///         refdiv: 1,    // Reference divider (12 MHz / 1 = 12 MHz)
+    ///         fbdiv: 100,   // Feedback divider (12 MHz * 100 = 1200 MHz VCO)
+    ///         post_div1: 3, // First post divider (1200 MHz / 3 = 400 MHz)
+    ///         post_div2: 2, // Second post divider (400 MHz / 2 = 200 MHz)
+    ///     },
+    ///     Some(VoltageScale::V1_15)
+    /// );
+    /// ```
+    #[cfg(feature = "rp2040")]
+    pub fn manual_pll(xosc_hz: u32, pll_config: PllConfig, voltage_scale: Option<VoltageScale>) -> Self {
+        // Calculate the actual output frequency for documentation
+        // let ref_freq = xosc_hz / pll_config.refdiv as u32;
+        // let vco_freq = ref_freq * pll_config.fbdiv as u32;
+        // let sys_freq = vco_freq / ((pll_config.post_div1 * pll_config.post_div2) as u32);
+
+        // Validate PLL parameters
+        assert!(pll_config.is_valid(xosc_hz), "Invalid PLL parameters");
+
+        let mut config = Self::default();
+
+        config.xosc = Some(XoscConfig {
+            hz: xosc_hz,
+            sys_pll: Some(pll_config),
+            usb_pll: Some(PllConfig {
+                refdiv: 1,
+                fbdiv: 120,
+                post_div1: 6,
+                post_div2: 5,
+            }),
+            delay_multiplier: 128,
+        });
+
+        config.ref_clk = RefClkConfig {
+            src: RefClkSrc::Xosc,
+            div: 1,
+        };
+
+        config.sys_clk = SysClkConfig {
+            src: SysClkSrc::PllSys,
+            div_int: 1,
+            div_frac: 0,
+        };
+
+        config.voltage_scale = voltage_scale;
+        config.peri_clk_src = Some(PeriClkSrc::Sys);
+
+        // Set reasonable defaults for other clocks
+        config.usb_clk = Some(UsbClkConfig {
+            src: UsbClkSrc::PllUsb,
+            div: 1,
+            phase: 0,
+        });
+
+        config.adc_clk = Some(AdcClkConfig {
+            src: AdcClkSrc::PllUsb,
+            div: 1,
+            phase: 0,
+        });
+
+        config.rtc_clk = Some(RtcClkConfig {
+            src: RtcClkSrc::PllUsb,
+            div_int: 1024,
+            div_frac: 0,
+            phase: 0,
+        });
+
+        config
+    }
 }
 
 /// ROSC freq range.
@@ -596,30 +657,6 @@ pub struct XoscConfig {
 }
 
 /// PLL configuration.
-///
-/// This struct defines the parameters used to configure the Phase-Locked Loop (PLL)
-/// in the RP2040. The parameters follow the definitions from the RP2040 datasheet,
-/// section 2.18.3.
-///
-/// # Parameters
-///
-/// * `refdiv` - Reference divider (1-63)
-/// * `fbdiv` - VCO feedback divider (16-320)
-/// * `post_div1` - First post divider (1-7)
-/// * `post_div2` - Second post divider (1-7) - must be less than or equal to post_div1
-///
-/// # Constraints
-///
-/// * VCO frequency (input_hz / refdiv * fbdiv) must be between 750MHz and 1800MHz
-/// * post_div2 must be less than or equal to post_div1
-///
-/// # Calculation
-///
-/// The output frequency of the PLL is calculated as:
-///
-/// `output_hz = (input_hz / refdiv * fbdiv) / (post_div1 * post_div2)`
-///
-/// Where input_hz is typically the crystal frequency (e.g., 12MHz).
 #[derive(Clone, Copy, Debug)]
 pub struct PllConfig {
     /// Reference divisor.
@@ -836,34 +873,16 @@ pub struct RtcClkConfig {
 /// * `Some(PllConfig)` if valid parameters were found
 /// * `None` if no valid parameters could be found for the requested combination
 ///
-/// # Algorithm
-///
-/// 1. Set reference divider to 1 (fixed for simplicity)
-/// 2. Try different feedback divisors (fbdiv) starting from highest to lowest
-/// 3. For each fbdiv value, check if the resulting VCO frequency is valid (750-1800MHz)
-/// 4. Find post-divider combinations that give the exact requested frequency
-/// 5. If no exact match, return the closest approximation
-///
 /// # Example
 ///
 /// ```
 /// // Find parameters for 133MHz system clock from 12MHz crystal
 /// let pll_params = find_pll_params(12_000_000, 133_000_000).unwrap();
 /// ```
-///
-/// Similar to the Pico SDK's parameter selection approach, prioritizing stability.
-/// See RP2040 Datasheet section 2.16.3. Reference Clock (ref) and 2.18.3. PLL
 #[cfg(feature = "rp2040")]
 fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
     // Fixed reference divider for system PLL
     const PLL_SYS_REFDIV: u8 = 1;
-
-    // Constraints from datasheet:
-    // REFDIV: 1..=63
-    // FBDIV: 16..=320
-    // POSTDIV1: 1..=7
-    // POSTDIV2: 1..=7 (must be <= POSTDIV1)
-    // VCO frequency (input_hz / refdiv * fbdiv): 750MHz ..= 1800MHz
 
     // Calculate reference frequency
     let reference_freq = input_hz / PLL_SYS_REFDIV as u32;
@@ -969,8 +988,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     #[cfg(feature = "_rp235x")]
     while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1) {}
 
-    // Set Core Voltage (RP2040 only) BEFORE doing anything with PLLs
-    // This is critical for overclocking - must be done before PLL setup
+    // Set Core Voltage (RP2040 only), if we have config for it and we're not using the default
     #[cfg(feature = "rp2040")]
     if let Some(voltage) = config.voltage_scale {
         let vreg = pac::VREG_AND_CHIP_RESET;
@@ -978,17 +996,15 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         let target_vsel = voltage as u8;
 
         if target_vsel != current_vsel {
-            // IMPORTANT: Use modify() instead of write() to preserve the HIZ and EN bits
-            // This is critical - otherwise we might disable the regulator when changing voltage
+            // Use modify() instead of write() to preserve the HIZ and EN bits - otherwise we will disable the regulator when changing voltage
             vreg.vreg().modify(|w| w.set_vsel(target_vsel));
 
-            // For higher voltage settings (overclocking), we need a longer stabilization time
-            // Default to 1000 µs (1ms) like the SDK, but allow user override
+            // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
             let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or_else(|| {
                 match voltage {
-                    VoltageScale::V1_15 => 1000, // 1ms for 1.15V (matches SDK default)
+                    VoltageScale::V1_15 => 1000,                                             // 1ms for 1.15V
                     VoltageScale::V1_20 | VoltageScale::V1_25 | VoltageScale::V1_30 => 2000, // 2ms for higher voltages
-                    _ => 500,                    // 500 µs for standard voltages
+                    _ => 0,                                                                  // no delay for all others
                 }
             });
 
@@ -1001,7 +1017,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             // Wait for voltage to stabilize
             cortex_m::asm::delay(delay_cycles);
 
-            // Only NOW set the BOD level after voltage has stabilized
+            // Only now set the BOD level after voltage has stabilized
             vreg.bod().write(|w| w.set_vsel(voltage.recommended_bod()));
         }
     }
@@ -1026,9 +1042,9 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     // SETUP TEMPORARY STABLE CLOCKS FIRST
     // Configure USB PLL for our stable temporary clock
     // This follows the SDK's approach of using USB PLL as a stable intermediate clock
-    let usb_pll_freq = match &config.xosc {
+    let pll_usb_freq = match &config.xosc {
         Some(config) => match &config.usb_pll {
-            Some(usb_pll_config) => {
+            Some(pll_usb_config) => {
                 // Reset USB PLL
                 let mut peris = reset::Peripherals(0);
                 peris.set_pll_usb(true);
@@ -1036,7 +1052,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
                 reset::unreset_wait(peris);
 
                 // Configure the USB PLL - this should give us 48MHz
-                let usb_pll_freq = configure_pll(pac::PLL_USB, xosc_freq, *usb_pll_config);
+                let usb_pll_freq = configure_pll(pac::PLL_USB, xosc_freq, *pll_usb_config);
                 CLOCKS.pll_usb.store(usb_pll_freq, Ordering::Relaxed);
                 usb_pll_freq
             }
@@ -1122,7 +1138,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         let (src, aux, freq) = match config.sys_clk.src {
             SysClkSrc::Ref => (Src::CLK_REF, Aux::CLKSRC_PLL_SYS, clk_ref_freq),
             SysClkSrc::PllSys => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_SYS, pll_sys_freq),
-            SysClkSrc::PllUsb => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_USB, usb_pll_freq),
+            SysClkSrc::PllUsb => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq),
             SysClkSrc::Rosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::ROSC_CLKSRC, rosc_freq),
             SysClkSrc::Xosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::XOSC_CLKSRC, xosc_freq),
             // SysClkSrc::Gpin0 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN0, gpin0_freq),
@@ -1185,7 +1201,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         let peri_freq = match src {
             PeriClkSrc::Sys => clk_sys_freq,
             PeriClkSrc::PllSys => pll_sys_freq,
-            PeriClkSrc::PllUsb => usb_pll_freq,
+            PeriClkSrc::PllUsb => pll_usb_freq,
             PeriClkSrc::Rosc => rosc_freq,
             PeriClkSrc::Xosc => xosc_freq,
             // PeriClkSrc::Gpin0 => gpin0_freq,
@@ -1210,7 +1226,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             w.set_auxsrc(ClkUsbCtrlAuxsrc::from_bits(conf.src as _));
         });
         let usb_freq = match conf.src {
-            UsbClkSrc::PllUsb => usb_pll_freq,
+            UsbClkSrc::PllUsb => pll_usb_freq,
             UsbClkSrc::PllSys => pll_sys_freq,
             UsbClkSrc::Rosc => rosc_freq,
             UsbClkSrc::Xosc => xosc_freq,
@@ -1234,7 +1250,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             w.set_auxsrc(ClkAdcCtrlAuxsrc::from_bits(conf.src as _));
         });
         let adc_in_freq = match conf.src {
-            AdcClkSrc::PllUsb => usb_pll_freq,
+            AdcClkSrc::PllUsb => pll_usb_freq,
             AdcClkSrc::PllSys => pll_sys_freq,
             AdcClkSrc::Rosc => rosc_freq,
             AdcClkSrc::Xosc => xosc_freq,
@@ -1262,7 +1278,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             w.set_auxsrc(ClkRtcCtrlAuxsrc::from_bits(conf.src as _));
         });
         let rtc_in_freq = match conf.src {
-            RtcClkSrc::PllUsb => usb_pll_freq,
+            RtcClkSrc::PllUsb => pll_usb_freq,
             RtcClkSrc::PllSys => pll_sys_freq,
             RtcClkSrc::Rosc => rosc_freq,
             RtcClkSrc::Xosc => xosc_freq,
@@ -1390,40 +1406,36 @@ fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
     while !pac::XOSC.status().read().stable() {}
 }
 
+/// PLL (Phase-Locked Loop) configuration
 #[inline(always)]
 fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> u32 {
     // Calculate reference frequency
     let ref_freq = input_freq / config.refdiv as u32;
 
     // Validate PLL parameters
-    assert!(
-        config.fbdiv >= 16 && config.fbdiv <= 320,
-        "fbdiv must be between 16 and 320"
-    );
-    assert!(
-        config.post_div1 >= 1 && config.post_div1 <= 7,
-        "post_div1 must be between 1 and 7"
-    );
-    assert!(
-        config.post_div2 >= 1 && config.post_div2 <= 7,
-        "post_div2 must be between 1 and 7"
-    );
-    assert!(config.post_div2 <= config.post_div1, "post_div2 must be <= post_div1");
-    assert!(
-        config.refdiv >= 1 && config.refdiv <= 63,
-        "refdiv must be between 1 and 63"
-    );
-    assert!(
-        ref_freq >= 5_000_000 && ref_freq <= 800_000_000,
-        "ref_freq must be between 5MHz and 800MHz"
-    );
+    // Feedback divider (FBDIV) must be between 16 and 320
+    assert!(config.fbdiv >= 16 && config.fbdiv <= 320);
+
+    // Post divider 1 (POSTDIV1) must be between 1 and 7
+    assert!(config.post_div1 >= 1 && config.post_div1 <= 7);
+
+    // Post divider 2 (POSTDIV2) must be between 1 and 7
+    assert!(config.post_div2 >= 1 && config.post_div2 <= 7);
+
+    // Post divider 2 (POSTDIV2) must be less than or equal to post divider 1 (POSTDIV1)
+    assert!(config.post_div2 <= config.post_div1);
+
+    // Reference divider (REFDIV) must be between 1 and 63
+    assert!(config.refdiv >= 1 && config.refdiv <= 63);
+
+    // Reference frequency (REF_FREQ) must be between 5MHz and 800MHz
+    assert!(ref_freq >= 5_000_000 && ref_freq <= 800_000_000);
 
     // Calculate VCO frequency
     let vco_freq = ref_freq.saturating_mul(config.fbdiv as u32);
-    assert!(
-        vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000,
-        "VCO frequency must be between 750MHz and 1800MHz"
-    );
+
+    // VCO (Voltage Controlled Oscillator) frequency must be between 750MHz and 1800MHz
+    assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000);
 
     // We follow the SDK's approach to PLL configuration which is:
     // 1. Power down PLL

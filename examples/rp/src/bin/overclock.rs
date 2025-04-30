@@ -1,9 +1,13 @@
+//! # Overclocking the RP2040 to 200 MHz
+//!
+//! This example demonstrates how to configure the RP2040 to run at 200 MHz using a higher level API.
+
 #![no_std]
 #![no_main]
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::clocks::{clk_sys_freq, ClockConfig, VoltageScale};
+use embassy_rp::clocks::{clk_sys_freq, ClockConfig};
 use embassy_rp::config::Config;
 use embassy_rp::gpio::{Level, Output};
 use embassy_time::{Duration, Instant, Timer};
@@ -15,15 +19,10 @@ const COUNT_TO: i64 = 10_000_000;
 async fn main(_spawner: Spawner) -> ! {
     // Set up for clock frequency of 200 MHz
     // This will set all the necessary defaults including slightly raised voltage
-    // See embassy_rp::clocks::ClockConfig for more options, including full manual control
     let config = Config::new(ClockConfig::at_sys_frequency_mhz(200));
 
-    // Show the voltage scale and brownout-detection for verification
+    // Show the voltage scale for verification
     info!("System core voltage: {}", Debug2Format(&config.clocks.voltage_scale));
-    // info!(
-    //     "Brownout detection: {}",
-    //     Debug2Format(&config.clocks.brownout_detection)
-    // );
 
     // Initialize the peripherals
     let p = embassy_rp::init(config);
@@ -64,14 +63,3 @@ async fn main(_spawner: Spawner) -> ! {
         Timer::after(Duration::from_secs(2)).await;
     }
 }
-
-// let config = Config::new(ClockConfig::with_speed_mhz_test_voltage(125, Some(VoltageScale::V1_10)));
-// let config = Config::default();
-// let config = Config::new(ClockConfig::with_speed_mhz_test_voltage_extended_delay(
-//     200,                       // Standard 125MHz clock
-//     Some(VoltageScale::V1_15), // 1.15V voltage
-//     Some(1000),                // 1000μs (1ms) stabilization delay - significantly longer than default
-// ));
-// Initialize the peripherals
-
-// let p = embassy_rp::init(Default::default()); //testing the bog standard
