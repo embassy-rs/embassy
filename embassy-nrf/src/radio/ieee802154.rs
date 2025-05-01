@@ -5,10 +5,11 @@ use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 
-use super::{state, Error, Instance, InterruptHandler, RadioState, TxPower};
+use super::{Error, Instance, InterruptHandler, TxPower};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::pac::radio::vals;
+pub use crate::pac::radio::vals::State as RadioState;
 use crate::Peri;
 
 /// Default (IEEE compliant) Start of Frame Delimiter
@@ -200,7 +201,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Get the current radio state
     fn state(&self) -> RadioState {
-        state(T::regs())
+        T::regs().state().read().state()
     }
 
     /// Moves the radio from any state to the DISABLED state
@@ -293,7 +294,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         r.shorts().write(|_| {});
         r.tasks_stop().write_value(1);
         loop {
-            match state(r) {
+            match r.state().read().state() {
                 RadioState::DISABLED | RadioState::RX_IDLE => break,
                 _ => (),
             }
