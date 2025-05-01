@@ -1,79 +1,65 @@
 #![no_std]
 #![no_main]
-#![cfg_attr(not(feature = "rp2040"), allow(unused_imports))]
 
 #[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
-#[cfg(feature = "rp2040")]
 use defmt::{assert, assert_eq, info};
-#[cfg(feature = "rp2040")]
 use embassy_executor::Spawner;
+use embassy_rp::clocks;
 #[cfg(feature = "rp2040")]
+use embassy_rp::clocks::ClockConfig;
+#[cfg(feature = "rp2040")]
+use embassy_rp::clocks::VoltageScale;
 use embassy_rp::config::Config;
-#[cfg(feature = "rp2040")]
-use embassy_rp::gpio::{Input, Pull};
-#[cfg(feature = "rp2040")]
-use embassy_rp::pwm::{Config as PwmConfig, Pwm};
-#[cfg(feature = "rp2040")]
-use embassy_time::{Instant, Timer};
-#[cfg(feature = "rp2040")]
+use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
-#[cfg(feature = "rp2040")]
+const COUNT_TO: i64 = 10_000_000;
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    // Initialize with 200MHz clock configuration for RP2040
     let mut config = Config::default();
-    config.clocks = embassy_rp::clocks::ClockConfig::at_sys_frequency_mhz(200);
 
-    let p = embassy_rp::init(config);
+    // Initialize with 200MHz clock configuration for RP2040, other chips will use default clock
+    #[cfg(feature = "rp2040")]
+    {
+        config.clocks = ClockConfig::at_sys_frequency_mhz(200);
+        let voltage = config.clocks.voltage_scale.unwrap();
+        assert!(matches!(voltage, VoltageScale::V1_15), "Expected voltage scale V1_15");
+    }
 
-    info!("RP2040 overclocked to 200MHz!");
-    info!("System clock frequency: {} Hz", embassy_rp::clocks::clk_sys_freq());
+    let _p = embassy_rp::init(config);
 
-    // Test 1: Timer accuracy at 200MHz
-    info!("Testing timer accuracy at 200MHz...");
-    let start = Instant::now();
-    Timer::after_millis(100).await;
-    let end = Instant::now();
-    let ms = (end - start).as_millis();
-    info!("slept for {} ms", ms);
-    assert!(ms >= 99);
-    assert!(ms < 110);
-    info!("Timer test passed!");
+    let (time_elapsed, clk_sys_freq) = {
+        // Test the system speed
+        let mut counter = 0;
+        let start = Instant::now();
+        while counter < COUNT_TO {
+            counter += 1;
+        }
+        let elapsed = Instant::now() - start;
 
-    // Test 2: PWM functionality at 200MHz
-    info!("Testing PWM functionality at 200MHz...");
-    let pwm_cfg = {
-        let mut c = PwmConfig::default();
-        c.divider = ((embassy_rp::clocks::clk_sys_freq() / 1_000_000) as u8).into();
-        c.top = 10000;
-        c.compare_a = 5000;
-        c.compare_b = 5000;
-        c
+        (elapsed.as_millis(), clocks::clk_sys_freq())
     };
 
-    // Test PWM output
-    let pin1 = Input::new(p.PIN_9, Pull::None);
-    let _pwm = Pwm::new_output_a(p.PWM_SLICE3, p.PIN_6, pwm_cfg);
-    Timer::after_millis(1).await;
-    let initial_state = pin1.is_low();
-    Timer::after_millis(5).await;
-    assert_eq!(pin1.is_high(), initial_state);
-    Timer::after_millis(5).await;
-    assert_eq!(pin1.is_low(), initial_state);
-    info!("PWM test passed!");
+    // Report the elapsed time, so that the compiler doesn't optimize it away for chips other than RP2040
+    info!(
+        "At {}Mhz: Elapsed time to count to {}: {}ms",
+        clk_sys_freq / 1_000_000,
+        COUNT_TO,
+        time_elapsed
+    );
 
-    info!("All tests passed at 200MHz!");
-    info!("Overclock test successful");
-    cortex_m::asm::bkpt();
-}
+    #[cfg(feature = "rp2040")]
+    {
+        // we should be at 200MHz
+        assert_eq!(clk_sys_freq, 200_000_000, "System clock frequency is not 200MHz");
+        // At 200MHz, the time to count to 10_000_000 should be at 600ms, testing with 1% margin
+        assert!(time_elapsed <= 606, "Elapsed time is too long");
+    }
 
-#[cfg(not(feature = "rp2040"))]
-#[embassy_executor::main]
-async fn main(_spawner: embassy_executor::Spawner) {
-    // This is an empty placeholder main function for non-RP2040 targets
-    // It should never be called since the test only runs on RP2040
     cortex_m::asm::bkpt();
 }
