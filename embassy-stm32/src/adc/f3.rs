@@ -53,10 +53,7 @@ impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(
-        adc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+    pub fn new_unbound(adc: Peri<'d, T>) -> Self {
         use crate::pac::adc::vals;
 
         rcc::enable_and_reset::<T>();
@@ -85,15 +82,24 @@ impl<'d, T: Instance> Adc<'d, T> {
         // Wait until the adc is ready
         while !T::regs().isr().read().adrdy() {}
 
+        Self {
+            adc,
+            sample_time: SampleTime::from_bits(0),
+        }
+    }
+
+    pub fn new(
+        adc: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
+        let slf = Self::new_unbound(adc);
+
         T::Interrupt::unpend();
         unsafe {
             T::Interrupt::enable();
         }
 
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        slf
     }
 
     fn freq() -> Hertz {
@@ -185,5 +191,60 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::DISABLED));
 
         rcc::disable::<T>();
+    }
+}
+
+pub trait IsAdc12: Instance {}
+pub trait IsAdc1: IsAdc12 {}
+pub trait IsAdc2: IsAdc12 {}
+
+impl IsAdc12 for crate::peripherals::ADC1 {}
+impl IsAdc12 for crate::peripherals::ADC2 {}
+impl IsAdc1 for crate::peripherals::ADC1 {}
+impl IsAdc2 for crate::peripherals::ADC2 {}
+
+pub struct SharedInterruptHandler<A: IsAdc12, B: IsAdc12> {
+    _a: PhantomData<A>,
+    _b: PhantomData<B>,
+}
+
+impl<A: IsAdc12, B: IsAdc12> interrupt::typelevel::Handler<A::Interrupt> for SharedInterruptHandler<A, B> {
+    unsafe fn on_interrupt() {
+        if A::regs().isr().read().eoc() {
+            A::regs().ier().modify(|w| w.set_eocie(false));
+            A::state().waker.wake();
+        }
+
+        if B::regs().isr().read().eoc() {
+            B::regs().ier().modify(|w| w.set_eocie(false));
+            B::state().waker.wake();
+        }
+    }
+}
+
+pub struct SharedAdc<'d, A: Instance, B: Instance> {
+    pub a: Adc<'d, A>,
+    pub b: Adc<'d, B>,
+}
+
+impl<'d, A: IsAdc12, B: IsAdc12> SharedAdc<'d, A, B> {
+    pub fn new(
+        adc_a: Peri<'d, A>,
+        adc_b: Peri<'d, B>,
+        _irq: impl interrupt::typelevel::Binding<A::Interrupt, SharedInterruptHandler<A, B>> + 'd,
+    ) -> Self
+    {
+        let a = Adc::new_unbound(adc_a);
+        let b = Adc::new_unbound(adc_b);
+
+        A::Interrupt::unpend();
+        unsafe {
+            A::Interrupt::enable();
+        }
+
+        Self {
+            a,
+            b,
+        }
     }
 }
