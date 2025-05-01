@@ -32,11 +32,9 @@ impl<M: RawMutex> GenericAtomicWaker<M> {
 
     /// Wake the registered waker, if any.
     pub fn wake(&self) {
-        self.waker.lock(|cell| {
-            if let Some(w) = cell.take() {
-                w.wake();
-            }
-        })
+        if let Some(waker) = self.waker.lock(|cell| cell.take()) {
+            waker.wake();
+        }
     }
 }
 
