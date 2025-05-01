@@ -5,6 +5,12 @@ use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
+impl FlashSector {
+    const fn snb(&self) -> u8 {
+        ((self.bank as u8) << 4) + self.index_in_bank
+    }
+}
+
 pub(crate) const fn is_default_layout() -> bool {
     true
 }
@@ -53,7 +59,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     pac::FLASH.cr().modify(|w| {
         w.set_ser(true);
-        w.set_snb(sector.index_in_bank)
+        w.set_snb(sector.snb())
     });
 
     pac::FLASH.cr().modify(|w| {
@@ -137,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(stm32f769)]
+    #[cfg(all(stm32f769, feature = "single-bank"))]
     fn can_get_sector() {
         const SMALL_SECTOR_SIZE: u32 = 32 * 1024;
         const MEDIUM_SECTOR_SIZE: u32 = 128 * 1024;
@@ -167,6 +173,53 @@ mod tests {
         assert_sector(5, 0x0804_0000, LARGE_SECTOR_SIZE, 0x0807_FFFF);
         assert_sector(7, 0x080C_0000, LARGE_SECTOR_SIZE, 0x080C_0000);
         assert_sector(7, 0x080C_0000, LARGE_SECTOR_SIZE, 0x080F_FFFF);
+    }
+
+    #[test]
+    #[cfg(all(stm32f769, feature = "dual-bank"))]
+    fn can_get_sector() {
+        const SMALL_SECTOR_SIZE: u32 = 16 * 1024;
+        const MEDIUM_SECTOR_SIZE: u32 = 64 * 1024;
+        const LARGE_SECTOR_SIZE: u32 = 128 * 1024;
+
+        let assert_sector = |index_in_bank: u8, start: u32, size: u32, address: u32, snb: u8, bank: FlashBank| {
+            assert_eq!(
+                FlashSector {
+                    bank: bank,
+                    index_in_bank,
+                    start,
+                    size
+                },
+                get_sector(address, &FLASH_REGIONS)
+            );
+            assert_eq!(get_sector(address, &FLASH_REGIONS).snb(), snb);
+        };
+
+        assert_sector(0, 0x0800_0000, SMALL_SECTOR_SIZE, 0x0800_0000, 0x00, FlashBank::Bank1);
+        assert_sector(0, 0x0800_0000, SMALL_SECTOR_SIZE, 0x0800_3FFF, 0x00, FlashBank::Bank1);
+        assert_sector(3, 0x0800_C000, SMALL_SECTOR_SIZE, 0x0800_C000, 0x03, FlashBank::Bank1);
+        assert_sector(3, 0x0800_C000, SMALL_SECTOR_SIZE, 0x0800_FFFF, 0x03, FlashBank::Bank1);
+
+        assert_sector(4, 0x0801_0000, MEDIUM_SECTOR_SIZE, 0x0801_0000, 0x04, FlashBank::Bank1);
+        assert_sector(4, 0x0801_0000, MEDIUM_SECTOR_SIZE, 0x0801_FFFF, 0x04, FlashBank::Bank1);
+
+        assert_sector(5, 0x0802_0000, LARGE_SECTOR_SIZE, 0x0802_0000, 0x05, FlashBank::Bank1);
+        assert_sector(5, 0x0802_0000, LARGE_SECTOR_SIZE, 0x0803_FFFF, 0x05, FlashBank::Bank1);
+        assert_sector(10, 0x080C_0000, LARGE_SECTOR_SIZE, 0x080C_0000, 0x0A, FlashBank::Bank1);
+        assert_sector(10, 0x080C_0000, LARGE_SECTOR_SIZE, 0x080D_FFFF, 0x0A, FlashBank::Bank1);
+
+        assert_sector(0, 0x0810_0000, SMALL_SECTOR_SIZE, 0x0810_0000, 0x10, FlashBank::Bank2);
+        assert_sector(0, 0x0810_0000, SMALL_SECTOR_SIZE, 0x0810_3FFF, 0x10, FlashBank::Bank2);
+        assert_sector(3, 0x0810_C000, SMALL_SECTOR_SIZE, 0x0810_C000, 0x13, FlashBank::Bank2);
+        assert_sector(3, 0x0810_C000, SMALL_SECTOR_SIZE, 0x0810_FFFF, 0x13, FlashBank::Bank2);
+
+        assert_sector(4, 0x0811_0000, MEDIUM_SECTOR_SIZE, 0x0811_0000, 0x14, FlashBank::Bank2);
+        assert_sector(4, 0x0811_0000, MEDIUM_SECTOR_SIZE, 0x0811_FFFF, 0x14, FlashBank::Bank2);
+
+        assert_sector(5, 0x0812_0000, LARGE_SECTOR_SIZE, 0x0812_0000, 0x15, FlashBank::Bank2);
+        assert_sector(5, 0x0812_0000, LARGE_SECTOR_SIZE, 0x0813_FFFF, 0x15, FlashBank::Bank2);
+        assert_sector(10, 0x081C_0000, LARGE_SECTOR_SIZE, 0x081C_0000, 0x1A, FlashBank::Bank2);
+        assert_sector(10, 0x081C_0000, LARGE_SECTOR_SIZE, 0x081D_FFFF, 0x1A, FlashBank::Bank2);
     }
 }
 
