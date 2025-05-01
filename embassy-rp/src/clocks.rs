@@ -391,7 +391,7 @@ impl ClockConfig {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```rust,ignore
     /// // Overclock to 200MHz
     /// let config = ClockConfig::at_sys_frequency_mhz(200);
     /// ```
@@ -424,7 +424,7 @@ impl ClockConfig {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```rust,ignore
     /// // Use a non-standard 16MHz crystal to achieve 250MHz
     /// let config = ClockConfig::with_custom_crystal(16_000_000, 250_000_000);
     /// ```
@@ -875,7 +875,7 @@ pub struct RtcClkConfig {
 ///
 /// # Example
 ///
-/// ```
+/// ```rust,ignore
 /// // Find parameters for 133MHz system clock from 12MHz crystal
 /// let pll_params = find_pll_params(12_000_000, 133_000_000).unwrap();
 /// ```
@@ -885,7 +885,7 @@ fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
     const PLL_SYS_REFDIV: u8 = 1;
 
     // Calculate reference frequency
-    let reference_freq = input_hz / PLL_SYS_REFDIV as u32;
+    let reference_freq = input_hz as u64 / PLL_SYS_REFDIV as u64;
 
     // Start from highest fbdiv for better stability (like SDK does)
     for fbdiv in (16..=320).rev() {
@@ -900,10 +900,10 @@ fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
         // (more conservative/stable approach)
         for post_div1 in (1..=7).rev() {
             for post_div2 in (1..=post_div1).rev() {
-                let out_freq = vco_freq / (post_div1 * post_div2) as u32;
+                let out_freq = vco_freq / (post_div1 * post_div2);
 
                 // Check if we get the exact target frequency without remainder
-                if out_freq == target_hz && (vco_freq % (post_div1 * post_div2) as u32 == 0) {
+                if out_freq == target_hz as u64 && (vco_freq % (post_div1 * post_div2) == 0) {
                     return Some(PllConfig {
                         refdiv: PLL_SYS_REFDIV,
                         fbdiv: fbdiv as u16,
@@ -928,7 +928,7 @@ fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
 
         for post_div1 in (1..=7).rev() {
             for post_div2 in (1..=post_div1).rev() {
-                let out_freq = vco_freq / (post_div1 * post_div2) as u32;
+                let out_freq = (vco_freq / (post_div1 * post_div2) as u64) as u32;
                 let diff = if out_freq > target_hz {
                     out_freq - target_hz
                 } else {
@@ -1018,7 +1018,10 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             cortex_m::asm::delay(delay_cycles);
 
             // Only now set the BOD level after voltage has stabilized
-            vreg.bod().write(|w| w.set_vsel(voltage.recommended_bod()));
+            vreg.bod().write(|w| {
+                w.set_vsel(voltage.recommended_bod());
+                w.set_en(true); // Enable brownout detection
+            });
         }
     }
 
@@ -1872,6 +1875,209 @@ pub fn dormant_sleep() {
             );
         } else {
             pac::ROSC.dormant().write_value(rp_pac::rosc::regs::Dormant(0x636f6d61));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "rp2040")]
+    #[test]
+    fn test_voltage_scale_bod_values() {
+        // Test that each voltage level maps to the correct BOD threshold (approx. 90% of VDD)
+        // This verifies our BOD settings match our documentation
+        {
+            assert_eq!(VoltageScale::V0_85.recommended_bod(), 0b0111); // ~0.774V (91% of 0.85V)
+            assert_eq!(VoltageScale::V0_90.recommended_bod(), 0b1000); // ~0.817V (91% of 0.90V)
+            assert_eq!(VoltageScale::V0_95.recommended_bod(), 0b1001); // ~0.860V (91% of 0.95V)
+            assert_eq!(VoltageScale::V1_00.recommended_bod(), 0b1010); // ~0.903V (90% of 1.00V)
+            assert_eq!(VoltageScale::V1_05.recommended_bod(), 0b1011); // ~0.946V (90% of 1.05V)
+            assert_eq!(VoltageScale::V1_10.recommended_bod(), 0b1100); // ~0.989V (90% of 1.10V)
+            assert_eq!(VoltageScale::V1_15.recommended_bod(), 0b1101); // ~1.032V (90% of 1.15V)
+            assert_eq!(VoltageScale::V1_20.recommended_bod(), 0b1110); // ~1.075V (90% of 1.20V)
+            assert_eq!(VoltageScale::V1_25.recommended_bod(), 0b1111); // ~1.118V (89% of 1.25V)
+            assert_eq!(VoltageScale::V1_30.recommended_bod(), 0b1111); // ~1.118V (86% of 1.30V) - using max available
+        }
+    }
+
+    #[cfg(feature = "rp2040")]
+    #[test]
+    fn test_find_pll_params() {
+        #[cfg(feature = "rp2040")]
+        {
+            // Test standard 125 MHz configuration with 12 MHz crystal
+            let params = find_pll_params(12_000_000, 125_000_000).unwrap();
+            assert_eq!(params.refdiv, 1);
+            assert_eq!(params.fbdiv, 125);
+
+            // Test USB PLL configuration for 48MHz
+            // The algorithm may find different valid parameters than the SDK defaults
+            // We'll check that it generates a valid configuration that produces 48MHz
+            let params = find_pll_params(12_000_000, 48_000_000).unwrap();
+            assert_eq!(params.refdiv, 1);
+
+            // Calculate the actual output frequency
+            let ref_freq = 12_000_000 / params.refdiv as u32;
+            let vco_freq = ref_freq as u64 * params.fbdiv as u64;
+            let output_freq = (vco_freq / ((params.post_div1 * params.post_div2) as u64)) as u32;
+
+            // Verify the output frequency is correct
+            assert_eq!(output_freq, 48_000_000);
+
+            // Verify VCO frequency is in valid range
+            assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000);
+
+            // Test overclocked configuration for 200 MHz
+            let params = find_pll_params(12_000_000, 200_000_000).unwrap();
+            assert_eq!(params.refdiv, 1);
+            let vco_freq = 12_000_000 as u64 * params.fbdiv as u64;
+            let output_freq = (vco_freq / ((params.post_div1 * params.post_div2) as u64)) as u32;
+            assert_eq!(output_freq, 200_000_000);
+            assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000); // VCO in valid range
+
+            // Test non-standard crystal with 16 MHz
+            let params = find_pll_params(16_000_000, 125_000_000).unwrap();
+            let vco_freq = (16_000_000 / params.refdiv as u32) as u64 * params.fbdiv as u64;
+            let output_freq = (vco_freq / ((params.post_div1 * params.post_div2) as u64)) as u32;
+
+            // With a 16 MHz crystal, we might not get exactly 125 MHz
+            // Check that it's close enough (within 0.2% margin)
+            let freq_diff = if output_freq > 125_000_000 {
+                output_freq - 125_000_000
+            } else {
+                125_000_000 - output_freq
+            };
+            let error_percentage = (freq_diff as f64 / 125_000_000.0) * 100.0;
+            assert!(
+                error_percentage < 0.2,
+                "Output frequency {} is not close enough to target 125 MHz. Error: {:.2}%",
+                output_freq,
+                error_percentage
+            );
+
+            assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000);
+        }
+    }
+
+    #[cfg(feature = "rp2040")]
+    #[test]
+    fn test_pll_config_validation() {
+        // Test PLL configuration validation logic
+        let valid_config = PllConfig {
+            refdiv: 1,
+            fbdiv: 125,
+            post_div1: 6,
+            post_div2: 2,
+        };
+
+        // Valid configuration should pass validation
+        assert!(valid_config.is_valid(12_000_000));
+
+        // Test fbdiv constraints
+        let mut invalid_config = valid_config;
+        invalid_config.fbdiv = 15; // Below minimum of 16
+        assert!(!invalid_config.is_valid(12_000_000));
+
+        invalid_config.fbdiv = 321; // Above maximum of 320
+        assert!(!invalid_config.is_valid(12_000_000));
+
+        // Test post_div constraints
+        invalid_config = valid_config;
+        invalid_config.post_div1 = 0; // Below minimum of 1
+        assert!(!invalid_config.is_valid(12_000_000));
+
+        invalid_config = valid_config;
+        invalid_config.post_div1 = 8; // Above maximum of 7
+        assert!(!invalid_config.is_valid(12_000_000));
+
+        // Test post_div2 must be <= post_div1
+        invalid_config = valid_config;
+        invalid_config.post_div2 = 7;
+        invalid_config.post_div1 = 3;
+        assert!(!invalid_config.is_valid(12_000_000));
+
+        // Test reference frequency constraints
+        invalid_config = valid_config;
+        assert!(!invalid_config.is_valid(4_000_000)); // Below minimum of 5 MHz
+        assert!(!invalid_config.is_valid(900_000_000)); // Above maximum of 800 MHz
+
+        // Test VCO frequency constraints
+        invalid_config = valid_config;
+        invalid_config.fbdiv = 16;
+        assert!(!invalid_config.is_valid(12_000_000)); // VCO too low: 12MHz * 16 = 192MHz
+
+        // Test VCO frequency constraints - too high
+        invalid_config = valid_config;
+        invalid_config.fbdiv = 200;
+        invalid_config.refdiv = 1;
+        // This should be INVALID: 12MHz * 200 = 2400MHz exceeds max VCO of 1800MHz
+        assert!(!invalid_config.is_valid(12_000_000));
+
+        // Test a valid high VCO configuration
+        invalid_config.fbdiv = 150; // 12MHz * 150 = 1800MHz, exactly at the limit
+        assert!(invalid_config.is_valid(12_000_000));
+    }
+
+    #[cfg(feature = "rp2040")]
+    #[test]
+    fn test_manual_pll_helper() {
+        {
+            // Test the new manual_pll helper method
+            let config = ClockConfig::manual_pll(
+                12_000_000,
+                PllConfig {
+                    refdiv: 1,
+                    fbdiv: 100,
+                    post_div1: 3,
+                    post_div2: 2,
+                },
+                Some(VoltageScale::V1_15),
+            );
+
+            // Check voltage scale was set correctly
+            assert_eq!(config.voltage_scale, Some(VoltageScale::V1_15));
+
+            // Check PLL config was set correctly
+            assert_eq!(config.xosc.as_ref().unwrap().sys_pll.as_ref().unwrap().refdiv, 1);
+            assert_eq!(config.xosc.as_ref().unwrap().sys_pll.as_ref().unwrap().fbdiv, 100);
+            assert_eq!(config.xosc.as_ref().unwrap().sys_pll.as_ref().unwrap().post_div1, 3);
+            assert_eq!(config.xosc.as_ref().unwrap().sys_pll.as_ref().unwrap().post_div2, 2);
+
+            // Check we get the expected frequency
+            assert_eq!(
+                config
+                    .xosc
+                    .as_ref()
+                    .unwrap()
+                    .sys_pll
+                    .as_ref()
+                    .unwrap()
+                    .output_frequency(12_000_000),
+                200_000_000
+            );
+        }
+    }
+
+    #[cfg(feature = "rp2040")]
+    #[test]
+    fn test_auto_voltage_scaling() {
+        {
+            // Test automatic voltage scaling based on frequency
+            // Under 133 MHz should use default voltage (None)
+            let config = ClockConfig::at_sys_frequency_mhz(125);
+            assert_eq!(config.voltage_scale, None);
+
+            // 133-200 MHz should use V1_15
+            let config = ClockConfig::at_sys_frequency_mhz(150);
+            assert_eq!(config.voltage_scale, Some(VoltageScale::V1_15));
+            let config = ClockConfig::at_sys_frequency_mhz(200);
+            assert_eq!(config.voltage_scale, Some(VoltageScale::V1_15));
+
+            // Above 200 MHz should use V1_20
+            let config = ClockConfig::at_sys_frequency_mhz(250);
+            assert_eq!(config.voltage_scale, Some(VoltageScale::V1_20));
         }
     }
 }
