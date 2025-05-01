@@ -1,14 +1,23 @@
 #![no_std]
 #![no_main]
+#![cfg_attr(not(feature = "rp2040"), allow(unused_imports))]
+
 #[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
 
+#[cfg(feature = "rp2040")]
 use defmt::{assert, assert_eq, info};
+#[cfg(feature = "rp2040")]
 use embassy_executor::Spawner;
+#[cfg(feature = "rp2040")]
 use embassy_rp::config::Config;
+#[cfg(feature = "rp2040")]
 use embassy_rp::gpio::{Input, Pull};
+#[cfg(feature = "rp2040")]
 use embassy_rp::pwm::{Config as PwmConfig, Pwm};
+#[cfg(feature = "rp2040")]
 use embassy_time::{Instant, Timer};
+#[cfg(feature = "rp2040")]
 use {defmt_rtt as _, panic_probe as _};
 
 #[cfg(feature = "rp2040")]
@@ -58,5 +67,13 @@ async fn main(_spawner: Spawner) {
 
     info!("All tests passed at 200MHz!");
     info!("Overclock test successful");
+    cortex_m::asm::bkpt();
+}
+
+#[cfg(not(feature = "rp2040"))]
+#[embassy_executor::main]
+async fn main(_spawner: embassy_executor::Spawner) {
+    // This is an empty placeholder main function for non-RP2040 targets
+    // It should never be called since the test only runs on RP2040
     cortex_m::asm::bkpt();
 }
