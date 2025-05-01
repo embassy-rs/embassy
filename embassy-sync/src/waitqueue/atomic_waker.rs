@@ -30,9 +30,14 @@ impl<M: RawMutex> GenericAtomicWaker<M> {
         })
     }
 
+    /// Extracts the previously registered waker, leaving `None` in its place.
+    pub fn take(&self) -> Option<Waker> {
+        self.waker.lock(|cell| cell.take())
+    }
+
     /// Wake the registered waker, if any.
     pub fn wake(&self) {
-        if let Some(waker) = self.waker.lock(|cell| cell.take()) {
+        if let Some(waker) = self.take() {
             waker.wake();
         }
     }
@@ -54,6 +59,11 @@ impl AtomicWaker {
     /// Register a waker. Overwrites the previous waker, if any.
     pub fn register(&self, w: &Waker) {
         self.waker.register(w);
+    }
+
+    /// Extracts the previously registered waker, leaving `None` in its place.
+    pub fn take(&self) -> Option<Waker> {
+        self.waker.take()
     }
 
     /// Wake the registered waker, if any.
