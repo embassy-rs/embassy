@@ -1,8 +1,7 @@
 use core::future::{poll_fn, Future};
-use core::pin::{pin, Pin};
+use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use futures_util::future::{select, Either};
 use futures_util::stream::FusedStream;
 use futures_util::Stream;
 
@@ -17,11 +16,10 @@ pub struct TimeoutError;
 ///
 /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, TimeoutError> {
-    let timeout_fut = Timer::after(timeout);
-    match select(pin!(fut), timeout_fut).await {
-        Either::Left((r, _)) => Ok(r),
-        Either::Right(_) => Err(TimeoutError),
+pub fn with_timeout<F: Future>(timeout: Duration, fut: F) -> TimeoutFuture<F> {
+    TimeoutFuture {
+        timer: Timer::after(timeout),
+        fut,
     }
 }
 
@@ -29,16 +27,15 @@ pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Out
 ///
 /// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-pub async fn with_deadline<F: Future>(at: Instant, fut: F) -> Result<F::Output, TimeoutError> {
-    let timeout_fut = Timer::at(at);
-    match select(pin!(fut), timeout_fut).await {
-        Either::Left((r, _)) => Ok(r),
-        Either::Right(_) => Err(TimeoutError),
+pub fn with_deadline<F: Future>(at: Instant, fut: F) -> TimeoutFuture<F> {
+    TimeoutFuture {
+        timer: Timer::at(at),
+        fut,
     }
 }
 
 /// Provides functions to run a given future with a timeout or a deadline.
-pub trait WithTimeout {
+pub trait WithTimeout: Sized {
     /// Output type of the future.
     type Output;
 
@@ -46,24 +43,50 @@ pub trait WithTimeout {
     ///
     /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
     /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-    async fn with_timeout(self, timeout: Duration) -> Result<Self::Output, TimeoutError>;
+    fn with_timeout(self, timeout: Duration) -> TimeoutFuture<Self>;
 
     /// Runs a given future with a deadline time.
     ///
     /// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
     /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-    async fn with_deadline(self, at: Instant) -> Result<Self::Output, TimeoutError>;
+    fn with_deadline(self, at: Instant) -> TimeoutFuture<Self>;
 }
 
 impl<F: Future> WithTimeout for F {
     type Output = F::Output;
 
-    async fn with_timeout(self, timeout: Duration) -> Result<Self::Output, TimeoutError> {
-        with_timeout(timeout, self).await
+    fn with_timeout(self, timeout: Duration) -> TimeoutFuture<Self> {
+        with_timeout(timeout, self)
     }
 
-    async fn with_deadline(self, at: Instant) -> Result<Self::Output, TimeoutError> {
-        with_deadline(at, self).await
+    fn with_deadline(self, at: Instant) -> TimeoutFuture<Self> {
+        with_deadline(at, self)
+    }
+}
+
+/// Future for the [`with_timeout`] and [`with_deadline`] functions.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct TimeoutFuture<F> {
+    timer: Timer,
+    fut: F,
+}
+
+impl<F: Unpin> Unpin for TimeoutFuture<F> {}
+
+impl<F: Future> Future for TimeoutFuture<F> {
+    type Output = Result<F::Output, TimeoutError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = unsafe { self.get_unchecked_mut() };
+        let fut = unsafe { Pin::new_unchecked(&mut this.fut) };
+        let timer = unsafe { Pin::new_unchecked(&mut this.timer) };
+        if let Poll::Ready(x) = fut.poll(cx) {
+            return Poll::Ready(Ok(x));
+        }
+        if let Poll::Ready(_) = timer.poll(cx) {
+            return Poll::Ready(Err(TimeoutError));
+        }
+        Poll::Pending
     }
 }
 

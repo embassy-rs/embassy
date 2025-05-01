@@ -19,7 +19,7 @@ impl<T: Instance> SealedAdcChannel<T> for VrefInt {
         cfg_if! {
             if #[cfg(adc_g0)] {
                 let val = 13;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 17;
             } else if #[cfg(adc_u0)] {
                 let val = 12;
@@ -38,7 +38,7 @@ impl<T: Instance> SealedAdcChannel<T> for Temperature {
         cfg_if! {
             if #[cfg(adc_g0)] {
                 let val = 12;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 16;
             } else if #[cfg(adc_u0)] {
                 let val = 11;
@@ -57,9 +57,9 @@ impl<T: Instance> SealedAdcChannel<T> for Vbat {
         cfg_if! {
             if #[cfg(adc_g0)] {
                 let val = 14;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 2;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 13;
             } else {
                 let val = 18;
@@ -70,7 +70,7 @@ impl<T: Instance> SealedAdcChannel<T> for Vbat {
 }
 
 cfg_if! {
-    if #[cfg(adc_h5)] {
+    if #[cfg(any(adc_h5, adc_h7rs))] {
         pub struct VddCore;
         impl<T: Instance> AdcChannel<T> for VddCore {}
         impl<T: Instance> super::SealedAdcChannel<T> for VddCore {
@@ -171,7 +171,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 T::regs().ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 T::common_regs().ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
@@ -191,7 +191,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 T::regs().ccr().modify(|reg| {
                     reg.set_vbaten(true);
                 });
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 T::common_regs().ccr().modify(|reg| {
                     reg.set_vbaten(true);
                 });
@@ -414,7 +414,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
         // RM0492, RM0481, etc.
         // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-        #[cfg(adc_h5)]
+        #[cfg(any(adc_h5, adc_h7rs))]
         if channel.channel() == 0 {
             T::regs().or().modify(|reg| reg.set_op0(true));
         }
@@ -447,7 +447,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // RM0492, RM0481, etc.
         // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-        #[cfg(adc_h5)]
+        #[cfg(any(adc_h5, adc_h7rs))]
         if channel.channel() == 0 {
             T::regs().or().modify(|reg| reg.set_op0(false));
         }
@@ -475,7 +475,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             if #[cfg(any(adc_g0, adc_u0))] {
                 // On G0 and U6 all channels use the same sampling time.
                 T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 match _ch {
                     0..=9 => T::regs().smpr1().modify(|w| w.set_smp(_ch as usize % 10, sample_time.into())),
                     _ => T::regs().smpr2().modify(|w| w.set_smp(_ch as usize % 10, sample_time.into())),

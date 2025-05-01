@@ -684,6 +684,8 @@ fn main() {
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
             };
 
+            let bus_clock_frequency = clock_gen.gen_clock(p.name, &rcc.bus_clock);
+
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
             let stop_mode = match rcc.stop_mode {
@@ -696,6 +698,9 @@ fn main() {
                 impl crate::rcc::SealedRccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
+                    }
+                    fn bus_frequency() -> crate::time::Hertz {
+                        #bus_clock_frequency
                     }
 
                     const RCC_INFO: crate::rcc::RccInfo = unsafe {

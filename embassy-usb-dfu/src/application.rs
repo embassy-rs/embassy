@@ -13,9 +13,25 @@ use crate::consts::{
 };
 use crate::Reset;
 
+/// Generic interface for a system that can signal to the bootloader that USB DFU mode is needed on the next boot.
+///
+/// By default this trait is implemented for `BlockingFirmwareState<'d, STATE>` but you could also implement this generic
+/// interface yourself instead in more complex situations. This could for instance be when you cannot hand ownership of a
+/// `BlockingFirmwareState` instance over directly to the DFU `Control` instance and need to use a more complex mechanism.
+pub trait DfuMarker {
+    /// Signal to the bootloader that DFU mode should be used on the next boot.
+    fn mark_dfu(&mut self);
+}
+
+impl<'d, STATE: NorFlash> DfuMarker for BlockingFirmwareState<'d, STATE> {
+    fn mark_dfu(&mut self) {
+        self.mark_dfu().expect("Failed to mark DFU mode in bootloader")
+    }
+}
+
 /// Internal state for the DFU class
-pub struct Control<'d, STATE: NorFlash, RST: Reset> {
-    firmware_state: BlockingFirmwareState<'d, STATE>,
+pub struct Control<MARK: DfuMarker, RST: Reset> {
+    dfu_marker: MARK,
     attrs: DfuAttributes,
     state: State,
     timeout: Option<Duration>,
@@ -23,11 +39,11 @@ pub struct Control<'d, STATE: NorFlash, RST: Reset> {
     _rst: PhantomData<RST>,
 }
 
-impl<'d, STATE: NorFlash, RST: Reset> Control<'d, STATE, RST> {
+impl<MARK: DfuMarker, RST: Reset> Control<MARK, RST> {
     /// Create a new DFU instance to expose a DFU interface.
-    pub fn new(firmware_state: BlockingFirmwareState<'d, STATE>, attrs: DfuAttributes) -> Self {
+    pub fn new(dfu_marker: MARK, attrs: DfuAttributes) -> Self {
         Control {
-            firmware_state,
+            dfu_marker,
             attrs,
             state: State::AppIdle,
             detach_start: None,
@@ -37,7 +53,7 @@ impl<'d, STATE: NorFlash, RST: Reset> Control<'d, STATE, RST> {
     }
 }
 
-impl<'d, STATE: NorFlash, RST: Reset> Handler for Control<'d, STATE, RST> {
+impl<MARK: DfuMarker, RST: Reset> Handler for Control<MARK, RST> {
     fn reset(&mut self) {
         if let Some(start) = self.detach_start {
             let delta = Instant::now() - start;
@@ -48,9 +64,7 @@ impl<'d, STATE: NorFlash, RST: Reset> Handler for Control<'d, STATE, RST> {
                 timeout.as_millis()
             );
             if delta < timeout {
-                self.firmware_state
-                    .mark_dfu()
-                    .expect("Failed to mark DFU mode in bootloader");
+                self.dfu_marker.mark_dfu();
                 RST::sys_reset()
             }
         }
@@ -109,9 +123,9 @@ impl<'d, STATE: NorFlash, RST: Reset> Handler for Control<'d, STATE, RST> {
 /// it should expose a DFU device, and a software reset will be issued.
 ///
 /// To apply USB DFU updates, the bootloader must be capable of recognizing the DFU magic and exposing a device to handle the full DFU transaction with the host.
-pub fn usb_dfu<'d, D: Driver<'d>, STATE: NorFlash, RST: Reset>(
+pub fn usb_dfu<'d, D: Driver<'d>, MARK: DfuMarker, RST: Reset>(
     builder: &mut Builder<'d, D>,
-    handler: &'d mut Control<'d, STATE, RST>,
+    handler: &'d mut Control<MARK, RST>,
     timeout: Duration,
 ) {
     let mut func = builder.function(0x00, 0x00, 0x00);
