@@ -1,7 +1,7 @@
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
-use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
@@ -9,14 +9,6 @@ impl FlashSector {
     const fn snb(&self) -> u8 {
         ((self.bank as u8) << 4) + self.index_in_bank
     }
-}
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
 }
 
 pub(crate) unsafe fn lock() {
@@ -124,7 +116,7 @@ mod tests {
                     start,
                     size
                 },
-                get_sector(address, &FLASH_REGIONS)
+                get_sector(address, crate::flash::get_flash_regions())
             )
         };
 
@@ -157,7 +149,7 @@ mod tests {
                     start,
                     size
                 },
-                get_sector(address, &FLASH_REGIONS)
+                get_sector(address, crate::flash::get_flash_regions())
             )
         };
 
@@ -190,9 +182,9 @@ mod tests {
                     start,
                     size
                 },
-                get_sector(address, &FLASH_REGIONS)
+                get_sector(address, crate::flash::get_flash_regions())
             );
-            assert_eq!(get_sector(address, &FLASH_REGIONS).snb(), snb);
+            assert_eq!(get_sector(address, crate::flash::get_flash_regions()).snb(), snb);
         };
 
         assert_sector(0, 0x0800_0000, SMALL_SECTOR_SIZE, 0x0800_0000, 0x00, FlashBank::Bank1);

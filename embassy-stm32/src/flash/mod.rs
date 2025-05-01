@@ -14,17 +14,9 @@ pub use common::*;
 pub use crate::_generated::flash_regions::*;
 pub use crate::_generated::{FLASH_BASE, FLASH_SIZE, MAX_ERASE_SIZE, WRITE_SIZE};
 
-/// Get whether the default flash layout is being used.
-///
-/// In some chips, dual-bank is not default. This will then return `false`
-/// when dual-bank is enabled.
-pub fn is_default_layout() -> bool {
-    family::is_default_layout()
-}
-
 /// Get all flash regions.
 pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    family::get_flash_regions()
+    &FLASH_REGIONS
 }
 
 /// Read size (always 1)

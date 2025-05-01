@@ -3,7 +3,7 @@ use core::sync::atomic::{fence, AtomicBool, Ordering};
 
 use pac::flash::regs::Sr;
 
-use super::{FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{get_flash_regions, FlashBank, FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
@@ -13,14 +13,6 @@ impl FlashSector {
     const fn snb(&self) -> u8 {
         ((self.bank as u8) << 4) + self.index_in_bank
     }
-}
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
 }
 
 pub(crate) unsafe fn lock() {

@@ -4,8 +4,8 @@ use core::sync::atomic::{fence, Ordering};
 use embassy_hal_internal::drop::OnDrop;
 
 use super::{
-    family, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE,
-    READ_SIZE, WRITE_SIZE,
+    family, get_flash_regions, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE,
+    MAX_ERASE_SIZE, READ_SIZE, WRITE_SIZE,
 };
 use crate::Peri;
 use crate::_generated::FLASH_BASE;
@@ -36,7 +36,6 @@ impl<'d, MODE> Flash<'d, MODE> {
     ///
     /// See module-level documentation for details on how memory regions work.
     pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
-        assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 
@@ -141,7 +140,7 @@ pub(super) unsafe fn blocking_erase(
 ) -> Result<(), Error> {
     let start_address = base + from;
     let end_address = base + to;
-    let regions = family::get_flash_regions();
+    let regions = get_flash_regions();
 
     ensure_sector_aligned(start_address, end_address, regions)?;
 
