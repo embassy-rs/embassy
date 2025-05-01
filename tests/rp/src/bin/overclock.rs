@@ -6,7 +6,9 @@ teleprobe_meta::target!(b"rpi-pico");
 #[cfg(feature = "rp235xb")]
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
-use defmt::{assert, assert_eq, info};
+use defmt::info;
+#[cfg(feature = "rp2040")]
+use defmt::{assert, assert_eq};
 use embassy_executor::Spawner;
 use embassy_rp::clocks;
 #[cfg(feature = "rp2040")]
@@ -21,7 +23,10 @@ const COUNT_TO: i64 = 10_000_000;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
+    #[cfg(feature = "rp2040")]
     let mut config = Config::default();
+    #[cfg(not(feature = "rp2040"))]
+    let config = Config::default();
 
     // Initialize with 200MHz clock configuration for RP2040, other chips will use default clock
     #[cfg(feature = "rp2040")]
