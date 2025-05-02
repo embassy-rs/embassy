@@ -482,7 +482,6 @@ impl_waveform_chx!(waveform_ch2, Ch2Dma, Ch2);
 impl_waveform_chx!(waveform_ch3, Ch3Dma, Ch3);
 impl_waveform_chx!(waveform_ch4, Ch4Dma, Ch4);
 
-
 macro_rules! impl_waveform_variable_period_chx {
     ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
         impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
