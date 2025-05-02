@@ -42,7 +42,8 @@ critical-section-impl = ["critical-section/restore-state-u8"]
 unstable-pac = []
 
 ## Enable the timer for use with `embassy-time` with a 1MHz tick rate.
-time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
+#time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
+time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 ## Enable ROM function cache. This will store the address of a ROM function when first used, improving performance of subsequent calls.
 rom-func-cache = []
@@ -122,7 +123,15 @@ _rp235x = ["rp-pac/rp235x"]
 rp235xa = ["_rp235x"]
 ## Configure the hal for use with the rp235xB
 rp235xb = ["_rp235x"]
-
+## Add a feature which configures `embassy-time-driver` with 150MHz `tick`s.  This is an indication
+## by the upstream crate that the RP2350's `TIMER`s are configured with the system clock as their
+## source (typically 150MHz), instead of the usual 1MHz.
+## Compilation flag checks in `lib.rs` ensure this feature is only used together with `_rp235x`
+timer-src-clk-sys = [
+    "dep:embassy-time-driver",
+    "embassy-time-driver?/tick-hz-150_000_000",
+    "dep:embassy-time-queue-utils",
+]
 # hack around cortex-m peripherals being wrong when running tests.
 _test = []
 
