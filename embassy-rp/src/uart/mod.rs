@@ -165,12 +165,12 @@ impl<'d, M: Mode> UartTx<'d, M> {
         config: Config,
     ) -> Self {
         Uart::<M>::init(T::info(), Some(tx.into()), None, None, None, config);
-        Self::new_inner::<T>(Some(tx_dma.into()))
+        Self::new_inner(T::info(), Some(tx_dma.into()))
     }
 
-    fn new_inner<T: Instance>(tx_dma: Option<Peri<'d, AnyChannel>>) -> Self {
+    fn new_inner(info: &'static Info, tx_dma: Option<Peri<'d, AnyChannel>>) -> Self {
         Self {
-            info: T::info(),
+            info,
             tx_dma,
             phantom: PhantomData,
         }
@@ -230,7 +230,7 @@ impl<'d> UartTx<'d, Blocking> {
     /// Create a new UART TX instance for blocking mode operations.
     pub fn new_blocking<T: Instance>(_uart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
         Uart::<Blocking>::init(T::info(), Some(tx.into()), None, None, None, config);
-        Self::new_inner::<T>(None)
+        Self::new_inner(T::info(), None)
     }
 
     /// Convert this uart TX instance into a buffered uart using the provided
@@ -281,20 +281,25 @@ impl<'d, M: Mode> UartRx<'d, M> {
         config: Config,
     ) -> Self {
         Uart::<M>::init(T::info(), None, Some(rx.into()), None, None, config);
-        Self::new_inner::<T>(true, Some(rx_dma.into()))
+        Self::new_inner(T::info(), T::dma_state(), true, Some(rx_dma.into()))
     }
 
-    fn new_inner<T: Instance>(has_irq: bool, rx_dma: Option<Peri<'d, AnyChannel>>) -> Self {
+    fn new_inner(
+        info: &'static Info,
+        dma_state: &'static DmaState,
+        has_irq: bool,
+        rx_dma: Option<Peri<'d, AnyChannel>>,
+    ) -> Self {
         debug_assert_eq!(has_irq, rx_dma.is_some());
         if has_irq {
             // disable all error interrupts initially
-            T::info().regs.uartimsc().write(|w| w.0 = 0);
-            T::Interrupt::unpend();
-            unsafe { T::Interrupt::enable() };
+            info.regs.uartimsc().write(|w| w.0 = 0);
+            info.interrupt.unpend();
+            unsafe { info.interrupt.enable() };
         }
         Self {
-            info: T::info(),
-            dma_state: T::dma_state(),
+            info,
+            dma_state,
             rx_dma,
             phantom: PhantomData,
         }
@@ -355,7 +360,7 @@ impl<'d> UartRx<'d, Blocking> {
     /// Create a new UART RX instance for blocking mode operations.
     pub fn new_blocking<T: Instance>(_uart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
         Uart::<Blocking>::init(T::info(), None, Some(rx.into()), None, None, config);
-        Self::new_inner::<T>(false, None)
+        Self::new_inner(T::info(), T::dma_state(), false, None)
     }
 
     /// Convert this uart RX instance into a buffered uart using the provided
@@ -835,8 +840,8 @@ impl<'d, M: Mode> Uart<'d, M> {
         );
 
         Self {
-            tx: UartTx::new_inner::<T>(tx_dma),
-            rx: UartRx::new_inner::<T>(has_irq, rx_dma),
+            tx: UartTx::new_inner(T::info(), tx_dma),
+            rx: UartRx::new_inner(T::info(), T::dma_state(), has_irq, rx_dma),
         }
     }
 
