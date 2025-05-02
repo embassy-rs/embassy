@@ -43,14 +43,12 @@ pub struct BufferedUart {
 pub struct BufferedUartRx {
     pub(super) info: &'static Info,
     pub(super) state: &'static State,
-    // pub(crate) phantom: PhantomData<&'d mut T>,
 }
 
 /// Buffered UART TX handle.
 pub struct BufferedUartTx {
     pub(super) info: &'static Info,
     pub(super) state: &'static State,
-    // pub(crate) phantom: PhantomData<&'d mut T>,
 }
 
 pub(super) fn init_buffers<'d>(
