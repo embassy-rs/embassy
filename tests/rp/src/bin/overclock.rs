@@ -14,7 +14,7 @@ use embassy_rp::clocks;
 #[cfg(feature = "rp2040")]
 use embassy_rp::clocks::ClockConfig;
 #[cfg(feature = "rp2040")]
-use embassy_rp::clocks::VoltageScale;
+use embassy_rp::clocks::CoreVoltage;
 use embassy_rp::config::Config;
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
@@ -31,15 +31,15 @@ async fn main(_spawner: Spawner) {
     // Initialize with 200MHz clock configuration for RP2040, other chips will use default clock
     #[cfg(feature = "rp2040")]
     {
-        config.clocks = ClockConfig::at_sys_frequency_mhz(200);
-        let voltage = config.clocks.voltage_scale.unwrap();
-        assert!(matches!(voltage, VoltageScale::V1_15), "Expected voltage scale V1_15");
+        config.clocks = ClockConfig::crystal_freq(200_000_000);
+        let voltage = config.clocks.core_voltage;
+        assert!(matches!(voltage, CoreVoltage::V1_15), "Expected voltage scale V1_15");
     }
 
     let _p = embassy_rp::init(config);
 
+    // Test the system speed
     let (time_elapsed, clk_sys_freq) = {
-        // Test the system speed
         let mut counter = 0;
         let start = Instant::now();
         while counter < COUNT_TO {

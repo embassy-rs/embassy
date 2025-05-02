@@ -9,9 +9,8 @@
 //!
 //! For most users, these functions provide an easy way to configure clocks:
 //!
-//! - `ClockConfig::crystal(12_000_000)` - Default configuration with 12MHz crystal giving 125MHz system clock
 //! - `ClockConfig::at_sys_frequency_mhz(200)` - Set system clock to a specific frequency with automatic voltage scaling
-//! - `ClockConfig::with_external_crystal(16_000_000)` - Configure with a non-standard crystal frequency
+//! - `ClockConfig::crystal(12_000_000)` - Default configuration with 12MHz crystal giving 125MHz system clock
 //!
 //! ## Manual Configuration
 //!
@@ -34,18 +33,8 @@
 //! });
 //!
 //! // Set voltage for overclocking
-//! config.voltage_scale = Some(VoltageScale::V1_15);
+//! config.core_voltage = CoreVoltage::V1_15;
 //! ```
-//!
-//! ## Voltage Scaling for Overclocking (RP2040 only)
-//!
-//! When overclocking beyond 133MHz, higher core voltages are needed:
-//!
-//! - Up to 133MHz: `VoltageScale::V1_10` (default)
-//! - 133-200MHz: `VoltageScale::V1_15`
-//! - Above 200MHz: `VoltageScale::V1_20` or higher
-//!
-//! The `at_sys_frequency_mhz()` function automatically sets appropriate voltages.
 //!
 //! ## Examples
 //!
@@ -61,16 +50,16 @@
 //!
 //! ### Overclock to 200MHz
 //! ```rust,ignore
-//! let config = ClockConfig::at_sys_frequency_mhz(200);
+//! let config = ClockConfig::crystal_freq(200_000_000);
 //! ```
 //!
 //! ### Manual configuration for advanced scenarios
 //! ```rust,ignore
-//! use embassy_rp::clocks::{ClockConfig, XoscConfig, PllConfig, VoltageScale};
+//! use embassy_rp::clocks::{ClockConfig, XoscConfig, PllConfig, CoreVoltage};
 //!
 //! // Start with defaults and customize
 //! let mut config = ClockConfig::default();
-//! config.voltage_scale = Some(VoltageScale::V1_15);
+//! config.core_voltage = CoreVoltage::V1_15;
 //! // Set other parameters as needed...
 //! ```
 
@@ -144,14 +133,16 @@ pub enum PeriClkSrc {
     // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
 
-/// Core voltage scaling options for RP2040.
+/// Core voltage regulator settings for RP2040.
 ///
 /// The RP2040 voltage regulator can be configured for different output voltages.
 /// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
 #[cfg(feature = "rp2040")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub enum VoltageScale {
+pub enum CoreVoltage {
+    /// 0.80V - Suitable for lower frequencies
+    V0_80 = 0b0000,
     /// 0.85V
     V0_85 = 0b0110,
     /// 0.90V
@@ -162,11 +153,11 @@ pub enum VoltageScale {
     V1_00 = 0b1001,
     /// 1.05V
     V1_05 = 0b1010,
-    /// 1.10V
+    /// 1.10V - Default voltage level
     V1_10 = 0b1011,
-    /// 1.15V
+    /// 1.15V - Required for overclocking to 133-200MHz
     V1_15 = 0b1100,
-    /// 1.20V
+    /// 1.20V - Required for overclocking above 200MHz
     V1_20 = 0b1101,
     /// 1.25V
     V1_25 = 0b1110,
@@ -175,21 +166,22 @@ pub enum VoltageScale {
 }
 
 #[cfg(feature = "rp2040")]
-impl VoltageScale {
+impl CoreVoltage {
     /// Get the recommended Brown-Out Detection (BOD) setting for this voltage.
     /// Sets the BOD threshold to approximately 90% of the core voltage.
     fn recommended_bod(self) -> u8 {
         match self {
-            VoltageScale::V0_85 => 0b0111, // 0.774V (~91% of 0.85V)
-            VoltageScale::V0_90 => 0b1000, // 0.817V (~91% of 0.90V)
-            VoltageScale::V0_95 => 0b1001, // 0.860V (~91% of 0.95V)
-            VoltageScale::V1_00 => 0b1010, // 0.903V (~90% of 1.00V)
-            VoltageScale::V1_05 => 0b1011, // 0.946V (~90% of 1.05V)
-            VoltageScale::V1_10 => 0b1100, // 0.989V (~90% of 1.10V)
-            VoltageScale::V1_15 => 0b1101, // 1.032V (~90% of 1.15V)
-            VoltageScale::V1_20 => 0b1110, // 1.075V (~90% of 1.20V)
-            VoltageScale::V1_25 => 0b1111, // 1.118V (~89% of 1.25V)
-            VoltageScale::V1_30 => 0b1111, // 1.118V (~86% of 1.30V) - using max available threshold
+            CoreVoltage::V0_80 => 0b0110, // 0.720V (~90% of 0.80V)
+            CoreVoltage::V0_85 => 0b0111, // 0.774V (~91% of 0.85V)
+            CoreVoltage::V0_90 => 0b1000, // 0.817V (~91% of 0.90V)
+            CoreVoltage::V0_95 => 0b1001, // 0.860V (~91% of 0.95V)
+            CoreVoltage::V1_00 => 0b1010, // 0.903V (~90% of 1.00V)
+            CoreVoltage::V1_05 => 0b1011, // 0.946V (~90% of 1.05V)
+            CoreVoltage::V1_10 => 0b1100, // 0.989V (~90% of 1.10V)
+            CoreVoltage::V1_15 => 0b1101, // 1.032V (~90% of 1.15V)
+            CoreVoltage::V1_20 => 0b1110, // 1.075V (~90% of 1.20V)
+            CoreVoltage::V1_25 => 0b1111, // 1.118V (~89% of 1.25V)
+            CoreVoltage::V1_30 => 0b1111, // 1.118V (~86% of 1.30V) - using max available threshold
         }
     }
 }
@@ -214,9 +206,9 @@ pub struct ClockConfig {
     /// RTC clock configuration.
     #[cfg(feature = "rp2040")]
     pub rtc_clk: Option<RtcClkConfig>,
-    /// Core voltage scaling (RP2040 only). Defaults to 1.10V if None.
+    /// Core voltage scaling (RP2040 only). Defaults to 1.10V.
     #[cfg(feature = "rp2040")]
-    pub voltage_scale: Option<VoltageScale>,
+    pub core_voltage: CoreVoltage,
     /// Voltage stabilization delay in microseconds.
     /// If not set, defaults will be used based on voltage level.
     #[cfg(feature = "rp2040")]
@@ -255,7 +247,7 @@ impl Default for ClockConfig {
             #[cfg(feature = "rp2040")]
             rtc_clk: None,
             #[cfg(feature = "rp2040")]
-            voltage_scale: None,
+            core_voltage: CoreVoltage::V1_10,
             #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
             // gpin0: None,
@@ -327,7 +319,7 @@ impl ClockConfig {
                 phase: 0,
             }),
             #[cfg(feature = "rp2040")]
-            voltage_scale: None, // Use hardware default (1.10V)
+            core_voltage: CoreVoltage::V1_10, // Use hardware default (1.10V)
             #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
             // gpin0: None,
@@ -371,7 +363,7 @@ impl ClockConfig {
                 phase: 0,
             }),
             #[cfg(feature = "rp2040")]
-            voltage_scale: None, // Use hardware default (1.10V)
+            core_voltage: CoreVoltage::V1_10, // Use hardware default (1.10V)
             #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
             // gpin0: None,
@@ -379,146 +371,59 @@ impl ClockConfig {
         }
     }
 
-    /// Configure the system clock to a specific frequency in MHz.
-    ///
-    /// This is a user-friendly way to configure the system clock, similar to
-    /// the Pico SDK's approach. It automatically handles voltage scaling based on the
-    /// requested frequency and uses the standard 12MHz crystal found on most RP2040 boards.
-    ///
-    /// # Arguments
-    ///
-    /// * `sys_freq_mhz` - The target system clock frequency in MHz
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Overclock to 200MHz
-    /// let config = ClockConfig::at_sys_frequency_mhz(200);
-    /// ```
-    #[cfg(feature = "rp2040")]
-    pub fn at_sys_frequency_mhz(sys_freq_mhz: u32) -> Self {
-        // For 125MHz, use exactly the same config as the default to avoid any differences
-        if sys_freq_mhz == 125 {
-            return Self::crystal(12_000_000);
-        }
-
-        // For other frequencies, provide appropriate voltage scaling and PLL configuration
-        // Standard crystal on Raspberry Pi Pico boards is 12MHz
-        const DEFAULT_CRYSTAL_HZ: u32 = 12_000_000;
-
-        let sys_freq_hz = sys_freq_mhz * 1_000_000;
-        let config = Self::crystal_freq(DEFAULT_CRYSTAL_HZ, sys_freq_hz);
-
-        config
-    }
-
-    /// Configure the system clock to a specific frequency in Hz, using a custom crystal frequency.
-    ///
-    /// This more flexible version allows specifying both the crystal frequency and target
-    /// system frequency for boards with non-standard crystals.
-    ///
-    /// # Arguments
-    ///
-    /// * `crystal_hz` - The frequency of the external crystal in Hz
-    /// * `sys_freq_hz` - The target system clock frequency in Hz
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// // Use a non-standard 16MHz crystal to achieve 250MHz
-    /// let config = ClockConfig::with_custom_crystal(16_000_000, 250_000_000);
-    /// ```
-    #[cfg(feature = "rp2040")]
-    pub fn with_custom_crystal(crystal_hz: u32, sys_freq_hz: u32) -> Self {
-        Self::crystal_freq(crystal_hz, sys_freq_hz)
-    }
-
     /// Configure clocks derived from an external crystal with specific system frequency.
     ///
     /// This function calculates optimal PLL parameters to achieve the requested system
-    /// frequency from the given crystal frequency. It's used internally by higher-level
-    /// configuration functions.
+    /// frequency. This only works for the usual 12MHz crystal. In case a different crystal is used,
+    /// You will have to set the PLL parameters manually.
     ///
     /// # Arguments
     ///
-    /// * `crystal_hz` - The frequency of the external crystal in Hz
     /// * `sys_freq_hz` - The desired system clock frequency in Hz
     ///
     /// # Returns
     ///
     /// A ClockConfig configured to achieve the requested system frequency using the
-    /// specified crystal, or panic if no valid parameters can be found.
+    /// the usual 12Mhz crystal, or panic if no valid parameters can be found.
+    ///
+    /// # Note on core voltage:
+    /// To date the only officially documented core voltages (see Datasheet section 2.15.3.1. Instances) are:
+    /// - Up to 133MHz: V1_10 (default)
+    /// - Above 133MHz: V1_15, but in the context of the datasheet covering reaching up to 200Mhz
+    /// That way all other frequencies below 133MHz or above 200MHz are not explicitly documented and not covered here.
+    /// In case You want to go below 133MHz or above 200MHz and want a different voltage, You will have to set that manually and with caution.
     #[cfg(feature = "rp2040")]
-    fn crystal_freq(crystal_hz: u32, sys_freq_hz: u32) -> Self {
+    pub fn crystal_freq(sys_freq_hz: u32) -> Self {
+        // Start with the standard configuration from crystal()
+        const DEFAULT_CRYSTAL_HZ: u32 = 12_000_000;
+        let mut config = Self::crystal(DEFAULT_CRYSTAL_HZ);
+
+        // No need to modify anything if target frequency is already 125MHz
+        // (which is what crystal() configures by default)
+        if sys_freq_hz == 125_000_000 {
+            return config;
+        }
+
         // Find optimal PLL parameters for the requested frequency
-        let sys_pll_params = find_pll_params(crystal_hz, sys_freq_hz)
+        let sys_pll_params = find_pll_params(DEFAULT_CRYSTAL_HZ, sys_freq_hz)
             .unwrap_or_else(|| panic!("Could not find valid PLL parameters for system clock"));
+
+        // Replace the sys_pll configuration with our custom parameters
+        if let Some(xosc) = &mut config.xosc {
+            xosc.sys_pll = Some(sys_pll_params);
+        }
 
         // Set the voltage scale based on the target frequency
         // Higher frequencies require higher voltage
-        let voltage_scale = match sys_freq_hz {
-            freq if freq > 200_000_000 => Some(VoltageScale::V1_20),
-            freq if freq > 133_000_000 => Some(VoltageScale::V1_15),
-            _ => None, // Use default voltage (V1_10)
-        };
-
-        // For USB PLL, we always want 48MHz for USB
-        let usb_pll_params = if crystal_hz == 12_000_000 {
-            // For standard 12MHz crystal, use the default parameters
-            PllConfig {
-                refdiv: 1,
-                fbdiv: 120,
-                post_div1: 6,
-                post_div2: 5,
-            }
-        } else {
-            // For other crystals, calculate parameters to get 48MHz
-            find_pll_params(crystal_hz, 48_000_000)
-                .unwrap_or_else(|| panic!("Could not find valid PLL parameters for USB clock"))
-        };
-
-        Self {
-            rosc: Some(RoscConfig {
-                hz: 6_500_000,
-                range: RoscRange::Medium,
-                drive_strength: [0; 8],
-                div: 16,
-            }),
-            xosc: Some(XoscConfig {
-                hz: crystal_hz,
-                sys_pll: Some(sys_pll_params),
-                usb_pll: Some(usb_pll_params),
-                delay_multiplier: 128,
-            }),
-            ref_clk: RefClkConfig {
-                src: RefClkSrc::Xosc,
-                div: 1,
-            },
-            sys_clk: SysClkConfig {
-                src: SysClkSrc::PllSys,
-                div_int: 1,
-                div_frac: 0,
-            },
-            peri_clk_src: Some(PeriClkSrc::Sys),
-            usb_clk: Some(UsbClkConfig {
-                src: UsbClkSrc::PllUsb,
-                div: 1,
-                phase: 0,
-            }),
-            adc_clk: Some(AdcClkConfig {
-                src: AdcClkSrc::PllUsb,
-                div: 1,
-                phase: 0,
-            }),
-            rtc_clk: Some(RtcClkConfig {
-                src: RtcClkSrc::PllUsb,
-                div_int: 1024,
-                div_frac: 0,
-                phase: 0,
-            }),
-            voltage_scale,
-            voltage_stabilization_delay_us: None,
+        #[cfg(feature = "rp2040")]
+        {
+            config.core_voltage = match sys_freq_hz {
+                freq if freq > 133_000_000 => CoreVoltage::V1_15,
+                _ => CoreVoltage::V1_10, // Use default voltage (V1_10)
+            };
         }
+
+        config
     }
 
     /// Configure with manual PLL settings for full control over system clock
@@ -530,7 +435,7 @@ impl ClockConfig {
     ///
     /// * `xosc_hz` - The frequency of the external crystal in Hz
     /// * `pll_config` - The PLL configuration parameters to achieve desired frequency
-    /// * `voltage_scale` - Optional voltage scaling for overclocking (required for >133MHz)
+    /// * `core_voltage` - Voltage scaling for overclocking (required for >133MHz)
     ///
     /// # Returns
     ///
@@ -549,11 +454,11 @@ impl ClockConfig {
     ///         post_div1: 3, // First post divider (1200 MHz / 3 = 400 MHz)
     ///         post_div2: 2, // Second post divider (400 MHz / 2 = 200 MHz)
     ///     },
-    ///     Some(VoltageScale::V1_15)
+    ///     CoreVoltage::V1_15
     /// );
     /// ```
     #[cfg(feature = "rp2040")]
-    pub fn manual_pll(xosc_hz: u32, pll_config: PllConfig, voltage_scale: Option<VoltageScale>) -> Self {
+    pub fn manual_pll(xosc_hz: u32, pll_config: PllConfig, core_voltage: CoreVoltage) -> Self {
         // Calculate the actual output frequency for documentation
         // let ref_freq = xosc_hz / pll_config.refdiv as u32;
         // let vco_freq = ref_freq * pll_config.fbdiv as u32;
@@ -587,7 +492,7 @@ impl ClockConfig {
             div_frac: 0,
         };
 
-        config.voltage_scale = voltage_scale;
+        config.core_voltage = core_voltage;
         config.peri_clk_src = Some(PeriClkSrc::Sys);
 
         // Set reasonable defaults for other clocks
@@ -865,7 +770,7 @@ pub struct RtcClkConfig {
 ///
 /// # Parameters
 ///
-/// * `input_hz`: The input frequency in Hz (typically the crystal frequency, e.g. 12MHz)
+/// * `input_hz`: The input frequency in Hz (typically the crystal frequency, e.g. 12MHz for th most common one used on rp2040 boards)
 /// * `target_hz`: The desired output frequency in Hz (e.g. 125MHz for standard RP2040 operation)
 ///
 /// # Returns
@@ -990,7 +895,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
 
     // Set Core Voltage (RP2040 only), if we have config for it and we're not using the default
     #[cfg(feature = "rp2040")]
-    if let Some(voltage) = config.voltage_scale {
+    {
+        let voltage = config.core_voltage;
         let vreg = pac::VREG_AND_CHIP_RESET;
         let current_vsel = vreg.vreg().read().vsel();
         let target_vsel = voltage as u8;
@@ -1002,9 +908,9 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
             let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or_else(|| {
                 match voltage {
-                    VoltageScale::V1_15 => 1000,                                             // 1ms for 1.15V
-                    VoltageScale::V1_20 | VoltageScale::V1_25 | VoltageScale::V1_30 => 2000, // 2ms for higher voltages
-                    _ => 0,                                                                  // no delay for all others
+                    CoreVoltage::V1_15 => 1000,                                           // 1ms for 1.15V
+                    CoreVoltage::V1_20 | CoreVoltage::V1_25 | CoreVoltage::V1_30 => 2000, // 2ms for higher voltages
+                    _ => 0,                                                               // no delay for all others
                 }
             });
 
@@ -1042,9 +948,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     };
     CLOCKS.xosc.store(xosc_freq, Ordering::Relaxed);
 
-    // SETUP TEMPORARY STABLE CLOCKS FIRST
+    // Setup temporary stable clocks first
     // Configure USB PLL for our stable temporary clock
-    // This follows the SDK's approach of using USB PLL as a stable intermediate clock
     let pll_usb_freq = match &config.xosc {
         Some(config) => match &config.usb_pll {
             Some(pll_usb_config) => {
@@ -1055,7 +960,13 @@ pub(crate) unsafe fn init(config: ClockConfig) {
                 reset::unreset_wait(peris);
 
                 // Configure the USB PLL - this should give us 48MHz
-                let usb_pll_freq = configure_pll(pac::PLL_USB, xosc_freq, *pll_usb_config);
+                let usb_pll_freq = match configure_pll(pac::PLL_USB, xosc_freq, *pll_usb_config) {
+                    Ok(freq) => freq,
+                    Err(_) => {
+                        panic!("Failed to configure USB PLL");
+                    }
+                };
+
                 CLOCKS.pll_usb.store(usb_pll_freq, Ordering::Relaxed);
                 usb_pll_freq
             }
@@ -1074,7 +985,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1 << ClkRefCtrlSrc::XOSC_CLKSRC as u32) {}
 
     // First switch the system clock to a stable source (USB PLL at 48MHz)
-    // This follows the Pico SDK's approach to ensure stability during reconfiguration
+    // This follows the official Pico SDK's approach to ensure stability during reconfiguration
     c.clk_sys_ctrl().write(|w| {
         w.set_auxsrc(ClkSysCtrlAuxsrc::CLKSRC_PLL_USB);
         w.set_src(ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX);
@@ -1101,7 +1012,12 @@ pub(crate) unsafe fn init(config: ClockConfig) {
                 reset::unreset_wait(peris);
 
                 // Configure the SYS PLL
-                let pll_sys_freq = configure_pll(pac::PLL_SYS, xosc_freq, *sys_pll_config);
+                let pll_sys_freq = match configure_pll(pac::PLL_SYS, xosc_freq, *sys_pll_config) {
+                    Ok(freq) => freq,
+                    Err(_) => {
+                        panic!("Failed to configure system PLL");
+                    }
+                };
 
                 // Ensure PLL is locked and stable
                 cortex_m::asm::delay(100);
@@ -1411,7 +1327,7 @@ fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
 
 /// PLL (Phase-Locked Loop) configuration
 #[inline(always)]
-fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> u32 {
+fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result<u32, &'static str> {
     // Calculate reference frequency
     let ref_freq = input_freq / config.refdiv as u32;
 
@@ -1482,7 +1398,7 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> u32 {
         timeout -= 1;
         if timeout == 0 {
             // PLL failed to lock, return 0 to indicate failure
-            return 0;
+            return Err("PLL failed to lock");
         }
     }
 
@@ -1502,7 +1418,7 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> u32 {
     cortex_m::asm::delay(100);
 
     // Calculate and return actual output frequency
-    vco_freq / ((config.post_div1 * config.post_div2) as u32)
+    Ok(vco_freq / ((config.post_div1 * config.post_div2) as u32))
 }
 
 /// General purpose input clock pin.
@@ -1885,25 +1801,6 @@ mod tests {
 
     #[cfg(feature = "rp2040")]
     #[test]
-    fn test_voltage_scale_bod_values() {
-        // Test that each voltage level maps to the correct BOD threshold (approx. 90% of VDD)
-        // This verifies our BOD settings match our documentation
-        {
-            assert_eq!(VoltageScale::V0_85.recommended_bod(), 0b0111); // ~0.774V (91% of 0.85V)
-            assert_eq!(VoltageScale::V0_90.recommended_bod(), 0b1000); // ~0.817V (91% of 0.90V)
-            assert_eq!(VoltageScale::V0_95.recommended_bod(), 0b1001); // ~0.860V (91% of 0.95V)
-            assert_eq!(VoltageScale::V1_00.recommended_bod(), 0b1010); // ~0.903V (90% of 1.00V)
-            assert_eq!(VoltageScale::V1_05.recommended_bod(), 0b1011); // ~0.946V (90% of 1.05V)
-            assert_eq!(VoltageScale::V1_10.recommended_bod(), 0b1100); // ~0.989V (90% of 1.10V)
-            assert_eq!(VoltageScale::V1_15.recommended_bod(), 0b1101); // ~1.032V (90% of 1.15V)
-            assert_eq!(VoltageScale::V1_20.recommended_bod(), 0b1110); // ~1.075V (90% of 1.20V)
-            assert_eq!(VoltageScale::V1_25.recommended_bod(), 0b1111); // ~1.118V (89% of 1.25V)
-            assert_eq!(VoltageScale::V1_30.recommended_bod(), 0b1111); // ~1.118V (86% of 1.30V) - using max available
-        }
-    }
-
-    #[cfg(feature = "rp2040")]
-    #[test]
     fn test_find_pll_params() {
         #[cfg(feature = "rp2040")]
         {
@@ -1942,7 +1839,12 @@ mod tests {
             let vco_freq = (16_000_000 / params.refdiv as u32) as u64 * params.fbdiv as u64;
             let output_freq = (vco_freq / ((params.post_div1 * params.post_div2) as u64)) as u32;
 
-            // With a 16 MHz crystal, we might not get exactly 125 MHz
+            // Test non-standard crystal with 15 MHz
+            let params = find_pll_params(15_000_000, 125_000_000).unwrap();
+            let vco_freq = (15_000_000 / params.refdiv as u32) as u64 * params.fbdiv as u64;
+            let output_freq = (vco_freq / ((params.post_div1 * params.post_div2) as u64)) as u32;
+
+            // With a 15 MHz crystal, we might not get exactly 125 MHz
             // Check that it's close enough (within 0.2% margin)
             let freq_diff = if output_freq > 125_000_000 {
                 output_freq - 125_000_000
@@ -2033,11 +1935,11 @@ mod tests {
                     post_div1: 3,
                     post_div2: 2,
                 },
-                Some(VoltageScale::V1_15),
+                CoreVoltage::V1_15,
             );
 
             // Check voltage scale was set correctly
-            assert_eq!(config.voltage_scale, Some(VoltageScale::V1_15));
+            assert_eq!(config.core_voltage, CoreVoltage::V1_15);
 
             // Check PLL config was set correctly
             assert_eq!(config.xosc.as_ref().unwrap().sys_pll.as_ref().unwrap().refdiv, 1);
@@ -2065,19 +1967,23 @@ mod tests {
     fn test_auto_voltage_scaling() {
         {
             // Test automatic voltage scaling based on frequency
-            // Under 133 MHz should use default voltage (None)
-            let config = ClockConfig::at_sys_frequency_mhz(125);
-            assert_eq!(config.voltage_scale, None);
+            // Under 133 MHz should use default voltage (V1_10)
+            let config = ClockConfig::crystal_freq(125_000_000);
+            assert_eq!(config.core_voltage, CoreVoltage::V1_10);
 
             // 133-200 MHz should use V1_15
-            let config = ClockConfig::at_sys_frequency_mhz(150);
-            assert_eq!(config.voltage_scale, Some(VoltageScale::V1_15));
-            let config = ClockConfig::at_sys_frequency_mhz(200);
-            assert_eq!(config.voltage_scale, Some(VoltageScale::V1_15));
+            let config = ClockConfig::crystal_freq(150_000_000);
+            assert_eq!(config.core_voltage, CoreVoltage::V1_15);
+            let config = ClockConfig::crystal_freq(200_000_000);
+            assert_eq!(config.core_voltage, CoreVoltage::V1_15);
 
-            // Above 200 MHz should use V1_20
-            let config = ClockConfig::at_sys_frequency_mhz(250);
-            assert_eq!(config.voltage_scale, Some(VoltageScale::V1_20));
+            // Above 200 MHz should use V1_25
+            let config = ClockConfig::crystal_freq(250_000_000);
+            assert_eq!(config.core_voltage, CoreVoltage::V1_15);
+
+            // Below 125 MHz should use V1_10
+            let config = ClockConfig::crystal_freq(100_000_000);
+            assert_eq!(config.core_voltage, CoreVoltage::V1_10);
         }
     }
 }

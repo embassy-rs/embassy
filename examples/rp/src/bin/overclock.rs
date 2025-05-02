@@ -1,6 +1,6 @@
 //! # Overclocking the RP2040 to 200 MHz
 //!
-//! This example demonstrates how to configure the RP2040 to run at 200 MHz using a higher level API.
+//! This example demonstrates how to configure the RP2040 to run at 200 MHz.
 
 #![no_std]
 #![no_main]
@@ -17,19 +17,18 @@ const COUNT_TO: i64 = 10_000_000;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    // Set up for clock frequency of 200 MHz
-    // This will set all the necessary defaults including slightly raised voltage
-    let config = Config::new(ClockConfig::at_sys_frequency_mhz(200));
+    // Set up for clock frequency of 200 MHz, setting all necessary defaults.
+    let config = Config::new(ClockConfig::crystal_freq(200_000_000));
 
     // Show the voltage scale for verification
-    info!("System core voltage: {}", Debug2Format(&config.clocks.voltage_scale));
+    info!("System core voltage: {}", Debug2Format(&config.clocks.core_voltage));
 
     // Initialize the peripherals
     let p = embassy_rp::init(config);
 
     // Show CPU frequency for verification
     let sys_freq = clk_sys_freq();
-    info!("System clock frequency: {} Hz", sys_freq);
+    info!("System clock frequency: {} MHz", sys_freq / 1_000_000);
 
     // LED to indicate the system is running
     let mut led = Output::new(p.PIN_25, Level::Low);

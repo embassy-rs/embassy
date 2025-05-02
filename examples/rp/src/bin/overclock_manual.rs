@@ -8,7 +8,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::clocks;
-use embassy_rp::clocks::{ClockConfig, PllConfig, VoltageScale};
+use embassy_rp::clocks::{ClockConfig, CoreVoltage, PllConfig};
 use embassy_rp::config::Config;
 use embassy_rp::gpio::{Level, Output};
 use embassy_time::{Duration, Instant, Timer};
@@ -16,23 +16,21 @@ use {defmt_rtt as _, panic_probe as _};
 
 const COUNT_TO: i64 = 10_000_000;
 
-/// Configure the RP2040 for 200 MHz operation by manually specifying
-/// all the required parameters instead of using higher-level APIs.
+/// Configure the RP2040 for 200 MHz operation by manually specifying the PLL settings.
 fn configure_manual_overclock() -> Config {
     // Set the PLL configuration manually, starting from default values
     let mut config = Config::default();
 
-    // Set the system clock to 200 MHz using a PLL with a reference frequency of 12 MHz
+    // Set the system clock to 200 MHz
     config.clocks = ClockConfig::manual_pll(
-        12_000_000,
+        12_000_000, // Crystal frequency, 12 MHz is common. If using custom, set to your value.
         PllConfig {
-            refdiv: 1,
-            fbdiv: 100,
-            post_div1: 3,
-            post_div2: 2,
+            refdiv: 1,    // Reference divider
+            fbdiv: 100,   // Feedback divider
+            post_div1: 3, // Post divider 1
+            post_div2: 2, // Post divider 2
         },
-        // For 200 MHz, we need a voltage scale of 1.15V
-        Some(VoltageScale::V1_15),
+        CoreVoltage::V1_15, // Core voltage, should be set to V1_15 for 200 MHz
     );
 
     config
