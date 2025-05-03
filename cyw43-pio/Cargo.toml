@@ -13,7 +13,7 @@ documentation = "https://docs.embassy.dev/cyw43-pio"
 cyw43 = { version = "0.3.0", path = "../cyw43" }
 embassy-rp = { version = "0.4.0", path = "../embassy-rp" }
 fixed = "1.23.1"
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/cyw43-pio-v$VERSION/cyw43-pio/src/"

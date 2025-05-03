@@ -14,7 +14,7 @@ defmt = [ "dep:defmt", "heapless/defmt-03" ]
 log = [ "dep:log" ]
 
 [dependencies]
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 nrf-pac = "0.1.0"

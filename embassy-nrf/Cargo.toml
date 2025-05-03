@@ -156,7 +156,7 @@ embedded-io-async = { version = "0.6.1" }
 
 nrf-pac = "0.1.0"
 
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 bitflags = "2.4.2"
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
