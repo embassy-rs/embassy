@@ -1,6 +1,5 @@
 use embassy_usb_driver::host::HostError;
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
-use heapless::Vec;
 
 use crate::descriptor::descriptor_type;
 
