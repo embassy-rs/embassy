@@ -560,9 +560,6 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
     }
 }
 
-// impl<'d, I: Instance> Channel<'d, D, In> {
-// }
-
 impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> for Channel<'d, I, D, T> {
     async fn control_in(
         &mut self,
