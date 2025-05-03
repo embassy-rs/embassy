@@ -13,8 +13,23 @@ use crate::host::ControlChannelExt;
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct KeyStatusUpdate {
+    /// Bitfield of modifiers keys:
+    /// LeftControl
+    /// LeftShift
+    /// LeftAlt
+    /// Left GUI
+    /// RightControl
+    /// RightShift
+    /// RightAlt
+    /// Right GUI
     pub modifiers: u8,
+    /// Reserved for OEM.
+    /// Should be ignored.
     pub reserved: u8,
+    /// Keycodes of currently pressed keys.
+    /// 0 -> not pressed
+    /// 1 -> rollover
+    /// See "HID Usage Tables FOR Universal Serial Bus (USB)" for all values.
     pub keypress: [Option<NonZeroU8>; 6],
 }
 
@@ -31,6 +46,7 @@ pub enum KbdEvent {
     KeyStatusUpdate(KeyStatusUpdate),
 }
 
+/// Host side driver for HID boot keyboard
 pub struct KbdHandler<H: UsbHostDriver> {
     interrupt_channel: H::Channel<channel::Interrupt, channel::In>,
     control_channel: H::Channel<channel::Control, channel::InOut>,
