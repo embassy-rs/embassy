@@ -4,8 +4,8 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::{bind_interrupts, peripherals::USB};
-use embassy_usb_driver::host::UsbHostDriver;
-use embassy_usb_driver::host::DeviceEvent::Connected;
+use embassy_usb::driver::host::UsbHostDriver;
+use embassy_usb::driver::host::DeviceEvent::Connected;
 use embassy_usb::host::UsbHostBusExt;
 use embassy_usb::handlers::{UsbHostHandler, kbd::KbdHandler};
 use {defmt_rtt as _, panic_probe as _};
