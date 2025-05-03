@@ -1,20 +1,15 @@
-use core::sync::atomic::AtomicBool;
-use core::{future::poll_fn, sync::atomic::AtomicU32, task::Poll};
+use core::future::poll_fn;
+use core::sync::atomic::{AtomicBool, AtomicU32};
+use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
-use embassy_usb_driver::{
-    host::{
-        channel::{self, Direction, Type},
-        ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver,
-    },
-    EndpointInfo, EndpointType,
-};
+use embassy_usb_driver::host::channel::{self, Direction, Type};
+use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::{EndpointInfo, EndpointType};
 
-use crate::otg_v1::{
-    vals::{Dpid, Eptyp},
-    Otg,
-};
+use crate::otg_v1::vals::{Dpid, Eptyp};
+use crate::otg_v1::Otg;
 
 extern crate alloc;
 

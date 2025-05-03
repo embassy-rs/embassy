@@ -2,14 +2,9 @@
 
 use core::num::NonZeroU8;
 
-use crate::driver::{
-    host::{
-        channel::{self, IsIn, IsOut},
-        HostError, UsbChannel, UsbHostDriver,
-    },
-    Speed,
-};
-
+use crate::driver::host::channel::{self, IsIn, IsOut};
+use crate::driver::host::{HostError, UsbChannel, UsbHostDriver};
+use crate::driver::Speed;
 use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
 use crate::host::ControlChannelExt;
 
