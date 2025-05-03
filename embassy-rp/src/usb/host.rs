@@ -1,4 +1,6 @@
-use core::{future::poll_fn, marker::PhantomData, task::Poll};
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
 use embassy_hal_internal::Peripheral;
@@ -7,18 +9,13 @@ use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
-
-use crate::RegExt;
-use crate::{
-    interrupt::{
-        self,
-        typelevel::{Binding, Interrupt},
-    },
-    usb::EP_MEMORY_SIZE,
-};
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
 
 use super::{EndpointBuffer, Instance, BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY};
+use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::interrupt::{self};
+use crate::usb::EP_MEMORY_SIZE;
+use crate::RegExt;
 
 const MAIN_BUFFER_SIZE: usize = 1024;
 

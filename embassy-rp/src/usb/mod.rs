@@ -1,16 +1,18 @@
 //! USB driver.
 
-use core::{marker::PhantomData, slice};
+use core::marker::PhantomData;
+use core::slice;
 
 use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::Direction;
+
 use crate::{interrupt, pac, peripherals};
 
 trait SealedInstance {
     fn regs() -> crate::pac::usb::Usb;
     fn dpram() -> crate::pac::usb_dpram::UsbDpram;
-    
+
     // FIXME(svd): Add EPX to svd
     fn dpram_epx_control() -> pac::common::Reg<pac::usb_dpram::regs::EpControl, pac::common::RW>;
 }
@@ -31,9 +33,7 @@ impl crate::usb::SealedInstance for peripherals::USB {
     }
 
     fn dpram_epx_control() -> pac::common::Reg<pac::usb_dpram::regs::EpControl, pac::common::RW> {
-        unsafe {
-            pac::common::Reg::from_ptr((Self::dpram().as_ptr().byte_offset(0x100)) as _)
-        }
+        unsafe { pac::common::Reg::from_ptr((Self::dpram().as_ptr().byte_offset(0x100)) as _) }
     }
 }
 
@@ -105,8 +105,8 @@ impl Dir for Out {
     }
 }
 
-pub mod host;
 pub mod device;
+pub mod host;
 
 // FIXME: Compat
 pub use device::*;
