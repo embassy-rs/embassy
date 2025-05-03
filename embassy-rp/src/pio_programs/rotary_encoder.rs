@@ -1,12 +1,10 @@
 //! PIO backed quadrature encoder
 
-use fixed::traits::ToFixed;
-
-use crate::clocks::clk_sys_freq;
 use crate::gpio::Pull;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 use crate::Peri;
 
 /// This struct represents an Encoder program loaded into pio instruction memory.
@@ -50,10 +48,8 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         cfg.fifo_join = FifoJoin::RxOnly;
         cfg.shift_in.direction = ShiftDirection::Left;
 
-        // Original: 10_000 at 125 MHz (12.5 KHz PIO clock)
-        // Scale divider to maintain same PIO clock frequency at different system clocks
-        let divider = (clk_sys_freq() as f32 / 12_500.0).to_fixed();
-        cfg.clock_divider = divider;
+        // Target 12.5 KHz PIO clock
+        cfg.clock_divider = calculate_pio_clock_divider(12_500);
 
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);

@@ -2,12 +2,8 @@
 
 use core::mem::{self, MaybeUninit};
 
-use fixed::traits::ToFixed;
-use fixed::types::extra::U8;
-use fixed::FixedU32;
-
-use crate::clocks::clk_sys_freq;
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin, StateMachine};
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 use crate::Peri;
 
 /// This struct represents a Stepper driver program loaded into pio instruction memory.
@@ -65,7 +61,9 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
         sm.set_pin_dirs(Direction::Out, &[&pin0, &pin1, &pin2, &pin3]);
         let mut cfg = Config::default();
         cfg.set_out_pins(&[&pin0, &pin1, &pin2, &pin3]);
-        cfg.clock_divider = (clk_sys_freq() / (100 * 136)).to_fixed();
+
+        cfg.clock_divider = calculate_pio_clock_divider(100 * 136);
+
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
         sm.set_enable(true);
@@ -74,9 +72,11 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
 
     /// Set pulse frequency
     pub fn set_frequency(&mut self, freq: u32) {
-        let clock_divider: FixedU32<U8> = (clk_sys_freq() / (freq * 136)).to_fixed();
-        assert!(clock_divider <= 65536, "clkdiv must be <= 65536");
-        assert!(clock_divider >= 1, "clkdiv must be >= 1");
+        let clock_divider = calculate_pio_clock_divider(freq * 136);
+        let divider_f32 = clock_divider.to_num::<f32>();
+        assert!(divider_f32 <= 65536.0, "clkdiv must be <= 65536");
+        assert!(divider_f32 >= 1.0, "clkdiv must be >= 1");
+
         self.sm.set_clock_divider(clock_divider);
         self.sm.clkdiv_restart();
     }
