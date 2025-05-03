@@ -18,7 +18,7 @@ use crate::{
 };
 
 use embassy_time::Timer;
-use embassy_usb_driver::{
+use crate::driver::{
     host::{channel, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver},
     Direction, EndpointInfo, EndpointType, Speed,
 };

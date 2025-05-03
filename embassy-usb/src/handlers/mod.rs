@@ -2,7 +2,7 @@
 
 use core::num::NonZeroU8;
 
-use embassy_usb_driver::{
+use crate::driver::{
     host::{
         channel::{self, IsIn, IsOut},
         HostError, UsbChannel, UsbHostDriver,
