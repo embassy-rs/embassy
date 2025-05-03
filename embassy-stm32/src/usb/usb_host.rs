@@ -8,7 +8,7 @@ use core::task::Poll;
 use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
-use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver, TimeoutConfig};
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{Reg, RW};
 use stm32_metapac::usb::regs::Epr;
@@ -662,6 +662,9 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         D: channel::IsOut,
     {
         self.write(buf).await
+    }
+
+    async fn set_timeout(&mut self, _: TimeoutConfig) {
     }
 }
 
