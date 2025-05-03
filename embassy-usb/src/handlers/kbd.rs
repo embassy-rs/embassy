@@ -7,7 +7,7 @@ use crate::host::{
 };
 use core::num::NonZeroU8;
 
-use embassy_usb_driver::{
+use crate::driver::{
     host::{channel, HostError, UsbChannel, UsbHostDriver},
     Direction, EndpointInfo, EndpointType,
 };
