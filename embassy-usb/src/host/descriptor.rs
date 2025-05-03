@@ -241,70 +241,10 @@ impl<'a> ConfigurationDescriptor<'a> {
         }
     }
 
-    /// Try to find and parse the interface with interface number `index`
-    #[deprecated(note = "Use `iter_interface()` with filter instead")]
-    pub fn parse_interface(&self, index: usize) -> Option<InterfaceDescriptor<'_>> {
-        if index >= self.num_interfaces as usize {
-            return None;
-        }
-
-        let mut dest_buffer = self.buffer_sliced();
-
-        let mut start = None;
-
-        // Find interface that matches the requested index
-        while let Some((offset, interface_number)) = Self::identify_interface(dest_buffer) {
-            if interface_number == index as u8 {
-                // start of interface
-                start = Some(offset);
-                break;
-            }
-            dest_buffer = &dest_buffer[offset + InterfaceDescriptor::SIZE..];
-        }
-
-        // start is relative to current dest_buffer.
-        let start = start?;
-
-        // Find next interface if any
-        let next_interface_buffer = &dest_buffer[start + InterfaceDescriptor::SIZE..];
-
-        let interface_bytes = if let Some((offset, _)) = Self::identify_interface(next_interface_buffer) {
-            let end = start + InterfaceDescriptor::SIZE + offset;
-            &dest_buffer[start..end]
-        } else {
-            &dest_buffer[start..]
-        };
-
-        InterfaceDescriptor::try_from_bytes(interface_bytes).ok()
-    }
-
     fn buffer_sliced(&self) -> &[u8] {
         // The confiuration descriptor's own bytes are already consumed.
         let end = self.total_len as usize - Self::SIZE;
         &self.buffer[..end]
-    }
-
-    // Returns the offset to the next interface descriptor as well as the interface_number (index in descriptor)
-    #[deprecated(note = "Use the iterators instead")]
-    fn identify_interface(slice: &[u8]) -> Option<(usize, u8)> {
-        let mut offset = 0;
-        let mut desc_len = slice[offset] as usize;
-        let mut desc_type = slice[offset + 1];
-
-        while desc_type != InterfaceDescriptor::DESC_TYPE || desc_len != InterfaceDescriptor::SIZE {
-            // 'flush' buffer until end of descriptor
-            offset += desc_len.max(1); // at least 1 byute to prevent infinite loop
-            if offset + InterfaceDescriptor::SIZE > slice.len() {
-                // end of slice
-                return None;
-            }
-
-            desc_len = slice[offset] as usize;
-            desc_type = slice[offset + 1];
-        }
-
-        let interface_number = slice[offset + 2];
-        Some((offset, interface_number))
     }
 }
 
@@ -405,12 +345,6 @@ impl<'a> InterfaceDescriptor<'a> {
         })
     }
 
-    /// Try to parse a class descriptor of a given type
-    #[deprecated(note = "Use `iter_descriptors()` with `filter_map`/`find_map` instead")]
-    pub fn parse_class_descriptor<T: USBDescriptor>(&self) -> Option<T> {
-        Self::identify_descriptor::<T>(self.buffer).and_then(|i| T::try_from_bytes(&self.buffer[i..]).ok())
-    }
-
     /// Iterate over (raw) descriptors in this Interface
     pub fn iter_descriptors(&self) -> RawDescriptorIterator<'_> {
         RawDescriptorIterator {
@@ -426,49 +360,6 @@ impl<'a> InterfaceDescriptor<'a> {
             buffer_idx: 0,
             iface_desc: self,
         }
-    }
-
-    /// Parse up to `L` endpoints corresponding to this interface.
-    /// Returns a vector of EndpointDescriptors. The length of the vector is `min(L, self.num_endpoints)`.
-    #[deprecated(note = "Use `iter_endpoints()` instead")]
-    pub fn parse_endpoints<const L: usize>(&self) -> Vec<EndpointDescriptor, L> {
-        let mut endpoints: Vec<EndpointDescriptor, L> = Vec::new();
-
-        let mut working_buffer = self.buffer;
-        for _ in 0..self.num_endpoints.min(L as u8) {
-            if let Some(endpoint) = Self::identify_descriptor::<EndpointDescriptor>(working_buffer).and_then(|i| {
-                working_buffer = &working_buffer[i..];
-                EndpointDescriptor::try_from_bytes(working_buffer).ok()
-            }) {
-                // safe because we limited the iterations.
-                endpoints.push(endpoint).ok();
-            }
-            working_buffer = &working_buffer[EndpointDescriptor::SIZE..];
-        }
-
-        endpoints
-    }
-
-    // Returns the offset to the first matching descriptor in the slice
-    #[deprecated(note = "Use `iter_endpoints()` or `iter_descriptors()` instead")]
-    fn identify_descriptor<T: USBDescriptor>(slice: &[u8]) -> Option<usize> {
-        let mut offset = 0;
-        let mut desc_len = slice[offset] as usize;
-        let mut desc_type = slice[offset + 1];
-
-        while desc_type != T::DESC_TYPE || desc_len != T::SIZE {
-            // 'flush' buffer until end of descriptor
-            offset += desc_len.max(1); // at least 1 byute to prevent infinite loop
-            if offset + T::SIZE > slice.len() {
-                // end of slice
-                return None;
-            }
-
-            desc_len = slice[offset] as usize;
-            desc_type = slice[offset + 1];
-        }
-
-        Some(offset)
     }
 }
 
