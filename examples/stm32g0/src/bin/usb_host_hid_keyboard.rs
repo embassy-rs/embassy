@@ -74,8 +74,6 @@ async fn main(_spawner: Spawner) {
     let mut mco = embassy_stm32::gpio::Flex::new(p.PA9);
     mco.set_as_af_unchecked(0, AfType::output(OutputType::PushPull, Speed::High));
 
-    let mut led = Output::new(p.PA5, Level::High, Speed::Low);
-
     // This example assumes we're using the NUCLE0-G0B1RE together with X-NUCLEO-DRP1M1 USB-C expansion board.
     // We need to turn on USB C power delivery by interfacing with the TCPP03-M20 IC.
     // This is done setting enable high and by sending a command over I2C.
