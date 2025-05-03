@@ -1,6 +1,5 @@
 use crate::descriptor::descriptor_type;
 use embassy_usb_driver::{host::HostError, Direction, EndpointInfo, EndpointType};
-use heapless::Vec;
 
 pub(crate) const DEFAULT_MAX_DESCRIPTOR_SIZE: usize = 512;
 pub type StringIndex = u8;
