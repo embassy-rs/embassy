@@ -621,7 +621,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         let mut status = [0u8; 0];
         self.read(&mut status).await?;
 
-        Ok()
+        Ok(())
     }
 
     fn retarget_channel(
