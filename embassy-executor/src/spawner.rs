@@ -181,6 +181,13 @@ impl Spawner {
         }
     }
 
+    /// When rtos-trace is disabled, spawn_named falls back to regular spawn.
+/// This maintains API compatibility while optimizing out the name parameter.
+    #[cfg(not(feature = "rtos-trace"))]
+    pub fn spawn_named<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        self.spawn(token)
+    }
+
     // Used by the `embassy_executor_macros::main!` macro to throw an error when spawn
     // fails. This is here to allow conditional use of `defmt::unwrap!`
     // without introducing a `defmt` feature in the `embassy_executor_macros` package,
