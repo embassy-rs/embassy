@@ -92,6 +92,12 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         this
     }
 
+    /// Clear update interrupt.
+    /// Returns whether the update interrupt flag was set.
+    pub fn clear_update_interrupt(&mut self) -> bool {
+        self.inner.clear_update_interrupt()
+    }
+
     /// Enable the given channel.
     pub fn enable(&mut self, channel: Channel) {
         self.inner.enable_channel(channel, true);
