@@ -385,7 +385,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// ```
     pub async fn read(
         &mut self,
-        rx_dma: &mut Peri<'_, impl RxDma<T>>,
+        rx_dma: Peri<'_, impl RxDma<T>>,
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
         readings: &mut [u16],
     ) {
