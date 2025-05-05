@@ -168,20 +168,20 @@ pub enum CoreVoltage {
 #[cfg(feature = "rp2040")]
 impl CoreVoltage {
     /// Get the recommended Brown-Out Detection (BOD) setting for this voltage.
-    /// Sets the BOD threshold to approximately 90% of the core voltage.
+    /// Sets the BOD threshold to approximately 80% of the core voltage.
     fn recommended_bod(self) -> u8 {
         match self {
-            CoreVoltage::V0_80 => 0b0110, // 0.720V (~90% of 0.80V)
-            CoreVoltage::V0_85 => 0b0111, // 0.774V (~91% of 0.85V)
-            CoreVoltage::V0_90 => 0b1000, // 0.817V (~91% of 0.90V)
-            CoreVoltage::V0_95 => 0b1001, // 0.860V (~91% of 0.95V)
-            CoreVoltage::V1_00 => 0b1010, // 0.903V (~90% of 1.00V)
-            CoreVoltage::V1_05 => 0b1011, // 0.946V (~90% of 1.05V)
-            CoreVoltage::V1_10 => 0b1100, // 0.989V (~90% of 1.10V)
-            CoreVoltage::V1_15 => 0b1101, // 1.032V (~90% of 1.15V)
-            CoreVoltage::V1_20 => 0b1110, // 1.075V (~90% of 1.20V)
-            CoreVoltage::V1_25 => 0b1111, // 1.118V (~89% of 1.25V)
-            CoreVoltage::V1_30 => 0b1111, // 1.118V (~86% of 1.30V) - using max available threshold
+            CoreVoltage::V0_80 => 0b0100, // 0.645V (~81% of 0.80V)
+            CoreVoltage::V0_85 => 0b0101, // 0.688V (~81% of 0.85V)
+            CoreVoltage::V0_90 => 0b0110, // 0.731V (~81% of 0.90V)
+            CoreVoltage::V0_95 => 0b0111, // 0.774V (~81% of 0.95V)
+            CoreVoltage::V1_00 => 0b1000, // 0.817V (~82% of 1.00V)
+            CoreVoltage::V1_05 => 0b1000, // 0.817V (~78% of 1.05V)
+            CoreVoltage::V1_10 => 0b1001, // 0.860V (~78% of 1.10V)
+            CoreVoltage::V1_15 => 0b1010, // 0.903V (~79% of 1.15V)
+            CoreVoltage::V1_20 => 0b1011, // 0.946V (~79% of 1.20V)
+            CoreVoltage::V1_25 => 0b1100, // 0.989V (~79% of 1.25V)
+            CoreVoltage::V1_30 => 0b1101, // 1.032V (~79% of 1.30V)
         }
     }
 }
@@ -459,11 +459,6 @@ impl ClockConfig {
     /// ```
     #[cfg(feature = "rp2040")]
     pub fn manual_pll(xosc_hz: u32, pll_config: PllConfig, core_voltage: CoreVoltage) -> Self {
-        // Calculate the actual output frequency for documentation
-        // let ref_freq = xosc_hz / pll_config.refdiv as u32;
-        // let vco_freq = ref_freq * pll_config.fbdiv as u32;
-        // let sys_freq = vco_freq / ((pll_config.post_div1 * pll_config.post_div2) as u32);
-
         // Validate PLL parameters
         assert!(pll_config.is_valid(xosc_hz), "Invalid PLL parameters");
 
@@ -893,6 +888,30 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     #[cfg(feature = "_rp235x")]
     while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1) {}
 
+    // Reset the PLLs
+    let mut peris = reset::Peripherals(0);
+    peris.set_pll_sys(true);
+    peris.set_pll_usb(true);
+    reset::reset(peris);
+    reset::unreset_wait(peris);
+
+    // let gpin0_freq = config.gpin0.map_or(0, |p| {
+    //     core::mem::forget(p.1);
+    //     p.0
+    // });
+    // CLOCKS.gpin0.store(gpin0_freq, Ordering::Relaxed);
+    // let gpin1_freq = config.gpin1.map_or(0, |p| {
+    //     core::mem::forget(p.1);
+    //     p.0
+    // });
+    // CLOCKS.gpin1.store(gpin1_freq, Ordering::Relaxed);
+
+    let rosc_freq = match config.rosc {
+        Some(config) => configure_rosc(config),
+        None => 0,
+    };
+    CLOCKS.rosc.store(rosc_freq, Ordering::Relaxed);
+
     // Set Core Voltage (RP2040 only), if we have config for it and we're not using the default
     #[cfg(feature = "rp2040")]
     {
@@ -901,8 +920,9 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         let current_vsel = vreg.vreg().read().vsel();
         let target_vsel = voltage as u8;
 
+        // If the target voltage is different from the current one, we need to change it
         if target_vsel != current_vsel {
-            // Use modify() instead of write() to preserve the HIZ and EN bits - otherwise we will disable the regulator when changing voltage
+            // Use modify() to preserve the HIZ and EN bits - otherwise we will disable the regulator when changing voltage
             vreg.vreg().modify(|w| w.set_vsel(target_vsel));
 
             // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
@@ -914,16 +934,14 @@ pub(crate) unsafe fn init(config: ClockConfig) {
                 }
             });
 
-            // We need a clock that's guaranteed to be running at this point
-            // Use ROSC which should be configured by now
-            let rosc_freq_rough = 6_000_000; // Rough ROSC frequency estimate
-            let cycles_per_us = rosc_freq_rough / 1_000_000;
-            let delay_cycles = settling_time_us * cycles_per_us;
+            if settling_time_us != 0 {
+                // Delay in microseconds, using the ROSC frequency to calculate cycles
+                let cycles_per_us = rosc_freq / 1_000_000;
+                let delay_cycles = settling_time_us * cycles_per_us;
+                cortex_m::asm::delay(delay_cycles);
+            }
 
-            // Wait for voltage to stabilize
-            cortex_m::asm::delay(delay_cycles);
-
-            // Only now set the BOD level after voltage has stabilized
+            // Only now set the BOD level. At htis point the voltage is considered stable.
             vreg.bod().write(|w| {
                 w.set_vsel(voltage.recommended_bod());
                 w.set_en(true); // Enable brownout detection
@@ -931,108 +949,64 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         }
     }
 
-    // Configure ROSC first if present
-    let rosc_freq = match config.rosc {
-        Some(config) => configure_rosc(config),
-        None => 0,
-    };
-    CLOCKS.rosc.store(rosc_freq, Ordering::Relaxed);
-
-    // Configure XOSC - we'll need this for our temporary stable clock
-    let xosc_freq = match &config.xosc {
+    let (xosc_freq, pll_sys_freq, pll_usb_freq) = match config.xosc {
         Some(config) => {
+            // start XOSC
+            // datasheet mentions support for clock inputs into XIN, but doesn't go into
+            // how this is achieved. pico-sdk doesn't support this at all.
             start_xosc(config.hz, config.delay_multiplier);
-            config.hz
+
+            let pll_sys_freq = match config.sys_pll {
+                Some(sys_pll_config) => match configure_pll(pac::PLL_SYS, config.hz, sys_pll_config) {
+                    Ok(freq) => freq,
+                    Err(e) => panic!("Failed to configure PLL_SYS: {}", e),
+                },
+                None => 0,
+            };
+            let pll_usb_freq = match config.usb_pll {
+                Some(usb_pll_config) => match configure_pll(pac::PLL_USB, config.hz, usb_pll_config) {
+                    Ok(freq) => freq,
+                    Err(e) => panic!("Failed to configure PLL_USB: {}", e),
+                },
+                None => 0,
+            };
+
+            (config.hz, pll_sys_freq, pll_usb_freq)
         }
-        None => 0,
+        None => (0, 0, 0),
     };
+
     CLOCKS.xosc.store(xosc_freq, Ordering::Relaxed);
+    CLOCKS.pll_sys.store(pll_sys_freq, Ordering::Relaxed);
+    CLOCKS.pll_usb.store(pll_usb_freq, Ordering::Relaxed);
 
-    // Setup temporary stable clocks first
-    // Configure USB PLL for our stable temporary clock
-    let pll_usb_freq = match &config.xosc {
-        Some(config) => match &config.usb_pll {
-            Some(pll_usb_config) => {
-                // Reset USB PLL
-                let mut peris = reset::Peripherals(0);
-                peris.set_pll_usb(true);
-                reset::reset(peris);
-                reset::unreset_wait(peris);
-
-                // Configure the USB PLL - this should give us 48MHz
-                let usb_pll_freq = match configure_pll(pac::PLL_USB, xosc_freq, *pll_usb_config) {
-                    Ok(freq) => freq,
-                    Err(_) => {
-                        panic!("Failed to configure USB PLL");
-                    }
-                };
-
-                CLOCKS.pll_usb.store(usb_pll_freq, Ordering::Relaxed);
-                usb_pll_freq
-            }
-            None => 0,
-        },
-        None => 0,
+    let (ref_src, ref_aux, clk_ref_freq) = {
+        use {ClkRefCtrlAuxsrc as Aux, ClkRefCtrlSrc as Src};
+        let div = config.ref_clk.div as u32;
+        assert!(div >= 1 && div <= 4);
+        match config.ref_clk.src {
+            RefClkSrc::Xosc => (Src::XOSC_CLKSRC, Aux::CLKSRC_PLL_USB, xosc_freq / div),
+            RefClkSrc::Rosc => (Src::ROSC_CLKSRC_PH, Aux::CLKSRC_PLL_USB, rosc_freq / div),
+            RefClkSrc::PllUsb => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq / div),
+            // RefClkSrc::Gpin0 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN0, gpin0_freq / div),
+            // RefClkSrc::Gpin1 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN1, gpin1_freq / div),
+        }
     };
-
-    // Configure REF clock to use XOSC
-    c.clk_ref_ctrl().write(|w| {
-        w.set_src(ClkRefCtrlSrc::XOSC_CLKSRC);
-    });
-    #[cfg(feature = "rp2040")]
-    while c.clk_ref_selected().read() != (1 << ClkRefCtrlSrc::XOSC_CLKSRC as u32) {}
-    #[cfg(feature = "_rp235x")]
-    while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1 << ClkRefCtrlSrc::XOSC_CLKSRC as u32) {}
-
-    // First switch the system clock to a stable source (USB PLL at 48MHz)
-    // This follows the official Pico SDK's approach to ensure stability during reconfiguration
-    c.clk_sys_ctrl().write(|w| {
-        w.set_auxsrc(ClkSysCtrlAuxsrc::CLKSRC_PLL_USB);
-        w.set_src(ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX);
-    });
-
-    #[cfg(feature = "rp2040")]
-    while c.clk_sys_selected().read() != (1 << ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX as u32) {}
-    #[cfg(feature = "_rp235x")]
-    while c.clk_sys_selected().read()
-        != pac::clocks::regs::ClkSysSelected(1 << ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX as u32)
-    {}
-
-    // Short delay after switching to USB PLL to ensure stability
-    cortex_m::asm::delay(100);
-
-    // NOW CONFIGURE THE SYSTEM PLL (safely, since we're running from the USB PLL)
-    let pll_sys_freq = match &config.xosc {
-        Some(config) => match &config.sys_pll {
-            Some(sys_pll_config) => {
-                // Reset SYS PLL
-                let mut peris = reset::Peripherals(0);
-                peris.set_pll_sys(true);
-                reset::reset(peris);
-                reset::unreset_wait(peris);
-
-                // Configure the SYS PLL
-                let pll_sys_freq = match configure_pll(pac::PLL_SYS, xosc_freq, *sys_pll_config) {
-                    Ok(freq) => freq,
-                    Err(_) => {
-                        panic!("Failed to configure system PLL");
-                    }
-                };
-
-                // Ensure PLL is locked and stable
-                cortex_m::asm::delay(100);
-
-                CLOCKS.pll_sys.store(pll_sys_freq, Ordering::Relaxed);
-                pll_sys_freq
-            }
-            None => 0,
-        },
-        None => 0,
-    };
-
-    // Configure tick generation using REF clock
-    let clk_ref_freq = xosc_freq; // REF clock is now XOSC
+    assert!(clk_ref_freq != 0);
     CLOCKS.reference.store(clk_ref_freq, Ordering::Relaxed);
+    c.clk_ref_ctrl().write(|w| {
+        w.set_src(ref_src);
+        w.set_auxsrc(ref_aux);
+    });
+    #[cfg(feature = "rp2040")]
+    while c.clk_ref_selected().read() != (1 << ref_src as u32) {}
+    #[cfg(feature = "_rp235x")]
+    while c.clk_ref_selected().read() != pac::clocks::regs::ClkRefSelected(1 << ref_src as u32) {}
+    c.clk_ref_div().write(|w| {
+        w.set_int(config.ref_clk.div);
+    });
+
+    // Configure tick generation on the 2040.
     #[cfg(feature = "rp2040")]
     pac::WATCHDOG.tick().write(|w| {
         w.set_cycles((clk_ref_freq / 1_000_000) as u16);
@@ -1050,8 +1024,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         pac::TICKS.watchdog_ctrl().write(|w| w.set_enable(true));
     }
 
-    // NOW SWITCH THE SYSTEM CLOCK TO THE CONFIGURED SOURCE
-    // The SYS PLL is now stable and we can safely switch to it
     let (sys_src, sys_aux, clk_sys_freq) = {
         use {ClkSysCtrlAuxsrc as Aux, ClkSysCtrlSrc as Src};
         let (src, aux, freq) = match config.sys_clk.src {
@@ -1068,48 +1040,28 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     };
     assert!(clk_sys_freq != 0);
     CLOCKS.sys.store(clk_sys_freq, Ordering::Relaxed);
-
-    // Set the divider before changing the source if it's increasing
-    if config.sys_clk.div_int > 1 || config.sys_clk.div_frac > 0 {
-        c.clk_sys_div().write(|w| {
-            w.set_int(config.sys_clk.div_int);
-            w.set_frac(config.sys_clk.div_frac);
-        });
+    if sys_src != ClkSysCtrlSrc::CLK_REF {
+        c.clk_sys_ctrl().write(|w| w.set_src(ClkSysCtrlSrc::CLK_REF));
+        #[cfg(feature = "rp2040")]
+        while c.clk_sys_selected().read() != (1 << ClkSysCtrlSrc::CLK_REF as u32) {}
+        #[cfg(feature = "_rp235x")]
+        while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1 << ClkSysCtrlSrc::CLK_REF as u32) {}
     }
-
-    // Configure aux source first if needed
-    if sys_src == ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX {
-        c.clk_sys_ctrl().modify(|w| {
-            w.set_auxsrc(sys_aux);
-        });
-    }
-
-    // Now set the source
     c.clk_sys_ctrl().write(|w| {
-        if sys_src == ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX {
-            w.set_auxsrc(sys_aux);
-        }
+        w.set_auxsrc(sys_aux);
         w.set_src(sys_src);
     });
 
-    // Wait for the clock to be selected
     #[cfg(feature = "rp2040")]
     while c.clk_sys_selected().read() != (1 << sys_src as u32) {}
     #[cfg(feature = "_rp235x")]
     while c.clk_sys_selected().read() != pac::clocks::regs::ClkSysSelected(1 << sys_src as u32) {}
 
-    // Short delay after final clock switch to ensure stability
-    cortex_m::asm::delay(100);
+    c.clk_sys_div().write(|w| {
+        w.set_int(config.sys_clk.div_int);
+        w.set_frac(config.sys_clk.div_frac);
+    });
 
-    // Set the divider after changing the source if it's decreasing
-    if config.sys_clk.div_int == 1 && config.sys_clk.div_frac == 0 {
-        c.clk_sys_div().write(|w| {
-            w.set_int(config.sys_clk.div_int);
-            w.set_frac(config.sys_clk.div_frac);
-        });
-    }
-
-    // CONFIGURE PERIPHERAL CLOCK
     let mut peris = reset::ALL_PERIPHERALS;
 
     if let Some(src) = config.peri_clk_src {
@@ -1136,7 +1088,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         CLOCKS.peri.store(0, Ordering::Relaxed);
     }
 
-    // CONFIGURE USB CLOCK
     if let Some(conf) = config.usb_clk {
         c.clk_usb_div().write(|w| w.set_int(conf.div));
         c.clk_usb_ctrl().write(|w| {
@@ -1160,7 +1111,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         CLOCKS.usb.store(0, Ordering::Relaxed);
     }
 
-    // CONFIGURE ADC CLOCK
     if let Some(conf) = config.adc_clk {
         c.clk_adc_div().write(|w| w.set_int(conf.div));
         c.clk_adc_ctrl().write(|w| {
@@ -1184,7 +1134,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         CLOCKS.adc.store(0, Ordering::Relaxed);
     }
 
-    // CONFIGURE RTC CLOCK
+    // rp2040 specific clocks
     #[cfg(feature = "rp2040")]
     if let Some(conf) = config.rtc_clk {
         c.clk_rtc_div().write(|w| {
@@ -1393,7 +1343,7 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result
     });
 
     // 5. Wait for PLL to lock with a timeout
-    let mut timeout = 1_000_000; // Reasonable timeout value
+    let mut timeout = 1_000_000;
     while !p.cs().read().lock() {
         timeout -= 1;
         if timeout == 0 {
