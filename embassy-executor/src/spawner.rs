@@ -182,7 +182,7 @@ impl Spawner {
     }
 
     /// When rtos-trace is disabled, spawn_named falls back to regular spawn.
-/// This maintains API compatibility while optimizing out the name parameter.
+    /// This maintains API compatibility while optimizing out the name parameter.
     #[cfg(not(feature = "rtos-trace"))]
     pub fn spawn_named<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
         self.spawn(token)
