@@ -6,8 +6,8 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
 use super::{
-    blocking_read, ensure_sector_aligned, family, get_sector, Async, Error, Flash, FlashLayout, FLASH_BASE, FLASH_SIZE,
-    WRITE_SIZE,
+    blocking_read, ensure_sector_aligned, family, get_flash_regions, get_sector, Async, Error, Flash, FlashLayout,
+    FLASH_BASE, FLASH_SIZE, WRITE_SIZE,
 };
 use crate::interrupt::InterruptExt;
 use crate::peripherals::FLASH;
@@ -34,7 +34,6 @@ impl<'d> Flash<'d, Async> {
     ///
     /// See module-level documentation for details on how memory regions work.
     pub fn into_regions(self) -> FlashLayout<'d, Async> {
-        assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 
@@ -123,7 +122,7 @@ pub(super) async unsafe fn write_chunked(base: u32, size: u32, offset: u32, byte
 pub(super) async unsafe fn erase_sectored(base: u32, from: u32, to: u32) -> Result<(), Error> {
     let start_address = base + from;
     let end_address = base + to;
-    let regions = family::get_flash_regions();
+    let regions = get_flash_regions();
 
     ensure_sector_aligned(start_address, end_address, regions)?;
 

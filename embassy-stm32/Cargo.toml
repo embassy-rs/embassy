@@ -73,7 +73,7 @@ rand_core = "0.6.3"
 sdio-host = "0.9.0"
 critical-section = "1.1"
 #stm32-metapac = { version = "16" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-169e38298f9421dddbabc0eb81d0c30fb1eec0a7" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7251801e3273011ce28a89e8f2e45eec2e419e26" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -102,7 +102,7 @@ proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
 #stm32-metapac = { version = "16", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-169e38298f9421dddbabc0eb81d0c30fb1eec0a7", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7251801e3273011ce28a89e8f2e45eec2e419e26", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -196,6 +196,9 @@ split-pa1 = ["_split-pins-enabled"]
 split-pc2 = ["_split-pins-enabled"]
 ## Split PC3
 split-pc3 = ["_split-pins-enabled"]
+
+dual-bank = []
+single-bank = []
 
 ## internal use only
 _split-pins-enabled = []
