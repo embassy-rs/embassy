@@ -64,3 +64,6 @@ debug = 2
 [profile.dev]
 lto = true
 opt-level = "z"
+
+[patch.crates-io]
+cortex-m-rt = { git = "https://github.com/yutannihilation/cortex-m", branch = "fix/allow-unsafe-wrap-rust2024" }
