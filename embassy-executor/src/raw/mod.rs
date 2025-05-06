@@ -91,6 +91,8 @@ pub(crate) struct TaskHeader {
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
     #[cfg(feature = "trace")]
     pub(crate) name: Option<&'static str>,
+    #[cfg(feature = "trace")]
+    pub(crate) id: u32,
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
@@ -166,6 +168,21 @@ impl TaskRef {
             (*header_ptr).name = name;
         }
     }
+
+    /// Get the ID for a task
+    #[cfg(feature = "trace")]
+    pub fn id(&self) -> u32 {
+        self.header().id
+    } 
+
+    /// Set the ID for a task
+    #[cfg(feature = "trace")]
+    pub fn set_id(&self, id: u32) {
+        unsafe {
+            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
+            (*header_ptr).id = id;
+        }
+    }
 }
 
 /// Raw storage in which a task can be spawned.
@@ -209,6 +226,8 @@ impl<F: Future + 'static> TaskStorage<F> {
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
                 #[cfg(feature = "trace")]
                 name: None,
+                #[cfg(feature = "trace")]
+                id: 0,
             },
             future: UninitCell::uninit(),
         }

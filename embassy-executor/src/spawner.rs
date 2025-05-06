@@ -174,6 +174,7 @@ impl Spawner {
                 task.set_name(Some(name));
                 let task_id = task.as_ptr() as u32;
                 TASK_REGISTRY.register(task_id);
+                task.set_id(task_id);
 
                 unsafe { self.executor.spawn(task) };
                 Ok(())
