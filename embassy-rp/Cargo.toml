@@ -174,3 +174,6 @@ smart-leds = "0.4.0"
 [dev-dependencies]
 embassy-executor = { version = "0.7.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }
+
+[patch.crates-io]
+cortex-m-rt = { git = "https://github.com/yutannihilation/cortex-m", branch = "fix/allow-unsafe-wrap-rust2024" }
