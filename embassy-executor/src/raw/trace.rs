@@ -81,7 +81,7 @@
 
 #![allow(unused)]
 
-use crate::raw::{SyncExecutor, TaskRef};
+use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -95,7 +95,6 @@ const MAX_TASKS: usize = 1000;
 #[derive(Clone)]
 pub struct TrackedTask {
     task_id: u32,
-    name: Option<&'static str>,
 }
 
 /// A thread-safe registry for tracking tasks in the system.
@@ -128,7 +127,7 @@ impl TaskRegistry {
     ///
     /// # Note
     /// If the registry is full, the task will not be registered.
-    pub fn register(&self, task_id: u32, name: Option<&'static str>) {
+    pub fn register(&self, task_id: u32) {
         let count = self.count.load(Ordering::Relaxed);
         if count < MAX_TASKS {
             for i in 0..MAX_TASKS {
@@ -136,7 +135,7 @@ impl TaskRegistry {
                     let slot = &self.tasks[i];
                     let slot_ref = &mut *slot.get();
                     if slot_ref.is_none() {
-                        *slot_ref = Some(TrackedTask { task_id, name });
+                        *slot_ref = Some(TrackedTask { task_id });
                         self.count.fetch_add(1, Ordering::Relaxed);
                         break;
                     }
@@ -173,28 +172,6 @@ impl TaskRegistry {
             let slot = &self.tasks[i];
             (*slot.get()).clone()
         })
-    }
-
-    /// Retrieves the name of a task with the given ID.
-    ///
-    /// # Arguments
-    /// * `task_id` - Unique identifier of the task
-    ///
-    /// # Returns
-    /// The name of the task if found and named, or `None` otherwise
-    pub fn get_task_name(&self, task_id: u32) -> Option<&'static str> {
-        for i in 0..MAX_TASKS {
-            unsafe {
-                let slot = &self.tasks[i];
-                let slot_ref = &*slot.get();
-                if let Some(task) = slot_ref {
-                    if task.task_id == task_id {
-                        return task.name;
-                    }
-                }
-            }
-        }
-        None
     }
 }
 
@@ -343,8 +320,10 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
 impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
     fn task_list() {
         for task in TASK_REGISTRY.get_all_tasks() {
+            let task_ref = unsafe { TaskRef::from_ptr(task.task_id as *const TaskHeader) };
+            let name = task_ref.name().unwrap_or("unnamed\0");
             let info = rtos_trace::TaskInfo {
-                name: TASK_REGISTRY.get_task_name(task.task_id).unwrap(),
+                name,
                 priority: 0,
                 stack_base: 0,
                 stack_size: 0,
