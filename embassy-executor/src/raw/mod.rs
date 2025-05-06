@@ -93,6 +93,78 @@ pub(crate) struct TaskHeader {
     pub(crate) name: Option<&'static str>,
     #[cfg(feature = "trace")]
     pub(crate) id: u32,
+    #[cfg(feature = "trace")]
+    all_tasks_next: AtomicPtr<TaskHeader>,
+}
+
+/// A thread-safe tracker for all tasks in the system
+///
+/// This struct uses an intrusive linked list approach to track all tasks
+/// without additional memory allocations. It maintains a global list of
+/// tasks that can be traversed to find all currently existing tasks.
+#[cfg(feature = "trace")]
+pub struct TaskTracker {
+    head: AtomicPtr<TaskHeader>,
+}
+
+#[cfg(feature = "trace")]
+impl TaskTracker {
+    /// Creates a new empty task tracker
+    ///
+    /// Initializes a tracker with no tasks in its list.
+    pub const fn new() -> Self {
+        Self {
+            head: AtomicPtr::new(core::ptr::null_mut()),
+        }
+    }
+
+    /// Adds a task to the tracker
+    ///
+    /// This method inserts a task at the head of the intrusive linked list.
+    /// The operation is thread-safe and lock-free, using atomic operations
+    /// to ensure consistency even when called from different contexts.
+    ///
+    /// # Arguments
+    /// * `task` - The task reference to add to the tracker
+    pub fn add(&self, task: TaskRef) {
+        let task_ptr = task.as_ptr() as *mut TaskHeader;
+
+        loop {
+            let current_head = self.head.load(Ordering::Acquire);
+            unsafe {
+                (*task_ptr).all_tasks_next.store(current_head, Ordering::Relaxed);
+            }
+
+            if self
+                .head
+                .compare_exchange(current_head, task_ptr, Ordering::Release, Ordering::Relaxed)
+                .is_ok()
+            {
+                break;
+            }
+        }
+    }
+
+    /// Performs an operation on each task in the tracker
+    ///
+    /// This method traverses the entire list of tasks and calls the provided
+    /// function for each task. This allows inspecting or processing all tasks
+    /// in the system without modifying the tracker's structure.
+    ///
+    /// # Arguments
+    /// * `f` - A function to call for each task in the tracker
+    pub fn for_each<F>(&self, mut f: F)
+    where
+        F: FnMut(TaskRef),
+    {
+        let mut current = self.head.load(Ordering::Acquire);
+        while !current.is_null() {
+            let task = unsafe { TaskRef::from_ptr(current) };
+            f(task);
+
+            current = unsafe { (*current).all_tasks_next.load(Ordering::Acquire) };
+        }
+    }
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
@@ -173,7 +245,7 @@ impl TaskRef {
     #[cfg(feature = "trace")]
     pub fn id(&self) -> u32 {
         self.header().id
-    } 
+    }
 
     /// Set the ID for a task
     #[cfg(feature = "trace")]
@@ -228,6 +300,8 @@ impl<F: Future + 'static> TaskStorage<F> {
                 name: None,
                 #[cfg(feature = "trace")]
                 id: 0,
+                #[cfg(feature = "trace")]
+                all_tasks_next: AtomicPtr::new(core::ptr::null_mut()),
             },
             future: UninitCell::uninit(),
         }

@@ -5,8 +5,6 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use super::raw;
-#[cfg(feature = "rtos-trace")]
-use super::raw::trace::TASK_REGISTRY;
 
 /// Token to spawn a newly-created task in an executor.
 ///
@@ -173,7 +171,6 @@ impl Spawner {
             Some(task) => {
                 task.set_name(Some(name));
                 let task_id = task.as_ptr() as u32;
-                TASK_REGISTRY.register(task_id);
                 task.set_id(task_id);
 
                 unsafe { self.executor.spawn(task) };
