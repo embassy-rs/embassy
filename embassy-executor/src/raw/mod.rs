@@ -89,6 +89,8 @@ pub(crate) struct TaskHeader {
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
+    #[cfg(feature = "trace")]
+    pub(crate) name: Option<&'static str>,
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
@@ -190,6 +192,8 @@ impl<F: Future + 'static> TaskStorage<F> {
                 poll_fn: SyncUnsafeCell::new(None),
 
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
+                #[cfg(feature = "trace")]
+                name: None,
             },
             future: UninitCell::uninit(),
         }
