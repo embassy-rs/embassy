@@ -8,7 +8,7 @@ use embassy_stm32::Config;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-#[link_section = ".ram_d3"]
+#[unsafe(link_section = ".ram_d3")]
 static mut DMA_BUF: [u16; 2] = [0; 2];
 
 #[embassy_executor::main]

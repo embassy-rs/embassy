@@ -16,7 +16,7 @@ use pio::{Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, Shi
 use {defmt_rtt as _, panic_probe as _};
 
 // Program metadata for `picotool info`
-#[link_section = ".bi_entries"]
+#[unsafe(link_section = ".bi_entries")]
 #[used]
 pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info::rp_program_name!(c"example_pio_rotary_encoder_rxf"),

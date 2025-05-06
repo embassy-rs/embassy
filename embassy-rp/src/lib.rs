@@ -434,13 +434,13 @@ macro_rules! select_bootloader {
     ( $( $feature:literal => $loader:ident, )+ default => $default:ident ) => {
         $(
             #[cfg(feature = $feature)]
-            #[link_section = ".boot2"]
+            #[unsafe(link_section = ".boot2")]
             #[used]
             static BOOT2: [u8; 256] = rp2040_boot2::$loader;
         )*
 
         #[cfg(not(any( $( feature = $feature),* )))]
-        #[link_section = ".boot2"]
+        #[unsafe(link_section = ".boot2")]
         #[used]
         static BOOT2: [u8; 256] = rp2040_boot2::$default;
     }
@@ -463,13 +463,13 @@ macro_rules! select_imagedef {
     ( $( $feature:literal => $imagedef:ident, )+ default => $default:ident ) => {
         $(
             #[cfg(feature = $feature)]
-            #[link_section = ".start_block"]
+            #[unsafe(link_section = ".start_block")]
             #[used]
             static IMAGE_DEF: crate::block::ImageDef = crate::block::ImageDef::$imagedef();
         )*
 
         #[cfg(not(any( $( feature = $feature),* )))]
-        #[link_section = ".start_block"]
+        #[unsafe(link_section = ".start_block")]
         #[used]
         static IMAGE_DEF: crate::block::ImageDef = crate::block::ImageDef::$default();
     }

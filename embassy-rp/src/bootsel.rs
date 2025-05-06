@@ -36,7 +36,7 @@ mod ram_helpers {
     /// This function must live in ram. It uses inline asm to avoid any
     /// potential calls to ABI functions that might be in flash.
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(target_arch = "arm")]
     pub unsafe fn read_cs_status() -> GpioStatus {
         let result: u32;
