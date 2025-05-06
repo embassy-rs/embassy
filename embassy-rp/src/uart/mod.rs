@@ -171,6 +171,24 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
         }
     }
 
+    fn disable_inner() {
+        T::regs().uartcr().modify(|t| t.set_txe(false));
+    }
+
+    fn enable_inner() {
+        T::regs().uartcr().modify(|t| t.set_txe(true));
+    }
+
+    /// Disable the UART transmitter, if disabled in the middle of a transmission, it will complete the current character
+    pub fn disable(&mut self) {
+        Self::disable_inner();
+    }
+
+    /// Enable the UART transmitter
+    pub fn enable(&mut self) {
+        Self::enable_inner();
+    }
+
     /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = T::regs();
@@ -284,6 +302,24 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
             rx_dma,
             phantom: PhantomData,
         }
+    }
+
+    fn disable_inner() {
+        T::regs().uartcr().modify(|t| t.set_rxe(false));
+    }
+
+    fn enable_inner() {
+        T::regs().uartcr().modify(|t| t.set_rxe(true));
+    }
+
+    /// Disable the UART receiver, if disabled in the middle of a reception, it will complete the current character
+    pub fn disable(&mut self) {
+        Self::disable_inner();
+    }
+
+    /// Enable the UART receiver
+    pub fn enable(&mut self) {
+        Self::enable_inner();
     }
 
     /// Read from UART RX blocking execution until done.
@@ -1007,6 +1043,26 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
 }
 
 impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
+    /// Disable the UART receiver, if disabled in the middle of a reception, it will complete the current character
+    pub fn disable_rx(&mut self) {
+        UartRx::<'d, T, M>::disable_inner();
+    }
+
+    /// Enable the UART receiver
+    pub fn enable_rx(&mut self) {
+        UartRx::<'d, T, M>::enable_inner();
+    }
+
+    /// Disable the UART transmitter, if disabled in the middle of a transmission, it will complete the current character
+    pub fn disable_tx(&mut self) {
+        UartTx::<'d, T, M>::disable_inner();
+    }
+
+    /// Enable the UART transmitter
+    pub fn enable_tx(&mut self) {
+        UartTx::<'d, T, M>::enable_inner();
+    }
+
     /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buffer)
