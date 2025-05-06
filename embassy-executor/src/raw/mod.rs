@@ -151,6 +151,21 @@ impl TaskRef {
     pub fn as_id(self) -> u32 {
         self.ptr.as_ptr() as u32
     }
+
+    /// Get the name for a task
+    #[cfg(feature = "trace")]
+    pub fn name(&self) -> Option<&'static str> {
+        self.header().name
+    }
+
+    /// Set the name for a task
+    #[cfg(feature = "trace")]
+    pub fn set_name(&self, name: Option<&'static str>) {
+        unsafe {
+            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
+            (*header_ptr).name = name;
+        }
+    }
 }
 
 /// Raw storage in which a task can be spawned.
