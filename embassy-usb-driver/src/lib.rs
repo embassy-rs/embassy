@@ -9,8 +9,11 @@ pub mod host;
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Speed {
+    /// 1.5 Mbit/s
     Low,
+    /// 12 Mbit/s
     Full,
+    /// 480 Mbit/s
     High,
 }
 
