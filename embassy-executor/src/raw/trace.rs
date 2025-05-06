@@ -81,11 +81,12 @@
 
 #![allow(unused)]
 
-use crate::raw::{SyncExecutor, TaskHeader, TaskRef, TaskTracker};
-
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
+
 use rtos_trace::TaskInfo;
+
+use crate::raw::{SyncExecutor, TaskHeader, TaskRef, TaskTracker};
 
 /// Global task tracker instance
 ///
