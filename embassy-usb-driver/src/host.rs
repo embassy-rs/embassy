@@ -74,10 +74,22 @@ bitflags! {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct SetupPacket {
+    /// Request characteristics: direction, type, recipient.
+    /// See RequestType type for details.
+    /// Called bmRequestType in USB spec (Table 9-2).
     pub request_type: RequestType,
+    /// Request code.
+    /// See Table 9-3 of USB spec for standard ones.
+    /// Called bRequest in USB spec (Table 9-2).
     pub request: u8,
+    /// Use depending on request field.
+    /// Called wValue in USB spec (Table 9-2).
     pub value: u16,
+    /// Use depending on request field.
+    /// Called wIndex in USB spec (Table 9-2).
     pub index: u16,
+    /// Number of bytes to transwer in data stage if there is one.
+    /// Called wLength in USB spec (Table 9-2).
     pub length: u16,
 }
 
@@ -89,14 +101,17 @@ impl SetupPacket {
     }
 }
 
+/// Device has been attached/detached
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DeviceEvent {
     /// Indicates a root-device has become attached
     Connected(Speed),
+    /// Indicates that a device has been detached
     Disconnected,
 }
 
+/// Indicates type of error of Host interface
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum HostError {
