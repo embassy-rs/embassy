@@ -10,7 +10,7 @@ use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
 use crate::waitqueue::MultiWakerRegistration;
 
-/// The `Watch` is a single-slot signaling primitive that allows multiple receivers to concurrently await
+/// The `Watch` is a single-slot signaling primitive that allows _multiple_ (`N`) receivers to concurrently await
 /// changes to the value. Unlike a [`Signal`](crate::signal::Signal), `Watch` supports multiple receivers,
 /// and unlike a [`PubSubChannel`](crate::pubsub::PubSubChannel), `Watch` immediately overwrites the previous
 /// value when a new one is sent, without waiting for all receivers to read the previous value.
@@ -298,7 +298,7 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
 }
 
 impl<M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
-    /// Create a new `Watch` channel.
+    /// Create a new `Watch` channel for `N` receivers.
     pub const fn new() -> Self {
         Self {
             mutex: Mutex::new(RefCell::new(WatchState {
