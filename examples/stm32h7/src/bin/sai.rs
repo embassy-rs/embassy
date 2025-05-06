@@ -112,8 +112,10 @@ async fn main(_spawner: Spawner) {
     let mut buf = [0u32; HALF_DMA_BUFFER_LENGTH];
 
     loop {
-        sai_receiver.read(&mut buf).await.unwrap();
+        // write() must be called before read() to start the master (transmitter)
+        // clock used by the receiver
         sai_transmitter.write(&buf).await.unwrap();
+        sai_receiver.read(&mut buf).await.unwrap();
     }
 }
 
