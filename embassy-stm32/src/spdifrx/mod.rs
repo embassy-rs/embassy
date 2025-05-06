@@ -223,7 +223,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         };
 
         for sample in data.as_mut() {
-            if (*sample & (0x0002_u32)) == 0x0001 {
+            if (*sample & (0x0002_u32)) != 0 {
                 // Discard invalid samples, setting them to mute level.
                 *sample = 0;
             } else {
