@@ -12,7 +12,7 @@ documentation = "https://docs.embassy.dev/embassy-imxrt"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-imxrt-v$VERSION/embassy-imxrt/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-imxrt/src/"
-features = ["defmt", "unstable-pac", "time", "time-driver"]
+features = ["defmt", "unstable-pac", "time", "time-driver-os-timer"]
 flavors = [
     { regex_feature = "mimxrt6.*", target = "thumbv8m.main-none-eabihf" }
 ]
@@ -37,9 +37,12 @@ defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "mimxr
 time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 ## Enable custom embassy time-driver implementation, using 32KHz RTC
-time-driver-rtc = ["_time-driver"]
+time-driver-rtc = ["_time-driver", "embassy-time-driver?/tick-hz-1_000"]
 
-_time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
+## Enable custom embassy time-driver implementation, using 1MHz OS Timer
+time-driver-os-timer = ["_time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
+
+_time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
 
 ## Reexport the PAC for the currently enabled chip at `embassy_imxrt::pac` (unstable)
 unstable-pac = []
