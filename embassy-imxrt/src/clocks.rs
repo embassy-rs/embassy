@@ -1561,7 +1561,8 @@ pub(crate) unsafe fn init(config: ClockConfig) -> Result<(), ClockError> {
 
 ///Trait to expose perph clocks
 trait SealedSysconPeripheral {
-    fn enable_and_reset_perph_clock();
+    fn enable_perph_clock();
+    fn reset_perph();
     fn disable_perph_clock();
 }
 
@@ -1574,7 +1575,18 @@ pub trait SysconPeripheral: SealedSysconPeripheral + 'static {}
 ///
 /// Peripheral must not be in use.
 pub fn enable_and_reset<T: SysconPeripheral>() {
-    T::enable_and_reset_perph_clock();
+    T::enable_perph_clock();
+    T::reset_perph();
+}
+
+/// Enables peripheral `T`.
+pub fn enable<T: SysconPeripheral>() {
+    T::enable_perph_clock();
+}
+
+/// Reset peripheral `T`.
+pub fn reset<T: SysconPeripheral>() {
+    T::reset_perph();
 }
 
 /// Disables peripheral `T`.
@@ -1588,15 +1600,21 @@ pub fn disable<T: SysconPeripheral>() {
 macro_rules! impl_perph_clk {
     ($peripheral:ident, $clkctl:ident, $clkreg:ident, $rstctl:ident, $rstreg:ident, $bit:expr) => {
         impl SealedSysconPeripheral for crate::peripherals::$peripheral {
-            fn enable_and_reset_perph_clock() {
+            fn enable_perph_clock() {
                 // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
                 let cc1 = unsafe { pac::$clkctl::steal() };
-                let rc1 = unsafe { pac::$rstctl::steal() };
 
                 paste! {
                     // SAFETY: unsafe due to the use of bits()
                     cc1.[<$clkreg _set>]().write(|w| unsafe { w.bits(1 << $bit) });
+                }
+            }
 
+            fn reset_perph() {
+                // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
+                let rc1 = unsafe { pac::$rstctl::steal() };
+
+                paste! {
                     // SAFETY: unsafe due to the use of bits()
                     rc1.[<$rstreg _clr>]().write(|w| unsafe { w.bits(1 << $bit) });
                 }
@@ -1605,12 +1623,8 @@ macro_rules! impl_perph_clk {
             fn disable_perph_clock() {
                 // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
                 let cc1 = unsafe { pac::$clkctl::steal() };
-                let rc1 = unsafe { pac::$rstctl::steal() };
 
                 paste! {
-                    // SAFETY: unsafe due to the use of bits()
-                    rc1.[<$rstreg _set>]().write(|w| unsafe { w.bits(1 << $bit) });
-
                     // SAFETY: unsafe due to the use of bits()
                     cc1.[<$clkreg _clr>]().write(|w| unsafe { w.bits(1 << $bit) });
                 }
