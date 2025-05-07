@@ -160,7 +160,7 @@ pub enum CoreVoltage {
     V1_10 = 0b1011,
     /// 1.15V - Required for overclocking to 133-200MHz
     V1_15 = 0b1100,
-    /// 1.20V - Required for overclocking above 200MHz
+    /// 1.20V
     V1_20 = 0b1101,
     /// 1.25V
     V1_25 = 0b1110,
