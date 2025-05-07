@@ -93,6 +93,3 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
-
-[patch.crates-io]
-cortex-m-rt = { git = "https://github.com/yutannihilation/cortex-m", branch = "fix/allow-unsafe-wrap-rust2024" }

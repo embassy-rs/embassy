@@ -331,7 +331,7 @@ mod dual_core {
     /// use core::mem::MaybeUninit;
     /// use embassy_stm32::{init_secondary, SharedData};
     ///
-    /// #[unsafe(link_section = ".ram_d3")]
+    /// #[link_section = ".ram_d3"]
     /// static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
     ///
     /// init_secondary(&SHARED_DATA);

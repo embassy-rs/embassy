@@ -90,7 +90,7 @@ impl<const SIZE: usize> Stack<SIZE> {
 
 #[cfg(all(feature = "rt", feature = "rp2040"))]
 #[interrupt]
-#[unsafe(link_section = ".data.ram_func")]
+#[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_PROC1() {
     let sio = pac::SIO;
     // Clear IRQ
@@ -115,7 +115,7 @@ unsafe fn SIO_IRQ_PROC1() {
 
 #[cfg(all(feature = "rt", feature = "_rp235x"))]
 #[interrupt]
-#[unsafe(link_section = ".data.ram_func")]
+#[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_FIFO() {
     let sio = pac::SIO;
     // Clear IRQ
