@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner) {
     // Initialize with 200MHz clock configuration for RP2040, other chips will use default clock
     #[cfg(feature = "rp2040")]
     {
-        config.clocks = ClockConfig::crystal_freq(200_000_000);
+        config.clocks = ClockConfig::system_freq(200_000_000);
         let voltage = config.clocks.core_voltage;
         assert!(matches!(voltage, CoreVoltage::V1_15), "Expected voltage scale V1_15");
     }

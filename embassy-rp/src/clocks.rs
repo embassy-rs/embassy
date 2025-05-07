@@ -9,7 +9,7 @@
 //!
 //! For most users, these functions provide an easy way to configure clocks:
 //!
-//! - `ClockConfig::at_sys_frequency_mhz(200)` - Set system clock to a specific frequency with automatic voltage scaling
+//! - `ClockConfig::system_freq(125_000_000)` - Set system clock to a specific frequency with automatic voltage scaling
 //! - `ClockConfig::crystal(12_000_000)` - Default configuration with 12MHz crystal giving 125MHz system clock
 //!
 //! ## Manual Configuration
@@ -50,7 +50,7 @@
 //!
 //! ### Overclock to 200MHz
 //! ```rust,ignore
-//! let config = ClockConfig::crystal_freq(200_000_000);
+//! let config = ClockConfig::system_freq(200_000_000);
 //! ```
 //!
 //! ### Manual configuration for advanced scenarios
@@ -90,6 +90,7 @@ struct Clocks {
     pll_usb: AtomicU32,
     usb: AtomicU32,
     adc: AtomicU32,
+    // See above re gpin handling being commented out
     // gpin0: AtomicU32,
     // gpin1: AtomicU32,
     rosc: AtomicU32,
@@ -106,6 +107,7 @@ static CLOCKS: Clocks = Clocks {
     pll_usb: AtomicU32::new(0),
     usb: AtomicU32::new(0),
     adc: AtomicU32::new(0),
+    // See above re gpin handling being commented out
     // gpin0: AtomicU32::new(0),
     // gpin1: AtomicU32::new(0),
     rosc: AtomicU32::new(0),
@@ -129,6 +131,7 @@ pub enum PeriClkSrc {
     Rosc = ClkPeriCtrlAuxsrc::ROSC_CLKSRC_PH as _,
     /// XOSC.
     Xosc = ClkPeriCtrlAuxsrc::XOSC_CLKSRC as _,
+    // See above re gpin handling being commented out
     // Gpin0 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
@@ -213,6 +216,7 @@ pub struct ClockConfig {
     /// If not set, defaults will be used based on voltage level.
     #[cfg(feature = "rp2040")]
     pub voltage_stabilization_delay_us: Option<u32>,
+    // See above re gpin handling being commented out
     // gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
     // gpin1: Option<(u32, Gpin<'static, AnyPin>)>,
 }
@@ -227,7 +231,7 @@ impl Default for ClockConfig {
     /// Most users should use one of the more specific configuration functions:
     /// - `ClockConfig::crystal()` - Standard configuration with external crystal
     /// - `ClockConfig::rosc()` - Configuration using only the internal oscillator
-    /// - `ClockConfig::at_sys_frequency_mhz()` - Configuration for a specific system frequency
+    /// - `ClockConfig::system_freq()` - Configuration for a specific system frequency
     fn default() -> Self {
         Self {
             rosc: None,
@@ -250,6 +254,7 @@ impl Default for ClockConfig {
             core_voltage: CoreVoltage::V1_10,
             #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
+            // See above re gpin handling being commented out
             // gpin0: None,
             // gpin1: None,
         }
@@ -322,6 +327,7 @@ impl ClockConfig {
             core_voltage: CoreVoltage::V1_10, // Use hardware default (1.10V)
             #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
+            // See above re gpin handling being commented out
             // gpin0: None,
             // gpin1: None,
         }
@@ -366,6 +372,7 @@ impl ClockConfig {
             core_voltage: CoreVoltage::V1_10, // Use hardware default (1.10V)
             #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
+            // See above re gpin handling being commented out
             // gpin0: None,
             // gpin1: None,
         }
@@ -393,19 +400,19 @@ impl ClockConfig {
     /// That way all other frequencies below 133MHz or above 200MHz are not explicitly documented and not covered here.
     /// In case You want to go below 133MHz or above 200MHz and want a different voltage, You will have to set that manually and with caution.
     #[cfg(feature = "rp2040")]
-    pub fn crystal_freq(sys_freq_hz: u32) -> Self {
+    pub fn system_freq(hz: u32) -> Self {
         // Start with the standard configuration from crystal()
         const DEFAULT_CRYSTAL_HZ: u32 = 12_000_000;
         let mut config = Self::crystal(DEFAULT_CRYSTAL_HZ);
 
         // No need to modify anything if target frequency is already 125MHz
         // (which is what crystal() configures by default)
-        if sys_freq_hz == 125_000_000 {
+        if hz == 125_000_000 {
             return config;
         }
 
         // Find optimal PLL parameters for the requested frequency
-        let sys_pll_params = find_pll_params(DEFAULT_CRYSTAL_HZ, sys_freq_hz)
+        let sys_pll_params = find_pll_params(DEFAULT_CRYSTAL_HZ, hz)
             .unwrap_or_else(|| panic!("Could not find valid PLL parameters for system clock"));
 
         // Replace the sys_pll configuration with our custom parameters
@@ -417,7 +424,7 @@ impl ClockConfig {
         // Higher frequencies require higher voltage
         #[cfg(feature = "rp2040")]
         {
-            config.core_voltage = match sys_freq_hz {
+            config.core_voltage = match hz {
                 freq if freq > 133_000_000 => CoreVoltage::V1_15,
                 _ => CoreVoltage::V1_10, // Use default voltage (V1_10)
             };
@@ -631,6 +638,7 @@ pub enum RefClkSrc {
     Rosc,
     /// PLL USB.
     PllUsb,
+    // See above re gpin handling being commented out
     // Gpin0,
     // Gpin1,
 }
@@ -649,6 +657,7 @@ pub enum SysClkSrc {
     Rosc,
     /// XOSC.
     Xosc,
+    // See above re gpin handling being commented out
     // Gpin0,
     // Gpin1,
 }
@@ -684,6 +693,7 @@ pub enum UsbClkSrc {
     Rosc = ClkUsbCtrlAuxsrc::ROSC_CLKSRC_PH as _,
     /// XOSC.
     Xosc = ClkUsbCtrlAuxsrc::XOSC_CLKSRC as _,
+    // See above re gpin handling being commented out
     // Gpin0 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
@@ -711,6 +721,7 @@ pub enum AdcClkSrc {
     Rosc = ClkAdcCtrlAuxsrc::ROSC_CLKSRC_PH as _,
     /// XOSC.
     Xosc = ClkAdcCtrlAuxsrc::XOSC_CLKSRC as _,
+    // See above re gpin handling being commented out
     // Gpin0 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
@@ -739,6 +750,7 @@ pub enum RtcClkSrc {
     Rosc = ClkRtcCtrlAuxsrc::ROSC_CLKSRC_PH as _,
     /// XOSC.
     Xosc = ClkRtcCtrlAuxsrc::XOSC_CLKSRC as _,
+    // See above re gpin handling being commented out
     // Gpin0 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
@@ -895,6 +907,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     reset::reset(peris);
     reset::unreset_wait(peris);
 
+    // See above re gpin handling being commented out
     // let gpin0_freq = config.gpin0.map_or(0, |p| {
     //     core::mem::forget(p.1);
     //     p.0
@@ -941,7 +954,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
                 cortex_m::asm::delay(delay_cycles);
             }
 
-            // Only now set the BOD level. At htis point the voltage is considered stable.
+            // Only now set the BOD level. At this point the voltage is considered stable.
             vreg.bod().write(|w| {
                 w.set_vsel(voltage.recommended_bod());
                 w.set_en(true); // Enable brownout detection
@@ -952,8 +965,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     let (xosc_freq, pll_sys_freq, pll_usb_freq) = match config.xosc {
         Some(config) => {
             // start XOSC
-            // datasheet mentions support for clock inputs into XIN, but doesn't go into
-            // how this is achieved. pico-sdk doesn't support this at all.
             start_xosc(config.hz, config.delay_multiplier);
 
             let pll_sys_freq = match config.sys_pll {
@@ -988,6 +999,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             RefClkSrc::Xosc => (Src::XOSC_CLKSRC, Aux::CLKSRC_PLL_USB, xosc_freq / div),
             RefClkSrc::Rosc => (Src::ROSC_CLKSRC_PH, Aux::CLKSRC_PLL_USB, rosc_freq / div),
             RefClkSrc::PllUsb => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq / div),
+            // See above re gpin handling being commented out
             // RefClkSrc::Gpin0 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN0, gpin0_freq / div),
             // RefClkSrc::Gpin1 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN1, gpin1_freq / div),
         }
@@ -1032,6 +1044,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             SysClkSrc::PllUsb => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq),
             SysClkSrc::Rosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::ROSC_CLKSRC, rosc_freq),
             SysClkSrc::Xosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::XOSC_CLKSRC, xosc_freq),
+            // See above re gpin handling being commented out
             // SysClkSrc::Gpin0 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN0, gpin0_freq),
             // SysClkSrc::Gpin1 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN1, gpin1_freq),
         };
@@ -1075,6 +1088,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             PeriClkSrc::PllUsb => pll_usb_freq,
             PeriClkSrc::Rosc => rosc_freq,
             PeriClkSrc::Xosc => xosc_freq,
+            // See above re gpin handling being commented out
             // PeriClkSrc::Gpin0 => gpin0_freq,
             // PeriClkSrc::Gpin1 => gpin1_freq,
         };
@@ -1100,6 +1114,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             UsbClkSrc::PllSys => pll_sys_freq,
             UsbClkSrc::Rosc => rosc_freq,
             UsbClkSrc::Xosc => xosc_freq,
+            // See above re gpin handling being commented out
             // UsbClkSrc::Gpin0 => gpin0_freq,
             // UsbClkSrc::Gpin1 => gpin1_freq,
         };
@@ -1123,6 +1138,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             AdcClkSrc::PllSys => pll_sys_freq,
             AdcClkSrc::Rosc => rosc_freq,
             AdcClkSrc::Xosc => xosc_freq,
+            // See above re gpin handling being commented out
             // AdcClkSrc::Gpin0 => gpin0_freq,
             // AdcClkSrc::Gpin1 => gpin1_freq,
         };
@@ -1151,6 +1167,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             RtcClkSrc::PllSys => pll_sys_freq,
             RtcClkSrc::Rosc => rosc_freq,
             RtcClkSrc::Xosc => xosc_freq,
+            // See above re gpin handling being commented out
             // RtcClkSrc::Gpin0 => gpin0_freq,
             // RtcClkSrc::Gpin1 => gpin1_freq,
         };
@@ -1217,6 +1234,7 @@ pub fn xosc_freq() -> u32 {
     CLOCKS.xosc.load(Ordering::Relaxed)
 }
 
+// See above re gpin handling being commented out
 // pub fn gpin0_freq() -> u32 {
 //     CLOCKS.gpin0.load(Ordering::Relaxed)
 // }
@@ -1452,6 +1470,7 @@ impl_gpoutpin!(PIN_25, 3);
 pub enum GpoutSrc {
     /// Sys PLL.
     PllSys = ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    // See above re gpin handling being commented out
     // Gpin0 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
     // Gpin1 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
     /// USB PLL.
@@ -1547,6 +1566,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
 
         let base = match src {
             ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+            // See above re gpin handling being commented out
             // ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
             // ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
             ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
@@ -1555,7 +1575,6 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
             ClkGpoutCtrlAuxsrc::CLK_SYS => clk_sys_freq(),
             ClkGpoutCtrlAuxsrc::CLK_USB => clk_usb_freq(),
             ClkGpoutCtrlAuxsrc::CLK_ADC => clk_adc_freq(),
-            //ClkGpoutCtrlAuxsrc::CLK_RTC => clk_rtc_freq() as _,
             ClkGpoutCtrlAuxsrc::CLK_REF => clk_ref_freq(),
             _ => unreachable!(),
         };
@@ -1918,21 +1937,21 @@ mod tests {
         {
             // Test automatic voltage scaling based on frequency
             // Under 133 MHz should use default voltage (V1_10)
-            let config = ClockConfig::crystal_freq(125_000_000);
+            let config = ClockConfig::system_freq(125_000_000);
             assert_eq!(config.core_voltage, CoreVoltage::V1_10);
 
             // 133-200 MHz should use V1_15
-            let config = ClockConfig::crystal_freq(150_000_000);
+            let config = ClockConfig::system_freq(150_000_000);
             assert_eq!(config.core_voltage, CoreVoltage::V1_15);
-            let config = ClockConfig::crystal_freq(200_000_000);
+            let config = ClockConfig::system_freq(200_000_000);
             assert_eq!(config.core_voltage, CoreVoltage::V1_15);
 
             // Above 200 MHz should use V1_25
-            let config = ClockConfig::crystal_freq(250_000_000);
+            let config = ClockConfig::system_freq(250_000_000);
             assert_eq!(config.core_voltage, CoreVoltage::V1_15);
 
             // Below 125 MHz should use V1_10
-            let config = ClockConfig::crystal_freq(100_000_000);
+            let config = ClockConfig::system_freq(100_000_000);
             assert_eq!(config.core_voltage, CoreVoltage::V1_10);
         }
     }
