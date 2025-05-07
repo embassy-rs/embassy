@@ -67,6 +67,3 @@ opt-level = 'z'
 debug = 2
 lto = true
 opt-level = "z"
-
-[patch.crates-io]
-cortex-m-rt = { git = "https://github.com/yutannihilation/cortex-m", branch = "fix/allow-unsafe-wrap-rust2024" }
