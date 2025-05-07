@@ -22,7 +22,7 @@ pub mod gpio;
 pub mod iopctl;
 
 #[cfg(feature = "_time-driver")]
-pub mod rtc;
+pub mod time_driver;
 
 // This mod MUST go last, so that it sees all the `impl_foo!' macros
 #[cfg_attr(feature = "mimxrt633s", path = "chips/mimxrt633s.rs")]
@@ -137,7 +137,7 @@ pub fn init(config: config::Config) -> Peripherals {
 
     // init RTC time driver
     #[cfg(feature = "_time-driver")]
-    rtc::init(config.time_interrupt_priority);
+    time_driver::init(config.time_interrupt_priority);
 
     peripherals
 }
