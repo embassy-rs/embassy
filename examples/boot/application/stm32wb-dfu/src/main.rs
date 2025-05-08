@@ -44,7 +44,7 @@ async fn main(_spawner: Spawner) {
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
-    let mut state = Control::new(firmware_state, DfuAttributes::CAN_DOWNLOAD);
+    let mut state = Control::new(firmware_state, DfuAttributes::CAN_DOWNLOAD, ResetImmediate);
     let mut builder = Builder::new(
         driver,
         config,
@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    usb_dfu::<_, _, ResetImmediate>(&mut builder, &mut state, Duration::from_millis(2500));
+    usb_dfu(&mut builder, &mut state, Duration::from_millis(2500));
 
     let mut dev = builder.build();
     dev.run().await
