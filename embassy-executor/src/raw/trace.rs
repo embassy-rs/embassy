@@ -94,7 +94,6 @@ use crate::spawner::{SpawnError, SpawnToken, Spawner};
 /// This static provides access to the global task tracker which maintains
 /// a list of all tasks in the system. It's automatically updated by the
 /// task lifecycle hooks in the trace module.
-#[cfg(feature = "trace")]
 pub static TASK_TRACKER: TaskTracker = TaskTracker::new();
 
 /// A thread-safe tracker for all tasks in the system
@@ -102,12 +101,10 @@ pub static TASK_TRACKER: TaskTracker = TaskTracker::new();
 /// This struct uses an intrusive linked list approach to track all tasks
 /// without additional memory allocations. It maintains a global list of
 /// tasks that can be traversed to find all currently existing tasks.
-#[cfg(feature = "trace")]
 pub struct TaskTracker {
     head: AtomicPtr<TaskHeader>,
 }
 
-#[cfg(feature = "trace")]
 impl TaskTracker {
     /// Creates a new empty task tracker
     ///
@@ -172,7 +169,6 @@ impl TaskTracker {
 /// This trait is only available when the `trace` feature is enabled.
 /// It extends `TaskRef` with methods for accessing and modifying task identifiers
 /// and names, which are useful for debugging, logging, and performance analysis.
-#[cfg(feature = "trace")]
 pub trait TaskRefTrace {
     /// Get the name for a task
     fn name(&self) -> Option<&'static str>;
@@ -187,7 +183,6 @@ pub trait TaskRefTrace {
     fn set_id(&self, id: u32);
 }
 
-#[cfg(feature = "trace")]
 impl TaskRefTrace for TaskRef {
     fn name(&self) -> Option<&'static str> {
         self.header().name
@@ -350,7 +345,6 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
 ///
 /// # Returns
 /// An iterator that yields `TaskRef` items for each task
-#[cfg(feature = "trace")]
 fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
     struct TaskIterator<'a> {
         tracker: &'a TaskTracker,
@@ -379,7 +373,6 @@ fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
 }
 
 /// Perform an action on each active task
-#[cfg(feature = "trace")]
 fn with_all_active_tasks<F>(f: F)
 where
     F: FnMut(TaskRef),
