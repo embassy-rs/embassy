@@ -162,7 +162,7 @@ impl Spawner {
     ///
     /// # Returns
     /// Result indicating whether the spawn was successful
-    #[cfg(feature = "rtos-trace")]
+    #[cfg(feature = "trace")]
     pub fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
         let task = token.raw_task;
         mem::forget(token);
@@ -182,7 +182,7 @@ impl Spawner {
 
     /// When rtos-trace is disabled, spawn_named falls back to regular spawn.
     /// This maintains API compatibility while optimizing out the name parameter.
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(not(feature = "trace"))]
     pub fn spawn_named<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
         self.spawn(token)
     }
