@@ -90,7 +90,7 @@ use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
 use crate::spawner::{SpawnError, SpawnToken, Spawner};
 
 /// Extension trait adding tracing capabilities to the Spawner
-pub trait TraceExt {
+pub trait SpawnerTraceExt {
     /// Spawns a new task with a specified name.
     ///
     /// # Arguments
@@ -103,7 +103,7 @@ pub trait TraceExt {
 }
 
 #[cfg(feature = "trace")]
-impl TraceExt for Spawner {
+impl SpawnerTraceExt for Spawner {
     fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
         let task = token.raw_task;
         core::mem::forget(token);
@@ -125,7 +125,7 @@ impl TraceExt for Spawner {
 /// When trace is disabled, spawn_named falls back to regular spawn.
 /// This maintains API compatibility while optimizing out the name parameter.
 #[cfg(not(feature = "trace"))]
-impl TraceExt for Spawner {
+impl SpawnerTraceExt for Spawner {
     fn spawn_named<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
         self.spawn(token)
     }
