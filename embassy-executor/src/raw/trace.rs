@@ -209,6 +209,58 @@ impl TaskTracker {
     }
 }
 
+/// Extension trait for `TaskRef` that provides tracing functionality.
+///
+/// This trait is only available when the `trace` feature is enabled.
+/// It extends `TaskRef` with methods for accessing and modifying task identifiers
+/// and names, which are useful for debugging, logging, and performance analysis.
+#[cfg(feature = "trace")]
+pub trait TaskRefTrace {
+    /// Get the ID for a task
+    fn as_id(self) -> u32;
+
+    /// Get the name for a task
+    fn name(&self) -> Option<&'static str>;
+
+    /// Set the name for a task
+    fn set_name(&self, name: Option<&'static str>);
+
+    /// Get the ID for a task
+    fn id(&self) -> u32;
+
+    /// Set the ID for a task
+    fn set_id(&self, id: u32);
+}
+
+#[cfg(feature = "trace")]
+impl TaskRefTrace for TaskRef {
+    fn as_id(self) -> u32 {
+        self.ptr.as_ptr() as u32
+    }
+
+    fn name(&self) -> Option<&'static str> {
+        self.header().name
+    }
+
+    fn set_name(&self, name: Option<&'static str>) {
+        unsafe {
+            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
+            (*header_ptr).name = name;
+        }
+    }
+
+    fn id(&self) -> u32 {
+        self.header().id
+    }
+
+    fn set_id(&self, id: u32) {
+        unsafe {
+            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
+            (*header_ptr).id = id;
+        }
+    }
+}
+
 #[cfg(not(feature = "rtos-trace"))]
 extern "Rust" {
     /// This callback is called when the executor begins polling. This will always
