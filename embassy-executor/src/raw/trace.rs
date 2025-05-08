@@ -216,9 +216,6 @@ impl TaskTracker {
 /// and names, which are useful for debugging, logging, and performance analysis.
 #[cfg(feature = "trace")]
 pub trait TaskRefTrace {
-    /// Get the ID for a task
-    fn as_id(self) -> u32;
-
     /// Get the name for a task
     fn name(&self) -> Option<&'static str>;
 
@@ -234,10 +231,6 @@ pub trait TaskRefTrace {
 
 #[cfg(feature = "trace")]
 impl TaskRefTrace for TaskRef {
-    fn as_id(self) -> u32 {
-        self.ptr.as_ptr() as u32
-    }
-
     fn name(&self) -> Option<&'static str> {
         self.header().name
     }
@@ -331,8 +324,6 @@ pub(crate) fn poll_start(executor: &SyncExecutor) {
 
 #[inline]
 pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
-    let task_id = task.as_ptr() as u32;
-
     #[cfg(not(feature = "rtos-trace"))]
     unsafe {
         _embassy_trace_task_new(executor as *const _ as u32, task.as_ptr() as u32)
@@ -347,8 +338,6 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
-    let task_id = task.as_ptr() as u32;
-
     #[cfg(not(feature = "rtos-trace"))]
     unsafe {
         _embassy_trace_task_end(executor as u32, task.as_ptr() as u32)
@@ -451,7 +440,7 @@ impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
                 stack_base: 0,
                 stack_size: 0,
             };
-            rtos_trace::trace::task_send_info(task.as_id(), info);
+            rtos_trace::trace::task_send_info(task.id(), info);
         });
     }
     fn time() -> u64 {
