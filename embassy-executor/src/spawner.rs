@@ -22,7 +22,7 @@ use super::raw;
 /// Once you've invoked a task function and obtained a SpawnToken, you *must* spawn it.
 #[must_use = "Calling a task function does nothing on its own. You must spawn the returned SpawnToken, typically with Spawner::spawn()"]
 pub struct SpawnToken<S> {
-    raw_task: Option<raw::TaskRef>,
+    pub(crate) raw_task: Option<raw::TaskRef>,
     phantom: PhantomData<*mut S>,
 }
 
@@ -103,7 +103,7 @@ impl core::error::Error for SpawnError {}
 /// If you want to spawn tasks from another thread, use [SendSpawner].
 #[derive(Copy, Clone)]
 pub struct Spawner {
-    executor: &'static raw::Executor,
+    pub(crate) executor: &'static raw::Executor,
     not_send: PhantomData<*mut ()>,
 }
 
@@ -152,39 +152,6 @@ impl Spawner {
             }
             None => Err(SpawnError::Busy),
         }
-    }
-
-    /// Spawns a new task with a specified name.
-    ///
-    /// # Arguments
-    /// * `name` - Static string name to associate with the task
-    /// * `token` - Token representing the task to spawn
-    ///
-    /// # Returns
-    /// Result indicating whether the spawn was successful
-    #[cfg(feature = "trace")]
-    pub fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
-        let task = token.raw_task;
-        mem::forget(token);
-
-        match task {
-            Some(task) => {
-                task.set_name(Some(name));
-                let task_id = task.as_ptr() as u32;
-                task.set_id(task_id);
-
-                unsafe { self.executor.spawn(task) };
-                Ok(())
-            }
-            None => Err(SpawnError::Busy),
-        }
-    }
-
-    /// When rtos-trace is disabled, spawn_named falls back to regular spawn.
-    /// This maintains API compatibility while optimizing out the name parameter.
-    #[cfg(not(feature = "trace"))]
-    pub fn spawn_named<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
-        self.spawn(token)
     }
 
     // Used by the `embassy_executor_macros::main!` macro to throw an error when spawn
