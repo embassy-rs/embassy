@@ -89,48 +89,6 @@ use rtos_trace::TaskInfo;
 use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
 use crate::spawner::{SpawnError, SpawnToken, Spawner};
 
-/// Extension trait adding tracing capabilities to the Spawner
-pub trait SpawnerTraceExt {
-    /// Spawns a new task with a specified name.
-    ///
-    /// # Arguments
-    /// * `name` - Static string name to associate with the task
-    /// * `token` - Token representing the task to spawn
-    ///
-    /// # Returns
-    /// Result indicating whether the spawn was successful
-    fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError>;
-}
-
-#[cfg(feature = "trace")]
-impl SpawnerTraceExt for Spawner {
-    fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
-        let task = token.raw_task;
-        core::mem::forget(token);
-
-        match task {
-            Some(task) => {
-                task.set_name(Some(name));
-                let task_id = task.as_ptr() as u32;
-                task.set_id(task_id);
-
-                unsafe { self.executor.spawn(task) };
-                Ok(())
-            }
-            None => Err(SpawnError::Busy),
-        }
-    }
-}
-
-/// When trace is disabled, spawn_named falls back to regular spawn.
-/// This maintains API compatibility while optimizing out the name parameter.
-#[cfg(not(feature = "trace"))]
-impl SpawnerTraceExt for Spawner {
-    fn spawn_named<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
-        self.spawn(token)
-    }
-}
-
 /// Global task tracker instance
 ///
 /// This static provides access to the global task tracker which maintains
