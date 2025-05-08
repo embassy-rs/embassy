@@ -81,10 +81,15 @@ impl<MARK: DfuMarker, RST: Reset> Handler for Control<MARK, RST> {
 
         match Request::try_from(req.request) {
             Ok(Request::Detach) => {
-                trace!("Received DETACH, awaiting USB reset");
                 self.detach_start = Some(Instant::now());
                 self.timeout = Some(Duration::from_millis(req.value as u64));
                 self.state = State::AppDetach;
+                if self.attrs.contains(DfuAttributes::WILL_DETACH) {
+                    trace!("Received DETACH, performing reset");
+                    self.reset();
+                } else {
+                    trace!("Received DETACH, awaiting USB reset");
+                }
                 Some(OutResponse::Accepted)
             }
             _ => None,
