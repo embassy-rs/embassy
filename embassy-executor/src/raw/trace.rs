@@ -239,7 +239,7 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
 /// # Returns
 /// An iterator that yields `TaskRef` items for each task
 #[cfg(feature = "trace")]
-pub fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
+fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
     struct TaskIterator<'a> {
         tracker: &'a TaskTracker,
         current: *mut TaskHeader,
@@ -285,7 +285,7 @@ pub fn count_active_tasks() -> usize {
 
 /// Perform an action on each active task
 #[cfg(feature = "trace")]
-pub fn with_all_active_tasks<F>(f: F)
+fn with_all_active_tasks<F>(f: F)
 where
     F: FnMut(TaskRef),
 {
