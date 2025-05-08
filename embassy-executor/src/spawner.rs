@@ -5,7 +5,6 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use super::raw;
-
 #[cfg(feature = "trace")]
 use crate::raw::trace::TaskRefTrace;
 
