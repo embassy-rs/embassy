@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use embassy_boot::BlockingFirmwareState;
 use embassy_time::{Duration, Instant};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
@@ -36,19 +34,19 @@ pub struct Control<MARK: DfuMarker, RST: Reset> {
     state: State,
     timeout: Option<Duration>,
     detach_start: Option<Instant>,
-    _rst: PhantomData<RST>,
+    reset: RST,
 }
 
 impl<MARK: DfuMarker, RST: Reset> Control<MARK, RST> {
     /// Create a new DFU instance to expose a DFU interface.
-    pub fn new(dfu_marker: MARK, attrs: DfuAttributes) -> Self {
+    pub fn new(dfu_marker: MARK, attrs: DfuAttributes, reset: RST) -> Self {
         Control {
             dfu_marker,
             attrs,
             state: State::AppIdle,
             detach_start: None,
             timeout: None,
-            _rst: PhantomData,
+            reset,
         }
     }
 }
@@ -65,7 +63,7 @@ impl<MARK: DfuMarker, RST: Reset> Handler for Control<MARK, RST> {
             );
             if delta < timeout {
                 self.dfu_marker.mark_dfu();
-                RST::sys_reset()
+                self.reset.sys_reset()
             }
         }
     }
