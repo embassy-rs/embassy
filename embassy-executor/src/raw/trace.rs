@@ -266,23 +266,6 @@ fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
     }
 }
 
-/// Get all active tasks, filtered by a predicate function
-#[cfg(feature = "trace")]
-pub fn filter_active_tasks<F>(predicate: F) -> impl Iterator<Item = TaskRef> + 'static
-where
-    F: Fn(&TaskRef) -> bool + 'static,
-{
-    get_all_active_tasks().filter(move |task| predicate(task))
-}
-
-/// Count the number of active tasks
-#[cfg(feature = "trace")]
-pub fn count_active_tasks() -> usize {
-    let mut count = 0;
-    TASK_TRACKER.for_each(|_| count += 1);
-    count
-}
-
 /// Perform an action on each active task
 #[cfg(feature = "trace")]
 fn with_all_active_tasks<F>(f: F)
@@ -290,18 +273,6 @@ where
     F: FnMut(TaskRef),
 {
     TASK_TRACKER.for_each(f);
-}
-
-/// Get tasks by name
-#[cfg(feature = "trace")]
-pub fn get_tasks_by_name(name: &'static str) -> impl Iterator<Item = TaskRef> + 'static {
-    filter_active_tasks(move |task| task.name() == Some(name))
-}
-
-/// Get tasks by ID
-#[cfg(feature = "trace")]
-pub fn get_task_by_id(id: u32) -> Option<TaskRef> {
-    filter_active_tasks(move |task| task.id() == id).next()
 }
 
 #[cfg(feature = "rtos-trace")]
