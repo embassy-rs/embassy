@@ -16,9 +16,9 @@ const DMA_BUFFER_LENGTH: usize = HALF_DMA_BUFFER_LENGTH * 2; //  2 half-blocks
 const SAMPLE_RATE: u32 = 48000;
 
 //DMA buffer must be in special region. Refer https://embassy.dev/book/#_stm32_bdma_only_working_out_of_some_ram_regions
-#[link_section = ".sram1_bss"]
+#[unsafe(link_section = ".sram1_bss")]
 static mut TX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
-#[link_section = ".sram1_bss"]
+#[unsafe(link_section = ".sram1_bss")]
 static mut RX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
 
 #[embassy_executor::main]
