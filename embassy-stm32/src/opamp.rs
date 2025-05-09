@@ -239,7 +239,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         T::regs().csr().modify(|w| {
             w.set_vp_sel(VpSel::from_bits(pin.channel()));
-            w.set_vm_sel(VmSel::OUTPUT);
+            w.set_vm_sel(VmSel::PGA);
             w.set_pga_gain(pga_gain);
             w.set_opaintoen(true);
             w.set_opampen(true);
