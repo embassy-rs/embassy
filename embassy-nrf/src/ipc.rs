@@ -3,18 +3,20 @@
 #![macro_use]
 
 use core::future::poll_fn;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::peripherals::IPC;
-use crate::{interrupt, pac};
+use crate::interrupt::typelevel::Interrupt;
+use crate::{interrupt, pac, ppi};
+
+const EVENT_COUNT: usize = 16;
 
 /// IPC Event
-#[derive(Debug, Clone, Copy)]
-pub enum IpcEvent {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum EventNumber {
     /// IPC Event 0
     Event0 = 0,
     /// IPC Event 1
@@ -49,27 +51,27 @@ pub enum IpcEvent {
     Event15 = 15,
 }
 
-const EVENTS: [IpcEvent; 16] = [
-    IpcEvent::Event0,
-    IpcEvent::Event1,
-    IpcEvent::Event2,
-    IpcEvent::Event3,
-    IpcEvent::Event4,
-    IpcEvent::Event5,
-    IpcEvent::Event6,
-    IpcEvent::Event7,
-    IpcEvent::Event8,
-    IpcEvent::Event9,
-    IpcEvent::Event10,
-    IpcEvent::Event11,
-    IpcEvent::Event12,
-    IpcEvent::Event13,
-    IpcEvent::Event14,
-    IpcEvent::Event15,
+const EVENTS: [EventNumber; EVENT_COUNT] = [
+    EventNumber::Event0,
+    EventNumber::Event1,
+    EventNumber::Event2,
+    EventNumber::Event3,
+    EventNumber::Event4,
+    EventNumber::Event5,
+    EventNumber::Event6,
+    EventNumber::Event7,
+    EventNumber::Event8,
+    EventNumber::Event9,
+    EventNumber::Event10,
+    EventNumber::Event11,
+    EventNumber::Event12,
+    EventNumber::Event13,
+    EventNumber::Event14,
+    EventNumber::Event15,
 ];
 
 /// IPC Channel
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IpcChannel {
     /// IPC Channel 0
     Channel0,
@@ -105,188 +107,124 @@ pub enum IpcChannel {
     Channel15,
 }
 
-/// Interrupt Handler
-pub struct InterruptHandler {}
+impl IpcChannel {
+    fn mask(self) -> u32 {
+        1 << (self as u32)
+    }
+}
 
-impl interrupt::typelevel::Handler<interrupt::typelevel::IPC> for InterruptHandler {
+/// Interrupt Handler
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let regs = IPC::regs();
+        let regs = T::regs();
 
         // Check if an event was generated, and if it was, trigger the corresponding waker
         for event in EVENTS {
             if regs.events_receive(event as usize).read() & 0x01 == 0x01 {
-                // Event is set. Reset and wake waker
-                regs.events_receive(event as usize).write_value(0);
-                IPC::state().waker_for(event);
+                regs.intenclr().write(|w| w.0 = 0x01 << event as u32);
+                T::state().wakers[event as usize].wake();
             }
-
-            // Ensure the state is actually cleared
-            //  Ref: nRF5340 PS v1.5 7.1.9.1 p.153
-            compiler_fence(Ordering::SeqCst);
-            while regs.events_receive(event as usize).read() & 0x01 != 0x00 {}
         }
     }
 }
 
 /// IPC driver
+#[non_exhaustive]
 pub struct Ipc<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
-}
-
-impl<'d, T: Instance> From<PeripheralRef<'d, T>> for Ipc<'d, T> {
-    fn from(value: PeripheralRef<'d, T>) -> Self {
-        Self { _peri: value }
-    }
+    /// Event 0
+    pub event0: Event<'d, T>,
+    /// Event 1
+    pub event1: Event<'d, T>,
+    /// Event 2
+    pub event2: Event<'d, T>,
+    /// Event 3
+    pub event3: Event<'d, T>,
+    /// Event 4
+    pub event4: Event<'d, T>,
+    /// Event 5
+    pub event5: Event<'d, T>,
+    /// Event 6
+    pub event6: Event<'d, T>,
+    /// Event 7
+    pub event7: Event<'d, T>,
+    /// Event 8
+    pub event8: Event<'d, T>,
+    /// Event 9
+    pub event9: Event<'d, T>,
+    /// Event 10
+    pub event10: Event<'d, T>,
+    /// Event 11
+    pub event11: Event<'d, T>,
+    /// Event 12
+    pub event12: Event<'d, T>,
+    /// Event 13
+    pub event13: Event<'d, T>,
+    /// Event 14
+    pub event14: Event<'d, T>,
+    /// Event 15
+    pub event15: Event<'d, T>,
 }
 
 impl<'d, T: Instance> Ipc<'d, T> {
-    /// Create IPC driver
-    pub fn new(ipc: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(ipc);
+    /// Create a new IPC driver.
+    pub fn new(
+        _p: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
-        Self { _peri: ipc }
-    }
-
-    /// Duplicates the peripheral singleton
-    ///
-    /// # Safety
-    ///
-    /// Ensure manually that only one peripheral is in use at one time
-    pub unsafe fn clone_unchecked(&self) -> Self {
-        Self {
-            _peri: self._peri.clone_unchecked(),
-        }
-    }
-
-    /// Configures the sending of events
-    ///
-    /// Events can be configured to broadcast on one or multiple IPC channels.
-    pub fn configure_send_event<I: IntoIterator<Item = IpcChannel>>(&self, ev: IpcEvent, channels: I) {
-        let regs = T::regs();
-
-        regs.send_cnf(ev as usize).write(|w| {
-            for channel in channels {
-                match channel {
-                    IpcChannel::Channel0 => w.set_chen0(true),
-                    IpcChannel::Channel1 => w.set_chen1(true),
-                    IpcChannel::Channel2 => w.set_chen2(true),
-                    IpcChannel::Channel3 => w.set_chen3(true),
-                    IpcChannel::Channel4 => w.set_chen4(true),
-                    IpcChannel::Channel5 => w.set_chen5(true),
-                    IpcChannel::Channel6 => w.set_chen6(true),
-                    IpcChannel::Channel7 => w.set_chen7(true),
-                    IpcChannel::Channel8 => w.set_chen8(true),
-                    IpcChannel::Channel9 => w.set_chen9(true),
-                    IpcChannel::Channel10 => w.set_chen10(true),
-                    IpcChannel::Channel11 => w.set_chen11(true),
-                    IpcChannel::Channel12 => w.set_chen12(true),
-                    IpcChannel::Channel13 => w.set_chen13(true),
-                    IpcChannel::Channel14 => w.set_chen14(true),
-                    IpcChannel::Channel15 => w.set_chen15(true),
-                }
-            }
-        })
-    }
-
-    /// Configures the receiving of events
-    ///
-    /// Events can be configured to be received by one or multiple IPC channels.
-    pub fn configure_receive_event<I: IntoIterator<Item = IpcChannel>>(&self, ev: IpcEvent, channels: I) {
-        let regs = T::regs();
-
-        regs.receive_cnf(ev as usize).write(|w| {
-            for channel in channels {
-                match channel {
-                    IpcChannel::Channel0 => w.set_chen0(true),
-                    IpcChannel::Channel1 => w.set_chen1(true),
-                    IpcChannel::Channel2 => w.set_chen2(true),
-                    IpcChannel::Channel3 => w.set_chen3(true),
-                    IpcChannel::Channel4 => w.set_chen4(true),
-                    IpcChannel::Channel5 => w.set_chen5(true),
-                    IpcChannel::Channel6 => w.set_chen6(true),
-                    IpcChannel::Channel7 => w.set_chen7(true),
-                    IpcChannel::Channel8 => w.set_chen8(true),
-                    IpcChannel::Channel9 => w.set_chen9(true),
-                    IpcChannel::Channel10 => w.set_chen10(true),
-                    IpcChannel::Channel11 => w.set_chen11(true),
-                    IpcChannel::Channel12 => w.set_chen12(true),
-                    IpcChannel::Channel13 => w.set_chen13(true),
-                    IpcChannel::Channel14 => w.set_chen14(true),
-                    IpcChannel::Channel15 => w.set_chen15(true),
-                }
-            }
-        });
-    }
-
-    /// Triggers an event
-    pub fn trigger_event(&self, ev: IpcEvent) {
-        let regs = T::regs();
-
-        regs.tasks_send(ev as usize).write_value(0x01);
-    }
-
-    /// Wait for event to be triggered
-    pub async fn wait_for_event(&self, ev: IpcEvent) {
-        let regs = T::regs();
-
-        // Enable interrupt
-        match ev {
-            IpcEvent::Event0 => {
-                regs.inten().modify(|m| m.set_receive0(true));
-            }
-            IpcEvent::Event1 => {
-                regs.inten().modify(|m| m.set_receive1(true));
-            }
-            IpcEvent::Event2 => {
-                regs.inten().modify(|m| m.set_receive2(true));
-            }
-            IpcEvent::Event3 => {
-                regs.inten().modify(|m| m.set_receive3(true));
-            }
-            IpcEvent::Event4 => {
-                regs.inten().modify(|m| m.set_receive4(true));
-            }
-            IpcEvent::Event5 => {
-                regs.inten().modify(|m| m.set_receive5(true));
-            }
-            IpcEvent::Event6 => {
-                regs.inten().modify(|m| m.set_receive6(true));
-            }
-            IpcEvent::Event7 => {
-                regs.inten().modify(|m| m.set_receive7(true));
-            }
-            IpcEvent::Event8 => {
-                regs.inten().modify(|m| m.set_receive8(true));
-            }
-            IpcEvent::Event9 => {
-                regs.inten().modify(|m| m.set_receive9(true));
-            }
-            IpcEvent::Event10 => {
-                regs.inten().modify(|m| m.set_receive10(true));
-            }
-            IpcEvent::Event11 => {
-                regs.inten().modify(|m| m.set_receive11(true));
-            }
-            IpcEvent::Event12 => {
-                regs.inten().modify(|m| m.set_receive12(true));
-            }
-            IpcEvent::Event13 => {
-                regs.inten().modify(|m| m.set_receive13(true));
-            }
-            IpcEvent::Event14 => {
-                regs.inten().modify(|m| m.set_receive14(true));
-            }
-            IpcEvent::Event15 => {
-                regs.inten().modify(|m| m.set_receive15(true));
-            }
+        let _phantom = PhantomData;
+        #[rustfmt::skip]
+        let r = Self { // attributes on expressions are experimental
+            event0: Event { number: EventNumber::Event0, _phantom },
+            event1: Event { number: EventNumber::Event1, _phantom },
+            event2: Event { number: EventNumber::Event2, _phantom },
+            event3: Event { number: EventNumber::Event3, _phantom },
+            event4: Event { number: EventNumber::Event4, _phantom },
+            event5: Event { number: EventNumber::Event5, _phantom },
+            event6: Event { number: EventNumber::Event6, _phantom },
+            event7: Event { number: EventNumber::Event7, _phantom },
+            event8: Event { number: EventNumber::Event8, _phantom },
+            event9: Event { number: EventNumber::Event9, _phantom },
+            event10: Event { number: EventNumber::Event10, _phantom },
+            event11: Event { number: EventNumber::Event11, _phantom },
+            event12: Event { number: EventNumber::Event12, _phantom },
+            event13: Event { number: EventNumber::Event13, _phantom },
+            event14: Event { number: EventNumber::Event14, _phantom },
+            event15: Event { number: EventNumber::Event15, _phantom },
         };
+        r
+    }
+}
 
+/// IPC event
+pub struct Event<'d, T: Instance> {
+    number: EventNumber,
+    _phantom: PhantomData<&'d T>,
+}
+
+impl<'d, T: Instance> Event<'d, T> {
+    /// Trigger the event.
+    pub fn trigger(&self) {
+        let nr = self.number;
+        T::regs().tasks_send(nr as usize).write_value(1);
+    }
+
+    /// Wait for the event to be triggered.
+    pub async fn wait(&mut self) {
+        let regs = T::regs();
+        let nr = self.number as usize;
+        regs.intenset().write(|w| w.0 = 1 << nr);
         poll_fn(|cx| {
-            IPC::state().waker_for(ev).register(cx.waker());
+            T::state().wakers[nr].register(cx.waker());
 
-            if regs.events_receive(ev as usize).read() & 0x01 == 0x01 {
-                regs.events_receive(ev as usize).write_value(0x00);
-
+            if regs.events_receive(nr).read() == 1 {
+                regs.events_receive(nr).write_value(0x00);
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -294,37 +232,102 @@ impl<'d, T: Instance> Ipc<'d, T> {
         })
         .await;
     }
+
+    /// Returns the [`EventNumber`] of the event.
+    pub fn number(&self) -> EventNumber {
+        self.number
+    }
+
+    /// Create a handle that can trigger the event.
+    pub fn trigger_handle(&self) -> EventTrigger<'d, T> {
+        EventTrigger {
+            number: self.number,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Configure the channels the event will broadcast to
+    pub fn configure_trigger<I: IntoIterator<Item = IpcChannel>>(&mut self, channels: I) {
+        T::regs().send_cnf(self.number as usize).write(|w| {
+            for channel in channels {
+                w.0 |= channel.mask();
+            }
+        })
+    }
+
+    /// Configure the channels the event will listen on
+    pub fn configure_wait<I: IntoIterator<Item = IpcChannel>>(&mut self, channels: I) {
+        T::regs().receive_cnf(self.number as usize).write(|w| {
+            for channel in channels {
+                w.0 |= channel.mask();
+            }
+        });
+    }
+
+    /// Get the task for the IPC event to use with PPI.
+    pub fn task(&self) -> ppi::Task<'d> {
+        let nr = self.number as usize;
+        let regs = T::regs();
+        ppi::Task::from_reg(regs.tasks_send(nr))
+    }
+
+    /// Get the event for the IPC event to use with PPI.
+    pub fn event(&self) -> ppi::Event<'d> {
+        let nr = self.number as usize;
+        let regs = T::regs();
+        ppi::Event::from_reg(regs.events_receive(nr))
+    }
+
+    /// Reborrow into a "child" Event.
+    ///
+    /// `self` will stay borrowed until the child Event is dropped.
+    pub fn reborrow(&mut self) -> Event<'_, T> {
+        Self { ..*self }
+    }
+
+    /// Steal an IPC event by number.
+    ///
+    /// # Safety
+    ///
+    /// The event number must not be in use by another [`Event`].
+    pub unsafe fn steal(number: EventNumber) -> Self {
+        Self {
+            number,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+/// A handle that can trigger an IPC event.
+///
+/// This `struct` is returned by [`Event::trigger_handle`].
+#[derive(Debug, Copy, Clone)]
+pub struct EventTrigger<'d, T: Instance> {
+    number: EventNumber,
+    _phantom: PhantomData<&'d T>,
+}
+
+impl<T: Instance> EventTrigger<'_, T> {
+    /// Trigger the event.
+    pub fn trigger(&self) {
+        let nr = self.number;
+        T::regs().tasks_send(nr as usize).write_value(1);
+    }
+
+    /// Returns the [`EventNumber`] of the event.
+    pub fn number(&self) -> EventNumber {
+        self.number
+    }
 }
 
 pub(crate) struct State {
-    wakers: [AtomicWaker; 16],
+    wakers: [AtomicWaker; EVENT_COUNT],
 }
 
 impl State {
     pub(crate) const fn new() -> Self {
-        const WAKER: AtomicWaker = AtomicWaker::new();
-
-        Self { wakers: [WAKER; 16] }
-    }
-
-    const fn waker_for(&self, ev: IpcEvent) -> &AtomicWaker {
-        match ev {
-            IpcEvent::Event0 => &self.wakers[0],
-            IpcEvent::Event1 => &self.wakers[1],
-            IpcEvent::Event2 => &self.wakers[2],
-            IpcEvent::Event3 => &self.wakers[3],
-            IpcEvent::Event4 => &self.wakers[4],
-            IpcEvent::Event5 => &self.wakers[5],
-            IpcEvent::Event6 => &self.wakers[6],
-            IpcEvent::Event7 => &self.wakers[7],
-            IpcEvent::Event8 => &self.wakers[8],
-            IpcEvent::Event9 => &self.wakers[9],
-            IpcEvent::Event10 => &self.wakers[10],
-            IpcEvent::Event11 => &self.wakers[11],
-            IpcEvent::Event12 => &self.wakers[12],
-            IpcEvent::Event13 => &self.wakers[13],
-            IpcEvent::Event14 => &self.wakers[14],
-            IpcEvent::Event15 => &self.wakers[15],
+        Self {
+            wakers: [const { AtomicWaker::new() }; EVENT_COUNT],
         }
     }
 }
@@ -336,7 +339,7 @@ pub(crate) trait SealedInstance {
 
 /// IPC peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: PeripheralType + SealedInstance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
