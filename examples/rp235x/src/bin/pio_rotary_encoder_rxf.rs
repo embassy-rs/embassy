@@ -88,8 +88,8 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         Self { sm }
     }
 
-    pub async fn read(&mut self) -> u32 {
-        self.sm.get_rxf_entry(0)
+    pub async fn read(&mut self) -> i32 {
+        self.sm.get_rxf_entry(0) as i32
     }
 }
 
