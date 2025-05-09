@@ -11,7 +11,7 @@ documentation = "https://docs.embassy.dev/embassy-net-adin1110"
 
 [dependencies]
 heapless = "0.8"
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4", default-features = false, optional = true }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
@@ -29,7 +29,7 @@ critical-section = { version = "1.1.2", features = ["std"] }
 futures-test = "0.3.28"
 
 [features]
-defmt = [ "dep:defmt", "embedded-hal-1/defmt-03" ]
+defmt = ["dep:defmt", "embedded-hal-1/defmt-03"]
 log = ["dep:log"]
 
 [package.metadata.embassy_docs]
