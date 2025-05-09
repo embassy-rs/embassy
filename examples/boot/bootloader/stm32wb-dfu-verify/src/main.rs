@@ -62,7 +62,7 @@ fn main() -> ! {
         let mut config_descriptor = [0; 256];
         let mut bos_descriptor = [0; 256];
         let mut control_buf = [0; 4096];
-        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, PUBLIC_SIGNING_KEY);
+        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate, PUBLIC_SIGNING_KEY);
         let mut builder = Builder::new(
             driver,
             config,

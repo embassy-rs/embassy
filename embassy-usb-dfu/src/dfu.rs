@@ -18,7 +18,7 @@ pub struct Control<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_S
     status: Status,
     offset: usize,
     buf: AlignedBuffer<BLOCK_SIZE>,
-    _rst: PhantomData<RST>,
+    reset: RST,
 
     #[cfg(feature = "_verify")]
     public_key: &'static [u8; 32],
@@ -29,6 +29,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Co
     pub fn new(
         updater: BlockingFirmwareUpdater<'d, DFU, STATE>,
         attrs: DfuAttributes,
+        reset: RST,
         #[cfg(feature = "_verify")] public_key: &'static [u8; 32],
     ) -> Self {
         Self {
@@ -38,7 +39,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Co
             status: Status::Ok,
             offset: 0,
             buf: AlignedBuffer([0; BLOCK_SIZE]),
-            _rst: PhantomData,
+            reset,
 
             #[cfg(feature = "_verify")]
             public_key,
