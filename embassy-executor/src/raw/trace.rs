@@ -81,7 +81,131 @@
 
 #![allow(unused)]
 
-use crate::raw::{SyncExecutor, TaskRef};
+use core::cell::UnsafeCell;
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+
+use rtos_trace::TaskInfo;
+
+use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
+use crate::spawner::{SpawnError, SpawnToken, Spawner};
+
+/// Global task tracker instance
+///
+/// This static provides access to the global task tracker which maintains
+/// a list of all tasks in the system. It's automatically updated by the
+/// task lifecycle hooks in the trace module.
+pub static TASK_TRACKER: TaskTracker = TaskTracker::new();
+
+/// A thread-safe tracker for all tasks in the system
+///
+/// This struct uses an intrusive linked list approach to track all tasks
+/// without additional memory allocations. It maintains a global list of
+/// tasks that can be traversed to find all currently existing tasks.
+pub struct TaskTracker {
+    head: AtomicPtr<TaskHeader>,
+}
+
+impl TaskTracker {
+    /// Creates a new empty task tracker
+    ///
+    /// Initializes a tracker with no tasks in its list.
+    pub const fn new() -> Self {
+        Self {
+            head: AtomicPtr::new(core::ptr::null_mut()),
+        }
+    }
+
+    /// Adds a task to the tracker
+    ///
+    /// This method inserts a task at the head of the intrusive linked list.
+    /// The operation is thread-safe and lock-free, using atomic operations
+    /// to ensure consistency even when called from different contexts.
+    ///
+    /// # Arguments
+    /// * `task` - The task reference to add to the tracker
+    pub fn add(&self, task: TaskRef) {
+        let task_ptr = task.as_ptr() as *mut TaskHeader;
+
+        loop {
+            let current_head = self.head.load(Ordering::Acquire);
+            unsafe {
+                (*task_ptr).all_tasks_next.store(current_head, Ordering::Relaxed);
+            }
+
+            if self
+                .head
+                .compare_exchange(current_head, task_ptr, Ordering::Release, Ordering::Relaxed)
+                .is_ok()
+            {
+                break;
+            }
+        }
+    }
+
+    /// Performs an operation on each task in the tracker
+    ///
+    /// This method traverses the entire list of tasks and calls the provided
+    /// function for each task. This allows inspecting or processing all tasks
+    /// in the system without modifying the tracker's structure.
+    ///
+    /// # Arguments
+    /// * `f` - A function to call for each task in the tracker
+    pub fn for_each<F>(&self, mut f: F)
+    where
+        F: FnMut(TaskRef),
+    {
+        let mut current = self.head.load(Ordering::Acquire);
+        while !current.is_null() {
+            let task = unsafe { TaskRef::from_ptr(current) };
+            f(task);
+
+            current = unsafe { (*current).all_tasks_next.load(Ordering::Acquire) };
+        }
+    }
+}
+
+/// Extension trait for `TaskRef` that provides tracing functionality.
+///
+/// This trait is only available when the `trace` feature is enabled.
+/// It extends `TaskRef` with methods for accessing and modifying task identifiers
+/// and names, which are useful for debugging, logging, and performance analysis.
+pub trait TaskRefTrace {
+    /// Get the name for a task
+    fn name(&self) -> Option<&'static str>;
+
+    /// Set the name for a task
+    fn set_name(&self, name: Option<&'static str>);
+
+    /// Get the ID for a task
+    fn id(&self) -> u32;
+
+    /// Set the ID for a task
+    fn set_id(&self, id: u32);
+}
+
+impl TaskRefTrace for TaskRef {
+    fn name(&self) -> Option<&'static str> {
+        self.header().name
+    }
+
+    fn set_name(&self, name: Option<&'static str>) {
+        unsafe {
+            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
+            (*header_ptr).name = name;
+        }
+    }
+
+    fn id(&self) -> u32 {
+        self.header().id
+    }
+
+    fn set_id(&self, id: u32) {
+        unsafe {
+            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
+            (*header_ptr).id = id;
+        }
+    }
+}
 
 #[cfg(not(feature = "rtos-trace"))]
 extern "Rust" {
@@ -160,6 +284,9 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
 
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_new(task.as_ptr() as u32);
+
+    #[cfg(feature = "rtos-trace")]
+    TASK_TRACKER.add(*task);
 }
 
 #[inline]
@@ -210,10 +337,62 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
     rtos_trace::trace::system_idle();
 }
 
+/// Returns an iterator over all active tasks in the system
+///
+/// This function provides a convenient way to iterate over all tasks
+/// that are currently tracked in the system. The returned iterator
+/// yields each task in the global task tracker.
+///
+/// # Returns
+/// An iterator that yields `TaskRef` items for each task
+fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
+    struct TaskIterator<'a> {
+        tracker: &'a TaskTracker,
+        current: *mut TaskHeader,
+    }
+
+    impl<'a> Iterator for TaskIterator<'a> {
+        type Item = TaskRef;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.current.is_null() {
+                return None;
+            }
+
+            let task = unsafe { TaskRef::from_ptr(self.current) };
+            self.current = unsafe { (*self.current).all_tasks_next.load(Ordering::Acquire) };
+
+            Some(task)
+        }
+    }
+
+    TaskIterator {
+        tracker: &TASK_TRACKER,
+        current: TASK_TRACKER.head.load(Ordering::Acquire),
+    }
+}
+
+/// Perform an action on each active task
+fn with_all_active_tasks<F>(f: F)
+where
+    F: FnMut(TaskRef),
+{
+    TASK_TRACKER.for_each(f);
+}
+
 #[cfg(feature = "rtos-trace")]
 impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
     fn task_list() {
-        // We don't know what tasks exist, so we can't send them.
+        with_all_active_tasks(|task| {
+            let name = task.name().unwrap_or("unnamed task\0");
+            let info = rtos_trace::TaskInfo {
+                name,
+                priority: 0,
+                stack_base: 0,
+                stack_size: 0,
+            };
+            rtos_trace::trace::task_send_info(task.id(), info);
+        });
     }
     fn time() -> u64 {
         const fn gcd(a: u64, b: u64) -> u64 {
