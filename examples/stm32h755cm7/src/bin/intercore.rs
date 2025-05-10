@@ -2,7 +2,6 @@
 #![no_main]
 
 use core::mem::MaybeUninit;
-
 use cortex_m::asm;
 use cortex_m::peripheral::{MPU, SCB};
 use defmt::*;
