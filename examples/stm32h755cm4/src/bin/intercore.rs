@@ -96,6 +96,7 @@ mod shared {
 }
 
 use core::mem::MaybeUninit;
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
