@@ -1,4 +1,33 @@
-//! External Interrupts (EXTI)
+//! # External Interrupts (EXTI)
+//!
+//! This module provides support for the STM32's External Interrupt (EXTI) functionality,
+//! which allows GPIO pins to trigger interrupts on rising edges, falling edges, or both.
+//!
+//! ## Feature Flags
+//!
+//! This module provides two feature flags for controlling EXTI functionality:
+//!
+//! - `exti`: Enables basic EXTI functionality with Embassy's async interrupt handlers.
+//!   Use this when working with async/await patterns in Embassy applications.
+//!
+//! - `exti-with-custom-handlers`: Enables EXTI functionality but disables Embassy's
+//!   built-in interrupt handlers. Use this when:
+//!     * Integrating with RTIC (Real-Time Interrupt-driven Concurrency) framework
+//!     * Using custom interrupt handlers defined in your application
+//!     * Using other interrupt-driven frameworks that manage their own interrupts
+//!     * Needing a synchronous/blocking API without async/await overhead
+//!
+//! ## Choosing the Right Feature
+//!
+//! - If you're using Embassy's async executor and want to use `async`/`await` with
+//!   EXTI (e.g., `wait_for_rising_edge().await`), use the standard `exti` feature.
+//!
+//! - If you're using RTIC or need direct control over the interrupts, enable the
+//!   `exti-with-custom-handlers` feature instead. This provides the `blocking` module
+//!   with a synchronous API that works well with interrupt handlers.
+//!
+//! Note that enabling `exti-with-custom-handlers` will prevent Embassy from registering
+//! its own interrupt handlers, so you must define them yourself in your application.
 use core::convert::Infallible;
 use core::future::Future;
 use core::marker::PhantomData;
@@ -7,11 +36,19 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{impl_peripheral, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
+pub use low_level::TriggerEdge;
 
 use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, Pull};
+#[cfg(not(feature = "exti-with-custom-handlers"))]
+use crate::interrupt;
+#[cfg(not(feature = "exti-with-custom-handlers"))]
 use crate::pac::exti::regs::Lines;
 use crate::pac::EXTI;
-use crate::{interrupt, pac, peripherals, Peri};
+use crate::{pac, peripherals, Peri};
+
+#[cfg(feature = "exti-with-custom-handlers")]
+pub mod blocking;
+mod low_level;
 
 const EXTI_COUNT: usize = 16;
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
@@ -44,6 +81,7 @@ fn exticr_regs() -> pac::afio::Afio {
     pac::AFIO
 }
 
+#[cfg(not(feature = "exti-with-custom-handlers"))]
 unsafe fn on_irq() {
     #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
     let bits = EXTI.pr(0).read().0;
@@ -74,8 +112,10 @@ unsafe fn on_irq() {
     crate::low_power::on_wakeup_irq();
 }
 
+#[cfg(not(feature = "exti-with-custom-handlers"))]
 struct BitIter(u32);
 
+#[cfg(not(feature = "exti-with-custom-handlers"))]
 impl Iterator for BitIter {
     type Item = u32;
 
@@ -133,7 +173,7 @@ impl<'d> ExtiInput<'d> {
     ///
     /// This returns immediately if the pin is already high.
     pub async fn wait_for_high(&mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false);
+        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), TriggerEdge::Rising);
         if self.is_high() {
             return;
         }
@@ -144,7 +184,7 @@ impl<'d> ExtiInput<'d> {
     ///
     /// This returns immediately if the pin is already low.
     pub async fn wait_for_low(&mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true);
+        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), TriggerEdge::Falling);
         if self.is_low() {
             return;
         }
@@ -155,19 +195,19 @@ impl<'d> ExtiInput<'d> {
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
     pub async fn wait_for_rising_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false).await
+        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), TriggerEdge::Rising).await
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
     pub async fn wait_for_falling_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true).await
+        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), TriggerEdge::Falling).await
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
     pub async fn wait_for_any_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true).await
+        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), TriggerEdge::Any).await
     }
 }
 
@@ -231,24 +271,8 @@ struct ExtiInputFuture<'a> {
 }
 
 impl<'a> ExtiInputFuture<'a> {
-    fn new(pin: u8, port: u8, rising: bool, falling: bool) -> Self {
-        critical_section::with(|_| {
-            let pin = pin as usize;
-            exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port));
-            EXTI.rtsr(0).modify(|w| w.set_line(pin, rising));
-            EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
-
-            // clear pending bit
-            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
-            EXTI.pr(0).write(|w| w.set_line(pin, true));
-            #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
-            {
-                EXTI.rpr(0).write(|w| w.set_line(pin, true));
-                EXTI.fpr(0).write(|w| w.set_line(pin, true));
-            }
-
-            cpu_regs().imr(0).modify(|w| w.set_line(pin, true));
-        });
+    fn new(pin: u8, port: u8, trigger_edge: TriggerEdge) -> Self {
+        low_level::configure_and_enable_exti(pin, port, trigger_edge);
 
         Self {
             pin,
@@ -259,10 +283,7 @@ impl<'a> ExtiInputFuture<'a> {
 
 impl<'a> Drop for ExtiInputFuture<'a> {
     fn drop(&mut self) {
-        critical_section::with(|_| {
-            let pin = self.pin as _;
-            cpu_regs().imr(0).modify(|w| w.set_line(pin, false));
-        });
+        low_level::disable_exti_interrupt(self.pin);
     }
 }
 
@@ -318,7 +339,7 @@ macro_rules! foreach_exti_irq {
 macro_rules! impl_irq {
     ($e:ident) => {
         #[allow(non_snake_case)]
-        #[cfg(feature = "rt")]
+        #[cfg(all(feature = "rt", not(feature = "exti-with-custom-handlers")))]
         #[interrupt]
         unsafe fn $e() {
             on_irq()
