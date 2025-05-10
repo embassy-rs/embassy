@@ -30,6 +30,9 @@ pub use hsi48::*;
 #[cfg_attr(stm32wba, path = "wba.rs")]
 mod _version;
 
+#[cfg(any(feature = "low-power", any(stm32wb)))]
+pub mod low_power;
+
 pub use _version::*;
 use stm32_metapac::RCC;
 

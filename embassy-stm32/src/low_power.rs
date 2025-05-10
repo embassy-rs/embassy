@@ -58,11 +58,10 @@ use core::arch::asm;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use cortex_m::peripheral::SCB;
-use embassy_executor::*;
-
 use crate::interrupt;
 use crate::time_driver::{get_driver, RtcDriver};
+use cortex_m::peripheral::SCB;
+use embassy_executor::*;
 
 const THREAD_PENDER: usize = usize::MAX;
 
@@ -98,8 +97,20 @@ pub(crate) unsafe fn on_wakeup_irq() {
 }
 
 /// Configure STOP mode with RTC.
+#[cfg(all(feature = "low-power", not(any(stm32wb))))]
 pub fn stop_with_rtc(rtc: &'static Rtc) {
     unsafe { EXECUTOR.as_mut().unwrap() }.stop_with_rtc(rtc)
+}
+
+/// Configure STOP mode with RTC and HSEM. The hardware semaphore is needed for configuring the coprocessor
+#[cfg(all(feature = "low-power", any(stm32wb)))]
+pub fn stop_with_rtc_and_hsem(
+    rtc: &'static Rtc,
+    hsem: &'static mut crate::hsem::HardwareSemaphore<'static, crate::peripherals::HSEM>,
+) {
+    let exec = unsafe { EXECUTOR.as_mut().unwrap() };
+    exec.set_hsem(hsem);
+    exec.stop_with_rtc(rtc)
 }
 
 /// Get whether the core is ready to enter the given stop mode.
@@ -124,10 +135,10 @@ pub enum StopMode {
     Stop2,
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wb))]
 use stm32_metapac::pwr::vals::Lpms;
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wb))]
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
@@ -152,6 +163,12 @@ pub struct Executor {
     not_send: PhantomData<*mut ()>,
     scb: SCB,
     time_driver: &'static RtcDriver,
+
+    #[cfg(all(feature = "low-power", any(stm32wb)))]
+    /// Special treatment of coprocessor requires a hardware semaphore
+    hsem: embassy_sync::blocking_mutex::NoopMutex<
+        core::cell::Cell<Option<&'static mut crate::hsem::HardwareSemaphore<'static, crate::peripherals::HSEM>>>,
+    >,
 }
 
 impl Executor {
@@ -165,6 +182,8 @@ impl Executor {
                 not_send: PhantomData,
                 scb: cortex_m::Peripherals::steal().SCB,
                 time_driver: get_driver(),
+                #[cfg(all(feature = "low-power", any(stm32wb)))]
+                hsem: embassy_sync::blocking_mutex::NoopMutex::new(core::cell::Cell::default()),
             });
 
             let executor = EXECUTOR.as_mut().unwrap();
@@ -176,6 +195,15 @@ impl Executor {
     unsafe fn on_wakeup_irq(&mut self) {
         self.time_driver.resume_time();
         trace!("low power: resume");
+    }
+
+    #[cfg(all(feature = "low-power", any(stm32wb)))]
+    pub(self) fn set_hsem(
+        &mut self,
+        hsem: &'static mut crate::hsem::HardwareSemaphore<'static, crate::peripherals::HSEM>,
+    ) {
+        assert!(self.hsem.lock(|x| x.replace(Some(hsem))).is_none());
+        trace!("low power: hsem configured");
     }
 
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
@@ -198,7 +226,17 @@ impl Executor {
 
     #[allow(unused_variables)]
     fn configure_stop(&mut self, stop_mode: StopMode) {
-        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0))]
+        #[cfg(all(feature = "low-power", any(stm32wb)))]
+        {
+            // Special treatment for MCUs with a coprocessor
+            unsafe {
+                self.hsem.lock_mut(|x| {
+                    crate::rcc::low_power::stm32wb_configure_clocks_enter_stop_mode(x.get_mut().as_mut().unwrap());
+                });
+            }
+        }
+
+        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wb))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
@@ -263,6 +301,15 @@ impl Executor {
                 executor.inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
+
+                #[cfg(all(feature = "low-power", any(stm32wb)))]
+                {
+                    // Special treatment for MCUs with a coprocessor
+                    self.hsem.lock_mut(|x|
+
+                    // Inentionally not calling from a critical section, as the critical section is handled internally
+                    crate::rcc::low_power::stm32wb_configure_clocks_exit_stop_mode(x.get_mut().as_mut().unwrap()));
+                }
             };
         }
     }
