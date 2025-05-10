@@ -49,12 +49,11 @@ overflow-checks = true # <-
 
 # cargo build/run --release
 [profile.release]
-codegen-units = 1
+codegen-units = 16
 debug = 2
 debug-assertions = false # <-
 incremental = false
-#lto = 'fat'
-#opt-level = 3 # <-
+opt-level = 3 # <-
 overflow-checks = false # <-
 
 # cargo test --release

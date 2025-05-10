@@ -4,7 +4,7 @@
 use core::mem::MaybeUninit;
 
 use cortex_m::asm;
-use cortex_m::peripheral::{MPU, SCB};
+use cortex_m::peripheral::MPU;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, SharedData};
@@ -102,7 +102,7 @@ mod shared {
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 // Function to configure MPU with your provided settings
-fn configure_mpu_non_cacheable(mpu: &mut MPU, _scb: &mut SCB) {
+fn configure_mpu_non_cacheable(mpu: &mut MPU) {
     // Ensure all operations complete before reconfiguring MPU/caches
     asm::dmb();
     unsafe {
@@ -147,11 +147,19 @@ async fn main(_spawner: Spawner) -> ! {
     // Configure MPU to make SRAM4 non-cacheable
     {
         let mut cp = cortex_m::Peripherals::take().unwrap();
-        let mpu = &mut cp.MPU;
         let scb = &mut cp.SCB;
 
-        // Configure MPU without disabling caches
-        configure_mpu_non_cacheable(mpu, scb);
+        scb.disable_icache();
+        scb.disable_dcache(&mut cp.CPUID);
+
+        // 2. MPU setup
+        configure_mpu_non_cacheable(&mut cp.MPU);
+
+        // 3. re-enable caches
+        scb.enable_icache();
+        scb.enable_dcache(&mut cp.CPUID);
+        asm::dsb();
+        asm::isb();
     }
 
     // Configure the clocks
