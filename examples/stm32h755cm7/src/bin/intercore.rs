@@ -48,6 +48,7 @@ mod shared {
 
         /// Get LED state using safe bit operations
         #[inline(never)]
+        #[allow(dead_code)]
         pub fn get_led(&self, is_green: bool) -> bool {
             let bit = if is_green { GREEN_LED_BIT } else { YELLOW_LED_BIT };
 
@@ -69,6 +70,7 @@ mod shared {
 
         /// Get counter without incrementing
         #[inline(never)]
+        #[allow(dead_code)]
         pub fn get_counter(&self) -> u32 {
             let value = self.counter.load(Ordering::SeqCst);
             core::sync::atomic::compiler_fence(Ordering::SeqCst);
@@ -144,7 +146,7 @@ fn configure_mpu_non_cacheable(mpu: &mut MPU, _scb: &mut SCB) {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) -> ! {
+async fn main(_spawner: Spawner) -> ! {
     // Configure MPU to make SRAM4 non-cacheable
     {
         let mut cp = cortex_m::Peripherals::take().unwrap();
