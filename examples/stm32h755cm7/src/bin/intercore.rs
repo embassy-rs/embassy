@@ -75,7 +75,7 @@ mod shared {
             value
         }
     }
-    
+
     #[link_section = ".ram_d3"]
     pub static SHARED_LED_STATE: SharedLedState = SharedLedState::new();
 
@@ -93,8 +93,8 @@ use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 // Import cortex_m for MPU configuration
-use cortex_m::peripheral::{MPU, SCB};
 use cortex_m::asm;
+use cortex_m::peripheral::{MPU, SCB};
 
 // Use our shared state from the module
 use shared::{SHARED_LED_STATE, SRAM4_BASE_ADDRESS, SRAM4_REGION_NUMBER, SRAM4_SIZE_LOG2};
@@ -116,8 +116,7 @@ fn configure_mpu_non_cacheable(mpu: &mut MPU, _scb: &mut SCB) {
 
         // Set base address (SRAM4 = 0x38000000) with VALID bit and region number
         mpu.rbar.write(
-            SRAM4_BASE_ADDRESS |
-                (1 << 4)            // Region number = 0 (explicit in RBAR)
+            SRAM4_BASE_ADDRESS | (1 << 4), // Region number = 0 (explicit in RBAR)
         );
 
         // Configure region attributes:
@@ -129,7 +128,7 @@ fn configure_mpu_non_cacheable(mpu: &mut MPU, _scb: &mut SCB) {
             (1 << 0) |                                // ENABLE=1
             (3 << 24) |                               // AP=3 (Full access)
             (1 << 19) |                               // TEX=1
-            (1 << 18);                                // S=1 (Shareable)
+            (1 << 18); // S=1 (Shareable)
 
         mpu.rasr.write(rasr_value);
 
@@ -151,7 +150,7 @@ async fn main(spawner: Spawner) -> ! {
         let mut cp = cortex_m::Peripherals::take().unwrap();
         let mpu = &mut cp.MPU;
         let scb = &mut cp.SCB;
-        
+
         // Configure MPU without disabling caches
         configure_mpu_non_cacheable(mpu, scb);
     }
@@ -190,9 +189,9 @@ async fn main(spawner: Spawner) -> ! {
     info!("CM7: Magic value = 0x{:X}", magic);
 
     // Initialize shared memory state
-    SHARED_LED_STATE.set_led(true, false);  // Green LED off
+    SHARED_LED_STATE.set_led(true, false); // Green LED off
     SHARED_LED_STATE.set_led(false, false); // Yellow LED off
-    
+
     // Main loop - update shared memory values
     let mut green_state = false;
     let mut yellow_state = false;

@@ -120,9 +120,9 @@ async fn main(spawner: Spawner) -> ! {
     info!("CM4: Magic value = 0x{:X}", magic);
 
     // Initialize LEDs
-    let mut green_led = Output::new(p.PB0, Level::Low, Speed::Low);   // LD1
-    let mut yellow_led = Output::new(p.PE1, Level::Low, Speed::Low);  // LD2
-    let red_led = Output::new(p.PB14, Level::Low, Speed::Low);        // LD3 (heartbeat)
+    let mut green_led = Output::new(p.PB0, Level::Low, Speed::Low); // LD1
+    let mut yellow_led = Output::new(p.PE1, Level::Low, Speed::Low); // LD2
+    let red_led = Output::new(p.PB14, Level::Low, Speed::Low); // LD3 (heartbeat)
 
     // Start heartbeat task
     unwrap!(spawner.spawn(blink_heartbeat(red_led)));
