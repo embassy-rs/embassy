@@ -1,6 +1,17 @@
 #![no_std]
 #![no_main]
 
+use core::mem::MaybeUninit;
+
+use cortex_m::asm;
+use cortex_m::peripheral::{MPU, SCB};
+use defmt::*;
+use embassy_executor::Spawner;
+use embassy_stm32::{Config, SharedData};
+use embassy_time::Timer;
+use shared::{SHARED_LED_STATE, SRAM4_BASE_ADDRESS, SRAM4_REGION_NUMBER, SRAM4_SIZE_LOG2};
+use {defmt_rtt as _, panic_probe as _};
+
 mod shared {
     use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -86,20 +97,6 @@ mod shared {
     pub const SRAM4_SIZE_LOG2: u32 = 15; // 64KB = 2^(15+1)
     pub const SRAM4_REGION_NUMBER: u8 = 0; // MPU region number to use
 }
-
-use core::mem::MaybeUninit;
-use defmt::*;
-use embassy_executor::Spawner;
-use embassy_stm32::{Config, SharedData};
-use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
-
-// Import cortex_m for MPU configuration
-use cortex_m::asm;
-use cortex_m::peripheral::{MPU, SCB};
-
-// Use our shared state from the module
-use shared::{SHARED_LED_STATE, SRAM4_BASE_ADDRESS, SRAM4_REGION_NUMBER, SRAM4_SIZE_LOG2};
 
 #[link_section = ".ram_d3"]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
