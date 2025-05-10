@@ -31,6 +31,7 @@ mod shared {
 
         /// Set LED state using safe bit operations
         #[inline(never)]
+        #[allow(dead_code)]
         pub fn set_led(&self, is_green: bool, state: bool) {
             let bit = if is_green { GREEN_LED_BIT } else { YELLOW_LED_BIT };
 
@@ -60,6 +61,7 @@ mod shared {
 
         /// Increment counter safely
         #[inline(never)]
+        #[allow(dead_code)]
         pub fn increment_counter(&self) -> u32 {
             let current = self.counter.load(Ordering::SeqCst);
             let new_value = current.wrapping_add(1);
@@ -79,11 +81,6 @@ mod shared {
 
     #[link_section = ".ram_d3"]
     pub static SHARED_LED_STATE: SharedLedState = SharedLedState::new();
-
-    // SRAM4 memory region constants for MPU configuration
-    pub const SRAM4_BASE_ADDRESS: u32 = 0x38000000;
-    pub const SRAM4_SIZE_LOG2: u32 = 15; // 64KB = 2^(15+1)
-    pub const SRAM4_REGION_NUMBER: u8 = 0; // MPU region number to use
 }
 
 use core::mem::MaybeUninit;
