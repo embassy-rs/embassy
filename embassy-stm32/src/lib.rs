@@ -44,6 +44,8 @@ pub mod mode {
 // Always-present hardware
 pub mod dma;
 pub mod gpio;
+#[cfg(any(stm32f1, stm32f4, stm32l0, stm32h7))]
+pub mod pwr;
 pub mod rcc;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
