@@ -1,13 +1,18 @@
-//! # Overclocking the RP2040 to 200 MHz manually
+//! # Overclocking the RP2350 to 200 MHz
 //!
-//! This example demonstrates how to manually configure the RP2040 to run at 200 MHz.
+//! This example demonstrates how to configure the RP2350 to run at 200 MHz instead of the default 150 MHz.
+//!
+//! ## Note
+//!
+//! As of yet there is no official support for running the RP235x at higher clock frequencies and/or other core voltages than the default.
+//! Doing so may cause unexpected behavior and/or damage the chip.
 
 #![no_std]
 #![no_main]
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::clocks::{clk_sys_freq, core_voltage, ClockConfig, CoreVoltage, PllConfig};
+use embassy_rp::clocks::{clk_sys_freq, core_voltage, ClockConfig, CoreVoltage};
 use embassy_rp::config::Config;
 use embassy_rp::gpio::{Level, Output};
 use embassy_time::{Duration, Instant, Timer};
@@ -15,30 +20,18 @@ use {defmt_rtt as _, panic_probe as _};
 
 const COUNT_TO: i64 = 10_000_000;
 
-/// Configure the RP2040 for 200 MHz operation by manually specifying the PLL settings.
-fn configure_manual_overclock() -> Config {
-    // Set the PLL configuration manually, starting from default values
-    let mut config = Config::default();
-
-    // Set the system clock to 200 MHz
-    config.clocks = ClockConfig::manual_pll(
-        12_000_000, // Crystal frequency, 12 MHz is common. If using custom, set to your value.
-        PllConfig {
-            refdiv: 1,    // Reference divider
-            fbdiv: 100,   // Feedback divider
-            post_div1: 3, // Post divider 1
-            post_div2: 2, // Post divider 2
-        },
-        CoreVoltage::V1_15, // Core voltage, should be set to V1_15 for 200 MHz
-    );
-
-    config
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    // Initialize with our manual overclock configuration
-    let p = embassy_rp::init(configure_manual_overclock());
+    // Set up for clock frequency of 200 MHz, setting all necessary defaults.
+    let mut config = Config::new(ClockConfig::system_freq(200_000_000));
+
+    // since for the rp235x there is no official support for higher clock frequencies, `system_freq()` will not set a voltage for us.
+    // We need to guess the core voltage, that is needed for the higher clock frequency. Going with a small increase from the default 1.1V here, based on
+    // what we know about the RP2040. This is not guaranteed to be correct.
+    config.clocks.core_voltage = CoreVoltage::V1_15;
+
+    // Initialize the peripherals
+    let p = embassy_rp::init(config);
 
     // Show CPU frequency for verification
     let sys_freq = clk_sys_freq();

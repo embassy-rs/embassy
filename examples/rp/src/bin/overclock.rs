@@ -7,7 +7,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::clocks::{clk_sys_freq, ClockConfig};
+use embassy_rp::clocks::{clk_sys_freq, core_voltage, ClockConfig};
 use embassy_rp::config::Config;
 use embassy_rp::gpio::{Level, Output};
 use embassy_time::{Duration, Instant, Timer};
@@ -20,15 +20,15 @@ async fn main(_spawner: Spawner) -> ! {
     // Set up for clock frequency of 200 MHz, setting all necessary defaults.
     let config = Config::new(ClockConfig::system_freq(200_000_000));
 
-    // Show the voltage scale for verification
-    info!("System core voltage: {}", Debug2Format(&config.clocks.core_voltage));
-
     // Initialize the peripherals
     let p = embassy_rp::init(config);
 
     // Show CPU frequency for verification
     let sys_freq = clk_sys_freq();
     info!("System clock frequency: {} MHz", sys_freq / 1_000_000);
+    // Show core voltage for verification
+    let core_voltage = core_voltage().unwrap();
+    info!("Core voltage: {}", Debug2Format(&core_voltage));
 
     // LED to indicate the system is running
     let mut led = Output::new(p.PIN_25, Level::Low);

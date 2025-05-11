@@ -38,7 +38,7 @@
 //!
 //! ## Examples
 //!
-//! ### Standard 125MHz configuration
+//! ### Standard 125MHz (rp2040) or 150Mhz (rp235x) configuration
 //! ```rust,ignore
 //! let config = ClockConfig::crystal(12_000_000);
 //! ```
@@ -136,43 +136,152 @@ pub enum PeriClkSrc {
     // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
 
-/// Core voltage regulator settings for RP2040.
+/// Core voltage regulator settings.
 ///
-/// The RP2040 voltage regulator can be configured for different output voltages.
+/// The voltage regulator can be configured for different output voltages.
 /// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
-#[cfg(feature = "rp2040")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum CoreVoltage {
-    /// 0.80V - Suitable for lower frequencies
+    // RP2040 voltage levels
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 0.80V
     V0_80 = 0b0000,
-    /// 0.85V
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 0.85V
     V0_85 = 0b0110,
-    /// 0.90V
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 0.90V
     V0_90 = 0b0111,
-    /// 0.95V
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 0.95V
     V0_95 = 0b1000,
-    /// 1.00V
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 1.00V
     V1_00 = 0b1001,
-    /// 1.05V
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 1.05V
     V1_05 = 0b1010,
-    /// 1.10V - Default voltage level
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 1.10V - Default voltage level
     V1_10 = 0b1011,
-    /// 1.15V - Required for overclocking to 133-200MHz
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 1.15V - Required for overclocking to 133-200MHz
     V1_15 = 0b1100,
-    /// 1.20V
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 1.20V
     V1_20 = 0b1101,
-    /// 1.25V
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 1.25V
     V1_25 = 0b1110,
-    /// 1.30V
+    #[cfg(feature = "rp2040")]
+    /// RP2040: 1.30V
     V1_30 = 0b1111,
+
+    // RP235x voltage levels
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 0.55V
+    V0_55 = 0b00000,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 0.60V
+    V0_60 = 0b00001,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 0.65V
+    V0_65 = 0b00010,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 0.70V
+    V0_70 = 0b00011,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 0.75V
+    V0_75 = 0b00100,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 0.80V
+    V0_80 = 0b00101,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 0.85V
+    V0_85 = 0b00110,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 0.90V
+    V0_90 = 0b00111,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 0.95V
+    V0_95 = 0b01000,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.00V
+    V1_00 = 0b01001,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.05V
+    V1_05 = 0b01010,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.10V - Default voltage level
+    V1_10 = 0b01011,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.15V
+    V1_15 = 0b01100,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.20V
+    V1_20 = 0b01101,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.25V
+    V1_25 = 0b01110,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.30V
+    V1_30 = 0b01111,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.35V
+    V1_35 = 0b10000,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.40V
+    V1_40 = 0b10001,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.50V
+    V1_50 = 0b10010,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.60V
+    V1_60 = 0b10011,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.65V
+    V1_65 = 0b10100,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.70V
+    V1_70 = 0b10101,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.80V
+    V1_80 = 0b10110,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 1.90V
+    V1_90 = 0b10111,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 2.00V
+    V2_00 = 0b11000,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 2.35V
+    V2_35 = 0b11001,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 2.50V
+    V2_50 = 0b11010,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 2.65V
+    V2_65 = 0b11011,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 2.80V
+    V2_80 = 0b11100,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 3.00V
+    V3_00 = 0b11101,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 3.15V
+    V3_15 = 0b11110,
+    #[cfg(feature = "_rp235x")]
+    /// RP235x: 3.30V
+    V3_30 = 0b11111,
 }
 
-#[cfg(feature = "rp2040")]
 impl CoreVoltage {
     /// Get the recommended Brown-Out Detection (BOD) setting for this voltage.
     /// Sets the BOD threshold to approximately 80% of the core voltage.
     fn recommended_bod(self) -> u8 {
+        #[cfg(feature = "rp2040")]
         match self {
             CoreVoltage::V0_80 => 0b0100, // 0.645V (~81% of 0.80V)
             CoreVoltage::V0_85 => 0b0101, // 0.688V (~81% of 0.85V)
@@ -180,11 +289,37 @@ impl CoreVoltage {
             CoreVoltage::V0_95 => 0b0111, // 0.774V (~81% of 0.95V)
             CoreVoltage::V1_00 => 0b1000, // 0.817V (~82% of 1.00V)
             CoreVoltage::V1_05 => 0b1000, // 0.817V (~78% of 1.05V)
-            CoreVoltage::V1_10 => 0b1001, // 0.860V (~78% of 1.10V)
+            CoreVoltage::V1_10 => 0b1001, // 0.860V (~78% of 1.10V), the default
             CoreVoltage::V1_15 => 0b1010, // 0.903V (~79% of 1.15V)
             CoreVoltage::V1_20 => 0b1011, // 0.946V (~79% of 1.20V)
             CoreVoltage::V1_25 => 0b1100, // 0.989V (~79% of 1.25V)
             CoreVoltage::V1_30 => 0b1101, // 1.032V (~79% of 1.30V)
+        }
+        #[cfg(feature = "_rp235x")]
+        match self {
+            CoreVoltage::V0_55 => 0b00001, // 0.516V (~94% of 0.55V)
+            CoreVoltage::V0_60 => 0b00010, // 0.559V (~93% of 0.60V)
+            CoreVoltage::V0_65 => 0b00011, // 0.602V (~93% of 0.65V)
+            CoreVoltage::V0_70 => 0b00011, // 0.602V (~86% of 0.70V)
+            CoreVoltage::V0_75 => 0b00100, // 0.645V (~86% of 0.75V)
+            CoreVoltage::V0_80 => 0b00101, // 0.688V (~86% of 0.80V)
+            CoreVoltage::V0_85 => 0b00110, // 0.731V (~86% of 0.85V)
+            CoreVoltage::V0_90 => 0b00110, // 0.731V (~81% of 0.90V)
+            CoreVoltage::V0_95 => 0b00111, // 0.774V (~81% of 0.95V)
+            CoreVoltage::V1_00 => 0b01000, // 0.817V (~82% of 1.00V)
+            CoreVoltage::V1_05 => 0b01000, // 0.817V (~78% of 1.05V)
+            CoreVoltage::V1_10 => 0b01001, // 0.860V (~78% of 1.10V), the default
+            CoreVoltage::V1_15 => 0b01001, // 0.860V (~75% of 1.15V)
+            CoreVoltage::V1_20 => 0b01010, // 0.903V (~75% of 1.20V)
+            CoreVoltage::V1_25 => 0b01010, // 0.903V (~72% of 1.25V)
+            CoreVoltage::V1_30 => 0b01011, // 0.946V (~73% of 1.30V)
+            CoreVoltage::V1_35 => 0b01011, // 0.946V (~70% of 1.35V)
+            CoreVoltage::V1_40 => 0b01100, // 0.989V (~71% of 1.40V)
+            CoreVoltage::V1_50 => 0b01101, // 1.032V (~69% of 1.50V)
+            CoreVoltage::V1_60 => 0b01110, // 1.075V (~67% of 1.60V)
+            CoreVoltage::V1_65 => 0b01110, // 1.075V (~65% of 1.65V)
+            CoreVoltage::V1_70 => 0b01111, // 1.118V (~66% of 1.70V)
+            _ => 0b10000,                  // the rp2350 datasheet repeats this value for all other core voltages
         }
     }
 }
@@ -209,12 +344,10 @@ pub struct ClockConfig {
     /// RTC clock configuration.
     #[cfg(feature = "rp2040")]
     pub rtc_clk: Option<RtcClkConfig>,
-    /// Core voltage scaling (RP2040 only). Defaults to 1.10V.
-    #[cfg(feature = "rp2040")]
+    /// Core voltage scaling. Defaults to 1.10V.
     pub core_voltage: CoreVoltage,
     /// Voltage stabilization delay in microseconds.
     /// If not set, defaults will be used based on voltage level.
-    #[cfg(feature = "rp2040")]
     pub voltage_stabilization_delay_us: Option<u32>,
     // See above re gpin handling being commented out
     // gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
@@ -250,9 +383,7 @@ impl Default for ClockConfig {
             adc_clk: None,
             #[cfg(feature = "rp2040")]
             rtc_clk: None,
-            #[cfg(feature = "rp2040")]
             core_voltage: CoreVoltage::V1_10,
-            #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
             // See above re gpin handling being commented out
             // gpin0: None,
@@ -323,9 +454,7 @@ impl ClockConfig {
                 div_frac: 0,
                 phase: 0,
             }),
-            #[cfg(feature = "rp2040")]
             core_voltage: CoreVoltage::V1_10, // Use hardware default (1.10V)
-            #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
             // See above re gpin handling being commented out
             // gpin0: None,
@@ -368,9 +497,7 @@ impl ClockConfig {
                 div_frac: 171,
                 phase: 0,
             }),
-            #[cfg(feature = "rp2040")]
             core_voltage: CoreVoltage::V1_10, // Use hardware default (1.10V)
-            #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
             // See above re gpin handling being commented out
             // gpin0: None,
@@ -394,12 +521,17 @@ impl ClockConfig {
     /// the usual 12Mhz crystal, or panic if no valid parameters can be found.
     ///
     /// # Note on core voltage:
+    ///
+    /// **For RP2040**:
     /// To date the only officially documented core voltages (see Datasheet section 2.15.3.1. Instances) are:
     /// - Up to 133MHz: V1_10 (default)
     /// - Above 133MHz: V1_15, but in the context of the datasheet covering reaching up to 200Mhz
     /// That way all other frequencies below 133MHz or above 200MHz are not explicitly documented and not covered here.
     /// In case You want to go below 133MHz or above 200MHz and want a different voltage, You will have to set that manually and with caution.
-    #[cfg(feature = "rp2040")]
+    ///
+    /// **For RP235x**:
+    /// At this point in time there is no official manufacturer endorsement for running the chip on other core voltages and/or other clock speeds than the defaults.
+    /// Using this function is experimental and may not work as expected or even damage the chip.
     pub fn system_freq(hz: u32) -> Self {
         // Start with the standard configuration from crystal()
         const DEFAULT_CRYSTAL_HZ: u32 = 12_000_000;
@@ -407,7 +539,12 @@ impl ClockConfig {
 
         // No need to modify anything if target frequency is already 125MHz
         // (which is what crystal() configures by default)
+        #[cfg(feature = "rp2040")]
         if hz == 125_000_000 {
+            return config;
+        }
+        #[cfg(feature = "_rp235x")]
+        if hz == 150_000_000 {
             return config;
         }
 
@@ -426,6 +563,14 @@ impl ClockConfig {
         {
             config.core_voltage = match hz {
                 freq if freq > 133_000_000 => CoreVoltage::V1_15,
+                _ => CoreVoltage::V1_10, // Use default voltage (V1_10)
+            };
+        }
+        #[cfg(feature = "_rp235x")]
+        {
+            config.core_voltage = match hz {
+                // There is no official support for running the chip on other core voltages and/or other clock speeds than the defaults.
+                // So for now we have not way of knowing what the voltage should be. Change this if the manufacturer provides more information.
                 _ => CoreVoltage::V1_10, // Use default voltage (V1_10)
             };
         }
@@ -791,7 +936,6 @@ pub struct RtcClkConfig {
 /// // Find parameters for 133MHz system clock from 12MHz crystal
 /// let pll_params = find_pll_params(12_000_000, 133_000_000).unwrap();
 /// ```
-#[cfg(feature = "rp2040")]
 fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
     // Fixed reference divider for system PLL
     const PLL_SYS_REFDIV: u8 = 1;
@@ -925,18 +1069,59 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     };
     CLOCKS.rosc.store(rosc_freq, Ordering::Relaxed);
 
-    // Set Core Voltage (RP2040 only), if we have config for it and we're not using the default
-    #[cfg(feature = "rp2040")]
+    // Set Core Voltage, if we have config for it and we're not using the default
     {
         let voltage = config.core_voltage;
+
+        #[cfg(feature = "rp2040")]
         let vreg = pac::VREG_AND_CHIP_RESET;
+        #[cfg(feature = "_rp235x")]
+        let vreg = pac::POWMAN;
+
         let current_vsel = vreg.vreg().read().vsel();
         let target_vsel = voltage as u8;
 
         // If the target voltage is different from the current one, we need to change it
         if target_vsel != current_vsel {
-            // Use modify() to preserve the HIZ and EN bits - otherwise we will disable the regulator when changing voltage
-            vreg.vreg().modify(|w| w.set_vsel(target_vsel));
+            #[cfg(feature = "rp2040")]
+            {
+                // Use modify() to preserve the HIZ and EN bits - otherwise we will disable the regulator when changing voltage
+                vreg.vreg().modify(|w| w.set_vsel(target_vsel));
+            }
+            #[cfg(feature = "_rp235x")]
+            {
+                // The rp235x has a different way of controlling the voltage regulator
+                // Changes to the voltage regulator are protected by a password, see datasheet section 6.4
+                // The password is "5AFE" (0x5AFE), it must be set in the top 16 bits of the register
+
+                // The rp235x by default locks the voltage regulator control, so we need to unlock it first
+                // See datasheet section 6.3.2. Software Control
+                vreg.vreg_ctrl().modify(|w| {
+                    // Add password to top 16 bits, preserving the rest, repeat below for other registers
+                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16);
+                    w.set_unlock(true);
+                    *w
+                });
+
+                // Set the voltage
+                vreg.vreg().modify(|w| {
+                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16);
+                    w.set_vsel(target_vsel);
+                    *w
+                });
+
+                // The rp235x has two more registers to set the voltage for low power mode
+                vreg.vreg_lp_entry().modify(|w| {
+                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16);
+                    w.set_vsel(target_vsel);
+                    *w
+                });
+                vreg.vreg_lp_exit().modify(|w| {
+                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16);
+                    w.set_vsel(target_vsel);
+                    *w
+                });
+            }
 
             // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
             let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or_else(|| {
@@ -959,6 +1144,19 @@ pub(crate) unsafe fn init(config: ClockConfig) {
                 w.set_vsel(voltage.recommended_bod());
                 w.set_en(true); // Enable brownout detection
             });
+
+            #[cfg(feature = "_rp235x")]
+            {
+                // The rp235x has a separate register for the BOD level in low power mode
+                vreg.bod_lp_entry().write(|w| {
+                    w.set_vsel(voltage.recommended_bod());
+                    w.set_en(true); // Enable brownout detection
+                });
+                vreg.bod_lp_exit().write(|w| {
+                    w.set_vsel(voltage.recommended_bod());
+                    w.set_en(true); // Enable brownout detection
+                });
+            }
         }
     }
 
@@ -1281,6 +1479,73 @@ pub fn clk_adc_freq() -> u32 {
 #[cfg(feature = "rp2040")]
 pub fn clk_rtc_freq() -> u16 {
     CLOCKS.rtc.load(Ordering::Relaxed)
+}
+
+/// The core voltage of the chip.
+///
+/// Returns the current core voltage or an error if the voltage register
+/// contains an unknown value.
+pub fn core_voltage() -> Result<CoreVoltage, &'static str> {
+    #[cfg(feature = "rp2040")]
+    {
+        let vreg = pac::VREG_AND_CHIP_RESET;
+        let vsel = vreg.vreg().read().vsel();
+        match vsel {
+            0b0000 => Ok(CoreVoltage::V0_80),
+            0b0110 => Ok(CoreVoltage::V0_85),
+            0b0111 => Ok(CoreVoltage::V0_90),
+            0b1000 => Ok(CoreVoltage::V0_95),
+            0b1001 => Ok(CoreVoltage::V1_00),
+            0b1010 => Ok(CoreVoltage::V1_05),
+            0b1011 => Ok(CoreVoltage::V1_10),
+            0b1100 => Ok(CoreVoltage::V1_15),
+            0b1101 => Ok(CoreVoltage::V1_20),
+            0b1110 => Ok(CoreVoltage::V1_25),
+            0b1111 => Ok(CoreVoltage::V1_30),
+            _ => Err("Unexpected value in register"),
+        }
+    }
+
+    #[cfg(feature = "_rp235x")]
+    {
+        let vreg = pac::POWMAN;
+        let vsel = vreg.vreg().read().vsel();
+        match vsel {
+            0b00000 => Ok(CoreVoltage::V0_55),
+            0b00001 => Ok(CoreVoltage::V0_60),
+            0b00010 => Ok(CoreVoltage::V0_65),
+            0b00011 => Ok(CoreVoltage::V0_70),
+            0b00100 => Ok(CoreVoltage::V0_75),
+            0b00101 => Ok(CoreVoltage::V0_80),
+            0b00110 => Ok(CoreVoltage::V0_85),
+            0b00111 => Ok(CoreVoltage::V0_90),
+            0b01000 => Ok(CoreVoltage::V0_95),
+            0b01001 => Ok(CoreVoltage::V1_00),
+            0b01010 => Ok(CoreVoltage::V1_05),
+            0b01011 => Ok(CoreVoltage::V1_10),
+            0b01100 => Ok(CoreVoltage::V1_15),
+            0b01101 => Ok(CoreVoltage::V1_20),
+            0b01110 => Ok(CoreVoltage::V1_25),
+            0b01111 => Ok(CoreVoltage::V1_30),
+            0b10000 => Ok(CoreVoltage::V1_35),
+            0b10001 => Ok(CoreVoltage::V1_40),
+            0b10010 => Ok(CoreVoltage::V1_50),
+            0b10011 => Ok(CoreVoltage::V1_60),
+            0b10100 => Ok(CoreVoltage::V1_65),
+            0b10101 => Ok(CoreVoltage::V1_70),
+            0b10110 => Ok(CoreVoltage::V1_80),
+            0b10111 => Ok(CoreVoltage::V1_90),
+            0b11000 => Ok(CoreVoltage::V2_00),
+            0b11001 => Ok(CoreVoltage::V2_35),
+            0b11010 => Ok(CoreVoltage::V2_50),
+            0b11011 => Ok(CoreVoltage::V2_65),
+            0b11100 => Ok(CoreVoltage::V2_80),
+            0b11101 => Ok(CoreVoltage::V3_00),
+            0b11110 => Ok(CoreVoltage::V3_15),
+            0b11111 => Ok(CoreVoltage::V3_30),
+            _ => Err("Unexpected value in register"),
+        }
+    }
 }
 
 fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
