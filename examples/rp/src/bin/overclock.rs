@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) -> ! {
     info!("System clock frequency: {} MHz", sys_freq / 1_000_000);
     // Show core voltage for verification
     let core_voltage = core_voltage().unwrap();
-    info!("Core voltage: {}", Debug2Format(&core_voltage));
+    info!("Core voltage: {}", core_voltage);
 
     // LED to indicate the system is running
     let mut led = Output::new(p.PIN_25, Level::Low);
