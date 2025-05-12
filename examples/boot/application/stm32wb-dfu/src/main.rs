@@ -13,7 +13,7 @@ use embassy_stm32::usb::{self, Driver};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::Duration;
-use embassy_usb::Builder;
+use embassy_usb::{msos, Builder};
 use embassy_usb_dfu::consts::DfuAttributes;
 use embassy_usb_dfu::{usb_dfu, Control, ResetImmediate};
 use panic_reset as _;
@@ -21,6 +21,9 @@ use panic_reset as _;
 bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;
 });
+
+// This is a randomly generated GUID to allow clients on Windows to find our device
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321}"];
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -54,7 +57,26 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    usb_dfu(&mut builder, &mut state, Duration::from_millis(2500));
+    // We add MSOS headers so that the device automatically gets assigned the WinUSB driver on Windows.
+    // Otherwise users need to do this manually using a tool like Zadig.
+    builder.msos_descriptor(msos::windows_version::WIN8_1, 2);
+
+    // In the case of non-composite devices, it seems that feature headers need to be on the device level.
+    // (As is implemented here)
+    //
+    // For composite devices however, they should be on the function level instead.
+    // (This is achieved by passing a GUID to the "usb_dfu" function)
+    builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+    builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+        "DeviceInterfaceGUIDs",
+        msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+    ));
+
+    // For non-composite devices:
+    usb_dfu(&mut builder, &mut state, Duration::from_millis(2500), None);
+
+    // Or for composite devices:
+    // usb_dfu(&mut builder, &mut state, Duration::from_millis(2500), Some(DEVICE_INTERFACE_GUIDS));
 
     let mut dev = builder.build();
     dev.run().await

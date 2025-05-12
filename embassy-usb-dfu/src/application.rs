@@ -2,7 +2,7 @@ use embassy_boot::BlockingFirmwareState;
 use embassy_time::{Duration, Instant};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
 use embassy_usb::driver::Driver;
-use embassy_usb::{Builder, Handler};
+use embassy_usb::{msos, Builder, Handler};
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::consts::{
@@ -130,8 +130,22 @@ pub fn usb_dfu<'d, D: Driver<'d>, MARK: DfuMarker, RST: Reset>(
     builder: &mut Builder<'d, D>,
     handler: &'d mut Control<MARK, RST>,
     timeout: Duration,
+    winusb_guids: Option<&'d [&str]>,
 ) {
     let mut func = builder.function(0x00, 0x00, 0x00);
+    if let Some(winusb_guids) = winusb_guids {
+        // We add MSOS headers so that the device automatically gets assigned the WinUSB driver on Windows.
+        // Otherwise users need to do this manually using a tool like Zadig.
+        //
+        // Adding them here on the function level appears to only work for compositive devices though.
+        // For non-composite devices they should be placed on the device level instead.
+        func.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+        func.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+            "DeviceInterfaceGUIDs",
+            msos::PropertyData::RegMultiSz(winusb_guids),
+        ));
+    }
+
     let mut iface = func.interface();
     let mut alt = iface.alt_setting(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_RT, None);
     let timeout = timeout.as_millis() as u16;
