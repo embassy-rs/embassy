@@ -129,6 +129,15 @@ pub unsafe fn init() {
     {
         interrupt::TIMER0_IRQ_0.enable();
     }
+    #[cfg(all(feature = "_rp235x", feature = "timer-src-clk-sys"))]
+    {
+        // The PAC currently only defines `TIMER0` even though the RP2350 also has a `TIMER1`.
+        let timer_0 = TIMER0;
+        // Switch `SOURCE` to `CLK_SYS` (instead of 1 µs tick)
+        timer_0.source().write(|w| w.set_clk_sys(ClkSys::CLK_SYS));
+        // Lock configuration--`TIMER0` now read-only (until reset)
+        timer_0.locked().write(|w| w.set_locked(true));
+    }
 }
 
 #[cfg(all(feature = "rt", feature = "rp2040"))]
