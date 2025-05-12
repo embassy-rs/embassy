@@ -23,7 +23,7 @@ const COUNT_TO: i64 = 10_000_000;
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     // Set up for clock frequency of 200 MHz, setting all necessary defaults.
-    let mut config = Config::new(ClockConfig::system_freq(200_000_000));
+    let mut config = Config::new(ClockConfig::system_freq(200_000_000).unwrap());
 
     // since for the rp235x there is no official support for higher clock frequencies, `system_freq()` will not set a voltage for us.
     // We need to guess the core voltage, that is needed for the higher clock frequency. Going with a small increase from the default 1.1V here, based on

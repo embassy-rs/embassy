@@ -82,6 +82,18 @@ use crate::{pac, reset, Peri};
 // be very useful until we have runtime clock reconfiguration. once this
 // happens we can resurrect the commented-out gpin bits.
 
+/// Clock error types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ClockError {
+    /// PLL failed to lock within the timeout period.
+    PllLockTimedOut,
+    /// Could not find valid PLL parameters for system clock.
+    InvalidPllParameters,
+    /// Reading the core voltage failed due to an unexpected value in the register.
+    UnexpectedCoreVoltageRead,
+}
+
 struct Clocks {
     xosc: AtomicU32,
     sys: AtomicU32,
@@ -144,8 +156,9 @@ pub enum PeriClkSrc {
 /// **Note**: For RP235x the maximum voltage is 1.30V, unless unlocked by setting unless the voltage limit
 /// is disabled using the disable_voltage_limit field in the vreg_ctrl register. For lack of practical use at this
 /// point in time, this is not implemented here. So the maximum voltage in this enum is 1.30V for now.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CoreVoltage {
     // RP2040 voltage levels
     #[cfg(feature = "rp2040")]
@@ -468,7 +481,7 @@ impl ClockConfig {
     /// # Returns
     ///
     /// A ClockConfig configured to achieve the requested system frequency using the
-    /// the usual 12Mhz crystal, or panic if no valid parameters can be found.
+    /// the usual 12Mhz crystal, or an error if no valid parameters can be found.
     ///
     /// # Note on core voltage:
     ///
@@ -482,7 +495,11 @@ impl ClockConfig {
     /// **For RP235x**:
     /// At this point in time there is no official manufacturer endorsement for running the chip on other core voltages and/or other clock speeds than the defaults.
     /// Using this function is experimental and may not work as expected or even damage the chip.
-    pub fn system_freq(hz: u32) -> Self {
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either the configured ClockConfig or a ClockError.
+    pub fn system_freq(hz: u32) -> Result<Self, ClockError> {
         // Start with the standard configuration from crystal()
         const DEFAULT_CRYSTAL_HZ: u32 = 12_000_000;
         let mut config = Self::crystal(DEFAULT_CRYSTAL_HZ);
@@ -491,16 +508,15 @@ impl ClockConfig {
         // (which is what crystal() configures by default)
         #[cfg(feature = "rp2040")]
         if hz == 125_000_000 {
-            return config;
+            return Ok(config);
         }
         #[cfg(feature = "_rp235x")]
         if hz == 150_000_000 {
-            return config;
+            return Ok(config);
         }
 
         // Find optimal PLL parameters for the requested frequency
-        let sys_pll_params = find_pll_params(DEFAULT_CRYSTAL_HZ, hz)
-            .unwrap_or_else(|| panic!("Could not find valid PLL parameters for system clock"));
+        let sys_pll_params = find_pll_params(DEFAULT_CRYSTAL_HZ, hz).ok_or(ClockError::InvalidPllParameters)?;
 
         // Replace the sys_pll configuration with our custom parameters
         if let Some(xosc) = &mut config.xosc {
@@ -525,7 +541,7 @@ impl ClockConfig {
             };
         }
 
-        config
+        Ok(config)
     }
 
     /// Configure with manual PLL settings for full control over system clock
@@ -620,6 +636,7 @@ impl ClockConfig {
 #[repr(u16)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RoscRange {
     /// Low range.
     Low = pac::rosc::vals::FreqRange::LOW.0,
@@ -726,6 +743,7 @@ pub struct RefClkConfig {
 /// Reference clock source.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RefClkSrc {
     /// XOSC.
     Xosc,
@@ -741,6 +759,7 @@ pub enum RefClkSrc {
 /// SYS clock source.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SysClkSrc {
     /// REF.
     Ref,
@@ -779,6 +798,7 @@ pub struct SysClkConfig {
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UsbClkSrc {
     /// PLL USB.
     PllUsb = ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB as _,
@@ -807,6 +827,7 @@ pub struct UsbClkConfig {
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AdcClkSrc {
     /// PLL USB.
     PllUsb = ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB as _,
@@ -835,6 +856,7 @@ pub struct AdcClkConfig {
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(feature = "rp2040")]
 pub enum RtcClkSrc {
     /// PLL USB.
@@ -1084,14 +1106,20 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             let pll_sys_freq = match config.sys_pll {
                 Some(sys_pll_config) => match configure_pll(pac::PLL_SYS, config.hz, sys_pll_config) {
                     Ok(freq) => freq,
+                    #[cfg(feature = "defmt")]
                     Err(e) => panic!("Failed to configure PLL_SYS: {}", e),
+                    #[cfg(not(feature = "defmt"))]
+                    Err(_e) => panic!("Failed to configure PLL_SYS"),
                 },
                 None => 0,
             };
             let pll_usb_freq = match config.usb_pll {
                 Some(usb_pll_config) => match configure_pll(pac::PLL_USB, config.hz, usb_pll_config) {
                     Ok(freq) => freq,
+                    #[cfg(feature = "defmt")]
                     Err(e) => panic!("Failed to configure PLL_USB: {}", e),
+                    #[cfg(not(feature = "defmt"))]
+                    Err(_e) => panic!("Failed to configure PLL_USB"),
                 },
                 None => 0,
             };
@@ -1401,7 +1429,7 @@ pub fn clk_rtc_freq() -> u16 {
 ///
 /// Returns the current core voltage or an error if the voltage register
 /// contains an unknown value.
-pub fn core_voltage() -> Result<CoreVoltage, &'static str> {
+pub fn core_voltage() -> Result<CoreVoltage, ClockError> {
     #[cfg(feature = "rp2040")]
     {
         let vreg = pac::VREG_AND_CHIP_RESET;
@@ -1418,7 +1446,7 @@ pub fn core_voltage() -> Result<CoreVoltage, &'static str> {
             0b1101 => Ok(CoreVoltage::V1_20),
             0b1110 => Ok(CoreVoltage::V1_25),
             0b1111 => Ok(CoreVoltage::V1_30),
-            _ => Err("Unexpected value in register"),
+            _ => Err(ClockError::UnexpectedCoreVoltageRead),
         }
     }
 
@@ -1443,7 +1471,7 @@ pub fn core_voltage() -> Result<CoreVoltage, &'static str> {
             0b01101 => Ok(CoreVoltage::V1_20),
             0b01110 => Ok(CoreVoltage::V1_25),
             0b01111 => Ok(CoreVoltage::V1_30),
-            _ => Err("Unexpected value in register"),
+            _ => Err(ClockError::UnexpectedCoreVoltageRead),
             // see CoreVoltage: we do not support setting Voltages higher than 1.30V at this point
         }
     }
@@ -1461,7 +1489,7 @@ fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
 
 /// PLL (Phase-Locked Loop) configuration
 #[inline(always)]
-fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result<u32, &'static str> {
+fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result<u32, ClockError> {
     // Calculate reference frequency
     let ref_freq = input_freq / config.refdiv as u32;
 
@@ -1532,7 +1560,7 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result
         timeout -= 1;
         if timeout == 0 {
             // PLL failed to lock, return 0 to indicate failure
-            return Err("PLL failed to lock");
+            return Err(ClockError::PllLockTimedOut);
         }
     }
 
@@ -2103,21 +2131,21 @@ mod tests {
         {
             // Test automatic voltage scaling based on frequency
             // Under 133 MHz should use default voltage (V1_10)
-            let config = ClockConfig::system_freq(125_000_000);
+            let config = ClockConfig::system_freq(125_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_10);
 
             // 133-200 MHz should use V1_15
-            let config = ClockConfig::system_freq(150_000_000);
+            let config = ClockConfig::system_freq(150_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_15);
-            let config = ClockConfig::system_freq(200_000_000);
+            let config = ClockConfig::system_freq(200_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_15);
 
-            // Above 200 MHz should use V1_25
-            let config = ClockConfig::system_freq(250_000_000);
+            // Above 200 MHz should use V1_15
+            let config = ClockConfig::system_freq(250_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_15);
 
             // Below 125 MHz should use V1_10
-            let config = ClockConfig::system_freq(100_000_000);
+            let config = ClockConfig::system_freq(100_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_10);
         }
     }

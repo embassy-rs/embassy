@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
     // Initialize with 200MHz clock configuration
-    config.clocks = ClockConfig::system_freq(200_000_000);
+    config.clocks = ClockConfig::system_freq(200_000_000).unwrap();
 
     // if we are rp235x, we need to manually set the core voltage. rp2040 should do this automatically
     #[cfg(feature = "rp235xb")]

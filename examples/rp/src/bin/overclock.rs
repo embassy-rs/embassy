@@ -18,7 +18,7 @@ const COUNT_TO: i64 = 10_000_000;
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     // Set up for clock frequency of 200 MHz, setting all necessary defaults.
-    let config = Config::new(ClockConfig::system_freq(200_000_000));
+    let config = Config::new(ClockConfig::system_freq(200_000_000).unwrap());
 
     // Initialize the peripherals
     let p = embassy_rp::init(config);
