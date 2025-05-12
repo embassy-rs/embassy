@@ -140,6 +140,10 @@ pub enum PeriClkSrc {
 ///
 /// The voltage regulator can be configured for different output voltages.
 /// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
+///
+/// **Note**: For RP235x the maximum voltage is 1.30V, unless unlocked by setting unless the voltage limit
+/// is disabled using the disable_voltage_limit field in the vreg_ctrl register. For lack of practical use at this
+/// point in time, this is not implemented here. So the maximum voltage in this enum is 1.30V for now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum CoreVoltage {
@@ -227,54 +231,6 @@ pub enum CoreVoltage {
     #[cfg(feature = "_rp235x")]
     /// RP235x: 1.30V
     V1_30 = 0b01111,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.35V
-    V1_35 = 0b10000,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.40V
-    V1_40 = 0b10001,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.50V
-    V1_50 = 0b10010,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.60V
-    V1_60 = 0b10011,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.65V
-    V1_65 = 0b10100,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.70V
-    V1_70 = 0b10101,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.80V
-    V1_80 = 0b10110,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.90V
-    V1_90 = 0b10111,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 2.00V
-    V2_00 = 0b11000,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 2.35V
-    V2_35 = 0b11001,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 2.50V
-    V2_50 = 0b11010,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 2.65V
-    V2_65 = 0b11011,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 2.80V
-    V2_80 = 0b11100,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 3.00V
-    V3_00 = 0b11101,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 3.15V
-    V3_15 = 0b11110,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 3.30V
-    V3_30 = 0b11111,
 }
 
 impl CoreVoltage {
@@ -313,13 +269,7 @@ impl CoreVoltage {
             CoreVoltage::V1_20 => 0b01010, // 0.903V (~75% of 1.20V)
             CoreVoltage::V1_25 => 0b01010, // 0.903V (~72% of 1.25V)
             CoreVoltage::V1_30 => 0b01011, // 0.946V (~73% of 1.30V)
-            CoreVoltage::V1_35 => 0b01011, // 0.946V (~70% of 1.35V)
-            CoreVoltage::V1_40 => 0b01100, // 0.989V (~71% of 1.40V)
-            CoreVoltage::V1_50 => 0b01101, // 1.032V (~69% of 1.50V)
-            CoreVoltage::V1_60 => 0b01110, // 1.075V (~67% of 1.60V)
-            CoreVoltage::V1_65 => 0b01110, // 1.075V (~65% of 1.65V)
-            CoreVoltage::V1_70 => 0b01111, // 1.118V (~66% of 1.70V)
-            _ => 0b10000,                  // the rp2350 datasheet repeats this value for all other core voltages
+                                            // all others: 0.946V (see CoreVoltage: we do not support setting Voltages higher than 1.30V at this point)
         }
     }
 }
@@ -1083,45 +1033,17 @@ pub(crate) unsafe fn init(config: ClockConfig) {
 
         // If the target voltage is different from the current one, we need to change it
         if target_vsel != current_vsel {
+            // Set the voltage regulator to the target voltage
             #[cfg(feature = "rp2040")]
-            {
-                // Use modify() to preserve the HIZ and EN bits - otherwise we will disable the regulator when changing voltage
-                vreg.vreg().modify(|w| w.set_vsel(target_vsel));
-            }
+            vreg.vreg().modify(|w| w.set_vsel(target_vsel));
             #[cfg(feature = "_rp235x")]
-            {
-                // The rp235x has a different way of controlling the voltage regulator
-                // Changes to the voltage regulator are protected by a password, see datasheet section 6.4
-                // The password is "5AFE" (0x5AFE), it must be set in the top 16 bits of the register
-
-                // The rp235x by default locks the voltage regulator control, so we need to unlock it first
-                // See datasheet section 6.3.2. Software Control
-                vreg.vreg_ctrl().modify(|w| {
-                    // Add password to top 16 bits, preserving the rest, repeat below for other registers
-                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16);
-                    w.set_unlock(true);
-                    *w
-                });
-
-                // Set the voltage
-                vreg.vreg().modify(|w| {
-                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16);
-                    w.set_vsel(target_vsel);
-                    *w
-                });
-
-                // The rp235x has two more registers to set the voltage for low power mode
-                vreg.vreg_lp_entry().modify(|w| {
-                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16);
-                    w.set_vsel(target_vsel);
-                    *w
-                });
-                vreg.vreg_lp_exit().modify(|w| {
-                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16);
-                    w.set_vsel(target_vsel);
-                    *w
-                });
-            }
+            // For rp235x changes to the voltage regulator are protected by a password, see datasheet section 6.4 Power Management (POWMAN) Registers
+            // The password is "5AFE" (0x5AFE), it must be set in the top 16 bits of the register
+            vreg.vreg().modify(|w| {
+                w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Set the password
+                w.set_vsel(target_vsel);
+                *w
+            });
 
             // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
             let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or_else(|| {
@@ -1140,23 +1062,17 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             }
 
             // Only now set the BOD level. At this point the voltage is considered stable.
+            #[cfg(feature = "rp2040")]
             vreg.bod().write(|w| {
                 w.set_vsel(voltage.recommended_bod());
                 w.set_en(true); // Enable brownout detection
             });
-
             #[cfg(feature = "_rp235x")]
-            {
-                // The rp235x has a separate register for the BOD level in low power mode
-                vreg.bod_lp_entry().write(|w| {
-                    w.set_vsel(voltage.recommended_bod());
-                    w.set_en(true); // Enable brownout detection
-                });
-                vreg.bod_lp_exit().write(|w| {
-                    w.set_vsel(voltage.recommended_bod());
-                    w.set_en(true); // Enable brownout detection
-                });
-            }
+            vreg.bod().write(|w| {
+                w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Set the password
+                w.set_vsel(voltage.recommended_bod());
+                w.set_en(true); // Enable brownout detection
+            });
         }
     }
 
@@ -1527,23 +1443,8 @@ pub fn core_voltage() -> Result<CoreVoltage, &'static str> {
             0b01101 => Ok(CoreVoltage::V1_20),
             0b01110 => Ok(CoreVoltage::V1_25),
             0b01111 => Ok(CoreVoltage::V1_30),
-            0b10000 => Ok(CoreVoltage::V1_35),
-            0b10001 => Ok(CoreVoltage::V1_40),
-            0b10010 => Ok(CoreVoltage::V1_50),
-            0b10011 => Ok(CoreVoltage::V1_60),
-            0b10100 => Ok(CoreVoltage::V1_65),
-            0b10101 => Ok(CoreVoltage::V1_70),
-            0b10110 => Ok(CoreVoltage::V1_80),
-            0b10111 => Ok(CoreVoltage::V1_90),
-            0b11000 => Ok(CoreVoltage::V2_00),
-            0b11001 => Ok(CoreVoltage::V2_35),
-            0b11010 => Ok(CoreVoltage::V2_50),
-            0b11011 => Ok(CoreVoltage::V2_65),
-            0b11100 => Ok(CoreVoltage::V2_80),
-            0b11101 => Ok(CoreVoltage::V3_00),
-            0b11110 => Ok(CoreVoltage::V3_15),
-            0b11111 => Ok(CoreVoltage::V3_30),
             _ => Err("Unexpected value in register"),
+            // see CoreVoltage: we do not support setting Voltages higher than 1.30V at this point
         }
     }
 }
