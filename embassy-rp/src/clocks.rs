@@ -156,93 +156,79 @@ pub enum PeriClkSrc {
 /// **Note**: For RP235x the maximum voltage is 1.30V, unless unlocked by setting unless the voltage limit
 /// is disabled using the disable_voltage_limit field in the vreg_ctrl register. For lack of practical use at this
 /// point in time, this is not implemented here. So the maximum voltage in this enum is 1.30V for now.
+#[cfg(feature = "rp2040")]
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CoreVoltage {
-    // RP2040 voltage levels
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 0.80V
+    /// 0.80V
     V0_80 = 0b0000,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 0.85V
+    /// 0.85V
     V0_85 = 0b0110,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 0.90V
+    /// 0.90V
     V0_90 = 0b0111,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 0.95V
+    /// 0.95V
     V0_95 = 0b1000,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 1.00V
+    /// 1.00V
     V1_00 = 0b1001,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 1.05V
+    /// 1.05V
     V1_05 = 0b1010,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 1.10V - Default voltage level
+    /// 1.10V - Default voltage level
     V1_10 = 0b1011,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 1.15V - Required for overclocking to 133-200MHz
+    /// 1.15V - Required for overclocking to 133-200MHz
     V1_15 = 0b1100,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 1.20V
+    /// 1.20V
     V1_20 = 0b1101,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 1.25V
+    /// 1.25V
     V1_25 = 0b1110,
-    #[cfg(feature = "rp2040")]
-    /// RP2040: 1.30V
+    /// 1.30V
     V1_30 = 0b1111,
+}
 
-    // RP235x voltage levels
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 0.55V
+/// Core voltage regulator settings.
+///
+/// The voltage regulator can be configured for different output voltages.
+/// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
+///
+/// **Note**: For RP235x the maximum voltage is 1.30V, unless unlocked by setting unless the voltage limit
+/// is disabled using the disable_voltage_limit field in the vreg_ctrl register. For lack of practical use at this
+/// point in time, this is not implemented here. So the maximum voltage in this enum is 1.30V for now.
+#[cfg(feature = "_rp235x")]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum CoreVoltage {
+    /// 0.55V
     V0_55 = 0b00000,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 0.60V
+    /// 0.60V
     V0_60 = 0b00001,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 0.65V
+    /// 0.65V
     V0_65 = 0b00010,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 0.70V
+    /// 0.70V
     V0_70 = 0b00011,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 0.75V
+    /// 0.75V
     V0_75 = 0b00100,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 0.80V
+    /// 0.80V
     V0_80 = 0b00101,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 0.85V
+    /// 0.85V
     V0_85 = 0b00110,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 0.90V
+    /// 0.90V
     V0_90 = 0b00111,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 0.95V
+    /// 0.95V
     V0_95 = 0b01000,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.00V
+    /// 1.00V
     V1_00 = 0b01001,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.05V
+    /// 1.05V
     V1_05 = 0b01010,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.10V - Default voltage level
+    /// 1.10V - Default voltage level
     V1_10 = 0b01011,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.15V
+    /// 1.15V
     V1_15 = 0b01100,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.20V
+    /// 1.20V
     V1_20 = 0b01101,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.25V
+    /// 1.25V
     V1_25 = 0b01110,
-    #[cfg(feature = "_rp235x")]
-    /// RP235x: 1.30V
+    /// 1.30V
     V1_30 = 0b01111,
 }
 
