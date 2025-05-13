@@ -7,8 +7,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::clocks;
-use embassy_rp::clocks::{ClockConfig, CoreVoltage, PllConfig};
+use embassy_rp::clocks::{clk_sys_freq, core_voltage, ClockConfig, CoreVoltage, PllConfig};
 use embassy_rp::config::Config;
 use embassy_rp::gpio::{Level, Output};
 use embassy_time::{Duration, Instant, Timer};
@@ -41,9 +40,12 @@ async fn main(_spawner: Spawner) -> ! {
     // Initialize with our manual overclock configuration
     let p = embassy_rp::init(configure_manual_overclock());
 
-    // Verify the actual system clock frequency
-    let sys_freq = clocks::clk_sys_freq();
+    // Show CPU frequency for verification
+    let sys_freq = clk_sys_freq();
     info!("System clock frequency: {} MHz", sys_freq / 1_000_000);
+    // Show core voltage for verification
+    let core_voltage = core_voltage().unwrap();
+    info!("Core voltage: {}", core_voltage);
 
     // LED to indicate the system is running
     let mut led = Output::new(p.PIN_25, Level::Low);
