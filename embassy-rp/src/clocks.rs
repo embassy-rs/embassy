@@ -152,11 +152,6 @@ pub enum PeriClkSrc {
 ///
 /// The voltage regulator can be configured for different output voltages.
 /// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
-///
-/// **Note**: For RP235x the maximum voltage is 1.30V, unless unlocked by setting unless the voltage limit
-/// is disabled using the disable_voltage_limit field in the vreg_ctrl register. For lack of practical use at this
-/// point in time, this is not implemented here. So the maximum voltage in this enum is 1.30V for now.
-#[cfg(feature = "rp2040")]
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -190,7 +185,7 @@ pub enum CoreVoltage {
 /// The voltage regulator can be configured for different output voltages.
 /// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
 ///
-/// **Note**: For RP235x the maximum voltage is 1.30V, unless unlocked by setting unless the voltage limit
+/// **Note**: The maximum voltage is 1.30V, unless unlocked by setting unless the voltage limit
 /// is disabled using the disable_voltage_limit field in the vreg_ctrl register. For lack of practical use at this
 /// point in time, this is not implemented here. So the maximum voltage in this enum is 1.30V for now.
 #[cfg(feature = "_rp235x")]
@@ -1092,20 +1087,14 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             let pll_sys_freq = match config.sys_pll {
                 Some(sys_pll_config) => match configure_pll(pac::PLL_SYS, config.hz, sys_pll_config) {
                     Ok(freq) => freq,
-                    #[cfg(feature = "defmt")]
-                    Err(e) => panic!("Failed to configure PLL_SYS: {}", e),
-                    #[cfg(not(feature = "defmt"))]
-                    Err(_e) => panic!("Failed to configure PLL_SYS"),
+                    Err(e) => panic!("Failed to configure PLL_SYS: {:?}", e),
                 },
                 None => 0,
             };
             let pll_usb_freq = match config.usb_pll {
                 Some(usb_pll_config) => match configure_pll(pac::PLL_USB, config.hz, usb_pll_config) {
                     Ok(freq) => freq,
-                    #[cfg(feature = "defmt")]
-                    Err(e) => panic!("Failed to configure PLL_USB: {}", e),
-                    #[cfg(not(feature = "defmt"))]
-                    Err(_e) => panic!("Failed to configure PLL_USB"),
+                    Err(e) => panic!("Failed to configure PLL_USB: {:?}", e),
                 },
                 None => 0,
             };
