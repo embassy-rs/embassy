@@ -21,6 +21,7 @@ pub mod clocks;
 pub mod crc;
 pub mod gpio;
 pub mod iopctl;
+pub mod rng;
 
 #[cfg(feature = "_time-driver")]
 pub mod time_driver;

@@ -11,3 +11,4 @@ The following peripherals have a HAL implementation at present
 
 * CRC
 * GPIO
+* RNG
