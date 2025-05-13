@@ -1,15 +1,49 @@
+use critical_section::CriticalSection;
 use stm32_metapac::rtc::vals::{Osel, Pol};
 
 use super::SealedInstance;
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 
+/// Write to the RTC without a mutual reference to the RTC instance.
+/// Not used outside of this module
+fn unchecked_write<F, R>(init_mode: bool, f: F) -> R
+where
+    F: FnOnce(crate::pac::rtc::Rtc) -> R,
+{
+    let r = RTC::regs();
+    // Disable write protection.
+    // This is safe, as we're only writin the correct and expected values.
+    r.wpr().write(|w| w.set_key(0xca));
+    r.wpr().write(|w| w.set_key(0x53));
+
+    // true if initf bit indicates RTC peripheral is in init mode
+    if init_mode && !r.isr().read().initf() {
+        // to update calendar date/time, time format, and prescaler configuration, RTC must be in init mode
+        r.isr().modify(|w| w.set_init(true));
+        // wait till init state entered
+        // ~2 RTCCLK cycles
+        while !r.isr().read().initf() {}
+    }
+
+    let result = f(r);
+
+    if init_mode {
+        r.isr().modify(|w| w.set_init(false)); // Exits init mode
+    }
+
+    // Re-enable write protection.
+    // This is safe, as the field accepts the full range of 8-bit values.
+    r.wpr().write(|w| w.set_key(0xff));
+    result
+}
+
 #[allow(dead_code)]
 impl super::Rtc {
     /// Applies the RTC config
     /// It this changes the RTC clock source the time will be reset
-    pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
-        self.write(true, |rtc| {
+    pub(super) fn configure(_cs: CriticalSection, async_psc: u8, sync_psc: u16) {
+        unchecked_write(true, |rtc| {
             rtc.cr().modify(|w| {
                 #[cfg(not(rtc_v2f2))]
                 w.set_bypshad(true);
@@ -93,35 +127,21 @@ impl super::Rtc {
         })
     }
 
-    pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
+    /// Write to the RTC with a mutual reference to the RTC instance.
+    pub(super) fn write<F, R>(&mut self, init_mode: bool, f: F) -> R
     where
         F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
-        let r = RTC::regs();
-        // Disable write protection.
-        // This is safe, as we're only writin the correct and expected values.
-        r.wpr().write(|w| w.set_key(0xca));
-        r.wpr().write(|w| w.set_key(0x53));
+        unchecked_write(init_mode, f)
+    }
 
-        // true if initf bit indicates RTC peripheral is in init mode
-        if init_mode && !r.isr().read().initf() {
-            // to update calendar date/time, time format, and prescaler configuration, RTC must be in init mode
-            r.isr().modify(|w| w.set_init(true));
-            // wait till init state entered
-            // ~2 RTCCLK cycles
-            while !r.isr().read().initf() {}
-        }
-
-        let result = f(r);
-
-        if init_mode {
-            r.isr().modify(|w| w.set_init(false)); // Exits init mode
-        }
-
-        // Re-enable write protection.
-        // This is safe, as the field accepts the full range of 8-bit values.
-        r.wpr().write(|w| w.set_key(0xff));
-        result
+    /// Write to the RTC with a critical section.
+    /// Used in the initialisation of the RTC
+    pub(super) fn write_with_cs<F, R>(_cs: CriticalSection, init_mode: bool, f: F) -> R
+    where
+        F: FnOnce(crate::pac::rtc::Rtc) -> R,
+    {
+        unchecked_write(init_mode, f)
     }
 }
 

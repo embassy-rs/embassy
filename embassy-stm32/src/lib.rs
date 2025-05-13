@@ -230,6 +230,9 @@ pub struct Config {
     /// RCC config.
     pub rcc: rcc::Config,
 
+    /// RTC config.
+    pub rtc: Option<rtc::RtcConfig>,
+
     /// Enable debug during sleep and stop.
     ///
     /// May increase power consumption. Defaults to true.
@@ -283,6 +286,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             rcc: Default::default(),
+            rtc: None,
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
             #[cfg(any(stm32l4, stm32l5, stm32u5))]
@@ -602,9 +606,18 @@ fn init_hw(config: Config) -> Peripherals {
 
             rcc::init(config.rcc);
 
+            if let Some(rtc_config) = config.rtc {
+                rtc::init(cs, rtc_config);
+            }
+
             // must be after rcc init
             #[cfg(feature = "_time-driver")]
             time_driver::init(cs);
+
+            #[cfg(feature = "low-power")]
+            if let Some(_) = config.rtc {
+                time_driver::get_driver().set_rtc(rtc::get_rtc_control());
+            }
 
             #[cfg(feature = "low-power")]
             {

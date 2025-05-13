@@ -14,7 +14,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::rcc::{self, SealedRccPeripheral};
 #[cfg(feature = "low-power")]
-use crate::rtc::Rtc;
+use crate::rtc::RtcControl;
 use crate::timer::{CoreInstance, GeneralInstance1Channel};
 use crate::{interrupt, peripherals};
 
@@ -213,7 +213,7 @@ pub(crate) struct RtcDriver {
     period: AtomicU32,
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
-    rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
+    rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static RtcControl>>>,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
@@ -389,7 +389,7 @@ impl RtcDriver {
     */
     #[cfg(feature = "low-power")]
     /// Set the rtc but panic if it's already been set
-    pub(crate) fn set_rtc(&self, rtc: &'static Rtc) {
+    pub(crate) fn set_rtc(&self, rtc: &'static RtcControl) {
         critical_section::with(|cs| {
             rtc.stop_wakeup_alarm(cs);
 

@@ -3,14 +3,18 @@ mod datetime;
 
 #[cfg(feature = "low-power")]
 mod low_power;
-
 #[cfg(feature = "low-power")]
 use core::cell::Cell;
-
 #[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::Mutex;
+#[cfg(feature = "low-power")]
+use low_power::RtcInstant;
+
+use core::sync::atomic::{AtomicBool, Ordering};
+
+use critical_section::CriticalSection;
 
 use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
@@ -113,9 +117,22 @@ impl RtcTimeProvider {
 
 /// RTC driver.
 pub struct Rtc {
-    #[cfg(feature = "low-power")]
-    stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<low_power::RtcInstant>>>,
     _private: (),
+}
+
+/// RTC low-power driver.
+#[cfg(feature = "low-power")]
+pub(crate) struct RtcControl {
+    stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
+}
+
+/// RTC low-power driver.
+#[cfg(feature = "low-power")]
+static RTC_CONTROL: RtcControl = RtcControl::new();
+
+#[cfg(feature = "low-power")]
+pub(crate) fn get_rtc_control() -> &'static RtcControl {
+    &RTC_CONTROL
 }
 
 /// RTC configuration.
@@ -149,32 +166,40 @@ pub enum RtcCalibrationCyclePeriod {
     Seconds32,
 }
 
+static IS_INIT: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn init(cs: CriticalSection, rtc_config: RtcConfig) {
+    if IS_INIT.load(Ordering::Relaxed) {
+        return;
+    }
+
+    #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
+    crate::rcc::enable_and_reset::<RTC>();
+
+    let frequency = Rtc::frequency();
+    let async_psc = ((frequency.0 / rtc_config.frequency.0) - 1) as u8;
+    let sync_psc = (rtc_config.frequency.0 - 1) as u16;
+
+    Rtc::configure(cs, async_psc, sync_psc);
+
+    // Wait for the clock to update after initialization
+    #[cfg(not(rtc_v2f2))]
+    {
+        let time_provider = RtcTimeProvider { _private: () };
+        let now = time_provider.read(|_, _, ss| Ok(ss)).unwrap();
+        while now == time_provider.read(|_, _, ss| Ok(ss)).unwrap() {}
+    }
+
+    IS_INIT.store(true, Ordering::Relaxed);
+}
+
 impl Rtc {
     /// Create a new RTC instance.
-    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
-        #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
-        crate::rcc::enable_and_reset::<RTC>();
-
-        let mut this = Self {
-            #[cfg(feature = "low-power")]
-            stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
-            _private: (),
-        };
-
-        let frequency = Self::frequency();
-        let async_psc = ((frequency.0 / rtc_config.frequency.0) - 1) as u8;
-        let sync_psc = (rtc_config.frequency.0 - 1) as u16;
-
-        this.configure(async_psc, sync_psc);
-
-        // Wait for the clock to update after initialization
-        #[cfg(not(rtc_v2f2))]
-        {
-            let now = this.time_provider().read(|_, _, ss| Ok(ss)).unwrap();
-            while now == this.time_provider().read(|_, _, ss| Ok(ss)).unwrap() {}
+    pub fn new(_rtc: Peri<'static, RTC>) -> Self {
+        if !IS_INIT.load(Ordering::Relaxed) {
+            panic!("RTC not initialized");
         }
-
-        this
+        Self { _private: () }
     }
 
     fn frequency() -> Hertz {
