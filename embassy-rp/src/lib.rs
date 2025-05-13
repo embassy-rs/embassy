@@ -6,6 +6,19 @@
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
+//! ## Compatible feature flags
+// `timer-src-clk-sys` only makes sense on RP235x silicon.
+#[cfg(all(feature = "timer-src-clk-sys", not(feature = "_rp235x"),))]
+compile_error!(
+    "`embassy-rp` feature `timer-src-clk-sys` requires an `rp235x` feature (either `rp235xa` or \
+    `rp235xb`) to be enabled."
+);
+
+// // Prevent users from selecting both timer drivers (although this condition causes a redefinition
+// // error in our deps before this code can halt the compilation with an explanation...)
+// #[cfg(all(feature = "timer-src-clk-sys", feature = "time-driver"))]
+// compile_error!("Enable only one of `time-driver` or `timer-src-clk-sys`.");
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
