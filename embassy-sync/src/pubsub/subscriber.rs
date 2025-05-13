@@ -115,6 +115,7 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Unpin for Sub<'a, PSB, T> {}
 
 /// Warning: The stream implementation ignores lag results and returns all messages.
 /// This might miss some messages without you knowing it.
+#[cfg(feature = "futures-util")]
 impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> futures_util::Stream for Sub<'a, PSB, T> {
     type Item = T;
 
