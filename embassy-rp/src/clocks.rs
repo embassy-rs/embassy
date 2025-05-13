@@ -152,6 +152,7 @@ pub enum PeriClkSrc {
 ///
 /// The voltage regulator can be configured for different output voltages.
 /// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
+#[cfg(feature = "rp2040")]
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
