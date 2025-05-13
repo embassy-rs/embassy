@@ -197,3 +197,43 @@ pub fn main_wasm(args: TokenStream, item: TokenStream) -> TokenStream {
 pub fn main_unspecified(args: TokenStream, item: TokenStream) -> TokenStream {
     main::run(args.into(), item.into(), &main::ARCH_UNSPECIFIED).into()
 }
+
+/// Declares an async test that can be run by `embassy-executor`.
+///
+/// This macro allows you to create asynchronous tests that use Embassy's executor capabilities.
+/// The test runner will spawn the test function using Embassy's executor and wait for it to complete.
+///
+/// The following restrictions apply:
+///
+/// * The function must be declared `async`.
+/// * The function must not use generics.
+/// * The function must return a result type compatible with the standard test framework.
+///
+/// ## Examples
+///
+/// Creating a simple async test:
+///
+/// ``` rust
+/// #[embassy_executor_macros::test]
+/// async fn my_test() {
+///     // Async test code
+///     assert_eq!(1 + 1, 2);
+/// }
+/// ```
+///
+/// Tests can also use the Embassy executor features such as timers and tasks:
+///
+/// ``` rust
+/// #[embassy_executor_macros::test]
+/// async fn async_operations_test() {
+///     let mut count = 0;
+///     // Use async operations
+///     embassy_time::Timer::after_millis(10).await;
+///     count += 1;
+///     assert_eq!(count, 1);
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn test(args: TokenStream, input: TokenStream) -> TokenStream {
+    macros::test::test(args, input)
+}
