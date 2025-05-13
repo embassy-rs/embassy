@@ -1,4 +1,9 @@
-use super::{bcd2_to_byte, DateTimeError, Rtc, RtcError};
+use core::cell::Cell;
+
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+
+use super::{bcd2_to_byte, DateTimeError, Rtc, RtcError, RtcTimeProvider};
 use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;
 
@@ -112,10 +117,16 @@ impl WakeupPrescaler {
     }
 }
 
-impl Rtc {
+impl super::RtcControl {
+    pub(crate) const fn new() -> Self {
+        Self {
+            stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
+        }
+    }
+
     /// Return the current instant.
     fn instant(&self) -> Result<RtcInstant, RtcError> {
-        self.time_provider().read(|_, tr, ss| {
+        RtcTimeProvider { _private: () }.read(|_, tr, ss| {
             let second = bcd2_to_byte((tr.st(), tr.su()));
 
             RtcInstant::from(second, ss).map_err(RtcError::InvalidDateTime)
@@ -139,7 +150,7 @@ impl Rtc {
         unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap();
 
         let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
-        let rtc_hz = Self::frequency().0 as u64;
+        let rtc_hz = Rtc::frequency().0 as u64;
         let rtc_ticks = requested_duration * rtc_hz / TICK_HZ;
         let prescaler = WakeupPrescaler::compute_min((rtc_ticks / u16::MAX as u64) as u32);
 
@@ -147,7 +158,7 @@ impl Rtc {
         let rtc_ticks = rtc_ticks / prescaler as u64;
         let rtc_ticks = rtc_ticks.clamp(0, (u16::MAX - 1) as u64).saturating_sub(1) as u16;
 
-        self.write(false, |regs| {
+        super::Rtc::write_with_cs(cs, false, |regs| {
             regs.cr().modify(|w| w.set_wute(false));
 
             #[cfg(any(
@@ -193,7 +204,7 @@ impl Rtc {
         if RTC::regs().cr().read().wute() {
             trace!("rtc: stop wakeup alarm at {}", instant);
 
-            self.write(false, |regs| {
+            super::Rtc::write_with_cs(cs, false, |regs| {
                 regs.cr().modify(|w| w.set_wutie(false));
                 regs.cr().modify(|w| w.set_wute(false));
 

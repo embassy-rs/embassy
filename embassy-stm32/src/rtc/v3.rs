@@ -5,6 +5,38 @@ use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;
 
+/// Write to the RTC without a critical section.
+/// Not used outside of this module
+fn unchecked_write<F, R>(init_mode: bool, f: F) -> R
+where
+    F: FnOnce(crate::pac::rtc::Rtc) -> R,
+{
+    let r = RTC::regs();
+    // Disable write protection.
+    // This is safe, as we're only writin the correct and expected values.
+    r.wpr().write(|w| w.set_key(Key::DEACTIVATE1));
+    r.wpr().write(|w| w.set_key(Key::DEACTIVATE2));
+
+    if init_mode && !r.icsr().read().initf() {
+        r.icsr().modify(|w| w.set_init(true));
+        // wait till init state entered
+        // ~2 RTCCLK cycles
+        while !r.icsr().read().initf() {}
+    }
+
+    let result = f(r);
+
+    if init_mode {
+        r.icsr().modify(|w| w.set_init(false)); // Exits init mode
+    }
+
+    // Re-enable write protection.
+    // This is safe, as the field accepts the full range of 8-bit values.
+    r.wpr().write(|w| w.set_key(Key::ACTIVATE));
+
+    result
+}
+
 impl super::Rtc {
     /// Applies the RTC config
     /// It this changes the RTC clock source the time will be reset
@@ -95,34 +127,21 @@ impl super::Rtc {
         })
     }
 
-    pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
+    /// Write to the RTC with a mutual reference to the RTC instance.
+    pub(super) fn write<F, R>(&mut self, init_mode: bool, f: F) -> R
     where
         F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
-        let r = RTC::regs();
-        // Disable write protection.
-        // This is safe, as we're only writin the correct and expected values.
-        r.wpr().write(|w| w.set_key(Key::DEACTIVATE1));
-        r.wpr().write(|w| w.set_key(Key::DEACTIVATE2));
+        unchecked_write(init_mode, f)
+    }
 
-        if init_mode && !r.icsr().read().initf() {
-            r.icsr().modify(|w| w.set_init(true));
-            // wait till init state entered
-            // ~2 RTCCLK cycles
-            while !r.icsr().read().initf() {}
-        }
-
-        let result = f(r);
-
-        if init_mode {
-            r.icsr().modify(|w| w.set_init(false)); // Exits init mode
-        }
-
-        // Re-enable write protection.
-        // This is safe, as the field accepts the full range of 8-bit values.
-        r.wpr().write(|w| w.set_key(Key::ACTIVATE));
-
-        result
+    /// Write to the RTC with a critical section.
+    /// Used in the initialisation of the RTC
+    pub(super) fn write_with_cs<F, R>(cs: CriticalSection, init_mode: bool, f: F) -> R
+    where
+        F: FnOnce(crate::pac::rtc::Rtc) -> R,
+    {
+        unchecked_write(init_mode, f)
     }
 }
 
