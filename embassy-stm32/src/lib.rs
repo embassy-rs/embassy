@@ -600,17 +600,7 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(feature = "exti")]
             exti::init(cs);
 
-            rcc::init(config.rcc);
-
-            // must be after rcc init
-            #[cfg(feature = "_time-driver")]
-            time_driver::init(cs);
-
-            #[cfg(feature = "low-power")]
-            {
-                crate::rcc::REFCOUNT_STOP2 = 0;
-                crate::rcc::REFCOUNT_STOP1 = 0;
-            }
+            rcc::init_rcc(cs, config.rcc);
         }
 
         p
