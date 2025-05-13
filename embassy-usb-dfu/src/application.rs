@@ -137,8 +137,9 @@ pub fn usb_dfu<'d, D: Driver<'d>, MARK: DfuMarker, RST: Reset>(
         // We add MSOS headers so that the device automatically gets assigned the WinUSB driver on Windows.
         // Otherwise users need to do this manually using a tool like Zadig.
         //
-        // Adding them here on the function level appears to only work for compositive devices though.
-        // For non-composite devices they should be placed on the device level instead.
+        // Adding them here on the function level appears to only be needed for compositive devices.
+        // In addition to being on the function level, they should also be added to the device level.
+        //
         func.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
         func.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
             "DeviceInterfaceGUIDs",

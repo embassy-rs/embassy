@@ -59,13 +59,11 @@ async fn main(_spawner: Spawner) {
 
     // We add MSOS headers so that the device automatically gets assigned the WinUSB driver on Windows.
     // Otherwise users need to do this manually using a tool like Zadig.
-    builder.msos_descriptor(msos::windows_version::WIN8_1, 2);
-
-    // In the case of non-composite devices, it seems that feature headers need to be on the device level.
-    // (As is implemented here)
     //
-    // For composite devices however, they should be on the function level instead.
-    // (This is achieved by passing a GUID to the "usb_dfu" function)
+    // It seems these always need to be at added at the device level for this to work and for
+    // composite devices they also need to be added on the function level (as shown later).
+    //
+    builder.msos_descriptor(msos::windows_version::WIN8_1, 2);
     builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
     builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
         "DeviceInterfaceGUIDs",
