@@ -31,6 +31,8 @@ pub struct PwmPin<'d, T, C> {
 /// PWM pin config
 ///
 /// This configures the pwm pin settings
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PwmPinConfig {
     /// PWM Pin output type
     pub output_type: OutputType,
