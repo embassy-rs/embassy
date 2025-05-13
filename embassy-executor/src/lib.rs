@@ -10,6 +10,7 @@
 pub(crate) mod fmt;
 
 pub use embassy_executor_macros::task;
+pub use embassy_executor_macros::test;
 
 macro_rules! check_at_most_one {
     (@amo [$($feats:literal)*] [] [$($res:tt)*]) => {
