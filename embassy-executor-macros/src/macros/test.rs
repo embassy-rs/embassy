@@ -19,6 +19,7 @@ pub fn test(_args: TokenStream, input: TokenStream) -> TokenStream {
         #[test]
         fn #fn_name() {
             let mut executor = ::embassy_executor::Executor::new();
+            let executor = unsafe { ::core::mem::transmute::<_, &'static mut ::embassy_executor::Executor>(&mut executor) };
             executor.run(|spawner| {
                 spawner.spawn(#task_name()).unwrap();
             });
