@@ -214,23 +214,10 @@ pub fn main_unspecified(args: TokenStream, item: TokenStream) -> TokenStream {
 /// Creating a simple async test:
 ///
 /// ``` rust
-/// #[embassy_executor_macros::test]
+/// #[embassy_executor::test]
 /// async fn my_test() {
 ///     // Async test code
 ///     assert_eq!(1 + 1, 2);
-/// }
-/// ```
-///
-/// Tests can also use the Embassy executor features such as timers and tasks:
-///
-/// ``` rust
-/// #[embassy_executor_macros::test]
-/// async fn async_operations_test() {
-///     let mut count = 0;
-///     // Use async operations
-///     embassy_time::Timer::after_millis(10).await;
-///     count += 1;
-///     assert_eq!(count, 1);
 /// }
 /// ```
 #[proc_macro_attribute]
