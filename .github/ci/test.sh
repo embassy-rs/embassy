@@ -29,8 +29,10 @@ cargo test --manifest-path ./embassy-nrf/Cargo.toml --no-default-features --feat
 cargo test --manifest-path ./embassy-rp/Cargo.toml --no-default-features --features time-driver,rp2040,_test
 cargo test --manifest-path ./embassy-rp/Cargo.toml --no-default-features --features time-driver,rp235xa,_test
 
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f429vg,exti,time-driver-any,exti
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f732ze,exti,time-driver-any,exti
-cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f769ni,exti,time-driver-any,exti
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f429vg,time-driver-any,exti,single-bank
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f429vg,time-driver-any,exti,dual-bank
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f732ze,time-driver-any,exti
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f769ni,time-driver-any,exti,single-bank
+cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features stm32f769ni,time-driver-any,exti,dual-bank
 
 cargo test --manifest-path ./embassy-net-adin1110/Cargo.toml

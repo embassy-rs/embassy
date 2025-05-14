@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterError};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
 use embassy_usb::driver::Driver;
@@ -20,12 +18,12 @@ pub struct Control<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_S
     status: Status,
     offset: usize,
     buf: AlignedBuffer<BLOCK_SIZE>,
-    _rst: PhantomData<RST>,
+    reset: RST,
 }
 
 impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Control<'d, DFU, STATE, RST, BLOCK_SIZE> {
     /// Create a new DFU instance to handle DFU transfers.
-    pub fn new(updater: BlockingFirmwareUpdater<'d, DFU, STATE>, attrs: DfuAttributes) -> Self {
+    pub fn new(updater: BlockingFirmwareUpdater<'d, DFU, STATE>, attrs: DfuAttributes, reset: RST) -> Self {
         Self {
             updater,
             attrs,
@@ -33,7 +31,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Co
             status: Status::Ok,
             offset: 0,
             buf: AlignedBuffer([0; BLOCK_SIZE]),
-            _rst: PhantomData,
+            reset,
         }
     }
 
@@ -155,14 +153,14 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
         }
         match Request::try_from(req.request) {
             Ok(Request::GetStatus) => {
-                //TODO: Configurable poll timeout, ability to add string for Vendor error
-                buf[0..6].copy_from_slice(&[self.status as u8, 0x32, 0x00, 0x00, self.state as u8, 0x00]);
                 match self.state {
                     State::DlSync => self.state = State::Download,
-                    State::ManifestSync => RST::sys_reset(),
+                    State::ManifestSync => self.reset.sys_reset(),
                     _ => {}
                 }
 
+                //TODO: Configurable poll timeout, ability to add string for Vendor error
+                buf[0..6].copy_from_slice(&[self.status as u8, 0x32, 0x00, 0x00, self.state as u8, 0x00]);
                 Some(InResponse::Accepted(&buf[0..6]))
             }
             Ok(Request::GetState) => {

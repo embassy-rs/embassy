@@ -1,20 +1,12 @@
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
-use super::{FlashRegion, FlashSector, BANK1_REGION, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashSector, BANK1_REGION, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
 const fn is_dual_bank() -> bool {
     FLASH_REGIONS.len() >= 2
-}
-
-pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
 }
 
 pub(crate) unsafe fn lock() {

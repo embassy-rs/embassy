@@ -18,11 +18,13 @@ compile_error!(
 pub(crate) mod fmt;
 
 pub mod clocks;
+pub mod crc;
 pub mod gpio;
 pub mod iopctl;
+pub mod rng;
 
 #[cfg(feature = "_time-driver")]
-pub mod rtc;
+pub mod time_driver;
 
 // This mod MUST go last, so that it sees all the `impl_foo!' macros
 #[cfg_attr(feature = "mimxrt633s", path = "chips/mimxrt633s.rs")]
@@ -132,12 +134,10 @@ pub fn init(config: config::Config) -> Peripherals {
             error!("unable to initialize Clocks for reason: {:?}", e);
             // Panic here?
         }
-        gpio::init();
     }
-
-    // init RTC time driver
     #[cfg(feature = "_time-driver")]
-    rtc::init(config.time_interrupt_priority);
+    time_driver::init(config.time_interrupt_priority);
+    gpio::init();
 
     peripherals
 }

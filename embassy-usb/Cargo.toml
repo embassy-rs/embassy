@@ -52,6 +52,7 @@ embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
 embassy-net-driver-channel = { version = "0.3.0", path = "../embassy-net-driver-channel" }
 
 defmt = { version = "0.3", optional = true }
+embedded-io-async = "0.6.1"
 log = { version = "0.4.14", optional = true }
 heapless = "0.8"
 

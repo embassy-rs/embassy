@@ -25,7 +25,7 @@ fn main() {
         .write_all(
             format!(
                 r##"
-#[link_section = ".biv"]
+#[unsafe(link_section = ".biv")]
 #[used]
 static BOOT_IMAGE_VERSION: u32 = 0x{:02x}{:02x}{:02x}00;
 "##,
