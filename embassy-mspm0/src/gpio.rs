@@ -10,7 +10,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::pac::gpio::vals::*;
 use crate::pac::gpio::{self};
-#[cfg(all(feature = "rt", feature = "mspm0c110x"))]
+#[cfg(all(feature = "rt", mspm0c110x))]
 use crate::pac::interrupt;
 use crate::pac::{self};
 
@@ -1120,7 +1120,7 @@ impl Iterator for BitIter {
 }
 
 // C110x has a dedicated interrupt just for GPIOA, as it does not have a GROUP1 interrupt.
-#[cfg(all(feature = "rt", feature = "mspm0c110x"))]
+#[cfg(all(feature = "rt", mspm0c110x))]
 #[interrupt]
 fn GPIOA() {
     gpioa_interrupt();
