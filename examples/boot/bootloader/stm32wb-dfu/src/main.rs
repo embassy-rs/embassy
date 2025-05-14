@@ -78,11 +78,15 @@ fn main() -> ! {
             msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
         ));
 
-        // For non-composite devices:
-        usb_dfu::<_, _, _, _, 4096>(&mut builder, &mut state, None);
-
-        // Or for composite devices:
-        // usb_dfu::<_, _, _, _, 4096>(&mut builder, &mut state, Some(DEVICE_INTERFACE_GUIDS));
+        usb_dfu::<_, _, _, _, 4096>(&mut builder, &mut state, |func| {
+            // You likely don't have to add these function level headers if your USB device is not composite
+            // (i.e. if your device does not expose another interface in addition to DFU)
+            func.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+            func.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+                "DeviceInterfaceGUIDs",
+                msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+            ));
+        });
 
         let mut dev = builder.build();
         embassy_futures::block_on(dev.run());
