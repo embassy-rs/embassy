@@ -22,7 +22,9 @@ bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;
 });
 
-// This is a randomly generated GUID to allow clients on Windows to find our device
+// This is a randomly generated GUID to allow clients on Windows to find your device.
+//
+// N.B. update to a custom GUID for your own device!
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321}"];
 
 #[embassy_executor::main]
