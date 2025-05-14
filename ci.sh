@@ -19,7 +19,7 @@ fi
 TARGET=$(rustc -vV | sed -n 's|host: ||p')
 
 BUILD_EXTRA=""
-if [ $TARGET = "x86_64-unknown-linux-gnu" ]; then
+if [ $TARGET = "x86_64-unknown-linux-gnu" ] || [ $TARGET = "aarch64-unknown-linux-gnu" ]; then
     BUILD_EXTRA="--- build --release --manifest-path examples/std/Cargo.toml --target $TARGET --artifact-dir out/examples/std"
 fi
 
