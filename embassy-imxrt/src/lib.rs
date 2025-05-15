@@ -19,6 +19,8 @@ pub(crate) mod fmt;
 
 pub mod clocks;
 pub mod crc;
+pub mod dma;
+pub mod flexcomm;
 pub mod gpio;
 pub mod iopctl;
 pub mod rng;
@@ -129,14 +131,16 @@ pub fn init(config: config::Config) -> Peripherals {
     // before doing anything important.
     let peripherals = Peripherals::take();
 
+    #[cfg(feature = "_time-driver")]
+    time_driver::init(config.time_interrupt_priority);
+
     unsafe {
         if let Err(e) = clocks::init(config.clocks) {
             error!("unable to initialize Clocks for reason: {:?}", e);
             // Panic here?
         }
+        dma::init();
     }
-    #[cfg(feature = "_time-driver")]
-    time_driver::init(config.time_interrupt_priority);
     gpio::init();
 
     peripherals
@@ -144,4 +148,22 @@ pub fn init(config: config::Config) -> Peripherals {
 
 pub(crate) mod sealed {
     pub trait Sealed {}
+}
+
+#[cfg(feature = "rt")]
+struct BitIter(u32);
+
+#[cfg(feature = "rt")]
+impl Iterator for BitIter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.trailing_zeros() {
+            32 => None,
+            b => {
+                self.0 &= !(1 << b);
+                Some(b)
+            }
+        }
+    }
 }
