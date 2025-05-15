@@ -21,6 +21,8 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 #[derive(Default)]
 pub struct Config {}
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum Source<'p> {
     Pin(Peri<'p, AnyPin>),
     TempSensor(Peri<'p, ADC_TEMP_SENSOR>),
