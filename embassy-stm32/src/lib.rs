@@ -163,11 +163,14 @@ pub use crate::_generated::interrupt;
 /// ```rust,ignore
 /// use embassy_stm32::{bind_interrupts, i2c, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
-///     I2C2_3 => i2c::EventInterruptHandler<peripherals::I2C2>, i2c::ErrorInterruptHandler<peripherals::I2C2>,
-///         i2c::EventInterruptHandler<peripherals::I2C3>, i2c::ErrorInterruptHandler<peripherals::I2C3>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the I2C interrupts.
+///     struct Irqs {
+///         I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
+///         I2C2_3 => i2c::EventInterruptHandler<peripherals::I2C2>, i2c::ErrorInterruptHandler<peripherals::I2C2>,
+///             i2c::EventInterruptHandler<peripherals::I2C3>, i2c::ErrorInterruptHandler<peripherals::I2C3>;
+///     }
+/// );
 /// ```
 
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.

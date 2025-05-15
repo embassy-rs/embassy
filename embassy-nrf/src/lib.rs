@@ -200,9 +200,12 @@ mod chip;
 /// ```rust,ignore
 /// use embassy_nrf::{bind_interrupts, spim, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the SPIM3 interrupt.
+///     struct Irqs {
+///         SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
+///     }
+/// );
 /// ```
 ///
 /// Example of how to bind multiple interrupts in a single macro invocation:
@@ -219,7 +222,7 @@ mod chip;
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident {
         $(
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
@@ -229,6 +232,7 @@ macro_rules! bind_interrupts {
         )*
     }) => {
         #[derive(Copy, Clone)]
+        $(#[$attr])*
         $vis struct $name;
 
         $(

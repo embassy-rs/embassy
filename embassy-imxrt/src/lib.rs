@@ -54,16 +54,20 @@ pub use crate::pac::NVIC_PRIO_BITS;
 /// ```rust,ignore
 /// use embassy_imxrt::{bind_interrupts, flexspi, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     FLEXSPI_IRQ => flexspi::InterruptHandler<peripherals::FLEXSPI>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the FLEXSPI interrupt.
+///     struct Irqs {
+///         FLEXSPI_IRQ => flexspi::InterruptHandler<peripherals::FLEXSPI>;
+///     }
+/// );
 /// ```
 ///
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
             #[derive(Copy, Clone)]
+            $(#[$attr])*
             $vis struct $name;
 
         $(
