@@ -932,6 +932,8 @@ pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
 }
 
 /// Type-erased GPIO pin
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AnyPin {
     pin_bank: u8,
 }
