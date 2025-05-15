@@ -339,7 +339,7 @@ pub mod config {
         /// 3.0 V
         _3V0 = 4,
         /// 3.3 V
-        _3v3 = 5,
+        _3V3 = 5,
         //ERASED = 7, means 1.8V
     }
 
@@ -371,7 +371,7 @@ pub mod config {
         /// 3.0 V
         _3V0 = 4,
         /// 3.3 V
-        _3v3 = 5,
+        _3V3 = 5,
         //ERASED = 7, means 1.8V
     }
 
