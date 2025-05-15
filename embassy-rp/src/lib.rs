@@ -160,15 +160,18 @@ embassy_hal_internal::interrupt_mod!(
 /// ```rust,ignore
 /// use embassy_rp::{bind_interrupts, usb, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the USB Interrupts.
+///     struct Irqs {
+///         USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
+///     }
+/// );
 /// ```
 ///
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident {
         $(
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
@@ -178,6 +181,7 @@ macro_rules! bind_interrupts {
         )*
     }) => {
         #[derive(Copy, Clone)]
+        $(#[$attr])*
         $vis struct $name;
 
         $(
