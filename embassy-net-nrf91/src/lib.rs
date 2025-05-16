@@ -346,8 +346,11 @@ impl StateInner {
                 self.rx_data_list = desc.data_list_ptr;
                 let rx_control_len = unsafe { addr_of!((*self.rx_control_list).len).read_volatile() };
                 let rx_data_len = unsafe { addr_of!((*self.rx_data_list).len).read_volatile() };
-                assert_eq!(rx_control_len, LIST_LEN);
-                assert_eq!(rx_data_len, LIST_LEN);
+                assert_eq!(rx_control_len, LIST_LEN, "control list length mismatch");
+                #[cfg(feature = "defmt")]
+                assert_eq!(rx_data_len, 32, "data list length mismatch");
+                #[cfg(not(feature = "defmt"))]
+                assert_eq!(rx_data_len, LIST_LEN, "data list length mismatch");
                 self.init = true;
 
                 debug!("IPC initialized OK!");
