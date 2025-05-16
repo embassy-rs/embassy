@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add PIO SPI
+- Add PIO I2S input
+
 ## 0.8.0 - 2025-08-26
 
 ## 0.7.1 - 2025-08-26
