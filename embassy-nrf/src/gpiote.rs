@@ -7,7 +7,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin, SealedPin as _};
+use crate::gpio::{AnyPin, Flex, Input, InputRef, OutputRef, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::InterruptExt;
 #[cfg(not(feature = "_nrf51"))]
 use crate::pac::gpio::vals::Detectmode;
@@ -188,12 +188,12 @@ impl Iterator for BitIter {
 }
 
 /// GPIOTE channel driver in input mode
-pub struct InputChannel<'d> {
+pub struct InputChannel<'d, 'i> {
     ch: Peri<'d, AnyChannel>,
-    pin: Input<'d>,
+    pin: InputRef<'d, 'i>,
 }
 
-impl<'d> Drop for InputChannel<'d> {
+impl<'d, 'i> Drop for InputChannel<'d, 'i> {
     fn drop(&mut self) {
         let g = regs();
         let num = self.ch.number();
@@ -202,9 +202,9 @@ impl<'d> Drop for InputChannel<'d> {
     }
 }
 
-impl<'d> InputChannel<'d> {
+impl<'d, 'i> InputChannel<'d, 'i> {
     /// Create a new GPIOTE input channel driver.
-    pub fn new(ch: Peri<'d, impl Channel>, pin: Input<'d>, polarity: InputChannelPolarity) -> Self {
+    pub fn new(ch: Peri<'d, impl Channel>, pin: InputRef<'d, 'i>, polarity: InputChannelPolarity) -> Self {
         let g = regs();
         let num = ch.number();
 
@@ -258,12 +258,12 @@ impl<'d> InputChannel<'d> {
 }
 
 /// GPIOTE channel driver in output mode
-pub struct OutputChannel<'d> {
+pub struct OutputChannel<'d, 'o> {
     ch: Peri<'d, AnyChannel>,
-    _pin: Output<'d>,
+    _pin: OutputRef<'d, 'o>,
 }
 
-impl<'d> Drop for OutputChannel<'d> {
+impl<'d, 'o> Drop for OutputChannel<'d, 'o> {
     fn drop(&mut self) {
         let g = regs();
         let num = self.ch.number();
@@ -272,9 +272,9 @@ impl<'d> Drop for OutputChannel<'d> {
     }
 }
 
-impl<'d> OutputChannel<'d> {
+impl<'d, 'o> OutputChannel<'d, 'o> {
     /// Create a new GPIOTE output channel driver.
-    pub fn new(ch: Peri<'d, impl Channel>, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
+    pub fn new(ch: Peri<'d, impl Channel>, pin: OutputRef<'d, 'o>, polarity: OutputChannelPolarity) -> Self {
         let g = regs();
         let num = ch.number();
 
@@ -509,30 +509,30 @@ impl_channel!(GPIOTE_CH7, 7);
 mod eh02 {
     use super::*;
 
-    impl<'d> embedded_hal_02::digital::v2::InputPin for InputChannel<'d> {
+    impl<'d, 'i> embedded_hal_02::digital::v2::InputPin for InputChannel<'d, 'i> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_high())
+            Ok((*self.pin).is_high())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_low())
+            Ok((*self.pin).is_low())
         }
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for InputChannel<'d> {
+impl<'d, 'i> embedded_hal_1::digital::ErrorType for InputChannel<'d, 'i> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for InputChannel<'d> {
+impl<'d, 'i> embedded_hal_1::digital::InputPin for InputChannel<'d, 'i> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
-        Ok(self.pin.is_high())
+        Ok((*self.pin).is_high())
     }
 
     fn is_low(&mut self) -> Result<bool, Self::Error> {
-        Ok(self.pin.is_low())
+        Ok((*self.pin).is_low())
     }
 }
 
