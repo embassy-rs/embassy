@@ -85,8 +85,8 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
             cfg
         };
         sm.set_config(&cfg);
-        sm.set_pin_dirs(Direction::Out, &[&data_pin]);
-        sm.set_pin_dirs(Direction::In, &[&left_right_clock_pin, &bit_clock_pin]);
+        sm.set_pin_dirs(Direction::In, &[&data_pin]);
+        sm.set_pin_dirs(Direction::Out, &[&left_right_clock_pin, &bit_clock_pin]);
         sm.set_enable(true);
 
         Self { dma: dma.into(), sm }
