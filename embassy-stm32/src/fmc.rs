@@ -6,24 +6,40 @@ use embassy_hal_internal::PeripheralType;
 use stm32_metapac::fmc::vals::Accmod;
 
 #[derive(Debug, Clone)]
+/// FMC Read/Write Access Mode
 pub enum AccessMode {
+    /// A
     ModeA,
+    /// B
     ModeB,
+    /// C
     ModeC,
+    /// D
     ModeD,
 }
 
 #[derive(Debug, Clone)]
+/// FMC Timing configuration
 pub struct Timing {
+    /// Write access mode
     pub write_access_mode: AccessMode,
+    /// Write bus turn around
     pub write_bus_turnaround: u8,
+    /// Write data
     pub write_data: u8,
+    /// Write address hold
     pub write_address_hold: u8,
+    /// Write address setup
     pub write_address_setup: u8,
+    /// Read access mode
     pub read_access_mode: AccessMode,
+    /// Read bus turn around
     pub read_bus_turnaround: u8,
+    /// Read data
     pub read_data: u8,
+    /// Read address hold
     pub read_address_hold: u8,
+    /// Read address setup
     pub read_address_setup: u8,
 }
 
