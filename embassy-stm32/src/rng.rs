@@ -186,6 +186,15 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 }
 
+impl<'d, T: Instance> Drop for Rng<'d, T> {
+    fn drop(&mut self) {
+        T::regs().cr().modify(|reg| {
+            reg.set_rngen(false);
+        });
+        rcc::disable::<T>();
+    }
+}
+
 impl<'d, T: Instance> RngCore for Rng<'d, T> {
     fn next_u32(&mut self) -> u32 {
         loop {
