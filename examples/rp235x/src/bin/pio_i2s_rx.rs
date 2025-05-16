@@ -15,7 +15,6 @@
 
 #![no_std]
 #![no_main]
-
 use core::mem;
 use defmt::*;
 use embassy_executor::Spawner;
