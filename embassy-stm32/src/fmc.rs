@@ -1,11 +1,9 @@
 //! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
-use core::marker::PhantomData;
-use embassy_hal_internal::into_ref;
-use stm32_metapac::fmc::vals::Accmod;
-use embassy_hal_internal::PeripheralType;
-
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::{rcc, Peri};
+use core::marker::PhantomData;
+use embassy_hal_internal::PeripheralType;
+use stm32_metapac::fmc::vals::Accmod;
 
 #[derive(Debug, Clone)]
 pub enum AccessMode {
@@ -213,9 +211,9 @@ macro_rules! fmc_8080_display_constructor {
     )) => {
         #[allow(non_snake_case)]
         pub fn $name<W: DataWidth>(
-            _instance: impl Peripheral<P = T> + 'd,
-            $($ctrl_pin_name: impl Peripheral<P = impl crate::fmc::$ctrl_signal<T>> + 'd),*,
-            $($d_pin_name: impl Peripheral<P = impl crate::fmc::$d_signal<T>> + 'd),*,
+            _instance: Peri<'d, T>,
+            $($ctrl_pin_name: Peri<'d, impl $ctrl_signal<T>>),*,
+            $($d_pin_name: Peri<'d, impl $d_signal<T>>),*,
             $timing_param: &Timing
         ) -> Self {
             let mut fmc = Self { peri: PhantomData };
