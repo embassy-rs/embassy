@@ -2,28 +2,25 @@ use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::into_ref;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
 use super::{
-    blocking_read, ensure_sector_aligned, family, get_sector, Async, Error, Flash, FlashLayout, FLASH_BASE, FLASH_SIZE,
-    WRITE_SIZE,
+    blocking_read, ensure_sector_aligned, family, get_flash_regions, get_sector, Async, Error, Flash, FlashLayout,
+    FLASH_BASE, FLASH_SIZE, WRITE_SIZE,
 };
 use crate::interrupt::InterruptExt;
 use crate::peripherals::FLASH;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, Peri};
 
 pub(super) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 impl<'d> Flash<'d, Async> {
     /// Create a new flash driver with async capabilities.
     pub fn new(
-        p: impl Peripheral<P = FLASH> + 'd,
+        p: Peri<'d, FLASH>,
         _irq: impl interrupt::typelevel::Binding<crate::interrupt::typelevel::FLASH, InterruptHandler> + 'd,
     ) -> Self {
-        into_ref!(p);
-
         crate::interrupt::FLASH.unpend();
         unsafe { crate::interrupt::FLASH.enable() };
 
@@ -37,7 +34,6 @@ impl<'d> Flash<'d, Async> {
     ///
     /// See module-level documentation for details on how memory regions work.
     pub fn into_regions(self) -> FlashLayout<'d, Async> {
-        assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 
@@ -126,7 +122,7 @@ pub(super) async unsafe fn write_chunked(base: u32, size: u32, offset: u32, byte
 pub(super) async unsafe fn erase_sectored(base: u32, from: u32, to: u32) -> Result<(), Error> {
     let start_address = base + from;
     let end_address = base + to;
-    let regions = family::get_flash_regions();
+    let regions = get_flash_regions();
 
     ensure_sector_aligned(start_address, end_address, regions)?;
 

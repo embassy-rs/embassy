@@ -20,15 +20,15 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{ChannelAndRequest, TransferOptions};
-use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, Rxordset, TypecVstateCc as CcVState};
 use crate::rcc::{self, RccPeripheral};
+use crate::{interrupt, Peri};
 
 pub(crate) fn init(
     _cs: critical_section::CriticalSection,
@@ -122,13 +122,12 @@ pub struct Ucpd<'d, T: Instance> {
 impl<'d, T: Instance> Ucpd<'d, T> {
     /// Creates a new UCPD driver instance.
     pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cc1: impl Peripheral<P = impl Cc1Pin<T>> + 'd,
-        cc2: impl Peripheral<P = impl Cc2Pin<T>> + 'd,
+        cc1: Peri<'d, impl Cc1Pin<T>>,
+        cc2: Peri<'d, impl Cc2Pin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(cc1, cc2);
         cc1.set_as_analog();
         cc2.set_as_analog();
 
@@ -137,6 +136,13 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         unsafe { T::Interrupt::enable() };
 
         let r = T::REGS;
+
+        #[cfg(stm32h5)]
+        r.cfgr2().write(|w| {
+            // Only takes effect, when UCPDEN=0.
+            w.set_rxafilten(true);
+        });
+
         r.cfgr1().write(|w| {
             // "The receiver is designed to work in the clock frequency range from 6 to 18 MHz.
             // However, the optimum performance is ensured in the range from 6 to 12 MHz"
@@ -175,11 +181,6 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_ucpden(true);
         });
 
-        #[cfg(stm32h5)]
-        r.cfgr2().write(|w| {
-            w.set_rxafilten(true);
-        });
-
         // Software trim according to RM0481, p. 2650/2668
         #[cfg(stm32h5)]
         {
@@ -206,8 +207,8 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     /// and a Power Delivery (PD) PHY with receiver and transmitter.
     pub fn split_pd_phy(
         self,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: Peri<'d, impl RxDma<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
         cc_sel: CcSel,
     ) -> (CcPhy<'d, T>, PdPhy<'d, T>) {
         let r = T::REGS;
@@ -227,7 +228,6 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
 
-        into_ref!(rx_dma, tx_dma);
         let rx_dma_req = rx_dma.request();
         let tx_dma_req = tx_dma.request();
         (
@@ -235,11 +235,11 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             PdPhy {
                 _lifetime: PhantomData,
                 rx_dma: ChannelAndRequest {
-                    channel: rx_dma.map_into(),
+                    channel: rx_dma.into(),
                     request: rx_dma_req,
                 },
                 tx_dma: ChannelAndRequest {
-                    channel: tx_dma.map_into(),
+                    channel: tx_dma.into(),
                     request: tx_dma_req,
                 },
             },
@@ -264,7 +264,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
         // Check if the PdPhy part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
-            drop_not_ready.store(true, Ordering::Relaxed);
+            drop_not_ready.store(false, Ordering::Relaxed);
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
             rcc::disable::<T>();
@@ -409,13 +409,14 @@ pub struct PdPhy<'d, T: Instance> {
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
-        T::REGS.cr().modify(|w| w.set_phyrxen(false));
-        // Check if the Type-C part was dropped already.
+        let r = T::REGS;
+        r.cr().modify(|w| w.set_phyrxen(false));
+        // Check if the CcPhy part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
-            drop_not_ready.store(true, Ordering::Relaxed);
+            drop_not_ready.store(false, Ordering::Relaxed);
         } else {
-            T::REGS.cfgr1().write(|w| w.set_ucpden(false));
+            r.cfgr1().write(|w| w.set_ucpden(false));
             rcc::disable::<T>();
             T::Interrupt::disable();
         }
@@ -436,7 +437,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     pub async fn receive_with_sop(&mut self, buf: &mut [u8]) -> Result<(Sop, usize), RxError> {
         let r = T::REGS;
 
-        let dma = unsafe {
+        let mut dma = unsafe {
             self.rx_dma
                 .read(r.rxdr().as_ptr() as *mut u8, buf, TransferOptions::default())
         };
@@ -451,14 +452,24 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             });
         });
 
+        let mut rxpaysz = 0;
+
+        // Stop DMA reception immediately after receiving a packet, to prevent storing multiple packets in the same buffer.
         poll_fn(|cx| {
             let sr = r.sr().read();
+
             if sr.rxhrstdet() {
+                dma.request_stop();
+
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
                 r.imr().modify(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(RxError::HardReset))
             } else if sr.rxmsgend() {
+                dma.request_stop();
+                // Should be read immediately on interrupt.
+                rxpaysz = r.rx_payszr().read().rxpaysz().into();
+
                 let ret = if sr.rxovr() {
                     Err(RxError::Overrun)
                 } else if sr.rxerr() {
@@ -493,7 +504,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             _ => unreachable!(),
         };
 
-        Ok((sop, r.rx_payszr().read().rxpaysz().into()))
+        Ok((sop, rxpaysz))
     }
 
     fn enable_rx_interrupt(enable: bool) {
@@ -676,7 +687,7 @@ trait SealedInstance {
 
 /// UCPD instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral {
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {
     /// Interrupt for this instance.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }

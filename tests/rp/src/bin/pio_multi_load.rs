@@ -1,11 +1,15 @@
 #![no_std]
 #![no_main]
+#[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Config, InterruptHandler, LoadError, Pio};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -27,7 +31,7 @@ async fn main(_spawner: Spawner) {
     } = Pio::new(pio, Irqs);
 
     // load with explicit origin works
-    let prg1 = pio_proc::pio_asm!(
+    let prg1 = pio_asm!(
         ".origin 4"
         "nop",
         "nop",
@@ -46,15 +50,14 @@ async fn main(_spawner: Spawner) {
     assert_eq!(loaded1.wrap.target, 4);
 
     // load without origin chooses a free space
-    let prg2 = pio_proc::pio_asm!("nop", "nop", "nop", "nop", "nop", "nop", "nop", "irq 1", "nop", "nop",);
+    let prg2 = pio_asm!("nop", "nop", "nop", "nop", "nop", "nop", "nop", "irq 1", "nop", "nop",);
     let loaded2 = common.load_program(&prg2.program);
     assert_eq!(loaded2.origin, 14);
     assert_eq!(loaded2.wrap.source, 23);
     assert_eq!(loaded2.wrap.target, 14);
 
     // wrapping around the end of program space automatically works
-    let prg3 =
-        pio_proc::pio_asm!("nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "irq 2",);
+    let prg3 = pio_asm!("nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "irq 2",);
     let loaded3 = common.load_program(&prg3.program);
     assert_eq!(loaded3.origin, 24);
     assert_eq!(loaded3.wrap.source, 3);
@@ -88,13 +91,13 @@ async fn main(_spawner: Spawner) {
 
     // instruction memory is full now. all loads should fail.
     {
-        let prg = pio_proc::pio_asm!(".origin 0", "nop");
+        let prg = pio_asm!(".origin 0", "nop");
         match common.try_load_program(&prg.program) {
             Err(LoadError::AddressInUse(0)) => (),
             _ => panic!("program loaded when it shouldn't"),
         };
 
-        let prg = pio_proc::pio_asm!("nop");
+        let prg = pio_asm!("nop");
         match common.try_load_program(&prg.program) {
             Err(LoadError::InsufficientSpace) => (),
             _ => panic!("program loaded when it shouldn't"),
@@ -106,13 +109,13 @@ async fn main(_spawner: Spawner) {
         common.free_instr(loaded3.used_memory);
     }
     {
-        let prg = pio_proc::pio_asm!(".origin 0", "nop");
+        let prg = pio_asm!(".origin 0", "nop");
         match common.try_load_program(&prg.program) {
             Ok(_) => (),
             _ => panic!("program didn't loaded when it shouldn"),
         };
 
-        let prg = pio_proc::pio_asm!("nop");
+        let prg = pio_asm!("nop");
         match common.try_load_program(&prg.program) {
             Ok(_) => (),
             _ => panic!("program didn't loaded when it shouldn"),

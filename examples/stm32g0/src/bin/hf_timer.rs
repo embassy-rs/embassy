@@ -16,7 +16,9 @@ async fn main(_spawner: Spawner) {
     let mut config = PeripheralConfig::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = true;
+        config.rcc.hsi = Some(Hsi {
+            sys_div: HsiSysDiv::DIV1,
+        });
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV1,

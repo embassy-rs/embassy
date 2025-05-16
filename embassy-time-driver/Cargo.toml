@@ -226,6 +226,8 @@ tick-hz-128_000_000 = []
 tick-hz-130_000_000 = []
 ## 131.072MHz Tick Rate
 tick-hz-131_072_000 = []
+## 133.0MHz Tick Rate
+tick-hz-133_000_000 = []
 ## 140.0MHz Tick Rate
 tick-hz-140_000_000 = []
 ## 144.0MHz Tick Rate

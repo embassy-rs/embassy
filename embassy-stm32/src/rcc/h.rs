@@ -575,7 +575,7 @@ pub(crate) unsafe fn init(config: Config) {
             Hertz(24_000_000) => Usbrefcksel::MHZ24,
             Hertz(26_000_000) => Usbrefcksel::MHZ26,
             Hertz(32_000_000) => Usbrefcksel::MHZ32,
-            _ => panic!("cannot select USBPHYC reference clock with source frequency of {} Hz, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+            _ => panic!("cannot select USBPHYC reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
         },
         None => Usbrefcksel::MHZ24,
     };
@@ -687,7 +687,6 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: hsi,
         hsi48: hsi48,
         csi: csi,
-        csi_div_122: csi.map(|c| c / 122u32),
         hse: hse,
 
         lse: None,
@@ -726,9 +725,9 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(stm32h7rs)]
         clk48mohci: None, // TODO
         #[cfg(stm32h7rs)]
-        hse_div_2: hse.map(|clk| clk / 2u32),
-        #[cfg(stm32h7rs)]
         usb: Some(Hertz(48_000_000)),
+        #[cfg(stm32h5)]
+        hse_div_rtcpre: None, // TODO
     );
 }
 
@@ -792,7 +791,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
         Pllvcosel::WIDE_VCO
     } else {
-        panic!("pll vco_clk out of range: {} hz", vco_clk.0)
+        panic!("pll vco_clk out of range: {}", vco_clk)
     };
 
     let p = config.divp.map(|div| {

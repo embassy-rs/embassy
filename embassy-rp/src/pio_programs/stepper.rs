@@ -2,11 +2,9 @@
 
 use core::mem::{self, MaybeUninit};
 
-use fixed::traits::ToFixed;
-use fixed::types::extra::U8;
-use fixed::FixedU32;
-
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin, StateMachine};
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::Peri;
 
 /// This struct represents a Stepper driver program loaded into pio instruction memory.
 pub struct PioStepperProgram<'a, PIO: Instance> {
@@ -16,7 +14,7 @@ pub struct PioStepperProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioStepperProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             "pull block",
             "mov x, osr",
             "pull block",
@@ -50,10 +48,10 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,
         irq: Irq<'d, T, SM>,
-        pin0: impl PioPin,
-        pin1: impl PioPin,
-        pin2: impl PioPin,
-        pin3: impl PioPin,
+        pin0: Peri<'d, impl PioPin>,
+        pin1: Peri<'d, impl PioPin>,
+        pin2: Peri<'d, impl PioPin>,
+        pin3: Peri<'d, impl PioPin>,
         program: &PioStepperProgram<'d, T>,
     ) -> Self {
         let pin0 = pio.make_pio_pin(pin0);
@@ -63,7 +61,9 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
         sm.set_pin_dirs(Direction::Out, &[&pin0, &pin1, &pin2, &pin3]);
         let mut cfg = Config::default();
         cfg.set_out_pins(&[&pin0, &pin1, &pin2, &pin3]);
-        cfg.clock_divider = (125_000_000 / (100 * 136)).to_fixed();
+
+        cfg.clock_divider = calculate_pio_clock_divider(100 * 136);
+
         cfg.use_program(&program.prg, &[]);
         sm.set_config(&cfg);
         sm.set_enable(true);
@@ -72,9 +72,11 @@ impl<'d, T: Instance, const SM: usize> PioStepper<'d, T, SM> {
 
     /// Set pulse frequency
     pub fn set_frequency(&mut self, freq: u32) {
-        let clock_divider: FixedU32<U8> = (125_000_000 / (freq * 136)).to_fixed();
-        assert!(clock_divider <= 65536, "clkdiv must be <= 65536");
-        assert!(clock_divider >= 1, "clkdiv must be >= 1");
+        let clock_divider = calculate_pio_clock_divider(freq * 136);
+        let divider_f32 = clock_divider.to_num::<f32>();
+        assert!(divider_f32 <= 65536.0, "clkdiv must be <= 65536");
+        assert!(divider_f32 >= 1.0, "clkdiv must be >= 1");
+
         self.sm.set_clock_divider(clock_divider);
         self.sm.clkdiv_restart();
     }

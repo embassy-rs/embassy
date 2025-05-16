@@ -1,7 +1,7 @@
 //! Low-level timer driver.
 mod prescaler;
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::Peri;
 
 #[cfg(any(lptim_v2a, lptim_v2b))]
 use super::channel::Channel;
@@ -17,14 +17,12 @@ use crate::time::Hertz;
 
 /// Low-level timer driver.
 pub struct Timer<'d, T: Instance> {
-    _tim: PeripheralRef<'d, T>,
+    _tim: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Timer<'d, T> {
     /// Create a new timer driver.
-    pub fn new(tim: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(tim);
-
+    pub fn new(tim: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         Self { _tim: tim }

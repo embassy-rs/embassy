@@ -13,9 +13,9 @@ use embassy_net::{Ipv4Cidr, Stack, StackResources};
 use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{context, Runner, State, TraceBuffer, TraceReader};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
-use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
+use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_nrf::uarte::Baudrate;
-use embassy_nrf::{bind_interrupts, interrupt, peripherals, uarte};
+use embassy_nrf::{bind_interrupts, interrupt, peripherals, uarte, Peri};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
 use heapless::Vec;
@@ -91,7 +91,7 @@ fn status_to_config(status: &Status) -> embassy_net::ConfigV4 {
 }
 
 #[embassy_executor::task]
-async fn blink_task(pin: AnyPin) {
+async fn blink_task(pin: Peri<'static, AnyPin>) {
     let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
     loop {
         led.set_high();
@@ -112,7 +112,7 @@ async fn main(spawner: Spawner) {
 
     info!("Hello World!");
 
-    unwrap!(spawner.spawn(blink_task(p.P0_02.degrade())));
+    unwrap!(spawner.spawn(blink_task(p.P0_02.into())));
 
     let ipc_mem = unsafe {
         let ipc_start = &__start_ipc as *const u8 as *mut MaybeUninit<u8>;
@@ -127,8 +127,8 @@ async fn main(spawner: Spawner) {
     let uart = BufferedUarteTx::new(
         //let trace_uart = BufferedUarteTx::new(
         unsafe { peripherals::SERIAL0::steal() },
-        Irqs,
         unsafe { peripherals::P0_01::steal() },
+        Irqs,
         //unsafe { peripherals::P0_14::steal() },
         config,
         unsafe { &mut *addr_of_mut!(TRACE_BUF) },

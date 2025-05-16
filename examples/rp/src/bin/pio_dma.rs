@@ -5,9 +5,10 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Config, InterruptHandler, Pio, ShiftConfig, ShiftDirection};
-use embassy_rp::{bind_interrupts, Peripheral};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
 use {defmt_rtt as _, panic_probe as _};
@@ -32,7 +33,7 @@ async fn main(_spawner: Spawner) {
         ..
     } = Pio::new(pio, Irqs);
 
-    let prg = pio_proc::pio_asm!(
+    let prg = pio_asm!(
         ".origin 0",
         "set pindirs,1",
         ".wrap_target",
@@ -61,8 +62,8 @@ async fn main(_spawner: Spawner) {
     sm.set_config(&cfg);
     sm.set_enable(true);
 
-    let mut dma_out_ref = p.DMA_CH0.into_ref();
-    let mut dma_in_ref = p.DMA_CH1.into_ref();
+    let mut dma_out_ref = p.DMA_CH0;
+    let mut dma_in_ref = p.DMA_CH1;
     let mut dout = [0x12345678u32; 29];
     for i in 1..dout.len() {
         dout[i] = (dout[i - 1] & 0x0fff_ffff) * 13 + 7;
@@ -71,8 +72,8 @@ async fn main(_spawner: Spawner) {
     loop {
         let (rx, tx) = sm.rx_tx();
         join(
-            tx.dma_push(dma_out_ref.reborrow(), &dout),
-            rx.dma_pull(dma_in_ref.reborrow(), &mut din),
+            tx.dma_push(dma_out_ref.reborrow(), &dout, false),
+            rx.dma_pull(dma_in_ref.reborrow(), &mut din, false),
         )
         .await;
         for i in 0..din.len() {

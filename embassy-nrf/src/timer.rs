@@ -6,11 +6,11 @@
 
 #![macro_use]
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 
+use crate::pac;
 use crate::pac::timer::vals;
 use crate::ppi::{Event, Task};
-use crate::{pac, Peripheral};
 
 pub(crate) trait SealedInstance {
     /// The number of CC registers this instance has.
@@ -20,7 +20,7 @@ pub(crate) trait SealedInstance {
 
 /// Basic Timer instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
@@ -84,7 +84,7 @@ pub enum Frequency {
 
 /// Timer driver.
 pub struct Timer<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Timer<'d, T> {
@@ -92,7 +92,7 @@ impl<'d, T: Instance> Timer<'d, T> {
     ///
     /// This can be useful for triggering tasks via PPI
     /// `Uarte` uses this internally.
-    pub fn new(timer: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, false)
     }
 
@@ -100,13 +100,11 @@ impl<'d, T: Instance> Timer<'d, T> {
     ///
     /// This can be useful for triggering tasks via PPI
     /// `Uarte` uses this internally.
-    pub fn new_counter(timer: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new_counter(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, true)
     }
 
-    fn new_inner(timer: impl Peripheral<P = T> + 'd, _is_counter: bool) -> Self {
-        into_ref!(timer);
-
+    fn new_inner(timer: Peri<'d, T>, _is_counter: bool) -> Self {
         let regs = T::regs();
 
         let this = Self { _p: timer };
@@ -229,7 +227,7 @@ impl<'d, T: Instance> Timer<'d, T> {
 /// When the register's CAPTURE task is triggered, the timer will store the current value of its counter in the register
 pub struct Cc<'d, T: Instance> {
     n: usize,
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Cc<'d, T> {

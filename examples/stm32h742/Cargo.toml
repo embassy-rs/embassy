@@ -1,0 +1,66 @@
+[package]
+edition = "2021"
+name = "embassy-stm32f7-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Change stm32f777zi to your chip name, if necessary.
+embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = [
+    "defmt",
+    "stm32h742vi",
+    "memory-x",
+    "unstable-pac",
+    "time-driver-any",
+    "exti",
+] }
+embassy-sync = { version = "0.6.2", path = "../../embassy-sync", features = [
+    "defmt",
+] }
+embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = [
+    "arch-cortex-m",
+    "executor-thread",
+    "defmt",
+] }
+embassy-time = { version = "0.4.0", path = "../../embassy-time", features = [
+    "defmt",
+    "defmt-timestamp-uptime",
+    "tick-hz-32_768",
+] }
+embassy-net = { version = "0.7.0", path = "../../embassy-net", features = [
+    "defmt",
+    "tcp",
+    "dhcpv4",
+    "medium-ethernet",
+] }
+embedded-io-async = { version = "0.6.1" }
+embassy-usb = { version = "0.4.0", path = "../../embassy-usb", features = [
+    "defmt",
+] }
+embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
+
+defmt = "0.3"
+defmt-rtt = "0.4"
+
+cortex-m = { version = "0.7.6", features = [
+    "inline-asm",
+    "critical-section-single-core",
+] }
+cortex-m-rt = "0.7.0"
+embedded-hal = "0.2.6"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+heapless = { version = "0.8", default-features = false }
+nb = "1.0.0"
+rand_core = "0.6.3"
+critical-section = "1.1"
+embedded-storage = "0.3.1"
+static_cell = "2"
+sha2 = { version = "0.10.8", default-features = false }
+hmac = "0.12.1"
+aes-gcm = { version = "0.10.3", default-features = false, features = [
+    "aes",
+    "heapless",
+] }
+
+[profile.release]
+debug = 2

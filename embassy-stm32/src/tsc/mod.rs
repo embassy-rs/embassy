@@ -98,6 +98,7 @@ use core::marker::PhantomData;
 
 pub use acquisition_banks::*;
 pub use config::*;
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 pub use errors::*;
 pub use io_pin::*;
@@ -106,7 +107,7 @@ pub use tsc::*;
 pub use types::*;
 
 use crate::rcc::RccPeripheral;
-use crate::{interrupt, peripherals, Peripheral};
+use crate::{interrupt, peripherals};
 
 #[cfg(tsc_v1)]
 const TSC_NUM_GROUPS: usize = 6;
@@ -142,7 +143,7 @@ pub(crate) trait SealedInstance {
 
 /// TSC instance trait
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {
     /// Interrupt for this TSC instance
     type Interrupt: interrupt::typelevel::Interrupt;
 }

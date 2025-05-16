@@ -9,9 +9,9 @@ use core::sync::atomic::{AtomicU16, Ordering};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Async, Config, InterruptHandler};
-use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::DMA_CH0;
+use embassy_rp::{bind_interrupts, Peri};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embassy_time::{Duration, Ticker, Timer};
@@ -31,7 +31,7 @@ static MAX: AtomicU16 = AtomicU16::new(0);
 struct AdcParts {
     adc: Adc<'static, Async>,
     pin: adc::Channel<'static>,
-    dma: DMA_CH0,
+    dma: Peri<'static, DMA_CH0>,
 }
 
 #[embassy_executor::main]
@@ -70,7 +70,10 @@ async fn producer(mut sender: Sender<'static, NoopRawMutex, SampleBuffer>, mut a
         let buf = sender.send().await;
 
         // Fill it with data
-        adc.adc.read_many(&mut adc.pin, buf, 1, &mut adc.dma).await.unwrap();
+        adc.adc
+            .read_many(&mut adc.pin, buf, 1, adc.dma.reborrow())
+            .await
+            .unwrap();
 
         // Notify the channel that the buffer is now ready to be received
         sender.send_done();

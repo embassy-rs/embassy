@@ -8,8 +8,7 @@ pub use embassy_boot::{
     FirmwareUpdater, FirmwareUpdaterConfig,
 };
 use embassy_nrf::nvmc::PAGE_SIZE;
-use embassy_nrf::peripherals::WDT;
-use embassy_nrf::wdt;
+use embassy_nrf::{wdt, Peri};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 /// A bootloader for nRF devices.
@@ -113,7 +112,7 @@ pub struct WatchdogFlash<FLASH> {
 
 impl<FLASH> WatchdogFlash<FLASH> {
     /// Start a new watchdog with a given flash and WDT peripheral and a timeout
-    pub fn start(flash: FLASH, wdt: WDT, config: wdt::Config) -> Self {
+    pub fn start(flash: FLASH, wdt: Peri<'static, impl wdt::Instance>, config: wdt::Config) -> Self {
         let (_wdt, [wdt]) = match wdt::Watchdog::try_new(wdt, config) {
             Ok(x) => x,
             Err(_) => {

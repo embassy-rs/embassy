@@ -9,7 +9,7 @@ use crate::dma::{AnyChannel, Channel};
 use crate::pio::{
     Common, Config, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
-use crate::{into_ref, Peripheral, PeripheralRef};
+use crate::Peri;
 
 const T1: u8 = 2; // start bit
 const T2: u8 = 5; // data bit
@@ -53,7 +53,7 @@ impl<'a, PIO: Instance> PioWs2812Program<'a, PIO> {
 /// Pio backed ws2812 driver
 /// Const N is the number of ws2812 leds attached to this pin
 pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize> {
-    dma: PeripheralRef<'d, AnyChannel>,
+    dma: Peri<'d, AnyChannel>,
     sm: StateMachine<'d, P, S>,
 }
 
@@ -62,12 +62,10 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
     pub fn new(
         pio: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
-        dma: impl Peripheral<P = impl Channel> + 'd,
-        pin: impl PioPin,
+        dma: Peri<'d, impl Channel>,
+        pin: Peri<'d, impl PioPin>,
         program: &PioWs2812Program<'d, P>,
     ) -> Self {
-        into_ref!(dma);
-
         // Setup sm0
         let mut cfg = Config::default();
 
@@ -95,10 +93,7 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
         sm.set_config(&cfg);
         sm.set_enable(true);
 
-        Self {
-            dma: dma.map_into(),
-            sm,
-        }
+        Self { dma: dma.into(), sm }
     }
 
     /// Write a buffer of [smart_leds::RGB8] to the ws2812 string
@@ -111,7 +106,7 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
         }
 
         // DMA transfer
-        self.sm.tx().dma_push(self.dma.reborrow(), &words).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), &words, false).await;
 
         Timer::after_micros(55).await;
     }

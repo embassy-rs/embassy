@@ -5,7 +5,6 @@ use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{self, AnyPin, Pull, SealedPin as GpioPin};
@@ -13,7 +12,7 @@ use crate::interrupt::typelevel::Binding;
 use crate::interrupt::InterruptExt;
 use crate::pac::dma::vals::TreqSel;
 use crate::peripherals::{ADC, ADC_TEMP_SENSOR};
-use crate::{dma, interrupt, pac, peripherals, Peripheral, RegExt};
+use crate::{dma, interrupt, pac, peripherals, Peri, RegExt};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -22,9 +21,11 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 #[derive(Default)]
 pub struct Config {}
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum Source<'p> {
-    Pin(PeripheralRef<'p, AnyPin>),
-    TempSensor(PeripheralRef<'p, ADC_TEMP_SENSOR>),
+    Pin(Peri<'p, AnyPin>),
+    TempSensor(Peri<'p, ADC_TEMP_SENSOR>),
 }
 
 /// ADC channel.
@@ -32,8 +33,7 @@ pub struct Channel<'p>(Source<'p>);
 
 impl<'p> Channel<'p> {
     /// Create a new ADC channel from pin with the provided [Pull] configuration.
-    pub fn new_pin(pin: impl Peripheral<P = impl AdcPin + 'p> + 'p, pull: Pull) -> Self {
-        into_ref!(pin);
+    pub fn new_pin(pin: Peri<'p, impl AdcPin + 'p>, pull: Pull) -> Self {
         pin.pad_ctrl().modify(|w| {
             #[cfg(feature = "_rp235x")]
             w.set_iso(false);
@@ -47,22 +47,32 @@ impl<'p> Channel<'p> {
             w.set_pue(pull == Pull::Up);
             w.set_pde(pull == Pull::Down);
         });
-        Self(Source::Pin(pin.map_into()))
+        Self(Source::Pin(pin.into()))
     }
 
     /// Create a new ADC channel for the internal temperature sensor.
-    pub fn new_temp_sensor(s: impl Peripheral<P = ADC_TEMP_SENSOR> + 'p) -> Self {
+    pub fn new_temp_sensor(s: Peri<'p, ADC_TEMP_SENSOR>) -> Self {
         let r = pac::ADC;
         r.cs().write_set(|w| w.set_ts_en(true));
-        Self(Source::TempSensor(s.into_ref()))
+        Self(Source::TempSensor(s))
     }
 
     fn channel(&self) -> u8 {
+        #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
+        const CH_OFFSET: u8 = 26;
+        #[cfg(feature = "rp235xb")]
+        const CH_OFFSET: u8 = 40;
+
+        #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
+        const TS_CHAN: u8 = 4;
+        #[cfg(feature = "rp235xb")]
+        const TS_CHAN: u8 = 8;
+
         match &self.0 {
             // this requires adc pins to be sequential and matching the adc channels,
-            // which is the case for rp2040
-            Source::Pin(p) => p._pin() - 26,
-            Source::TempSensor(_) => 4,
+            // which is the case for rp2040/rp235xy
+            Source::Pin(p) => p._pin() - CH_OFFSET,
+            Source::TempSensor(_) => TS_CHAN,
         }
     }
 }
@@ -180,7 +190,7 @@ impl<'d, M: Mode> Adc<'d, M> {
 impl<'d> Adc<'d, Async> {
     /// Create ADC driver in async mode.
     pub fn new(
-        _inner: impl Peripheral<P = ADC> + 'd,
+        _inner: Peri<'d, ADC>,
         _irq: impl Binding<interrupt::typelevel::ADC_IRQ_FIFO, InterruptHandler>,
         _config: Config,
     ) -> Self {
@@ -195,11 +205,13 @@ impl<'d> Adc<'d, Async> {
 
     fn wait_for_ready() -> impl Future<Output = ()> {
         let r = Self::regs();
-        r.inte().write(|w| w.set_fifo(true));
-        compiler_fence(Ordering::SeqCst);
 
         poll_fn(move |cx| {
             WAKER.register(cx.waker());
+
+            r.inte().write(|w| w.set_fifo(true));
+            compiler_fence(Ordering::SeqCst);
+
             if r.cs().read().ready() {
                 return Poll::Ready(());
             }
@@ -230,7 +242,7 @@ impl<'d> Adc<'d, Async> {
         buf: &mut [W],
         fcs_err: bool,
         div: u16,
-        dma: impl Peripheral<P = impl dma::Channel>,
+        dma: Peri<'_, impl dma::Channel>,
     ) -> Result<(), Error> {
         #[cfg(feature = "rp2040")]
         let mut rrobin = 0_u8;
@@ -311,7 +323,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [S],
         div: u16,
-        dma: impl Peripheral<P = impl dma::Channel>,
+        dma: Peri<'_, impl dma::Channel>,
     ) -> Result<(), Error> {
         self.read_many_inner(ch.iter().map(|c| c.channel()), buf, false, div, dma)
             .await
@@ -327,7 +339,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [Sample],
         div: u16,
-        dma: impl Peripheral<P = impl dma::Channel>,
+        dma: Peri<'_, impl dma::Channel>,
     ) {
         // errors are reported in individual samples
         let _ = self
@@ -350,7 +362,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [S],
         div: u16,
-        dma: impl Peripheral<P = impl dma::Channel>,
+        dma: Peri<'_, impl dma::Channel>,
     ) -> Result<(), Error> {
         self.read_many_inner([ch.channel()].into_iter(), buf, false, div, dma)
             .await
@@ -365,7 +377,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [Sample],
         div: u16,
-        dma: impl Peripheral<P = impl dma::Channel>,
+        dma: Peri<'_, impl dma::Channel>,
     ) {
         // errors are reported in individual samples
         let _ = self
@@ -382,7 +394,7 @@ impl<'d> Adc<'d, Async> {
 
 impl<'d> Adc<'d, Blocking> {
     /// Create ADC driver in blocking mode.
-    pub fn new_blocking(_inner: impl Peripheral<P = ADC> + 'd, _config: Config) -> Self {
+    pub fn new_blocking(_inner: Peri<'d, ADC>, _config: Config) -> Self {
         Self::setup();
 
         Self { phantom: PhantomData }

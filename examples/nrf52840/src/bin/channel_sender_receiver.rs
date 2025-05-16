@@ -3,7 +3,8 @@
 
 use defmt::unwrap;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive, Pin};
+use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
+use embassy_nrf::Peri;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::Timer;
@@ -28,7 +29,7 @@ async fn send_task(sender: Sender<'static, NoopRawMutex, LedState, 1>) {
 }
 
 #[embassy_executor::task]
-async fn recv_task(led: AnyPin, receiver: Receiver<'static, NoopRawMutex, LedState, 1>) {
+async fn recv_task(led: Peri<'static, AnyPin>, receiver: Receiver<'static, NoopRawMutex, LedState, 1>) {
     let mut led = Output::new(led, Level::Low, OutputDrive::Standard);
 
     loop {
@@ -45,5 +46,5 @@ async fn main(spawner: Spawner) {
     let channel = CHANNEL.init(Channel::new());
 
     unwrap!(spawner.spawn(send_task(channel.sender())));
-    unwrap!(spawner.spawn(recv_task(p.P0_13.degrade(), channel.receiver())));
+    unwrap!(spawner.spawn(recv_task(p.P0_13.into(), channel.receiver())));
 }

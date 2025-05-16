@@ -421,6 +421,9 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
     }
 
     fn clear(&mut self) {
+        if self.is_full() {
+            self.publisher_wakers.wake();
+        }
         self.queue.clear();
     }
 

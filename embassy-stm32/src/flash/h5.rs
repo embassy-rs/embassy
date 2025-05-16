@@ -1,21 +1,9 @@
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
-use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-// const fn is_dual_bank() -> bool {
-//     FLASH_REGIONS.len() >= 2
-// }
-
-pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
 
 pub(crate) unsafe fn lock() {
     if !pac::FLASH.nscr().read().lock() {
@@ -114,6 +102,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         r.set_bksel(match sector.bank {
             crate::flash::FlashBank::Bank1 => stm32_metapac::flash::vals::NscrBksel::B_0X0,
             crate::flash::FlashBank::Bank2 => stm32_metapac::flash::vals::NscrBksel::B_0X1,
+            _ => unreachable!(),
         });
         r.set_snb(sector.index_in_bank);
         r.set_ser(true);

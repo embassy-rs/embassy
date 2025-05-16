@@ -44,107 +44,163 @@ mod arch;
 #[cfg(feature = "_arch")]
 #[allow(unused_imports)] // don't warn if the module is empty.
 pub use arch::*;
+#[cfg(not(feature = "_arch"))]
+pub use embassy_executor_macros::main_unspecified as main;
 
 pub mod raw;
 
 mod spawner;
 pub use spawner::*;
 
-mod config {
-    #![allow(unused)]
-    include!(concat!(env!("OUT_DIR"), "/config.rs"));
-}
-
 /// Implementation details for embassy macros.
 /// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
 #[doc(hidden)]
 #[cfg(not(feature = "nightly"))]
 pub mod _export {
-    use core::alloc::Layout;
-    use core::cell::{Cell, UnsafeCell};
+    use core::cell::UnsafeCell;
     use core::future::Future;
     use core::mem::MaybeUninit;
-    use core::ptr::null_mut;
-
-    use critical_section::{CriticalSection, Mutex};
 
     use crate::raw::TaskPool;
 
-    struct Arena<const N: usize> {
-        buf: UnsafeCell<MaybeUninit<[u8; N]>>,
-        ptr: Mutex<Cell<*mut u8>>,
+    pub trait TaskFn<Args>: Copy {
+        type Fut: Future + 'static;
     }
 
-    unsafe impl<const N: usize> Sync for Arena<N> {}
-    unsafe impl<const N: usize> Send for Arena<N> {}
-
-    impl<const N: usize> Arena<N> {
-        const fn new() -> Self {
-            Self {
-                buf: UnsafeCell::new(MaybeUninit::uninit()),
-                ptr: Mutex::new(Cell::new(null_mut())),
+    macro_rules! task_fn_impl {
+        ($($Tn:ident),*) => {
+            impl<F, Fut, $($Tn,)*> TaskFn<($($Tn,)*)> for F
+            where
+                F: Copy + FnOnce($($Tn,)*) -> Fut,
+                Fut: Future + 'static,
+            {
+                type Fut = Fut;
             }
-        }
+        };
+    }
 
-        fn alloc<T>(&'static self, cs: CriticalSection) -> &'static mut MaybeUninit<T> {
-            let layout = Layout::new::<T>();
+    task_fn_impl!();
+    task_fn_impl!(T0);
+    task_fn_impl!(T0, T1);
+    task_fn_impl!(T0, T1, T2);
+    task_fn_impl!(T0, T1, T2, T3);
+    task_fn_impl!(T0, T1, T2, T3, T4);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6, T7);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6, T7, T8);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14);
+    task_fn_impl!(T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15);
 
-            let start = self.buf.get().cast::<u8>();
-            let end = unsafe { start.add(N) };
+    #[allow(private_bounds)]
+    #[repr(C)]
+    pub struct TaskPoolHolder<const SIZE: usize, const ALIGN: usize>
+    where
+        Align<ALIGN>: Alignment,
+    {
+        data: UnsafeCell<[MaybeUninit<u8>; SIZE]>,
+        align: Align<ALIGN>,
+    }
 
-            let mut ptr = self.ptr.borrow(cs).get();
-            if ptr.is_null() {
-                ptr = self.buf.get().cast::<u8>();
-            }
+    unsafe impl<const SIZE: usize, const ALIGN: usize> Send for TaskPoolHolder<SIZE, ALIGN> where Align<ALIGN>: Alignment {}
+    unsafe impl<const SIZE: usize, const ALIGN: usize> Sync for TaskPoolHolder<SIZE, ALIGN> where Align<ALIGN>: Alignment {}
 
-            let bytes_left = (end as usize) - (ptr as usize);
-            let align_offset = (ptr as usize).next_multiple_of(layout.align()) - (ptr as usize);
-
-            if align_offset + layout.size() > bytes_left {
-                panic!("embassy-executor: task arena is full. You must increase the arena size, see the documentation for details: https://docs.embassy.dev/embassy-executor/");
-            }
-
-            let res = unsafe { ptr.add(align_offset) };
-            let ptr = unsafe { ptr.add(align_offset + layout.size()) };
-
-            self.ptr.borrow(cs).set(ptr);
-
-            unsafe { &mut *(res as *mut MaybeUninit<T>) }
+    #[allow(private_bounds)]
+    impl<const SIZE: usize, const ALIGN: usize> TaskPoolHolder<SIZE, ALIGN>
+    where
+        Align<ALIGN>: Alignment,
+    {
+        pub const fn get(&self) -> *const u8 {
+            self.data.get().cast()
         }
     }
 
-    static ARENA: Arena<{ crate::config::TASK_ARENA_SIZE }> = Arena::new();
-
-    pub struct TaskPoolRef {
-        // type-erased `&'static mut TaskPool<F, N>`
-        // Needed because statics can't have generics.
-        ptr: Mutex<Cell<*mut ()>>,
+    pub const fn task_pool_size<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
+    where
+        F: TaskFn<Args, Fut = Fut>,
+        Fut: Future + 'static,
+    {
+        size_of::<TaskPool<Fut, POOL_SIZE>>()
     }
-    unsafe impl Sync for TaskPoolRef {}
-    unsafe impl Send for TaskPoolRef {}
 
-    impl TaskPoolRef {
-        pub const fn new() -> Self {
-            Self {
-                ptr: Mutex::new(Cell::new(null_mut())),
-            }
-        }
+    pub const fn task_pool_align<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
+    where
+        F: TaskFn<Args, Fut = Fut>,
+        Fut: Future + 'static,
+    {
+        align_of::<TaskPool<Fut, POOL_SIZE>>()
+    }
 
-        /// Get the pool for this ref, allocating it from the arena the first time.
-        ///
-        /// safety: for a given TaskPoolRef instance, must always call with the exact
-        /// same generic params.
-        pub unsafe fn get<F: Future, const N: usize>(&'static self) -> &'static TaskPool<F, N> {
-            critical_section::with(|cs| {
-                let ptr = self.ptr.borrow(cs);
-                if ptr.get().is_null() {
-                    let pool = ARENA.alloc::<TaskPool<F, N>>(cs);
-                    pool.write(TaskPool::new());
-                    ptr.set(pool as *mut _ as _);
+    pub const fn task_pool_new<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> TaskPool<Fut, POOL_SIZE>
+    where
+        F: TaskFn<Args, Fut = Fut>,
+        Fut: Future + 'static,
+    {
+        TaskPool::new()
+    }
+
+    #[allow(private_bounds)]
+    #[repr(transparent)]
+    pub struct Align<const N: usize>([<Self as Alignment>::Archetype; 0])
+    where
+        Self: Alignment;
+
+    trait Alignment {
+        /// A zero-sized type of particular alignment.
+        type Archetype: Copy + Eq + PartialEq + Send + Sync + Unpin;
+    }
+
+    macro_rules! aligns {
+        ($($AlignX:ident: $n:literal,)*) => {
+            $(
+                #[derive(Copy, Clone, Eq, PartialEq)]
+                #[repr(align($n))]
+                struct $AlignX {}
+                impl Alignment for Align<$n> {
+                    type Archetype = $AlignX;
                 }
-
-                unsafe { &*(ptr.get() as *const _) }
-            })
-        }
+            )*
+        };
     }
+
+    aligns!(
+        Align1:         1,
+        Align2:         2,
+        Align4:         4,
+        Align8:         8,
+        Align16:        16,
+        Align32:        32,
+        Align64:        64,
+        Align128:       128,
+        Align256:       256,
+        Align512:       512,
+        Align1024:      1024,
+        Align2048:      2048,
+        Align4096:      4096,
+        Align8192:      8192,
+        Align16384:     16384,
+    );
+    #[cfg(any(target_pointer_width = "32", target_pointer_width = "64"))]
+    aligns!(
+        Align32768:     32768,
+        Align65536:     65536,
+        Align131072:    131072,
+        Align262144:    262144,
+        Align524288:    524288,
+        Align1048576:   1048576,
+        Align2097152:   2097152,
+        Align4194304:   4194304,
+        Align8388608:   8388608,
+        Align16777216:  16777216,
+        Align33554432:  33554432,
+        Align67108864:  67108864,
+        Align134217728: 134217728,
+        Align268435456: 268435456,
+        Align536870912: 536870912,
+    );
 }

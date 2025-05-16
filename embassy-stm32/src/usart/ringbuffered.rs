@@ -4,18 +4,16 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::PeripheralRef;
 use embedded_io_async::ReadReady;
 use futures_util::future::{select, Either};
 
-use super::{
-    clear_interrupt_flags, rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx,
-};
+use super::{rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx};
 use crate::dma::ReadableRingBuffer;
 use crate::gpio::{AnyPin, SealedPin as _};
 use crate::mode::Async;
 use crate::time::Hertz;
-use crate::usart::{Regs, Sr};
+use crate::usart::Regs;
+use crate::Peri;
 
 /// Rx-only Ring-buffered UART Driver
 ///
@@ -24,8 +22,8 @@ pub struct RingBufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<PeripheralRef<'d, AnyPin>>,
-    rts: Option<PeripheralRef<'d, AnyPin>>,
+    rx: Option<Peri<'d, AnyPin>>,
+    rts: Option<Peri<'d, AnyPin>>,
     ring_buf: ReadableRingBuffer<'d, u8>,
 }
 
@@ -129,6 +127,18 @@ impl<'d> RingBufferedUartRx<'d> {
         compiler_fence(Ordering::SeqCst);
     }
 
+    /// (Re-)start DMA and Uart if it is not running (has not been started yet or has failed), and
+    /// check for errors in status register. Error flags are checked/cleared first.
+    fn start_dma_or_check_errors(&mut self) -> Result<(), Error> {
+        let r = self.info.regs;
+
+        check_idle_and_errors(r)?;
+        if !r.cr3().read().dmar() {
+            self.start_uart();
+        }
+        Ok(())
+    }
+
     /// Read bytes that are readily available in the ring buffer.
     /// If no bytes are currently available in the buffer the call waits until the some
     /// bytes are available (at least one byte and at most half the buffer size)
@@ -138,15 +148,16 @@ impl<'d> RingBufferedUartRx<'d> {
     /// Receive in the background is terminated if an error is returned.
     /// It must then manually be started again by calling `start()` or by re-calling `read()`.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        let r = self.info.regs;
+        self.start_dma_or_check_errors()?;
 
-        // Start DMA and Uart if it was not already started,
-        // otherwise check for errors in status register.
-        let sr = clear_idle_flag(r);
-        if !r.cr3().read().dmar() {
-            self.start_uart();
-        } else {
-            check_for_errors(sr)?;
+        // In half-duplex mode, we need to disable the Transmitter and enable the Receiver
+        // since they can't operate simultaneously on the shared line
+        let r = self.info.regs;
+        if r.cr3().read().hdsel() && r.cr1().read().te() {
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
         }
 
         loop {
@@ -182,13 +193,7 @@ impl<'d> RingBufferedUartRx<'d> {
 
             compiler_fence(Ordering::SeqCst);
 
-            // Critical section is needed so that IDLE isn't set after
-            // our read but before we clear it.
-            let sr = critical_section::with(|_| clear_idle_flag(self.info.regs));
-
-            check_for_errors(sr)?;
-
-            if sr.idle() {
+            if check_idle_and_errors(self.info.regs)? {
                 // Idle line is detected
                 Poll::Ready(Ok(()))
             } else {
@@ -231,34 +236,47 @@ impl Drop for RingBufferedUartRx<'_> {
     }
 }
 
-/// Return an error result if the Sr register has errors
-fn check_for_errors(s: Sr) -> Result<(), Error> {
-    if s.pe() {
+/// Check and clear idle and error interrupts, return true if idle, Err(e) on error
+///
+/// All flags are read and cleared in a single step, respectively. When more than one flag is set
+/// at the same time, all flags will be cleared but only one flag will be reported. So the other
+/// flag(s) will gone missing unnoticed. The error flags are checked first, the idle flag last.
+///
+/// For usart_v1 and usart_v2, all status flags must be handled together anyway because all flags
+/// are cleared by a single read to the RDR register.
+fn check_idle_and_errors(r: Regs) -> Result<bool, Error> {
+    // Critical section is required so that the flags aren't set after read and before clear
+    let sr = critical_section::with(|_| {
+        // SAFETY: read only and we only use Rx related flags
+        let sr = sr(r).read();
+
+        #[cfg(any(usart_v3, usart_v4))]
+        r.icr().write(|w| {
+            w.set_idle(true);
+            w.set_pe(true);
+            w.set_fe(true);
+            w.set_ne(true);
+            w.set_ore(true);
+        });
+        #[cfg(not(any(usart_v3, usart_v4)))]
+        unsafe {
+            // This read also clears the error and idle interrupt flags on v1 (TODO and v2?)
+            rdr(r).read_volatile()
+        };
+        sr
+    });
+    if sr.pe() {
         Err(Error::Parity)
-    } else if s.fe() {
+    } else if sr.fe() {
         Err(Error::Framing)
-    } else if s.ne() {
+    } else if sr.ne() {
         Err(Error::Noise)
-    } else if s.ore() {
+    } else if sr.ore() {
         Err(Error::Overrun)
     } else {
-        Ok(())
+        r.cr1().modify(|w| w.set_idleie(true));
+        Ok(sr.idle())
     }
-}
-
-/// Clear IDLE and return the Sr register
-fn clear_idle_flag(r: Regs) -> Sr {
-    // SAFETY: read only and we only use Rx related flags
-
-    let sr = sr(r).read();
-
-    // This read also clears the error and idle interrupt flags on v1.
-    unsafe { rdr(r).read_volatile() };
-    clear_interrupt_flags(r, sr);
-
-    r.cr1().modify(|w| w.set_idleie(true));
-
-    sr
 }
 
 impl embedded_io_async::ErrorType for RingBufferedUartRx<'_> {
@@ -269,6 +287,29 @@ impl embedded_io_async::Read for RingBufferedUartRx<'_> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.read(buf).await
     }
+}
+
+impl embedded_hal_nb::serial::Read for RingBufferedUartRx<'_> {
+    fn read(&mut self) -> nb::Result<u8, Self::Error> {
+        self.start_dma_or_check_errors()?;
+
+        let mut buf = [0u8; 1];
+        match self.ring_buf.read(&mut buf) {
+            Ok((0, _)) => Err(nb::Error::WouldBlock),
+            Ok((len, _)) => {
+                assert!(len == 1);
+                Ok(buf[0])
+            }
+            Err(_) => {
+                self.stop_uart();
+                Err(nb::Error::Other(Error::Overrun))
+            }
+        }
+    }
+}
+
+impl embedded_hal_nb::serial::ErrorType for RingBufferedUartRx<'_> {
+    type Error = Error;
 }
 
 impl ReadReady for RingBufferedUartRx<'_> {

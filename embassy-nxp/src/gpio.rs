@@ -1,7 +1,7 @@
-use embassy_hal_internal::impl_peripheral;
+use embassy_hal_internal::{impl_peripheral, PeripheralType};
 
 use crate::pac_utils::*;
-use crate::{peripherals, Peripheral, PeripheralRef};
+use crate::{peripherals, Peri};
 
 pub(crate) fn init() {
     // Enable clocks for GPIO, PINT, and IOCON
@@ -45,7 +45,7 @@ pub struct Output<'d> {
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [initial output](Level).
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_output();
         let mut result = Self { pin };
@@ -90,7 +90,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Pull].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input();
         let mut result = Self { pin };
@@ -124,7 +124,7 @@ impl<'d> Input<'d> {
 /// A flexible GPIO (digital mode) pin whose mode is not yet determined. Under the hood, this is a
 /// reference to a type-erased pin called ["AnyPin"](AnyPin).
 pub struct Flex<'d> {
-    pub(crate) pin: PeripheralRef<'d, AnyPin>,
+    pub(crate) pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -132,10 +132,8 @@ impl<'d> Flex<'d> {
     ///
     /// Note: you cannot assume that the pin will be in Digital mode after this call.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        Self {
-            pin: pin.into_ref().map_into(),
-        }
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
+        Self { pin: pin.into() }
     }
 
     /// Get the bank of this pin. See also [Bank].
@@ -218,15 +216,7 @@ pub(crate) trait SealedPin: Sized {
 /// [AnyPin]. By default, this trait is sealed and cannot be implemented outside of the
 /// `embassy-nxp` crate due to the [SealedPin] trait.
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
-    /// Degrade to a generic pin struct
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_bank: self.pin_bank(),
-            pin_number: self.pin_number(),
-        }
-    }
-
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Returns the pin number within a bank
     #[inline]
     fn pin(&self) -> u8 {
@@ -252,8 +242,8 @@ impl AnyPin {
     /// # Safety
     ///
     /// You must ensure that you’re only using one instance of this type at a time.
-    pub unsafe fn steal(pin_bank: Bank, pin_number: u8) -> Self {
-        Self { pin_bank, pin_number }
+    pub unsafe fn steal(pin_bank: Bank, pin_number: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_bank, pin_number })
     }
 }
 
@@ -289,7 +279,10 @@ macro_rules! impl_pin {
 
         impl From<peripherals::$name> for crate::gpio::AnyPin {
             fn from(val: peripherals::$name) -> Self {
-                crate::gpio::Pin::degrade(val)
+                Self {
+                    pin_bank: val.pin_bank(),
+                    pin_number: val.pin_number(),
+                }
             }
         }
     };

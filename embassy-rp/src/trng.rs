@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::ops::Not;
 use core::task::Poll;
 
-use embassy_hal_internal::Peripheral;
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use rand_core::Error;
 
@@ -20,7 +20,7 @@ trait SealedInstance {
 
 /// TRNG peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance {
+pub trait Instance: SealedInstance + PeripheralType {
     /// Interrupt for this peripheral.
     type Interrupt: Interrupt;
 }
@@ -78,6 +78,9 @@ impl From<InverterChainLength> for u8 {
 /// failed entropy checks.
 /// For acceptable results with an average generation time of about 2 milliseconds, use ROSC chain length settings of 0 or
 /// 1 and sample count settings of 20-25.
+/// Larger sample count settings (e.g. 100) provide proportionately slower average generation times. These settings
+/// significantly reduce, but do not eliminate NIST test failures and entropy check failures. Results occasionally take an
+/// especially long time to generate.
 ///
 /// ---
 ///
@@ -108,9 +111,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            disable_autocorrelation_test: true,
-            disable_crngt_test: true,
-            disable_von_neumann_balancer: true,
+            // WARNING: Disabling these tests increases likelihood of poor rng results.
+            disable_autocorrelation_test: false,
+            disable_crngt_test: false,
+            disable_von_neumann_balancer: false,
             sample_count: 25,
             inverter_chain_length: InverterChainLength::One,
         }
@@ -148,6 +152,7 @@ impl Default for Config {
 /// ```
 pub struct Trng<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+    config: Config,
 }
 
 /// 12.12.1. Overview
@@ -158,33 +163,13 @@ const TRNG_BLOCK_SIZE_BYTES: usize = TRNG_BLOCK_SIZE_BITS / 8;
 
 impl<'d, T: Instance> Trng<'d, T> {
     /// Create a new TRNG driver.
-    pub fn new(
-        _trng: impl Peripheral<P = T> + 'd,
-        _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        config: Config,
-    ) -> Self {
-        let regs = T::regs();
-
-        regs.rng_imr().write(|w| w.set_ehr_valid_int_mask(false));
-
-        let trng_config_register = regs.trng_config();
-        trng_config_register.write(|w| {
-            w.set_rnd_src_sel(config.inverter_chain_length.clone().into());
-        });
-
-        let sample_count_register = regs.sample_cnt1();
-        sample_count_register.write(|w| {
-            *w = config.sample_count;
-        });
-
-        let debug_control_register = regs.trng_debug_control();
-        debug_control_register.write(|w| {
-            w.set_auto_correlate_bypass(config.disable_autocorrelation_test);
-            w.set_trng_crngt_bypass(config.disable_crngt_test);
-            w.set_vnc_bypass(config.disable_von_neumann_balancer)
-        });
-
-        Trng { phantom: PhantomData }
+    pub fn new(_trng: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd, config: Config) -> Self {
+        let trng = Trng {
+            phantom: PhantomData,
+            config: config,
+        };
+        trng.initialize_rng();
+        trng
     }
 
     fn start_rng(&self) {
@@ -200,6 +185,29 @@ impl<'d, T: Instance> Trng<'d, T> {
         source_enable_register.write(|w| w.set_rnd_src_en(false));
         let reset_bits_counter_register = regs.rst_bits_counter();
         reset_bits_counter_register.write(|w| w.set_rst_bits_counter(true));
+    }
+
+    fn initialize_rng(&self) {
+        let regs = T::regs();
+
+        regs.rng_imr().write(|w| w.set_ehr_valid_int_mask(false));
+
+        let trng_config_register = regs.trng_config();
+        trng_config_register.write(|w| {
+            w.set_rnd_src_sel(self.config.inverter_chain_length.clone().into());
+        });
+
+        let sample_count_register = regs.sample_cnt1();
+        sample_count_register.write(|w| {
+            *w = self.config.sample_count;
+        });
+
+        let debug_control_register = regs.trng_debug_control();
+        debug_control_register.write(|w| {
+            w.set_auto_correlate_bypass(self.config.disable_autocorrelation_test);
+            w.set_trng_crngt_bypass(self.config.disable_crngt_test);
+            w.set_vnc_bypass(self.config.disable_von_neumann_balancer);
+        });
     }
 
     fn enable_irq(&self) {
@@ -222,6 +230,10 @@ impl<'d, T: Instance> Trng<'d, T> {
             if trng_valid_register.read().ehr_valid().not() {
                 if regs.rng_isr().read().autocorr_err() {
                     regs.trng_sw_reset().write(|w| w.set_trng_sw_reset(true));
+                    // Fixed delay is required after TRNG soft reset. This read is sufficient.
+                    regs.trng_sw_reset().read();
+                    self.initialize_rng();
+                    self.start_rng();
                 } else {
                     panic!("RNG not busy, but ehr is not valid!")
                 }
@@ -283,8 +295,11 @@ impl<'d, T: Instance> Trng<'d, T> {
                 if trng_busy_register.read().trng_busy() {
                     Poll::Pending
                 } else {
+                    // If woken up and EHR is *not* valid, assume the trng has been reset and reinitialize, restart.
                     if trng_valid_register.read().ehr_valid().not() {
-                        panic!("RNG not busy, but ehr is not valid!")
+                        self.initialize_rng();
+                        self.start_rng();
+                        return Poll::Pending;
                     }
                     self.read_ehr_registers_into_array(&mut buffer);
                     let remaining = destination_length - bytes_transferred;
@@ -372,6 +387,9 @@ impl<'d, T: Instance> rand_core::RngCore for Trng<'d, T> {
         Ok(())
     }
 }
+
+impl<'d, T: Instance> rand_core::CryptoRng for Trng<'d, T> {}
+
 /// TRNG interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _trng: PhantomData<T>,
@@ -381,25 +399,36 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let regs = T::regs();
         let isr = regs.rng_isr().read();
-        // Clear ehr bit
-        regs.rng_icr().write(|w| {
-            w.set_ehr_valid(true);
-        });
         if isr.ehr_valid() {
+            regs.rng_icr().write(|w| {
+                w.set_ehr_valid(true);
+            });
             T::waker().wake();
-        } else {
+        } else if isr.crngt_err() {
+            warn!("TRNG CRNGT error! Increase sample count to reduce likelihood");
+            regs.rng_icr().write(|w| {
+                w.set_crngt_err(true);
+            });
+        } else if isr.vn_err() {
+            warn!("TRNG Von-Neumann balancer error! Increase sample count to reduce likelihood");
+            regs.rng_icr().write(|w| {
+                w.set_vn_err(true);
+            });
+        } else if isr.autocorr_err() {
             // 12.12.5. List of Registers
             // ...
             // TRNG: RNG_ISR Register
             // ...
             // AUTOCORR_ERR: 1 indicates Autocorrelation test failed four times in a row.
             // When set, RNG ceases functioning until next reset
-            if isr.autocorr_err() {
-                warn!("TRNG Autocorrect error! Resetting TRNG");
-                regs.trng_sw_reset().write(|w| {
-                    w.set_trng_sw_reset(true);
-                });
-            }
+            warn!("TRNG Autocorrect error! Resetting TRNG. Increase sample count to reduce likelihood");
+            regs.trng_sw_reset().write(|w| {
+                w.set_trng_sw_reset(true);
+            });
+            // Fixed delay is required after TRNG soft reset, this read is sufficient.
+            regs.trng_sw_reset().read();
+            // Wake up to reinitialize and restart the TRNG.
+            T::waker().wake();
         }
     }
 }

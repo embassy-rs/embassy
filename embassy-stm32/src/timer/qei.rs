@@ -2,13 +2,13 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
 use stm32_metapac::timer::vals;
 
 use super::low_level::Timer;
+pub use super::{Ch1, Ch2};
 use super::{Channel1Pin, Channel2Pin, GeneralInstance4Channel};
 use crate::gpio::{AfType, AnyPin, Pull};
-use crate::Peripheral;
+use crate::Peri;
 
 /// Counting direction
 pub enum Direction {
@@ -18,14 +18,9 @@ pub enum Direction {
     Downcounting,
 }
 
-/// Channel 1 marker type.
-pub enum Ch1 {}
-/// Channel 2 marker type.
-pub enum Ch2 {}
-
 /// Wrapper for using a pin with QEI.
 pub struct QeiPin<'d, T, Channel> {
-    _pin: PeripheralRef<'d, AnyPin>,
+    _pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, Channel)>,
 }
 
@@ -33,14 +28,13 @@ macro_rules! channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, T: GeneralInstance4Channel> QeiPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " QEI pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(pin.af_num(), AfType::input(Pull::None));
                 });
                 QeiPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
@@ -58,11 +52,11 @@ pub struct Qei<'d, T: GeneralInstance4Channel> {
 
 impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     /// Create a new quadrature decoder driver.
-    pub fn new(tim: impl Peripheral<P = T> + 'd, _ch1: QeiPin<'d, T, Ch1>, _ch2: QeiPin<'d, T, Ch2>) -> Self {
+    pub fn new(tim: Peri<'d, T>, _ch1: QeiPin<'d, T, Ch1>, _ch2: QeiPin<'d, T, Ch2>) -> Self {
         Self::new_inner(tim)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
+    fn new_inner(tim: Peri<'d, T>) -> Self {
         let inner = Timer::new(tim);
         let r = inner.regs_gp16();
 

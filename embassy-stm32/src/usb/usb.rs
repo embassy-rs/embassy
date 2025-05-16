@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
@@ -16,7 +16,7 @@ use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
 use crate::rcc::RccPeripheral;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, Peri};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -80,10 +80,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
         if istr.ctr() {
             let index = istr.ep_id() as usize;
-            CTR_TRIGGERED[index].store(true, Ordering::Relaxed);
 
             let mut epr = regs.epr(index).read();
             if epr.ctr_rx() {
+                RX_COMPLETE[index].store(true, Ordering::Relaxed);
                 if index == 0 && epr.setup() {
                     EP0_SETUP.store(true, Ordering::Relaxed);
                 }
@@ -91,6 +91,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 EP_OUT_WAKERS[index].wake();
             }
             if epr.ctr_tx() {
+                TX_PENDING[index].store(false, Ordering::Relaxed);
                 //trace!("EP {} TX", index);
                 EP_IN_WAKERS[index].wake();
             }
@@ -122,7 +123,8 @@ const USBRAM_ALIGN: usize = 4;
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP0_SETUP: AtomicBool = AtomicBool::new(false);
 
-static CTR_TRIGGERED: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
+static TX_PENDING: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
+static RX_COMPLETE: [AtomicBool; EP_COUNT] = [const { AtomicBool::new(false) }; EP_COUNT];
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static IRQ_RESET: AtomicBool = AtomicBool::new(false);
@@ -204,15 +206,13 @@ mod btable {
 mod btable {
     use super::*;
 
-    pub(super) fn write_in_tx<T: Instance>(_index: usize, _addr: u16) {}
-
-    pub(super) fn write_in_rx<T: Instance>(_index: usize, _addr: u16) {}
-
     pub(super) fn write_in_len_tx<T: Instance>(index: usize, addr: u16, len: u16) {
+        assert_eq!(addr & 0b11, 0);
         USBRAM.mem(index * 2).write_value((addr as u32) | ((len as u32) << 16));
     }
 
     pub(super) fn write_in_len_rx<T: Instance>(index: usize, addr: u16, len: u16) {
+        assert_eq!(addr & 0b11, 0);
         USBRAM
             .mem(index * 2 + 1)
             .write_value((addr as u32) | ((len as u32) << 16));
@@ -287,15 +287,30 @@ pub struct Driver<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
+    /// Create a new USB driver with start-of-frame (SOF) output.
+    #[cfg(not(stm32l1))]
+    pub fn new_with_sof(
+        _usb: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        dp: Peri<'d, impl DpPin<T>>,
+        dm: Peri<'d, impl DmPin<T>>,
+        sof: Peri<'d, impl SofPin<T>>,
+    ) -> Self {
+        {
+            use crate::gpio::{AfType, OutputType, Speed};
+            sof.set_as_af(sof.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        }
+
+        Self::new(_usb, _irq, dp, dm)
+    }
+
     /// Create a new USB driver.
     pub fn new(
-        _usb: impl Peripheral<P = T> + 'd,
+        _usb: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        dp: Peri<'d, impl DpPin<T>>,
+        dm: Peri<'d, impl DmPin<T>>,
     ) -> Self {
-        into_ref!(dp, dm);
-
         super::common_init::<T>();
 
         let regs = T::regs();
@@ -363,10 +378,11 @@ impl<'d, T: Instance> Driver<'d, T> {
                 return false; // reserved for control pipe
             }
             let used = ep.used_out || ep.used_in;
-            if used && (ep.ep_type == EndpointType::Isochronous || ep.ep_type == EndpointType::Bulk) {
-                // Isochronous and bulk endpoints are double-buffered.
+            if used && (ep.ep_type == EndpointType::Isochronous) {
+                // Isochronous endpoints are always double-buffered.
                 // Their corresponding endpoint/channel registers are forced to be unidirectional.
                 // Do not reuse this index.
+                // FIXME: Bulk endpoints can be double buffered, but are not in the current implementation.
                 return false;
             }
 
@@ -412,11 +428,23 @@ impl<'d, T: Instance> Driver<'d, T> {
                 let len = align_len_up(max_packet_size);
                 let addr = self.alloc_ep_mem(len);
 
-                // ep_in_len is written when actually TXing packets.
-                btable::write_in_tx::<T>(index, addr);
+                #[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
+                {
+                    // ep_in_len is written when actually transmitting packets.
+                    btable::write_in_tx::<T>(index, addr);
 
-                if ep_type == EndpointType::Isochronous {
-                    btable::write_in_rx::<T>(index, addr);
+                    if ep_type == EndpointType::Isochronous {
+                        btable::write_in_rx::<T>(index, addr);
+                    }
+                }
+
+                #[cfg(any(usbram_32_2048, usbram_32_1024))]
+                {
+                    btable::write_in_len_tx::<T>(index, addr, 0);
+
+                    if ep_type == EndpointType::Isochronous {
+                        btable::write_in_len_rx::<T>(index, addr, 0);
+                    }
                 }
 
                 EndpointBuffer {
@@ -640,22 +668,25 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("set_enabled {:?} {}", ep_addr, enabled);
         // This can race, so do a retry loop.
-        let reg = T::regs().epr(ep_addr.index() as _);
-        trace!("EPR before: {:04x}", reg.read().0);
+        let epr = T::regs().epr(ep_addr.index() as _);
+        trace!("EPR before: {:04x}", epr.read().0);
         match ep_addr.direction() {
             Direction::In => {
                 loop {
                     let want_stat = match enabled {
                         false => Stat::DISABLED,
-                        true => Stat::NAK,
+                        true => match epr.read().ep_type() {
+                            EpType::ISO => Stat::VALID,
+                            _ => Stat::NAK,
+                        },
                     };
-                    let r = reg.read();
+                    let r = epr.read();
                     if r.stat_tx() == want_stat {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
-                    reg.write_value(w);
+                    epr.write_value(w);
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
@@ -665,18 +696,18 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                         false => Stat::DISABLED,
                         true => Stat::VALID,
                     };
-                    let r = reg.read();
+                    let r = epr.read();
                     if r.stat_rx() == want_stat {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
-                    reg.write_value(w);
+                    epr.write_value(w);
                 }
                 EP_OUT_WAKERS[ep_addr.index()].wake();
             }
         }
-        trace!("EPR after: {:04x}", reg.read().0);
+        trace!("EPR after: {:04x}", epr.read().0);
     }
 
     async fn enable(&mut self) {}
@@ -712,6 +743,7 @@ impl Dir for Out {
 /// For double-buffered endpoints, both the `Rx` and `Tx` buffer from a channel are used for the same
 /// direction of transfer. This is opposed to single-buffered endpoints, where one channel can serve
 /// two directions at the same time.
+#[derive(Clone, Copy, Debug)]
 enum PacketBuffer {
     /// The RX buffer - must be used for single-buffered OUT endpoints
     Rx,
@@ -836,7 +868,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             if self.info.ep_type == EndpointType::Isochronous {
                 // The isochronous endpoint does not change its `STAT_RX` field to `NAK` when receiving a packet.
                 // Therefore, this instead waits until the `CTR` interrupt was triggered.
-                if matches!(stat, Stat::DISABLED) || CTR_TRIGGERED[index].load(Ordering::Relaxed) {
+                if matches!(stat, Stat::DISABLED) || RX_COMPLETE[index].load(Ordering::Relaxed) {
+                    assert!(matches!(stat, Stat::VALID | Stat::DISABLED));
                     Poll::Ready(stat)
                 } else {
                     Poll::Pending
@@ -851,7 +884,17 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         })
         .await;
 
-        CTR_TRIGGERED[index].store(false, Ordering::Relaxed);
+        // Errata for STM32H5, 2.20.1:
+        // During OUT transfers, the correct transfer interrupt (CTR) is triggered a little before the last USB SRAM accesses
+        // have completed. If the software responds quickly to the interrupt, the full buffer contents may not be correct.
+        //
+        // Workaround:
+        // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
+        // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
+        #[cfg(stm32h5)]
+        embassy_time::block_for(embassy_time::Duration::from_nanos(800));
+
+        RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
         if stat == Stat::DISABLED {
             return Err(EndpointError::Disabled);
@@ -859,31 +902,26 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 
         let regs = T::regs();
 
-        let packet_buffer = if self.info.ep_type == EndpointType::Isochronous {
+        let rx_len = if self.info.ep_type == EndpointType::Isochronous {
             // Find the buffer, which is currently in use. Read from the OTHER buffer.
-            if regs.epr(index).read().dtog_rx() {
-                PacketBuffer::Rx
-            } else {
+            let packet_buffer = if regs.epr(index).read().dtog_rx() {
                 PacketBuffer::Tx
-            }
-        } else {
-            PacketBuffer::Rx
-        };
-
-        let rx_len = self.read_data_double_buffered(buf, packet_buffer)?;
-
-        regs.epr(index).write(|w| {
-            w.set_ep_type(convert_type(self.info.ep_type));
-            w.set_ea(self.info.addr.index() as _);
-            if self.info.ep_type == EndpointType::Isochronous {
-                w.set_stat_rx(Stat::from_bits(0)); // STAT_RX remains `VALID`.
             } else {
+                PacketBuffer::Rx
+            };
+            self.read_data_double_buffered(buf, packet_buffer)?
+        } else {
+            regs.epr(index).write(|w| {
+                w.set_ep_type(convert_type(self.info.ep_type));
+                w.set_ea(self.info.addr.index() as _);
                 w.set_stat_rx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
-            }
-            w.set_stat_tx(Stat::from_bits(0));
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
+                w.set_stat_tx(Stat::from_bits(0));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            });
+
+            self.read_data(buf)?
+        };
         trace!("READ OK, rx_len = {}", rx_len);
 
         Ok(rx_len)
@@ -895,18 +933,31 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         if buf.len() > self.info.max_packet_size as usize {
             return Err(EndpointError::BufferOverflow);
         }
+        trace!("WRITE WAITING, buf.len() = {}", buf.len());
 
+        let regs = T::regs();
         let index = self.info.addr.index();
 
-        trace!("WRITE WAITING");
+        if self.info.ep_type == EndpointType::Isochronous {
+            // Find the buffer, which is currently in use. Write to the OTHER buffer.
+            let packet_buffer = if regs.epr(index).read().dtog_tx() {
+                PacketBuffer::Rx
+            } else {
+                PacketBuffer::Tx
+            };
+
+            self.write_data_double_buffered(buf, packet_buffer);
+        }
+
         let stat = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let regs = T::regs();
             let stat = regs.epr(index).read().stat_tx();
             if self.info.ep_type == EndpointType::Isochronous {
-                // The isochronous endpoint does not change its `STAT_RX` field to `NAK` when receiving a packet.
+                // The isochronous endpoint does not change its `STAT_TX` field to `NAK` after sending a packet.
                 // Therefore, this instead waits until the `CTR` interrupt was triggered.
-                if matches!(stat, Stat::DISABLED) || CTR_TRIGGERED[index].load(Ordering::Relaxed) {
+                if matches!(stat, Stat::DISABLED) || !TX_PENDING[index].load(Ordering::Relaxed) {
+                    assert!(matches!(stat, Stat::VALID | Stat::DISABLED));
                     Poll::Ready(stat)
                 } else {
                     Poll::Pending
@@ -921,41 +972,23 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         })
         .await;
 
-        CTR_TRIGGERED[index].store(false, Ordering::Relaxed);
-
         if stat == Stat::DISABLED {
             return Err(EndpointError::Disabled);
         }
 
-        let regs = T::regs();
+        if self.info.ep_type != EndpointType::Isochronous {
+            self.write_data(buf);
 
-        let packet_buffer = if self.info.ep_type == EndpointType::Isochronous {
-            // Find the buffer, which is currently in use. Write to the OTHER buffer.
-            if regs.epr(index).read().dtog_tx() {
-                PacketBuffer::Tx
-            } else {
-                PacketBuffer::Rx
-            }
-        } else {
-            PacketBuffer::Tx
-        };
-
-        self.write_data_double_buffered(buf, packet_buffer);
-
-        let regs = T::regs();
-        regs.epr(index).write(|w| {
-            w.set_ep_type(convert_type(self.info.ep_type));
-            w.set_ea(self.info.addr.index() as _);
-            if self.info.ep_type == EndpointType::Isochronous {
-                w.set_stat_tx(Stat::from_bits(0)); // STAT_TX remains `VALID`.
-            } else {
+            regs.epr(index).write(|w| {
+                w.set_ep_type(convert_type(self.info.ep_type));
+                w.set_ea(self.info.addr.index() as _);
                 w.set_stat_tx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
-            }
-            w.set_stat_rx(Stat::from_bits(0));
-            w.set_ctr_rx(true); // don't clear
-            w.set_ctr_tx(true); // don't clear
-        });
-
+                w.set_stat_rx(Stat::from_bits(0));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            });
+        }
+        TX_PENDING[index].store(true, Ordering::Relaxed);
         trace!("WRITE OK");
 
         Ok(())
@@ -1200,7 +1233,7 @@ trait SealedInstance {
 
 /// USB instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + 'static {
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + 'static {
     /// Interrupt for this USB instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -1208,6 +1241,7 @@ pub trait Instance: SealedInstance + RccPeripheral + 'static {
 // Internal PHY pins
 pin_trait!(DpPin, Instance);
 pin_trait!(DmPin, Instance);
+pin_trait!(SofPin, Instance);
 
 foreach_interrupt!(
     ($inst:ident, usb, $block:ident, LP, $irq:ident) => {

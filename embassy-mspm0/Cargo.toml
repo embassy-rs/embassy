@@ -1,0 +1,133 @@
+[package]
+name = "embassy-mspm0"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for Texas Instruments MSPM0 series microcontrollers"
+keywords = ["embedded", "async", "mspm0", "hal", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-mspm0"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-mspm0-v$VERSION/embassy-mspm0/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-mspm0/src/"
+
+features = ["defmt", "unstable-pac", "time-driver-any"]
+flavors = [
+    { regex_feature = "mspm0c.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "mspm0l.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "mspm0g.*", target = "thumbv6m-none-eabi" },
+]
+
+[package.metadata.docs.rs]
+features = ["defmt", "unstable-pac", "time-driver-any", "time", "mspm0g3507"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
+embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
+# TODO: Support other tick rates
+embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }
+embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
+embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
+embassy-embedded-hal = { version = "0.3.0", path = "../embassy-embedded-hal", default-features = false }
+embassy-executor = { version = "0.7.0", path = "../embassy-executor", optional = true }
+
+embedded-hal = { version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+
+defmt = { version = "0.3", optional = true }
+fixed = "1.29"
+log = { version = "0.4.14", optional = true }
+cortex-m-rt = ">=0.6.15,<0.8"
+cortex-m = "0.7.6"
+critical-section = "1.2.0"
+
+# mspm0-metapac = { version = "" }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-119240dd23ef5748d2a7bef219ca298d37ba604a" }
+
+[build-dependencies]
+proc-macro2 = "1.0.94"
+quote = "1.0.40"
+
+# mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-119240dd23ef5748d2a7bef219ca298d37ba604a", default-features = false, features = ["metadata"] }
+
+[features]
+default = ["rt"]
+
+## Enable `mspm0-metapac`'s `rt` feature
+rt = ["mspm0-metapac/rt"]
+
+## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
+defmt = [
+    "dep:defmt",
+    "embassy-sync/defmt",
+    "embassy-embedded-hal/defmt",
+    "embassy-hal-internal/defmt",
+    "embassy-time?/defmt",
+]
+
+## Re-export mspm0-metapac at `mspm0::pac`.
+## This is unstable because semver-minor (non-breaking) releases of embassy-mspm0 may major-bump (breaking) the mspm0-metapac version.
+## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
+## There are no plans to make this stable.
+unstable-pac = []
+
+#! ## Time
+
+# Features starting with `_` are for internal use only. They're not intended
+# to be enabled by other crates, and are not covered by semver guarantees.
+_time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+
+# Use any time driver
+time-driver-any = ["_time-driver"]
+## Use TIMG0 as time driver
+time-driver-timg0 = ["_time-driver"]
+## Use TIMG1 as time driver
+time-driver-timg1 = ["_time-driver"]
+## Use TIMG2 as time driver
+time-driver-timg2 = ["_time-driver"]
+## Use TIMG3 as time driver
+time-driver-timg3 = ["_time-driver"]
+## Use TIMG4 as time driver
+time-driver-timg4 = ["_time-driver"]
+## Use TIMG5 as time driver
+time-driver-timg5 = ["_time-driver"]
+## Use TIMG6 as time driver
+time-driver-timg6 = ["_time-driver"]
+## Use TIMG7 as time driver
+time-driver-timg7 = ["_time-driver"]
+## Use TIMG8 as time driver
+time-driver-timg8 = ["_time-driver"]
+## Use TIMG9 as time driver
+time-driver-timg9 = ["_time-driver"]
+## Use TIMG10 as time driver
+time-driver-timg10 = ["_time-driver"]
+## Use TIMG11 as time driver
+time-driver-timg11 = ["_time-driver"]
+## Use TIMG12 as time driver
+time-driver-timg12 = ["_time-driver"]
+## Use TIMG13 as time driver
+time-driver-timg13 = ["_time-driver"]
+## Use TIMG14 as time driver
+time-driver-timg14 = ["_time-driver"]
+## Use TIMA0 as time driver
+time-driver-tima0 = ["_time-driver"]
+## Use TIMA1 as time driver
+time-driver-tima1 = ["_time-driver"]
+
+#! ## Chip-selection features
+#! Select your chip by specifying the model as a feature, e.g. `mspm0g350x`.
+#! Check the `Cargo.toml` for the latest list of supported chips.
+#!
+#! **Important:** Do not forget to adapt the target chip in your toolchain,
+#! e.g. in `.cargo/config.toml`.
+
+mspm0c110x = [ "mspm0-metapac/mspm0c110x" ]
+mspm0g350x = [ "mspm0-metapac/mspm0g350x" ]
+mspm0g351x = [ "mspm0-metapac/mspm0g351x" ]
+mspm0l130x = [ "mspm0-metapac/mspm0l130x" ]
+mspm0l222x = [ "mspm0-metapac/mspm0l222x" ]

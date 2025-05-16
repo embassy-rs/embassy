@@ -35,7 +35,7 @@ After the processing, another 1024 byte buffer will be placed on the stack to be
 
 Pass the data by reference and not by value on both, the way in and the way out.
 For example, you could return a slice of the input buffer as the output.
-Requiring the lifetime of the input slice and the output slice to be the same, the memory safetly of this procedure will be enforced by the compiler.
+Requiring the lifetime of the input slice and the output slice to be the same, the memory safety of this procedure will be enforced by the compiler.
 
 [,rust]
 ----

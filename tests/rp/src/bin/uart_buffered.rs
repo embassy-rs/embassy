@@ -1,13 +1,16 @@
 #![no_std]
 #![no_main]
+#[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert_eq, panic, *};
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::UART0;
-use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config, Error, Instance, Parity};
+use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config, Error, Parity};
 use embassy_time::Timer;
 use embedded_io_async::{Read, ReadExactError, Write};
 use {defmt_rtt as _, panic_probe as _};
@@ -16,7 +19,7 @@ bind_interrupts!(struct Irqs {
     UART0_IRQ => BufferedInterruptHandler<UART0>;
 });
 
-async fn read<const N: usize>(uart: &mut BufferedUart<'_, impl Instance>) -> Result<[u8; N], Error> {
+async fn read<const N: usize>(uart: &mut BufferedUart) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
     match uart.read_exact(&mut buf).await {
         Ok(()) => Ok(buf),
@@ -26,7 +29,7 @@ async fn read<const N: usize>(uart: &mut BufferedUart<'_, impl Instance>) -> Res
     }
 }
 
-async fn read1<const N: usize>(uart: &mut BufferedUartRx<'_, impl Instance>) -> Result<[u8; N], Error> {
+async fn read1<const N: usize>(uart: &mut BufferedUartRx) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
     match uart.read_exact(&mut buf).await {
         Ok(()) => Ok(buf),
@@ -70,7 +73,15 @@ async fn main(_spawner: Spawner) {
         let config = Config::default();
         let tx_buf = &mut [0u8; 16];
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUart::new(&mut uart, Irqs, &mut tx, &mut rx, tx_buf, rx_buf, config);
+        let mut uart = BufferedUart::new(
+            uart.reborrow(),
+            tx.reborrow(),
+            rx.reborrow(),
+            Irqs,
+            tx_buf,
+            rx_buf,
+            config,
+        );
 
         // Make sure we send more bytes than fits in the FIFO, to test the actual
         // bufferedUart.
@@ -90,7 +101,15 @@ async fn main(_spawner: Spawner) {
         let config = Config::default();
         let tx_buf = &mut [0u8; 16];
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUart::new(&mut uart, Irqs, &mut tx, &mut rx, tx_buf, rx_buf, config);
+        let mut uart = BufferedUart::new(
+            uart.reborrow(),
+            tx.reborrow(),
+            rx.reborrow(),
+            Irqs,
+            tx_buf,
+            rx_buf,
+            config,
+        );
 
         // Make sure we send more bytes than fits in the FIFO, to test the actual
         // bufferedUart.
@@ -125,7 +144,15 @@ async fn main(_spawner: Spawner) {
         config.baudrate = 1000;
         let tx_buf = &mut [0u8; 16];
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUart::new(&mut uart, Irqs, &mut tx, &mut rx, tx_buf, rx_buf, config);
+        let mut uart = BufferedUart::new(
+            uart.reborrow(),
+            tx.reborrow(),
+            rx.reborrow(),
+            Irqs,
+            tx_buf,
+            rx_buf,
+            config,
+        );
 
         // break on empty buffer
         uart.send_break(20).await;
@@ -153,13 +180,13 @@ async fn main(_spawner: Spawner) {
     // parity detection. here we bitbang to not require two uarts.
     info!("test parity error detection");
     {
-        let mut pin = Output::new(&mut tx, Level::High);
+        let mut pin = Output::new(tx.reborrow(), Level::High);
         // choose a very slow baud rate to make tests reliable even with O0
         let mut config = Config::default();
         config.baudrate = 1000;
         config.parity = Parity::ParityEven;
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUartRx::new(&mut uart, Irqs, &mut rx, rx_buf, config);
+        let mut uart = BufferedUartRx::new(uart.reborrow(), Irqs, rx.reborrow(), rx_buf, config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
@@ -201,12 +228,12 @@ async fn main(_spawner: Spawner) {
     // framing error detection. here we bitbang because there's no other way.
     info!("test framing error detection");
     {
-        let mut pin = Output::new(&mut tx, Level::High);
+        let mut pin = Output::new(tx.reborrow(), Level::High);
         // choose a very slow baud rate to make tests reliable even with O0
         let mut config = Config::default();
         config.baudrate = 1000;
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUartRx::new(&mut uart, Irqs, &mut rx, rx_buf, config);
+        let mut uart = BufferedUartRx::new(uart.reborrow(), Irqs, rx.reborrow(), rx_buf, config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, good: bool) {
             if good {

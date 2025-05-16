@@ -1,7 +1,7 @@
 //! RTC driver.
 mod filter;
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 
 pub use self::filter::DateTimeFilter;
 
@@ -14,7 +14,7 @@ use crate::clocks::clk_rtc_freq;
 
 /// A reference to the real time clock of the system
 pub struct Rtc<'d, T: Instance> {
-    inner: PeripheralRef<'d, T>,
+    inner: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Rtc<'d, T> {
@@ -23,9 +23,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
     /// # Errors
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
-    pub fn new(inner: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(inner);
-
+    pub fn new(inner: Peri<'d, T>) -> Self {
         // Set the RTC divider
         inner.regs().clkdiv_m1().write(|w| w.set_clkdiv_m1(clk_rtc_freq() - 1));
 
@@ -194,7 +192,7 @@ trait SealedInstance {
 
 /// RTC peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance {}
+pub trait Instance: SealedInstance + PeripheralType {}
 
 impl SealedInstance for crate::peripherals::RTC {
     fn regs(&self) -> crate::pac::rtc::Rtc {

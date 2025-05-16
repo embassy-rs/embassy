@@ -4,15 +4,17 @@
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
 #[cfg_attr(eth_v2, path = "v2/mod.rs")]
 mod _version;
-pub mod generic_smi;
+mod generic_phy;
 
 use core::mem::MaybeUninit;
 use core::task::Context;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
+pub use self::generic_phy::*;
 use crate::rcc::RccPeripheral;
 
 #[allow(unused)]
@@ -71,7 +73,7 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
-impl<'d, T: Instance, P: PHY> embassy_net_driver::Driver for Ethernet<'d, T, P> {
+impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> {
     type RxToken<'a>
         = RxToken<'a, 'd>
     where
@@ -156,23 +158,15 @@ impl<'a, 'd> embassy_net_driver::TxToken for TxToken<'a, 'd> {
 }
 
 /// Station Management Interface (SMI) on an ethernet PHY
-///
-/// # Safety
-///
-/// The methods cannot move out of self
-pub unsafe trait StationManagement {
+pub trait StationManagement {
     /// Read a register over SMI.
     fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16;
     /// Write a register over SMI.
     fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16);
 }
 
-/// Traits for an Ethernet PHY
-///
-/// # Safety
-///
-/// The methods cannot move S
-pub unsafe trait PHY {
+/// Trait for an Ethernet PHY
+pub trait Phy {
     /// Reset PHY and wait for it to come out of reset.
     fn phy_reset<S: StationManagement>(&mut self, sm: &mut S);
     /// PHY initialisation.
@@ -181,17 +175,22 @@ pub unsafe trait PHY {
     fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool;
 }
 
-impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
+impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// Directly expose the SMI interface used by the Ethernet driver.
     ///
     /// This can be used to for example configure special PHY registers for compliance testing.
-    ///
-    /// # Safety
-    ///
-    /// Revert any temporary PHY register changes such as to enable test modes before handing
-    /// the Ethernet device over to the networking stack otherwise things likely won't work.
-    pub unsafe fn station_management(&mut self) -> &mut impl StationManagement {
+    pub fn station_management(&mut self) -> &mut impl StationManagement {
         &mut self.station_management
+    }
+
+    /// Access the user-supplied `Phy`.
+    pub fn phy(&self) -> &P {
+        &self.phy
+    }
+
+    /// Mutably access the user-supplied `Phy`.
+    pub fn phy_mut(&mut self) -> &mut P {
+        &mut self.phy
     }
 }
 
@@ -201,7 +200,7 @@ trait SealedInstance {
 
 /// Ethernet instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + Send + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + Send + 'static {}
 
 impl SealedInstance for crate::peripherals::ETH {
     fn regs() -> crate::pac::eth::Eth {
