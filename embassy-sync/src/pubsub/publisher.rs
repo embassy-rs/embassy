@@ -76,6 +76,7 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Pub<'a, PSB, T> {
     }
 
     /// Create a [`futures::Sink`] adapter for this publisher.
+    #[cfg(feature = "futures-sink")]
     #[inline]
     pub const fn sink(&self) -> PubSink<'a, '_, PSB, T> {
         PubSink { publ: self, fut: None }
@@ -227,6 +228,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
     }
 }
 
+#[cfg(feature = "futures-sink")]
 #[must_use = "Sinks do nothing unless polled"]
 /// [`futures_sink::Sink`] adapter for [`Pub`].
 pub struct PubSink<'a, 'p, PSB, T>
@@ -238,6 +240,7 @@ where
     fut: Option<PublisherWaitFuture<'p, 'a, PSB, T>>,
 }
 
+#[cfg(feature = "futures-sink")]
 impl<'a, 'p, PSB, T> PubSink<'a, 'p, PSB, T>
 where
     PSB: PubSubBehavior<T> + ?Sized,
@@ -258,6 +261,7 @@ where
     }
 }
 
+#[cfg(feature = "futures-sink")]
 impl<'a, 'p, PSB, T> futures_sink::Sink<T> for PubSink<'a, 'p, PSB, T>
 where
     PSB: PubSubBehavior<T> + ?Sized,

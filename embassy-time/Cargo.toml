@@ -24,6 +24,8 @@ target = "x86_64-unknown-linux-gnu"
 features = ["defmt", "std"]
 
 [features]
+default = ["futures-util"]
+
 ## Display the time since startup next to defmt log messages.
 ## At most 1 `defmt-timestamp-uptime-*` feature can be used.
 ## `defmt-timestamp-uptime` is provided for backwards compatibility (provides the same format as `uptime-us`).
@@ -35,6 +37,9 @@ defmt-timestamp-uptime-us = ["defmt"]
 defmt-timestamp-uptime-ts = ["defmt"]
 defmt-timestamp-uptime-tms = ["defmt"]
 defmt-timestamp-uptime-tus = ["defmt"]
+
+## Disable `futures-util` support
+futures-util = ["dep:futures-util"]
 
 #! ### Time Drivers
 
@@ -53,10 +58,10 @@ wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000",
 
 #! By default embassy-time uses a timer queue implementation that is faster but depends on `embassy-executor`.
 #! It will panic if you try to await any timer when using another executor.
-#! 
+#!
 #! Alternatively, you can choose to use a "generic" timer queue implementation that works on any executor.
 #! To enable it, enable any of the features below.
-#! 
+#!
 #! The features also set how many timers are used for the generic queue. At most one
 #! `generic-queue-*` feature can be enabled. If none is enabled, `queue_integrated` is used.
 #!
@@ -427,7 +432,7 @@ embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 
-futures-util = { version = "0.3.17", default-features = false }
+futures-util = { version = "0.3.17", default-features = false, optional = true }
 critical-section = "1.1"
 cfg-if = "1.0.0"
 

@@ -317,6 +317,7 @@ where
     }
 }
 
+#[cfg(feature = "futures-util")]
 impl<'ch, M, T, const N: usize> futures_util::Stream for Receiver<'ch, M, T, N>
 where
     M: RawMutex,
@@ -782,6 +783,7 @@ where
     }
 }
 
+#[cfg(feature = "futures-util")]
 impl<M, T, const N: usize> futures_util::Stream for Channel<M, T, N>
 where
     M: RawMutex,

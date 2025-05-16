@@ -20,15 +20,18 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/
 target = "thumbv7em-none-eabi"
 
 [features]
+default = ["futures-util", "futures-sink"]
 std = []
 turbowakers = []
+futures-sink = ["dep:futures-sink"]
+futures-util = ["dep:futures-util"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-futures-sink = { version = "0.3", default-features = false, features = [] }
-futures-util = { version = "0.3.17", default-features = false }
+futures-sink = { version = "0.3", default-features = false, features = [], optional = true }
+futures-util = { version = "0.3.17", default-features = false, optional = true }
 critical-section = "1.1"
 heapless = "0.8"
 cfg-if = "1.0.0"

@@ -2,8 +2,8 @@ use core::future::{poll_fn, Future};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use futures_util::stream::FusedStream;
-use futures_util::Stream;
+#[cfg(feature = "futures-util")]
+use futures_util::{stream::FusedStream, Stream};
 
 use crate::{Duration, Instant};
 
@@ -277,6 +277,7 @@ impl Ticker {
 
 impl Unpin for Ticker {}
 
+#[cfg(feature = "futures-util")]
 impl Stream for Ticker {
     type Item = ();
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -291,6 +292,7 @@ impl Stream for Ticker {
     }
 }
 
+#[cfg(feature = "futures-util")]
 impl FusedStream for Ticker {
     fn is_terminated(&self) -> bool {
         // `Ticker` keeps yielding values until dropped, it never terminates.

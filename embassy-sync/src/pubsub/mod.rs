@@ -304,9 +304,9 @@ struct PubSubState<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: us
     /// Don't worry, we won't run out.
     /// If a million messages were published every second, then the ID's would run out in about 584942 years.
     next_message_id: u64,
-    /// Collection of wakers for Subscribers that are waiting.  
+    /// Collection of wakers for Subscribers that are waiting.
     subscriber_wakers: MultiWakerRegistration<SUBS>,
-    /// Collection of wakers for Publishers that are waiting.  
+    /// Collection of wakers for Publishers that are waiting.
     publisher_wakers: MultiWakerRegistration<PUBS>,
     /// The amount of subscribers that are active
     subscriber_count: usize,
@@ -760,6 +760,7 @@ mod tests {
     }
 
     #[futures_test::test]
+    #[cfg(feature = "futures-sink")]
     async fn publisher_sink() {
         use futures_util::{SinkExt, StreamExt};
 
