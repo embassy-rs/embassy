@@ -1,9 +1,11 @@
 //! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
-use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::{rcc, Peri};
 use core::marker::PhantomData;
+
 use embassy_hal_internal::PeripheralType;
 use stm32_metapac::fmc::vals::Accmod;
+
+use crate::gpio::{AfType, OutputType, Pull, Speed};
+use crate::{rcc, Peri};
 
 #[derive(Debug, Clone)]
 /// FMC Read/Write Access Mode
