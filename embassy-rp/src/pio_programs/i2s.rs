@@ -9,6 +9,10 @@ use crate::pio::{
 use crate::Peri;
 
 /// This struct represents an i2s output driver program
+///
+/// The sample bit-depth is set through scratch register `Y`.
+/// `Y` has to be set to sample bit-depth - 2.
+/// (14 = 16bit, 22 = 24bit, 30 = 32bit)
 pub struct PioI2sOutProgram<'d, PIO: Instance> {
     prg: LoadedProgram<'d, PIO>,
 }
@@ -17,13 +21,13 @@ impl<'d, PIO: Instance> PioI2sOutProgram<'d, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'d, PIO>) -> Self {
         let prg = pio::pio_asm!(
-            ".side_set 2",
-            "    set x, 14          side 0b01", // side 0bWB - W = Word Clock, B = Bit Clock
+            ".side_set 2",                      // side 0bWB - W = Word Clock, B = Bit Clock
+            "    mov x, y           side 0b01", // y stores sample depth - 2 (14 = 16bit, 22 = 24bit, 30 = 32bit)
             "left_data:",
             "    out pins, 1        side 0b00",
             "    jmp x-- left_data  side 0b01",
             "    out pins 1         side 0b10",
-            "    set x, 14          side 0b11",
+            "    mov x, y           side 0b11",
             "right_data:",
             "    out pins 1         side 0b10",
             "    jmp x-- right_data side 0b11",
@@ -53,7 +57,6 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
         lr_clock_pin: Peri<'d, impl PioPin>,
         sample_rate: u32,
         bit_depth: u32,
-        channels: u32,
         program: &PioI2sOutProgram<'d, P>,
     ) -> Self {
         let data_pin = common.make_pio_pin(data_pin);
@@ -64,7 +67,7 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
             let mut cfg = Config::default();
             cfg.use_program(&program.prg, &[&bit_clock_pin, &left_right_clock_pin]);
             cfg.set_out_pins(&[&data_pin]);
-            let clock_frequency = sample_rate * bit_depth * channels;
+            let clock_frequency = sample_rate * bit_depth * 2;
             cfg.clock_divider = (crate::clocks::clk_sys_freq() as f64 / clock_frequency as f64 / 2.).to_fixed();
             cfg.shift_out = ShiftConfig {
                 threshold: 32,
@@ -77,6 +80,11 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
         };
         sm.set_config(&cfg);
         sm.set_pin_dirs(Direction::Out, &[&data_pin, &left_right_clock_pin, &bit_clock_pin]);
+
+        // Set the `y` register up to configure the sample depth
+        // The SM counts down to 0 and uses one clock cycle to set up the counter,
+        // which results in bit_depth - 2 as register value.
+        unsafe { sm.set_y(bit_depth - 2) };
 
         sm.set_enable(true);
 
