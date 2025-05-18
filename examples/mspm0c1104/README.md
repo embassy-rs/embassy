@@ -1,4 +1,4 @@
-# Examples for MSPM0C110x family
+# Examples for MSPM0C1104
 
 Run individual examples with
 ```
@@ -15,7 +15,7 @@ A large number of the examples are written for the [LP-MSPM0C1104](https://www.t
 You might need to adjust `.cargo/config.toml`, `Cargo.toml` and possibly update pin numbers or peripherals to match the specific MCU or board you are using.
 
 * [ ] Update .cargo/config.toml with the correct probe-rs command to use your specific MCU. For example for C1104 it should be `probe-rs run --chip MSPM0C1104`. (use `probe-rs chip list` to find your chip)
-* [ ] Update Cargo.toml to have the correct `embassy-mspm0` feature. For example for C1104 it should be `mspm0c1104`. Look in the `Cargo.toml` file of the `embassy-mspm0` project to find the correct feature flag for your chip.
+* [ ] Update Cargo.toml to have the correct `embassy-mspm0` feature. For the LP-MSPM0C1104 it should be `mspm0c1104dgs20`. Look in the `Cargo.toml` file of the `embassy-mspm0` project to find the correct feature flag for your chip.
 * [ ] If your board has a special clock or power configuration, make sure that it is set up appropriately.
 * [ ] If your board has different pin mapping, update any pin numbers or peripherals in the given example code to match your schematic
 
