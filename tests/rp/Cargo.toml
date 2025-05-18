@@ -38,7 +38,6 @@ embedded-io-async = { version = "0.6.1" }
 embedded-storage = { version = "0.3" }
 static_cell = "2"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
-rand = { version = "0.8.5", default-features = false }
 
 # bootsel not currently supported on 2350
 [[bin]]

@@ -7,7 +7,6 @@ use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use rand_core::Error;
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::peripherals::TRNG;
@@ -369,7 +368,7 @@ impl<'d, T: Instance> Trng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> rand_core::RngCore for Trng<'d, T> {
+impl<'d, T: Instance> rand_core_06::RngCore for Trng<'d, T> {
     fn next_u32(&mut self) -> u32 {
         self.blocking_next_u32()
     }
@@ -379,16 +378,32 @@ impl<'d, T: Instance> rand_core::RngCore for Trng<'d, T> {
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.blocking_fill_bytes(dest)
+        self.blocking_fill_bytes(dest);
     }
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
         self.blocking_fill_bytes(dest);
         Ok(())
     }
 }
 
-impl<'d, T: Instance> rand_core::CryptoRng for Trng<'d, T> {}
+impl<'d, T: Instance> rand_core_06::CryptoRng for Trng<'d, T> {}
+
+impl<'d, T: Instance> rand_core_09::RngCore for Trng<'d, T> {
+    fn next_u32(&mut self) -> u32 {
+        self.blocking_next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.blocking_next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.blocking_fill_bytes(dest);
+    }
+}
+
+impl<'d, T: Instance> rand_core_09::CryptoRng for Trng<'d, T> {}
 
 /// TRNG interrupt handler.
 pub struct InterruptHandler<T: Instance> {

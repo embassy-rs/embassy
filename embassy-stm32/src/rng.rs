@@ -7,7 +7,6 @@ use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
-use rand_core::{CryptoRng, RngCore};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac, peripherals, rcc, Peri};
@@ -184,6 +183,35 @@ impl<'d, T: Instance> Rng<'d, T> {
 
         Ok(())
     }
+
+    /// Get a random u32
+    pub fn next_u32(&mut self) -> u32 {
+        loop {
+            let sr = T::regs().sr().read();
+            if sr.seis() | sr.ceis() {
+                self.reset();
+            } else if sr.drdy() {
+                return T::regs().dr().read();
+            }
+        }
+    }
+
+    /// Get a random u64
+    pub fn next_u64(&mut self) -> u64 {
+        let mut rand = self.next_u32() as u64;
+        rand |= (self.next_u32() as u64) << 32;
+        rand
+    }
+
+    /// Fill a slice with random bytes
+    pub fn fill_bytes(&mut self, dest: &mut [u8]) {
+        for chunk in dest.chunks_mut(4) {
+            let rand = self.next_u32();
+            for (slot, num) in chunk.iter_mut().zip(rand.to_ne_bytes().iter()) {
+                *slot = *num
+            }
+        }
+    }
 }
 
 impl<'d, T: Instance> Drop for Rng<'d, T> {
@@ -195,40 +223,42 @@ impl<'d, T: Instance> Drop for Rng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> RngCore for Rng<'d, T> {
+impl<'d, T: Instance> rand_core_06::RngCore for Rng<'d, T> {
     fn next_u32(&mut self) -> u32 {
-        loop {
-            let sr = T::regs().sr().read();
-            if sr.seis() | sr.ceis() {
-                self.reset();
-            } else if sr.drdy() {
-                return T::regs().dr().read();
-            }
-        }
+        self.next_u32()
     }
 
     fn next_u64(&mut self) -> u64 {
-        let mut rand = self.next_u32() as u64;
-        rand |= (self.next_u32() as u64) << 32;
-        rand
+        self.next_u64()
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        for chunk in dest.chunks_mut(4) {
-            let rand = self.next_u32();
-            for (slot, num) in chunk.iter_mut().zip(rand.to_ne_bytes().iter()) {
-                *slot = *num
-            }
-        }
+        self.fill_bytes(dest);
     }
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
         self.fill_bytes(dest);
         Ok(())
     }
 }
 
-impl<'d, T: Instance> CryptoRng for Rng<'d, T> {}
+impl<'d, T: Instance> rand_core_06::CryptoRng for Rng<'d, T> {}
+
+impl<'d, T: Instance> rand_core_09::RngCore for Rng<'d, T> {
+    fn next_u32(&mut self) -> u32 {
+        self.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.fill_bytes(dest);
+    }
+}
+
+impl<'d, T: Instance> rand_core_09::CryptoRng for Rng<'d, T> {}
 
 trait SealedInstance {
     fn regs() -> pac::rng::Rng;

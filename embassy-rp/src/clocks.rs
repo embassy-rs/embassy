@@ -1776,7 +1776,8 @@ impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
 pub struct RoscRng;
 
 impl RoscRng {
-    fn next_u8() -> u8 {
+    /// Get a random u8
+    pub fn next_u8() -> u8 {
         let random_reg = pac::ROSC.randombit();
         let mut acc = 0;
         for _ in 0..u8::BITS {
@@ -1785,25 +1786,59 @@ impl RoscRng {
         }
         acc
     }
-}
 
-impl rand_core::RngCore for RoscRng {
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        Ok(self.fill_bytes(dest))
+    /// Get a random u32
+    pub fn next_u32(&mut self) -> u32 {
+        rand_core_09::impls::next_u32_via_fill(self)
     }
 
-    fn next_u32(&mut self) -> u32 {
-        rand_core::impls::next_u32_via_fill(self)
+    /// Get a random u64
+    pub fn next_u64(&mut self) -> u64 {
+        rand_core_09::impls::next_u64_via_fill(self)
     }
 
-    fn next_u64(&mut self) -> u64 {
-        rand_core::impls::next_u64_via_fill(self)
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    /// Fill a slice with random bytes
+    pub fn fill_bytes(&mut self, dest: &mut [u8]) {
         dest.fill_with(Self::next_u8)
     }
 }
+
+impl rand_core_06::RngCore for RoscRng {
+    fn next_u32(&mut self) -> u32 {
+        self.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.fill_bytes(dest);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl rand_core_06::CryptoRng for RoscRng {}
+
+impl rand_core_09::RngCore for RoscRng {
+    fn next_u32(&mut self) -> u32 {
+        self.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.fill_bytes(dest);
+    }
+}
+
+impl rand_core_09::CryptoRng for RoscRng {}
 
 /// Enter the `DORMANT` sleep state. This will stop *all* internal clocks
 /// and can only be exited through resets, dormant-wake GPIO interrupts,

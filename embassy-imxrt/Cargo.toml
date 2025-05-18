@@ -80,8 +80,10 @@ cortex-m = "0.7.6"
 critical-section = "1.1"
 embedded-io = { version = "0.6.1" }
 embedded-io-async = { version = "0.6.1" }
-rand_core = "0.6.4"
 fixed = "1.23.1"
+
+rand-core-06 = { package = "rand_core", version = "0.6" }
+rand-core-09 = { package = "rand_core", version = "0.9" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",

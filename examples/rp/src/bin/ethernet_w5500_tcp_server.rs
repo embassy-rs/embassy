@@ -19,7 +19,6 @@ use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_time::{Delay, Duration};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
-use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
