@@ -24,8 +24,8 @@ cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { path = "../../cyw43-pio", features = ["defmt"] }
 perf-client = { path = "../perf-client" }
 
-defmt = "0.3"
-defmt-rtt = "0.4"
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
 
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = "0.7.0"
@@ -33,7 +33,7 @@ embedded-hal = "0.2.6"
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-bus = { version = "0.1", features = ["async"] }
-panic-probe = { version = "0.3.0", features = ["print-defmt"] }
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 embedded-io-async = { version = "0.6.1" }
 embedded-storage = { version = "0.3" }
 static_cell = "2"

@@ -13,12 +13,12 @@ embassy-time = { version = "0.4.0", path = "../../embassy-time", features = [ "d
 embassy-time-queue-utils = { version = "0.1", path = "../../embassy-time-queue-utils", features = ["generic-queue-8"] }
 embassy-nrf = { version = "0.3.1", path = "../../embassy-nrf", features = [ "defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 
-defmt = "0.3"
-defmt-rtt = "0.4"
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
-panic-probe = { version = "0.3", features = ["print-defmt"] }
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 [profile.release]
 debug = 2
