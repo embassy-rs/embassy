@@ -38,7 +38,6 @@ use embedded_io::Write as bWrite;
 use embedded_io_async::Write;
 use heapless::Vec;
 use panic_probe as _;
-use rand::RngCore;
 use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {

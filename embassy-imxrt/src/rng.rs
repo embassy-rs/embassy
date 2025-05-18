@@ -6,7 +6,6 @@ use core::task::Poll;
 
 use embassy_futures::block_on;
 use embassy_sync::waitqueue::AtomicWaker;
-use rand_core::{CryptoRng, RngCore};
 
 use crate::clocks::{enable_and_reset, SysconPeripheral};
 use crate::interrupt::typelevel::Interrupt;
@@ -201,32 +200,63 @@ impl<'d> Rng<'d> {
             .mctl()
             .modify(|_, w| w.trng_acc().set_bit().prgm().clear_bit());
     }
-}
 
-impl RngCore for Rng<'_> {
-    fn next_u32(&mut self) -> u32 {
+    /// Generate a random u32
+    pub fn blocking_next_u32(&mut self) -> u32 {
         let mut bytes = [0u8; 4];
         block_on(self.async_fill_bytes(&mut bytes)).unwrap();
         u32::from_ne_bytes(bytes)
     }
 
-    fn next_u64(&mut self) -> u64 {
+    /// Generate a random u64
+    pub fn blocking_next_u64(&mut self) -> u64 {
         let mut bytes = [0u8; 8];
         block_on(self.async_fill_bytes(&mut bytes)).unwrap();
         u64::from_ne_bytes(bytes)
     }
 
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    /// Fill a slice with random bytes.
+    pub fn blocking_fill_bytes(&mut self, dest: &mut [u8]) {
         block_on(self.async_fill_bytes(dest)).unwrap();
     }
+}
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
+impl<'d> rand_core_06::RngCore for Rng<'d> {
+    fn next_u32(&mut self) -> u32 {
+        self.blocking_next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.blocking_next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.blocking_fill_bytes(dest);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
+        self.blocking_fill_bytes(dest);
         Ok(())
     }
 }
 
-impl CryptoRng for Rng<'_> {}
+impl<'d> rand_core_06::CryptoRng for Rng<'d> {}
+
+impl<'d> rand_core_09::RngCore for Rng<'d> {
+    fn next_u32(&mut self) -> u32 {
+        self.blocking_next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.blocking_next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.blocking_fill_bytes(dest);
+    }
+}
+
+impl<'d> rand_core_09::CryptoRng for Rng<'d> {}
 
 struct Info {
     regs: crate::pac::Trng,
