@@ -27,7 +27,7 @@ embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal" }
 embassy-embedded-hal = { version = "0.3.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver", optional=true }
 
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
 
 cortex-m = "0.7.6"

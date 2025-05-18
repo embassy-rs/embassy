@@ -14,14 +14,14 @@ embassy-usb = { version = "0.4.0", path = "../../embassy-usb", features = ["defm
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 usbd-hid = "0.8.1"
 
-defmt = "0.3"
-defmt-rtt = "0.4"
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
 
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 embedded-can = { version = "0.4" }
-panic-probe = { version = "0.3", features = ["print-defmt"] }
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 static_cell = "2.0.0"
 
