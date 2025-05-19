@@ -41,9 +41,15 @@ mod time_driver;
 
 // Interrupt group handlers.
 #[cfg_attr(mspm0c110x, path = "int_group/c110x.rs")]
+#[cfg_attr(mspm0g110x, path = "int_group/g110x.rs")]
+#[cfg_attr(mspm0g150x, path = "int_group/g150x.rs")]
 #[cfg_attr(mspm0g350x, path = "int_group/g350x.rs")]
+#[cfg_attr(mspm0g151x, path = "int_group/g151x.rs")]
 #[cfg_attr(mspm0g351x, path = "int_group/g351x.rs")]
-#[cfg_attr(mspm0l130x, path = "int_group/l130x.rs")]
+#[cfg_attr(mspm0g310x, path = "int_group/g310x.rs")]
+#[cfg_attr(mspm0l110x, path = "int_group/l11xx.rs")]
+#[cfg_attr(mspm0l122x, path = "int_group/l12xx.rs")]
+#[cfg_attr(any(mspm0l130x, mspm0l134x), path = "int_group/l13xx.rs")]
 #[cfg_attr(mspm0l222x, path = "int_group/l222x.rs")]
 mod int_group;
 

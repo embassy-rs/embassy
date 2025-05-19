@@ -84,6 +84,10 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
         cfgs.push("mspm0g150x".to_string());
     }
 
+    if chip_name.starts_with("mspm0g151") {
+        cfgs.push("mspm0g151x".to_string());
+    }
+
     if chip_name.starts_with("mspm0g310") {
         cfgs.push("mspm0g310x".to_string());
     }
