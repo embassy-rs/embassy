@@ -32,4 +32,6 @@ fn main() {
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
+    // You must tell cargo to link interrupt groups if the rt feature is enabled.
+    println!("cargo:rustc-link-arg-bins=-Tinterrupt_group.x");
 }
