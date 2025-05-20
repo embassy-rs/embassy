@@ -12,9 +12,9 @@ pub use asynch::InterruptHandler;
 pub use common::*;
 
 pub use crate::_generated::flash_regions::*;
-pub use crate::_generated::{FLASH_BASE, FLASH_SIZE, MAX_ERASE_SIZE, WRITE_SIZE};
 #[cfg(eeprom)]
 pub use crate::_generated::{EEPROM_BASE, EEPROM_SIZE};
+pub use crate::_generated::{FLASH_BASE, FLASH_SIZE, MAX_ERASE_SIZE, WRITE_SIZE};
 
 /// Get all flash regions.
 pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
@@ -85,7 +85,8 @@ pub enum FlashBank {
     /// OTP region,
     Otp,
 }
-
+#[cfg(all(eeprom, not(any(flash_l0, flash_l1))))]
+compile_error!("The 'eeprom' cfg is enabled for a non-L0/L1 chip family. This is an unsupported configuration.");
 #[cfg_attr(any(flash_l0, flash_l1, flash_l4, flash_l5, flash_wl, flash_wb), path = "l.rs")]
 #[cfg_attr(flash_f0, path = "f0.rs")]
 #[cfg_attr(any(flash_f1, flash_f3), path = "f1f3.rs")]
