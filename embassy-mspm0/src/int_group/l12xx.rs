@@ -41,9 +41,9 @@ fn GROUP1() {
 
     match group {
         Group1::GPIOA => crate::gpio::gpioa_interrupt(),
-        Group1::GPIOB => todo!("implement GPIOB"),
+        Group1::GPIOB => crate::gpio::gpiob_interrupt(),
         Group1::COMP0 => todo!("implement COMP0"),
         Group1::TRNG => todo!("implement TRNG"),
-        Group1::GPIOC => todo!("implement GPIOC"),
+        Group1::GPIOC => crate::gpio::gpioc_interrupt(),
     }
 }
