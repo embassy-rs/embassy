@@ -50,10 +50,7 @@ async fn main(_spawner: Spawner) {
                 match rtc.alarm_scheduled() {
                     None => {
                         info!("Scheduling alarm for 30 seconds from now");
-                        let next_30s = if dt.second == 59 { 0 } else { dt.second + 30 };
-                        let dtf = DateTimeFilter::default().second(next_30s);
-
-                        rtc.schedule_alarm(dtf);
+                        rtc.schedule_alarm(DateTimeFilter::default().second((dt.second + 30) % 60));
 
                         info!("Alarm scheduled: {}", rtc.alarm_scheduled().unwrap());
                     }
