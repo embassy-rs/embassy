@@ -13,6 +13,8 @@ pub use common::*;
 
 pub use crate::_generated::flash_regions::*;
 pub use crate::_generated::{FLASH_BASE, FLASH_SIZE, MAX_ERASE_SIZE, WRITE_SIZE};
+#[cfg(eeprom)]
+pub use crate::_generated::{EEPROM_BASE, EEPROM_SIZE};
 
 /// Get all flash regions.
 pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
