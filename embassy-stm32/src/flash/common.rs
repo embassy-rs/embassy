@@ -9,10 +9,9 @@ use super::{
 };
 use crate::Peri;
 use crate::_generated::FLASH_BASE;
-use crate::peripherals::FLASH;
-
 #[cfg(eeprom)]
 use crate::_generated::{EEPROM_BASE, EEPROM_SIZE};
+use crate::peripherals::FLASH;
 
 /// Internal flash memory driver.
 pub struct Flash<'d, MODE = Async> {
