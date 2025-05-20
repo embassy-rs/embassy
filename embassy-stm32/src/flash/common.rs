@@ -11,6 +11,9 @@ use crate::Peri;
 use crate::_generated::FLASH_BASE;
 use crate::peripherals::FLASH;
 
+#[cfg(eeprom)]
+use crate::_generated::{EEPROM_BASE, EEPROM_SIZE};
+
 /// Internal flash memory driver.
 pub struct Flash<'d, MODE = Async> {
     pub(crate) inner: Peri<'d, FLASH>,
@@ -69,6 +72,100 @@ impl<'d, MODE> Flash<'d, MODE> {
     /// For example, to erase address `0x0801_0000` you have to use offset `0x1_0000`.
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         unsafe { blocking_erase(FLASH_BASE as u32, from, to, erase_sector_unlocked) }
+    }
+}
+
+#[cfg(eeprom)]
+impl<'d> Flash<'d, Blocking> {
+    fn eeprom_base(&self) -> u32 {
+        EEPROM_BASE as u32
+    }
+
+    fn eeprom_size(&self) -> u32 {
+        EEPROM_SIZE as u32
+    }
+
+    fn check_eeprom_offset(&self, offset: u32, size: u32) -> Result<(), Error> {
+        if offset + size > self.eeprom_size() {
+            Err(Error::Size)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Read a byte (u8) from EEPROM at the given offset.
+    pub fn eeprom_read_u8(&self, offset: u32) -> Result<u8, Error> {
+        self.check_eeprom_offset(offset, 1)?;
+        let addr = self.eeprom_base() + offset;
+        Ok(unsafe { core::ptr::read_volatile(addr as *const u8) })
+    }
+
+    /// Read a half-word (u16) from EEPROM at the given offset.
+    pub fn eeprom_read_u16(&self, offset: u32) -> Result<u16, Error> {
+        if offset % 2 != 0 {
+            return Err(Error::Unaligned);
+        }
+        self.check_eeprom_offset(offset, 2)?;
+        let addr = self.eeprom_base() + offset;
+        Ok(unsafe { core::ptr::read_volatile(addr as *const u16) })
+    }
+
+    /// Read a word (u32) from EEPROM at the given offset.
+    pub fn eeprom_read_u32(&self, offset: u32) -> Result<u32, Error> {
+        if offset % 4 != 0 {
+            return Err(Error::Unaligned);
+        }
+        self.check_eeprom_offset(offset, 4)?;
+        let addr = self.eeprom_base() + offset;
+        Ok(unsafe { core::ptr::read_volatile(addr as *const u32) })
+    }
+
+    /// Write a byte (u8) to EEPROM at the given offset.
+    pub fn eeprom_write_u8(&mut self, offset: u32, value: u8) -> Result<(), Error> {
+        self.check_eeprom_offset(offset, 1)?;
+        let addr = self.eeprom_base() + offset;
+        unsafe {
+            family::unlock();
+            core::ptr::write_volatile(addr as *mut u8, value);
+            family::wait_ready_blocking()?;
+            family::clear_all_err();
+            family::lock();
+        }
+        Ok(())
+    }
+
+    /// Write a half-word (u16) to EEPROM at the given offset.
+    pub fn eeprom_write_u16(&mut self, offset: u32, value: u16) -> Result<(), Error> {
+        if offset % 2 != 0 {
+            return Err(Error::Unaligned);
+        }
+        self.check_eeprom_offset(offset, 2)?;
+        let addr = self.eeprom_base() + offset;
+        unsafe {
+            family::unlock();
+            core::ptr::write_volatile(addr as *mut u16, value);
+            family::wait_ready_blocking()?;
+            family::clear_all_err();
+            family::lock();
+        }
+        Ok(())
+    }
+
+    /// Write a word (u32) to EEPROM at the given offset.
+    pub fn eeprom_write_u32(&mut self, offset: u32, value: u32) -> Result<(), Error> {
+        if offset % 4 != 0 {
+            return Err(Error::Unaligned);
+        }
+        self.check_eeprom_offset(offset, 4)?;
+        let addr = self.eeprom_base() + offset;
+        unsafe {
+            family::unlock();
+            core::ptr::write_volatile(addr as *mut u32, value);
+            family::wait_ready_blocking()?;
+            family::clear_all_err();
+            family::lock();
+        }
+        Ok(())
     }
 }
 
