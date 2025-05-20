@@ -1923,6 +1923,47 @@ fn main() {
     ));
 
     // ========
+    // Generate EEPROM constants
+
+    let eeprom_memory_regions: Vec<&MemoryRegion> =
+        memory.iter().filter(|x| x.kind == MemoryRegionKind::Eeprom).collect();
+
+    if !eeprom_memory_regions.is_empty() {
+        cfgs.enable("eeprom");
+        cfgs.declare("eeprom");
+
+        let mut sorted_eeprom_regions = eeprom_memory_regions.clone();
+        sorted_eeprom_regions.sort_by_key(|r| r.address);
+
+        let first_eeprom_address = sorted_eeprom_regions[0].address;
+        let mut total_eeprom_size = 0;
+        let mut current_expected_address = first_eeprom_address;
+
+        for region in sorted_eeprom_regions.iter() {
+            if region.address != current_expected_address {
+                // For STM32L0 and STM32L1, EEPROM regions (if multiple) are expected to be contiguous.
+                // If they are not, this indicates an issue with the chip metadata or an unsupported configuration.
+                panic!(
+                    "EEPROM regions for chip {} are not contiguous, which is unexpected for L0/L1 series. \
+                    First region: '{}' at {:#X}. Found next non-contiguous region: '{}' at {:#X}. \
+                    Please verify chip metadata. Embassy currently assumes contiguous EEPROM for these series.",
+                    chip_name, sorted_eeprom_regions[0].name, first_eeprom_address, region.name, region.address
+                );
+            }
+            total_eeprom_size += region.size;
+            current_expected_address += region.size;
+        }
+
+        let eeprom_base_usize = first_eeprom_address as usize;
+        let total_eeprom_size_usize = total_eeprom_size as usize;
+
+        g.extend(quote! {
+            pub const EEPROM_BASE: usize = #eeprom_base_usize;
+            pub const EEPROM_SIZE: usize = #total_eeprom_size_usize;
+        });
+    }
+
+    // ========
     // Generate macro-tables
 
     for irq in METADATA.interrupts {
