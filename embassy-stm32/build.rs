@@ -1925,12 +1925,13 @@ fn main() {
     // ========
     // Generate EEPROM constants
 
+    cfgs.declare("eeprom");
+
     let eeprom_memory_regions: Vec<&MemoryRegion> =
         memory.iter().filter(|x| x.kind == MemoryRegionKind::Eeprom).collect();
 
     if !eeprom_memory_regions.is_empty() {
         cfgs.enable("eeprom");
-        cfgs.declare("eeprom");
 
         let mut sorted_eeprom_regions = eeprom_memory_regions.clone();
         sorted_eeprom_regions.sort_by_key(|r| r.address);
