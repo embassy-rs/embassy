@@ -67,7 +67,6 @@ mod shared {
             };
 
             self.led_states.store(new_value, Ordering::SeqCst);
-            core::sync::atomic::compiler_fence(Ordering::SeqCst);
         }
 
         /// Get current LED state
@@ -77,8 +76,6 @@ mod shared {
             let bit = if is_green { GREEN_LED_BIT } else { YELLOW_LED_BIT };
 
             let value = self.led_states.load(Ordering::SeqCst);
-            core::sync::atomic::compiler_fence(Ordering::SeqCst);
-
             (value & (1 << bit)) != 0
         }
 
@@ -88,7 +85,6 @@ mod shared {
             let current = self.counter.load(Ordering::SeqCst);
             let new_value = current.wrapping_add(1);
             self.counter.store(new_value, Ordering::SeqCst);
-            core::sync::atomic::compiler_fence(Ordering::SeqCst);
             new_value
         }
 
@@ -97,7 +93,6 @@ mod shared {
         #[allow(dead_code)]
         pub fn get_counter(&self) -> u32 {
             let value = self.counter.load(Ordering::SeqCst);
-            core::sync::atomic::compiler_fence(Ordering::SeqCst);
             value
         }
     }
