@@ -91,23 +91,30 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
+impl Config {
     #[inline]
-    fn default() -> Config {
+    pub const fn new() -> Self {
         Config {
             hsi: true,
             hse: None,
             sys: Sysclk::HSI,
-            hsi48: Some(Default::default()),
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
             pll: None,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             low_power_run: false,
-            ls: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
             boost: false,
-            mux: Default::default(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    #[inline]
+    fn default() -> Config {
+        Self::new()
     }
 }
 
