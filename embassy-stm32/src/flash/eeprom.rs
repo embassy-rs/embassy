@@ -1,3 +1,5 @@
+use embassy_hal_internal::drop::OnDrop;
+
 use super::{family, Blocking, Error, Flash, EEPROM_BASE, EEPROM_SIZE};
 
 #[cfg(eeprom)]
@@ -68,8 +70,8 @@ impl<'d> Flash<'d, Blocking> {
         self.check_eeprom_offset(offset, 1)?;
         unsafe {
             family::unlock();
+            let _on_drop = OnDrop::new(|| family::lock());
             self.eeprom_write_u8_slice_unlocked(offset, core::slice::from_ref(&value))?;
-            family::lock();
         }
         Ok(())
     }
@@ -84,8 +86,8 @@ impl<'d> Flash<'d, Blocking> {
         self.check_eeprom_offset(offset, 2)?;
         unsafe {
             family::unlock();
+            let _on_drop = OnDrop::new(|| family::lock());
             self.eeprom_write_u16_slice_unlocked(offset, core::slice::from_ref(&value))?;
-            family::lock();
         }
         Ok(())
     }
@@ -100,8 +102,8 @@ impl<'d> Flash<'d, Blocking> {
         self.check_eeprom_offset(offset, 4)?;
         unsafe {
             family::unlock();
+            let _on_drop = OnDrop::new(|| family::lock());
             self.eeprom_write_u32_slice_unlocked(offset, core::slice::from_ref(&value))?;
-            family::lock();
         }
         Ok(())
     }
@@ -111,8 +113,8 @@ impl<'d> Flash<'d, Blocking> {
         self.check_eeprom_offset(offset, data.len() as u32)?;
         unsafe {
             family::unlock();
+            let _on_drop = OnDrop::new(|| family::lock());
             self.eeprom_write_u8_slice_unlocked(offset, data)?;
-            family::lock();
         }
         Ok(())
     }
@@ -127,8 +129,8 @@ impl<'d> Flash<'d, Blocking> {
         self.check_eeprom_offset(offset, data.len() as u32 * 2)?;
         unsafe {
             family::unlock();
+            let _on_drop = OnDrop::new(|| family::lock());
             self.eeprom_write_u16_slice_unlocked(offset, data)?;
-            family::lock();
         }
         Ok(())
     }
@@ -143,8 +145,8 @@ impl<'d> Flash<'d, Blocking> {
         self.check_eeprom_offset(offset, data.len() as u32 * 4)?;
         unsafe {
             family::unlock();
+            let _on_drop = OnDrop::new(|| family::lock());
             self.eeprom_write_u32_slice_unlocked(offset, data)?;
-            family::lock();
         }
         Ok(())
     }
@@ -154,7 +156,6 @@ impl<'d> Flash<'d, Blocking> {
     /// This method will write unaligned prefix and suffix as bytes, and aligned middle as u32.
     pub fn eeprom_write_slice(&mut self, offset: u32, data: &[u8]) -> Result<(), Error> {
         self.check_eeprom_offset(offset, data.len() as u32)?;
-
         let start = offset;
         let misalign = (start % 4) as usize;
         let prefix_len = if misalign == 0 {
@@ -168,6 +169,8 @@ impl<'d> Flash<'d, Blocking> {
 
         unsafe {
             family::unlock();
+            let _on_drop = OnDrop::new(|| family::lock());
+
             if !prefix.is_empty() {
                 self.eeprom_write_u8_slice_unlocked(start, prefix)?;
             }
@@ -187,7 +190,6 @@ impl<'d> Flash<'d, Blocking> {
                 let suffix_offset = start + (prefix_len + aligned_len) as u32;
                 self.eeprom_write_u8_slice_unlocked(suffix_offset, suffix)?;
             }
-            family::lock();
         }
         Ok(())
     }
