@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
-use std::io::Write;
+use std::fmt::Write;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::LazyLock;
@@ -16,11 +17,18 @@ mod common;
 
 fn main() {
     generate_code();
+    interrupt_group_linker_magic();
 }
 
 fn generate_code() {
     let mut cfgs = common::CfgSet::new();
     common::set_target_cfgs(&mut cfgs);
+
+    #[cfg(any(feature = "rt"))]
+    println!(
+        "cargo:rustc-link-search={}",
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).display(),
+    );
 
     cfgs.declare_all(&["gpio_pb", "gpio_pc", "int_group1"]);
 
@@ -58,6 +66,7 @@ fn generate_code() {
     g.extend(generate_interrupts());
     g.extend(generate_peripheral_instances());
     g.extend(generate_pin_trait_impls());
+    g.extend(generate_groups());
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
@@ -121,6 +130,83 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
     }
 
     cfgs
+}
+
+/// Interrupt groups use a weakly linked symbols and #[linkage = "extern_weak"] is nightly we need to
+/// do some linker magic to create weak linkage.
+fn interrupt_group_linker_magic() {
+    let mut file = String::new();
+
+    for group in METADATA.interrupt_groups {
+        for interrupt in group.interrupts.iter() {
+            let name = interrupt.name;
+
+            writeln!(&mut file, "PROVIDE({name} = DefaultHandler);").unwrap();
+        }
+    }
+
+    let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let out_file = out_dir.join("interrupt_group.x");
+    fs::write(&out_file, file).unwrap();
+}
+
+fn generate_groups() -> TokenStream {
+    let group_vectors = METADATA.interrupt_groups.iter().map(|group| {
+        let vectors = group.interrupts.iter().map(|interrupt| {
+            let fn_name = Ident::new(interrupt.name, Span::call_site());
+
+            quote! {
+                pub(crate) fn #fn_name();
+            }
+        });
+
+        quote! { #(#vectors)* }
+    });
+
+    let groups = METADATA.interrupt_groups.iter().map(|group| {
+        let interrupt_group_name = Ident::new(group.name, Span::call_site());
+        let group_enum = Ident::new(&format!("Group{}", &group.name[5..]), Span::call_site());
+        let group_number = Literal::u32_unsuffixed(group.number);
+
+        let matches = group.interrupts.iter().map(|interrupt| {
+            let variant = Ident::new(&interrupt.name, Span::call_site());
+
+            quote! {
+                #group_enum::#variant => unsafe { group_vectors::#variant() },
+            }
+        });
+
+        quote! {
+            #[cfg(feature = "rt")]
+            #[crate::pac::interrupt]
+            fn #interrupt_group_name() {
+                use crate::pac::#group_enum;
+
+                let group = crate::pac::CPUSS.int_group(#group_number);
+                // MUST subtract by 1 since 0 is NO_INTR
+                let iidx = group.iidx().read().stat().to_bits() - 1;
+
+                let Ok(group) = #group_enum::try_from(iidx as u8) else {
+                    return;
+                };
+
+                match group {
+                    #(#matches)*
+                }
+            }
+        }
+    });
+
+    quote! {
+        #(#groups)*
+
+        #[cfg(feature = "rt")]
+        mod group_vectors {
+            extern "Rust" {
+                #(#group_vectors)*
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
