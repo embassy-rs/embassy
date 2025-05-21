@@ -336,6 +336,10 @@ impl OsTimer {
         let alarm = self.alarms.borrow(cs);
         alarm.timestamp.set(timestamp);
 
+        // Wait until we're allowed to write to MATCH_L/MATCH_H
+        // registers
+        while os().osevent_ctrl().read().match_wr_rdy().bit_is_set() {}
+
         let t = self.now();
         if timestamp <= t {
             os().osevent_ctrl().modify(|_, w| w.ostimer_intena().clear_bit());
@@ -366,7 +370,8 @@ impl OsTimer {
     fn on_interrupt(&self) {
         critical_section::with(|cs| {
             if os().osevent_ctrl().read().ostimer_intrflag().bit_is_set() {
-                os().osevent_ctrl().modify(|_, w| w.ostimer_intena().clear_bit());
+                os().osevent_ctrl()
+                    .modify(|_, w| w.ostimer_intena().clear_bit().ostimer_intrflag().set_bit());
                 self.trigger_alarm(cs);
             }
         });
