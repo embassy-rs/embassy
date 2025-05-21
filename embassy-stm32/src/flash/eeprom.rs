@@ -152,7 +152,7 @@ impl<'d> Flash<'d, Blocking> {
     /// Writes a byte slice to EEPROM at the given offset, handling alignment.
     ///
     /// This method will write unaligned prefix and suffix as bytes, and aligned middle as u32.
-    pub fn eeprom_write(&mut self, offset: u32, data: &[u8]) -> Result<(), Error> {
+    pub fn eeprom_write_slice(&mut self, offset: u32, data: &[u8]) -> Result<(), Error> {
         self.check_eeprom_offset(offset, data.len() as u32)?;
         let start = offset;
         let misalign = (start % 4) as usize;
