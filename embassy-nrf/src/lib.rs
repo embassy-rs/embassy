@@ -88,6 +88,8 @@ pub mod gpiote;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
+#[cfg(feature = "_nrf5340")]
+pub mod ipc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "nrf52832",
@@ -198,9 +200,12 @@ mod chip;
 /// ```rust,ignore
 /// use embassy_nrf::{bind_interrupts, spim, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the SPIM3 interrupt.
+///     struct Irqs {
+///         SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
+///     }
+/// );
 /// ```
 ///
 /// Example of how to bind multiple interrupts in a single macro invocation:
@@ -217,7 +222,7 @@ mod chip;
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident {
         $(
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
@@ -227,6 +232,7 @@ macro_rules! bind_interrupts {
         )*
     }) => {
         #[derive(Copy, Clone)]
+        $(#[$attr])*
         $vis struct $name;
 
         $(
@@ -337,7 +343,7 @@ pub mod config {
         /// 3.0 V
         _3V0 = 4,
         /// 3.3 V
-        _3v3 = 5,
+        _3V3 = 5,
         //ERASED = 7, means 1.8V
     }
 
@@ -369,7 +375,7 @@ pub mod config {
         /// 3.0 V
         _3V0 = 4,
         /// 3.3 V
-        _3v3 = 5,
+        _3V3 = 5,
         //ERASED = 7, means 1.8V
     }
 

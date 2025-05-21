@@ -272,8 +272,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// let mut adc_pin1 = p.PA1.degrade_adc();
     /// let mut measurements = [0u16; 2];
     ///
-    /// adc.read_async(
-    ///     p.DMA1_CH2,
+    /// adc.read(
+    ///     p.DMA1_CH2.reborrow(),
     ///     [
     ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
     ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),

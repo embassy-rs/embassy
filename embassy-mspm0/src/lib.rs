@@ -1,6 +1,11 @@
 #![no_std]
 // Doc feature labels can be tested locally by running RUSTDOCFLAGS="--cfg=docsrs" cargo +nightly doc
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg_hide), doc(cfg_hide(doc, docsrs)))]
+#![cfg_attr(
+    docsrs,
+    doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-mspm0'>browse the `embassy-mspm0` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only, while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
+)]
+#![doc = include_str!("../README.md")]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -35,11 +40,17 @@ pub mod mode {
 mod time_driver;
 
 // Interrupt group handlers.
-#[cfg_attr(feature = "mspm0c110x", path = "int_group/c110x.rs")]
-#[cfg_attr(feature = "mspm0g350x", path = "int_group/g350x.rs")]
-#[cfg_attr(feature = "mspm0g351x", path = "int_group/g351x.rs")]
-#[cfg_attr(feature = "mspm0l130x", path = "int_group/l130x.rs")]
-#[cfg_attr(feature = "mspm0l222x", path = "int_group/l222x.rs")]
+#[cfg_attr(mspm0c110x, path = "int_group/c110x.rs")]
+#[cfg_attr(mspm0g110x, path = "int_group/g110x.rs")]
+#[cfg_attr(mspm0g150x, path = "int_group/g150x.rs")]
+#[cfg_attr(mspm0g350x, path = "int_group/g350x.rs")]
+#[cfg_attr(mspm0g151x, path = "int_group/g151x.rs")]
+#[cfg_attr(mspm0g351x, path = "int_group/g351x.rs")]
+#[cfg_attr(mspm0g310x, path = "int_group/g310x.rs")]
+#[cfg_attr(mspm0l110x, path = "int_group/l11xx.rs")]
+#[cfg_attr(mspm0l122x, path = "int_group/l12xx.rs")]
+#[cfg_attr(any(mspm0l130x, mspm0l134x), path = "int_group/l13xx.rs")]
+#[cfg_attr(mspm0l222x, path = "int_group/l222x.rs")]
 mod int_group;
 
 pub(crate) mod _generated {
@@ -109,7 +120,7 @@ pub fn init(_config: Config) -> Peripherals {
 
         _generated::enable_group_interrupts(cs);
 
-        #[cfg(feature = "mspm0c110x")]
+        #[cfg(mspm0c110x)]
         unsafe {
             use crate::_generated::interrupt::typelevel::Interrupt;
             crate::interrupt::typelevel::GPIOA::enable();

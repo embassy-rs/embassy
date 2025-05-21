@@ -18,8 +18,12 @@ compile_error!(
 pub(crate) mod fmt;
 
 pub mod clocks;
+pub mod crc;
+pub mod dma;
+pub mod flexcomm;
 pub mod gpio;
 pub mod iopctl;
+pub mod rng;
 
 #[cfg(feature = "_time-driver")]
 pub mod time_driver;
@@ -52,16 +56,20 @@ pub use crate::pac::NVIC_PRIO_BITS;
 /// ```rust,ignore
 /// use embassy_imxrt::{bind_interrupts, flexspi, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     FLEXSPI_IRQ => flexspi::InterruptHandler<peripherals::FLEXSPI>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the FLEXSPI interrupt.
+///     struct Irqs {
+///         FLEXSPI_IRQ => flexspi::InterruptHandler<peripherals::FLEXSPI>;
+///     }
+/// );
 /// ```
 ///
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
             #[derive(Copy, Clone)]
+            $(#[$attr])*
             $vis struct $name;
 
         $(
@@ -127,14 +135,16 @@ pub fn init(config: config::Config) -> Peripherals {
     // before doing anything important.
     let peripherals = Peripherals::take();
 
+    #[cfg(feature = "_time-driver")]
+    time_driver::init(config.time_interrupt_priority);
+
     unsafe {
         if let Err(e) = clocks::init(config.clocks) {
             error!("unable to initialize Clocks for reason: {:?}", e);
             // Panic here?
         }
+        dma::init();
     }
-    #[cfg(feature = "_time-driver")]
-    time_driver::init(config.time_interrupt_priority);
     gpio::init();
 
     peripherals
@@ -142,4 +152,22 @@ pub fn init(config: config::Config) -> Peripherals {
 
 pub(crate) mod sealed {
     pub trait Sealed {}
+}
+
+#[cfg(feature = "rt")]
+struct BitIter(u32);
+
+#[cfg(feature = "rt")]
+impl Iterator for BitIter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.trailing_zeros() {
+            32 => None,
+            b => {
+                self.0 &= !(1 << b);
+                Some(b)
+            }
+        }
+    }
 }

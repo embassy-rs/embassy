@@ -38,7 +38,7 @@
 //!
 //! ## Examples
 //!
-//! ### Standard 125MHz configuration
+//! ### Standard 125MHz (rp2040) or 150Mhz (rp235x) configuration
 //! ```rust,ignore
 //! let config = ClockConfig::crystal(12_000_000);
 //! ```
@@ -81,6 +81,18 @@ use crate::{pac, reset, Peri};
 // gpin is not usually safe to use during the boot init() call, so it won't
 // be very useful until we have runtime clock reconfiguration. once this
 // happens we can resurrect the commented-out gpin bits.
+
+/// Clock error types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ClockError {
+    /// PLL failed to lock within the timeout period.
+    PllLockTimedOut,
+    /// Could not find valid PLL parameters for system clock.
+    InvalidPllParameters,
+    /// Reading the core voltage failed due to an unexpected value in the register.
+    UnexpectedCoreVoltageRead,
+}
 
 struct Clocks {
     xosc: AtomicU32,
@@ -136,15 +148,16 @@ pub enum PeriClkSrc {
     // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
 
-/// Core voltage regulator settings for RP2040.
+/// Core voltage regulator settings.
 ///
-/// The RP2040 voltage regulator can be configured for different output voltages.
+/// The voltage regulator can be configured for different output voltages.
 /// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
 #[cfg(feature = "rp2040")]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CoreVoltage {
-    /// 0.80V - Suitable for lower frequencies
+    /// 0.80V
     V0_80 = 0b0000,
     /// 0.85V
     V0_85 = 0b0110,
@@ -168,11 +181,58 @@ pub enum CoreVoltage {
     V1_30 = 0b1111,
 }
 
-#[cfg(feature = "rp2040")]
+/// Core voltage regulator settings.
+///
+/// The voltage regulator can be configured for different output voltages.
+/// Higher voltages allow for higher clock frequencies but increase power consumption and heat.
+///
+/// **Note**: The maximum voltage is 1.30V, unless unlocked by setting unless the voltage limit
+/// is disabled using the disable_voltage_limit field in the vreg_ctrl register. For lack of practical use at this
+/// point in time, this is not implemented here. So the maximum voltage in this enum is 1.30V for now.
+#[cfg(feature = "_rp235x")]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum CoreVoltage {
+    /// 0.55V
+    V0_55 = 0b00000,
+    /// 0.60V
+    V0_60 = 0b00001,
+    /// 0.65V
+    V0_65 = 0b00010,
+    /// 0.70V
+    V0_70 = 0b00011,
+    /// 0.75V
+    V0_75 = 0b00100,
+    /// 0.80V
+    V0_80 = 0b00101,
+    /// 0.85V
+    V0_85 = 0b00110,
+    /// 0.90V
+    V0_90 = 0b00111,
+    /// 0.95V
+    V0_95 = 0b01000,
+    /// 1.00V
+    V1_00 = 0b01001,
+    /// 1.05V
+    V1_05 = 0b01010,
+    /// 1.10V - Default voltage level
+    V1_10 = 0b01011,
+    /// 1.15V
+    V1_15 = 0b01100,
+    /// 1.20V
+    V1_20 = 0b01101,
+    /// 1.25V
+    V1_25 = 0b01110,
+    /// 1.30V
+    V1_30 = 0b01111,
+}
+
 impl CoreVoltage {
     /// Get the recommended Brown-Out Detection (BOD) setting for this voltage.
     /// Sets the BOD threshold to approximately 80% of the core voltage.
     fn recommended_bod(self) -> u8 {
+        #[cfg(feature = "rp2040")]
         match self {
             CoreVoltage::V0_80 => 0b0100, // 0.645V (~81% of 0.80V)
             CoreVoltage::V0_85 => 0b0101, // 0.688V (~81% of 0.85V)
@@ -180,11 +240,31 @@ impl CoreVoltage {
             CoreVoltage::V0_95 => 0b0111, // 0.774V (~81% of 0.95V)
             CoreVoltage::V1_00 => 0b1000, // 0.817V (~82% of 1.00V)
             CoreVoltage::V1_05 => 0b1000, // 0.817V (~78% of 1.05V)
-            CoreVoltage::V1_10 => 0b1001, // 0.860V (~78% of 1.10V)
+            CoreVoltage::V1_10 => 0b1001, // 0.860V (~78% of 1.10V), the default
             CoreVoltage::V1_15 => 0b1010, // 0.903V (~79% of 1.15V)
             CoreVoltage::V1_20 => 0b1011, // 0.946V (~79% of 1.20V)
             CoreVoltage::V1_25 => 0b1100, // 0.989V (~79% of 1.25V)
             CoreVoltage::V1_30 => 0b1101, // 1.032V (~79% of 1.30V)
+        }
+        #[cfg(feature = "_rp235x")]
+        match self {
+            CoreVoltage::V0_55 => 0b00001, // 0.516V (~94% of 0.55V)
+            CoreVoltage::V0_60 => 0b00010, // 0.559V (~93% of 0.60V)
+            CoreVoltage::V0_65 => 0b00011, // 0.602V (~93% of 0.65V)
+            CoreVoltage::V0_70 => 0b00011, // 0.602V (~86% of 0.70V)
+            CoreVoltage::V0_75 => 0b00100, // 0.645V (~86% of 0.75V)
+            CoreVoltage::V0_80 => 0b00101, // 0.688V (~86% of 0.80V)
+            CoreVoltage::V0_85 => 0b00110, // 0.731V (~86% of 0.85V)
+            CoreVoltage::V0_90 => 0b00110, // 0.731V (~81% of 0.90V)
+            CoreVoltage::V0_95 => 0b00111, // 0.774V (~81% of 0.95V)
+            CoreVoltage::V1_00 => 0b01000, // 0.817V (~82% of 1.00V)
+            CoreVoltage::V1_05 => 0b01000, // 0.817V (~78% of 1.05V)
+            CoreVoltage::V1_10 => 0b01001, // 0.860V (~78% of 1.10V), the default
+            CoreVoltage::V1_15 => 0b01001, // 0.860V (~75% of 1.15V)
+            CoreVoltage::V1_20 => 0b01010, // 0.903V (~75% of 1.20V)
+            CoreVoltage::V1_25 => 0b01010, // 0.903V (~72% of 1.25V)
+            CoreVoltage::V1_30 => 0b01011, // 0.946V (~73% of 1.30V)
+                                            // all others: 0.946V (see CoreVoltage: we do not support setting Voltages higher than 1.30V at this point)
         }
     }
 }
@@ -209,12 +289,10 @@ pub struct ClockConfig {
     /// RTC clock configuration.
     #[cfg(feature = "rp2040")]
     pub rtc_clk: Option<RtcClkConfig>,
-    /// Core voltage scaling (RP2040 only). Defaults to 1.10V.
-    #[cfg(feature = "rp2040")]
+    /// Core voltage scaling. Defaults to 1.10V.
     pub core_voltage: CoreVoltage,
     /// Voltage stabilization delay in microseconds.
     /// If not set, defaults will be used based on voltage level.
-    #[cfg(feature = "rp2040")]
     pub voltage_stabilization_delay_us: Option<u32>,
     // See above re gpin handling being commented out
     // gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
@@ -250,9 +328,7 @@ impl Default for ClockConfig {
             adc_clk: None,
             #[cfg(feature = "rp2040")]
             rtc_clk: None,
-            #[cfg(feature = "rp2040")]
             core_voltage: CoreVoltage::V1_10,
-            #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
             // See above re gpin handling being commented out
             // gpin0: None,
@@ -323,9 +399,7 @@ impl ClockConfig {
                 div_frac: 0,
                 phase: 0,
             }),
-            #[cfg(feature = "rp2040")]
             core_voltage: CoreVoltage::V1_10, // Use hardware default (1.10V)
-            #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
             // See above re gpin handling being commented out
             // gpin0: None,
@@ -368,9 +442,7 @@ impl ClockConfig {
                 div_frac: 171,
                 phase: 0,
             }),
-            #[cfg(feature = "rp2040")]
             core_voltage: CoreVoltage::V1_10, // Use hardware default (1.10V)
-            #[cfg(feature = "rp2040")]
             voltage_stabilization_delay_us: None,
             // See above re gpin handling being commented out
             // gpin0: None,
@@ -391,29 +463,42 @@ impl ClockConfig {
     /// # Returns
     ///
     /// A ClockConfig configured to achieve the requested system frequency using the
-    /// the usual 12Mhz crystal, or panic if no valid parameters can be found.
+    /// the usual 12Mhz crystal, or an error if no valid parameters can be found.
     ///
     /// # Note on core voltage:
+    ///
+    /// **For RP2040**:
     /// To date the only officially documented core voltages (see Datasheet section 2.15.3.1. Instances) are:
     /// - Up to 133MHz: V1_10 (default)
     /// - Above 133MHz: V1_15, but in the context of the datasheet covering reaching up to 200Mhz
     /// That way all other frequencies below 133MHz or above 200MHz are not explicitly documented and not covered here.
     /// In case You want to go below 133MHz or above 200MHz and want a different voltage, You will have to set that manually and with caution.
-    #[cfg(feature = "rp2040")]
-    pub fn system_freq(hz: u32) -> Self {
+    ///
+    /// **For RP235x**:
+    /// At this point in time there is no official manufacturer endorsement for running the chip on other core voltages and/or other clock speeds than the defaults.
+    /// Using this function is experimental and may not work as expected or even damage the chip.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing either the configured ClockConfig or a ClockError.
+    pub fn system_freq(hz: u32) -> Result<Self, ClockError> {
         // Start with the standard configuration from crystal()
         const DEFAULT_CRYSTAL_HZ: u32 = 12_000_000;
         let mut config = Self::crystal(DEFAULT_CRYSTAL_HZ);
 
         // No need to modify anything if target frequency is already 125MHz
         // (which is what crystal() configures by default)
+        #[cfg(feature = "rp2040")]
         if hz == 125_000_000 {
-            return config;
+            return Ok(config);
+        }
+        #[cfg(feature = "_rp235x")]
+        if hz == 150_000_000 {
+            return Ok(config);
         }
 
         // Find optimal PLL parameters for the requested frequency
-        let sys_pll_params = find_pll_params(DEFAULT_CRYSTAL_HZ, hz)
-            .unwrap_or_else(|| panic!("Could not find valid PLL parameters for system clock"));
+        let sys_pll_params = find_pll_params(DEFAULT_CRYSTAL_HZ, hz).ok_or(ClockError::InvalidPllParameters)?;
 
         // Replace the sys_pll configuration with our custom parameters
         if let Some(xosc) = &mut config.xosc {
@@ -429,8 +514,16 @@ impl ClockConfig {
                 _ => CoreVoltage::V1_10, // Use default voltage (V1_10)
             };
         }
+        #[cfg(feature = "_rp235x")]
+        {
+            config.core_voltage = match hz {
+                // There is no official support for running the chip on other core voltages and/or other clock speeds than the defaults.
+                // So for now we have not way of knowing what the voltage should be. Change this if the manufacturer provides more information.
+                _ => CoreVoltage::V1_10, // Use default voltage (V1_10)
+            };
+        }
 
-        config
+        Ok(config)
     }
 
     /// Configure with manual PLL settings for full control over system clock
@@ -525,6 +618,7 @@ impl ClockConfig {
 #[repr(u16)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RoscRange {
     /// Low range.
     Low = pac::rosc::vals::FreqRange::LOW.0,
@@ -631,6 +725,7 @@ pub struct RefClkConfig {
 /// Reference clock source.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RefClkSrc {
     /// XOSC.
     Xosc,
@@ -646,6 +741,7 @@ pub enum RefClkSrc {
 /// SYS clock source.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SysClkSrc {
     /// REF.
     Ref,
@@ -684,6 +780,7 @@ pub struct SysClkConfig {
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UsbClkSrc {
     /// PLL USB.
     PllUsb = ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB as _,
@@ -712,6 +809,7 @@ pub struct UsbClkConfig {
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AdcClkSrc {
     /// PLL USB.
     PllUsb = ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB as _,
@@ -740,6 +838,7 @@ pub struct AdcClkConfig {
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(feature = "rp2040")]
 pub enum RtcClkSrc {
     /// PLL USB.
@@ -791,7 +890,6 @@ pub struct RtcClkConfig {
 /// // Find parameters for 133MHz system clock from 12MHz crystal
 /// let pll_params = find_pll_params(12_000_000, 133_000_000).unwrap();
 /// ```
-#[cfg(feature = "rp2040")]
 fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
     // Fixed reference divider for system PLL
     const PLL_SYS_REFDIV: u8 = 1;
@@ -925,18 +1023,31 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     };
     CLOCKS.rosc.store(rosc_freq, Ordering::Relaxed);
 
-    // Set Core Voltage (RP2040 only), if we have config for it and we're not using the default
-    #[cfg(feature = "rp2040")]
+    // Set Core Voltage, if we have config for it and we're not using the default
     {
         let voltage = config.core_voltage;
+
+        #[cfg(feature = "rp2040")]
         let vreg = pac::VREG_AND_CHIP_RESET;
+        #[cfg(feature = "_rp235x")]
+        let vreg = pac::POWMAN;
+
         let current_vsel = vreg.vreg().read().vsel();
         let target_vsel = voltage as u8;
 
         // If the target voltage is different from the current one, we need to change it
         if target_vsel != current_vsel {
-            // Use modify() to preserve the HIZ and EN bits - otherwise we will disable the regulator when changing voltage
+            // Set the voltage regulator to the target voltage
+            #[cfg(feature = "rp2040")]
             vreg.vreg().modify(|w| w.set_vsel(target_vsel));
+            #[cfg(feature = "_rp235x")]
+            // For rp235x changes to the voltage regulator are protected by a password, see datasheet section 6.4 Power Management (POWMAN) Registers
+            // The password is "5AFE" (0x5AFE), it must be set in the top 16 bits of the register
+            vreg.vreg().modify(|w| {
+                w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Set the password
+                w.set_vsel(target_vsel);
+                *w
+            });
 
             // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
             let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or_else(|| {
@@ -955,7 +1066,14 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             }
 
             // Only now set the BOD level. At this point the voltage is considered stable.
+            #[cfg(feature = "rp2040")]
             vreg.bod().write(|w| {
+                w.set_vsel(voltage.recommended_bod());
+                w.set_en(true); // Enable brownout detection
+            });
+            #[cfg(feature = "_rp235x")]
+            vreg.bod().write(|w| {
+                w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Set the password
                 w.set_vsel(voltage.recommended_bod());
                 w.set_en(true); // Enable brownout detection
             });
@@ -970,14 +1088,14 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             let pll_sys_freq = match config.sys_pll {
                 Some(sys_pll_config) => match configure_pll(pac::PLL_SYS, config.hz, sys_pll_config) {
                     Ok(freq) => freq,
-                    Err(e) => panic!("Failed to configure PLL_SYS: {}", e),
+                    Err(e) => panic!("Failed to configure PLL_SYS: {:?}", e),
                 },
                 None => 0,
             };
             let pll_usb_freq = match config.usb_pll {
                 Some(usb_pll_config) => match configure_pll(pac::PLL_USB, config.hz, usb_pll_config) {
                     Ok(freq) => freq,
-                    Err(e) => panic!("Failed to configure PLL_USB: {}", e),
+                    Err(e) => panic!("Failed to configure PLL_USB: {:?}", e),
                 },
                 None => 0,
             };
@@ -1283,6 +1401,58 @@ pub fn clk_rtc_freq() -> u16 {
     CLOCKS.rtc.load(Ordering::Relaxed)
 }
 
+/// The core voltage of the chip.
+///
+/// Returns the current core voltage or an error if the voltage register
+/// contains an unknown value.
+pub fn core_voltage() -> Result<CoreVoltage, ClockError> {
+    #[cfg(feature = "rp2040")]
+    {
+        let vreg = pac::VREG_AND_CHIP_RESET;
+        let vsel = vreg.vreg().read().vsel();
+        match vsel {
+            0b0000 => Ok(CoreVoltage::V0_80),
+            0b0110 => Ok(CoreVoltage::V0_85),
+            0b0111 => Ok(CoreVoltage::V0_90),
+            0b1000 => Ok(CoreVoltage::V0_95),
+            0b1001 => Ok(CoreVoltage::V1_00),
+            0b1010 => Ok(CoreVoltage::V1_05),
+            0b1011 => Ok(CoreVoltage::V1_10),
+            0b1100 => Ok(CoreVoltage::V1_15),
+            0b1101 => Ok(CoreVoltage::V1_20),
+            0b1110 => Ok(CoreVoltage::V1_25),
+            0b1111 => Ok(CoreVoltage::V1_30),
+            _ => Err(ClockError::UnexpectedCoreVoltageRead),
+        }
+    }
+
+    #[cfg(feature = "_rp235x")]
+    {
+        let vreg = pac::POWMAN;
+        let vsel = vreg.vreg().read().vsel();
+        match vsel {
+            0b00000 => Ok(CoreVoltage::V0_55),
+            0b00001 => Ok(CoreVoltage::V0_60),
+            0b00010 => Ok(CoreVoltage::V0_65),
+            0b00011 => Ok(CoreVoltage::V0_70),
+            0b00100 => Ok(CoreVoltage::V0_75),
+            0b00101 => Ok(CoreVoltage::V0_80),
+            0b00110 => Ok(CoreVoltage::V0_85),
+            0b00111 => Ok(CoreVoltage::V0_90),
+            0b01000 => Ok(CoreVoltage::V0_95),
+            0b01001 => Ok(CoreVoltage::V1_00),
+            0b01010 => Ok(CoreVoltage::V1_05),
+            0b01011 => Ok(CoreVoltage::V1_10),
+            0b01100 => Ok(CoreVoltage::V1_15),
+            0b01101 => Ok(CoreVoltage::V1_20),
+            0b01110 => Ok(CoreVoltage::V1_25),
+            0b01111 => Ok(CoreVoltage::V1_30),
+            _ => Err(ClockError::UnexpectedCoreVoltageRead),
+            // see CoreVoltage: we do not support setting Voltages higher than 1.30V at this point
+        }
+    }
+}
+
 fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
     let startup_delay = (((crystal_hz / 1000) * delay_multiplier) + 128) / 256;
     pac::XOSC.startup().write(|w| w.set_delay(startup_delay as u16));
@@ -1295,7 +1465,7 @@ fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
 
 /// PLL (Phase-Locked Loop) configuration
 #[inline(always)]
-fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result<u32, &'static str> {
+fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result<u32, ClockError> {
     // Calculate reference frequency
     let ref_freq = input_freq / config.refdiv as u32;
 
@@ -1366,7 +1536,7 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result
         timeout -= 1;
         if timeout == 0 {
             // PLL failed to lock, return 0 to indicate failure
-            return Err("PLL failed to lock");
+            return Err(ClockError::PllLockTimedOut);
         }
     }
 
@@ -1606,7 +1776,8 @@ impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
 pub struct RoscRng;
 
 impl RoscRng {
-    fn next_u8() -> u8 {
+    /// Get a random u8
+    pub fn next_u8() -> u8 {
         let random_reg = pac::ROSC.randombit();
         let mut acc = 0;
         for _ in 0..u8::BITS {
@@ -1615,25 +1786,59 @@ impl RoscRng {
         }
         acc
     }
-}
 
-impl rand_core::RngCore for RoscRng {
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        Ok(self.fill_bytes(dest))
+    /// Get a random u32
+    pub fn next_u32(&mut self) -> u32 {
+        rand_core_09::impls::next_u32_via_fill(self)
     }
 
-    fn next_u32(&mut self) -> u32 {
-        rand_core::impls::next_u32_via_fill(self)
+    /// Get a random u64
+    pub fn next_u64(&mut self) -> u64 {
+        rand_core_09::impls::next_u64_via_fill(self)
     }
 
-    fn next_u64(&mut self) -> u64 {
-        rand_core::impls::next_u64_via_fill(self)
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    /// Fill a slice with random bytes
+    pub fn fill_bytes(&mut self, dest: &mut [u8]) {
         dest.fill_with(Self::next_u8)
     }
 }
+
+impl rand_core_06::RngCore for RoscRng {
+    fn next_u32(&mut self) -> u32 {
+        self.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.fill_bytes(dest);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl rand_core_06::CryptoRng for RoscRng {}
+
+impl rand_core_09::RngCore for RoscRng {
+    fn next_u32(&mut self) -> u32 {
+        self.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.fill_bytes(dest);
+    }
+}
+
+impl rand_core_09::CryptoRng for RoscRng {}
 
 /// Enter the `DORMANT` sleep state. This will stop *all* internal clocks
 /// and can only be exited through resets, dormant-wake GPIO interrupts,
@@ -1937,21 +2142,21 @@ mod tests {
         {
             // Test automatic voltage scaling based on frequency
             // Under 133 MHz should use default voltage (V1_10)
-            let config = ClockConfig::system_freq(125_000_000);
+            let config = ClockConfig::system_freq(125_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_10);
 
             // 133-200 MHz should use V1_15
-            let config = ClockConfig::system_freq(150_000_000);
+            let config = ClockConfig::system_freq(150_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_15);
-            let config = ClockConfig::system_freq(200_000_000);
+            let config = ClockConfig::system_freq(200_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_15);
 
-            // Above 200 MHz should use V1_25
-            let config = ClockConfig::system_freq(250_000_000);
+            // Above 200 MHz should use V1_15
+            let config = ClockConfig::system_freq(250_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_15);
 
             // Below 125 MHz should use V1_10
-            let config = ClockConfig::system_freq(100_000_000);
+            let config = ClockConfig::system_freq(100_000_000).unwrap();
             assert_eq!(config.core_voltage, CoreVoltage::V1_10);
         }
     }

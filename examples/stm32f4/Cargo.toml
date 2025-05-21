@@ -15,8 +15,8 @@ embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defm
 embassy-net-wiznet = { version = "0.2.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 
-defmt = "0.3"
-defmt-rtt = "0.4"
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
@@ -24,7 +24,7 @@ embedded-hal = "0.2.6"
 embedded-hal-bus = { version = "0.2", features = ["async"] }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
-panic-probe = { version = "0.3", features = ["print-defmt"] }
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 futures-util = { version = "0.3.30", default-features = false }
 heapless = { version = "0.8", default-features = false }
 critical-section = "1.1"

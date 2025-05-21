@@ -19,7 +19,7 @@ fi
 TARGET=$(rustc -vV | sed -n 's|host: ||p')
 
 BUILD_EXTRA=""
-if [ $TARGET = "x86_64-unknown-linux-gnu" ]; then
+if [ $TARGET = "x86_64-unknown-linux-gnu" ] || [ $TARGET = "aarch64-unknown-linux-gnu" ]; then
     BUILD_EXTRA="--- build --release --manifest-path examples/std/Cargo.toml --target $TARGET --artifact-dir out/examples/std"
 fi
 
@@ -174,11 +174,18 @@ cargo batch \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u073mb,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u083rc,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv8m.main-none-eabihf \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0c110x,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g350x,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g351x,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l130x,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l222x,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0c1104dgs20,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3507pm,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3519pz,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1306rhb,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l2228pn,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1345dgs28,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1106dgs28,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1228pm,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1107ycj,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3105rhb,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1505pt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1519rhb,defmt,time-driver-any \
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features ''\
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'log' \
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'defmt' \

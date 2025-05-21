@@ -21,7 +21,6 @@ use embassy_rp::peripherals::SPI0;
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_time::{Delay, Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
-use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 

@@ -5,7 +5,7 @@ use embassy_net::{Config, Ipv4Address, Ipv4Cidr, StackResources};
 use embassy_net_tuntap::TunTapDevice;
 use heapless::Vec;
 use log::*;
-use rand_core::{OsRng, RngCore};
+use rand_core::{OsRng, TryRngCore};
 use static_cell::StaticCell;
 
 #[derive(Parser)]
@@ -44,7 +44,7 @@ async fn main_task(spawner: Spawner) {
 
     // Generate random seed
     let mut seed = [0; 8];
-    OsRng.fill_bytes(&mut seed);
+    OsRng.try_fill_bytes(&mut seed).unwrap();
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack

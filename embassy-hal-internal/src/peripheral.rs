@@ -14,6 +14,8 @@ use core::ops::Deref;
 ///   the driver code would be monomorphized two times. With Peri, the driver is generic
 ///   over a lifetime only. `SPI4` becomes `Peri<'static, SPI4>`, and `&mut SPI4` becomes
 ///   `Peri<'a, SPI4>`. Lifetimes don't cause monomorphization.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Peri<'a, T: PeripheralType> {
     inner: T,
     _lifetime: PhantomData<&'a mut T>,

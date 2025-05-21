@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use std::{env, fs};
 
 use common::CfgSet;
-use mspm0_metapac::metadata::METADATA;
+use mspm0_metapac::metadata::{ALL_CHIPS, METADATA};
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::{format_ident, quote};
 
@@ -23,6 +23,27 @@ fn generate_code() {
     common::set_target_cfgs(&mut cfgs);
 
     cfgs.declare_all(&["gpio_pb", "gpio_pc", "int_group1"]);
+
+    let chip_name = match env::vars()
+        .map(|(a, _)| a)
+        .filter(|x| x.starts_with("CARGO_FEATURE_MSPM0") || x.starts_with("CARGO_FEATURE_MSPS"))
+        .get_one()
+    {
+        Ok(x) => x,
+        Err(GetOneError::None) => panic!("No mspm0xx/mspsxx Cargo feature enabled"),
+        Err(GetOneError::Multiple) => panic!("Multiple mspm0xx/mspsxx Cargo features enabled"),
+    }
+    .strip_prefix("CARGO_FEATURE_")
+    .unwrap()
+    .to_ascii_lowercase()
+    .replace('_', "-");
+
+    eprintln!("chip: {chip_name}");
+
+    cfgs.enable_all(&get_chip_cfgs(&chip_name));
+    for chip in ALL_CHIPS {
+        cfgs.declare_all(&get_chip_cfgs(&chip));
+    }
 
     let mut singletons = get_singletons(&mut cfgs);
 
@@ -42,6 +63,64 @@ fn generate_code() {
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
     fs::write(&out_file, g.to_string()).unwrap();
     rustfmt(&out_file);
+}
+
+fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
+    let mut cfgs = Vec::new();
+
+    // GPIO on C110x is special as it does not belong to an interrupt group.
+    if chip_name.starts_with("mspm0c110") || chip_name.starts_with("msps003f") {
+        cfgs.push("mspm0c110x".to_string());
+    }
+
+    // Family ranges (temporary until int groups are generated)
+    //
+    // TODO: Remove this once int group stuff is generated.
+    if chip_name.starts_with("mspm0g110") {
+        cfgs.push("mspm0g110x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0g150") {
+        cfgs.push("mspm0g150x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0g151") {
+        cfgs.push("mspm0g151x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0g310") {
+        cfgs.push("mspm0g310x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0g350") {
+        cfgs.push("mspm0g350x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0g351") {
+        cfgs.push("mspm0g351x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0l110") {
+        cfgs.push("mspm0l110x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0l122") {
+        cfgs.push("mspm0l122x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0l130") {
+        cfgs.push("mspm0l130x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0l134") {
+        cfgs.push("mspm0l134x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0l222") {
+        cfgs.push("mspm0l222x".to_string());
+    }
+
+    cfgs
 }
 
 #[derive(Debug, Clone)]
@@ -146,7 +225,7 @@ fn make_valid_identifier(s: &str) -> Singleton {
 }
 
 fn generate_pincm_mapping() -> TokenStream {
-    let pincms = METADATA.pincm_mappings.iter().map(|mapping| {
+    let pincms = METADATA.pins.iter().map(|mapping| {
         let port_letter = mapping.pin.strip_prefix("P").unwrap();
         let port_base = (port_letter.chars().next().unwrap() as u8 - b'A') * 32;
         // This assumes all ports are single letter length.
@@ -174,11 +253,11 @@ fn generate_pincm_mapping() -> TokenStream {
 }
 
 fn generate_pin() -> TokenStream {
-    let pin_impls = METADATA.pincm_mappings.iter().map(|pincm_mapping| {
-        let name = Ident::new(&pincm_mapping.pin, Span::call_site());
-        let port_letter = pincm_mapping.pin.strip_prefix("P").unwrap();
+    let pin_impls = METADATA.pins.iter().map(|pin| {
+        let name = Ident::new(&pin.pin, Span::call_site());
+        let port_letter = pin.pin.strip_prefix("P").unwrap();
         let port_letter = port_letter.chars().next().unwrap();
-        let pin_number = Literal::u8_unsuffixed(pincm_mapping.pin[2..].parse::<u8>().unwrap());
+        let pin_number = Literal::u8_unsuffixed(pin.pin[2..].parse::<u8>().unwrap());
 
         let port = Ident::new(&format!("Port{}", port_letter), Span::call_site());
 

@@ -163,18 +163,22 @@ pub use crate::_generated::interrupt;
 /// ```rust,ignore
 /// use embassy_stm32::{bind_interrupts, i2c, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
-///     I2C2_3 => i2c::EventInterruptHandler<peripherals::I2C2>, i2c::ErrorInterruptHandler<peripherals::I2C2>,
-///         i2c::EventInterruptHandler<peripherals::I2C3>, i2c::ErrorInterruptHandler<peripherals::I2C3>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the I2C interrupts.
+///     struct Irqs {
+///         I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
+///         I2C2_3 => i2c::EventInterruptHandler<peripherals::I2C2>, i2c::ErrorInterruptHandler<peripherals::I2C2>,
+///             i2c::EventInterruptHandler<peripherals::I2C3>, i2c::ErrorInterruptHandler<peripherals::I2C3>;
+///     }
+/// );
 /// ```
 
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident {
+    ($(#[$outer:meta])* $vis:vis struct $name:ident {
         $(
+            $(#[$inner:meta])*
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
                 $(#[cfg($cond_handler:meta)])?
@@ -183,12 +187,14 @@ macro_rules! bind_interrupts {
         )*
     }) => {
         #[derive(Copy, Clone)]
+        $(#[$outer])*
         $vis struct $name;
 
         $(
             #[allow(non_snake_case)]
             #[no_mangle]
             $(#[cfg($cond_irq)])?
+            $(#[$inner])*
             unsafe extern "C" fn $irq() {
                 $(
                     $(#[cfg($cond_handler)])?
@@ -600,17 +606,7 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(feature = "exti")]
             exti::init(cs);
 
-            rcc::init(config.rcc);
-
-            // must be after rcc init
-            #[cfg(feature = "_time-driver")]
-            time_driver::init(cs);
-
-            #[cfg(feature = "low-power")]
-            {
-                crate::rcc::REFCOUNT_STOP2 = 0;
-                crate::rcc::REFCOUNT_STOP1 = 0;
-            }
+            rcc::init_rcc(cs, config.rcc);
         }
 
         p

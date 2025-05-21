@@ -1,7 +1,7 @@
 use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterError};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
 use embassy_usb::driver::Driver;
-use embassy_usb::{Builder, Handler};
+use embassy_usb::{Builder, FunctionBuilder, Handler};
 use embedded_storage::nor_flash::{NorFlash, NorFlashErrorKind};
 
 use crate::consts::{
@@ -186,8 +186,14 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
 pub fn usb_dfu<'d, D: Driver<'d>, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize>(
     builder: &mut Builder<'d, D>,
     handler: &'d mut Control<'d, DFU, STATE, RST, BLOCK_SIZE>,
+    func_modifier: impl Fn(&mut FunctionBuilder<'_, 'd, D>),
 ) {
     let mut func = builder.function(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU);
+
+    // Here we give users the opportunity to add their own function level MSOS headers for instance.
+    // This is useful when DFU functionality is part of a composite USB device.
+    func_modifier(&mut func);
+
     let mut iface = func.interface();
     let mut alt = iface.alt_setting(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU, None);
     alt.descriptor(
