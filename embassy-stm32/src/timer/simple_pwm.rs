@@ -381,6 +381,74 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             self.inner.enable_update_dma(false);
         }
     }
+
+    /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
+    /// 
+    /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
+    /// in sequence on each update event (UEV). The data is written via the DMAR register using the
+    /// DMA base address (DBA) and burst length (DBL) configured in the DCR register.
+    /// 
+    /// Note:
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub async fn waveform_up_multichannel(
+        &mut self,
+        dma: Peri<'_, impl super::UpDma<T>>,
+        starting_channel: Channel,
+        ending_channel: Channel,
+        duty: &[u16],
+    ) {
+        let cr1_addr = self.inner.regs_gp16().cr1().as_ptr() as u32;
+        let start_ch_index = starting_channel.index();
+        let end_ch_index = ending_channel.index();
+
+        assert!(start_ch_index <= end_ch_index);
+
+        let ccrx_addr = self.inner.regs_gp16().ccr(start_ch_index).as_ptr() as u32;
+        self.inner
+            .regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dba(((ccrx_addr - cr1_addr) / 4) as u8));
+        self.inner
+            .regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dbl((end_ch_index - start_ch_index) as u8));
+
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let original_update_dma_state = self.inner.get_update_dma_state();
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(true);
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr4,
+                ..Default::default()
+            };
+
+            Transfer::new_write(
+                dma,
+                req,
+                duty,
+                self.inner.regs_gp16().dmar().as_ptr() as *mut u16,
+                dma_transfer_option,
+            )
+            .await
+        };
+
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(false);
+        }
+    }
+
 }
 
 macro_rules! impl_waveform_chx {
