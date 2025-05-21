@@ -5,11 +5,16 @@ use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 mod asynch;
 #[cfg(flash)]
 mod common;
+#[cfg(eeprom)]
+mod eeprom;
 
 #[cfg(flash_f4)]
 pub use asynch::InterruptHandler;
 #[cfg(flash)]
 pub use common::*;
+#[cfg(eeprom)]
+#[allow(unused_imports)]
+pub use eeprom::*;
 
 pub use crate::_generated::flash_regions::*;
 #[cfg(eeprom)]
