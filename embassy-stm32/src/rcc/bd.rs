@@ -92,6 +92,16 @@ pub struct LsConfig {
 }
 
 impl LsConfig {
+    pub const fn new() -> Self {
+        // on L5, just the fact that LSI is enabled makes things crash.
+        // TODO: investigate.
+
+        #[cfg(not(stm32l5))]
+        return Self::default_lsi();
+        #[cfg(stm32l5)]
+        return Self::off();
+    }
+
     pub const fn default_lse() -> Self {
         Self {
             rtc: RtcClockSource::LSE,
@@ -124,13 +134,7 @@ impl LsConfig {
 
 impl Default for LsConfig {
     fn default() -> Self {
-        // on L5, just the fact that LSI is enabled makes things crash.
-        // TODO: investigate.
-
-        #[cfg(not(stm32l5))]
-        return Self::default_lsi();
-        #[cfg(stm32l5)]
-        return Self::off();
+        Self::new()
     }
 }
 

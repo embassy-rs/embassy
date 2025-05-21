@@ -18,9 +18,15 @@ pub struct Hsi48Config {
     pub sync_from_usb: bool,
 }
 
+impl Hsi48Config {
+    pub const fn new() -> Self {
+        Self { sync_from_usb: false }
+    }
+}
+
 impl Default for Hsi48Config {
     fn default() -> Self {
-        Self { sync_from_usb: false }
+        Self::new()
     }
 }
 
