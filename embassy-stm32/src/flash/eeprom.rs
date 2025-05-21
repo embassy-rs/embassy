@@ -154,6 +154,7 @@ impl<'d> Flash<'d, Blocking> {
     /// This method will write unaligned prefix and suffix as bytes, and aligned middle as u32.
     pub fn eeprom_write_slice(&mut self, offset: u32, data: &[u8]) -> Result<(), Error> {
         self.check_eeprom_offset(offset, data.len() as u32)?;
+
         let start = offset;
         let misalign = (start % 4) as usize;
         let prefix_len = if misalign == 0 {
@@ -163,17 +164,24 @@ impl<'d> Flash<'d, Blocking> {
         };
         let (prefix, rest) = data.split_at(prefix_len);
         let aligned_len = (rest.len() / 4) * 4;
-        let (aligned, suffix) = rest.split_at(aligned_len);
+        let (bytes_for_u32_write, suffix) = rest.split_at(aligned_len);
 
         unsafe {
             family::unlock();
             if !prefix.is_empty() {
                 self.eeprom_write_u8_slice_unlocked(start, prefix)?;
             }
-            if !aligned.is_empty() {
-                let aligned_offset = start + prefix_len as u32;
-                let u32_data = core::slice::from_raw_parts(aligned.as_ptr() as *const u32, aligned.len() / 4);
-                self.eeprom_write_u32_slice_unlocked(aligned_offset, u32_data)?;
+            if !bytes_for_u32_write.is_empty() {
+                let aligned_eeprom_offset = start + prefix_len as u32;
+                let base_eeprom_addr = EEPROM_BASE as u32 + aligned_eeprom_offset;
+                for (i, chunk) in bytes_for_u32_write.chunks_exact(4).enumerate() {
+                    // Safely read a u32 from a potentially unaligned pointer into the chunk.
+                    let value = (chunk.as_ptr() as *const u32).read_unaligned();
+                    let current_eeprom_addr = base_eeprom_addr + (i * 4) as u32;
+                    core::ptr::write_volatile(current_eeprom_addr as *mut u32, value);
+                    family::wait_ready_blocking()?;
+                    family::clear_all_err();
+                }
             }
             if !suffix.is_empty() {
                 let suffix_offset = start + (prefix_len + aligned_len) as u32;
