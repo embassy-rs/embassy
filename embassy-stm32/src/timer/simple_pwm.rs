@@ -383,11 +383,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     }
 
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
-    /// 
+    ///
     /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
     /// in sequence on each update event (UEV). The data is written via the DMAR register using the
     /// DMA base address (DBA) and burst length (DBL) configured in the DCR register.
-    /// 
+    ///
     /// The `duty` buffer must be structured as a flattened 2D array in row-major order, where each row
     /// represents a single update event and each column corresponds to a specific timer channel (starting
     /// from `starting_channel` up to and including `ending_channel`).
@@ -405,7 +405,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// Each group of N values (where N = number of channels) is transferred on one update event,
     /// updating the duty cycles of all selected channels simultaneously.
-    /// 
+    ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
     pub async fn waveform_up_multi_channel(
@@ -466,7 +466,6 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             self.inner.enable_update_dma(false);
         }
     }
-
 }
 
 macro_rules! impl_waveform_chx {
