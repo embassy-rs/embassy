@@ -36,6 +36,8 @@ defmt-timestamp-uptime-ts = ["defmt"]
 defmt-timestamp-uptime-tms = ["defmt"]
 defmt-timestamp-uptime-tus = ["defmt"]
 
+embedded-hal-02 = ["dep:embedded-hal-02"]
+
 #! ### Time Drivers
 
 #! Usually, time drivers are defined by a HAL, or a companion crate to the HAL. For `std` and WASM
@@ -423,7 +425,7 @@ embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-util
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", optional = true }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 
