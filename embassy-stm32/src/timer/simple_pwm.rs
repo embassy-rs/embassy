@@ -394,14 +394,12 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// For example, if using channels 1 through 4, a buffer of 4 update steps might look like:
     ///
-    /// ```rust
     /// let dma_buf: [u16; 16] = [
     ///     ch1_duty_1, ch2_duty_1, ch3_duty_1, ch4_duty_1, // update 1
     ///     ch1_duty_2, ch2_duty_2, ch3_duty_2, ch4_duty_2, // update 2
     ///     ch1_duty_3, ch2_duty_3, ch3_duty_3, ch4_duty_3, // update 3
     ///     ch1_duty_4, ch2_duty_4, ch3_duty_4, ch4_duty_4, // update 4
     /// ];
-    /// ```
     ///
     /// Each group of N values (where N = number of channels) is transferred on one update event,
     /// updating the duty cycles of all selected channels simultaneously.
