@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 use embassy_hal_internal::{Peri, PeripheralType};
-pub use embedded_hal_02::spi::{Phase, Polarity};
+pub use embedded_hal_1::spi::{Phase, Polarity};
 
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
@@ -639,6 +639,7 @@ impl_mode!(Async);
 
 // ====================
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::spi::Transfer<u8> for Spi<'d, T, M> {
     type Error = Error;
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
@@ -647,6 +648,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::spi::Transfer<u8> for 
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::spi::Write<u8> for Spi<'d, T, M> {
     type Error = Error;
 

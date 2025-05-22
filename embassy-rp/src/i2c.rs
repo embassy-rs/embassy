@@ -613,6 +613,7 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, T, M> {
     type Error = Error;
 
@@ -621,6 +622,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, 
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, T, M> {
     type Error = Error;
 
@@ -629,6 +631,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d,
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T, M> {
     type Error = Error;
 
@@ -637,6 +640,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, T, M> {
     type Error = Error;
 

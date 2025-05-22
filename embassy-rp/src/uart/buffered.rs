@@ -723,6 +723,7 @@ impl embedded_io::Write for BufferedUartTx {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::serial::Read<u8> for BufferedUartRx {
     type Error = Error;
 
@@ -748,6 +749,7 @@ impl embedded_hal_02::serial::Read<u8> for BufferedUartRx {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx {
     type Error = Error;
 
@@ -767,6 +769,7 @@ impl embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::serial::Read<u8> for BufferedUart {
     type Error = Error;
 
@@ -775,6 +778,7 @@ impl embedded_hal_02::serial::Read<u8> for BufferedUart {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::blocking::serial::Write<u8> for BufferedUart {
     type Error = Error;
 
@@ -806,6 +810,7 @@ impl embedded_hal_nb::serial::ErrorType for BufferedUart {
     type Error = Error;
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_nb::serial::Read for BufferedUartRx {
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
         embedded_hal_02::serial::Read::read(self)
@@ -822,6 +827,7 @@ impl embedded_hal_nb::serial::Write for BufferedUartTx {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_nb::serial::Read for BufferedUart {
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
         embedded_hal_02::serial::Read::read(&mut self.rx)

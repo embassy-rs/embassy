@@ -1064,6 +1064,7 @@ impl_pin!(PIN_QSPI_SD3, Bank::Qspi, 5);
 
 // ====================
 
+#[cfg(feature = "embedded-hal-02")]
 mod eh02 {
     use super::*;
 

@@ -135,6 +135,8 @@ _test = []
 ## program and other details.
 binary-info = ["rt", "dep:rp-binary-info", "rp-binary-info?/binary-info"]
 
+embedded-hal-02 = ["dep:embedded-hal-02"]
+
 [dependencies]
 embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
@@ -161,7 +163,7 @@ fixed = "1.28.0"
 
 rp-pac = { version = "7.0.0" }
 
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", optional = true, features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
