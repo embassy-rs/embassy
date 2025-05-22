@@ -286,8 +286,8 @@ fn pa12_is_output_pull_low() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::flash::{get_sector, FlashBank};
+    #[cfg(stm32f429)]
+    use crate::flash::{get_sector, FlashBank, FlashSector};
 
     #[test]
     #[cfg(stm32f429)]
