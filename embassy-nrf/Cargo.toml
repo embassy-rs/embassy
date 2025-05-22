@@ -139,6 +139,8 @@ _nrf52832_anomaly_109 = []
 # watchdog timer
 _multi_wdt = []
 
+embedded-hal-02 = ["dep:embedded-hal-02"]
+
 [dependencies]
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
@@ -148,7 +150,7 @@ embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal", fe
 embassy-embedded-hal = { version = "0.3.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
 
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", optional = true, features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.6.0" }

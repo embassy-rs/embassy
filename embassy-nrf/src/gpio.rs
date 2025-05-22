@@ -613,6 +613,7 @@ macro_rules! impl_pin {
 
 // ====================
 
+#[cfg(feature = "embedded-hal-02")]
 mod eh02 {
     use super::*;
 

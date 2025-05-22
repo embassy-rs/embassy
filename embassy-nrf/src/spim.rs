@@ -12,7 +12,7 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use embedded_hal_1::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spim::vals::{Frequency, Order as BitOrder};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
@@ -523,6 +523,7 @@ macro_rules! impl_spim {
 
 // ====================
 
+#[cfg(feature = "embedded-hal-02")]
 mod eh02 {
     use super::*;
 

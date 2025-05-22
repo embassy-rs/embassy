@@ -506,6 +506,7 @@ impl_channel!(GPIOTE_CH7, 7);
 
 // ====================
 
+#[cfg(feature = "embedded-hal-02")]
 mod eh02 {
     use super::*;
 

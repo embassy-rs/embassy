@@ -994,6 +994,7 @@ macro_rules! impl_uarte {
 
 // ====================
 
+#[cfg(feature = "embedded-hal-02")]
 mod eh02 {
     use super::*;
 

@@ -756,6 +756,7 @@ macro_rules! impl_twim {
 
 // ====================
 
+#[cfg(feature = "embedded-hal-02")]
 mod eh02 {
     use super::*;
 
