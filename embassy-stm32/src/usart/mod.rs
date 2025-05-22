@@ -1798,6 +1798,7 @@ fn configure(
     Ok(())
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
     type Error = Error;
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
@@ -1805,6 +1806,7 @@ impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M> {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -1815,6 +1817,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M>
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for Uart<'d, M> {
     type Error = Error;
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
@@ -1822,6 +1825,7 @@ impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for Uart<'d, M> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, M> {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {

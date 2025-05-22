@@ -147,6 +147,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<'d, T> {
     type Channel = Channel;
     type Time = Hertz;

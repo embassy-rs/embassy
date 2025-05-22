@@ -6,7 +6,7 @@ use core::ptr;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
-pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use embedded_hal_1::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 use crate::dma::{word, ChannelAndRequest};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
@@ -1125,6 +1125,7 @@ fn write_word<W: Word>(regs: Regs, tx_word: W) -> Result<(), Error> {
 
 // Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
 // some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
+#[cfg(feature = "embedded-hal-02")]
 macro_rules! impl_blocking {
     ($w:ident) => {
         impl<'d, M: PeriMode> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, M> {
@@ -1146,7 +1147,9 @@ macro_rules! impl_blocking {
     };
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl_blocking!(u8);
+#[cfg(feature = "embedded-hal-02")]
 impl_blocking!(u16);
 
 impl<'d, M: PeriMode> embedded_hal_1::spi::ErrorType for Spi<'d, M> {

@@ -519,6 +519,7 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::SetDutyCycle for Simpl
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     type Channel = Channel;
     type Time = Hertz;

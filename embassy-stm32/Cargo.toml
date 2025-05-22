@@ -60,7 +60,7 @@ embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.2.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.7.0", path = "../embassy-executor", optional = true }
 
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", optional = true, features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
@@ -1654,3 +1654,5 @@ stm32wle5cc = [ "stm32-metapac/stm32wle5cc" ]
 stm32wle5j8 = [ "stm32-metapac/stm32wle5j8" ]
 stm32wle5jb = [ "stm32-metapac/stm32wle5jb" ]
 stm32wle5jc = [ "stm32-metapac/stm32wle5jc" ]
+
+embedded-hal-02 = ["dep:embedded-hal-02"]

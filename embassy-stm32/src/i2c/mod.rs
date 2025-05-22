@@ -347,6 +347,7 @@ foreach_peripheral!(
     };
 );
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
     type Error = Error;
 
@@ -355,6 +356,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
     type Error = Error;
 
@@ -363,6 +365,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M> {
     type Error = Error;
 

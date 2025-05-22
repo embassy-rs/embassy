@@ -171,6 +171,7 @@ impl<'d> ExtiInput<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d> {
     type Error = Infallible;
 

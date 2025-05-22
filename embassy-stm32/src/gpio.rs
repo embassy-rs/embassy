@@ -870,6 +870,7 @@ pub(crate) unsafe fn init(_cs: CriticalSection) {
     crate::_generated::init_gpio();
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
     type Error = Infallible;
 
@@ -884,6 +885,7 @@ impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
     type Error = Infallible;
 
@@ -900,6 +902,7 @@ impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
@@ -913,6 +916,7 @@ impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
     type Error = Infallible;
     #[inline]
@@ -922,6 +926,7 @@ impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d> {
     type Error = Infallible;
 
@@ -934,6 +939,7 @@ impl<'d> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d> {
     type Error = Infallible;
 
@@ -950,6 +956,7 @@ impl<'d> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
@@ -963,6 +970,7 @@ impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d>
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for OutputOpenDrain<'d> {
     type Error = Infallible;
     #[inline]
@@ -972,6 +980,7 @@ impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for OutputOpenDrain<'
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
     type Error = Infallible;
 
@@ -986,6 +995,7 @@ impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d> {
     type Error = Infallible;
 
@@ -1002,6 +1012,7 @@ impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
@@ -1015,6 +1026,7 @@ impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d> {
     type Error = Infallible;
     #[inline]
