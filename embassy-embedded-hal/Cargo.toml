@@ -20,13 +20,14 @@ target = "x86_64-unknown-linux-gnu"
 [features]
 time = ["dep:embassy-time"]
 default = ["time"]
+embedded-hal-02 = ["dep:embedded-hal-02"]
 
 [dependencies]
 embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
 embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", optional = true, features = [
     "unproven",
 ] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }

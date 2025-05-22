@@ -1,5 +1,3 @@
-use embedded_hal_02::blocking;
-
 /// Wrapper that implements async traits using blocking implementations.
 ///
 /// This allows driver writers to depend on the async traits while still supporting embedded-hal peripheral implementations.
@@ -21,18 +19,24 @@ impl<T> BlockingAsync<T> {
 //
 // I2C implementations
 //
+#[cfg(feature = "embedded-hal-02")]
 impl<T, E> embedded_hal_1::i2c::ErrorType for BlockingAsync<T>
 where
     E: embedded_hal_1::i2c::Error + 'static,
-    T: blocking::i2c::WriteRead<Error = E> + blocking::i2c::Read<Error = E> + blocking::i2c::Write<Error = E>,
+    T: embedded_hal_02::blocking::i2c::WriteRead<Error = E>
+        + embedded_hal_02::blocking::i2c::Read<Error = E>
+        + embedded_hal_02::blocking::i2c::Write<Error = E>,
 {
     type Error = E;
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<T, E> embedded_hal_async::i2c::I2c for BlockingAsync<T>
 where
     E: embedded_hal_1::i2c::Error + 'static,
-    T: blocking::i2c::WriteRead<Error = E> + blocking::i2c::Read<Error = E> + blocking::i2c::Write<Error = E>,
+    T: embedded_hal_02::blocking::i2c::WriteRead<Error = E>
+        + embedded_hal_02::blocking::i2c::Read<Error = E>
+        + embedded_hal_02::blocking::i2c::Write<Error = E>,
 {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.wrapped.read(address, read)
@@ -61,18 +65,20 @@ where
 // SPI implementatinos
 //
 
+#[cfg(feature = "embedded-hal-02")]
 impl<T, E> embedded_hal_async::spi::ErrorType for BlockingAsync<T>
 where
     E: embedded_hal_1::spi::Error,
-    T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
+    T: embedded_hal_02::blocking::spi::Transfer<u8, Error = E> + embedded_hal_02::blocking::spi::Write<u8, Error = E>,
 {
     type Error = E;
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<T, E> embedded_hal_async::spi::SpiBus<u8> for BlockingAsync<T>
 where
     E: embedded_hal_1::spi::Error + 'static,
-    T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
+    T: embedded_hal_02::blocking::spi::Transfer<u8, Error = E> + embedded_hal_02::blocking::spi::Write<u8, Error = E>,
 {
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())

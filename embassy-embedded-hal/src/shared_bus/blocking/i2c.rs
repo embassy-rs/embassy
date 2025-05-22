@@ -75,6 +75,7 @@ where
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Write for I2cDevice<'_, M, BUS>
 where
     M: RawMutex,
@@ -88,6 +89,7 @@ where
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Read for I2cDevice<'_, M, BUS>
 where
     M: RawMutex,
@@ -101,6 +103,7 @@ where
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::WriteRead for I2cDevice<'_, M, BUS>
 where
     M: RawMutex,
