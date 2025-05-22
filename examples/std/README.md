@@ -1,13 +1,15 @@
 
 ## Running the `embassy-net` examples
 
-To run `net`, `tcp_accept`, `net_udp` examples you will need a tap interface. Before running any example, create the tap99 interface. (The number was chosen to
-hopefully not collide with anything.) You only need to do
-this once every time you reboot your computer.
+To run `net`, `tcp_accept`, `net_udp` and `net_dns` examples you will need a tap interface. Before running these examples, create the tap99 interface. (The number was chosen to
+hopefully not collide with anything.) You only need to do this once every time you reboot your computer.
 
 ```sh
+cd $EMBASSY_ROOT/examples/std/
 sudo sh tap.sh
 ```
+
+The example `net_ppp` requires different steps that are detailed in its section.
 
 ### `net` example
 
