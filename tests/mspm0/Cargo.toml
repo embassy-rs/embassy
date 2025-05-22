@@ -10,7 +10,7 @@ mspm0g3507 = [ "embassy-mspm0/mspm0g3507pm" ]
 [dependencies]
 teleprobe-meta = "1.1"
 
-embassy-sync = { version = "0.6.2", path = "../../embassy-sync", features = [ "defmt" ] }
+embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = [ "defmt" ] }
 embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = [ "arch-cortex-m", "executor-thread", "defmt" ] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = [ "defmt" ] }
 embassy-mspm0 = { version = "0.1.0", path = "../../embassy-mspm0", features = [ "rt", "defmt", "unstable-pac", "time-driver-any" ]  }
