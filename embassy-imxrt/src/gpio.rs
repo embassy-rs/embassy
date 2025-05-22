@@ -782,6 +782,7 @@ static GPIO_WAKERS: [Option<&PortWaker>; PORT_COUNT] = [
     Some(&port7_waker::WAKER),
 ];
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::digital::v2::InputPin for Flex<'_, SenseEnabled> {
     type Error = Infallible;
 
@@ -796,6 +797,7 @@ impl embedded_hal_02::digital::v2::InputPin for Flex<'_, SenseEnabled> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<S: Sense> embedded_hal_02::digital::v2::OutputPin for Flex<'_, S> {
     type Error = Infallible;
 
@@ -812,6 +814,7 @@ impl<S: Sense> embedded_hal_02::digital::v2::OutputPin for Flex<'_, S> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'_, SenseEnabled> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
@@ -824,6 +827,7 @@ impl embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'_, SenseEnabled> 
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl<S: Sense> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'_, S> {
     type Error = Infallible;
 
@@ -834,6 +838,7 @@ impl<S: Sense> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'_, S>
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::digital::v2::InputPin for Input<'_> {
     type Error = Infallible;
 
@@ -848,6 +853,7 @@ impl embedded_hal_02::digital::v2::InputPin for Input<'_> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::digital::v2::OutputPin for Output<'_> {
     type Error = Infallible;
 
@@ -864,6 +870,7 @@ impl embedded_hal_02::digital::v2::OutputPin for Output<'_> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::digital::v2::StatefulOutputPin for Output<'_> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
@@ -876,6 +883,7 @@ impl embedded_hal_02::digital::v2::StatefulOutputPin for Output<'_> {
     }
 }
 
+#[cfg(feature = "embedded-hal-02")]
 impl embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'_> {
     type Error = Infallible;
 

@@ -62,6 +62,8 @@ mimxrt685s = ["mimxrt685s-pac", "_mimxrt685s"]
 ## MIMXRT633S
 mimxrt633s = ["mimxrt633s-pac", "_mimxrt633s"]
 
+embedded-hal-02 = ["dep:embedded-hal-02"]
+
 [dependencies]
 embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
@@ -85,7 +87,7 @@ fixed = "1.23.1"
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", optional = true, features = [
     "unproven",
 ] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
