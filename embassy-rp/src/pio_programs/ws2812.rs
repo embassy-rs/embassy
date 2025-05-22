@@ -52,12 +52,12 @@ impl<'a, PIO: Instance> PioWs2812Program<'a, PIO> {
 
 /// Pio backed RGB ws2812 driver
 /// Const N is the number of ws2812 leds attached to this pin
-pub struct RgbPioWs2812<'d, P: Instance, const S: usize, const N: usize> {
+pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize> {
     dma: Peri<'d, AnyChannel>,
     sm: StateMachine<'d, P, S>,
 }
 
-impl<'d, P: Instance, const S: usize, const N: usize> RgbPioWs2812<'d, P, S, N> {
+impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
     /// Configure a pio state machine to use the loaded ws2812 program.
     pub fn new(
         pio: &mut Common<'d, P>,
@@ -164,7 +164,10 @@ impl<'d, P: Instance, const S: usize, const N: usize> RgbwPioWs2812<'d, P, S, N>
         // Precompute the word bytes from the colors
         let mut words = [0u32; N];
         for i in 0..N {
-            let word = (u32::from(colors[i].g) << 24) | (u32::from(colors[i].r) << 16) | (u32::from(colors[i].b) << 8) | u32::from(colors[i].a.0);
+            let word = (u32::from(colors[i].g) << 24)
+                | (u32::from(colors[i].r) << 16)
+                | (u32::from(colors[i].b) << 8)
+                | u32::from(colors[i].a.0);
             words[i] = word;
         }
 
