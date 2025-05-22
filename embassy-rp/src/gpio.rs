@@ -146,6 +146,12 @@ impl<'d> Input<'d> {
         self.pin.get_level()
     }
 
+    /// Configure the input logic inversion of this pin.
+    #[inline]
+    pub fn set_inversion(&mut self, invert: bool) {
+        self.pin.set_input_inversion(invert)
+    }
+
     /// Wait until the pin is high. If it is already high, return immediately.
     #[inline]
     pub async fn wait_for_high(&mut self) {
@@ -380,6 +386,12 @@ impl<'d> Output<'d> {
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         self.pin.set_slew_rate(slew_rate)
+    }
+
+    /// Configure the output logic inversion of this pin.
+    #[inline]
+    pub fn set_inversion(&mut self, invert: bool) {
+        self.pin.set_output_inversion(invert)
     }
 
     /// Set the output as high.
@@ -685,6 +697,30 @@ impl<'d> Flex<'d> {
         self.pin.sio_oe().value_xor().write_value(self.bit())
     }
 
+    /// Configure the input logic inversion of this pin.
+    #[inline]
+    pub fn set_input_inversion(&mut self, invert: bool) {
+        self.pin.gpio().ctrl().modify(|w| {
+            w.set_inover(if invert {
+                pac::io::vals::Inover::INVERT
+            } else {
+                pac::io::vals::Inover::NORMAL
+            })
+        });
+    }
+
+    /// Configure the output logic inversion of this pin.
+    #[inline]
+    pub fn set_output_inversion(&mut self, invert: bool) {
+        self.pin.gpio().ctrl().modify(|w| {
+            w.set_outover(if invert {
+                pac::io::vals::Outover::INVERT
+            } else {
+                pac::io::vals::Outover::NORMAL
+            })
+        });
+    }
+
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
@@ -815,6 +851,8 @@ impl<'d> Drop for Flex<'d> {
         self.pin.pad_ctrl().write(|_| {});
         self.pin.gpio().ctrl().write(|w| {
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _);
+            w.set_inover(pac::io::vals::Inover::NORMAL);
+            w.set_outover(pac::io::vals::Outover::NORMAL);
         });
         self.pin.io().int_dormant_wake().inte(idx / 8).write_clear(|w| {
             w.set_edge_high(idx % 8, true);
