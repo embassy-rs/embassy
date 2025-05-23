@@ -149,7 +149,7 @@ pub mod spim;
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
 #[cfg(not(feature = "_nrf54l"))] // TODO
-#[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
+#[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod timer;

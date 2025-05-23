@@ -201,6 +201,9 @@ embassy_hal_internal::peripherals! {
 
     // EGU
     EGU0,
+
+    // TEMP
+    TEMP,
 }
 
 impl_ipc!(IPC, IPC, IPC);
