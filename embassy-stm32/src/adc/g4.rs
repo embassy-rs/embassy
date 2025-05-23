@@ -34,7 +34,7 @@ const VREF_CHANNEL: u8 = 19;
 #[cfg(stm32h7)]
 const TEMP_CHANNEL: u8 = 18;
 
-const NR_INJECTED_RANKS: u8 = 4;
+const NR_INJECTED_RANKS: usize = 4;
 
 // TODO this should be 14 for H7a/b/35
 const VBAT_CHANNEL: u8 = 17;
