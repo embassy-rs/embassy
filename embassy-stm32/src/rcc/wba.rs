@@ -37,9 +37,9 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
+impl Config {
     #[inline]
-    fn default() -> Config {
+    pub const fn new() -> Self {
         Config {
             hse: None,
             hsi: true,
@@ -48,10 +48,17 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
-            ls: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
             voltage_scale: VoltageScale::RANGE2,
-            mux: Default::default(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    #[inline]
+    fn default() -> Config {
+        Self::new()
     }
 }
 
