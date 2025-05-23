@@ -7,6 +7,7 @@ pub use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
 pub use pac::adccommon::vals::Presc;
 pub use stm32_metapac::adc::vals::{Adstp, Dmacfg, Dmaen};
 pub use stm32_metapac::adccommon::vals::Dual;
+
 use super::{blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime};
 use crate::adc::SealedAdcChannel;
 use crate::dma::Transfer;
@@ -542,7 +543,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_dmacfg(Dmacfg::ONE_SHOT);
             reg.set_dmaen(Dmaen::DISABLE);
         });
-        
+
         // Start conversion
         T::regs().cr().modify(|reg| {
             reg.set_jadstart(true);
