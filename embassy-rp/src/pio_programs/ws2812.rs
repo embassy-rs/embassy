@@ -2,7 +2,7 @@
 
 use embassy_time::Timer;
 use fixed::types::U24F8;
-use smart_leds::RGB8;
+use smart_leds::{RGB8, RGBW};
 
 use crate::clocks::clk_sys_freq;
 use crate::dma::{AnyChannel, Channel};
@@ -50,7 +50,7 @@ impl<'a, PIO: Instance> PioWs2812Program<'a, PIO> {
     }
 }
 
-/// Pio backed ws2812 driver
+/// Pio backed RGB ws2812 driver
 /// Const N is the number of ws2812 leds attached to this pin
 pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize> {
     dma: Peri<'d, AnyChannel>,
@@ -102,6 +102,72 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
         let mut words = [0u32; N];
         for i in 0..N {
             let word = (u32::from(colors[i].g) << 24) | (u32::from(colors[i].r) << 16) | (u32::from(colors[i].b) << 8);
+            words[i] = word;
+        }
+
+        // DMA transfer
+        self.sm.tx().dma_push(self.dma.reborrow(), &words, false).await;
+
+        Timer::after_micros(55).await;
+    }
+}
+
+/// Pio backed RGBW ws2812 driver
+/// This version is intended for ws2812 leds with 4 addressable lights
+/// Const N is the number of ws2812 leds attached to this pin
+pub struct RgbwPioWs2812<'d, P: Instance, const S: usize, const N: usize> {
+    dma: Peri<'d, AnyChannel>,
+    sm: StateMachine<'d, P, S>,
+}
+
+impl<'d, P: Instance, const S: usize, const N: usize> RgbwPioWs2812<'d, P, S, N> {
+    /// Configure a pio state machine to use the loaded ws2812 program.
+    pub fn new(
+        pio: &mut Common<'d, P>,
+        mut sm: StateMachine<'d, P, S>,
+        dma: Peri<'d, impl Channel>,
+        pin: Peri<'d, impl PioPin>,
+        program: &PioWs2812Program<'d, P>,
+    ) -> Self {
+        // Setup sm0
+        let mut cfg = Config::default();
+
+        // Pin config
+        let out_pin = pio.make_pio_pin(pin);
+        cfg.set_out_pins(&[&out_pin]);
+        cfg.set_set_pins(&[&out_pin]);
+
+        cfg.use_program(&program.prg, &[&out_pin]);
+
+        // Clock config, measured in kHz to avoid overflows
+        let clock_freq = U24F8::from_num(clk_sys_freq() / 1000);
+        let ws2812_freq = U24F8::from_num(800);
+        let bit_freq = ws2812_freq * CYCLES_PER_BIT;
+        cfg.clock_divider = clock_freq / bit_freq;
+
+        // FIFO config
+        cfg.fifo_join = FifoJoin::TxOnly;
+        cfg.shift_out = ShiftConfig {
+            auto_fill: true,
+            threshold: 32,
+            direction: ShiftDirection::Left,
+        };
+
+        sm.set_config(&cfg);
+        sm.set_enable(true);
+
+        Self { dma: dma.into(), sm }
+    }
+
+    /// Write a buffer of [smart_leds::RGBW] to the ws2812 string
+    pub async fn write(&mut self, colors: &[RGBW<u8>; N]) {
+        // Precompute the word bytes from the colors
+        let mut words = [0u32; N];
+        for i in 0..N {
+            let word = (u32::from(colors[i].g) << 24)
+                | (u32::from(colors[i].r) << 16)
+                | (u32::from(colors[i].b) << 8)
+                | u32::from(colors[i].a.0);
             words[i] = word;
         }
 
