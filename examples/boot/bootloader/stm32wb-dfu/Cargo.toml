@@ -30,6 +30,7 @@ defmt = [
     "embassy-usb/defmt",
     "embassy-usb-dfu/defmt"
 ]
+verify = ["embassy-usb-dfu/ed25519-salty"]
 
 [profile.dev]
 debug = 2

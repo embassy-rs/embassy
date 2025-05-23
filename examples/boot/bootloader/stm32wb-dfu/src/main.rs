@@ -25,6 +25,12 @@ bind_interrupts!(struct Irqs {
 // N.B. update to a custom GUID for your own device!
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321}"];
 
+// This is a randomly generated example key.
+//
+// N.B. Please replace with your own!
+#[cfg(feature = "verify")]
+static PUBLIC_SIGNING_KEY: &[u8; 32] = include_bytes!("../secrets/key.pub.short");
+
 #[entry]
 fn main() -> ! {
     let mut config = embassy_stm32::Config::default();
@@ -57,7 +63,13 @@ fn main() -> ! {
         let mut config_descriptor = [0; 256];
         let mut bos_descriptor = [0; 256];
         let mut control_buf = [0; 4096];
+
+        #[cfg(not(feature = "verify"))]
         let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate);
+
+        #[cfg(feature = "verify")]
+        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate, PUBLIC_SIGNING_KEY);
+
         let mut builder = Builder::new(
             driver,
             config,
