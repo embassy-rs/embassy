@@ -1,14 +1,14 @@
 //! Flash memory (FLASH)
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
-#[cfg(flash_f4)]
+#[cfg(any(flash_f1, flash_f4))]
 mod asynch;
 #[cfg(flash)]
 mod common;
 #[cfg(eeprom)]
 mod eeprom;
 
-#[cfg(flash_f4)]
+#[cfg(any(flash_f1, flash_f4))]
 pub use asynch::InterruptHandler;
 #[cfg(flash)]
 pub use common::*;
