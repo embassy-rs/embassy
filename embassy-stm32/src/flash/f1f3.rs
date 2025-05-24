@@ -1,9 +1,24 @@
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
+use embassy_sync::waitqueue::AtomicWaker;
+use pac::flash::regs::Sr;
+
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
+
+static WAKER: AtomicWaker = AtomicWaker::new();
+
+pub(crate) unsafe fn on_interrupt() {
+    // Clear IRQ flags
+    pac::FLASH.sr().write(|w| {
+        w.set_pgerr(true);
+        w.set_eop(true);
+    });
+
+    WAKER.wake();
+}
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.cr().modify(|w| w.set_lock(true));
@@ -16,6 +31,14 @@ pub(crate) unsafe fn unlock() {
     }
 }
 
+pub(crate) unsafe fn enable_write() {
+    enable_blocking_write();
+}
+
+pub(crate) unsafe fn disable_write() {
+    disable_blocking_write();
+}
+
 pub(crate) unsafe fn enable_blocking_write() {
     assert_eq!(0, WRITE_SIZE % 2);
 
@@ -24,6 +47,19 @@ pub(crate) unsafe fn enable_blocking_write() {
 
 pub(crate) unsafe fn disable_blocking_write() {
     pac::FLASH.cr().write(|w| w.set_pg(false));
+}
+
+pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    let mut address = start_address;
+    for chunk in buf.chunks(2) {
+        write_volatile(address as *mut u16, u16::from_le_bytes(unwrap!(chunk.try_into())));
+        address += chunk.len() as u32;
+
+        // prevents parallelism errors
+        fence(Ordering::SeqCst);
+        wait_ready().await?
+    }
+    Ok(())
 }
 
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
@@ -38,6 +74,43 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
         wait_ready_blocking()?;
     }
 
+    Ok(())
+}
+
+pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    pac::FLASH.cr().modify(|w| {
+        w.set_per(true);
+    });
+
+    pac::FLASH.ar().write(|w| w.set_far(sector.start));
+
+    pac::FLASH.cr().modify(|w| {
+        w.set_strt(true);
+    });
+
+    // Wait for at least one clock cycle before reading the
+    // BSY bit, because there is a one-cycle delay between
+    // setting the STRT bit and the BSY bit being asserted
+    // by hardware. See STM32F105xx, STM32F107xx device errata,
+    // section 2.2.8, and also RM0316 Rev 10 section 4.2.3 for
+    // STM32F3xx series.
+    pac::FLASH.cr().read();
+
+    let mut ret: Result<(), Error> = wait_ready().await;
+
+    if !pac::FLASH.sr().read().eop() {
+        trace!("FLASH: EOP not set");
+        ret = Err(Error::Prog);
+    } else {
+        pac::FLASH.sr().write(|w| w.set_eop(true));
+    }
+
+    pac::FLASH.cr().modify(|w| w.set_per(false));
+
+    clear_all_err();
+    if ret.is_err() {
+        return ret;
+    }
     Ok(())
 }
 
@@ -84,6 +157,23 @@ pub(crate) unsafe fn clear_all_err() {
     pac::FLASH.sr().modify(|_| {});
 }
 
+pub(crate) async fn wait_ready() -> Result<(), Error> {
+    use core::future::poll_fn;
+    use core::task::Poll;
+
+    poll_fn(|cx| {
+        WAKER.register(cx.waker());
+
+        let sr = pac::FLASH.sr().read();
+        if !sr.bsy() {
+            Poll::Ready(get_result(sr))
+        } else {
+            return Poll::Pending;
+        }
+    })
+    .await
+}
+
 unsafe fn wait_ready_blocking() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
@@ -99,5 +189,15 @@ unsafe fn wait_ready_blocking() -> Result<(), Error> {
 
             return Ok(());
         }
+    }
+}
+
+fn get_result(sr: Sr) -> Result<(), Error> {
+    if sr.pgerr() {
+        Err(Error::Prog)
+    } else if sr.wrprterr() {
+        Err(Error::Protected)
+    } else {
+        Ok(())
     }
 }
