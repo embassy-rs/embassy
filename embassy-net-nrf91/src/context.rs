@@ -48,6 +48,8 @@ pub enum Error {
     AtParseError,
     /// Error parsing IP addresses.
     AddrParseError,
+    /// Timed out waiting for network attach.
+    AttachTimeout,
 }
 
 impl From<at_commands::parser::ParseError> for Error {
@@ -66,7 +68,7 @@ pub struct Status {
     /// Gateway if assigned.
     pub gateway: Option<IpAddr>,
     /// DNS servers if assigned.
-    pub dns: Vec<IpAddr, 2>,
+    pub dns: Vec<IpAddr, 3>,
 }
 
 #[cfg(feature = "defmt")]
@@ -119,7 +121,7 @@ impl<'a> Control<'a> {
             .finish()
             .map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
-        // info!("RES1: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
+        trace!("RES1: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
         let mut op = CommandBuilder::create_set(&mut cmd, true)
@@ -132,7 +134,7 @@ impl<'a> Control<'a> {
         let op = op.finish().map_err(|_| Error::BufferTooSmall)?;
 
         let n = self.control.at_command(op, &mut buf).await;
-        // info!("RES2: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
+        trace!("RES2: {}", unsafe { core::str::from_utf8_unchecked(&buf[..n]) });
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
         if let Some(pin) = config.pin {
@@ -143,6 +145,9 @@ impl<'a> Control<'a> {
                 .map_err(|_| Error::BufferTooSmall)?;
             let _ = self.control.at_command(op, &mut buf).await;
             // Ignore ERROR which means no pin required
+            trace!("No SIM PIN config");
+        } else {
+            trace!("No SIM PIN to send");
         }
 
         Ok(())
@@ -150,6 +155,7 @@ impl<'a> Control<'a> {
 
     /// Attach to the PDN
     pub async fn attach(&self) -> Result<(), Error> {
+        trace!("Attach to the PDN");
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
         let op = CommandBuilder::create_set(&mut cmd, true)
@@ -164,6 +170,7 @@ impl<'a> Control<'a> {
 
     /// Read current connectivity status for modem.
     pub async fn detach(&self) -> Result<(), Error> {
+        trace!("detach");
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
         let op = CommandBuilder::create_set(&mut cmd, true)
@@ -190,6 +197,7 @@ impl<'a> Control<'a> {
             .expect_int_parameter()
             .expect_identifier(b"\r\nOK")
             .finish()?;
+        trace!("Modem attached {} with {}", res == 1, res);
         Ok(res == 1)
     }
 
@@ -292,15 +300,31 @@ impl<'a> Control<'a> {
     }
 
     async fn wait_attached(&self) -> Result<Status, Error> {
-        while !self.attached().await? {
-            Timer::after(Duration::from_secs(1)).await;
+        // Poll every second, up to 60 seconds, then error out
+        const POLL_INTERVAL: Duration = Duration::from_secs(1);
+        const MAX_TIMEOUT: Duration = Duration::from_secs(10);
+
+        let mut elapsed = Duration::from_secs(0);
+        loop {
+            if self.attached().await? {
+                // attached successfull
+                break;
+            }
+            if elapsed >= MAX_TIMEOUT {
+                return Err(Error::AttachTimeout);
+            }
+            Timer::after(POLL_INTERVAL).await;
+            elapsed += POLL_INTERVAL;
         }
+
+        // Now that we know it's attached, get full status
         let status = self.status().await?;
         Ok(status)
     }
 
     /// Disable modem
     pub async fn disable(&self) -> Result<(), Error> {
+        trace!("disable modem");
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
 
@@ -317,6 +341,7 @@ impl<'a> Control<'a> {
 
     /// Enable modem
     pub async fn enable(&self) -> Result<(), Error> {
+        trace!("enable modem");
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
 
