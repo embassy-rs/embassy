@@ -23,11 +23,14 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
         let lli_count = state.lli_state.count.load(Ordering::Acquire);
 
         if lli_count > 0 {
+            // In linked-list mode, the remaining transfers are the sum of the full lengths of LLIs that follow,
+            // and the remaining transfers for the current LLI.
             let lli_index = state.lli_state.index.load(Ordering::Acquire);
             let single_transfer_count = state.lli_state.transfer_count.load(Ordering::Acquire) / lli_count;
 
             (lli_count - lli_index - 1) * single_transfer_count + current_remaining
         } else {
+            // No linked-list mode.
             current_remaining
         }
     }
@@ -81,6 +84,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         into_ref!(channel);
         let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
 
+        // Buffer halves should be the same length.
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
@@ -227,6 +231,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         into_ref!(channel);
         let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
 
+        // Buffer halves should be the same length.
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
@@ -258,8 +263,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         self.table.unlink();
 
         match self.user_buffer_half {
-            BufferHalf::First => self.table.link_indices(0, 1),
-            BufferHalf::Second => self.table.link_indices(1, 0),
+            BufferHalf::First => self.table.link_indices(1, 0),
+            BufferHalf::Second => self.table.link_indices(0, 1),
         }
 
         self.user_buffer_half.toggle();
@@ -298,48 +303,46 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
             .await;
 
-        let mut remaining = buffer.len();
+        let mut writable_length = buffer.len();
 
         let mut remaining_cap = 0;
         let cap = self.ringbuf.cap();
 
-        while remaining > 0 {
+        while writable_length > 0 {
             let dma_buffer_half = self.dma_buffer_half();
             if dma_buffer_half == self.user_buffer_half {
                 self.link_next_buffer();
             }
 
             let write_index = self.ringbuf.write_index(0);
-            let len = match dma_buffer_half {
+            let write_length = match dma_buffer_half {
                 BufferHalf::First => {
                     // if write_index < cap / 2 {
                     //     error!("write index: {}", write_index);
                     //     panic!()
                     // }
-                    info!("Write second");
 
                     // Fill up second buffer half when DMA reads the first.
-                    cap - write_index
+                    cap / 2 - write_index
                 }
                 BufferHalf::Second => {
                     // if write_index >= cap / 2 {
                     //     error!("write index: {}", write_index);
                     //     panic!()
                     // }
-                    info!("Write first");
 
                     // Fill up first buffer half when DMA reads the second.
-                    cap / 2 - write_index
+                    cap - write_index
                 }
             }
-            .min(remaining);
+            .min(writable_length);
 
             remaining_cap = self
                 .ringbuf
                 .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
                 .await?;
 
-            remaining -= len;
+            writable_length -= write_length;
         }
 
         Ok(remaining_cap)
