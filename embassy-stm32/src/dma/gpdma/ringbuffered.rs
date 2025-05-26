@@ -67,7 +67,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W, 2> {
         options: TransferOptions,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
-        let table = Self::simple_ring_buffer_table(request, peri_addr, buffer);
+        let table = Self::new_ping_pong_table(request, peri_addr, buffer);
 
         Self {
             channel,
@@ -101,7 +101,7 @@ impl<'a, W: Word, const L: usize> ReadableRingBuffer<'a, W, L> {
     /// Create a new simple linked-list table.
     ///
     /// This uses two linked-list items, one for each half of the buffer.
-    pub unsafe fn simple_ring_buffer_table(request: Request, peri_addr: *mut W, buffer: &mut [W]) -> Table<2> {
+    pub unsafe fn new_ping_pong_table(request: Request, peri_addr: *mut W, buffer: &mut [W]) -> Table<2> {
         // Buffer halves should be the same length.
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
@@ -246,7 +246,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W, 2> {
         options: TransferOptions,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
-        let table = Self::simple_ring_buffer_table(request, peri_addr, buffer);
+        let table = Self::new_ping_pong_table(request, peri_addr, buffer);
 
         Self {
             channel,
@@ -280,7 +280,7 @@ impl<'a, W: Word, const L: usize> WritableRingBuffer<'a, W, L> {
     /// Create a new simple linked-list table.
     ///
     /// This uses two linked-list items, one for each half of the buffer.
-    pub unsafe fn simple_ring_buffer_table(request: Request, peri_addr: *mut W, buffer: &[W]) -> Table<2> {
+    pub unsafe fn new_ping_pong_table(request: Request, peri_addr: *mut W, buffer: &[W]) -> Table<2> {
         // Buffer halves should be the same length.
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
