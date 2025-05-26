@@ -77,6 +77,9 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         ];
         let table = Table::new(items);
 
+        // Apply the default configuration to the channel.
+        unsafe { channel.configure_linked_list(&table, Default::default()) };
+
         Self {
             channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
@@ -85,12 +88,17 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     }
 
     /// Start the ring buffer operation.
-    ///
-    /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
-        unsafe { self.channel.configure_linked_list(&self.table, Default::default()) };
         self.table.link(RunMode::Circular);
         self.channel.start();
+    }
+
+    /// Get a handle to the GPDMA channel for configuring the DMA.
+    ///
+    /// Usually, **this is not needed** as a default configuration is already
+    /// applied, but it may be useful to setup trigger sources, etc.
+    pub fn get_dma_channel(&mut self) -> stm32_metapac::gpdma::Channel {
+        self.channel.get_dma_channel()
     }
 
     /// Clear all data in the ring buffer.
@@ -226,6 +234,9 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         ];
         let table = Table::new(items);
 
+        // Apply the default configuration to the channel.
+        unsafe { channel.configure_linked_list(&table, Default::default()) };
+
         let this = Self {
             channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
@@ -236,12 +247,17 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     }
 
     /// Start the ring buffer operation.
-    ///
-    /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
-        unsafe { self.channel.configure_linked_list(&self.table, Default::default()) };
         self.table.link(RunMode::Circular);
         self.channel.start();
+    }
+
+    /// Get a handle to the GPDMA channel for configuring the DMA.
+    ///
+    /// Usually, **this is not needed** as a default configuration is already
+    /// applied, but it may be useful to setup trigger sources, etc.
+    pub fn get_dma_channel(&mut self) -> stm32_metapac::gpdma::Channel {
+        self.channel.get_dma_channel()
     }
 
     /// Clear all data in the ring buffer.
