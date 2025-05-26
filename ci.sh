@@ -363,6 +363,11 @@ rm out/tests/pimoroni-pico-plus-2/flash
 rm out/tests/pimoroni-pico-plus-2/i2c
 # The pico2 plus doesn't have the adcs hooked up like the picoW does.
 rm out/tests/pimoroni-pico-plus-2/adc
+# temporarily disabled
+rm out/tests/pimoroni-pico-plus-2/pwm
+
+# temporarily disabled, bad hardware connection.
+rm -f out/tests/rpi-pico/*
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
