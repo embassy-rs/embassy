@@ -79,9 +79,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         ];
         let table = Table::new(items);
 
-        // Apply the default configuration to the channel.
-        unsafe { channel.configure_linked_list(&table, options) };
-
         Self {
             channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
@@ -92,6 +89,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     pub fn start(&mut self) {
+        // Apply the default configuration to the channel.
+        unsafe { self.channel.configure_linked_list(&self.table, self.options) };
         self.table.link(RunMode::Circular);
         self.channel.start();
     }
@@ -231,9 +230,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         ];
         let table = Table::new(items);
 
-        // Apply the default configuration to the channel.
-        unsafe { channel.configure_linked_list(&table, options) };
-
         let this = Self {
             channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
@@ -246,6 +242,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     pub fn start(&mut self) {
+        // Apply the default configuration to the channel.
+        unsafe { self.channel.configure_linked_list(&self.table, self.options) };
         self.table.link(RunMode::Circular);
         self.channel.start();
     }
