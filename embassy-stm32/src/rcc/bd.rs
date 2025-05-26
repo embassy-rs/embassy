@@ -92,6 +92,7 @@ pub struct LsConfig {
 }
 
 impl LsConfig {
+    /// Creates an [`LsConfig`] using the LSI when possible.
     pub const fn new() -> Self {
         // on L5, just the fact that LSI is enabled makes things crash.
         // TODO: investigate.
