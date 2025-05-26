@@ -145,7 +145,7 @@ impl<'a> Control<'a> {
                 .map_err(|_| Error::BufferTooSmall)?;
             let _ = self.control.at_command(op, &mut buf).await;
             // Ignore ERROR which means no pin required
-            trace!("No SIM PIN config");
+            trace!("SIM PIN configured");
         } else {
             trace!("No SIM PIN to send");
         }
@@ -302,7 +302,7 @@ impl<'a> Control<'a> {
     async fn wait_attached(&self) -> Result<Status, Error> {
         // Poll every second, up to 60 seconds, then error out
         const POLL_INTERVAL: Duration = Duration::from_secs(1);
-        const MAX_TIMEOUT: Duration = Duration::from_secs(10);
+        const MAX_TIMEOUT: Duration = Duration::from_secs(60);
 
         let mut elapsed = Duration::from_secs(0);
         loop {

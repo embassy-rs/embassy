@@ -404,7 +404,7 @@ impl StateInner {
 
         if ipc.events_receive(7).read() != 0 {
             ipc.events_receive(7).write_value(0);
-            trace!("ipc 7: trace");
+            trace!("ipc 7");
 
             let msg = unsafe { addr_of!((*self.cb).trace.rx_state).read_volatile() };
             if msg != 0 {
