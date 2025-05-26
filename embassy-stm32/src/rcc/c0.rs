@@ -60,7 +60,6 @@ pub struct Config {
 }
 
 impl Config {
-    #[inline]
     pub const fn new() -> Self {
         Config {
             hsi: Some(Hsi {
@@ -78,7 +77,6 @@ impl Config {
 }
 
 impl Default for Config {
-    #[inline]
     fn default() -> Config {
         Self::new()
     }
