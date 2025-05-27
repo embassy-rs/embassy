@@ -1,6 +1,9 @@
 //! Ethernet (ETH)
 //!
+//! ## Examples
+//!
 //! - [STM32F4](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/eth.rs)
+//! - [STM32F4 Eth Compliance](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/eth_compliance_test.rs)
 #![macro_use]
 
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
