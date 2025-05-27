@@ -1,4 +1,8 @@
 //! Real Time Clock (RTC)
+//!
+//! ## Examples
+//!
+//! - [STM32F4](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/rtc.rs)
 mod datetime;
 
 #[cfg(feature = "low-power")]

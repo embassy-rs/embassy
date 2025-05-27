@@ -1,4 +1,6 @@
 //! Ethernet (ETH)
+//!
+//! - [STM32F4](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/eth.rs)
 #![macro_use]
 
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]

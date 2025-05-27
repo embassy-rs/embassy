@@ -1,5 +1,9 @@
 //! Timers, PWM, quadrature decoder.
-
+//!
+//! ## Examples
+//!
+//! - [STM32F4 PWM](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/pwm.rs)
+//! - [STM32F4 Input Capture](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/input_capture.rs)
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peripheral;

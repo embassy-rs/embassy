@@ -1,4 +1,10 @@
 //! Universal Serial Bus (USB)
+//!
+//! ## Examples
+//!
+//! - [STM32F4 USB Serial](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/usb_serial.rs)
+//! - [STM32F4 USB Keyboard](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/usb_hid_keyboard.rs)
+//! - [STM32F4 USB Mouse](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/usb_hid_mouse.rs)
 
 #[cfg_attr(usb, path = "usb.rs")]
 #[cfg_attr(otg, path = "otg.rs")]

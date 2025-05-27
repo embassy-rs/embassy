@@ -1,4 +1,8 @@
 //! Watchdog Timer (IWDG, WWDG)
+//!
+//! ## Examples
+//!
+//! [STM32F0](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f0/src/bin/wdg.rs)
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};

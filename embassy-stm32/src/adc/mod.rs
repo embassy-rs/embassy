@@ -1,4 +1,8 @@
 //! Analog to Digital Converter (ADC)
+//!
+//! ## Examples
+//!
+//! - [STM32F4](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/adc.rs)
 
 #![macro_use]
 #![allow(missing_docs)] // TODO
