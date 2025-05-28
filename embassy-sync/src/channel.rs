@@ -390,21 +390,21 @@ where
 
 /// Receive-only access to a [`Channel`] without knowing channel size.
 /// This version can be sent between threads but can only be created if the underlying mutex is Sync.
-pub struct SendableDynamicReceiver<'ch, T> {
+pub struct SendDynamicReceiver<'ch, T> {
     pub(crate) channel: &'ch dyn DynamicChannel<T>,
 }
 
-impl<'ch, T> Clone for SendableDynamicReceiver<'ch, T> {
+impl<'ch, T> Clone for SendDynamicReceiver<'ch, T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'ch, T> Copy for SendableDynamicReceiver<'ch, T> {}
-unsafe impl<'ch, T: Send> Send for SendableDynamicReceiver<'ch, T> {}
-unsafe impl<'ch, T: Send> Sync for SendableDynamicReceiver<'ch, T> {}
+impl<'ch, T> Copy for SendDynamicReceiver<'ch, T> {}
+unsafe impl<'ch, T: Send> Send for SendDynamicReceiver<'ch, T> {}
+unsafe impl<'ch, T: Send> Sync for SendDynamicReceiver<'ch, T> {}
 
-impl<'ch, T> SendableDynamicReceiver<'ch, T> {
+impl<'ch, T> SendDynamicReceiver<'ch, T> {
     /// Receive the next value.
     ///
     /// See [`Channel::receive()`].
@@ -434,7 +434,7 @@ impl<'ch, T> SendableDynamicReceiver<'ch, T> {
     }
 }
 
-impl<'ch, M, T, const N: usize> From<Receiver<'ch, M, T, N>> for SendableDynamicReceiver<'ch, T>
+impl<'ch, M, T, const N: usize> From<Receiver<'ch, M, T, N>> for SendDynamicReceiver<'ch, T>
 where
     M: RawMutex + Sync + Send,
 {
