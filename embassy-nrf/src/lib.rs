@@ -149,7 +149,7 @@ pub mod spim;
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
 #[cfg(not(feature = "_nrf54l"))] // TODO
-#[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
+#[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod timer;
@@ -1038,4 +1038,28 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     peripherals
+}
+
+/// Operating modes for peripherals.
+pub mod mode {
+    trait SealedMode {}
+
+    /// Operating mode for a peripheral.
+    #[allow(private_bounds)]
+    pub trait Mode: SealedMode {}
+
+    macro_rules! impl_mode {
+        ($name:ident) => {
+            impl SealedMode for $name {}
+            impl Mode for $name {}
+        };
+    }
+
+    /// Blocking mode.
+    pub struct Blocking;
+    /// Async mode.
+    pub struct Async;
+
+    impl_mode!(Blocking);
+    impl_mode!(Async);
 }

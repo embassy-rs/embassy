@@ -19,6 +19,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rustc-link-arg-bins=-Tlink_ram.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
     println!("cargo:rustc-link-arg-bins=-Tteleprobe.x");
+    // You must tell cargo to link interrupt groups if the rt feature is enabled.
+    println!("cargo:rustc-link-arg-bins=-Tinterrupt_group.x");
 
     Ok(())
 }

@@ -10,7 +10,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::can::fd::peripheral::Registers;
-use crate::gpio::{AfType, OutputType, Pull, Speed};
+use crate::gpio::{AfType, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
 use crate::{interrupt, peripherals, Peri};
@@ -187,12 +187,16 @@ impl<'d> CanConfigurator<'d> {
 
         rcc::enable_and_reset::<T>();
 
+        let info = T::info();
+        let state = unsafe { T::mut_state() };
+        state.tx_pin_port = Some(tx.pin_port());
+        state.rx_pin_port = Some(rx.pin_port());
+        (info.internal_operation)(InternalOperation::NotifySenderCreated);
+        (info.internal_operation)(InternalOperation::NotifyReceiverCreated);
+
         let mut config = crate::can::fd::config::FdCanConfig::default();
         config.timestamp_source = TimestampSource::Prescaler(TimestampPrescaler::_1);
         T::registers().into_config_mode(config);
-
-        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
-        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         unsafe {
             T::IT0Interrupt::unpend(); // Not unsafe
@@ -204,8 +208,8 @@ impl<'d> CanConfigurator<'d> {
         Self {
             _phantom: PhantomData,
             config,
-            info: T::info(),
-            state: T::state(),
+            info,
+            state,
             properties: Properties::new(T::info()),
             periph_clock: T::frequency(),
         }
@@ -265,6 +269,8 @@ impl<'d> CanConfigurator<'d> {
             }
         });
         self.info.regs.into_mode(self.config, mode);
+        (self.info.internal_operation)(InternalOperation::NotifySenderCreated);
+        (self.info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         Can {
             _phantom: PhantomData,
             config: self.config,
@@ -288,6 +294,13 @@ impl<'d> CanConfigurator<'d> {
     /// Start, entering mode. Does same as start(mode)
     pub fn into_external_loopback_mode(self) -> Can<'d> {
         self.start(OperatingMode::ExternalLoopbackMode)
+    }
+}
+
+impl<'d> Drop for CanConfigurator<'d> {
+    fn drop(&mut self) {
+        (self.info.internal_operation)(InternalOperation::NotifySenderDestroyed);
+        (self.info.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
     }
 }
 
@@ -353,6 +366,8 @@ impl<'d> Can<'d> {
 
     /// Split instance into separate portions: Tx(write), Rx(read), common properties
     pub fn split(self) -> (CanTx<'d>, CanRx<'d>, Properties) {
+        (self.info.internal_operation)(InternalOperation::NotifySenderCreated);
+        (self.info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         (
             CanTx {
                 _phantom: PhantomData,
@@ -367,11 +382,15 @@ impl<'d> Can<'d> {
                 state: self.state,
                 _mode: self._mode,
             },
-            self.properties,
+            Properties {
+                info: self.properties.info,
+            },
         )
     }
     /// Join split rx and tx portions back together
     pub fn join(tx: CanTx<'d>, rx: CanRx<'d>) -> Self {
+        (tx.info.internal_operation)(InternalOperation::NotifySenderCreated);
+        (tx.info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         Can {
             _phantom: PhantomData,
             config: tx.config,
@@ -401,6 +420,13 @@ impl<'d> Can<'d> {
     }
 }
 
+impl<'d> Drop for Can<'d> {
+    fn drop(&mut self) {
+        (self.info.internal_operation)(InternalOperation::NotifySenderDestroyed);
+        (self.info.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
+    }
+}
+
 /// User supplied buffer for RX Buffering
 pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Result<Envelope, BusError>, BUF_SIZE>;
 
@@ -426,6 +452,8 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
         tx_buf: &'static TxBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxBuf<RX_BUF_SIZE>,
     ) -> Self {
+        (info.internal_operation)(InternalOperation::NotifySenderCreated);
+        (info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         BufferedCan {
             _phantom: PhantomData,
             info,
@@ -532,6 +560,8 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
         tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
     ) -> Self {
+        (info.internal_operation)(InternalOperation::NotifySenderCreated);
+        (info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         BufferedCanFd {
             _phantom: PhantomData,
             info,
@@ -627,6 +657,12 @@ impl<'d> CanRx<'d> {
     }
 }
 
+impl<'d> Drop for CanRx<'d> {
+    fn drop(&mut self) {
+        (self.info.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
+    }
+}
+
 /// FDCAN Tx only Instance
 pub struct CanTx<'d> {
     _phantom: PhantomData<&'d ()>,
@@ -651,6 +687,12 @@ impl<'c, 'd> CanTx<'d> {
     /// transmitted, then tries again.
     pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
         self.state.tx_mode.write_fd(self.info, frame).await
+    }
+}
+
+impl<'d> Drop for CanTx<'d> {
+    fn drop(&mut self) {
+        (self.info.internal_operation)(InternalOperation::NotifySenderDestroyed);
     }
 }
 
@@ -898,6 +940,8 @@ struct State {
     pub ns_per_timer_tick: u64,
     receiver_instance_count: usize,
     sender_instance_count: usize,
+    tx_pin_port: Option<u8>,
+    rx_pin_port: Option<u8>,
 
     pub err_waker: AtomicWaker,
 }
@@ -909,8 +953,10 @@ impl State {
             tx_mode: TxMode::NonBuffered(AtomicWaker::new()),
             ns_per_timer_tick: 0,
             err_waker: AtomicWaker::new(),
-            receiver_instance_count: 1,
-            sender_instance_count: 1,
+            receiver_instance_count: 0,
+            sender_instance_count: 0,
+            tx_pin_port: None,
+            rx_pin_port: None,
         }
     }
 }
@@ -997,6 +1043,13 @@ macro_rules! impl_fdcan {
                                     (*mut_state).rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
                                 }
                             }
+                        }
+                        if mut_state.sender_instance_count == 0 && mut_state.receiver_instance_count == 0 {
+                            let tx_pin = crate::gpio::AnyPin::steal(mut_state.tx_pin_port.unwrap());
+                            tx_pin.set_as_disconnected();
+                            let rx_pin = crate::gpio::AnyPin::steal(mut_state.rx_pin_port.unwrap());
+                            rx_pin.set_as_disconnected();
+                            rcc::disable::<peripherals::$inst>();
                         }
                     }
                 });

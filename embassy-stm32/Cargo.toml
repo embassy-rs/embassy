@@ -19,16 +19,22 @@ flavors = [
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32f2.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32f3.*", target = "thumbv7em-none-eabi" },
-    { regex_feature = "stm32f4.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
+    { regex_feature = "stm32f4[2367]..[ig]", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
+    { regex_feature = "stm32f4.*", target = "thumbv7em-none-eabi", features = ["low-power", "single-bank"] },
+    { regex_feature = "stm32f7[67]..[ig]", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32g0...c", target = "thumbv6m-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32g4[78].*", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
     { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
+    { regex_feature = "stm32l4[pqrs].*", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32l5...e", target = "thumbv8m.main-none-eabihf", features = ["low-power", "dual-bank"] },
     { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32u0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
@@ -38,11 +44,11 @@ flavors = [
 ]
 
 [package.metadata.docs.rs]
-features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7"]
+features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7", "single-bank"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
+embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
 embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
@@ -63,17 +69,19 @@ embedded-can = "0.4"
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 
+rand-core-06 = { package = "rand_core", version = "0.6" }
+rand-core-09 = { package = "rand_core", version = "0.9" }
 
-defmt = { version = "0.3", optional = true }
+
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
-rand_core = "0.6.3"
 sdio-host = "0.9.0"
 critical-section = "1.1"
 #stm32-metapac = { version = "16" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7251801e3273011ce28a89e8f2e45eec2e419e26" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-27ef8fba3483187e852eaf3796d827259f61e8ec" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -102,7 +110,7 @@ proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
 #stm32-metapac = { version = "16", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7251801e3273011ce28a89e8f2e45eec2e419e26", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-27ef8fba3483187e852eaf3796d827259f61e8ec", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]

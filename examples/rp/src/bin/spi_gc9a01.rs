@@ -26,7 +26,6 @@ use embedded_graphics::primitives::{PrimitiveStyleBuilder, Rectangle};
 use mipidsi::models::GC9A01;
 use mipidsi::options::{ColorInversion, ColorOrder};
 use mipidsi::Builder;
-use rand_core::RngCore;
 use {defmt_rtt as _, panic_probe as _};
 
 const DISPLAY_FREQ: u32 = 64_000_000;
