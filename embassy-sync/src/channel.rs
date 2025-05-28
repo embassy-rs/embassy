@@ -208,6 +208,16 @@ where
         self.channel.try_receive()
     }
 
+    /// Peek at the next value without removing it from the queue.
+    ///
+    /// See [`Channel::try_peek()`]
+    pub fn try_peek(&self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.channel.try_peek()
+    }
+
     /// Allows a poll_fn to poll until the channel is ready to receive
     ///
     /// See [`Channel::poll_ready_to_receive()`]
@@ -291,6 +301,16 @@ impl<'ch, T> DynamicReceiver<'ch, T> {
     /// See [`Channel::try_receive()`]
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.channel.try_receive_with_context(None)
+    }
+
+    /// Peek at the next value without removing it from the queue.
+    ///
+    /// See [`Channel::try_peek()`]
+    pub fn try_peek(&self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.channel.try_peek_with_context(None)
     }
 
     /// Allows a poll_fn to poll until the channel is ready to receive
@@ -463,6 +483,10 @@ pub(crate) trait DynamicChannel<T> {
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>;
 
+    fn try_peek_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone;
+
     fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()>;
     fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()>;
 
@@ -503,6 +527,31 @@ impl<T, const N: usize> ChannelState<T, N> {
 
     fn try_receive(&mut self) -> Result<T, TryReceiveError> {
         self.try_receive_with_context(None)
+    }
+
+    fn try_peek(&mut self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.try_peek_with_context(None)
+    }
+
+    fn try_peek_with_context(&mut self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        if self.queue.is_full() {
+            self.senders_waker.wake();
+        }
+
+        if let Some(message) = self.queue.front() {
+            Ok(message.clone())
+        } else {
+            if let Some(cx) = cx {
+                self.receiver_waker.register(cx.waker());
+            }
+            Err(TryReceiveError::Empty)
+        }
     }
 
     fn try_receive_with_context(&mut self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
@@ -634,6 +683,13 @@ where
         self.lock(|c| c.try_receive_with_context(cx))
     }
 
+    fn try_peek_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.lock(|c| c.try_peek_with_context(cx))
+    }
+
     /// Poll the channel for the next message
     pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
         self.lock(|c| c.poll_receive(cx))
@@ -722,6 +778,17 @@ where
         self.lock(|c| c.try_receive())
     }
 
+    /// Peek at the next value without removing it from the queue.
+    ///
+    /// This method will either receive a copy of the message from the channel immediately or return
+    /// an error if the channel is empty.
+    pub fn try_peek(&self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.lock(|c| c.try_peek())
+    }
+
     /// Returns the maximum number of elements the channel can hold.
     pub const fn capacity(&self) -> usize {
         N
@@ -767,6 +834,13 @@ where
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
         Channel::try_receive_with_context(self, cx)
+    }
+
+    fn try_peek_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        Channel::try_peek_with_context(self, cx)
     }
 
     fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
@@ -851,6 +925,8 @@ mod tests {
     fn simple_send_and_receive() {
         let c = Channel::<NoopRawMutex, u32, 3>::new();
         assert!(c.try_send(1).is_ok());
+        assert_eq!(c.try_peek().unwrap(), 1);
+        assert_eq!(c.try_peek().unwrap(), 1);
         assert_eq!(c.try_receive().unwrap(), 1);
     }
 
@@ -881,6 +957,8 @@ mod tests {
         let r = c.dyn_receiver();
 
         assert!(s.try_send(1).is_ok());
+        assert_eq!(r.try_peek().unwrap(), 1);
+        assert_eq!(r.try_peek().unwrap(), 1);
         assert_eq!(r.try_receive().unwrap(), 1);
     }
 
