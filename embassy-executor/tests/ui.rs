@@ -17,6 +17,10 @@ fn ui() {
     t.compile_fail("tests/ui/nonstatic_struct_elided.rs");
     t.compile_fail("tests/ui/nonstatic_struct_generic.rs");
     t.compile_fail("tests/ui/not_async.rs");
+    // #[cfg(not(feature = "nightly"))] // output differs on stable and nightly
+    // t.compile_fail("tests/ui/bad_return_impl_trait.rs");
+    #[cfg(feature = "nightly")]
+    t.compile_fail("tests/ui/bad_return_impl_trait_nightly.rs");
     t.compile_fail("tests/ui/self_ref.rs");
     t.compile_fail("tests/ui/self.rs");
     t.compile_fail("tests/ui/type_error.rs");
