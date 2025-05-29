@@ -70,7 +70,7 @@ pub mod _export {
     impl TaskReturnValue for Never {}
 
     #[diagnostic::on_unimplemented(
-        message = "task function futures must resolve to `()`",
+        message = "task futures must resolve to `()` or `!`",
         note = "use `async fn` or change the return type to `impl Future<Output = ()>`"
     )]
     #[allow(private_bounds)]
