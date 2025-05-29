@@ -1,29 +1,29 @@
-use embassy_sync::channel::{DynamicReceiver, DynamicSender};
+use embassy_sync::channel::{SendDynamicReceiver, SendDynamicSender};
 
 use super::enums::*;
 use super::frame::*;
 
 pub(crate) struct ClassicBufferedRxInner {
-    pub rx_sender: DynamicSender<'static, Result<Envelope, BusError>>,
+    pub rx_sender: SendDynamicSender<'static, Result<Envelope, BusError>>,
 }
 pub(crate) struct ClassicBufferedTxInner {
-    pub tx_receiver: DynamicReceiver<'static, Frame>,
+    pub tx_receiver: SendDynamicReceiver<'static, Frame>,
 }
 
 #[cfg(any(can_fdcan_v1, can_fdcan_h7))]
 
 pub(crate) struct FdBufferedRxInner {
-    pub rx_sender: DynamicSender<'static, Result<FdEnvelope, BusError>>,
+    pub rx_sender: SendDynamicSender<'static, Result<FdEnvelope, BusError>>,
 }
 
 #[cfg(any(can_fdcan_v1, can_fdcan_h7))]
 pub(crate) struct FdBufferedTxInner {
-    pub tx_receiver: DynamicReceiver<'static, FdFrame>,
+    pub tx_receiver: SendDynamicReceiver<'static, FdFrame>,
 }
 
 /// Sender that can be used for sending CAN frames.
 pub struct BufferedSender<'ch, FRAME> {
-    pub(crate) tx_buf: embassy_sync::channel::DynamicSender<'ch, FRAME>,
+    pub(crate) tx_buf: embassy_sync::channel::SendDynamicSender<'ch, FRAME>,
     pub(crate) waker: fn(),
     pub(crate) internal_operation: fn(InternalOperation),
 }
@@ -70,7 +70,7 @@ pub type BufferedCanSender = BufferedSender<'static, Frame>;
 
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
 pub struct BufferedReceiver<'ch, ENVELOPE> {
-    pub(crate) rx_buf: embassy_sync::channel::DynamicReceiver<'ch, Result<ENVELOPE, BusError>>,
+    pub(crate) rx_buf: embassy_sync::channel::SendDynamicReceiver<'ch, Result<ENVELOPE, BusError>>,
     pub(crate) internal_operation: fn(InternalOperation),
 }
 
