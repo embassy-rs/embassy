@@ -713,10 +713,10 @@ impl RxMode {
     //async fn read_classic<T: Instance>(&self) -> Result<Envelope, BusError> {
     fn try_read<T: Instance>(&self, ns_per_timer_tick: u64) -> Option<Result<Envelope, BusError>> {
         if let Some((frame, ts)) = T::registers().read(0) {
-            let ts = T::calc_timestamp(ns_per_timer_tick, ts);
+            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok(Envelope { ts, frame }))
         } else if let Some((frame, ts)) = T::registers().read(1) {
-            let ts = T::calc_timestamp(ns_per_timer_tick, ts);
+            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok(Envelope { ts, frame }))
         } else if let Some(err) = T::registers().curr_error() {
             // TODO: this is probably wrong
@@ -728,10 +728,10 @@ impl RxMode {
 
     fn try_read_fd<T: Instance>(&self, ns_per_timer_tick: u64) -> Option<Result<FdEnvelope, BusError>> {
         if let Some((frame, ts)) = T::registers().read(0) {
-            let ts = T::calc_timestamp(ns_per_timer_tick, ts);
+            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok(FdEnvelope { ts, frame }))
         } else if let Some((frame, ts)) = T::registers().read(1) {
-            let ts = T::calc_timestamp(ns_per_timer_tick, ts);
+            let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok(FdEnvelope { ts, frame }))
         } else if let Some(err) = T::registers().curr_error() {
             // TODO: this is probably wrong
@@ -743,10 +743,10 @@ impl RxMode {
 
     fn read<F: CanHeader>(info: &'static Info, ns_per_timer_tick: u64) -> Option<Result<(F, Timestamp), BusError>> {
         if let Some((msg, ts)) = info.regs.read(0) {
-            let ts = info.calc_timestamp(ns_per_timer_tick, ts);
+            let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok((msg, ts)))
         } else if let Some((msg, ts)) = info.regs.read(1) {
-            let ts = info.calc_timestamp(ns_per_timer_tick, ts);
+            let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok((msg, ts)))
         } else if let Some(err) = info.regs.curr_error() {
             // TODO: this is probably wrong
@@ -947,32 +947,12 @@ struct Info {
     state: SharedState,
 }
 
-impl Info {
-    #[cfg(feature = "time")]
-    fn calc_timestamp(&self, ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-        let now_embassy = embassy_time::Instant::now();
-        if ns_per_timer_tick == 0 {
-            return now_embassy;
-        }
-        let cantime = { self.regs.regs.tscv().read().tsc() };
-        let delta = cantime.overflowing_sub(ts_val).0 as u64;
-        let ns = ns_per_timer_tick * delta as u64;
-        now_embassy - embassy_time::Duration::from_nanos(ns)
-    }
-
-    #[cfg(not(feature = "time"))]
-    fn calc_timestamp(&self, _ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-        ts_val
-    }
-}
-
 trait SealedInstance {
     const MSG_RAM_OFFSET: usize;
 
     fn info() -> &'static Info;
     fn registers() -> crate::can::fd::peripheral::Registers;
     fn internal_operation(val: InternalOperation);
-    fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp;
 }
 
 /// Instance trait
@@ -1043,23 +1023,6 @@ macro_rules! impl_fdcan {
             }
             fn registers() -> Registers {
                 Registers{regs: crate::pac::$inst, msgram: crate::pac::$msg_ram_inst, msg_ram_offset: Self::MSG_RAM_OFFSET}
-            }
-
-            #[cfg(feature = "time")]
-            fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-                let now_embassy = embassy_time::Instant::now();
-                if ns_per_timer_tick == 0 {
-                    return now_embassy;
-                }
-                let cantime = { Self::registers().regs.tscv().read().tsc() };
-                let delta = cantime.overflowing_sub(ts_val).0 as u64;
-                let ns = ns_per_timer_tick * delta as u64;
-                now_embassy - embassy_time::Duration::from_nanos(ns)
-            }
-
-            #[cfg(not(feature = "time"))]
-            fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-                ts_val
             }
 
         }
