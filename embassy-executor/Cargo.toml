@@ -45,6 +45,9 @@ portable-atomic = { version = "1.5", optional = true }
 # arch-cortex-m dependencies
 cortex-m = { version = "0.7.6", optional = true }
 
+# arch-cortex-ar dependencies
+cortex-ar = { version = "0.2", optional = true }
+
 # arch-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
 js-sys = { version = "0.3", optional = true }
@@ -73,6 +76,8 @@ _arch = [] # some arch was picked
 arch-std = ["_arch"]
 ## Cortex-M
 arch-cortex-m = ["_arch", "dep:cortex-m"]
+## Cortex-A/R
+arch-cortex-ar = ["_arch", "dep:cortex-ar"]
 ## RISC-V 32
 arch-riscv32 = ["_arch"]
 ## WASM
