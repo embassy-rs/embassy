@@ -108,8 +108,8 @@ pub struct Config {
     pub voltage: VoltageScale,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub const fn new() -> Self {
         Self {
             hsi: true,
             hse: None,
@@ -127,12 +127,18 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
 
-            ls: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
 
             #[cfg(stm32f2)]
             voltage: VoltageScale::Range3,
-            mux: Default::default(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
