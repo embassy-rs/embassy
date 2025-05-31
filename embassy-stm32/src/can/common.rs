@@ -25,7 +25,7 @@ pub(crate) struct FdBufferedTxInner {
 pub struct BufferedSender<'ch, FRAME> {
     pub(crate) tx_buf: embassy_sync::channel::SendDynamicSender<'ch, FRAME>,
     pub(crate) waker: fn(),
-    pub(crate) internal_operation: fn(InternalOperation),
+    pub(crate) lifetime: TransmitterLifetime,
 }
 
 impl<'ch, FRAME> BufferedSender<'ch, FRAME> {
@@ -50,18 +50,11 @@ impl<'ch, FRAME> BufferedSender<'ch, FRAME> {
 
 impl<'ch, FRAME> Clone for BufferedSender<'ch, FRAME> {
     fn clone(&self) -> Self {
-        (self.internal_operation)(InternalOperation::NotifySenderCreated);
         Self {
             tx_buf: self.tx_buf,
             waker: self.waker,
-            internal_operation: self.internal_operation,
+            lifetime: self.lifetime.clone(),
         }
-    }
-}
-
-impl<'ch, FRAME> Drop for BufferedSender<'ch, FRAME> {
-    fn drop(&mut self) {
-        (self.internal_operation)(InternalOperation::NotifySenderDestroyed);
     }
 }
 
@@ -71,7 +64,7 @@ pub type BufferedCanSender = BufferedSender<'static, Frame>;
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
 pub struct BufferedReceiver<'ch, ENVELOPE> {
     pub(crate) rx_buf: embassy_sync::channel::SendDynamicReceiver<'ch, Result<ENVELOPE, BusError>>,
-    pub(crate) internal_operation: fn(InternalOperation),
+    pub(crate) lifetime: ReceiverLifetime,
 }
 
 impl<'ch, ENVELOPE> BufferedReceiver<'ch, ENVELOPE> {
@@ -106,19 +99,88 @@ impl<'ch, ENVELOPE> BufferedReceiver<'ch, ENVELOPE> {
 
 impl<'ch, ENVELOPE> Clone for BufferedReceiver<'ch, ENVELOPE> {
     fn clone(&self) -> Self {
-        (self.internal_operation)(InternalOperation::NotifyReceiverCreated);
         Self {
             rx_buf: self.rx_buf,
-            internal_operation: self.internal_operation,
+            lifetime: self.lifetime.clone(),
         }
-    }
-}
-
-impl<'ch, ENVELOPE> Drop for BufferedReceiver<'ch, ENVELOPE> {
-    fn drop(&mut self) {
-        (self.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
     }
 }
 
 /// A BufferedCanReceiver for Classic CAN frames.
 pub type BufferedCanReceiver = BufferedReceiver<'static, Envelope>;
+
+pub(crate) trait UserInstanceType {
+    fn register(internal_operation: fn(InternalOperation));
+    fn deregister(internal_operation: fn(InternalOperation));
+}
+
+pub(crate) struct UserInstanceReceiver {}
+impl UserInstanceType for UserInstanceReceiver {
+    fn register(internal_operation: fn(InternalOperation)) {
+        internal_operation(InternalOperation::NotifyReceiverCreated);
+    }
+
+    fn deregister(internal_operation: fn(InternalOperation)) {
+        internal_operation(InternalOperation::NotifyReceiverDestroyed);
+    }
+}
+
+pub(crate) struct UserInstanceTransmitter {}
+impl UserInstanceType for UserInstanceTransmitter {
+    fn register(internal_operation: fn(InternalOperation)) {
+        internal_operation(InternalOperation::NotifySenderCreated);
+    }
+
+    fn deregister(internal_operation: fn(InternalOperation)) {
+        internal_operation(InternalOperation::NotifySenderDestroyed);
+    }
+}
+pub(crate) struct UserInstanceTransceiver {}
+impl UserInstanceType for UserInstanceTransceiver {
+    fn register(internal_operation: fn(InternalOperation)) {
+        internal_operation(InternalOperation::NotifySenderCreated);
+        internal_operation(InternalOperation::NotifyReceiverCreated);
+    }
+
+    fn deregister(internal_operation: fn(InternalOperation)) {
+        internal_operation(InternalOperation::NotifySenderDestroyed);
+        internal_operation(InternalOperation::NotifyReceiverDestroyed);
+    }
+}
+
+pub(crate) struct Lifetime<T: UserInstanceType> {
+    pub(crate) internal_operation: fn(InternalOperation),
+    _marker: core::marker::PhantomData<T>,
+}
+
+impl<T: UserInstanceType> Lifetime<T> {
+    pub(crate) fn new(internal_operation: fn(InternalOperation)) -> Self {
+        T::register(internal_operation);
+        Self {
+            internal_operation,
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<T: UserInstanceType> Clone for Lifetime<T> {
+    fn clone(&self) -> Self {
+        T::register(self.internal_operation);
+        Self {
+            internal_operation: self.internal_operation,
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> Drop for Lifetime<T>
+where
+    T: UserInstanceType,
+{
+    fn drop(&mut self) {
+        T::deregister(self.internal_operation);
+    }
+}
+
+pub(crate) type ReceiverLifetime = Lifetime<UserInstanceReceiver>;
+pub(crate) type TransmitterLifetime = Lifetime<UserInstanceTransmitter>;
