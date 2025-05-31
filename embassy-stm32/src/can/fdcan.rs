@@ -20,6 +20,7 @@ pub(crate) mod fd;
 use self::fd::config::*;
 use self::fd::filter::*;
 pub use self::fd::{config, filter};
+use super::common::*;
 pub use super::common::{BufferedCanReceiver, BufferedCanSender};
 use super::enums::*;
 use super::frame::*;
@@ -167,7 +168,7 @@ fn calc_ns_per_timer_tick(
 pub struct CanConfigurator<'d> {
     _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
-    info: &'static Info,
+    info: TransceiverInfoRef,
     /// Reference to internals.
     properties: Properties,
     periph_clock: crate::time::Hertz,
@@ -194,8 +195,6 @@ impl<'d> CanConfigurator<'d> {
             s.borrow_mut().tx_pin_port = Some(tx.pin_port());
             s.borrow_mut().rx_pin_port = Some(rx.pin_port());
         });
-        (info.internal_operation)(InternalOperation::NotifySenderCreated);
-        (info.internal_operation)(InternalOperation::NotifyReceiverCreated);
 
         let mut config = crate::can::fd::config::FdCanConfig::default();
         config.timestamp_source = TimestampSource::Prescaler(TimestampPrescaler::_1);
@@ -211,7 +210,7 @@ impl<'d> CanConfigurator<'d> {
         Self {
             _phantom: PhantomData,
             config,
-            info,
+            info: TransceiverInfoRef::new(info),
             properties: Properties::new(T::info()),
             periph_clock: T::frequency(),
         }
@@ -262,19 +261,17 @@ impl<'d> CanConfigurator<'d> {
 
     /// Start in mode.
     pub fn start(self, mode: OperatingMode) -> Can<'d> {
-        let ns_per_timer_tick = calc_ns_per_timer_tick(self.info, self.periph_clock, self.config.frame_transmit);
-        self.info.state.lock(|s| {
+        let ns_per_timer_tick = calc_ns_per_timer_tick(self.info.get(), self.periph_clock, self.config.frame_transmit);
+        self.info.get().state.lock(|s| {
             s.borrow_mut().ns_per_timer_tick = ns_per_timer_tick;
         });
-        self.info.regs.into_mode(self.config, mode);
-        (self.info.internal_operation)(InternalOperation::NotifySenderCreated);
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverCreated);
+        self.info.get().regs.into_mode(self.config, mode);
         Can {
             _phantom: PhantomData,
             config: self.config,
-            info: self.info,
+            info: self.info.clone(),
             _mode: mode,
-            properties: Properties::new(self.info),
+            properties: Properties::new(self.info.get()),
         }
     }
 
@@ -294,18 +291,11 @@ impl<'d> CanConfigurator<'d> {
     }
 }
 
-impl<'d> Drop for CanConfigurator<'d> {
-    fn drop(&mut self) {
-        (self.info.internal_operation)(InternalOperation::NotifySenderDestroyed);
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
-    }
-}
-
 /// FDCAN Instance
 pub struct Can<'d> {
     _phantom: PhantomData<&'d ()>,
     config: crate::can::fd::config::FdCanConfig,
-    info: &'static Info,
+    info: TransceiverInfoRef,
     _mode: OperatingMode,
     properties: Properties,
 }
@@ -319,7 +309,7 @@ impl<'d> Can<'d> {
     /// Flush one of the TX mailboxes.
     pub async fn flush(&self, idx: usize) {
         poll_fn(|cx| {
-            self.info.state.lock(|s| {
+            self.info.get().state.lock(|s| {
                 s.borrow_mut().tx_mode.register(cx.waker());
             });
 
@@ -327,7 +317,7 @@ impl<'d> Can<'d> {
                 panic!("Bad mailbox");
             }
             let idx = 1 << idx;
-            if !self.info.regs.regs.txbrp().read().trp(idx) {
+            if !self.info.get().regs.regs.txbrp().read().trp(idx) {
                 return Poll::Ready(());
             }
 
@@ -341,12 +331,12 @@ impl<'d> Can<'d> {
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write(&mut self, frame: &Frame) -> Option<Frame> {
-        TxMode::write(self.info, frame).await
+        TxMode::write(self.info.get(), frame).await
     }
 
     /// Returns the next received message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        RxMode::read_classic(self.info).await
+        RxMode::read_classic(self.info.get()).await
     }
 
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
@@ -354,28 +344,26 @@ impl<'d> Can<'d> {
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
-        TxMode::write_fd(self.info, frame).await
+        TxMode::write_fd(self.info.get(), frame).await
     }
 
     /// Returns the next received message frame
     pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
-        RxMode::read_fd(self.info).await
+        RxMode::read_fd(self.info.get()).await
     }
 
     /// Split instance into separate portions: Tx(write), Rx(read), common properties
     pub fn split(self) -> (CanTx<'d>, CanRx<'d>, Properties) {
-        (self.info.internal_operation)(InternalOperation::NotifySenderCreated);
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         (
             CanTx {
                 _phantom: PhantomData,
-                info: self.info,
+                info: TransmitterInfoRef::new(self.info.get()),
                 config: self.config,
                 _mode: self._mode,
             },
             CanRx {
                 _phantom: PhantomData,
-                info: self.info,
+                info: ReceiverInfoRef::new(self.info.get()),
                 _mode: self._mode,
             },
             Properties {
@@ -385,14 +373,12 @@ impl<'d> Can<'d> {
     }
     /// Join split rx and tx portions back together
     pub fn join(tx: CanTx<'d>, rx: CanRx<'d>) -> Self {
-        (tx.info.internal_operation)(InternalOperation::NotifySenderCreated);
-        (tx.info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         Can {
             _phantom: PhantomData,
             config: tx.config,
-            info: tx.info,
+            info: TransceiverInfoRef::new(tx.info.get()),
             _mode: rx._mode,
-            properties: Properties::new(tx.info),
+            properties: Properties::new(tx.info.get()),
         }
     }
 
@@ -402,7 +388,7 @@ impl<'d> Can<'d> {
         tx_buf: &'static mut TxBuf<TX_BUF_SIZE>,
         rxb: &'static mut RxBuf<RX_BUF_SIZE>,
     ) -> BufferedCan<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
-        BufferedCan::new(self.info, self._mode, tx_buf, rxb)
+        BufferedCan::new(self.info.get(), self._mode, tx_buf, rxb)
     }
 
     /// Return a buffered instance of driver with CAN FD support. User must supply Buffers
@@ -411,14 +397,7 @@ impl<'d> Can<'d> {
         tx_buf: &'static mut TxFdBuf<TX_BUF_SIZE>,
         rxb: &'static mut RxFdBuf<RX_BUF_SIZE>,
     ) -> BufferedCanFd<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
-        BufferedCanFd::new(self.info, self._mode, tx_buf, rxb)
-    }
-}
-
-impl<'d> Drop for Can<'d> {
-    fn drop(&mut self) {
-        (self.info.internal_operation)(InternalOperation::NotifySenderDestroyed);
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
+        BufferedCanFd::new(self.info.get(), self._mode, tx_buf, rxb)
     }
 }
 
@@ -431,7 +410,7 @@ pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, 
 /// Buffered FDCAN Instance
 pub struct BufferedCan<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _phantom: PhantomData<&'d ()>,
-    info: &'static Info,
+    info: TransceiverInfoRef,
     _mode: OperatingMode,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
@@ -445,11 +424,9 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
         tx_buf: &'static TxBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxBuf<RX_BUF_SIZE>,
     ) -> Self {
-        (info.internal_operation)(InternalOperation::NotifySenderCreated);
-        (info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         BufferedCan {
             _phantom: PhantomData,
-            info,
+            info: TransceiverInfoRef::new(info),
             _mode,
             tx_buf,
             rx_buf,
@@ -465,7 +442,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
 
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
-        self.info.state.lock(|s| {
+        self.info.get().state.lock(|s| {
             let rx_inner = super::common::ClassicBufferedRxInner {
                 rx_sender: self.rx_buf.sender().into(),
             };
@@ -481,8 +458,8 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
     /// Async write frame to TX buffer.
     pub async fn write(&mut self, frame: Frame) {
         self.tx_buf.send(frame).await;
-        self.info.interrupt0.pend(); // Wake for Tx
-                                     //T::IT0Interrupt::pend(); // Wake for Tx
+        self.info.get().interrupt0.pend(); // Wake for Tx
+                                           //T::IT0Interrupt::pend(); // Wake for Tx
     }
 
     /// Async read frame from RX buffer.
@@ -492,28 +469,19 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
 
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedCanSender {
-        (self.info.internal_operation)(InternalOperation::NotifySenderCreated);
         BufferedCanSender {
             tx_buf: self.tx_buf.sender().into(),
-            waker: self.info.tx_waker,
-            internal_operation: self.info.internal_operation,
+            waker: self.info.get().tx_waker,
+            lifetime: TransmitterLifetime::new(self.info.get().internal_operation),
         }
     }
 
     /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
     pub fn reader(&self) -> BufferedCanReceiver {
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         BufferedCanReceiver {
             rx_buf: self.rx_buf.receiver().into(),
-            internal_operation: self.info.internal_operation,
+            lifetime: ReceiverLifetime::new(self.info.get().internal_operation),
         }
-    }
-}
-
-impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop for BufferedCan<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
-    fn drop(&mut self) {
-        (self.info.internal_operation)(InternalOperation::NotifySenderDestroyed);
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
     }
 }
 
@@ -532,7 +500,7 @@ pub type BufferedFdCanReceiver = super::common::BufferedReceiver<'static, FdEnve
 /// Buffered FDCAN Instance
 pub struct BufferedCanFd<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _phantom: PhantomData<&'d ()>,
-    info: &'static Info,
+    info: TransceiverInfoRef,
     _mode: OperatingMode,
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
@@ -546,11 +514,9 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
         tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
     ) -> Self {
-        (info.internal_operation)(InternalOperation::NotifySenderCreated);
-        (info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         BufferedCanFd {
             _phantom: PhantomData,
-            info,
+            info: TransceiverInfoRef::new(info),
             _mode,
             tx_buf,
             rx_buf,
@@ -566,7 +532,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
 
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
-        self.info.state.lock(|s| {
+        self.info.get().state.lock(|s| {
             let rx_inner = super::common::FdBufferedRxInner {
                 rx_sender: self.rx_buf.sender().into(),
             };
@@ -582,8 +548,8 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
     /// Async write frame to TX buffer.
     pub async fn write(&mut self, frame: FdFrame) {
         self.tx_buf.send(frame).await;
-        self.info.interrupt0.pend(); // Wake for Tx
-                                     //T::IT0Interrupt::pend(); // Wake for Tx
+        self.info.get().interrupt0.pend(); // Wake for Tx
+                                           //T::IT0Interrupt::pend(); // Wake for Tx
     }
 
     /// Async read frame from RX buffer.
@@ -593,60 +559,45 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
 
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedFdCanSender {
-        (self.info.internal_operation)(InternalOperation::NotifySenderCreated);
         BufferedFdCanSender {
             tx_buf: self.tx_buf.sender().into(),
-            waker: self.info.tx_waker,
-            internal_operation: self.info.internal_operation,
+            waker: self.info.get().tx_waker,
+            lifetime: TransmitterLifetime::new(self.info.get().internal_operation),
         }
     }
 
     /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
     pub fn reader(&self) -> BufferedFdCanReceiver {
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         BufferedFdCanReceiver {
             rx_buf: self.rx_buf.receiver().into(),
-            internal_operation: self.info.internal_operation,
+            lifetime: ReceiverLifetime::new(self.info.get().internal_operation),
         }
-    }
-}
-
-impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop for BufferedCanFd<'d, TX_BUF_SIZE, RX_BUF_SIZE> {
-    fn drop(&mut self) {
-        (self.info.internal_operation)(InternalOperation::NotifySenderDestroyed);
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
     }
 }
 
 /// FDCAN Rx only Instance
 pub struct CanRx<'d> {
     _phantom: PhantomData<&'d ()>,
-    info: &'static Info,
+    info: ReceiverInfoRef,
     _mode: OperatingMode,
 }
 
 impl<'d> CanRx<'d> {
     /// Returns the next received message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        RxMode::read_classic(&self.info).await
+        RxMode::read_classic(&self.info.get()).await
     }
 
     /// Returns the next received message frame
     pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
-        RxMode::read_fd(&self.info).await
-    }
-}
-
-impl<'d> Drop for CanRx<'d> {
-    fn drop(&mut self) {
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
+        RxMode::read_fd(&self.info.get()).await
     }
 }
 
 /// FDCAN Tx only Instance
 pub struct CanTx<'d> {
     _phantom: PhantomData<&'d ()>,
-    info: &'static Info,
+    info: TransmitterInfoRef,
     config: crate::can::fd::config::FdCanConfig,
     _mode: OperatingMode,
 }
@@ -657,7 +608,7 @@ impl<'c, 'd> CanTx<'d> {
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write(&mut self, frame: &Frame) -> Option<Frame> {
-        TxMode::write(self.info, frame).await
+        TxMode::write(self.info.get(), frame).await
     }
 
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
@@ -665,13 +616,7 @@ impl<'c, 'd> CanTx<'d> {
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
-        TxMode::write_fd(self.info, frame).await
-    }
-}
-
-impl<'d> Drop for CanTx<'d> {
-    fn drop(&mut self) {
-        (self.info.internal_operation)(InternalOperation::NotifySenderDestroyed);
+        TxMode::write_fd(self.info.get(), frame).await
     }
 }
 
@@ -946,6 +891,47 @@ struct Info {
     internal_operation: fn(InternalOperation),
     state: SharedState,
 }
+
+struct InfoRef<T: UserInstanceType> {
+    info: &'static Info,
+    _marker: core::marker::PhantomData<T>,
+}
+
+impl<T: UserInstanceType> InfoRef<T> {
+    fn new(info: &'static Info) -> Self {
+        T::register(info.internal_operation);
+        Self {
+            info,
+            _marker: core::marker::PhantomData,
+        }
+    }
+    pub(crate) fn get(&self) -> &'static Info {
+        self.info
+    }
+}
+
+impl<T: UserInstanceType> Clone for InfoRef<T> {
+    fn clone(&self) -> Self {
+        T::register(self.info.internal_operation);
+        Self {
+            info: self.info,
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> Drop for InfoRef<T>
+where
+    T: UserInstanceType,
+{
+    fn drop(&mut self) {
+        T::deregister(self.info.internal_operation);
+    }
+}
+
+type ReceiverInfoRef = InfoRef<UserInstanceReceiver>;
+type TransmitterInfoRef = InfoRef<UserInstanceTransmitter>;
+type TransceiverInfoRef = InfoRef<UserInstanceTransceiver>;
 
 trait SealedInstance {
     const MSG_RAM_OFFSET: usize;
