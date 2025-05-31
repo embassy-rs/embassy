@@ -2,6 +2,13 @@
 
 `embassy-boot` a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
 
+The update method used is referred to as an A/B partition update scheme.
+
+With a general-purpose OS, A/B partition update is accomplished by directly booting either the A or B partition depending on the update state.
+To accomplish the same goal in a way that is portable across all microcontrollers, `embassy-boot` swaps data page by page (in both directions) between the DFU and the Active partition when a firmware update is triggered. +
+Because the original Active application is moved into the DFU partition during this update, the operation can be reversed if the update is interrupted or the new firmware does not flag that it booted successfully. +
+See the design section for more details on how this is implemented.
+
 The bootloader can be used either as a library or be flashed directly if you are happy with the default configuration and capabilities.
 
 By design, the bootloader does not provide any network capabilities. Networking capabilities for fetching new firmware can be provided by the user application, using the bootloader as a library for updating the firmware, or by using the bootloader as a library and adding this capability yourself.
