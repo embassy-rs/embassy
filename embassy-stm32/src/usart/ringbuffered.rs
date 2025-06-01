@@ -18,6 +18,65 @@ use crate::Peri;
 /// Rx-only Ring-buffered UART Driver
 ///
 /// Created with [UartRx::into_ring_buffered]
+///
+/// ### Notes on 'waiting for bytes'
+///
+/// The `read(buf)` (but not `read()`) and `read_exact(buf)` functions
+/// may need to wait for bytes to arrive, if the ring buffer does not
+/// contain enough bytes to fill the buffer passed by the caller of
+/// the function, or is empty.
+///
+/// Waiting for bytes operates in one of two modes, depending on
+/// the behavior of the sender and the size of the buffer passed
+/// to the function:
+///
+/// - If the sender sends intermittently, the 'idle line'
+/// condition will be detected when the sender stops, and any
+/// bytes in the ring buffer will be returned. If there are no
+/// bytes in the buffer, the check will be repeated each time the
+/// 'idle line' condition is detected, so if the sender sends just
+/// a single byte, it will be returned once the 'idle line'
+/// condition is detected.
+///
+/// - If the sender sends continuously, the call will wait until
+/// the DMA controller indicates that it has written to either the
+/// middle byte or last byte of the ring buffer ('half transfer'
+/// or 'transfer complete', respectively). This does not indicate
+/// the buffer is half-full or full, though, because the DMA
+/// controller does not detect those conditions; it sends an
+/// interrupt when those specific buffer addresses have been
+/// written.
+///
+/// In both cases this will result in variable latency due to the
+/// buffering effect. For example, if the baudrate is 2400 bps, and
+/// the configuration is 8 data bits, no parity bit, and one stop bit,
+/// then a byte will be received every ~4.16ms. If the ring buffer is
+/// 32 bytes, then a 'wait for bytes' delay may have to wait for 16
+/// bytes in the worst case, resulting in a delay (latency) of
+/// ~62.46ms for the first byte in the ring buffer. If the sender
+/// sends only 6 bytes and then stops, but the buffer was empty when
+/// the read function was called, then those bytes may not be returned
+/// until ~24.96ms after the first byte was received (time for 5
+/// additional bytes plus the 'idle frame' which triggers the 'idle
+/// line' condition).
+///
+/// Applications subject to this latency must be careful if they
+/// also apply timeouts during reception, as it may appear (to
+/// them) that the sender has stopped sending when it did not. In
+/// the example above, a 50ms timeout (12 bytes at 2400bps) might
+/// seem to be reasonable to detect that the sender has stopped
+/// sending, but would be falsely triggered in the worst-case
+/// buffer delay scenario.
+///
+/// Note: This latency is caused by the limited capabilities of the
+/// STM32 DMA controller; since it cannot generate an interrupt when
+/// it stores a byte into an empty ring buffer, or in any other
+/// configurable conditions, it is not possible to take notice of the
+/// contents of the ring buffer more quickly without introducing
+/// polling. As a result the latency can be reduced by calling the
+/// read functions repeatedly with smaller buffers to receive the
+/// available bytes, as each call to a read function will explicitly
+/// check the ring buffer for available bytes.
 pub struct RingBufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
@@ -79,7 +138,8 @@ impl<'d> RingBufferedUartRx<'d> {
 
     /// Configure and start the DMA backed UART receiver
     ///
-    /// Note: This is also done automatically by [`read()`] if required.
+    /// Note: This is also done automatically by the read functions if
+    /// required.
     pub fn start_uart(&mut self) {
         // Clear the buffer so that it is ready to receive data
         compiler_fence(Ordering::SeqCst);
@@ -139,14 +199,16 @@ impl<'d> RingBufferedUartRx<'d> {
         Ok(())
     }
 
-    /// Read bytes that are readily available in the ring buffer.
-    /// If no bytes are currently available in the buffer the call waits until the some
-    /// bytes are available (at least one byte and at most half the buffer size)
+    /// Read bytes that are available in the ring buffer, or wait for
+    /// bytes to become available and return them.
     ///
-    /// Background receive is started if `start()` has not been previously called.
+    /// Background reception is started if necessary (if `start_uart()` had
+    /// not previously been called, or if an error was detected which
+    /// caused background reception to be stopped).
     ///
-    /// Receive in the background is terminated if an error is returned.
-    /// It must then manually be started again by calling `start()` or by re-calling `read()`.
+    /// Background reception is terminated when an error is returned.
+    /// It must be started again by calling `start_uart()` or by
+    /// calling a read function again.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.start_dma_or_check_errors()?;
 
@@ -202,7 +264,8 @@ impl<'d> RingBufferedUartRx<'d> {
         });
 
         let mut dma_init = false;
-        // Future which completes when there is dma is half full or full
+        // Future which completes when the DMA controller indicates it
+        // has written to the ring buffer's middle byte, or last byte
         let dma = poll_fn(|cx| {
             self.ring_buf.set_waker(cx.waker());
 
