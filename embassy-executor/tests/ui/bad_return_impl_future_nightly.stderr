@@ -1,5 +1,5 @@
 error[E0277]: task futures must resolve to `()` or `!`
- --> tests/ui/bad_return_impl_trait_nightly.rs:4:1
+ --> tests/ui/bad_return_impl_future_nightly.rs:4:1
   |
 4 | #[embassy_executor::task]
   | ^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `TaskReturnValue` is not implemented for `u32`
