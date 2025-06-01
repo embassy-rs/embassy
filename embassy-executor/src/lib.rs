@@ -233,6 +233,10 @@ pub mod _export {
 #[doc(hidden)]
 #[cfg(feature = "nightly")]
 pub mod _export {
+    #[diagnostic::on_unimplemented(
+        message = "task futures must resolve to `()` or `!`",
+        note = "use `async fn` or change the return type to `impl Future<Output = ()>`"
+    )]
     pub trait TaskReturnValue {}
     impl TaskReturnValue for () {}
     impl TaskReturnValue for Never {}
