@@ -218,13 +218,13 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub const fn new() -> Self {
         Self {
             hsi: Some(HSIPrescaler::DIV1),
             hse: None,
             csi: false,
-            hsi48: Some(Default::default()),
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
             sys: Sysclk::HSI,
             pll1: None,
             pll2: None,
@@ -248,13 +248,19 @@ impl Default for Config {
             voltage_scale: VoltageScale::Scale0,
             #[cfg(rcc_h7rs)]
             voltage_scale: VoltageScale::HIGH,
-            ls: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
 
             #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468, pwr_h7rs))]
             supply_config: SupplyConfig::LDO,
 
-            mux: Default::default(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
