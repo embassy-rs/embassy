@@ -138,6 +138,9 @@ pub const WPAN_DEFAULT: Config = Config {
     mux: super::mux::ClockMux::default(),
 };
 
+#[cfg(all(feature = "low-power", any(stm32wb)))]
+pub(super) static mut CURRENT_RCC_CONFIG: core::mem::MaybeUninit<Config> = core::mem::MaybeUninit::uninit();
+
 fn msi_enable(range: MSIRange) {
     #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
     RCC.cr().modify(|w| {
@@ -154,6 +157,13 @@ fn msi_enable(range: MSIRange) {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    #[cfg(all(feature = "low-power", any(stm32wb)))]
+    {
+        // Store the current RCC config in to restore it when exiting low power mode.
+        // This is needed because these MCUs require a clock source switch before entering low power mode.
+        CURRENT_RCC_CONFIG = core::mem::MaybeUninit::new(config);
+    }
+
     // Switch to MSI to prevent problems with PLL configuration.
     if !RCC.cr().read().msion() {
         // Turn on MSI and configure it to 4MHz.
