@@ -247,9 +247,14 @@ impl<'d, T: Instance> Adc<'d, T> {
             Averaging::Samples128 => (true, 6, 7),
             Averaging::Samples256 => (true, 7, 8),
         };
-
         T::regs().cfgr2().modify(|reg| {
+            #[cfg(not(adc_g0))]
             reg.set_rovse(enable);
+            #[cfg(adc_g0)]
+            reg.set_ovse(enable);
+            #[cfg(any(adc_h5, adc_h7rs))]
+            reg.set_ovsr(samples.into());
+            #[cfg(not(any(adc_h5, adc_h7rs)))]
             reg.set_ovsr(samples);
             reg.set_ovss(right_shift);
         })
