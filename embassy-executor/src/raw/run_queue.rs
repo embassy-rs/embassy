@@ -1,9 +1,15 @@
 use core::ptr::{addr_of_mut, NonNull};
 
 use cordyceps::sorted_list::Links;
+use cordyceps::Linked;
 #[cfg(feature = "edf-scheduler")]
 use cordyceps::SortedList;
-use cordyceps::{Linked, TransferStack};
+
+#[cfg(target_has_atomic = "ptr")]
+type TransferStack<T> = cordyceps::TransferStack<T>;
+
+#[cfg(not(target_has_atomic = "ptr"))]
+type TransferStack<T> = cordyceps::TransferStack<mutex::raw_impls::cs::CriticalSectionRawMutex, T>;
 
 use super::{TaskHeader, TaskRef};
 
@@ -77,7 +83,7 @@ impl RunQueue {
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
         let taken = self.stack.take_all();
         for taskref in taken {
-            taskref.header().state.run_dequeue();
+            run_dequeue(&taskref);
             on_task(taskref);
         }
     }
@@ -122,8 +128,24 @@ impl RunQueue {
             };
 
             // We got one task, mark it as dequeued, and process the task.
-            taskref.header().state.run_dequeue();
+            run_dequeue(&taskref);
             on_task(taskref);
         }
     }
+}
+
+/// atomic state does not require a cs...
+#[cfg(target_has_atomic = "ptr")]
+#[inline(always)]
+fn run_dequeue(taskref: &TaskRef) {
+    taskref.header().state.run_dequeue();
+}
+
+/// ...while non-atomic state does
+#[cfg(not(target_has_atomic = "ptr"))]
+#[inline(always)]
+fn run_dequeue(taskref: &TaskRef) {
+    critical_section::with(|cs| {
+        taskref.header().state.run_dequeue(cs);
+    })
 }
