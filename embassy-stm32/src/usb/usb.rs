@@ -911,6 +911,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             };
             self.read_data_double_buffered(buf, packet_buffer)?
         } else {
+            let len = self.read_data(buf)?;
+
             regs.epr(index).write(|w| {
                 w.set_ep_type(convert_type(self.info.ep_type));
                 w.set_ea(self.info.addr.index() as _);
@@ -920,7 +922,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
                 w.set_ctr_tx(true); // don't clear
             });
 
-            self.read_data(buf)?
+            len
         };
         trace!("READ OK, rx_len = {}", rx_len);
 
