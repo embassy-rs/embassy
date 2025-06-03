@@ -1,9 +1,6 @@
 use core::future::{poll_fn, Future};
 use core::task::Poll;
 
-#[cfg(not(target_has_atomic = "ptr"))]
-compile_error!("The `edf-scheduler` feature is currently only supported on targets with atomics.");
-
 /// A type for interacting with the deadline of the current task
 ///
 /// Requires the `edf-scheduler` feature
