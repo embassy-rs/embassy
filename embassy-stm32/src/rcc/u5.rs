@@ -181,7 +181,7 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_msikrange(range);
             w.set_msirgsel(Msirgsel::ICSCR1);
         });
-        RCC.cr().write(|w| {
+        RCC.cr().modify(|w| {
             w.set_msikon(true);
         });
         while !RCC.cr().read().msikrdy() {}
@@ -189,7 +189,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let hsi = config.hsi.then(|| {
-        RCC.cr().write(|w| w.set_hsion(true));
+        RCC.cr().modify(|w| w.set_hsion(true));
         while !RCC.cr().read().hsirdy() {}
 
         HSI_FREQ
@@ -207,7 +207,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
 
         // Enable HSE, and wait for it to stabilize
-        RCC.cr().write(|w| {
+        RCC.cr().modify(|w| {
             w.set_hseon(true);
             w.set_hsebyp(hse.mode != HseMode::Oscillator);
             w.set_hseext(match hse.mode {
