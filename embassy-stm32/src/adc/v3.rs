@@ -93,6 +93,18 @@ cfg_if! {
     }
 }
 
+/// Number of samples used for averaging.
+pub enum Averaging {
+    Disabled,
+    Samples2,
+    Samples4,
+    Samples8,
+    Samples16,
+    Samples32,
+    Samples64,
+    Samples128,
+    Samples256,
+}
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
@@ -223,6 +235,25 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
+    pub fn set_averaging(&mut self, averaging: Averaging) {
+        let (enable, samples, right_shift) = match averaging {
+            Averaging::Disabled => (false, 0, 0),
+            Averaging::Samples2 => (true, 0, 1),
+            Averaging::Samples4 => (true, 1, 2),
+            Averaging::Samples8 => (true, 2, 3),
+            Averaging::Samples16 => (true, 3, 4),
+            Averaging::Samples32 => (true, 4, 5),
+            Averaging::Samples64 => (true, 5, 6),
+            Averaging::Samples128 => (true, 6, 7),
+            Averaging::Samples256 => (true, 7, 8),
+        };
+
+        T::regs().cfgr2().modify(|reg| {
+            reg.set_rovse(enable);
+            reg.set_ovsr(samples);
+            reg.set_ovss(right_shift);
+        })
+    }
     /*
     /// Convert a raw sample from the `Temperature` to deg C
     pub fn to_degrees_centigrade(sample: u16) -> f32 {
