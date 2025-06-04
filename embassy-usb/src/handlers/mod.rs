@@ -20,7 +20,7 @@ pub struct DeviceFilter {
 }
 
 pub struct StaticHandlerSpec {
-    /// A non-exaustive filter for devices; the final filter is done inside try_register
+    /// A non-exhaustive filter for devices; the final filter is done inside try_register
     pub device_filter: Option<DeviceFilter>,
 }
 
@@ -168,10 +168,10 @@ impl From<HostError> for RegisterError {
     }
 }
 
-/// The base functionality for a host-side usb driver
+/// The base functionality for a host-side USB driver
 ///
 /// In order to speed up driver detection when large amount of drivers may be supported
-/// we support a declaritive filter with `static_spec`, this allows a user to build a hash-table, b-tree or similar structure
+/// we support a declarative filter with `static_spec`, this allows a user to build a hash-table, b-tree or similar structure
 /// which can be traversed efficiently upon enumeration.
 pub trait UsbHostHandler: Sized {
     type Driver: UsbHostDriver;
@@ -185,7 +185,7 @@ pub trait UsbHostHandler: Sized {
     ///
     /// Typically this is implemented by retrieving the (interface) descriptors and sifting through those
     /// if a valid configuration is found the device is configured using `SET_CONFIGURATION`;
-    /// finally the appropriate channels are allocated andn stored in the resulting handler
+    /// finally the appropriate channels are allocated and stored in the resulting handler
     ///
     /// NOTE: Channels are expected to self-clean on `Drop`. FIXME: this is not the case for stm32
     async fn try_register(bus: &Self::Driver, enum_info: &EnumerationInfo) -> Result<Self, RegisterError>;
@@ -206,7 +206,7 @@ pub trait UsbHostHandler: Sized {
 pub trait UsbResumableHandler: UsbHostHandler {
     type UsbResumeInfo;
 
-    /// In theory this doesn't need to be async, but a implementor might desire to run some checks upon resuming
+    /// In theory this doesn't need to be async, but a implementer might desire to run some checks upon resuming
     async fn try_resume(bus: &Self::Driver, resume_info: Self::UsbResumeInfo) -> Result<Self, ()>;
 
     // Consumes `Self` to gain resume info, this prevents any duplication

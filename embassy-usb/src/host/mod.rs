@@ -261,10 +261,10 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
             ls_over_fs,
         )?;
 
-        // device has 2ms to change internally by spec but may be faster, we can retry to speed up enumertion
+        // device has 2ms to change internally by spec but may be faster, we can retry to speed up enumeration
 
         // TODO: macro this shit
-        // Retries a request `retries` times until a non-timeout (NAK) is recevied, if all requests time-out `Err(ChannelError::Timeout)` is returned
+        // Retries a request `retries` times until a non-timeout (NAK) is received, if all requests time-out `Err(ChannelError::Timeout)` is returned
         let retries = 5;
         let device_desc = async {
             for _ in 0..retries {
