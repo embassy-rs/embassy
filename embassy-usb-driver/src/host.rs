@@ -8,8 +8,7 @@ use crate::{EndpointInfo, EndpointType, Speed};
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChannelError {
-    /// Either the packet to be written is too long to fit in the transmission
-    /// buffer or the received packet is too long to fit in `buf`.
+    /// The packet is too long to fit in the buffer.
     BufferOverflow,
 
     /// Response from device/bus was not interpretable (Crc, Babble)
