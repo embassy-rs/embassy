@@ -9,7 +9,7 @@ use cordyceps::SortedList;
 type TransferStack<T> = cordyceps::TransferStack<T>;
 
 #[cfg(not(target_has_atomic = "ptr"))]
-type TransferStack<T> = cordyceps::TransferStack<mutex::raw_impls::cs::CriticalSectionRawMutex, T>;
+type TransferStack<T> = cordyceps::MutexTransferStack<mutex::raw_impls::cs::CriticalSectionRawMutex, T>;
 
 use super::{TaskHeader, TaskRef};
 
