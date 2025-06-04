@@ -192,7 +192,7 @@ impl<'a> Iterator for InterfaceIterator<'a> {
         } else {
             // Assuming spec compliant descriptors the next descriptor should always be at our offset
             let remaining_buf = &self.cfg_desc.buffer[self.offset..];
-            // FIXME: Fallible, propegate errors?
+            // FIXME: Fallible, propagate errors?
             let iface = InterfaceDescriptor::try_from_bytes(remaining_buf).ok()?;
             self.offset += iface.len as usize + iface.buffer.len();
             Some(iface)
@@ -241,7 +241,7 @@ impl<'a> ConfigurationDescriptor<'a> {
     }
 
     fn buffer_sliced(&self) -> &[u8] {
-        // The confiuration descriptor's own bytes are already consumed.
+        // The configuration descriptor's own bytes are already consumed.
         let end = self.total_len as usize - Self::SIZE;
         &self.buffer[..end]
     }
@@ -299,7 +299,7 @@ impl Iterator for EndpointIterator<'_> {
 }
 
 /// InterfaceDescriptor does not implement [USBDescriptor] because it has a borrowed buffer.
-/// Since we cannot request an interface decriptor from the device by itself it does not strictly need to implement [USBDescriptor].
+/// Since we cannot request an interface descriptor from the device by itself it does not strictly need to implement [USBDescriptor].
 impl<'a> InterfaceDescriptor<'a> {
     const SIZE: usize = 9;
 

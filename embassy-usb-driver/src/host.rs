@@ -88,7 +88,7 @@ pub struct SetupPacket {
     /// Use depending on request field.
     /// Called wIndex in USB spec (Table 9-2).
     pub index: u16,
-    /// Number of bytes to transwer in data stage if there is one.
+    /// Number of bytes to transfer in data stage if there is one.
     /// Called wLength in USB spec (Table 9-2).
     pub length: u16,
 }
@@ -267,9 +267,9 @@ impl Default for TimeoutConfig {
 /// These contain the required information to send a packet correctly to a device endpoint.
 /// The information is carried with the channel on creation (see [`UsbHostDriver::alloc_channel`]) and can be changed with [`UsbChannel::retarget_channel`].
 ///
-/// It is up to the hal's driver how to implement concurrent requests, some hardware IP may allow for multiple hardware channels
+/// It is up to the HAL's driver how to implement concurrent requests, some hardware IP may allow for multiple hardware channels
 ///  while others may only have a single channel which needs to be multiplexed in software, while others still use DMA request linked-lists.
-/// Any of these are compatibile with the UsbChannel with varying degrees of sync primitives required.
+/// Any of these are compatible with the UsbChannel with varying degrees of sync primitives required.
 pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     /// Send IN control request
     async fn control_in(&mut self, setup: &SetupPacket, buf: &mut [u8]) -> Result<usize, ChannelError>
@@ -287,7 +287,7 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
     fn retarget_channel(&mut self, addr: u8, endpoint: &EndpointInfo, pre: bool) -> Result<(), HostError>;
 
     /// Send IN request of type other from control
-    /// For interrupt channels this will return the result of the next succesful interrupt poll
+    /// For interrupt channels this will return the result of the next successful interrupt poll
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, ChannelError>
     where
         D: channel::IsIn;
