@@ -141,7 +141,7 @@ impl<H: UsbHostDriver> UsbHostHandler for KbdHandler<H> {
 }
 
 bitflags! {
-    /// Commond keyboard state options
+    /// Command keyboard state options
     pub struct KeyboardState: u8 {
         /// Enables NumLock
         const NUM_LOCK   = 1 << 0;
