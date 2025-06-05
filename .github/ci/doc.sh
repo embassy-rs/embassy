@@ -42,6 +42,7 @@ docserver-builder -i ./embassy-usb-logger -o webroot/crates/embassy-usb-logger/g
 docserver-builder -i ./embassy-usb-synopsys-otg -o webroot/crates/embassy-usb-synopsys-otg/git.zup
 
 docserver-builder -i ./embassy-net -o webroot/crates/embassy-net/git.zup
+docserver-builder -i ./embassy-net-nrf91 -o webroot/crates/embassy-net-nrf91/git.zup
 docserver-builder -i ./embassy-net-driver -o webroot/crates/embassy-net-driver/git.zup
 docserver-builder -i ./embassy-net-driver-channel -o webroot/crates/embassy-net-driver-channel/git.zup
 docserver-builder -i ./embassy-net-wiznet -o webroot/crates/embassy-net-wiznet/git.zup
