@@ -25,7 +25,7 @@ pub(crate) struct FdBufferedTxInner {
 pub struct BufferedSender<'ch, FRAME> {
     pub(crate) tx_buf: embassy_sync::channel::SendDynamicSender<'ch, FRAME>,
     pub(crate) waker: fn(),
-    pub(crate) internal_operation: fn(InternalOperation),
+    pub(crate) tx_guard: TxGuard,
 }
 
 impl<'ch, FRAME> BufferedSender<'ch, FRAME> {
@@ -50,18 +50,11 @@ impl<'ch, FRAME> BufferedSender<'ch, FRAME> {
 
 impl<'ch, FRAME> Clone for BufferedSender<'ch, FRAME> {
     fn clone(&self) -> Self {
-        (self.internal_operation)(InternalOperation::NotifySenderCreated);
         Self {
             tx_buf: self.tx_buf,
             waker: self.waker,
-            internal_operation: self.internal_operation,
+            tx_guard: TxGuard::new(self.tx_guard.internal_operation),
         }
-    }
-}
-
-impl<'ch, FRAME> Drop for BufferedSender<'ch, FRAME> {
-    fn drop(&mut self) {
-        (self.internal_operation)(InternalOperation::NotifySenderDestroyed);
     }
 }
 
@@ -71,7 +64,7 @@ pub type BufferedCanSender = BufferedSender<'static, Frame>;
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
 pub struct BufferedReceiver<'ch, ENVELOPE> {
     pub(crate) rx_buf: embassy_sync::channel::SendDynamicReceiver<'ch, Result<ENVELOPE, BusError>>,
-    pub(crate) internal_operation: fn(InternalOperation),
+    pub(crate) rx_guard: RxGuard,
 }
 
 impl<'ch, ENVELOPE> BufferedReceiver<'ch, ENVELOPE> {
@@ -106,19 +99,47 @@ impl<'ch, ENVELOPE> BufferedReceiver<'ch, ENVELOPE> {
 
 impl<'ch, ENVELOPE> Clone for BufferedReceiver<'ch, ENVELOPE> {
     fn clone(&self) -> Self {
-        (self.internal_operation)(InternalOperation::NotifyReceiverCreated);
         Self {
             rx_buf: self.rx_buf,
-            internal_operation: self.internal_operation,
+            rx_guard: RxGuard::new(self.rx_guard.internal_operation),
         }
-    }
-}
-
-impl<'ch, ENVELOPE> Drop for BufferedReceiver<'ch, ENVELOPE> {
-    fn drop(&mut self) {
-        (self.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
     }
 }
 
 /// A BufferedCanReceiver for Classic CAN frames.
 pub type BufferedCanReceiver = BufferedReceiver<'static, Envelope>;
+
+/// Implements RAII for the internal reference counting (TX side). Each TX type should contain one
+/// of these. The new method and the Drop impl will automatically call the reference counting
+/// function. Like this, the reference counting function does not need to be called manually for
+/// each TX type. Transceiver types (TX and RX) should contain one TxGuard and one RxGuard.
+pub(crate) struct TxGuard {
+    internal_operation: fn(InternalOperation),
+}
+impl TxGuard {
+    pub(crate) fn new(internal_operation: fn(InternalOperation)) -> Self {
+        internal_operation(InternalOperation::NotifySenderCreated);
+        Self { internal_operation }
+    }
+}
+impl Drop for TxGuard {
+    fn drop(&mut self) {
+        (self.internal_operation)(InternalOperation::NotifySenderDestroyed);
+    }
+}
+
+/// Implements RAII for the internal reference counting (RX side). See TxGuard for further doc.
+pub(crate) struct RxGuard {
+    internal_operation: fn(InternalOperation),
+}
+impl RxGuard {
+    pub(crate) fn new(internal_operation: fn(InternalOperation)) -> Self {
+        internal_operation(InternalOperation::NotifyReceiverCreated);
+        Self { internal_operation }
+    }
+}
+impl Drop for RxGuard {
+    fn drop(&mut self) {
+        (self.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
+    }
+}
