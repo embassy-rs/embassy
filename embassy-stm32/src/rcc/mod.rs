@@ -95,6 +95,15 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
     unwrap!(CLOCK_FREQS_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init_ref()
 }
 
+/// Get the current clock configuration of the chip.
+pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clocks {
+    // Safety: the existence of a `Peri<RCC>` means that `rcc::init()`
+    // has already been called, so `CLOCK_FREQS` must be initialized.
+    // The clocks could be modified again by `reinit()`, but reinit
+    // (for this reason) requires an exclusive reference to `Peri<RCC>`.
+    unsafe { get_freqs() }
+}
+
 pub(crate) trait SealedRccPeripheral {
     fn frequency() -> Hertz;
     #[allow(dead_code)]
@@ -381,7 +390,7 @@ pub fn disable<T: RccPeripheral>() {
 ///
 /// This should only be called after `init`.
 #[cfg(not(feature = "_dual-core"))]
-pub fn reinit(config: Config) {
+pub fn reinit<'a>(config: Config, _rcc: &'a mut crate::Peri<'a, crate::peripherals::RCC>) {
     critical_section::with(|cs| init_rcc(cs, config))
 }
 
