@@ -15,9 +15,10 @@ pub use embedded_can::{ExtendedId, Id, StandardId};
 use self::filter::MasterFilters;
 use self::registers::{Registers, RxFifo};
 pub use super::common::{BufferedCanReceiver, BufferedCanSender};
+use super::common::{InfoRef, RxInfoRef, TxInfoRef};
 use super::frame::{Envelope, Frame};
 use super::util;
-use crate::can::enums::{BusError, InternalOperation, TryReadError};
+use crate::can::enums::{BusError, RefCountOp, TryReadError};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
@@ -90,7 +91,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterrup
             // an indefinite amount of time.
             let ier = T::regs().ier();
             ier.modify(|i| i.set_errie(false));
-
             T::info().state.lock(|state| {
                 state.borrow().err_waker.wake();
             });
@@ -101,7 +101,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterrup
 /// Configuration proxy returned by [`Can::modify_config`].
 pub struct CanConfig<'a> {
     phantom: PhantomData<&'a ()>,
-    info: &'static Info,
+    info: InfoRef,
     periph_clock: crate::time::Hertz,
 }
 
@@ -166,7 +166,7 @@ impl Drop for CanConfig<'_> {
 /// CAN driver
 pub struct Can<'d> {
     phantom: PhantomData<&'d ()>,
-    info: &'static Info,
+    info: InfoRef,
     periph_clock: crate::time::Hertz,
 }
 
@@ -236,7 +236,7 @@ impl<'d> Can<'d> {
 
         Self {
             phantom: PhantomData,
-            info: T::info(),
+            info: InfoRef::new(T::info()),
             periph_clock: T::frequency(),
         }
     }
@@ -256,7 +256,7 @@ impl<'d> Can<'d> {
 
         CanConfig {
             phantom: self.phantom,
-            info: self.info,
+            info: InfoRef::new(&self.info),
             periph_clock: self.periph_clock,
         }
     }
@@ -305,8 +305,8 @@ impl<'d> Can<'d> {
         self.info.regs.0.mcr().modify(|m| m.set_sleep(true));
 
         poll_fn(|cx| {
-            self.info.state.lock(|state| {
-                state.borrow().err_waker.register(cx.waker());
+            self.info.state.lock(|s| {
+                s.borrow().err_waker.register(cx.waker());
             });
             if self.is_sleeping() {
                 Poll::Ready(())
@@ -360,7 +360,7 @@ impl<'d> Can<'d> {
     pub async fn flush(&self, mb: Mailbox) {
         CanTx {
             _phantom: PhantomData,
-            info: self.info,
+            info: TxInfoRef::new(&self.info),
         }
         .flush_inner(mb)
         .await;
@@ -375,7 +375,7 @@ impl<'d> Can<'d> {
     pub async fn flush_any(&self) {
         CanTx {
             _phantom: PhantomData,
-            info: self.info,
+            info: TxInfoRef::new(&self.info),
         }
         .flush_any_inner()
         .await
@@ -385,7 +385,7 @@ impl<'d> Can<'d> {
     pub async fn flush_all(&self) {
         CanTx {
             _phantom: PhantomData,
-            info: self.info,
+            info: TxInfoRef::new(&self.info),
         }
         .flush_all_inner()
         .await
@@ -413,19 +413,19 @@ impl<'d> Can<'d> {
     ///
     /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        RxMode::read(self.info).await
+        RxMode::read(&self.info).await
     }
 
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
     pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
-        RxMode::try_read(self.info)
+        RxMode::try_read(&self.info)
     }
 
     /// Waits while receive queue is empty.
     pub async fn wait_not_empty(&mut self) {
-        RxMode::wait_not_empty(self.info).await
+        RxMode::wait_not_empty(&self.info).await
     }
 
     /// Split the CAN driver into transmit and receive halves.
@@ -435,11 +435,11 @@ impl<'d> Can<'d> {
         (
             CanTx {
                 _phantom: PhantomData,
-                info: self.info,
+                info: TxInfoRef::new(&self.info),
             },
             CanRx {
                 _phantom: PhantomData,
-                info: self.info,
+                info: RxInfoRef::new(&self.info),
             },
         )
     }
@@ -464,7 +464,7 @@ impl<'d> Can<'d> {
     /// To modify filters of a slave peripheral, `modify_filters` has to be called on the master
     /// peripheral instead.
     pub fn modify_filters(&mut self) -> MasterFilters<'_> {
-        unsafe { MasterFilters::new(self.info) }
+        unsafe { MasterFilters::new(&self.info) }
     }
 }
 
@@ -519,7 +519,7 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
 /// CAN driver, transmit half.
 pub struct CanTx<'d> {
     _phantom: PhantomData<&'d ()>,
-    info: &'static Info,
+    info: TxInfoRef,
 }
 
 impl<'d> CanTx<'d> {
@@ -528,8 +528,8 @@ impl<'d> CanTx<'d> {
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
     pub async fn write(&mut self, frame: &Frame) -> TransmitStatus {
         poll_fn(|cx| {
-            self.info.state.lock(|state| {
-                state.borrow().tx_mode.register(cx.waker());
+            self.info.state.lock(|s| {
+                s.borrow().tx_mode.register(cx.waker());
             });
             if let Ok(status) = self.info.regs.transmit(frame) {
                 return Poll::Ready(status);
@@ -555,8 +555,8 @@ impl<'d> CanTx<'d> {
 
     async fn flush_inner(&self, mb: Mailbox) {
         poll_fn(|cx| {
-            self.info.state.lock(|state| {
-                state.borrow().tx_mode.register(cx.waker());
+            self.info.state.lock(|s| {
+                s.borrow().tx_mode.register(cx.waker());
             });
             if self.info.regs.0.tsr().read().tme(mb.index()) {
                 return Poll::Ready(());
@@ -574,8 +574,8 @@ impl<'d> CanTx<'d> {
 
     async fn flush_any_inner(&self) {
         poll_fn(|cx| {
-            self.info.state.lock(|state| {
-                state.borrow().tx_mode.register(cx.waker());
+            self.info.state.lock(|s| {
+                s.borrow().tx_mode.register(cx.waker());
             });
 
             let tsr = self.info.regs.0.tsr().read();
@@ -603,8 +603,8 @@ impl<'d> CanTx<'d> {
 
     async fn flush_all_inner(&self) {
         poll_fn(|cx| {
-            self.info.state.lock(|state| {
-                state.borrow().tx_mode.register(cx.waker());
+            self.info.state.lock(|s| {
+                s.borrow().tx_mode.register(cx.waker());
             });
 
             let tsr = self.info.regs.0.tsr().read();
@@ -646,7 +646,7 @@ impl<'d> CanTx<'d> {
         self,
         txb: &'static mut TxBuf<TX_BUF_SIZE>,
     ) -> BufferedCanTx<'d, TX_BUF_SIZE> {
-        BufferedCanTx::new(self.info, self, txb)
+        BufferedCanTx::new(&self.info, self, txb)
     }
 }
 
@@ -655,23 +655,30 @@ pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, 
 
 /// Buffered CAN driver, transmit half.
 pub struct BufferedCanTx<'d, const TX_BUF_SIZE: usize> {
-    info: &'static Info,
+    info: TxInfoRef,
     _tx: CanTx<'d>,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
 }
 
 impl<'d, const TX_BUF_SIZE: usize> BufferedCanTx<'d, TX_BUF_SIZE> {
     fn new(info: &'static Info, _tx: CanTx<'d>, tx_buf: &'static TxBuf<TX_BUF_SIZE>) -> Self {
-        Self { info, _tx, tx_buf }.setup()
+        Self {
+            info: TxInfoRef::new(info),
+            _tx,
+            tx_buf,
+        }
+        .setup()
     }
 
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
-        let tx_inner = super::common::ClassicBufferedTxInner {
-            tx_receiver: self.tx_buf.receiver().into(),
-        };
-        self.info.state.lock(|state| {
-            state.borrow_mut().tx_mode = TxMode::Buffered(tx_inner);
+        critical_section::with(|_| {
+            let tx_inner = super::common::ClassicBufferedTxInner {
+                tx_receiver: self.tx_buf.receiver().into(),
+            };
+            self.info.state.lock(|s| {
+                s.borrow_mut().tx_mode = TxMode::Buffered(tx_inner);
+            });
         });
         self
     }
@@ -685,18 +692,10 @@ impl<'d, const TX_BUF_SIZE: usize> BufferedCanTx<'d, TX_BUF_SIZE> {
 
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedCanSender {
-        (self.info.internal_operation)(InternalOperation::NotifySenderCreated);
         BufferedCanSender {
             tx_buf: self.tx_buf.sender().into(),
-            waker: self.info.tx_waker,
-            internal_operation: self.info.internal_operation,
+            info: TxInfoRef::new(&self.info),
         }
-    }
-}
-
-impl<'d, const TX_BUF_SIZE: usize> Drop for BufferedCanTx<'d, TX_BUF_SIZE> {
-    fn drop(&mut self) {
-        (self.info.internal_operation)(InternalOperation::NotifySenderDestroyed);
     }
 }
 
@@ -704,7 +703,7 @@ impl<'d, const TX_BUF_SIZE: usize> Drop for BufferedCanTx<'d, TX_BUF_SIZE> {
 #[allow(dead_code)]
 pub struct CanRx<'d> {
     _phantom: PhantomData<&'d ()>,
-    info: &'static Info,
+    info: RxInfoRef,
 }
 
 impl<'d> CanRx<'d> {
@@ -714,19 +713,19 @@ impl<'d> CanRx<'d> {
     ///
     /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        RxMode::read(self.info).await
+        RxMode::read(&self.info).await
     }
 
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
     pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
-        RxMode::try_read(self.info)
+        RxMode::try_read(&self.info)
     }
 
     /// Waits while receive queue is empty.
     pub async fn wait_not_empty(&mut self) {
-        RxMode::wait_not_empty(self.info).await
+        RxMode::wait_not_empty(&self.info).await
     }
 
     /// Return a buffered instance of driver. User must supply Buffers
@@ -734,7 +733,7 @@ impl<'d> CanRx<'d> {
         self,
         rxb: &'static mut RxBuf<RX_BUF_SIZE>,
     ) -> BufferedCanRx<'d, RX_BUF_SIZE> {
-        BufferedCanRx::new(self.info, self, rxb)
+        BufferedCanRx::new(&self.info, self, rxb)
     }
 
     /// Accesses the filter banks owned by this CAN peripheral.
@@ -742,7 +741,7 @@ impl<'d> CanRx<'d> {
     /// To modify filters of a slave peripheral, `modify_filters` has to be called on the master
     /// peripheral instead.
     pub fn modify_filters(&mut self) -> MasterFilters<'_> {
-        unsafe { MasterFilters::new(self.info) }
+        unsafe { MasterFilters::new(&self.info) }
     }
 }
 
@@ -751,23 +750,30 @@ pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Result<
 
 /// CAN driver, receive half in Buffered mode.
 pub struct BufferedCanRx<'d, const RX_BUF_SIZE: usize> {
-    info: &'static Info,
+    info: RxInfoRef,
     rx: CanRx<'d>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
 }
 
 impl<'d, const RX_BUF_SIZE: usize> BufferedCanRx<'d, RX_BUF_SIZE> {
     fn new(info: &'static Info, rx: CanRx<'d>, rx_buf: &'static RxBuf<RX_BUF_SIZE>) -> Self {
-        BufferedCanRx { info, rx, rx_buf }.setup()
+        BufferedCanRx {
+            info: RxInfoRef::new(info),
+            rx,
+            rx_buf,
+        }
+        .setup()
     }
 
     fn setup(self) -> Self {
         // We don't want interrupts being processed while we change modes.
-        let rx_inner = super::common::ClassicBufferedRxInner {
-            rx_sender: self.rx_buf.sender().into(),
-        };
-        self.info.state.lock(|state| {
-            state.borrow_mut().rx_mode = RxMode::Buffered(rx_inner);
+        critical_section::with(|_| {
+            let rx_inner = super::common::ClassicBufferedRxInner {
+                rx_sender: self.rx_buf.sender().into(),
+            };
+            self.info.state.lock(|s| {
+                s.borrow_mut().rx_mode = RxMode::Buffered(rx_inner);
+            });
         });
         self
     }
@@ -809,10 +815,9 @@ impl<'d, const RX_BUF_SIZE: usize> BufferedCanRx<'d, RX_BUF_SIZE> {
 
     /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
     pub fn reader(&self) -> BufferedCanReceiver {
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverCreated);
         BufferedCanReceiver {
             rx_buf: self.rx_buf.receiver().into(),
-            internal_operation: self.info.internal_operation,
+            info: RxInfoRef::new(&self.info),
         }
     }
 
@@ -822,12 +827,6 @@ impl<'d, const RX_BUF_SIZE: usize> BufferedCanRx<'d, RX_BUF_SIZE> {
     /// peripheral instead.
     pub fn modify_filters(&mut self) -> MasterFilters<'_> {
         self.rx.modify_filters()
-    }
-}
-
-impl<'d, const RX_BUF_SIZE: usize> Drop for BufferedCanRx<'d, RX_BUF_SIZE> {
-    fn drop(&mut self) {
-        (self.info.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
     }
 }
 
@@ -1005,6 +1004,7 @@ impl TxMode {
     pub fn on_interrupt<T: Instance>(&self) {
         T::info().state.lock(|state| {
             let tx_mode = &state.borrow().tx_mode;
+
             match tx_mode {
                 TxMode::NonBuffered(waker) => waker.wake(),
                 TxMode::Buffered(buf) => {
@@ -1062,8 +1062,7 @@ pub(crate) struct Info {
     rx0_interrupt: crate::interrupt::Interrupt,
     rx1_interrupt: crate::interrupt::Interrupt,
     sce_interrupt: crate::interrupt::Interrupt,
-    tx_waker: fn(),
-    internal_operation: fn(InternalOperation),
+    pub(crate) tx_waker: fn(),
     state: SharedState,
 
     /// The total number of filter banks available to the instance.
@@ -1072,10 +1071,37 @@ pub(crate) struct Info {
     num_filter_banks: u8,
 }
 
+impl Info {
+    pub(crate) fn adjust_reference_counter(&self, val: RefCountOp) {
+        self.state.lock(|s| {
+            let mut mut_state = s.borrow_mut();
+            match val {
+                RefCountOp::NotifySenderCreated => {
+                    mut_state.sender_instance_count += 1;
+                }
+                RefCountOp::NotifySenderDestroyed => {
+                    mut_state.sender_instance_count -= 1;
+                    if 0 == mut_state.sender_instance_count {
+                        (*mut_state).tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+                    }
+                }
+                RefCountOp::NotifyReceiverCreated => {
+                    mut_state.receiver_instance_count += 1;
+                }
+                RefCountOp::NotifyReceiverDestroyed => {
+                    mut_state.receiver_instance_count -= 1;
+                    if 0 == mut_state.receiver_instance_count {
+                        (*mut_state).rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+                    }
+                }
+            }
+        });
+    }
+}
+
 trait SealedInstance {
     fn info() -> &'static Info;
     fn regs() -> crate::pac::can::Can;
-    fn internal_operation(val: InternalOperation);
 }
 
 /// CAN instance trait.
@@ -1133,43 +1159,16 @@ foreach_peripheral!(
                     rx1_interrupt: crate::_generated::peripheral_interrupts::$inst::RX1::IRQ,
                     sce_interrupt: crate::_generated::peripheral_interrupts::$inst::SCE::IRQ,
                     tx_waker: crate::_generated::peripheral_interrupts::$inst::TX::pend,
-                    internal_operation: peripherals::$inst::internal_operation,
-                    state: embassy_sync::blocking_mutex::Mutex::new(core::cell::RefCell::new(State::new())),
                     num_filter_banks: peripherals::$inst::NUM_FILTER_BANKS,
+                    state: embassy_sync::blocking_mutex::Mutex::new(core::cell::RefCell::new(State::new())),
                 };
                 &INFO
             }
             fn regs() -> crate::pac::can::Can {
                 crate::pac::$inst
             }
-
-            fn internal_operation(val: InternalOperation) {
-                peripherals::$inst::info().state.lock(|s| {
-                    let mut mut_state = s.borrow_mut();
-                        //let mut_state = state as *mut State;
-                        match val {
-                            InternalOperation::NotifySenderCreated => {
-                                mut_state.sender_instance_count += 1;
-                            }
-                            InternalOperation::NotifySenderDestroyed => {
-                                mut_state.sender_instance_count -= 1;
-                                if ( 0 == mut_state.sender_instance_count) {
-                                    (*mut_state).tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
-                                }
-                            }
-                            InternalOperation::NotifyReceiverCreated => {
-                                mut_state.receiver_instance_count += 1;
-                            }
-                            InternalOperation::NotifyReceiverDestroyed => {
-                                mut_state.receiver_instance_count -= 1;
-                                if ( 0 == mut_state.receiver_instance_count) {
-                                    (*mut_state).rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
-                                }
-                            }
-                        }
-                });
-            }
         }
+
         impl Instance for peripherals::$inst {
             type TXInterrupt = crate::_generated::peripheral_interrupts::$inst::TX;
             type RX0Interrupt = crate::_generated::peripheral_interrupts::$inst::RX0;
