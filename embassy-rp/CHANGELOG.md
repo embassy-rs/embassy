@@ -5,7 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+<!-- next-header -->
+## Unreleased - ReleaseDate
 
 - Fix wrong `funcsel` on RP2350 gpout/gpin ([#3975](https://github.com/embassy-rs/embassy/pull/3975))
 - Fix potential race condition in `ADC::wait_for_ready` ([#4012](https://github.com/embassy-rs/embassy/pull/4012))
