@@ -5,16 +5,22 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::bind_interrupts;
 use embassy_rp::rtc::{DateTime, DayOfWeek, Rtc};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+
+// Bind the RTC interrupt to the handler
+bind_interrupts!(struct Irqs {
+    RTC_IRQ => embassy_rp::rtc::InterruptHandler;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Wait for 20s");
 
-    let mut rtc = Rtc::new(p.RTC);
+    let mut rtc = Rtc::new(p.RTC, Irqs);
 
     if !rtc.is_running() {
         info!("Start RTC");
