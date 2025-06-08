@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- `UAC1`: unmute by default ([#3992](https://github.com/embassy-rs/embassy/pull/3992))
+- `cdc_acm`: `State::new` is now `const` ([#4000](https://github.com/embassy-rs/embassy/pull/4000))
+- Add support for CMSIS-DAP v2 USB class ([#4107](https://github.com/embassy-rs/embassy/pull/4107))
+- Reduce `UsbDevice` builder logs to `trace` ([#4130](https://github.com/embassy-rs/embassy/pull/4130))
+- Implement `embedded-io-async` traits for USB CDC ACM ([#4176](https://github.com/embassy-rs/embassy/pull/4176))
+- Update `embassy-sync` to v0.7.0
+
 ## 0.4.0 - 2025-01-15
 
 - Change config defaults to to composite with IADs. This ensures embassy-usb Just Works in more cases when using classes with multiple interfaces, or multiple classes. (breaking change)
