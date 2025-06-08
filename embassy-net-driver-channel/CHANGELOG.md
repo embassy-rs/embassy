@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- Update `embassy-sync` to v0.7.0
+
 ## 0.3.0 - 2024-08-05
 
 - Add collapse_debuginfo to fmt.rs macros.
