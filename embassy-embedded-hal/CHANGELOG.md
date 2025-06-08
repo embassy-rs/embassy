@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- `SpiDevice` cancel safety: always set CS pin to high on drop
+- Update `embassy-sync` to v0.7.0
+
 ## 0.3.0 - 2025-01-05
 
 - The `std` feature has been removed
