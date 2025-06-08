@@ -5,7 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+<!-- next-header -->
+## Unreleased - ReleaseDate
 
 - `UAC1`: unmute by default ([#3992](https://github.com/embassy-rs/embassy/pull/3992))
 - `cdc_acm`: `State::new` is now `const` ([#4000](https://github.com/embassy-rs/embassy/pull/4000))
