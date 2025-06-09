@@ -567,6 +567,14 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
     }
 
+    /// Set output compare preload enable
+    pub fn set_output_compare_preload_enable(&self, channel: Channel, enable: bool) {
+        let raw_channel: usize = channel.index();
+        self.regs_gp16()
+            .ccmr_output(raw_channel / 2)
+            .modify(|w| w.set_ocpe(channel as usize, enable));
+    }
+
     /// Set output polarity.
     pub fn set_output_polarity(&self, channel: Channel, polarity: OutputPolarity) {
         self.regs_gp16()

@@ -94,6 +94,10 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Enable/disable autoreload preload.
     pub fn set_autoreload_preload(&self, enable: bool) {
+        self.inner.set_output_compare_preload_enable(Channel::Ch1, enable);
+        self.inner.set_output_compare_preload_enable(Channel::Ch2, enable);
+        self.inner.set_output_compare_preload_enable(Channel::Ch3, enable);
+        self.inner.set_output_compare_preload_enable(Channel::Ch4, enable);
         self.inner.set_autoreload_preload(enable);
     }
 
