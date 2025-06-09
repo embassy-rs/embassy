@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{State, REVERT_MAGIC, STATE_ERASE_VALUE};
+use crate::{State, REVERT_MAGIC, STATE_ERASE_VALUE}; // AlignedBuffer removed here implicitly if it was present
 
 /// Describes the type of partition, either Active or Dfu.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
