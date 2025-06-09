@@ -567,7 +567,7 @@ unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     unsafe {
         core.MPU.ctrl.write(5); // enable mpu with background default map
         core.MPU.rbar.write(stack_bottom as u32 & !0xff); // set address
-        core.MPU.rlar.write(1); // enable region
+        core.MPU.rlar.write(((stack_bottom as usize + 255) as u32) | 1);
     }
     Ok(())
 }
