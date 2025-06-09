@@ -92,6 +92,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         this
     }
 
+    /// Enable/disable autoreload preload.
+    pub fn set_autoreload_preload(&self, enable: bool) {
+        self.inner.set_autoreload_preload(enable);
+    }
+
     /// Set Master Slave Mode 2
     pub fn set_mms2(&mut self, mms2: Mms2) {
         self.inner.set_mms2_selection(mms2);
