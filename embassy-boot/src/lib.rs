@@ -30,6 +30,13 @@ pub(crate) const BOOT_MAGIC: u8 = 0xD0;
 pub(crate) const SWAP_MAGIC: u8 = 0xF0;
 pub(crate) const DFU_DETACH_MAGIC: u8 = 0xE0;
 
+#[cfg(feature = "recovery")]
+pub(crate) const TRY_BOOT_MAGIC: u8 = 0xE1;
+#[cfg(feature = "recovery")]
+pub(crate) const BACKUP_MAGIC: u8 = 0xE2;
+#[cfg(feature = "recovery")]
+pub(crate) const RESTORE_MAGIC: u8 = 0xE3;
+
 /// The state of the bootloader after running prepare.
 #[derive(PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -42,6 +49,15 @@ pub enum State {
     Revert,
     /// Application has received a request to reboot into DFU mode to apply an update.
     DfuDetach,
+    /// Application has requested a backup of the active partition to DFU.
+    #[cfg(feature = "recovery")]
+    Backup,
+    /// Application has requested a restore from DFU to the active partition.
+    #[cfg(feature = "recovery")]
+    Restore,
+    /// Bootloader will attempt to boot the active partition, but will increment a counter.
+    #[cfg(feature = "recovery")]
+    TryBoot,
 }
 
 impl<T> From<T> for State
@@ -56,7 +72,20 @@ where
             State::Revert
         } else if !magic.iter().any(|&b| b != DFU_DETACH_MAGIC) {
             State::DfuDetach
-        } else {
+        }
+        #[cfg(feature = "recovery")]
+        else if !magic.iter().any(|&b| b != BACKUP_MAGIC) {
+            State::Backup
+        }
+        #[cfg(feature = "recovery")]
+        else if !magic.iter().any(|&b| b != RESTORE_MAGIC) {
+            State::Restore
+        }
+        #[cfg(feature = "recovery")]
+        else if !magic.iter().any(|&b| b != TRY_BOOT_MAGIC) {
+            State::TryBoot
+        }
+         else {
             State::Boot
         }
     }
