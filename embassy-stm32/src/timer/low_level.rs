@@ -576,7 +576,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         let raw_channel: usize = channel.index();
         self.regs_gp16()
             .ccmr_output(raw_channel / 2)
-            .modify(|w| w.set_ocpe(channel as usize, enable));
+            .modify(|w| w.set_ocpe(raw_channel % 2, enable));
     }
 
     /// Set output polarity.
