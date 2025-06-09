@@ -59,6 +59,8 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
                 full: false,
                 send_waker: WakerRegistration::new(),
                 receive_waker: WakerRegistration::new(),
+                have_sender: false,
+                have_receiver: false,
             })),
         }
     }
@@ -68,14 +70,37 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
     /// Further Senders and Receivers can be created through [`Sender::borrow`] and
     /// [`Receiver::borrow`] respectively.
     pub fn split(&mut self) -> (Sender<'_, M, T>, Receiver<'_, M, T>) {
+        let mut s = self.state.get_mut().borrow_mut();
+        // We can unconditionally add a sender/receiver since
+        // split() takes a mut reference, so there must be no
+        // existing Sender or Receiver.
+        s.add_sender();
+        s.add_receiver();
+        drop(s);
         (Sender { channel: self }, Receiver { channel: self })
+    }
+
+    /// Create a [`Receiver`] from an existing channel.
+    ///
+    /// Only one `Receiver` may be borrowed.
+    pub fn receiver(&self) -> Option<Receiver<'_, M, T>> {
+        self.state
+            .lock(|s| s.borrow_mut().add_receiver())
+            .then(|| Receiver { channel: self })
+    }
+
+    /// Create a [`Sender`] from an existing channel.
+    ///
+    /// Only one `Sender` may be borrowed.
+    pub fn sender(&self) -> Option<Sender<'_, M, T>> {
+        self.state
+            .lock(|s| s.borrow_mut().add_sender())
+            .then(|| Sender { channel: self })
     }
 
     /// Clears all elements in the channel.
     pub fn clear(&mut self) {
-        self.state.lock(|s| {
-            s.borrow_mut().clear();
-        });
+        self.state.get_mut().borrow_mut().clear();
     }
 
     /// Returns the number of elements currently in the channel.
@@ -189,6 +214,12 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
     }
 }
 
+impl<M: RawMutex, T> Drop for Sender<'_, M, T> {
+    fn drop(&mut self) {
+        self.channel.state.lock(|s| s.borrow_mut().remove_sender())
+    }
+}
+
 /// Receive-only access to a [`Channel`].
 pub struct Receiver<'a, M: RawMutex, T> {
     channel: &'a Channel<'a, M, T>,
@@ -272,6 +303,12 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     }
 }
 
+impl<M: RawMutex, T> Drop for Receiver<'_, M, T> {
+    fn drop(&mut self) {
+        self.channel.state.lock(|s| s.borrow_mut().remove_receiver())
+    }
+}
+
 struct State {
     /// Maximum number of elements the channel can hold.
     capacity: usize,
@@ -287,6 +324,9 @@ struct State {
 
     send_waker: WakerRegistration,
     receive_waker: WakerRegistration,
+
+    have_receiver: bool,
+    have_sender: bool,
 }
 
 impl State {
@@ -355,5 +395,84 @@ impl State {
         self.front = self.increment(self.front);
         self.full = false;
         self.receive_waker.wake();
+    }
+
+    // Returns true if a sender was added, false if one already existed
+    fn add_sender(&mut self) -> bool {
+        !core::mem::replace(&mut self.have_sender, true)
+    }
+
+    fn remove_sender(&mut self) {
+        debug_assert!(self.have_sender);
+        self.have_sender = false;
+    }
+
+    // Returns true if a receiver was added, false if one already existed
+    fn add_receiver(&mut self) -> bool {
+        !core::mem::replace(&mut self.have_receiver, true)
+    }
+
+    fn remove_receiver(&mut self) {
+        debug_assert!(self.have_receiver);
+        self.have_receiver = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blocking_mutex::raw::NoopRawMutex;
+
+    #[test]
+    fn split() {
+        let mut buf = [0u32; 10];
+        let mut c = Channel::<NoopRawMutex, _>::new(&mut buf);
+
+        let (mut s, mut r) = c.split();
+
+        *s.try_send().unwrap() = 4;
+        s.send_done();
+
+        let b = r.try_receive().unwrap();
+        assert_eq!(*b, 4);
+        let b = r.try_receive().unwrap();
+        assert_eq!(*b, 4);
+        r.receive_done();
+        let b = r.try_receive();
+        assert!(b.is_none());
+    }
+
+    #[test]
+    fn sender_receiver() {
+        let mut buf = [0u32; 10];
+        let c = Channel::<NoopRawMutex, _>::new(&mut buf);
+
+        let mut s = c.sender().unwrap();
+        assert!(c.sender().is_none(), "can't borrow again");
+
+        *s.try_send().unwrap() = 4;
+        s.send_done();
+        drop(s);
+
+        let mut s = c.sender().unwrap();
+        *s.try_send().unwrap() = 5;
+        s.send_done();
+
+        let mut r = c.receiver().unwrap();
+        assert!(c.receiver().is_none(), "can't borrow again");
+
+        let b = r.try_receive().unwrap();
+        assert_eq!(*b, 4);
+        let b = r.try_receive().unwrap();
+        assert_eq!(*b, 4);
+        r.receive_done();
+
+        drop(r);
+        let mut r = c.receiver().unwrap();
+        let b = r.try_receive().unwrap();
+        assert_eq!(*b, 5);
+        r.receive_done();
+        let b = r.try_receive();
+        assert!(b.is_none());
     }
 }
