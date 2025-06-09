@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{AlignedBuffer, State, BOOT_MAGIC, DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{State, REVERT_MAGIC, STATE_ERASE_VALUE};
 
 /// Describes the type of partition, either Active or Dfu.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -19,16 +19,16 @@ pub enum PartitionType {
 
 /// Offset of the retry counter in the state partition.
 #[cfg(feature = "recovery")]
-const RETRY_COUNTER_OFFSET: usize = AlignedBuffer::<1>::size_of();
+const RETRY_COUNTER_OFFSET: usize = 1;
 /// Offset of the progress validity marker in the state partition.
-const PROGRESS_VALIDITY_OFFSET: usize = AlignedBuffer::<1>::size_of()
+const PROGRESS_VALIDITY_OFFSET: usize = 1
     + if cfg!(feature = "recovery") {
-        AlignedBuffer::<1>::size_of()
+        1
     } else {
         0
     };
 /// Offset of the progress start in the state partition.
-const PROGRESS_START_OFFSET: usize = PROGRESS_VALIDITY_OFFSET + AlignedBuffer::<1>::size_of();
+const PROGRESS_START_OFFSET: usize = PROGRESS_VALIDITY_OFFSET + 1;
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -330,12 +330,11 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     /// |       DFU |            3 |      4 |      5 |      6 |      3 |
     ///
     pub fn prepare_boot(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
-        const {
-            core::assert!(Self::PAGE_SIZE % ACTIVE::WRITE_SIZE as u32 == 0);
-            core::assert!(Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32 == 0);
-            core::assert!(Self::PAGE_SIZE % DFU::WRITE_SIZE as u32 == 0);
-            core::assert!(Self::PAGE_SIZE % DFU::ERASE_SIZE as u32 == 0);
-        }
+        // Runtime assertions, previously an inline const block
+        assert!(Self::PAGE_SIZE % ACTIVE::WRITE_SIZE as u32 == 0);
+        assert!(Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32 == 0);
+        assert!(Self::PAGE_SIZE % DFU::WRITE_SIZE as u32 == 0);
+        assert!(Self::PAGE_SIZE % DFU::ERASE_SIZE as u32 == 0);
 
         // Ensure we have enough progress pages to store copy progress
         assert_eq!(0, Self::PAGE_SIZE % aligned_buf.len() as u32);
@@ -549,15 +548,19 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         partition_type: PartitionType,
         page_buf: &mut [u8],
     ) -> Result<(), BootError> {
-        let (flash, size) = match partition_type {
-            PartitionType::Active => (&mut self.active as &mut dyn NorFlash, self.active.capacity() as u32),
-            PartitionType::Dfu => (&mut self.dfu as &mut dyn NorFlash, self.dfu.capacity() as u32),
-        };
-
-        assert_eq!(page_buf.len() as u32 % flash.read_size() as u32, 0);
-
-        for offset in (0..size).step_by(page_buf.len()) {
-            flash.read(offset, page_buf)?;
+        match partition_type {
+            PartitionType::Active => {
+                assert_eq!(page_buf.len() as u32 % ACTIVE::READ_SIZE as u32, 0);
+                for offset in (0..self.active.capacity() as u32).step_by(page_buf.len()) {
+                    self.active.read(offset, page_buf).map_err(BootError::from)?;
+                }
+            }
+            PartitionType::Dfu => {
+                assert_eq!(page_buf.len() as u32 % DFU::READ_SIZE as u32, 0);
+                for offset in (0..self.dfu.capacity() as u32).step_by(page_buf.len()) {
+                    self.dfu.read(offset, page_buf).map_err(BootError::from)?;
+                }
+            }
         }
         Ok(())
     }

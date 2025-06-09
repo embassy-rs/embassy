@@ -67,27 +67,23 @@ where
     fn from(magic: T) -> State {
         let magic = magic.as_ref();
         if !magic.iter().any(|&b| b != SWAP_MAGIC) {
-            State::Swap
+            return State::Swap;
         } else if !magic.iter().any(|&b| b != REVERT_MAGIC) {
-            State::Revert
+            return State::Revert;
         } else if !magic.iter().any(|&b| b != DFU_DETACH_MAGIC) {
-            State::DfuDetach
+            return State::DfuDetach;
         }
         #[cfg(feature = "recovery")]
-        else if !magic.iter().any(|&b| b != BACKUP_MAGIC) {
-            State::Backup
+        {
+            if !magic.iter().any(|&b| b != BACKUP_MAGIC) {
+                return State::Backup;
+            } else if !magic.iter().any(|&b| b != RESTORE_MAGIC) {
+                return State::Restore;
+            } else if !magic.iter().any(|&b| b != TRY_BOOT_MAGIC) {
+                return State::TryBoot;
+            }
         }
-        #[cfg(feature = "recovery")]
-        else if !magic.iter().any(|&b| b != RESTORE_MAGIC) {
-            State::Restore
-        }
-        #[cfg(feature = "recovery")]
-        else if !magic.iter().any(|&b| b != TRY_BOOT_MAGIC) {
-            State::TryBoot
-        }
-         else {
-            State::Boot
-        }
+        return State::Boot;
     }
 }
 
