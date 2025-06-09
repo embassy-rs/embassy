@@ -21,12 +21,7 @@ pub enum PartitionType {
 #[cfg(feature = "recovery")]
 const RETRY_COUNTER_OFFSET: usize = 1;
 /// Offset of the progress validity marker in the state partition.
-const PROGRESS_VALIDITY_OFFSET: usize = 1
-    + if cfg!(feature = "recovery") {
-        1
-    } else {
-        0
-    };
+const PROGRESS_VALIDITY_OFFSET: usize = 1 + if cfg!(feature = "recovery") { 1 } else { 0 };
 /// Offset of the progress start in the state partition.
 const PROGRESS_START_OFFSET: usize = PROGRESS_VALIDITY_OFFSET + 1;
 
@@ -237,6 +232,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         Ok(())
     }
 
+    #[cfg(feature = "recovery")]
     fn copy_partition_internal<F1: NorFlash, F2: NorFlash>(
         from_flash: &mut F1,
         to_flash: &mut F2,
@@ -421,10 +417,8 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         let write_size = STATE::WRITE_SIZE;
         let state_word = &mut aligned_buf[..write_size];
         state_word.fill(!STATE_ERASE_VALUE);
-        self.state.write(
-            (PROGRESS_START_OFFSET + progress_index * write_size) as u32,
-            state_word,
-        )?;
+        self.state
+            .write((PROGRESS_START_OFFSET + progress_index * write_size) as u32, state_word)?;
         Ok(())
     }
 
@@ -543,11 +537,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     /// Verify a partition by reading its content page by page.
     /// The `page_buf` must be large enough to read a whole page, or a reasonable chunk size.
     /// Its length must be a multiple of the read alignment of the partition.
-    pub fn verify_partition(
-        &mut self,
-        partition_type: PartitionType,
-        page_buf: &mut [u8],
-    ) -> Result<(), BootError> {
+    pub fn verify_partition(&mut self, partition_type: PartitionType, page_buf: &mut [u8]) -> Result<(), BootError> {
         match partition_type {
             PartitionType::Active => {
                 assert_eq!(page_buf.len() as u32 % ACTIVE::READ_SIZE as u32, 0);
@@ -648,7 +638,6 @@ mod tests {
             let mut aligned_buf = [STATE_ERASE_VALUE; PAGE_SIZE]; // Adjusted to typical page size for flash ops
             assert!(aligned_buf.len() >= STATE::WRITE_SIZE);
 
-
             // Simulate a fresh boot or successful boot
             bootloader.mark_booted(&mut aligned_buf).unwrap();
             let counter = bootloader.read_retry_counter(&mut aligned_buf).unwrap();
@@ -659,7 +648,7 @@ mod tests {
         fn test_retry_counter_increment() {
             let mut bootloader = new_bootloader();
             let mut aligned_buf = [STATE_ERASE_VALUE; PAGE_SIZE];
-             assert!(aligned_buf.len() >= STATE::WRITE_SIZE);
+            assert!(aligned_buf.len() >= STATE::WRITE_SIZE);
 
             // Reset counter first (e.g. by mark_booted)
             bootloader.mark_booted(&mut aligned_buf).unwrap();
@@ -714,7 +703,10 @@ mod tests {
             bootloader.mark_try_boot(&mut aligned_buf).unwrap();
             // mark_try_boot should now only set magic and not touch the counter.
             assert_eq!(read_magic(&mut bootloader, &mut aligned_buf), TRY_BOOT_MAGIC);
-            assert_eq!(bootloader.read_retry_counter(&mut aligned_buf).unwrap(), initial_counter);
+            assert_eq!(
+                bootloader.read_retry_counter(&mut aligned_buf).unwrap(),
+                initial_counter
+            );
         }
 
         #[test]
@@ -729,25 +721,42 @@ mod tests {
 
             bootloader.mark_restore(&mut aligned_buf).unwrap();
             // mark_restore should not change the counter itself, only set_magic_internal might if it was BOOT_MAGIC
-            assert_eq!(bootloader.read_retry_counter(&mut aligned_buf).unwrap(), initial_counter);
+            assert_eq!(
+                bootloader.read_retry_counter(&mut aligned_buf).unwrap(),
+                initial_counter
+            );
         }
 
-        fn read_magic(bootloader: &mut BootLoader<
-            MemFlash<ACTIVE_PARTITION_SIZE, PAGE_SIZE, 4>,
-            MemFlash<DFU_PARTITION_SIZE, PAGE_SIZE, 4>,
-            MemFlash<STATE_PARTITION_SIZE, PAGE_SIZE, 4>,
-        >, aligned_buf: &mut [u8]) -> u8 {
+        fn read_magic(
+            bootloader: &mut BootLoader<
+                MemFlash<ACTIVE_PARTITION_SIZE, PAGE_SIZE, 4>,
+                MemFlash<DFU_PARTITION_SIZE, PAGE_SIZE, 4>,
+                MemFlash<STATE_PARTITION_SIZE, PAGE_SIZE, 4>,
+            >,
+            aligned_buf: &mut [u8],
+        ) -> u8 {
             bootloader.state.read(0, &mut aligned_buf[..STATE::WRITE_SIZE]).unwrap();
             aligned_buf[0]
         }
 
-        fn check_progress_invalidated(bootloader: &mut BootLoader<
-            MemFlash<ACTIVE_PARTITION_SIZE, PAGE_SIZE, 4>,
-            MemFlash<DFU_PARTITION_SIZE, PAGE_SIZE, 4>,
-            MemFlash<STATE_PARTITION_SIZE, PAGE_SIZE, 4>,
-        >, aligned_buf: &mut [u8]){
-            bootloader.state.read(PROGRESS_VALIDITY_OFFSET as u32, &mut aligned_buf[..STATE::WRITE_SIZE]).unwrap();
-            assert!(aligned_buf[..STATE::WRITE_SIZE].iter().all(|&b| b == !STATE_ERASE_VALUE), "Progress should be invalidated");
+        fn check_progress_invalidated(
+            bootloader: &mut BootLoader<
+                MemFlash<ACTIVE_PARTITION_SIZE, PAGE_SIZE, 4>,
+                MemFlash<DFU_PARTITION_SIZE, PAGE_SIZE, 4>,
+                MemFlash<STATE_PARTITION_SIZE, PAGE_SIZE, 4>,
+            >,
+            aligned_buf: &mut [u8],
+        ) {
+            bootloader
+                .state
+                .read(PROGRESS_VALIDITY_OFFSET as u32, &mut aligned_buf[..STATE::WRITE_SIZE])
+                .unwrap();
+            assert!(
+                aligned_buf[..STATE::WRITE_SIZE]
+                    .iter()
+                    .all(|&b| b == !STATE_ERASE_VALUE),
+                "Progress should be invalidated"
+            );
         }
 
         #[test]
@@ -760,8 +769,10 @@ mod tests {
             bootloader.update_progress(0, &mut aligned_buf).unwrap();
             // Make progress valid
             aligned_buf[..STATE::WRITE_SIZE].fill(STATE_ERASE_VALUE);
-            bootloader.state.write(PROGRESS_VALIDITY_OFFSET as u32, &aligned_buf[..STATE::WRITE_SIZE]).unwrap();
-
+            bootloader
+                .state
+                .write(PROGRESS_VALIDITY_OFFSET as u32, &aligned_buf[..STATE::WRITE_SIZE])
+                .unwrap();
 
             bootloader.mark_booted(&mut aligned_buf).unwrap();
             assert_eq!(read_magic(&mut bootloader, &mut aligned_buf), BOOT_MAGIC);
@@ -776,7 +787,10 @@ mod tests {
 
             bootloader.update_progress(0, &mut aligned_buf).unwrap();
             aligned_buf[..STATE::WRITE_SIZE].fill(STATE_ERASE_VALUE);
-            bootloader.state.write(PROGRESS_VALIDITY_OFFSET as u32, &aligned_buf[..STATE::WRITE_SIZE]).unwrap();
+            bootloader
+                .state
+                .write(PROGRESS_VALIDITY_OFFSET as u32, &aligned_buf[..STATE::WRITE_SIZE])
+                .unwrap();
 
             bootloader.mark_restore(&mut aligned_buf).unwrap();
             assert_eq!(read_magic(&mut bootloader, &mut aligned_buf), RESTORE_MAGIC);
@@ -791,7 +805,10 @@ mod tests {
 
             bootloader.update_progress(0, &mut aligned_buf).unwrap();
             aligned_buf[..STATE::WRITE_SIZE].fill(STATE_ERASE_VALUE);
-            bootloader.state.write(PROGRESS_VALIDITY_OFFSET as u32, &aligned_buf[..STATE::WRITE_SIZE]).unwrap();
+            bootloader
+                .state
+                .write(PROGRESS_VALIDITY_OFFSET as u32, &aligned_buf[..STATE::WRITE_SIZE])
+                .unwrap();
 
             bootloader.mark_try_boot(&mut aligned_buf).unwrap();
             assert_eq!(read_magic(&mut bootloader, &mut aligned_buf), TRY_BOOT_MAGIC);
@@ -806,7 +823,6 @@ mod tests {
             assert_eq!(aligned_buf.len() % ACTIVE::READ_SIZE, 0);
             assert_eq!(aligned_buf.len() % DFU::WRITE_SIZE, 0);
 
-
             // Fill active partition with known data
             let mut active_data = [0u8; ACTIVE_PARTITION_SIZE];
             for i in 0..ACTIVE_PARTITION_SIZE {
@@ -814,7 +830,10 @@ mod tests {
             }
             for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
                 let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
-                bootloader.active.write(offset as u32, &active_data[offset..offset + chunk_len]).unwrap();
+                bootloader
+                    .active
+                    .write(offset as u32, &active_data[offset..offset + chunk_len])
+                    .unwrap();
             }
 
             bootloader.perform_backup(&mut aligned_buf).unwrap();
@@ -822,8 +841,11 @@ mod tests {
             // Verify DFU partition contains the same data
             let mut dfu_data_read = [0u8; ACTIVE_PARTITION_SIZE];
             for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
-                 let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
-                bootloader.dfu.read(offset as u32, &mut dfu_data_read[offset..offset+chunk_len]).unwrap();
+                let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
+                bootloader
+                    .dfu
+                    .read(offset as u32, &mut dfu_data_read[offset..offset + chunk_len])
+                    .unwrap();
             }
             assert_eq!(&active_data[..], &dfu_data_read[..]);
         }
@@ -836,17 +858,18 @@ mod tests {
             assert_eq!(aligned_buf.len() % DFU::READ_SIZE, 0);
             assert_eq!(aligned_buf.len() % ACTIVE::WRITE_SIZE, 0);
 
-
             // Fill DFU partition with known data (only up to active size, as that's what restore will copy)
             let mut dfu_data = [0u8; ACTIVE_PARTITION_SIZE];
             for i in 0..ACTIVE_PARTITION_SIZE {
                 dfu_data[i] = (i % 256) as u8;
             }
-             for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
+            for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
                 let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
-                bootloader.dfu.write(offset as u32, &dfu_data[offset..offset + chunk_len]).unwrap();
+                bootloader
+                    .dfu
+                    .write(offset as u32, &dfu_data[offset..offset + chunk_len])
+                    .unwrap();
             }
-
 
             bootloader.perform_restore(&mut aligned_buf).unwrap();
 
@@ -854,7 +877,10 @@ mod tests {
             let mut active_data_read = [0u8; ACTIVE_PARTITION_SIZE];
             for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
                 let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
-                bootloader.active.read(offset as u32, &mut active_data_read[offset..offset+chunk_len]).unwrap();
+                bootloader
+                    .active
+                    .read(offset as u32, &mut active_data_read[offset..offset + chunk_len])
+                    .unwrap();
             }
             assert_eq!(&dfu_data[..], &active_data_read[..]);
         }
@@ -871,13 +897,15 @@ mod tests {
             }
             for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
                 let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
-                bootloader.active.write(offset as u32, &active_data[offset..offset + chunk_len]).unwrap();
+                bootloader
+                    .active
+                    .write(offset as u32, &active_data[offset..offset + chunk_len])
+                    .unwrap();
             }
 
             // Mark for backup
             aligned_buf[0] = crate::BACKUP_MAGIC;
             bootloader.state.write(0, &aligned_buf[..STATE::WRITE_SIZE]).unwrap();
-
 
             let state = bootloader.prepare_boot(&mut aligned_buf).unwrap();
             assert_eq!(state, State::Boot);
@@ -886,9 +914,12 @@ mod tests {
 
             // Verify DFU partition contains the backup
             let mut dfu_data_read = [0u8; ACTIVE_PARTITION_SIZE];
-             for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
-                 let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
-                bootloader.dfu.read(offset as u32, &mut dfu_data_read[offset..offset+chunk_len]).unwrap();
+            for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
+                let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
+                bootloader
+                    .dfu
+                    .read(offset as u32, &mut dfu_data_read[offset..offset + chunk_len])
+                    .unwrap();
             }
             assert_eq!(&active_data[..], &dfu_data_read[..]);
         }
@@ -905,13 +936,15 @@ mod tests {
             }
             for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
                 let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
-                bootloader.dfu.write(offset as u32, &dfu_data[offset..offset + chunk_len]).unwrap();
+                bootloader
+                    .dfu
+                    .write(offset as u32, &dfu_data[offset..offset + chunk_len])
+                    .unwrap();
             }
 
             // Mark for restore
             aligned_buf[0] = crate::RESTORE_MAGIC;
             bootloader.state.write(0, &aligned_buf[..STATE::WRITE_SIZE]).unwrap();
-
 
             let state = bootloader.prepare_boot(&mut aligned_buf).unwrap();
             assert_eq!(state, State::Boot);
@@ -922,7 +955,10 @@ mod tests {
             let mut active_data_read = [0u8; ACTIVE_PARTITION_SIZE];
             for offset in (0..ACTIVE_PARTITION_SIZE).step_by(aligned_buf.len()) {
                 let chunk_len = core::cmp::min(aligned_buf.len(), ACTIVE_PARTITION_SIZE - offset);
-                bootloader.active.read(offset as u32, &mut active_data_read[offset..offset+chunk_len]).unwrap();
+                bootloader
+                    .active
+                    .read(offset as u32, &mut active_data_read[offset..offset + chunk_len])
+                    .unwrap();
             }
             assert_eq!(&dfu_data[..], &active_data_read[..]);
         }
@@ -939,17 +975,18 @@ mod tests {
             let mut initial_dfu_data = [8u8; DFU_PARTITION_SIZE];
             bootloader.dfu.write(0, &initial_dfu_data).unwrap();
 
-
             // Mark for try_boot and set a retry count
             bootloader.mark_try_boot(&mut aligned_buf).unwrap();
             let initial_retry_count = bootloader.read_retry_counter(&mut aligned_buf).unwrap();
             assert_eq!(read_magic(&mut bootloader, &mut aligned_buf), TRY_BOOT_MAGIC);
 
-
             let state = bootloader.prepare_boot(&mut aligned_buf).unwrap();
             assert_eq!(state, State::TryBoot); // State should remain TryBoot
             assert_eq!(read_magic(&mut bootloader, &mut aligned_buf), TRY_BOOT_MAGIC); // Magic should remain
-            assert_eq!(bootloader.read_retry_counter(&mut aligned_buf).unwrap(), initial_retry_count); // Counter should be unchanged by prepare_boot
+            assert_eq!(
+                bootloader.read_retry_counter(&mut aligned_buf).unwrap(),
+                initial_retry_count
+            ); // Counter should be unchanged by prepare_boot
 
             // Verify no partition copy occurred
             let mut current_active_data = [0u8; ACTIVE_PARTITION_SIZE];
@@ -972,10 +1009,12 @@ mod tests {
                 active_data[i] = (i % 250) as u8; // Use a different pattern
             }
             for offset in (0..ACTIVE_PARTITION_SIZE).step_by(page_buf.len()) {
-                 let chunk_len = core::cmp::min(page_buf.len(), ACTIVE_PARTITION_SIZE - offset);
-                bootloader.active.write(offset as u32, &active_data[offset..offset + chunk_len]).unwrap();
+                let chunk_len = core::cmp::min(page_buf.len(), ACTIVE_PARTITION_SIZE - offset);
+                bootloader
+                    .active
+                    .write(offset as u32, &active_data[offset..offset + chunk_len])
+                    .unwrap();
             }
-
 
             // Fill DFU partition with different known data
             let mut dfu_data = [0u8; DFU_PARTITION_SIZE];
@@ -984,10 +1023,15 @@ mod tests {
             }
             for offset in (0..DFU_PARTITION_SIZE).step_by(page_buf.len()) {
                 let chunk_len = core::cmp::min(page_buf.len(), DFU_PARTITION_SIZE - offset);
-                bootloader.dfu.write(offset as u32, &dfu_data[offset..offset+chunk_len]).unwrap();
+                bootloader
+                    .dfu
+                    .write(offset as u32, &dfu_data[offset..offset + chunk_len])
+                    .unwrap();
             }
 
-            assert!(bootloader.verify_partition(PartitionType::Active, &mut page_buf).is_ok());
+            assert!(bootloader
+                .verify_partition(PartitionType::Active, &mut page_buf)
+                .is_ok());
             assert!(bootloader.verify_partition(PartitionType::Dfu, &mut page_buf).is_ok());
 
             // Intentionally corrupt a byte in active partition and verify it fails (optional)
