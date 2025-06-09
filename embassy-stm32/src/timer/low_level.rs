@@ -333,7 +333,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 
     /// Enable/disable autoreload preload.
     pub fn set_autoreload_preload(&self, enable: bool) {
-        self.regs_core().cr1().modify(|r| r.set_arpe(enable));
+        let regs = self.regs_core();
+        regs.cr1().modify(|r| r.set_arpe(enable));
+
+        // Generate an Update Request for the change to take effect
+        regs.egr().write(|r| r.set_ug(true));
     }
 
     /// Get the timer frequency.
