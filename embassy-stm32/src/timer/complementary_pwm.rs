@@ -106,6 +106,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_mms2_selection(mms2);
     }
 
+    /// Set Repetition Counter
+    pub fn set_repetition_counter(&mut self, val: u16) {
+        self.inner.set_repetition_counter(val);
+    }
+
     /// Enable the given channel.
     pub fn enable(&mut self, channel: Channel) {
         self.inner.enable_channel(channel, true);
