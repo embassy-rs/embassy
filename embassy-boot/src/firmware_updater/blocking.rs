@@ -224,6 +224,13 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         self.state.mark_booted()
     }
 
+    /// Mark to trigger firmware backup on next boot.
+    #[cfg(feature = "recovery")]
+    pub fn mark_backup(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted()?;
+        self.state.mark_backup()
+    }
+
     /// Writes firmware data to the device.
     ///
     /// This function writes the given data to the firmware area starting at the specified offset.
@@ -368,6 +375,12 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
         self.set_magic(BOOT_MAGIC)
     }
 
+    /// Mark to trigger firmware backup on next boot.
+    #[cfg(feature = "recovery")]
+    pub fn mark_backup(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(crate::BACKUP_MAGIC)
+    }
+
     fn set_magic(&mut self, magic: u8) -> Result<(), FirmwareUpdaterError> {
         self.state.read(0, &mut self.aligned)?;
 
@@ -405,6 +418,10 @@ mod tests {
 
     use super::*;
     use crate::mem_flash::MemFlash;
+    #[cfg(feature = "recovery")]
+    use crate::BACKUP_MAGIC;
+    use crate::{SWAP_MAGIC, STATE_ERASE_VALUE};
+
 
     #[test]
     fn can_verify_sha1() {
@@ -504,5 +521,54 @@ mod tests {
             .unwrap();
 
         assert_eq!(Sha1::digest(update).as_slice(), hash);
+    }
+
+    #[cfg(feature = "recovery")]
+    mod recovery_blocking_tests {
+        use super::*;
+
+        fn new_blocking_updater_partitions() -> (
+            Mutex<NoopRawMutex, RefCell<MemFlash<131072, 4096, 8>>>,
+            BlockingPartition<'static, NoopRawMutex, MemFlash<131072, 4096, 8>>,
+            BlockingPartition<'static, NoopRawMutex, MemFlash<131072, 4096, 8>>,
+        ) {
+            // Keep the flash static so the partitions can have a static lifetime.
+            static FLASH: Mutex<NoopRawMutex, RefCell<MemFlash<131072, 4096, 8>>> =
+                Mutex::new(RefCell::new(MemFlash::new(STATE_ERASE_VALUE)));
+            let state_partition = BlockingPartition::new(&FLASH, 0, 4096);
+            let dfu_partition = BlockingPartition::new(&FLASH, 65536, 65536);
+            (FLASH, state_partition, dfu_partition)
+        }
+
+        #[test]
+        fn test_mark_backup_sets_magic_blocking() {
+            let (_flash, state_p, dfu_p) = new_blocking_updater_partitions();
+            let mut aligned_buf = [0; 8]; // STATE write size for MemFlash is 8
+            let mut updater = BlockingFirmwareUpdater::new(FirmwareUpdaterConfig { dfu: dfu_p, state: state_p }, &mut aligned_buf);
+
+            // Must be in Boot state to mark for backup
+            updater.state.mark_booted().unwrap();
+            assert_eq!(updater.get_state().unwrap(), State::Boot);
+
+            updater.mark_backup().unwrap();
+
+            let mut magic_read_buf = [0; 8];
+            updater.state.state.read(0, &mut magic_read_buf).unwrap();
+            assert_eq!(magic_read_buf[0], BACKUP_MAGIC);
+        }
+
+        #[test]
+        fn test_mark_backup_fails_if_not_booted_blocking() {
+            let (_flash, state_p, dfu_p) = new_blocking_updater_partitions();
+            let mut aligned_buf = [0; 8];
+            let mut updater = BlockingFirmwareUpdater::new(FirmwareUpdaterConfig { dfu: dfu_p, state: state_p }, &mut aligned_buf);
+
+            // Set to Swap state (or any non-booted state)
+            updater.state.set_magic(SWAP_MAGIC).unwrap();
+            assert_eq!(updater.get_state().unwrap(), State::Swap);
+
+            let result = updater.mark_backup();
+            assert!(matches!(result, Err(FirmwareUpdaterError::BadState)));
+        }
     }
 }

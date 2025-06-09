@@ -49,5 +49,10 @@ ed25519-dalek = ["dep:ed25519-dalek", "_verify"]
 ed25519-salty = ["dep:salty", "_verify"]
 flash-erase-zero = []
 
+# 백업 및 복구 메커니즘 활성화
+recovery = []
+# 최종 부트로더 앱에서 safe-mode 정책을 구현할 때 식별자로 사용
+safe = []
+
 #Internal features
 _verify = []
