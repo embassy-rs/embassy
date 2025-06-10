@@ -15,7 +15,7 @@ use crate::pac::i2c;
 impl From<AddrMask> for Oamsk {
     fn from(value: AddrMask) -> Self {
         match value {
-            AddrMask::NOMASK => Oamsk::NOMASK,
+            AddrMask::NOMASK => Oamsk::NO_MASK,
             AddrMask::MASK1 => Oamsk::MASK1,
             AddrMask::MASK2 => Oamsk::MASK2,
             AddrMask::MASK3 => Oamsk::MASK3,
@@ -871,7 +871,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         assert!(length < 256);
 
         let reload = if reload {
-            i2c::vals::Reload::NOTCOMPLETED
+            i2c::vals::Reload::NOT_COMPLETED
         } else {
             i2c::vals::Reload::COMPLETED
         };
@@ -1295,4 +1295,3 @@ impl<'d, M: Mode> SetConfig for I2c<'d, M, MultiMaster> {
         Ok(())
     }
 }
-
