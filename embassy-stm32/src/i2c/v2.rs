@@ -48,7 +48,7 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
         regs.cr1().modify(|w| {
             w.set_addrie(false);
             w.set_stopie(false);
-              // The flag can only be cleared by writting to nbytes, we won't do that here
+            // The flag can only be cleared by writting to nbytes, we won't do that here
             w.set_tcie(false);
             // Error flags are to be read in the routines, so we also don't clear them here
             w.set_nackie(false);
