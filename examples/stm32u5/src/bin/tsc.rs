@@ -2,8 +2,8 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::tsc::{self, *};
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -33,63 +33,52 @@ async fn main(_spawner: embassy_executor::Spawner) {
         synchro_pin_polarity: false,
         acquisition_mode: false,
         max_count_interrupt: false,
-        channel_ios: TscIOPin::Group2Io2 | TscIOPin::Group7Io3,
-        shield_ios: TscIOPin::Group1Io3.into(),
-        sampling_ios: TscIOPin::Group1Io2 | TscIOPin::Group2Io1 | TscIOPin::Group7Io2,
     };
 
-    let mut g1: PinGroup<embassy_stm32::peripherals::TSC, G1> = PinGroup::new();
-    g1.set_io2(context.PB13, PinType::Sample);
-    g1.set_io3(context.PB14, PinType::Shield);
+    let mut g1: PinGroupWithRoles<peripherals::TSC, G1> = PinGroupWithRoles::default();
+    g1.set_io2::<tsc::pin_roles::Sample>(context.PB13);
+    g1.set_io3::<tsc::pin_roles::Shield>(context.PB14);
 
-    let mut g2: PinGroup<embassy_stm32::peripherals::TSC, G2> = PinGroup::new();
-    g2.set_io1(context.PB4, PinType::Sample);
-    g2.set_io2(context.PB5, PinType::Channel);
+    let mut g2: PinGroupWithRoles<peripherals::TSC, G2> = PinGroupWithRoles::default();
+    g2.set_io1::<tsc::pin_roles::Sample>(context.PB4);
+    let sensor0 = g2.set_io2(context.PB5);
 
-    let mut g7: PinGroup<embassy_stm32::peripherals::TSC, G7> = PinGroup::new();
-    g7.set_io2(context.PE3, PinType::Sample);
-    g7.set_io3(context.PE4, PinType::Channel);
+    let mut g7: PinGroupWithRoles<peripherals::TSC, G7> = PinGroupWithRoles::default();
+    g7.set_io2::<tsc::pin_roles::Sample>(context.PE3);
+    let sensor1 = g7.set_io3(context.PE4);
 
-    let mut touch_controller = tsc::Tsc::new_async(
-        context.TSC,
-        Some(g1),
-        Some(g2),
-        None,
-        None,
-        None,
-        None,
-        Some(g7),
-        None,
-        config,
-        Irqs,
-    );
+    let pin_groups: PinGroups<peripherals::TSC> = PinGroups {
+        g1: Some(g1.pin_group),
+        g2: Some(g2.pin_group),
+        g7: Some(g7.pin_group),
+        ..Default::default()
+    };
 
-    touch_controller.discharge_io(true);
-    Timer::after_millis(1).await;
+    let mut touch_controller = tsc::Tsc::new_async(context.TSC, pin_groups, config, Irqs).unwrap();
 
-    touch_controller.start();
+    let acquisition_bank = touch_controller.create_acquisition_bank(AcquisitionBankPins {
+        g2_pin: Some(sensor0),
+        g7_pin: Some(sensor1),
+        ..Default::default()
+    });
 
-    let mut group_two_val = 0;
-    let mut group_seven_val = 0;
+    touch_controller.set_active_channels_bank(&acquisition_bank);
+
     info!("Starting touch_controller interface");
     loop {
+        touch_controller.start();
         touch_controller.pend_for_acquisition().await;
         touch_controller.discharge_io(true);
         Timer::after_millis(1).await;
 
-        if touch_controller.group_get_status(Group::Two) == GroupStatus::Complete {
-            group_two_val = touch_controller.group_get_value(Group::Two);
+        let status = touch_controller.get_acquisition_bank_status(&acquisition_bank);
+
+        if status.all_complete() {
+            let read_values = touch_controller.get_acquisition_bank_values(&acquisition_bank);
+            let group2_reading = read_values.get_group_reading(Group::Two).unwrap();
+            let group7_reading = read_values.get_group_reading(Group::Seven).unwrap();
+            info!("group 2 value: {}", group2_reading.sensor_value);
+            info!("group 7 value: {}", group7_reading.sensor_value);
         }
-
-        if touch_controller.group_get_status(Group::Seven) == GroupStatus::Complete {
-            group_seven_val = touch_controller.group_get_value(Group::Seven);
-        }
-
-        info!(
-            "Group Two value: {}, Group Seven value: {},",
-            group_two_val, group_seven_val
-        );
-
-        touch_controller.start();
     }
 }

@@ -7,20 +7,19 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::into_ref;
+use embassy_hal_internal::PeripheralType;
 
 use crate::ppi::{Event, Task};
-use crate::{interrupt, pac, Peripheral, PeripheralRef};
+use crate::{interrupt, pac, Peri};
 
 /// An instance of the EGU.
 pub struct Egu<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Egu<'d, T> {
     /// Create a new EGU instance.
-    pub fn new(_p: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(_p);
+    pub fn new(_p: Peri<'d, T>) -> Self {
         Self { _p }
     }
 
@@ -34,12 +33,12 @@ impl<'d, T: Instance> Egu<'d, T> {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static pac::egu0::RegisterBlock;
+    fn regs() -> pac::egu::Egu;
 }
 
 /// Basic Egu instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -47,8 +46,8 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
 macro_rules! impl_egu {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::egu::SealedInstance for peripherals::$type {
-            fn regs() -> &'static pac::egu0::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> pac::egu::Egu {
+                pac::$pac_type
             }
         }
         impl crate::egu::Instance for peripherals::$type {
@@ -68,32 +67,26 @@ impl<'d, T: Instance> Trigger<'d, T> {
     pub fn task(&self) -> Task<'d> {
         let nr = self.number as usize;
         let regs = T::regs();
-        Task::from_reg(&regs.tasks_trigger[nr])
+        Task::from_reg(regs.tasks_trigger(nr))
     }
 
     /// Get event for this trigger to use with PPI.
     pub fn event(&self) -> Event<'d> {
         let nr = self.number as usize;
         let regs = T::regs();
-        Event::from_reg(&regs.events_triggered[nr])
+        Event::from_reg(regs.events_triggered(nr))
     }
 
     /// Enable interrupts for this trigger
     pub fn enable_interrupt(&mut self) {
         let regs = T::regs();
-        unsafe {
-            regs.intenset
-                .modify(|r, w| w.bits(r.bits() | (1 << self.number as usize)))
-        };
+        regs.intenset().modify(|w| w.set_triggered(self.number as usize, true));
     }
 
     /// Enable interrupts for this trigger
     pub fn disable_interrupt(&mut self) {
         let regs = T::regs();
-        unsafe {
-            regs.intenclr
-                .modify(|r, w| w.bits(r.bits() | (1 << self.number as usize)))
-        };
+        regs.intenset().modify(|w| w.set_triggered(self.number as usize, false));
     }
 }
 

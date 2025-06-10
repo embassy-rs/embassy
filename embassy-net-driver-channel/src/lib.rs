@@ -26,13 +26,11 @@ pub struct State<const MTU: usize, const N_RX: usize, const N_TX: usize> {
 }
 
 impl<const MTU: usize, const N_RX: usize, const N_TX: usize> State<MTU, N_RX, N_TX> {
-    const NEW_PACKET: PacketBuf<MTU> = PacketBuf::new();
-
     /// Create a new channel state.
     pub const fn new() -> Self {
         Self {
-            rx: [Self::NEW_PACKET; N_RX],
-            tx: [Self::NEW_PACKET; N_TX],
+            rx: [const { PacketBuf::new() }; N_RX],
+            tx: [const { PacketBuf::new() }; N_TX],
             inner: MaybeUninit::uninit(),
         }
     }
@@ -326,8 +324,14 @@ pub struct Device<'d, const MTU: usize> {
 }
 
 impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
-    type RxToken<'a> = RxToken<'a, MTU> where Self: 'a ;
-    type TxToken<'a> = TxToken<'a, MTU> where Self: 'a ;
+    type RxToken<'a>
+        = RxToken<'a, MTU>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = TxToken<'a, MTU>
+    where
+        Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         if self.rx.poll_receive(cx).is_ready() && self.tx.poll_send(cx).is_ready() {

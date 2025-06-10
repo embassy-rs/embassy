@@ -3,14 +3,13 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_futures::yield_now;
-use embassy_hal_internal::into_ref;
 use embassy_time::Instant;
 
 use super::Resolution;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peripheral};
+use crate::{interrupt, rcc, Peri};
 
 const ADC_FREQ: Hertz = crate::rcc::HSI_FREQ;
 
@@ -74,7 +73,7 @@ impl<T: Instance> super::SealedAdcChannel<T> for Vref<T> {
 impl<T: Instance> Vref<T> {
     /// The value that vref would be if vdda was at 3000mv
     pub fn calibrated_value(&self) -> u16 {
-        crate::pac::VREFINTCAL.data().read().value()
+        crate::pac::VREFINTCAL.data().read()
     }
 
     pub async fn calibrate(&mut self, adc: &mut Adc<'_, T>) -> Calibration {
@@ -138,11 +137,9 @@ impl<T: Instance> Drop for Temperature<T> {
 
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
-        adc: impl Peripheral<P = T> + 'd,
+        adc: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        into_ref!(adc);
-
         rcc::enable_and_reset::<T>();
 
         //let r = T::regs();

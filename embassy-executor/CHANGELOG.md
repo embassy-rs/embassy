@@ -5,13 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## unreleased
+
+- Added support for Cortex-A and Cortex-R
+
+## 0.7.0 - 2025-01-02
+
+- Performance optimizations.
+- Remove feature `integrated-timers`. Starting with `embassy-time-driver` v0.2, `embassy-time` v0.4 the timer queue is now part of the time driver, so it's no longer the executor's responsibility. Therefore, `embassy-executor` no longer provides an `embassy-time-queue-driver` implementation.
+- Added the possibility for timer driver implementations to store arbitrary data in task headers. This can be used to make a timer queue intrusive list, similar to the previous `integrated-timers` feature. Payload size is controlled by the `timer-item-payload-size-X` features.
+- Added `TaskRef::executor` to obtain a reference to a task's executor
+
+## 0.6.3 - 2024-11-12
+
+- Building with the `nightly` feature now works with the Xtensa Rust compiler 1.82.
+- Compare vtable address instead of contents. Saves 44 bytes of flash on cortex-m.
+
+## 0.6.2 - 2024-11-06
+
+- The `nightly` feature no longer requires `nightly-2024-09-06` or newer.
+
+## 0.6.1 - 2024-10-21
+
+- Soundness fix: Deny using `impl Trait` in task arguments. This was previously accidentally allowed when not using the `nightly` feature,
+  and could cause out of bounds memory accesses if spawning the same task mulitple times with different underlying types
+  for the `impl Trait`. Affected versions are 0.4.x, 0.5.0 and 0.6.0, which have been yanked.
+- Add an architecture-agnostic executor that spins waiting for tasks to run, enabled with the `arch-spin` feature.
+- Update for breaking change in the nightly waker_getters API. The `nightly` feature now requires `nightly-2024-09-06` or newer.
+- Improve macro error messages.
 
 ## 0.6.0 - 2024-08-05
 
 - Add collapse_debuginfo to fmt.rs macros.
-- initial support for avr
-- use nightly waker_getters APIs 
+- initial support for AVR
+- use nightly waker_getters APIs
+
+## 0.5.1 - 2024-10-21
+
+- Soundness fix: Deny using `impl Trait` in task arguments. This was previously accidentally allowed when not using the `nightly` feature,
+  and could cause out of bounds memory accesses if spawning the same task mulitple times with different underlying types
+  for the `impl Trait`. Affected versions are 0.4.x, 0.5.0 and 0.6.0, which have been yanked.
 
 ## 0.5.0 - 2024-01-11
 

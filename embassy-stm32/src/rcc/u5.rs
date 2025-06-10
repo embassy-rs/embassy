@@ -1,10 +1,15 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::rcc::vals::Otghssel;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Msirange, Msirange as MSIRange, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::rcc::vals::{Hseext, Msirgsel, Pllmboost, Pllrge};
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -59,9 +64,11 @@ pub struct Pll {
     pub divr: Option<PllDiv>,
 }
 
+#[derive(Clone, Copy)]
 pub struct Config {
     // base clock sources
-    pub msi: Option<MSIRange>,
+    pub msis: Option<MSIRange>,
+    pub msik: Option<MSIRange>,
     pub hsi: bool,
     pub hse: Option<Hse>,
     pub hsi48: Option<super::Hsi48Config>,
@@ -90,13 +97,14 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub const fn new() -> Self {
         Self {
-            msi: Some(Msirange::RANGE_4MHZ),
+            msis: Some(Msirange::RANGE_4MHZ),
+            msik: Some(Msirange::RANGE_4MHZ),
             hse: None,
             hsi: false,
-            hsi48: Some(Default::default()),
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
             pll1: None,
             pll2: None,
             pll3: None,
@@ -106,9 +114,15 @@ impl Default for Config {
             apb2_pre: APBPrescaler::DIV1,
             apb3_pre: APBPrescaler::DIV1,
             voltage_range: VoltageScale::RANGE1,
-            ls: Default::default(),
-            mux: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -117,7 +131,7 @@ pub(crate) unsafe fn init(config: Config) {
     PWR.vosr().modify(|w| w.set_vos(config.voltage_range));
     while !PWR.vosr().read().vosrdy() {}
 
-    let msi = config.msi.map(|range| {
+    let msis = config.msis.map(|range| {
         // Check MSI output per RM0456 § 11.4.10
         match config.voltage_range {
             VoltageScale::RANGE4 => {
@@ -146,8 +160,36 @@ pub(crate) unsafe fn init(config: Config) {
         msirange_to_hertz(range)
     });
 
+    let msik = config.msik.map(|range| {
+        // Check MSI output per RM0456 § 11.4.10
+        match config.voltage_range {
+            VoltageScale::RANGE4 => {
+                assert!(msirange_to_hertz(range).0 <= 24_000_000);
+            }
+            _ => {}
+        }
+
+        // RM0456 § 11.8.2: spin until MSIS is off or MSIS is ready before setting its range
+        loop {
+            let cr = RCC.cr().read();
+            if cr.msikon() == false || cr.msikrdy() == true {
+                break;
+            }
+        }
+
+        RCC.icscr1().modify(|w| {
+            w.set_msikrange(range);
+            w.set_msirgsel(Msirgsel::ICSCR1);
+        });
+        RCC.cr().modify(|w| {
+            w.set_msikon(true);
+        });
+        while !RCC.cr().read().msikrdy() {}
+        msirange_to_hertz(range)
+    });
+
     let hsi = config.hsi.then(|| {
-        RCC.cr().write(|w| w.set_hsion(true));
+        RCC.cr().modify(|w| w.set_hsion(true));
         while !RCC.cr().read().hsirdy() {}
 
         HSI_FREQ
@@ -165,7 +207,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
 
         // Enable HSE, and wait for it to stabilize
-        RCC.cr().write(|w| {
+        RCC.cr().modify(|w| {
             w.set_hseon(true);
             w.set_hsebyp(hse.mode != HseMode::Oscillator);
             w.set_hseext(match hse.mode {
@@ -180,7 +222,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     let hsi48 = config.hsi48.map(super::init_hsi48);
 
-    let pll_input = PllInput { hse, hsi, msi };
+    let pll_input = PllInput { hse, hsi, msi: msis };
     let pll1 = init_pll(PllInstance::Pll1, config.pll1, &pll_input, config.voltage_range);
     let pll2 = init_pll(PllInstance::Pll2, config.pll2, &pll_input, config.voltage_range);
     let pll3 = init_pll(PllInstance::Pll3, config.pll3, &pll_input, config.voltage_range);
@@ -188,7 +230,7 @@ pub(crate) unsafe fn init(config: Config) {
     let sys_clk = match config.sys {
         Sysclk::HSE => hse.unwrap(),
         Sysclk::HSI => hsi.unwrap(),
-        Sysclk::MSIS => msi.unwrap(),
+        Sysclk::MSIS => msis.unwrap(),
         Sysclk::PLL1_R => pll1.r.unwrap(),
     };
 
@@ -263,6 +305,34 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
+    #[cfg(all(stm32u5, peri_usb_otg_hs))]
+    let usb_refck = match config.mux.otghssel {
+        Otghssel::HSE => hse,
+        Otghssel::HSE_DIV_2 => hse.map(|hse_val| hse_val / 2u8),
+        Otghssel::PLL1_P => pll1.p,
+        Otghssel::PLL1_P_DIV_2 => pll1.p.map(|pll1p_val| pll1p_val / 2u8),
+    };
+    #[cfg(all(stm32u5, peri_usb_otg_hs))]
+    let usb_refck_sel = match usb_refck {
+        Some(clk_val) => match clk_val {
+            Hertz(16_000_000) => Usbrefcksel::MHZ16,
+            Hertz(19_200_000) => Usbrefcksel::MHZ19_2,
+            Hertz(20_000_000) => Usbrefcksel::MHZ20,
+            Hertz(24_000_000) => Usbrefcksel::MHZ24,
+            Hertz(26_000_000) => Usbrefcksel::MHZ26,
+            Hertz(32_000_000) => Usbrefcksel::MHZ32,
+            _ => panic!("cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+        },
+        None => Usbrefcksel::MHZ24,
+    };
+    #[cfg(all(stm32u5, peri_usb_otg_hs))]
+    SYSCFG.otghsphycr().modify(|w| {
+        w.set_clksel(usb_refck_sel);
+    });
+
+    let lse = config.ls.lse.map(|l| l.frequency);
+    let lsi = config.ls.lsi.then_some(LSI_FREQ);
+
     config.mux.init();
 
     set_clocks!(
@@ -275,8 +345,11 @@ pub(crate) unsafe fn init(config: Config) {
         pclk3: Some(pclk3),
         pclk1_tim: Some(pclk1_tim),
         pclk2_tim: Some(pclk2_tim),
+        msik: msik,
         hsi48: hsi48,
         rtc: rtc,
+        lse: lse,
+        lsi: lsi,
         hse: hse,
         hsi: hsi,
         pll1_p: pll1.p,
@@ -294,12 +367,7 @@ pub(crate) unsafe fn init(config: Config) {
 
         // TODO
         audioclk: None,
-        hsi48_div_2: None,
-        lse: None,
-        lsi: None,
-        msik: None,
         shsi: None,
-        shsi_div_2: None,
     );
 }
 

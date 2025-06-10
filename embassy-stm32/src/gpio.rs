@@ -4,10 +4,10 @@
 use core::convert::Infallible;
 
 use critical_section::CriticalSection;
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 
 use crate::pac::gpio::{self, vals};
-use crate::{pac, peripherals, Peripheral};
+use crate::peripherals;
 
 /// GPIO flexible pin.
 ///
@@ -15,7 +15,7 @@ use crate::{pac, peripherals, Peripheral};
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d> {
-    pub(crate) pin: PeripheralRef<'d, AnyPin>,
+    pub(crate) pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -25,10 +25,9 @@ impl<'d> Flex<'d> {
     /// before the pin is put into output mode.
     ///
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        into_ref!(pin);
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into() }
     }
 
     /// Put the pin into input mode.
@@ -61,7 +60,7 @@ impl<'d> Flex<'d> {
             #[cfg(gpio_v2)]
             {
                 r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSH_PULL));
                 r.moder().modify(|w| w.set_moder(n, vals::Moder::INPUT));
             }
         });
@@ -82,13 +81,13 @@ impl<'d> Flex<'d> {
             {
                 r.cr(n / 8).modify(|w| {
                     w.set_mode(n % 8, speed.to_mode());
-                    w.set_cnf_out(n % 8, vals::CnfOut::PUSHPULL);
+                    w.set_cnf_out(n % 8, vals::CnfOut::PUSH_PULL);
                 });
             }
             #[cfg(gpio_v2)]
             {
                 r.pupdr().modify(|w| w.set_pupdr(n, vals::Pupdr::FLOATING));
-                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSHPULL));
+                r.otyper().modify(|w| w.set_ot(n, vals::Ot::PUSH_PULL));
                 r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
                 r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
             }
@@ -112,7 +111,7 @@ impl<'d> Flex<'d> {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             r.cr(n / 8).modify(|w| w.set_mode(n % 8, speed.to_mode()));
-            r.cr(n / 8).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPENDRAIN));
+            r.cr(n / 8).modify(|w| w.set_cnf_out(n % 8, vals::CnfOut::OPEN_DRAIN));
         });
 
         #[cfg(gpio_v2)]
@@ -130,7 +129,7 @@ impl<'d> Flex<'d> {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             r.pupdr().modify(|w| w.set_pupdr(n, pull.to_pupdr()));
-            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPENDRAIN));
+            r.otyper().modify(|w| w.set_ot(n, vals::Ot::OPEN_DRAIN));
             r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
             r.moder().modify(|w| w.set_moder(n, vals::Moder::OUTPUT));
         });
@@ -253,8 +252,8 @@ impl Pull {
     const fn to_pupdr(self) -> vals::Pupdr {
         match self {
             Pull::None => vals::Pupdr::FLOATING,
-            Pull::Up => vals::Pupdr::PULLUP,
-            Pull::Down => vals::Pupdr::PULLDOWN,
+            Pull::Up => vals::Pupdr::PULL_UP,
+            Pull::Down => vals::Pupdr::PULL_DOWN,
         }
     }
 }
@@ -293,11 +292,11 @@ impl Speed {
     #[cfg(gpio_v2)]
     const fn to_ospeedr(self: Speed) -> vals::Ospeedr {
         match self {
-            Speed::Low => vals::Ospeedr::LOWSPEED,
-            Speed::Medium => vals::Ospeedr::MEDIUMSPEED,
+            Speed::Low => vals::Ospeedr::LOW_SPEED,
+            Speed::Medium => vals::Ospeedr::MEDIUM_SPEED,
             #[cfg(not(syscfg_f0))]
-            Speed::High => vals::Ospeedr::HIGHSPEED,
-            Speed::VeryHigh => vals::Ospeedr::VERYHIGHSPEED,
+            Speed::High => vals::Ospeedr::HIGH_SPEED,
+            Speed::VeryHigh => vals::Ospeedr::VERY_HIGH_SPEED,
         }
     }
 }
@@ -310,7 +309,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
         Self { pin }
@@ -375,7 +374,7 @@ pub struct Output<'d> {
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level] and [Speed] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, speed: Speed) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, speed: Speed) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -440,7 +439,7 @@ pub struct OutputOpenDrain<'d> {
 impl<'d> OutputOpenDrain<'d> {
     /// Create a new GPIO open drain output driver for a [Pin] with the provided [Level] and [Speed].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, speed: Speed) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, speed: Speed) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -454,7 +453,7 @@ impl<'d> OutputOpenDrain<'d> {
     /// and [Pull].
     #[inline]
     #[cfg(gpio_v2)]
-    pub fn new_pull(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, speed: Speed, pull: Pull) -> Self {
+    pub fn new_pull(pin: Peri<'d, impl Pin>, initial_output: Level, speed: Speed, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -539,16 +538,16 @@ impl OutputType {
     #[cfg(gpio_v1)]
     const fn to_cnf_out(self) -> vals::CnfOut {
         match self {
-            OutputType::PushPull => vals::CnfOut::ALTPUSHPULL,
-            OutputType::OpenDrain => vals::CnfOut::ALTOPENDRAIN,
+            OutputType::PushPull => vals::CnfOut::ALT_PUSH_PULL,
+            OutputType::OpenDrain => vals::CnfOut::ALT_OPEN_DRAIN,
         }
     }
 
     #[cfg(gpio_v2)]
     const fn to_ot(self) -> vals::Ot {
         match self {
-            OutputType::PushPull => vals::Ot::PUSHPULL,
-            OutputType::OpenDrain => vals::Ot::OPENDRAIN,
+            OutputType::PushPull => vals::Ot::PUSH_PULL,
+            OutputType::OpenDrain => vals::Ot::OPEN_DRAIN,
         }
     }
 }
@@ -624,8 +623,8 @@ impl AfType {
     pub const fn input(pull: Pull) -> Self {
         Self {
             pupdr: pull.to_pupdr(),
-            ot: vals::Ot::PUSHPULL,
-            ospeedr: vals::Ospeedr::LOWSPEED,
+            ot: vals::Ot::PUSH_PULL,
+            ospeedr: vals::Ospeedr::LOW_SPEED,
         }
     }
 
@@ -656,6 +655,16 @@ fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
     r.otyper().modify(|w| w.set_ot(n, af_type.ot));
     r.ospeedr().modify(|w| w.set_ospeedr(n, af_type.ospeedr));
     r.moder().modify(|w| w.set_moder(n, vals::Moder::ALTERNATE));
+}
+
+#[inline(never)]
+#[cfg(gpio_v2)]
+fn set_speed(pin_port: u8, speed: Speed) {
+    let pin = unsafe { AnyPin::steal(pin_port) };
+    let r = pin.block();
+    let n = pin._pin() as usize;
+
+    r.ospeedr().modify(|w| w.set_ospeedr(n, speed.to_ospeedr()));
 }
 
 #[inline(never)]
@@ -695,8 +704,8 @@ fn get_pull(pin_port: u8) -> Pull {
     #[cfg(gpio_v2)]
     return match r.pupdr().read().pupdr(n) {
         vals::Pupdr::FLOATING => Pull::None,
-        vals::Pupdr::PULLDOWN => Pull::Down,
-        vals::Pupdr::PULLUP => Pull::Up,
+        vals::Pupdr::PULL_DOWN => Pull::Down,
+        vals::Pupdr::PULL_UP => Pull::Up,
         vals::Pupdr::_RESERVED_3 => Pull::None,
     };
 }
@@ -716,7 +725,7 @@ pub(crate) trait SealedPin {
 
     #[inline]
     fn block(&self) -> gpio::Gpio {
-        pac::GPIO(self._port() as _)
+        crate::_generated::gpio_block(self._port() as _)
     }
 
     /// Set the output as high.
@@ -736,6 +745,12 @@ pub(crate) trait SealedPin {
     #[inline]
     fn set_as_af(&self, af_num: u8, af_type: AfType) {
         set_as_af(self.pin_port(), af_num, af_type)
+    }
+
+    #[inline]
+    #[cfg(gpio_v2)]
+    fn set_speed(&self, speed: Speed) {
+        set_speed(self.pin_port(), speed)
     }
 
     #[inline]
@@ -764,7 +779,7 @@ pub(crate) trait SealedPin {
 
 /// GPIO pin trait.
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// EXTI channel assigned to this pin.
     ///
     /// For example, PC4 uses EXTI4.
@@ -782,18 +797,6 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
     fn port(&self) -> u8 {
         self._port()
     }
-
-    /// Type-erase (degrade) this pin into an `AnyPin`.
-    ///
-    /// This converts pin singletons (`PA5`, `PB6`, ...), which
-    /// are all different types, into the same type. It is useful for
-    /// creating arrays of pins, or avoiding generics.
-    #[inline]
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_port: self.pin_port(),
-        }
-    }
 }
 
 /// Type-erased GPIO pin
@@ -806,8 +809,8 @@ impl AnyPin {
     ///
     /// `pin_port` is `port_num * 16 + pin_num`, where `port_num` is 0 for port `A`, 1 for port `B`, etc...
     #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Self {
-        Self { pin_port }
+    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_port })
     }
 
     #[inline]
@@ -819,7 +822,7 @@ impl AnyPin {
     #[cfg(feature = "unstable-pac")]
     #[inline]
     pub fn block(&self) -> gpio::Gpio {
-        pac::GPIO(self._port() as _)
+        crate::_generated::gpio_block(self._port() as _)
     }
 }
 
@@ -851,8 +854,10 @@ foreach_pin!(
         }
 
         impl From<peripherals::$pin_name> for AnyPin {
-            fn from(x: peripherals::$pin_name) -> Self {
-                x.degrade()
+            fn from(val: peripherals::$pin_name) -> Self {
+                Self {
+                    pin_port: val.pin_port(),
+                }
             }
         }
     };

@@ -10,7 +10,7 @@ use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
 use embassy_stm32::low_power::Executor;
 use embassy_stm32::rcc::{HSIPrescaler, LsConfig};
 use embassy_stm32::rtc::{Rtc, RtcConfig};
-use embassy_stm32::Config;
+use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -48,7 +48,7 @@ async fn async_main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn blinky(led: AnyPin) {
+async fn blinky(led: Peri<'static, AnyPin>) {
     let mut led = Output::new(led, Level::Low, Speed::Low);
     loop {
         info!("high");

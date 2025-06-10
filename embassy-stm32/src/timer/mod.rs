@@ -2,12 +2,14 @@
 
 use core::marker::PhantomData;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
 pub mod input_capture;
 pub mod low_level;
+pub mod one_pulse;
 pub mod pwm_input;
 pub mod qei;
 pub mod simple_pwm;
@@ -40,6 +42,15 @@ impl Channel {
     }
 }
 
+/// Channel 1 marker type.
+pub enum Ch1 {}
+/// Channel 2 marker type.
+pub enum Ch2 {}
+/// Channel 3 marker type.
+pub enum Ch3 {}
+/// Channel 4 marker type.
+pub enum Ch4 {}
+
 /// Amount of bits of a timer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -58,15 +69,14 @@ struct State {
 
 impl State {
     const fn new() -> Self {
-        const NEW_AW: AtomicWaker = AtomicWaker::new();
         Self {
-            up_waker: NEW_AW,
-            cc_waker: [NEW_AW; 4],
+            up_waker: AtomicWaker::new(),
+            cc_waker: [const { AtomicWaker::new() }; 4],
         }
     }
 }
 
-trait SealedInstance: RccPeripheral {
+trait SealedInstance: RccPeripheral + PeripheralType {
     /// Async state for this timer
     fn state() -> &'static State;
 }

@@ -2,7 +2,7 @@ use core::cmp::Ordering;
 use core::convert::Infallible;
 
 pub use embedded_can::{ExtendedId, Id, StandardId};
-use stm32_metapac::can::vals::Lec;
+use stm32_metapac::can::vals::{Lec, Rtr};
 
 use super::{Mailbox, TransmitStatus};
 use crate::can::enums::BusError;
@@ -166,16 +166,16 @@ impl Registers {
             return Some(BusError::BusPassive);
         } else if err.ewgf() {
             return Some(BusError::BusWarning);
-        } else if err.lec() != Lec::NOERROR {
+        } else if err.lec() != Lec::NO_ERROR {
             return Some(match err.lec() {
                 Lec::STUFF => BusError::Stuff,
                 Lec::FORM => BusError::Form,
                 Lec::ACK => BusError::Acknowledge,
-                Lec::BITRECESSIVE => BusError::BitRecessive,
-                Lec::BITDOMINANT => BusError::BitDominant,
+                Lec::BIT_RECESSIVE => BusError::BitRecessive,
+                Lec::BIT_DOMINANT => BusError::BitDominant,
                 Lec::CRC => BusError::Crc,
                 Lec::CUSTOM => BusError::Software,
-                Lec::NOERROR => unreachable!(),
+                Lec::NO_ERROR => unreachable!(),
             });
         }
         None
@@ -299,13 +299,16 @@ impl Registers {
         mb.tdtr().write(|w| w.set_dlc(frame.header().len() as u8));
 
         mb.tdlr()
-            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.data()[0..4].try_into())));
+            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.raw_data()[0..4].try_into())));
         mb.tdhr()
-            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.data()[4..8].try_into())));
+            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.raw_data()[4..8].try_into())));
         let id: IdReg = frame.id().into();
         mb.tir().write(|w| {
             w.0 = id.0;
             w.set_txrq(true);
+            if frame.header().rtr() {
+                w.set_rtr(Rtr::REMOTE);
+            }
         });
     }
 

@@ -1,10 +1,10 @@
 [package]
 name = "embassy-rp"
-version = "0.2.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Embassy Hardware Abstraction Layer (HAL) for the Raspberry Pi RP2040 microcontroller"
-keywords = ["embedded", "async", "raspberry-pi", "rp2040", "embedded-hal"]
+description = "Embassy Hardware Abstraction Layer (HAL) for the Raspberry Pi RP2040 or RP235x microcontroller"
+keywords = ["embedded", "async", "rp235x", "rp2040", "embedded-hal"]
 categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-rp"
@@ -20,11 +20,16 @@ flavors = [
 ]
 
 [package.metadata.docs.rs]
-features = ["defmt", "unstable-pac", "time-driver"]
+# TODO: it's not GREAT to set a specific target, but docs.rs builds will fail otherwise
+# for now, default to rp2040
+features = ["defmt", "unstable-pac", "time-driver", "rp2040"]
 
 [features]
 default = [ "rt" ]
-## Enable the rt feature of [`rp-pac`](https://docs.rs/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
+
+## Enable the `rt` feature of [`rp-pac`](https://docs.rs/rp-pac).
+## With `rt` enabled the PAC provides interrupt vectors instead of letting [`cortex-m-rt`](https://docs.rs/cortex-m-rt) do that.
+## See <https://docs.rs/cortex-m-rt/latest/cortex_m_rt/#device> for more info.
 rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
@@ -40,7 +45,7 @@ critical-section-impl = ["critical-section/restore-state-u8"]
 unstable-pac = []
 
 ## Enable the timer for use with `embassy-time` with a 1MHz tick rate.
-time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
+time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 
 ## Enable ROM function cache. This will store the address of a ROM function when first used, improving performance of subsequent calls.
 rom-func-cache = []
@@ -81,7 +86,7 @@ boot2-ram-memcpy = []
 boot2-w25q080 = []
 ## Use boot2 with support for Winbond W25X10CL SPI flash.
 boot2-w25x10cl = []
-## Have embassy not provide the boot2 so you can use your own.
+## Have embassy-rp not provide the boot2 so you can use your own.
 ## Place your own in the ".boot2" section like:
 ## ```
 ## #[link_section = ".boot2"]
@@ -89,6 +94,29 @@ boot2-w25x10cl = []
 ## static BOOT2: [u8; 256] = [0; 256]; // Provide your own with e.g. include_bytes!
 ## ```
 boot2-none = []
+
+#! ### Image Definition support
+#! RP2350's internal bootloader will only execute firmware if it has a valid Image Definition.
+#! There are other tags that can be used (for example, you can tag an image as "DATA")
+#! but programs will want to have an exe header. "SECURE_EXE" is usually what you want.
+#! Use imagedef-none if you want to configure the Image Definition manually
+#! If none are selected, imagedef-secure-exe will be used
+
+## Image is executable and starts in Secure mode
+imagedef-secure-exe = []
+## Image is executable and starts in Non-secure mode
+imagedef-nonsecure-exe = []
+
+## Have embassy-rp not provide the Image Definition so you can use your own.
+## Place your own in the ".start_block" section like:
+## ```ignore
+## use embassy_rp::block::ImageDef;
+##
+## #[link_section = ".start_block"]
+## #[used]
+## static IMAGE_DEF: ImageDef = ImageDef::secure_exe(); // Update this with your own implementation.
+## ```
+imagedef-none = []
 
 ## Configure the hal for use with the rp2040
 rp2040 = ["rp-pac/rp2040"]
@@ -105,45 +133,49 @@ _test = []
 ##
 ## Takes up a little flash space, but picotool can then report the name of your
 ## program and other details.
-binary-info = [ "rt" ]
+binary-info = ["rt", "dep:rp-binary-info", "rp-binary-info?/binary-info"]
 
 [dependencies]
-embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
-embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
-embassy-time = { version = "0.3.2", path = "../embassy-time" }
+embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
+embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
+embassy-time = { version = "0.4.0", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-embedded-hal = {version = "0.2.0", path = "../embassy-embedded-hal" }
-embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
+embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
+embassy-embedded-hal = { version = "0.3.0", path = "../embassy-embedded-hal" }
+embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
 atomic-polyfill = "1.0.1"
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
-nb = "1.0.0"
+nb = "1.1.0"
 cfg-if = "1.0.0"
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
-critical-section = "1.1"
+critical-section = "1.2.0"
 chrono = { version = "0.4", default-features = false, optional = true }
 embedded-io = { version = "0.6.1" }
 embedded-io-async = { version = "0.6.1" }
 embedded-storage = { version = "0.3" }
 embedded-storage-async = { version = "0.4.1" }
-rand_core = "0.6.4"
-fixed = "1.23.1"
+fixed = "1.28.0"
 
-rp-pac = { git = "https://github.com/embassy-rs/rp-pac.git", rev = "a7f42d25517f7124ad3b4ed492dec8b0f50a0e6c", feature = ["rt"] }
+rp-pac = { version = "7.0.0" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 
-pio-proc = {version= "0.2" }
-pio = {version= "0.2.1" }
+rand-core-06 = { package = "rand_core", version = "0.6" }
+rand-core-09 = { package = "rand_core", version = "0.9" }
+
+pio = { version = "0.3" }
 rp2040-boot2 = "0.3"
-document-features = "0.2.7"
+document-features = "0.2.10"
 sha2-const-stable = "0.1"
+rp-binary-info = { version = "0.1.0", optional = true }
+smart-leds = "0.4.0"
 
 [dev-dependencies]
-embassy-executor = { version = "0.6.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
+embassy-executor = { version = "0.7.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }

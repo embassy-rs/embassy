@@ -59,7 +59,7 @@ async fn main(_spawner: Spawner) {
 
     let mut err = None;
     loop {
-        match sdmmc.init_card(mhz(24)).await {
+        match sdmmc.init_sd_card(mhz(24)).await {
             Ok(_) => break,
             Err(e) => {
                 if err != Some(e) {

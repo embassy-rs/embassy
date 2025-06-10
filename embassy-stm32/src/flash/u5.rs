@@ -1,17 +1,9 @@
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
-use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashBank, FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
 
 pub(crate) unsafe fn lock() {
     #[cfg(feature = "trustzone-secure")]
@@ -70,12 +62,24 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     #[cfg(feature = "trustzone-secure")]
     pac::FLASH.seccr().modify(|w| {
         w.set_per(pac::flash::vals::SeccrPer::B_0X1);
-        w.set_pnb(sector.index_in_bank)
+        w.set_pnb(sector.index_in_bank);
+        // TODO: add check for bank swap
+        w.set_bker(match sector.bank {
+            FlashBank::Bank1 => pac::flash::vals::SeccrBker::B_0X0,
+            FlashBank::Bank2 => pac::flash::vals::SeccrBker::B_0X1,
+            _ => unreachable!(),
+        });
     });
     #[cfg(not(feature = "trustzone-secure"))]
     pac::FLASH.nscr().modify(|w| {
         w.set_per(pac::flash::vals::NscrPer::B_0X1);
-        w.set_pnb(sector.index_in_bank)
+        w.set_pnb(sector.index_in_bank);
+        // TODO: add check for bank swap
+        w.set_bker(match sector.bank {
+            FlashBank::Bank1 => pac::flash::vals::NscrBker::B_0X0,
+            FlashBank::Bank2 => pac::flash::vals::NscrBker::B_0X1,
+            _ => unreachable!(),
+        });
     });
 
     #[cfg(feature = "trustzone-secure")]

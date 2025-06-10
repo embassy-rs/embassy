@@ -2,14 +2,15 @@ use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use embassy_hal_internal::{into_ref, Peripheral};
 use stm32_metapac::adc::vals::SampleTime;
 
 use crate::adc::{Adc, AdcChannel, Instance, RxDma};
-use crate::dma::ringbuffer::OverrunError;
 use crate::dma::{Priority, ReadableRingBuffer, TransferOptions};
 use crate::pac::adc::vals;
-use crate::rcc;
+use crate::{rcc, Peri};
+
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct OverrunError;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
@@ -101,13 +102,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// It is critical to call `read` frequently to prevent DMA buffer overrun.
     ///
     /// [`read`]: #method.read
-    pub fn into_ring_buffered(
-        self,
-        dma: impl Peripheral<P = impl RxDma<T>> + 'd,
-        dma_buf: &'d mut [u16],
-    ) -> RingBufferedAdc<'d, T> {
+    pub fn into_ring_buffered(self, dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> RingBufferedAdc<'d, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
-        into_ref!(dma);
 
         let opts: crate::dma::TransferOptions = TransferOptions {
             half_transfer_ir: true,
@@ -203,16 +199,16 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             Sequence::Four => T::regs().sqr3().modify(|w| w.set_sq(3, channel.channel())),
             Sequence::Five => T::regs().sqr3().modify(|w| w.set_sq(4, channel.channel())),
             Sequence::Six => T::regs().sqr3().modify(|w| w.set_sq(5, channel.channel())),
-            Sequence::Seven => T::regs().sqr2().modify(|w| w.set_sq(6, channel.channel())),
-            Sequence::Eight => T::regs().sqr2().modify(|w| w.set_sq(7, channel.channel())),
-            Sequence::Nine => T::regs().sqr2().modify(|w| w.set_sq(8, channel.channel())),
-            Sequence::Ten => T::regs().sqr2().modify(|w| w.set_sq(9, channel.channel())),
-            Sequence::Eleven => T::regs().sqr2().modify(|w| w.set_sq(10, channel.channel())),
-            Sequence::Twelve => T::regs().sqr2().modify(|w| w.set_sq(11, channel.channel())),
-            Sequence::Thirteen => T::regs().sqr1().modify(|w| w.set_sq(12, channel.channel())),
-            Sequence::Fourteen => T::regs().sqr1().modify(|w| w.set_sq(13, channel.channel())),
-            Sequence::Fifteen => T::regs().sqr1().modify(|w| w.set_sq(14, channel.channel())),
-            Sequence::Sixteen => T::regs().sqr1().modify(|w| w.set_sq(15, channel.channel())),
+            Sequence::Seven => T::regs().sqr2().modify(|w| w.set_sq(0, channel.channel())),
+            Sequence::Eight => T::regs().sqr2().modify(|w| w.set_sq(1, channel.channel())),
+            Sequence::Nine => T::regs().sqr2().modify(|w| w.set_sq(2, channel.channel())),
+            Sequence::Ten => T::regs().sqr2().modify(|w| w.set_sq(3, channel.channel())),
+            Sequence::Eleven => T::regs().sqr2().modify(|w| w.set_sq(4, channel.channel())),
+            Sequence::Twelve => T::regs().sqr2().modify(|w| w.set_sq(5, channel.channel())),
+            Sequence::Thirteen => T::regs().sqr1().modify(|w| w.set_sq(0, channel.channel())),
+            Sequence::Fourteen => T::regs().sqr1().modify(|w| w.set_sq(1, channel.channel())),
+            Sequence::Fifteen => T::regs().sqr1().modify(|w| w.set_sq(2, channel.channel())),
+            Sequence::Sixteen => T::regs().sqr1().modify(|w| w.set_sq(3, channel.channel())),
         };
 
         if !was_on {
@@ -226,9 +222,8 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
     /// Turns on ADC if it is not already turned on and starts continuous DMA transfer.
     pub fn start(&mut self) -> Result<(), OverrunError> {
-        self.ring_buf.clear();
-
         self.setup_adc();
+        self.ring_buf.clear();
 
         Ok(())
     }
@@ -245,7 +240,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// [`start`]: #method.start
     pub fn teardown_adc(&mut self) {
         // Stop the DMA transfer
-        self.ring_buf.request_stop();
+        self.ring_buf.request_pause();
 
         let r = T::regs();
 
@@ -311,7 +306,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             // DMA requests are issues as long as DMA=1 and data are converted.
             w.set_dds(vals::Dds::CONTINUOUS);
             // EOC flag is set at the end of each conversion.
-            w.set_eocs(vals::Eocs::EACHCONVERSION);
+            w.set_eocs(vals::Eocs::EACH_CONVERSION);
         });
 
         // Begin ADC conversions

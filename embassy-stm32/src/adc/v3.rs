@@ -1,12 +1,11 @@
 use cfg_if::cfg_if;
-use embassy_hal_internal::into_ref;
 use pac::adc::vals::Dmacfg;
 
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
 };
 use crate::dma::Transfer;
-use crate::{pac, rcc, Peripheral};
+use crate::{pac, rcc, Peri};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -20,7 +19,7 @@ impl<T: Instance> SealedAdcChannel<T> for VrefInt {
         cfg_if! {
             if #[cfg(adc_g0)] {
                 let val = 13;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 17;
             } else if #[cfg(adc_u0)] {
                 let val = 12;
@@ -39,7 +38,7 @@ impl<T: Instance> SealedAdcChannel<T> for Temperature {
         cfg_if! {
             if #[cfg(adc_g0)] {
                 let val = 12;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 16;
             } else if #[cfg(adc_u0)] {
                 let val = 11;
@@ -58,9 +57,9 @@ impl<T: Instance> SealedAdcChannel<T> for Vbat {
         cfg_if! {
             if #[cfg(adc_g0)] {
                 let val = 14;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 2;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 13;
             } else {
                 let val = 18;
@@ -71,7 +70,7 @@ impl<T: Instance> SealedAdcChannel<T> for Vbat {
 }
 
 cfg_if! {
-    if #[cfg(adc_h5)] {
+    if #[cfg(any(adc_h5, adc_h7rs))] {
         pub struct VddCore;
         impl<T: Instance> AdcChannel<T> for VddCore {}
         impl<T: Instance> super::SealedAdcChannel<T> for VddCore {
@@ -95,8 +94,7 @@ cfg_if! {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
         T::regs().cr().modify(|reg| {
             #[cfg(not(any(adc_g0, adc_u0)))]
@@ -173,7 +171,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 T::regs().ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 T::common_regs().ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
@@ -193,7 +191,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 T::regs().ccr().modify(|reg| {
                     reg.set_vbaten(true);
                 });
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 T::common_regs().ccr().modify(|reg| {
                     reg.set_vbaten(true);
                 });
@@ -262,6 +260,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     ///
     /// `sequence` iterator and `readings` must have the same length.
     ///
+    /// Note: The order of values in `readings` is defined by the pin ADC
+    /// channel number and not the pin order in `sequence`.
+    ///
     /// Example
     /// ```rust,ignore
     /// use embassy_stm32::adc::{Adc, AdcChannel}
@@ -271,8 +272,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// let mut adc_pin1 = p.PA1.degrade_adc();
     /// let mut measurements = [0u16; 2];
     ///
-    /// adc.read_async(
-    ///     p.DMA1_CH2,
+    /// adc.read(
+    ///     p.DMA1_CH2.reborrow(),
     ///     [
     ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
     ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
@@ -285,7 +286,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// ```
     pub async fn read(
         &mut self,
-        rx_dma: &mut impl RxDma<T>,
+        rx_dma: Peri<'_, impl RxDma<T>>,
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
         readings: &mut [u16],
     ) {
@@ -366,14 +367,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr().modify(|reg| {
             reg.set_discen(false);
             reg.set_cont(true);
-            reg.set_dmacfg(Dmacfg::ONESHOT);
+            reg.set_dmacfg(Dmacfg::ONE_SHOT);
             reg.set_dmaen(true);
         });
         #[cfg(any(adc_g0, adc_u0))]
         T::regs().cfgr1().modify(|reg| {
             reg.set_discen(false);
             reg.set_cont(true);
-            reg.set_dmacfg(Dmacfg::ONESHOT);
+            reg.set_dmacfg(Dmacfg::ONE_SHOT);
             reg.set_dmaen(true);
         });
 
@@ -413,7 +414,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
         // RM0492, RM0481, etc.
         // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-        #[cfg(adc_h5)]
+        #[cfg(any(adc_h5, adc_h7rs))]
         if channel.channel() == 0 {
             T::regs().or().modify(|reg| reg.set_op0(true));
         }
@@ -446,7 +447,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // RM0492, RM0481, etc.
         // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-        #[cfg(adc_h5)]
+        #[cfg(any(adc_h5, adc_h7rs))]
         if channel.channel() == 0 {
             T::regs().or().modify(|reg| reg.set_op0(false));
         }
@@ -474,7 +475,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             if #[cfg(any(adc_g0, adc_u0))] {
                 // On G0 and U6 all channels use the same sampling time.
                 T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 match _ch {
                     0..=9 => T::regs().smpr1().modify(|w| w.set_smp(_ch as usize % 10, sample_time.into())),
                     _ => T::regs().smpr2().modify(|w| w.set_smp(_ch as usize % 10, sample_time.into())),

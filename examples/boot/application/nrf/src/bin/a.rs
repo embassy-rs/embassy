@@ -2,6 +2,9 @@
 #![no_main]
 #![macro_use]
 
+#[cfg(feature = "defmt")]
+use defmt_rtt as _;
+use embassy_boot::State;
 use embassy_boot_nrf::{FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
@@ -22,6 +25,7 @@ async fn main(_spawner: Spawner) {
 
     let mut button = Input::new(p.P0_11, Pull::Up);
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
+    let mut led_reverted = Output::new(p.P0_14, Level::High, OutputDrive::Standard);
 
     //let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);
     //let mut button = Input::new(p.P1_02, Pull::Up);
@@ -53,6 +57,13 @@ async fn main(_spawner: Spawner) {
     let config = FirmwareUpdaterConfig::from_linkerfile(&nvmc, &nvmc);
     let mut magic = [0; 4];
     let mut updater = FirmwareUpdater::new(config, &mut magic);
+    let state = updater.get_state().await.unwrap();
+    if state == State::Revert {
+        led_reverted.set_low();
+    } else {
+        led_reverted.set_high();
+    }
+
     loop {
         led.set_low();
         button.wait_for_any_edge().await;

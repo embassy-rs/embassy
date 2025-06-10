@@ -12,7 +12,7 @@ use core::iter;
 use core::marker::PhantomData;
 
 pub use config::*;
-use embassy_hal_internal::{Peripheral, PeripheralRef};
+use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
@@ -46,6 +46,24 @@ pub enum Error {
     /// Zero-length transfers are not allowed.
     ZeroLengthTransfer,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let message = match self {
+            Self::Bus => "Bus Error",
+            Self::Arbitration => "Arbitration Lost",
+            Self::Nack => "ACK Not Received",
+            Self::Timeout => "Request Timed Out",
+            Self::Crc => "CRC Mismatch",
+            Self::Overrun => "Buffer Overrun",
+            Self::ZeroLengthTransfer => "Zero-Length Transfers are not allowed",
+        };
+
+        write!(f, "{}", message)
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// I2C modes
 pub mod mode {
@@ -99,8 +117,8 @@ pub enum SendStatus {
 
 struct I2CDropGuard<'d> {
     info: &'static Info,
-    scl: Option<PeripheralRef<'d, AnyPin>>,
-    sda: Option<PeripheralRef<'d, AnyPin>>,
+    scl: Option<Peri<'d, AnyPin>>,
+    sda: Option<Peri<'d, AnyPin>>,
 }
 impl<'d> Drop for I2CDropGuard<'d> {
     fn drop(&mut self) {
@@ -132,14 +150,14 @@ pub struct I2c<'d, M: Mode, IM: MasterMode> {
 impl<'d> I2c<'d, Async, Master> {
     /// Create a new I2C driver.
     pub fn new<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
             + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
             + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         freq: Hertz,
         config: Config,
     ) -> Self {
@@ -158,9 +176,9 @@ impl<'d> I2c<'d, Async, Master> {
 impl<'d> I2c<'d, Blocking, Master> {
     /// Create a new blocking I2C driver.
     pub fn new_blocking<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         freq: Hertz,
         config: Config,
     ) -> Self {
@@ -179,9 +197,9 @@ impl<'d> I2c<'d, Blocking, Master> {
 impl<'d, M: Mode> I2c<'d, M, Master> {
     /// Create a new I2C driver.
     fn new_inner<T: Instance>(
-        _peri: impl Peripheral<P = T> + 'd,
-        scl: Option<PeripheralRef<'d, AnyPin>>,
-        sda: Option<PeripheralRef<'d, AnyPin>>,
+        _peri: Peri<'d, T>,
+        scl: Option<Peri<'d, AnyPin>>,
+        sda: Option<Peri<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         freq: Hertz,

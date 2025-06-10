@@ -7,7 +7,7 @@ use embassy_nrf::{bind_interrupts, peripherals, uarte};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    UARTE0_UART0 => uarte::InterruptHandler<peripherals::UARTE0>;
+    UARTE0 => uarte::InterruptHandler<peripherals::UARTE0>;
 });
 
 #[embassy_executor::main]
@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;
 
-    let mut uart = uarte::Uarte::new(p.UARTE0, Irqs, p.P0_08, p.P0_06, config);
+    let mut uart = uarte::Uarte::new(p.UARTE0, p.P0_08, p.P0_06, Irqs, config);
 
     info!("uarte initialized!");
 

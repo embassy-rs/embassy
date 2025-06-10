@@ -2,7 +2,7 @@
 //!
 //! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 use core::{fmt, mem};
@@ -73,7 +73,7 @@ where
     /// Lock the mutex.
     ///
     /// This will wait for the mutex to be unlocked if it's already locked.
-    pub async fn lock(&self) -> MutexGuard<'_, M, T> {
+    pub fn lock(&self) -> impl Future<Output = MutexGuard<'_, M, T>> {
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
                 let mut s = s.borrow_mut();
@@ -92,7 +92,6 @@ where
                 Poll::Pending
             }
         })
-        .await
     }
 
     /// Attempt to immediately lock the mutex.
@@ -138,7 +137,7 @@ impl<M: RawMutex, T> From<T> for Mutex<M, T> {
 impl<M, T> Default for Mutex<M, T>
 where
     M: RawMutex,
-    T: ?Sized + Default,
+    T: Default,
 {
     fn default() -> Self {
         Self::new(Default::default())
@@ -172,6 +171,7 @@ where
 ///
 /// Dropping it unlocks the mutex.
 #[clippy::has_significant_drop]
+#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, M, T>
 where
     M: RawMutex,

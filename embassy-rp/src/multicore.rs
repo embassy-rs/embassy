@@ -51,20 +51,24 @@ use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
-use crate::{gpio, install_stack_guard, interrupt, pac};
+use crate::{gpio, install_stack_guard, interrupt, pac, Peri};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
 static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
 
 #[inline(always)]
-fn core1_setup(stack_bottom: *mut usize) {
+unsafe fn core1_setup(stack_bottom: *mut usize) {
     if install_stack_guard(stack_bottom).is_err() {
         // currently only happens if the MPU was already set up, which
         // would indicate that the core is already in use from outside
         // embassy, somehow. trap if so since we can't deal with that.
         cortex_m::asm::udf();
     }
+
+    #[cfg(feature = "_rp235x")]
+    crate::enable_actlr_extexclall();
+
     unsafe {
         gpio::init();
     }
@@ -135,7 +139,7 @@ unsafe fn SIO_IRQ_FIFO() {
 }
 
 /// Spawn a function on this core
-pub fn spawn_core1<F, const SIZE: usize>(_core1: CORE1, stack: &'static mut Stack<SIZE>, entry: F)
+pub fn spawn_core1<F, const SIZE: usize>(_core1: Peri<'static, CORE1>, stack: &'static mut Stack<SIZE>, entry: F)
 where
     F: FnOnce() -> bad::Never + Send + 'static,
 {
@@ -148,7 +152,7 @@ where
         entry: *mut ManuallyDrop<F>,
         stack_bottom: *mut usize,
     ) -> ! {
-        core1_setup(stack_bottom);
+        unsafe { core1_setup(stack_bottom) };
 
         let entry = unsafe { ManuallyDrop::take(&mut *entry) };
 
@@ -168,6 +172,13 @@ where
         unsafe {
             interrupt::SIO_IRQ_FIFO.enable()
         };
+
+        // Enable FPU
+        #[cfg(all(feature = "_rp235x", has_fpu))]
+        unsafe {
+            let p = cortex_m::Peripherals::steal();
+            p.SCB.cpacr.modify(|cpacr| cpacr | (3 << 20) | (3 << 22));
+        }
 
         entry()
     }

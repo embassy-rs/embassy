@@ -6,7 +6,7 @@ pub mod enums;
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 use enums::*;
 
 use crate::dma::ChannelAndRequest;
@@ -14,11 +14,11 @@ use crate::gpio::{AfType, AnyPin, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
+use crate::{peripherals, Peri};
 
 /// QSPI transfer configuration.
 pub struct TransferConfig {
-    /// Instraction width (IMODE)
+    /// Instruction width (IMODE)
     pub iwidth: QspiWidth,
     /// Address width (ADMODE)
     pub awidth: QspiWidth,
@@ -75,13 +75,13 @@ impl Default for Config {
 /// QSPI driver.
 #[allow(dead_code)]
 pub struct Qspi<'d, T: Instance, M: PeriMode> {
-    _peri: PeripheralRef<'d, T>,
-    sck: Option<PeripheralRef<'d, AnyPin>>,
-    d0: Option<PeripheralRef<'d, AnyPin>>,
-    d1: Option<PeripheralRef<'d, AnyPin>>,
-    d2: Option<PeripheralRef<'d, AnyPin>>,
-    d3: Option<PeripheralRef<'d, AnyPin>>,
-    nss: Option<PeripheralRef<'d, AnyPin>>,
+    _peri: Peri<'d, T>,
+    sck: Option<Peri<'d, AnyPin>>,
+    d0: Option<Peri<'d, AnyPin>>,
+    d1: Option<Peri<'d, AnyPin>>,
+    d2: Option<Peri<'d, AnyPin>>,
+    d3: Option<Peri<'d, AnyPin>>,
+    nss: Option<Peri<'d, AnyPin>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -89,19 +89,17 @@ pub struct Qspi<'d, T: Instance, M: PeriMode> {
 
 impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: Option<PeripheralRef<'d, AnyPin>>,
-        d1: Option<PeripheralRef<'d, AnyPin>>,
-        d2: Option<PeripheralRef<'d, AnyPin>>,
-        d3: Option<PeripheralRef<'d, AnyPin>>,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        nss: Option<PeripheralRef<'d, AnyPin>>,
+        peri: Peri<'d, T>,
+        d0: Option<Peri<'d, AnyPin>>,
+        d1: Option<Peri<'d, AnyPin>>,
+        d2: Option<Peri<'d, AnyPin>>,
+        d3: Option<Peri<'d, AnyPin>>,
+        sck: Option<Peri<'d, AnyPin>>,
+        nss: Option<Peri<'d, AnyPin>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         fsel: FlashSelection,
     ) -> Self {
-        into_ref!(peri);
-
         rcc::enable_and_reset::<T>();
 
         while T::REGS.sr().read().busy() {}
@@ -148,7 +146,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     }
 
     /// Do a QSPI command.
-    pub fn command(&mut self, transaction: TransferConfig) {
+    pub fn blocking_command(&mut self, transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
@@ -172,7 +170,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         });
 
         for b in buf {
-            while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
+            while !T::REGS.sr().read().tcf() && (T::REGS.sr().read().flevel() == 0) {}
             *b = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
         }
 
@@ -201,7 +199,42 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Enable memory map mode
+    pub fn enable_memory_map(&mut self, transaction: &TransferConfig) {
+        T::REGS.fcr().modify(|v| {
+            v.set_csmf(true);
+            v.set_ctcf(true);
+            v.set_ctef(true);
+            v.set_ctof(true);
+        });
+        T::REGS.ccr().write(|v| {
+            v.set_fmode(QspiMode::MemoryMapped.into());
+            v.set_imode(transaction.iwidth.into());
+            v.set_instruction(transaction.instruction);
+            v.set_admode(transaction.awidth.into());
+            v.set_adsize(self.config.address_size.into());
+            v.set_dmode(transaction.dwidth.into());
+            v.set_abmode(QspiWidth::NONE.into());
+            v.set_dcyc(transaction.dummy.into());
+        });
+    }
+
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
+        match (transaction.address, transaction.awidth) {
+            (Some(_), QspiWidth::NONE) => panic!("QSPI address can't be sent with an address width of NONE"),
+            (Some(_), _) => {}
+            (None, QspiWidth::NONE) => {}
+            (None, _) => panic!("QSPI address is not set, so the address width should be NONE"),
+        }
+
+        match (data_len, transaction.dwidth) {
+            (Some(0), _) => panic!("QSPI data must be at least one byte"),
+            (Some(_), QspiWidth::NONE) => panic!("QSPI data can't be sent with a data width of NONE"),
+            (Some(_), _) => {}
+            (None, QspiWidth::NONE) => {}
+            (None, _) => panic!("QSPI data is empty, so the data width should be NONE"),
+        }
+
         T::REGS.fcr().modify(|v| {
             v.set_csmf(true);
             v.set_ctcf(true);
@@ -237,13 +270,13 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
 impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     /// Create a new QSPI driver for bank 1, in blocking mode.
     pub fn new_blocking_bank1(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK1D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK1D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK1D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK1NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK1D0Pin<T>>,
+        d1: Peri<'d, impl BK1D1Pin<T>>,
+        d2: Peri<'d, impl BK1D2Pin<T>>,
+        d3: Peri<'d, impl BK1D3Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK1NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -265,13 +298,13 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
 
     /// Create a new QSPI driver for bank 2, in blocking mode.
     pub fn new_blocking_bank2(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK2D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK2D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK2D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK2NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK2D0Pin<T>>,
+        d1: Peri<'d, impl BK2D1Pin<T>>,
+        d2: Peri<'d, impl BK2D2Pin<T>>,
+        d3: Peri<'d, impl BK2D3Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK2NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -295,14 +328,14 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
 impl<'d, T: Instance> Qspi<'d, T, Async> {
     /// Create a new QSPI driver for bank 1.
     pub fn new_bank1(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK1D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK1D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK1D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK1NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl QuadDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK1D0Pin<T>>,
+        d1: Peri<'d, impl BK1D1Pin<T>>,
+        d2: Peri<'d, impl BK1D2Pin<T>>,
+        d3: Peri<'d, impl BK1D3Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK1NSSPin<T>>,
+        dma: Peri<'d, impl QuadDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -324,14 +357,14 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
     /// Create a new QSPI driver for bank 2.
     pub fn new_bank2(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK2D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK2D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK2D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK2NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl QuadDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK2D0Pin<T>>,
+        d1: Peri<'d, impl BK2D1Pin<T>>,
+        d2: Peri<'d, impl BK2D2Pin<T>>,
+        d3: Peri<'d, impl BK2D3Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK2NSSPin<T>>,
+        dma: Peri<'d, impl QuadDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -353,6 +386,21 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
     /// Blocking read data, using DMA.
     pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        let transfer = self.start_read_transfer(transaction, buf);
+        transfer.blocking_wait();
+    }
+
+    /// Async read data, using DMA.
+    pub async fn read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        let transfer = self.start_read_transfer(transaction, buf);
+        transfer.await;
+    }
+
+    fn start_read_transfer<'a>(
+        &'a mut self,
+        transaction: TransferConfig,
+        buf: &'a mut [u8],
+    ) -> crate::dma::Transfer<'a> {
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
         T::REGS.ccr().modify(|v| {
@@ -373,12 +421,22 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
-
-        transfer.blocking_wait();
+        transfer
     }
 
     /// Blocking write data, using DMA.
     pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig) {
+        let transfer = self.start_write_transfer(transaction, buf);
+        transfer.blocking_wait();
+    }
+
+    /// Async write data, using DMA.
+    pub async fn write_dma(&mut self, buf: &[u8], transaction: TransferConfig) {
+        let transfer = self.start_write_transfer(transaction, buf);
+        transfer.await;
+    }
+
+    fn start_write_transfer<'a>(&'a mut self, transaction: TransferConfig, buf: &'a [u8]) -> crate::dma::Transfer<'a> {
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
         T::REGS.ccr().modify(|v| {
@@ -395,8 +453,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
-
-        transfer.blocking_wait();
+        transfer
     }
 }
 
@@ -406,7 +463,7 @@ trait SealedInstance {
 
 /// QSPI instance trait.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(BK1D0Pin, Instance);

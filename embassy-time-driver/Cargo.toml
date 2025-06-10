@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time-driver"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Driver trait for embassy-time"
 repository = "https://github.com/embassy-rs/embassy"
@@ -226,6 +226,8 @@ tick-hz-128_000_000 = []
 tick-hz-130_000_000 = []
 ## 131.072MHz Tick Rate
 tick-hz-131_072_000 = []
+## 133.0MHz Tick Rate
+tick-hz-133_000_000 = []
 ## 140.0MHz Tick Rate
 tick-hz-140_000_000 = []
 ## 144.0MHz Tick Rate
@@ -368,3 +370,7 @@ tick-hz-5_242_880_000 = []
 
 [dependencies]
 document-features = "0.2.7"
+
+[dev-dependencies]
+critical-section = "1"
+embassy-time-queue-utils = { path = "../embassy-time-queue-utils" }

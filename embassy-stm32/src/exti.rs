@@ -5,21 +5,25 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, into_ref};
+use embassy_hal_internal::{impl_peripheral, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, Pull};
 use crate::pac::exti::regs::Lines;
 use crate::pac::EXTI;
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals, Peri};
 
 const EXTI_COUNT: usize = 16;
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [NEW_AW; EXTI_COUNT];
+static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
 
-#[cfg(exti_w)]
+#[cfg(all(exti_w, feature = "_core-cm0p"))]
 fn cpu_regs() -> pac::exti::Cpu {
-    EXTI.cpu(crate::pac::CORE_INDEX)
+    EXTI.cpu(1)
+}
+
+#[cfg(all(exti_w, not(feature = "_core-cm0p")))]
+fn cpu_regs() -> pac::exti::Cpu {
+    EXTI.cpu(0)
 }
 
 #[cfg(not(exti_w))]
@@ -41,9 +45,6 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 unsafe fn on_irq() {
-    #[cfg(feature = "low-power")]
-    crate::low_power::on_wakeup_irq();
-
     #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
     let bits = EXTI.pr(0).read().0;
     #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
@@ -68,6 +69,9 @@ unsafe fn on_irq() {
         EXTI.rpr(0).write_value(Lines(bits));
         EXTI.fpr(0).write_value(Lines(bits));
     }
+
+    #[cfg(feature = "low-power")]
+    crate::low_power::on_wakeup_irq();
 }
 
 struct BitIter(u32);
@@ -101,13 +105,7 @@ impl<'d> Unpin for ExtiInput<'d> {}
 
 impl<'d> ExtiInput<'d> {
     /// Create an EXTI input.
-    pub fn new<T: GpioPin>(
-        pin: impl Peripheral<P = T> + 'd,
-        ch: impl Peripheral<P = T::ExtiChannel> + 'd,
-        pull: Pull,
-    ) -> Self {
-        into_ref!(pin, ch);
-
+    pub fn new<T: GpioPin>(pin: Peri<'d, T>, ch: Peri<'d, T::ExtiChannel>, pull: Pull) -> Self {
         // Needed if using AnyPin+AnyChannel.
         assert_eq!(pin.pin(), ch.number());
 
@@ -334,23 +332,12 @@ trait SealedChannel {}
 
 /// EXTI channel trait.
 #[allow(private_bounds)]
-pub trait Channel: SealedChannel + Sized {
+pub trait Channel: PeripheralType + SealedChannel + Sized {
     /// Get the EXTI channel number.
     fn number(&self) -> u8;
-
-    /// Type-erase (degrade) this channel into an `AnyChannel`.
-    ///
-    /// This converts EXTI channel singletons (`EXTI0`, `EXTI1`, ...), which
-    /// are all different types, into the same type. It is useful for
-    /// creating arrays of channels, or avoiding generics.
-    fn degrade(self) -> AnyChannel {
-        AnyChannel {
-            number: self.number() as u8,
-        }
-    }
 }
 
-/// Type-erased (degraded) EXTI channel.
+/// Type-erased EXTI channel.
 ///
 /// This represents ownership over any EXTI channel, known at runtime.
 pub struct AnyChannel {
@@ -371,6 +358,14 @@ macro_rules! impl_exti {
         impl Channel for peripherals::$type {
             fn number(&self) -> u8 {
                 $number
+            }
+        }
+
+        impl From<peripherals::$type> for AnyChannel {
+            fn from(val: peripherals::$type) -> Self {
+                Self {
+                    number: val.number() as u8,
+                }
             }
         }
     };

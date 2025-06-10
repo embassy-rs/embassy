@@ -10,6 +10,7 @@ use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
+/// A guard that, once constructed, allows for sys commands to be sent to CPU2.
 pub struct Sys {
     _private: (),
 }
@@ -86,12 +87,22 @@ impl Sys {
         self.write_and_get_response(ShciOpcode::Mac802_15_4Init, &[]).await
     }
 
+    /// Send a request to CPU2 to initialise the BLE stack.
+    ///
+    /// This must be called before any BLE commands are sent via the BLE channel (according to
+    /// AN5289, Figures 65 and 66). It should only be called after CPU2 sends a system event, via
+    /// `HW_IPCC_SYS_EvtNot`, aka `IoBusCallBackUserEvt` (as detailed in Figure 65), aka
+    /// [crate::sub::ble::hci::host::uart::UartHci::read].
     #[cfg(feature = "ble")]
     pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await
     }
 
     /// `HW_IPCC_SYS_EvtNot`
+    ///
+    /// This method takes the place of the `HW_IPCC_SYS_EvtNot`/`SysUserEvtRx`/`APPE_SysUserEvtRx`,
+    /// as the embassy implementation avoids the need to call C public bindings, and instead
+    /// handles the event channels directly.
     pub async fn read(&self) -> EvtBox<mm::MemoryManager> {
         Ipcc::receive(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, || unsafe {
             if let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {

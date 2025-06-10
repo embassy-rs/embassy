@@ -4,6 +4,9 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::Waker;
 
 /// Utility struct to register and wake a waker.
+/// If a waker is registered, registering another waker will replace the previous one without waking it.
+/// The intended use case is to wake tasks from interrupts. Therefore, it is generally not expected,
+/// that multiple tasks register try to register a waker simultaneously.
 pub struct AtomicWaker {
     waker: AtomicPtr<()>,
 }

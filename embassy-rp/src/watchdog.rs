@@ -10,8 +10,17 @@ use core::marker::PhantomData;
 
 use embassy_time::Duration;
 
-use crate::pac;
 use crate::peripherals::WATCHDOG;
+use crate::{pac, Peri};
+
+/// The reason for a system reset from the watchdog.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ResetReason {
+    /// The reset was forced.
+    Forced,
+    /// The watchdog was not fed in time.
+    TimedOut,
+}
 
 /// Watchdog peripheral
 pub struct Watchdog {
@@ -21,7 +30,7 @@ pub struct Watchdog {
 
 impl Watchdog {
     /// Create a new `Watchdog`
-    pub fn new(_watchdog: WATCHDOG) -> Self {
+    pub fn new(_watchdog: Peri<'static, WATCHDOG>) -> Self {
         Self {
             phantom: PhantomData,
             load_value: 0,
@@ -80,17 +89,25 @@ impl Watchdog {
 
     /// Start the watchdog timer
     pub fn start(&mut self, period: Duration) {
+        #[cfg(feature = "rp2040")]
+        const MAX_PERIOD: u32 = 0xFFFFFF / 2;
+        #[cfg(feature = "_rp235x")]
         const MAX_PERIOD: u32 = 0xFFFFFF;
 
         let delay_us = period.as_micros();
-        if delay_us > (MAX_PERIOD / 2) as u64 {
-            panic!("Period cannot exceed {} microseconds", MAX_PERIOD / 2);
+        if delay_us > (MAX_PERIOD) as u64 {
+            panic!("Period cannot exceed {} microseconds", MAX_PERIOD);
         }
         let delay_us = delay_us as u32;
 
         // Due to a logic error, the watchdog decrements by 2 and
         // the load value must be compensated; see RP2040-E1
-        self.load_value = delay_us * 2;
+        // This errata is fixed in the RP235x
+        if cfg!(feature = "rp2040") {
+            self.load_value = delay_us * 2;
+        } else {
+            self.load_value = delay_us;
+        }
 
         self.enable(false);
         self.configure_wdog_reset_triggers();
@@ -138,6 +155,19 @@ impl Watchdog {
             6 => watchdog.scratch6().read(),
             7 => watchdog.scratch7().read(),
             _ => panic!("Invalid watchdog scratch index"),
+        }
+    }
+
+    /// Get the reason for the last system reset, if it was caused by the watchdog.
+    pub fn reset_reason(&self) -> Option<ResetReason> {
+        let watchdog = pac::WATCHDOG;
+        let reason = watchdog.reason().read();
+        if reason.force() {
+            Some(ResetReason::Forced)
+        } else if reason.timer() {
+            Some(ResetReason::TimedOut)
+        } else {
+            None
         }
     }
 }

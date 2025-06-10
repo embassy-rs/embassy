@@ -5,12 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.4.0 - 2025-01-02
+
+- `embassy-time-driver` updated from v0.1 to v0.2.
+- embassy-time no longer provides an `embassy-time-queue-driver` implementation
 
 ## 0.3.2 - 2024-08-05
 
 - Implement with_timeout()/with_deadline() method style call on Future
-- Add collapse_debuginfo to fmt.rs macros. 
+- Add collapse_debuginfo to fmt.rs macros.
 
 ## 0.3.1 - 2024-01-11
 

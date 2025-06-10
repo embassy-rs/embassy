@@ -9,7 +9,8 @@
 pub(crate) mod fmt;
 
 #[cfg(feature = "bluetooth")]
-mod bluetooth;
+/// Bluetooth module.
+pub mod bluetooth;
 mod bus;
 mod consts;
 mod control;
@@ -28,7 +29,9 @@ use ioctl::IoctlState;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
-pub use crate::control::{AddMulticastAddressError, Control, Error as ControlError, ScanOptions, Scanner};
+pub use crate::control::{
+    AddMulticastAddressError, Control, Error as ControlError, JoinAuth, JoinOptions, ScanOptions, ScanType, Scanner,
+};
 pub use crate::runner::Runner;
 pub use crate::structs::BssInfo;
 
@@ -121,7 +124,7 @@ struct NetState {
 
 impl State {
     /// Create new driver state holder.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             ioctl_state: IoctlState::new(),
             net: NetState {

@@ -8,7 +8,6 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
-use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_time::Timer;
@@ -75,12 +74,6 @@ async fn main(_spawner: Spawner) {
     // Run the USB device.
     let usb_fut = usb.run();
 
-    // Set up the signal pin that will be used to trigger the keyboard.
-    let mut signal_pin = Input::new(p.PIN_16, Pull::None);
-
-    // Enable the schmitt trigger to slightly debounce.
-    signal_pin.set_schmitt(true);
-
     let (reader, mut writer) = hid.split();
 
     // Do stuff with the class!
@@ -92,8 +85,8 @@ async fn main(_spawner: Spawner) {
             _ = Timer::after_secs(1).await;
             let report = MouseReport {
                 buttons: 0,
-                x: rng.gen_range(-100..100), // random small x movement
-                y: rng.gen_range(-100..100), // random small y movement
+                x: rng.random_range(-100..100), // random small x movement
+                y: rng.random_range(-100..100), // random small y movement
                 wheel: 0,
                 pan: 0,
             };

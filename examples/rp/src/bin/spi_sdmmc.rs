@@ -7,7 +7,6 @@
 #![no_main]
 
 use defmt::*;
-use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_rp::spi::Spi;
 use embassy_rp::{gpio, spi};
@@ -33,7 +32,6 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    embassy_rp::pac::SIO.spinlock(31).write_value(1);
     let p = embassy_rp::init(Default::default());
 
     // SPI clock needs to be running at <= 400kHz during initialization
@@ -51,7 +49,7 @@ async fn main(_spawner: Spawner) {
     // Now that the card is initialized, the SPI clock can go faster
     let mut config = spi::Config::default();
     config.frequency = 16_000_000;
-    sdcard.spi(|dev| dev.bus_mut().set_config(&config)).ok();
+    sdcard.spi(|dev| dev.bus_mut().set_config(&config));
 
     // Now let's look for volumes (also known as partitions) on our block device.
     // To do this we need a Volume Manager. It will take ownership of the block device.

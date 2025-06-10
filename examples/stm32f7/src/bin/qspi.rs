@@ -72,7 +72,7 @@ impl<I: Instance> FlashMemory<I> {
             address: None,
             dummy: DummyCycles::_0,
         };
-        self.qspi.command(transaction);
+        self.qspi.blocking_command(transaction);
     }
 
     pub fn reset_memory(&mut self) {
@@ -143,7 +143,7 @@ impl<I: Instance> FlashMemory<I> {
             dummy: DummyCycles::_0,
         };
         self.enable_write();
-        self.qspi.command(transaction);
+        self.qspi.blocking_command(transaction);
         self.wait_write_finish();
     }
 

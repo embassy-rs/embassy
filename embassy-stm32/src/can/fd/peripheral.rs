@@ -71,11 +71,28 @@ impl Registers {
         }
     }
 
+    #[cfg(feature = "time")]
+    pub fn calc_timestamp(&self, ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+        let now_embassy = embassy_time::Instant::now();
+        if ns_per_timer_tick == 0 {
+            return now_embassy;
+        }
+        let cantime = { self.regs.tscv().read().tsc() };
+        let delta = cantime.overflowing_sub(ts_val).0 as u64;
+        let ns = ns_per_timer_tick * delta as u64;
+        now_embassy - embassy_time::Duration::from_nanos(ns)
+    }
+
+    #[cfg(not(feature = "time"))]
+    pub fn calc_timestamp(&self, _ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+        ts_val
+    }
+
     pub fn put_tx_frame(&self, bufidx: usize, header: &Header, buffer: &[u8]) {
         let mailbox = self.tx_buffer_element(bufidx);
         mailbox.reset();
         put_tx_header(mailbox, header);
-        put_tx_data(mailbox, &buffer[..header.len() as usize]);
+        put_tx_data(mailbox, buffer);
 
         // Set <idx as Mailbox> as ready to transmit
         self.regs.txbar().modify(|w| w.set_ar(bufidx, true));
@@ -190,7 +207,7 @@ impl Registers {
                 DataLength::Fdcan(len) => len,
                 DataLength::Classic(len) => len,
             };
-            if len as usize > ClassicData::MAX_DATA_LEN {
+            if len as usize > 8 {
                 return None;
             }
 
@@ -200,7 +217,7 @@ impl Registers {
             if header_reg.rtr().bit() {
                 F::new_remote(id, len as usize)
             } else {
-                F::new(id, &data)
+                F::new(id, &data[0..(len as usize)])
             }
         } else {
             // Abort request failed because the frame was already sent (or being sent) on
@@ -458,7 +475,7 @@ impl Registers {
     /// [`FdCanConfig::set_transmit_pause`]
     #[inline]
     pub fn set_transmit_pause(&self, enabled: bool) {
-        self.regs.cccr().modify(|w| w.set_txp(!enabled));
+        self.regs.cccr().modify(|w| w.set_txp(enabled));
     }
 
     /// Configures non-iso mode. See [`FdCanConfig::set_non_iso_mode`]

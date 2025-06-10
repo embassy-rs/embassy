@@ -1,6 +1,8 @@
 //! Pulse Width Modulation (PWM)
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
+pub use embedded_hal_1::pwm::SetDutyCycle;
+use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 use fixed::traits::ToFixed;
 use fixed::FixedU16;
 use pac::pwm::regs::{ChDiv, Intr};
@@ -80,18 +82,57 @@ impl From<InputMode> for Divmode {
     }
 }
 
+/// PWM error.
+#[derive(Debug)]
+pub enum PwmError {
+    /// Invalid Duty Cycle.
+    InvalidDutyCycle,
+}
+
+impl Error for PwmError {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            PwmError::InvalidDutyCycle => ErrorKind::Other,
+        }
+    }
+}
+
 /// PWM driver.
 pub struct Pwm<'d> {
-    pin_a: Option<PeripheralRef<'d, AnyPin>>,
-    pin_b: Option<PeripheralRef<'d, AnyPin>>,
+    pin_a: Option<Peri<'d, AnyPin>>,
+    pin_b: Option<Peri<'d, AnyPin>>,
     slice: usize,
+}
+
+impl<'d> ErrorType for Pwm<'d> {
+    type Error = PwmError;
+}
+
+impl<'d> SetDutyCycle for Pwm<'d> {
+    fn max_duty_cycle(&self) -> u16 {
+        pac::PWM.ch(self.slice).top().read().top()
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        let max_duty = self.max_duty_cycle();
+        if duty > max_duty {
+            return Err(PwmError::InvalidDutyCycle);
+        }
+
+        let p = pac::PWM.ch(self.slice);
+        p.cc().modify(|w| {
+            w.set_a(duty);
+            w.set_b(duty);
+        });
+        Ok(())
+    }
 }
 
 impl<'d> Pwm<'d> {
     fn new_inner(
         slice: usize,
-        a: Option<PeripheralRef<'d, AnyPin>>,
-        b: Option<PeripheralRef<'d, AnyPin>>,
+        a: Option<Peri<'d, AnyPin>>,
+        b: Option<Peri<'d, AnyPin>>,
         b_pull: Pull,
         config: Config,
         divmode: Divmode,
@@ -106,12 +147,21 @@ impl<'d> Pwm<'d> {
 
         if let Some(pin) = &a {
             pin.gpio().ctrl().write(|w| w.set_funcsel(4));
+            #[cfg(feature = "_rp235x")]
+            pin.pad_ctrl().modify(|w| {
+                w.set_iso(false);
+            });
         }
         if let Some(pin) = &b {
             pin.gpio().ctrl().write(|w| w.set_funcsel(4));
             pin.pad_ctrl().modify(|w| {
                 #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
+                #[cfg(feature = "_rp235x")]
+                if divmode != Divmode::DIV {
+                    // Is in input mode and so must enable input mode for the pin
+                    w.set_ie(true);
+                }
                 w.set_pue(b_pull == Pull::Up);
                 w.set_pde(b_pull == Pull::Down);
             });
@@ -126,60 +176,34 @@ impl<'d> Pwm<'d> {
 
     /// Create PWM driver without any configured pins.
     #[inline]
-    pub fn new_free<T: Slice>(slice: impl Peripheral<P = T> + 'd, config: Config) -> Self {
-        into_ref!(slice);
+    pub fn new_free<T: Slice>(slice: Peri<'d, T>, config: Config) -> Self {
         Self::new_inner(slice.number(), None, None, Pull::None, config, Divmode::DIV)
     }
 
     /// Create PWM driver with a single 'a' pin as output.
     #[inline]
-    pub fn new_output_a<T: Slice>(
-        slice: impl Peripheral<P = T> + 'd,
-        a: impl Peripheral<P = impl ChannelAPin<T>> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(slice, a);
-        Self::new_inner(
-            slice.number(),
-            Some(a.map_into()),
-            None,
-            Pull::None,
-            config,
-            Divmode::DIV,
-        )
+    pub fn new_output_a<T: Slice>(slice: Peri<'d, T>, a: Peri<'d, impl ChannelAPin<T>>, config: Config) -> Self {
+        Self::new_inner(slice.number(), Some(a.into()), None, Pull::None, config, Divmode::DIV)
     }
 
     /// Create PWM driver with a single 'b' pin as output.
     #[inline]
-    pub fn new_output_b<T: Slice>(
-        slice: impl Peripheral<P = T> + 'd,
-        b: impl Peripheral<P = impl ChannelBPin<T>> + 'd,
-        config: Config,
-    ) -> Self {
-        into_ref!(slice, b);
-        Self::new_inner(
-            slice.number(),
-            None,
-            Some(b.map_into()),
-            Pull::None,
-            config,
-            Divmode::DIV,
-        )
+    pub fn new_output_b<T: Slice>(slice: Peri<'d, T>, b: Peri<'d, impl ChannelBPin<T>>, config: Config) -> Self {
+        Self::new_inner(slice.number(), None, Some(b.into()), Pull::None, config, Divmode::DIV)
     }
 
     /// Create PWM driver with a 'a' and 'b' pins as output.
     #[inline]
     pub fn new_output_ab<T: Slice>(
-        slice: impl Peripheral<P = T> + 'd,
-        a: impl Peripheral<P = impl ChannelAPin<T>> + 'd,
-        b: impl Peripheral<P = impl ChannelBPin<T>> + 'd,
+        slice: Peri<'d, T>,
+        a: Peri<'d, impl ChannelAPin<T>>,
+        b: Peri<'d, impl ChannelBPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(slice, a, b);
         Self::new_inner(
             slice.number(),
-            Some(a.map_into()),
-            Some(b.map_into()),
+            Some(a.into()),
+            Some(b.into()),
             Pull::None,
             config,
             Divmode::DIV,
@@ -189,31 +213,29 @@ impl<'d> Pwm<'d> {
     /// Create PWM driver with a single 'b' as input pin.
     #[inline]
     pub fn new_input<T: Slice>(
-        slice: impl Peripheral<P = T> + 'd,
-        b: impl Peripheral<P = impl ChannelBPin<T>> + 'd,
+        slice: Peri<'d, T>,
+        b: Peri<'d, impl ChannelBPin<T>>,
         b_pull: Pull,
         mode: InputMode,
         config: Config,
     ) -> Self {
-        into_ref!(slice, b);
-        Self::new_inner(slice.number(), None, Some(b.map_into()), b_pull, config, mode.into())
+        Self::new_inner(slice.number(), None, Some(b.into()), b_pull, config, mode.into())
     }
 
     /// Create PWM driver with a 'a' and 'b' pins in the desired input mode.
     #[inline]
     pub fn new_output_input<T: Slice>(
-        slice: impl Peripheral<P = T> + 'd,
-        a: impl Peripheral<P = impl ChannelAPin<T>> + 'd,
-        b: impl Peripheral<P = impl ChannelBPin<T>> + 'd,
+        slice: Peri<'d, T>,
+        a: Peri<'d, impl ChannelAPin<T>>,
+        b: Peri<'d, impl ChannelBPin<T>>,
         b_pull: Pull,
         mode: InputMode,
         config: Config,
     ) -> Self {
-        into_ref!(slice, a, b);
         Self::new_inner(
             slice.number(),
-            Some(a.map_into()),
-            Some(b.map_into()),
+            Some(a.into()),
+            Some(b.into()),
             b_pull,
             config,
             mode.into(),
@@ -299,6 +321,119 @@ impl<'d> Pwm<'d> {
     fn bit(&self) -> u32 {
         1 << self.slice as usize
     }
+
+    /// Splits the PWM driver into separate `PwmOutput` instances for channels A and B.
+    #[inline]
+    pub fn split(mut self) -> (Option<PwmOutput<'d>>, Option<PwmOutput<'d>>) {
+        (
+            self.pin_a
+                .take()
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin), self.slice.clone(), true)),
+            self.pin_b
+                .take()
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin), self.slice.clone(), true)),
+        )
+    }
+    /// Splits the PWM driver by reference to allow for separate duty cycle control
+    /// of each channel (A and B) without taking ownership of the PWM instance.
+    #[inline]
+    pub fn split_by_ref(&mut self) -> (Option<PwmOutput<'_>>, Option<PwmOutput<'_>>) {
+        (
+            self.pin_a
+                .as_mut()
+                .map(|pin| PwmOutput::new(PwmChannelPin::A(pin.reborrow()), self.slice.clone(), false)),
+            self.pin_b
+                .as_mut()
+                .map(|pin| PwmOutput::new(PwmChannelPin::B(pin.reborrow()), self.slice.clone(), false)),
+        )
+    }
+}
+
+enum PwmChannelPin<'d> {
+    A(Peri<'d, AnyPin>),
+    B(Peri<'d, AnyPin>),
+}
+
+/// Single channel of Pwm driver.
+pub struct PwmOutput<'d> {
+    //pin that can be ether ChannelAPin or ChannelBPin
+    channel_pin: PwmChannelPin<'d>,
+    slice: usize,
+    is_owned: bool,
+}
+
+impl<'d> PwmOutput<'d> {
+    fn new(channel_pin: PwmChannelPin<'d>, slice: usize, is_owned: bool) -> Self {
+        Self {
+            channel_pin,
+            slice,
+            is_owned,
+        }
+    }
+}
+
+impl<'d> Drop for PwmOutput<'d> {
+    fn drop(&mut self) {
+        if self.is_owned {
+            let p = pac::PWM.ch(self.slice);
+            match &self.channel_pin {
+                PwmChannelPin::A(pin) => {
+                    p.cc().modify(|w| {
+                        w.set_a(0);
+                    });
+
+                    pin.gpio().ctrl().write(|w| w.set_funcsel(31));
+                    //Enable pin PULL-DOWN
+                    pin.pad_ctrl().modify(|w| {
+                        w.set_pde(true);
+                    });
+                }
+                PwmChannelPin::B(pin) => {
+                    p.cc().modify(|w| {
+                        w.set_b(0);
+                    });
+                    pin.gpio().ctrl().write(|w| w.set_funcsel(31));
+                    //Enable pin PULL-DOWN
+                    pin.pad_ctrl().modify(|w| {
+                        w.set_pde(true);
+                    });
+                }
+            }
+        }
+    }
+}
+
+impl<'d> ErrorType for PwmOutput<'d> {
+    type Error = PwmError;
+}
+
+impl<'d> SetDutyCycle for PwmOutput<'d> {
+    fn max_duty_cycle(&self) -> u16 {
+        pac::PWM.ch(self.slice).top().read().top()
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        let max_duty = self.max_duty_cycle();
+        if duty > max_duty {
+            return Err(PwmError::InvalidDutyCycle);
+        }
+
+        let p = pac::PWM.ch(self.slice);
+        match self.channel_pin {
+            PwmChannelPin::A(_) => {
+                p.cc().modify(|w| {
+                    w.set_a(duty);
+                });
+            }
+            PwmChannelPin::B(_) => {
+                p.cc().modify(|w| {
+                    w.set_b(duty);
+                });
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Batch representation of PWM slices.
@@ -329,9 +464,22 @@ impl<'d> Drop for Pwm<'d> {
         pac::PWM.ch(self.slice).csr().write_clear(|w| w.set_en(false));
         if let Some(pin) = &self.pin_a {
             pin.gpio().ctrl().write(|w| w.set_funcsel(31));
+            // Enable pin PULL-DOWN
+            pin.pad_ctrl().modify(|w| {
+                w.set_pde(true);
+            });
         }
         if let Some(pin) = &self.pin_b {
             pin.gpio().ctrl().write(|w| w.set_funcsel(31));
+            #[cfg(feature = "_rp235x")]
+            // Disable input mode. Only pin_b can be input, so not needed for pin_a
+            pin.pad_ctrl().modify(|w| {
+                w.set_ie(false);
+            });
+            // Enable pin PULL-DOWN
+            pin.pad_ctrl().modify(|w| {
+                w.set_pde(true);
+            });
         }
     }
 }
@@ -340,7 +488,7 @@ trait SealedSlice {}
 
 /// PWM Slice.
 #[allow(private_bounds)]
-pub trait Slice: Peripheral<P = Self> + SealedSlice + Sized + 'static {
+pub trait Slice: PeripheralType + SealedSlice + Sized + 'static {
     /// Slice number.
     fn number(&self) -> usize;
 }

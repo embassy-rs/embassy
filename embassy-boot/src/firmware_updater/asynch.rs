@@ -107,7 +107,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             let mut message = [0; 64];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
 
-            public_key.verify(&message, &signature).map_err(into_signature_error)?
+            public_key.verify(&message, &signature).map_err(into_signature_error)?;
+            return self.state.mark_updated().await;
         }
         #[cfg(feature = "ed25519-salty")]
         {
@@ -134,10 +135,13 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
                 message,
                 r.is_ok()
             );
-            r.map_err(into_signature_error)?
+            r.map_err(into_signature_error)?;
+            return self.state.mark_updated().await;
         }
-
-        self.state.mark_updated().await
+        #[cfg(not(any(feature = "ed25519-dalek", feature = "ed25519-salty")))]
+        {
+            Err(FirmwareUpdaterError::Signature(signature::Error::new()))
+        }
     }
 
     /// Verify the update in DFU with any digest.
@@ -154,6 +158,17 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             digest.update(&chunk_buf[..len]);
         }
         output.copy_from_slice(digest.finalize().as_slice());
+        Ok(())
+    }
+
+    /// Read a slice of data from the DFU storage peripheral, starting the read
+    /// operation at the given address offset, and reading `buf.len()` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the arguments are not aligned or out of bounds.
+    pub async fn read_dfu(&mut self, offset: u32, buf: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
+        self.dfu.read(offset, buf).await?;
         Ok(())
     }
 
@@ -285,7 +300,8 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
 
     // Make sure we are running a booted firmware to avoid reverting to a bad state.
     async fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
-        if self.get_state().await? == State::Boot {
+        let state = self.get_state().await?;
+        if state == State::Boot || state == State::DfuDetach || state == State::Revert {
             Ok(())
         } else {
             Err(FirmwareUpdaterError::BadState)
@@ -299,12 +315,7 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
     /// `mark_booted`.
     pub async fn get_state(&mut self) -> Result<State, FirmwareUpdaterError> {
         self.state.read(0, &mut self.aligned).await?;
-
-        if !self.aligned.iter().any(|&b| b != SWAP_MAGIC) {
-            Ok(State::Swap)
-        } else {
-            Ok(State::Boot)
-        }
+        Ok(State::from(&self.aligned[..STATE::WRITE_SIZE]))
     }
 
     /// Mark to trigger firmware swap on next boot.

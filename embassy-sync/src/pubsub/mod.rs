@@ -27,8 +27,8 @@ pub use subscriber::{DynSubscriber, Subscriber};
 ///
 /// - With [Pub::publish()] the publisher has to wait until there is space in the internal message queue.
 /// - With [Pub::publish_immediate()] the publisher doesn't await and instead lets the oldest message
-/// in the queue drop if necessary. This will cause any [Subscriber] that missed the message to receive
-/// an error to indicate that it has lagged.
+///   in the queue drop if necessary. This will cause any [Subscriber] that missed the message to receive
+///   an error to indicate that it has lagged.
 ///
 /// ## Example
 ///
@@ -194,6 +194,25 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     }
 }
 
+impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> crate::pubsub::PubSubBehavior<T>
+    for PubSubChannel<M, T, CAP, SUBS, PUBS>
+{
+    fn publish_immediate(&self, message: T) {
+        self.inner.lock(|s| {
+            let mut s = s.borrow_mut();
+            s.publish_immediate(message)
+        })
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity()
+    }
+
+    fn is_full(&self) -> bool {
+        self.is_full()
+    }
+}
+
 impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> SealedPubSubBehavior<T>
     for PubSubChannel<M, T, CAP, SUBS, PUBS>
 {
@@ -246,13 +265,6 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
         })
     }
 
-    fn publish_immediate(&self, message: T) {
-        self.inner.lock(|s| {
-            let mut s = s.borrow_mut();
-            s.publish_immediate(message)
-        })
-    }
-
     fn unregister_subscriber(&self, subscriber_next_message_id: u64) {
         self.inner.lock(|s| {
             let mut s = s.borrow_mut();
@@ -265,10 +277,6 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
             let mut s = s.borrow_mut();
             s.unregister_publisher()
         })
-    }
-
-    fn capacity(&self) -> usize {
-        self.capacity()
     }
 
     fn free_capacity(&self) -> usize {
@@ -285,10 +293,6 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
 
     fn is_empty(&self) -> bool {
         self.is_empty()
-    }
-
-    fn is_full(&self) -> bool {
-        self.is_full()
     }
 }
 
@@ -417,6 +421,9 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
     }
 
     fn clear(&mut self) {
+        if self.is_full() {
+            self.publisher_wakers.wake();
+        }
         self.queue.clear();
     }
 
@@ -445,8 +452,6 @@ pub enum Error {
     MaximumPublishersReached,
 }
 
-/// 'Middle level' behaviour of the pubsub channel.
-/// This trait is used so that Sub and Pub can be generic over the channel.
 trait SealedPubSubBehavior<T> {
     /// Try to get a message from the queue with the given message id.
     ///
@@ -462,12 +467,6 @@ trait SealedPubSubBehavior<T> {
     /// If the queue is full and a context is given, then its waker is registered in the publisher wakers.
     fn publish_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), T>;
 
-    /// Publish a message immediately
-    fn publish_immediate(&self, message: T);
-
-    /// Returns the maximum number of elements the channel can hold.
-    fn capacity(&self) -> usize;
-
     /// Returns the free capacity of the channel.
     ///
     /// This is equivalent to `capacity() - len()`
@@ -482,9 +481,6 @@ trait SealedPubSubBehavior<T> {
     /// Returns whether the channel is empty.
     fn is_empty(&self) -> bool;
 
-    /// Returns whether the channel is full.
-    fn is_full(&self) -> bool;
-
     /// Let the channel know that a subscriber has dropped
     fn unregister_subscriber(&self, subscriber_next_message_id: u64);
 
@@ -495,9 +491,16 @@ trait SealedPubSubBehavior<T> {
 /// 'Middle level' behaviour of the pubsub channel.
 /// This trait is used so that Sub and Pub can be generic over the channel.
 #[allow(private_bounds)]
-pub trait PubSubBehavior<T>: SealedPubSubBehavior<T> {}
+pub trait PubSubBehavior<T>: SealedPubSubBehavior<T> {
+    /// Publish a message immediately
+    fn publish_immediate(&self, message: T);
 
-impl<T, C: SealedPubSubBehavior<T>> PubSubBehavior<T> for C {}
+    /// Returns the maximum number of elements the channel can hold.
+    fn capacity(&self) -> usize;
+
+    /// Returns whether the channel is full.
+    fn is_full(&self) -> bool;
+}
 
 /// The result of the subscriber wait procedure
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -754,5 +757,31 @@ mod tests {
 
         assert_eq!(1, sub0.try_next_message_pure().unwrap().0);
         assert_eq!(0, sub1.try_next_message_pure().unwrap().0);
+    }
+
+    #[futures_test::test]
+    async fn publisher_sink() {
+        use futures_util::{SinkExt, StreamExt};
+
+        let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
+
+        let mut sub = channel.subscriber().unwrap();
+
+        let publ = channel.publisher().unwrap();
+        let mut sink = publ.sink();
+
+        sink.send(0).await.unwrap();
+        assert_eq!(0, sub.try_next_message_pure().unwrap());
+
+        sink.send(1).await.unwrap();
+        assert_eq!(1, sub.try_next_message_pure().unwrap());
+
+        sink.send_all(&mut futures_util::stream::iter(0..4).map(Ok))
+            .await
+            .unwrap();
+        assert_eq!(0, sub.try_next_message_pure().unwrap());
+        assert_eq!(1, sub.try_next_message_pure().unwrap());
+        assert_eq!(2, sub.try_next_message_pure().unwrap());
+        assert_eq!(3, sub.try_next_message_pure().unwrap());
     }
 }

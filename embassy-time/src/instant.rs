@@ -17,6 +17,7 @@ impl Instant {
     pub const MAX: Instant = Instant { ticks: u64::MAX };
 
     /// Returns an Instant representing the current time.
+    #[inline]
     pub fn now() -> Instant {
         Instant {
             ticks: embassy_time_driver::now(),
@@ -47,6 +48,37 @@ impl Instant {
         Self {
             ticks: seconds * TICK_HZ,
         }
+    }
+
+    /// Try to create an Instant from a microsecond count since system boot.
+    /// Fails if the number of microseconds is too large.
+    pub const fn try_from_micros(micros: u64) -> Option<Self> {
+        let Some(value) = micros.checked_mul(TICK_HZ / GCD_1M) else {
+            return None;
+        };
+        Some(Self {
+            ticks: value / (1_000_000 / GCD_1M),
+        })
+    }
+
+    /// Try to create an Instant from a millisecond count since system boot.
+    /// Fails if the number of milliseconds is too large.
+    pub const fn try_from_millis(millis: u64) -> Option<Self> {
+        let Some(value) = millis.checked_mul(TICK_HZ / GCD_1K) else {
+            return None;
+        };
+        Some(Self {
+            ticks: value / (1000 / GCD_1K),
+        })
+    }
+
+    /// Try to create an Instant from a second count since system boot.
+    /// Fails if the number of seconds is too large.
+    pub const fn try_from_secs(seconds: u64) -> Option<Self> {
+        let Some(ticks) = seconds.checked_mul(TICK_HZ) else {
+            return None;
+        };
+        Some(Self { ticks })
     }
 
     /// Tick count since system boot.
@@ -113,6 +145,18 @@ impl Instant {
     /// Subtracts one Duration to self, returning a new `Instant` or None in the event of an overflow.
     pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
         self.ticks.checked_sub(duration.ticks).map(|ticks| Instant { ticks })
+    }
+
+    /// Adds a Duration to self. In case of overflow, the maximum value is returned.
+    pub fn saturating_add(mut self, duration: Duration) -> Self {
+        self.ticks = self.ticks.saturating_add(duration.ticks);
+        self
+    }
+
+    /// Subtracts a Duration from self. In case of overflow, the minimum value is returned.
+    pub fn saturating_sub(mut self, duration: Duration) -> Self {
+        self.ticks = self.ticks.saturating_sub(duration.ticks);
+        self
     }
 }
 

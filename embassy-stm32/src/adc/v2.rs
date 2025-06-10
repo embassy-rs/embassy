@@ -1,10 +1,8 @@
-use embassy_hal_internal::into_ref;
-
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
-use crate::{rcc, Peripheral};
+use crate::{rcc, Peri};
 
 mod ringbuffered_v2;
 pub use ringbuffered_v2::{RingBufferedAdc, Sequence};
@@ -97,8 +95,7 @@ impl<'d, T> Adc<'d, T>
 where
     T: Instance,
 {
-    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         let presc = Prescaler::from_pclk2(T::frequency());

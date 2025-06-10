@@ -1,0 +1,5 @@
+error: task functions must either not return a value, return `()` or return `!`
+ --> tests/ui/bad_return.rs:6:1
+  |
+6 | async fn task() -> u32 {
+  | ^^^^^^^^^^^^^^^^^^^^^^

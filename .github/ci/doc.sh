@@ -25,6 +25,7 @@ docserver-builder -i ./embassy-executor -o webroot/crates/embassy-executor/git.z
 docserver-builder -i ./embassy-futures -o webroot/crates/embassy-futures/git.zup
 docserver-builder -i ./embassy-nrf -o webroot/crates/embassy-nrf/git.zup
 docserver-builder -i ./embassy-rp -o webroot/crates/embassy-rp/git.zup
+docserver-builder -i ./embassy-mspm0 -o webroot/crates/embassy-mspm0/git.zup
 docserver-builder -i ./embassy-sync -o webroot/crates/embassy-sync/git.zup
 docserver-builder -i ./cyw43 -o webroot/crates/cyw43/git.zup
 docserver-builder -i ./cyw43-pio -o webroot/crates/cyw43-pio/git.zup
@@ -32,7 +33,7 @@ docserver-builder -i ./embassy-stm32-wpan -o webroot/crates/embassy-stm32-wpan/g
 
 docserver-builder -i ./embassy-time -o webroot/crates/embassy-time/git.zup
 docserver-builder -i ./embassy-time-driver -o webroot/crates/embassy-time-driver/git.zup
-docserver-builder -i ./embassy-time-queue-driver -o webroot/crates/embassy-time-queue-driver/git.zup
+docserver-builder -i ./embassy-time-queue-utils -o webroot/crates/embassy-time-queue-utils/git.zup
 
 docserver-builder -i ./embassy-usb -o webroot/crates/embassy-usb/git.zup
 docserver-builder -i ./embassy-usb-dfu -o webroot/crates/embassy-usb-dfu/git.zup

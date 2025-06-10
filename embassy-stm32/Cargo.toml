@@ -1,6 +1,6 @@
 [package]
 name = "embassy-stm32"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for ST STM32 series microcontrollers"
@@ -19,16 +19,22 @@ flavors = [
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32f2.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32f3.*", target = "thumbv7em-none-eabi" },
-    { regex_feature = "stm32f4.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
+    { regex_feature = "stm32f4[2367]..[ig]", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
+    { regex_feature = "stm32f4.*", target = "thumbv7em-none-eabi", features = ["low-power", "single-bank"] },
+    { regex_feature = "stm32f7[67]..[ig]", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32g0...c", target = "thumbv6m-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32g4[78].*", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
     { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
+    { regex_feature = "stm32l4[pqrs].*", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32l5...e", target = "thumbv8m.main-none-eabihf", features = ["low-power", "dual-bank"] },
     { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32u0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
@@ -38,20 +44,21 @@ flavors = [
 ]
 
 [package.metadata.docs.rs]
-features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7"]
+features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7", "single-bank"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-embassy-sync = { version = "0.6.0", path = "../embassy-sync" }
-embassy-time = { version = "0.3.2", path = "../embassy-time", optional = true }
-embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
+embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
+embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-hal-internal = {version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
-embassy-embedded-hal = {version = "0.2.0", path = "../embassy-embedded-hal" }
+embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
+embassy-embedded-hal = { version = "0.3.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
-embassy-usb-synopsys-otg = {version = "0.1.0", path = "../embassy-usb-synopsys-otg" }
-embassy-executor = { version = "0.6.0", path = "../embassy-executor", optional = true }
+embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
+embassy-usb-synopsys-otg = { version = "0.2.0", path = "../embassy-usb-synopsys-otg" }
+embassy-executor = { version = "0.7.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -62,17 +69,19 @@ embedded-can = "0.4"
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 
+rand-core-06 = { package = "rand_core", version = "0.6" }
+rand-core-09 = { package = "rand_core", version = "0.9" }
 
-defmt = { version = "0.3", optional = true }
+
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
-rand_core = "0.6.3"
-sdio-host = "0.5.0"
+sdio-host = "0.9.0"
 critical-section = "1.1"
-#stm32-metapac = { version = "15" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e0cfd165fd8fffaa0df66a35eeca83b228496645" }
+#stm32-metapac = { version = "16" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-27ef8fba3483187e852eaf3796d827259f61e8ec" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -88,16 +97,20 @@ static_assertions = { version = "1.1" }
 volatile-register = { version = "0.2.1" }
 bitflags = "2.4.2"
 
+block-device-driver = { version = "0.2" }
+aligned = "0.4.1"
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
+proptest = "1.5.0"
+proptest-state-machine = "0.3.0"
 
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
-#stm32-metapac = { version = "15", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e0cfd165fd8fffaa0df66a35eeca83b228496645", default-features = false, features = ["metadata"] }
+#stm32-metapac = { version = "16", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-27ef8fba3483187e852eaf3796d827259f61e8ec", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -106,14 +119,24 @@ default = ["rt"]
 rt = ["stm32-metapac/rt"]
 
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
-defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async/defmt-03", "embassy-usb-driver/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
+defmt = [
+    "dep:defmt",
+    "embassy-sync/defmt",
+    "embassy-embedded-hal/defmt",
+    "embassy-hal-internal/defmt",
+    "embedded-io-async/defmt-03",
+    "embassy-usb-driver/defmt",
+    "embassy-net-driver/defmt",
+    "embassy-time?/defmt",
+    "embassy-usb-synopsys-otg/defmt",
+]
 
 exti = []
 low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]
 low-power-debug-with-sleep = []
 
-## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
-memory-x = ["stm32-metapac/memory-x"]
+## Automatically generate `memory.x` file based on the memory map from [`stm32-metapac`](https://docs.rs/stm32-metapac/)
+memory-x = []
 
 ## Use secure registers when TrustZone is enabled
 trustzone-secure = []
@@ -124,14 +147,18 @@ trustzone-secure = []
 ## There are no plans to make this stable.
 unstable-pac = []
 
+## Enable this feature to disable the overclocking check.
+## DO NOT ENABLE THIS FEATURE UNLESS YOU KNOW WHAT YOU'RE DOING.
+unchecked-overclocking = []
+
 #! ## Time
 
 ## Enables additional driver features that depend on embassy-time
-time = ["dep:embassy-time"]
+time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
-_time-driver = ["dep:embassy-time-driver", "time"]
+_time-driver = ["dep:embassy-time-driver", "time", "dep:embassy-time-queue-utils"]
 
 ## Use any time driver
 time-driver-any = ["_time-driver"]
@@ -178,11 +205,17 @@ split-pc2 = ["_split-pins-enabled"]
 ## Split PC3
 split-pc3 = ["_split-pins-enabled"]
 
+dual-bank = []
+single-bank = []
+
 ## internal use only
 _split-pins-enabled = []
 
 ## internal use only
 _dual-core = []
+_core-cm0p = []
+_core-cm4 = []
+_core-cm7 = []
 
 #! ## Chip-selection features
 #! Select your chip by specifying the model as a feature, e.g. `stm32c011d6`.
@@ -1007,40 +1040,40 @@ stm32h743xg = [ "stm32-metapac/stm32h743xg" ]
 stm32h743xi = [ "stm32-metapac/stm32h743xi" ]
 stm32h743zg = [ "stm32-metapac/stm32h743zg" ]
 stm32h743zi = [ "stm32-metapac/stm32h743zi" ]
-stm32h745bg-cm7 = [ "stm32-metapac/stm32h745bg-cm7", "_dual-core" ]
-stm32h745bg-cm4 = [ "stm32-metapac/stm32h745bg-cm4", "_dual-core" ]
-stm32h745bi-cm7 = [ "stm32-metapac/stm32h745bi-cm7", "_dual-core" ]
-stm32h745bi-cm4 = [ "stm32-metapac/stm32h745bi-cm4", "_dual-core" ]
-stm32h745ig-cm7 = [ "stm32-metapac/stm32h745ig-cm7", "_dual-core" ]
-stm32h745ig-cm4 = [ "stm32-metapac/stm32h745ig-cm4", "_dual-core" ]
-stm32h745ii-cm7 = [ "stm32-metapac/stm32h745ii-cm7", "_dual-core" ]
-stm32h745ii-cm4 = [ "stm32-metapac/stm32h745ii-cm4", "_dual-core" ]
-stm32h745xg-cm7 = [ "stm32-metapac/stm32h745xg-cm7", "_dual-core" ]
-stm32h745xg-cm4 = [ "stm32-metapac/stm32h745xg-cm4", "_dual-core" ]
-stm32h745xi-cm7 = [ "stm32-metapac/stm32h745xi-cm7", "_dual-core" ]
-stm32h745xi-cm4 = [ "stm32-metapac/stm32h745xi-cm4", "_dual-core" ]
-stm32h745zg-cm7 = [ "stm32-metapac/stm32h745zg-cm7", "_dual-core" ]
-stm32h745zg-cm4 = [ "stm32-metapac/stm32h745zg-cm4", "_dual-core" ]
-stm32h745zi-cm7 = [ "stm32-metapac/stm32h745zi-cm7", "_dual-core" ]
-stm32h745zi-cm4 = [ "stm32-metapac/stm32h745zi-cm4", "_dual-core" ]
-stm32h747ag-cm7 = [ "stm32-metapac/stm32h747ag-cm7", "_dual-core" ]
-stm32h747ag-cm4 = [ "stm32-metapac/stm32h747ag-cm4", "_dual-core" ]
-stm32h747ai-cm7 = [ "stm32-metapac/stm32h747ai-cm7", "_dual-core" ]
-stm32h747ai-cm4 = [ "stm32-metapac/stm32h747ai-cm4", "_dual-core" ]
-stm32h747bg-cm7 = [ "stm32-metapac/stm32h747bg-cm7", "_dual-core" ]
-stm32h747bg-cm4 = [ "stm32-metapac/stm32h747bg-cm4", "_dual-core" ]
-stm32h747bi-cm7 = [ "stm32-metapac/stm32h747bi-cm7", "_dual-core" ]
-stm32h747bi-cm4 = [ "stm32-metapac/stm32h747bi-cm4", "_dual-core" ]
-stm32h747ig-cm7 = [ "stm32-metapac/stm32h747ig-cm7", "_dual-core" ]
-stm32h747ig-cm4 = [ "stm32-metapac/stm32h747ig-cm4", "_dual-core" ]
-stm32h747ii-cm7 = [ "stm32-metapac/stm32h747ii-cm7", "_dual-core" ]
-stm32h747ii-cm4 = [ "stm32-metapac/stm32h747ii-cm4", "_dual-core" ]
-stm32h747xg-cm7 = [ "stm32-metapac/stm32h747xg-cm7", "_dual-core" ]
-stm32h747xg-cm4 = [ "stm32-metapac/stm32h747xg-cm4", "_dual-core" ]
-stm32h747xi-cm7 = [ "stm32-metapac/stm32h747xi-cm7", "_dual-core" ]
-stm32h747xi-cm4 = [ "stm32-metapac/stm32h747xi-cm4", "_dual-core" ]
-stm32h747zi-cm7 = [ "stm32-metapac/stm32h747zi-cm7", "_dual-core" ]
-stm32h747zi-cm4 = [ "stm32-metapac/stm32h747zi-cm4", "_dual-core" ]
+stm32h745bg-cm7 = [ "stm32-metapac/stm32h745bg-cm7", "_dual-core", "_core-cm7" ]
+stm32h745bg-cm4 = [ "stm32-metapac/stm32h745bg-cm4", "_dual-core", "_core-cm4" ]
+stm32h745bi-cm7 = [ "stm32-metapac/stm32h745bi-cm7", "_dual-core", "_core-cm7" ]
+stm32h745bi-cm4 = [ "stm32-metapac/stm32h745bi-cm4", "_dual-core", "_core-cm4" ]
+stm32h745ig-cm7 = [ "stm32-metapac/stm32h745ig-cm7", "_dual-core", "_core-cm7" ]
+stm32h745ig-cm4 = [ "stm32-metapac/stm32h745ig-cm4", "_dual-core", "_core-cm4" ]
+stm32h745ii-cm7 = [ "stm32-metapac/stm32h745ii-cm7", "_dual-core", "_core-cm7" ]
+stm32h745ii-cm4 = [ "stm32-metapac/stm32h745ii-cm4", "_dual-core", "_core-cm4" ]
+stm32h745xg-cm7 = [ "stm32-metapac/stm32h745xg-cm7", "_dual-core", "_core-cm7" ]
+stm32h745xg-cm4 = [ "stm32-metapac/stm32h745xg-cm4", "_dual-core", "_core-cm4" ]
+stm32h745xi-cm7 = [ "stm32-metapac/stm32h745xi-cm7", "_dual-core", "_core-cm7" ]
+stm32h745xi-cm4 = [ "stm32-metapac/stm32h745xi-cm4", "_dual-core", "_core-cm4" ]
+stm32h745zg-cm7 = [ "stm32-metapac/stm32h745zg-cm7", "_dual-core", "_core-cm7" ]
+stm32h745zg-cm4 = [ "stm32-metapac/stm32h745zg-cm4", "_dual-core", "_core-cm4" ]
+stm32h745zi-cm7 = [ "stm32-metapac/stm32h745zi-cm7", "_dual-core", "_core-cm7" ]
+stm32h745zi-cm4 = [ "stm32-metapac/stm32h745zi-cm4", "_dual-core", "_core-cm4" ]
+stm32h747ag-cm7 = [ "stm32-metapac/stm32h747ag-cm7", "_dual-core", "_core-cm7" ]
+stm32h747ag-cm4 = [ "stm32-metapac/stm32h747ag-cm4", "_dual-core", "_core-cm4" ]
+stm32h747ai-cm7 = [ "stm32-metapac/stm32h747ai-cm7", "_dual-core", "_core-cm7" ]
+stm32h747ai-cm4 = [ "stm32-metapac/stm32h747ai-cm4", "_dual-core", "_core-cm4" ]
+stm32h747bg-cm7 = [ "stm32-metapac/stm32h747bg-cm7", "_dual-core", "_core-cm7" ]
+stm32h747bg-cm4 = [ "stm32-metapac/stm32h747bg-cm4", "_dual-core", "_core-cm4" ]
+stm32h747bi-cm7 = [ "stm32-metapac/stm32h747bi-cm7", "_dual-core", "_core-cm7" ]
+stm32h747bi-cm4 = [ "stm32-metapac/stm32h747bi-cm4", "_dual-core", "_core-cm4" ]
+stm32h747ig-cm7 = [ "stm32-metapac/stm32h747ig-cm7", "_dual-core", "_core-cm7" ]
+stm32h747ig-cm4 = [ "stm32-metapac/stm32h747ig-cm4", "_dual-core", "_core-cm4" ]
+stm32h747ii-cm7 = [ "stm32-metapac/stm32h747ii-cm7", "_dual-core", "_core-cm7" ]
+stm32h747ii-cm4 = [ "stm32-metapac/stm32h747ii-cm4", "_dual-core", "_core-cm4" ]
+stm32h747xg-cm7 = [ "stm32-metapac/stm32h747xg-cm7", "_dual-core", "_core-cm7" ]
+stm32h747xg-cm4 = [ "stm32-metapac/stm32h747xg-cm4", "_dual-core", "_core-cm4" ]
+stm32h747xi-cm7 = [ "stm32-metapac/stm32h747xi-cm7", "_dual-core", "_core-cm7" ]
+stm32h747xi-cm4 = [ "stm32-metapac/stm32h747xi-cm4", "_dual-core", "_core-cm4" ]
+stm32h747zi-cm7 = [ "stm32-metapac/stm32h747zi-cm7", "_dual-core", "_core-cm7" ]
+stm32h747zi-cm4 = [ "stm32-metapac/stm32h747zi-cm4", "_dual-core", "_core-cm4" ]
 stm32h750ib = [ "stm32-metapac/stm32h750ib" ]
 stm32h750vb = [ "stm32-metapac/stm32h750vb" ]
 stm32h750xb = [ "stm32-metapac/stm32h750xb" ]
@@ -1051,24 +1084,24 @@ stm32h753ii = [ "stm32-metapac/stm32h753ii" ]
 stm32h753vi = [ "stm32-metapac/stm32h753vi" ]
 stm32h753xi = [ "stm32-metapac/stm32h753xi" ]
 stm32h753zi = [ "stm32-metapac/stm32h753zi" ]
-stm32h755bi-cm7 = [ "stm32-metapac/stm32h755bi-cm7", "_dual-core" ]
-stm32h755bi-cm4 = [ "stm32-metapac/stm32h755bi-cm4", "_dual-core" ]
-stm32h755ii-cm7 = [ "stm32-metapac/stm32h755ii-cm7", "_dual-core" ]
-stm32h755ii-cm4 = [ "stm32-metapac/stm32h755ii-cm4", "_dual-core" ]
-stm32h755xi-cm7 = [ "stm32-metapac/stm32h755xi-cm7", "_dual-core" ]
-stm32h755xi-cm4 = [ "stm32-metapac/stm32h755xi-cm4", "_dual-core" ]
-stm32h755zi-cm7 = [ "stm32-metapac/stm32h755zi-cm7", "_dual-core" ]
-stm32h755zi-cm4 = [ "stm32-metapac/stm32h755zi-cm4", "_dual-core" ]
-stm32h757ai-cm7 = [ "stm32-metapac/stm32h757ai-cm7", "_dual-core" ]
-stm32h757ai-cm4 = [ "stm32-metapac/stm32h757ai-cm4", "_dual-core" ]
-stm32h757bi-cm7 = [ "stm32-metapac/stm32h757bi-cm7", "_dual-core" ]
-stm32h757bi-cm4 = [ "stm32-metapac/stm32h757bi-cm4", "_dual-core" ]
-stm32h757ii-cm7 = [ "stm32-metapac/stm32h757ii-cm7", "_dual-core" ]
-stm32h757ii-cm4 = [ "stm32-metapac/stm32h757ii-cm4", "_dual-core" ]
-stm32h757xi-cm7 = [ "stm32-metapac/stm32h757xi-cm7", "_dual-core" ]
-stm32h757xi-cm4 = [ "stm32-metapac/stm32h757xi-cm4", "_dual-core" ]
-stm32h757zi-cm7 = [ "stm32-metapac/stm32h757zi-cm7", "_dual-core" ]
-stm32h757zi-cm4 = [ "stm32-metapac/stm32h757zi-cm4", "_dual-core" ]
+stm32h755bi-cm7 = [ "stm32-metapac/stm32h755bi-cm7", "_dual-core", "_core-cm7" ]
+stm32h755bi-cm4 = [ "stm32-metapac/stm32h755bi-cm4", "_dual-core", "_core-cm4" ]
+stm32h755ii-cm7 = [ "stm32-metapac/stm32h755ii-cm7", "_dual-core", "_core-cm7" ]
+stm32h755ii-cm4 = [ "stm32-metapac/stm32h755ii-cm4", "_dual-core", "_core-cm4" ]
+stm32h755xi-cm7 = [ "stm32-metapac/stm32h755xi-cm7", "_dual-core", "_core-cm7" ]
+stm32h755xi-cm4 = [ "stm32-metapac/stm32h755xi-cm4", "_dual-core", "_core-cm4" ]
+stm32h755zi-cm7 = [ "stm32-metapac/stm32h755zi-cm7", "_dual-core", "_core-cm7" ]
+stm32h755zi-cm4 = [ "stm32-metapac/stm32h755zi-cm4", "_dual-core", "_core-cm4" ]
+stm32h757ai-cm7 = [ "stm32-metapac/stm32h757ai-cm7", "_dual-core", "_core-cm7" ]
+stm32h757ai-cm4 = [ "stm32-metapac/stm32h757ai-cm4", "_dual-core", "_core-cm4" ]
+stm32h757bi-cm7 = [ "stm32-metapac/stm32h757bi-cm7", "_dual-core", "_core-cm7" ]
+stm32h757bi-cm4 = [ "stm32-metapac/stm32h757bi-cm4", "_dual-core", "_core-cm4" ]
+stm32h757ii-cm7 = [ "stm32-metapac/stm32h757ii-cm7", "_dual-core", "_core-cm7" ]
+stm32h757ii-cm4 = [ "stm32-metapac/stm32h757ii-cm4", "_dual-core", "_core-cm4" ]
+stm32h757xi-cm7 = [ "stm32-metapac/stm32h757xi-cm7", "_dual-core", "_core-cm7" ]
+stm32h757xi-cm4 = [ "stm32-metapac/stm32h757xi-cm4", "_dual-core", "_core-cm4" ]
+stm32h757zi-cm7 = [ "stm32-metapac/stm32h757zi-cm7", "_dual-core", "_core-cm7" ]
+stm32h757zi-cm4 = [ "stm32-metapac/stm32h757zi-cm4", "_dual-core", "_core-cm4" ]
 stm32h7a3ag = [ "stm32-metapac/stm32h7a3ag" ]
 stm32h7a3ai = [ "stm32-metapac/stm32h7a3ai" ]
 stm32h7a3ig = [ "stm32-metapac/stm32h7a3ig" ]
@@ -1601,14 +1634,14 @@ stm32wba55he = [ "stm32-metapac/stm32wba55he" ]
 stm32wba55hg = [ "stm32-metapac/stm32wba55hg" ]
 stm32wba55ue = [ "stm32-metapac/stm32wba55ue" ]
 stm32wba55ug = [ "stm32-metapac/stm32wba55ug" ]
-stm32wl54cc-cm4 = [ "stm32-metapac/stm32wl54cc-cm4", "_dual-core" ]
-stm32wl54cc-cm0p = [ "stm32-metapac/stm32wl54cc-cm0p", "_dual-core" ]
-stm32wl54jc-cm4 = [ "stm32-metapac/stm32wl54jc-cm4", "_dual-core" ]
-stm32wl54jc-cm0p = [ "stm32-metapac/stm32wl54jc-cm0p", "_dual-core" ]
-stm32wl55cc-cm4 = [ "stm32-metapac/stm32wl55cc-cm4", "_dual-core" ]
-stm32wl55cc-cm0p = [ "stm32-metapac/stm32wl55cc-cm0p", "_dual-core" ]
-stm32wl55jc-cm4 = [ "stm32-metapac/stm32wl55jc-cm4", "_dual-core" ]
-stm32wl55jc-cm0p = [ "stm32-metapac/stm32wl55jc-cm0p", "_dual-core" ]
+stm32wl54cc-cm4 = [ "stm32-metapac/stm32wl54cc-cm4", "_dual-core", "_core-cm4" ]
+stm32wl54cc-cm0p = [ "stm32-metapac/stm32wl54cc-cm0p", "_dual-core", "_core-cm0p" ]
+stm32wl54jc-cm4 = [ "stm32-metapac/stm32wl54jc-cm4", "_dual-core", "_core-cm4" ]
+stm32wl54jc-cm0p = [ "stm32-metapac/stm32wl54jc-cm0p", "_dual-core", "_core-cm0p" ]
+stm32wl55cc-cm4 = [ "stm32-metapac/stm32wl55cc-cm4", "_dual-core", "_core-cm4" ]
+stm32wl55cc-cm0p = [ "stm32-metapac/stm32wl55cc-cm0p", "_dual-core", "_core-cm0p" ]
+stm32wl55jc-cm4 = [ "stm32-metapac/stm32wl55jc-cm4", "_dual-core", "_core-cm4" ]
+stm32wl55jc-cm0p = [ "stm32-metapac/stm32wl55jc-cm0p", "_dual-core", "_core-cm0p" ]
 stm32wle4c8 = [ "stm32-metapac/stm32wle4c8" ]
 stm32wle4cb = [ "stm32-metapac/stm32wle4cb" ]
 stm32wle4cc = [ "stm32-metapac/stm32wle4cc" ]

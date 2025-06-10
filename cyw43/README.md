@@ -1,27 +1,36 @@
 # cyw43
 
-Rust driver for the CYW43439 wifi chip, used in the Raspberry Pi Pico W. Implementation based on [Infineon/wifi-host-driver](https://github.com/Infineon/wifi-host-driver).
+Rust driver for the CYW43439 wifi+bluetooth chip. Implementation based on [Infineon/wifi-host-driver](https://github.com/Infineon/wifi-host-driver).
 
-## Current status
+Works on the following boards:
+
+- Raspberry Pi Pico W (RP2040)
+- Raspberry Pi Pico 2 W (RP2350A)
+- Pimoroni Pico Plus 2 W (RP2350B)
+- Any board with Raspberry Pi RM2 radio module.
+- Any board with the CYW43439 chip, and possibly others if the protocol is similar enough.
+
+## Features
 
 Working:
 
-- Station mode (joining an AP).
-- AP mode (creating an AP)
-- Scanning
-- Sending and receiving Ethernet frames.
-- Using the default MAC address.
-- [`embassy-net`](https://embassy.dev) integration.
-- RP2040 PIO driver for the nonstandard half-duplex SPI used in the Pico W.
-- Using IRQ for device events
-- GPIO support (for LED on the Pico W)
+- WiFi support
+    - Station mode (joining an AP).
+    - AP mode (creating an AP)
+    - Scanning
+    - Sending and receiving Ethernet frames.
+    - Using the default MAC address.
+    - [`embassy-net`](https://embassy.dev) integration.
+    - RP2040 PIO driver for the nonstandard half-duplex SPI used in the Pico W.
+    - Using IRQ for device events, no busy polling.
+    - GPIO support (for LED on the Pico W).
+- Bluetooth support
+    - Bluetooth Classic + LE HCI commands.
+    - Concurrent operation with WiFi.
+    - Implements the [bt-hci](https://crates.io/crates/bt-hci) controller traits.
+    - Works with the [TrouBLE](https://github.com/embassy-rs/trouble) bluetooth LE stack. Check its repo for examples using `cyw43`.
 
-TODO:
-
-- Setting a custom MAC address.
-- Bus sleep (for power consumption optimization)
-
-## Running the examples
+## Running the WiFi examples
 
 - Install `probe-rs` following the instructions at <https://probe.rs>.
 - `cd examples/rp`

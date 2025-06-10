@@ -92,3 +92,35 @@ pub fn set_target_cfgs(cfgs: &mut CfgSet) {
 
     cfgs.set("has_fpu", target.ends_with("-eabihf"));
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CompilerDate {
+    year: u16,
+    month: u8,
+    day: u8,
+}
+
+impl CompilerDate {
+    fn parse(date: &str) -> Option<Self> {
+        let mut parts = date.split('-');
+        let year = parts.next()?.parse().ok()?;
+        let month = parts.next()?.parse().ok()?;
+        let day = parts.next()?.parse().ok()?;
+        Some(Self { year, month, day })
+    }
+}
+
+impl PartialEq<&str> for CompilerDate {
+    fn eq(&self, other: &&str) -> bool {
+        let Some(other) = Self::parse(other) else {
+            return false;
+        };
+        self.eq(&other)
+    }
+}
+
+impl PartialOrd<&str> for CompilerDate {
+    fn partial_cmp(&self, other: &&str) -> Option<std::cmp::Ordering> {
+        Self::parse(other).map(|other| self.cmp(&other))
+    }
+}

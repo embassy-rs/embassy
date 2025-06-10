@@ -3,6 +3,7 @@ use chrono::{Datelike, NaiveDate, Timelike, Weekday};
 
 /// Errors regarding the [`DateTime`] struct.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// The [DateTime] contains an invalid year value. Must be between `0..=4095`.
     InvalidYear,
@@ -21,9 +22,12 @@ pub enum Error {
     InvalidMinute,
     /// The [DateTime] contains an invalid second value. Must be between `0..=59`.
     InvalidSecond,
+    /// The [DateTime] contains an invalid microsecond value. Must be between `0..=999_999`.
+    InvalidMicrosecond,
 }
 
 /// Structure containing date and time information
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DateTime {
     /// 0..4095
     year: u16,
@@ -39,6 +43,8 @@ pub struct DateTime {
     minute: u8,
     /// 0..59
     second: u8,
+    /// 0..999_999
+    usecond: u32,
 }
 
 impl DateTime {
@@ -77,6 +83,11 @@ impl DateTime {
         self.second
     }
 
+    /// Get the microsecond (0..=999_999)
+    pub const fn microsecond(&self) -> u32 {
+        self.usecond
+    }
+
     /// Create a new DateTime with the given information.
     pub fn from(
         year: u16,
@@ -86,6 +97,7 @@ impl DateTime {
         hour: u8,
         minute: u8,
         second: u8,
+        usecond: u32,
     ) -> Result<Self, Error> {
         if year > 4095 {
             Err(Error::InvalidYear)
@@ -99,6 +111,8 @@ impl DateTime {
             Err(Error::InvalidMinute)
         } else if second > 59 {
             Err(Error::InvalidSecond)
+        } else if usecond > 999_999 {
+            Err(Error::InvalidMicrosecond)
         } else {
             Ok(Self {
                 year,
@@ -108,6 +122,7 @@ impl DateTime {
                 hour,
                 minute,
                 second,
+                usecond,
             })
         }
     }
@@ -124,6 +139,7 @@ impl From<chrono::NaiveDateTime> for DateTime {
             hour: date_time.hour() as u8,
             minute: date_time.minute() as u8,
             second: date_time.second() as u8,
+            usecond: date_time.and_utc().timestamp_subsec_micros(),
         }
     }
 }
@@ -133,7 +149,12 @@ impl From<DateTime> for chrono::NaiveDateTime {
     fn from(date_time: DateTime) -> Self {
         NaiveDate::from_ymd_opt(date_time.year as i32, date_time.month as u32, date_time.day as u32)
             .unwrap()
-            .and_hms_opt(date_time.hour as u32, date_time.minute as u32, date_time.second as u32)
+            .and_hms_micro_opt(
+                date_time.hour as u32,
+                date_time.minute as u32,
+                date_time.second as u32,
+                date_time.usecond,
+            )
             .unwrap()
     }
 }
@@ -141,6 +162,7 @@ impl From<DateTime> for chrono::NaiveDateTime {
 /// A day of the week
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
 pub enum DayOfWeek {
     Monday = 1,

@@ -3,23 +3,20 @@
 #![macro_use]
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri};
 use embassy_sync::waitqueue::AtomicWaker;
-use pac::{saadc, SAADC};
-use saadc::ch::config::{GAIN_A, REFSEL_A, RESP_A, TACQ_A};
-// We treat the positive and negative channels with the same enum values to keep our type tidy and given they are the same
-pub(crate) use saadc::ch::pselp::PSELP_A as InputChannel;
-use saadc::oversample::OVERSAMPLE_A;
-use saadc::resolution::VAL_A;
+pub(crate) use vals::Psel as InputChannel;
 
 use crate::interrupt::InterruptExt;
+use crate::pac::saadc::vals;
 use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals};
 
 /// SAADC error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,20 +31,20 @@ pub struct InterruptHandler {
 
 impl interrupt::typelevel::Handler<interrupt::typelevel::SAADC> for InterruptHandler {
     unsafe fn on_interrupt() {
-        let r = unsafe { &*SAADC::ptr() };
+        let r = pac::SAADC;
 
-        if r.events_calibratedone.read().bits() != 0 {
-            r.intenclr.write(|w| w.calibratedone().clear());
+        if r.events_calibratedone().read() != 0 {
+            r.intenclr().write(|w| w.set_calibratedone(true));
             WAKER.wake();
         }
 
-        if r.events_end.read().bits() != 0 {
-            r.intenclr.write(|w| w.end().clear());
+        if r.events_end().read() != 0 {
+            r.intenclr().write(|w| w.set_end(true));
             WAKER.wake();
         }
 
-        if r.events_started.read().bits() != 0 {
-            r.intenclr.write(|w| w.started().clear());
+        if r.events_started().read() != 0 {
+            r.intenclr().write(|w| w.set_started(true));
             WAKER.wake();
         }
     }
@@ -91,37 +88,32 @@ pub struct ChannelConfig<'d> {
     /// Acquisition time in microseconds.
     pub time: Time,
     /// Positive channel to sample
-    p_channel: PeripheralRef<'d, AnyInput>,
+    p_channel: AnyInput<'d>,
     /// An optional negative channel to sample
-    n_channel: Option<PeripheralRef<'d, AnyInput>>,
+    n_channel: Option<AnyInput<'d>>,
 }
 
 impl<'d> ChannelConfig<'d> {
     /// Default configuration for single ended channel sampling.
-    pub fn single_ended(input: impl Peripheral<P = impl Input> + 'd) -> Self {
-        into_ref!(input);
+    pub fn single_ended(input: impl Input + 'd) -> Self {
         Self {
             reference: Reference::INTERNAL,
             gain: Gain::GAIN1_6,
             resistor: Resistor::BYPASS,
             time: Time::_10US,
-            p_channel: input.map_into(),
+            p_channel: input.degrade_saadc(),
             n_channel: None,
         }
     }
     /// Default configuration for differential channel sampling.
-    pub fn differential(
-        p_input: impl Peripheral<P = impl Input> + 'd,
-        n_input: impl Peripheral<P = impl Input> + 'd,
-    ) -> Self {
-        into_ref!(p_input, n_input);
+    pub fn differential(p_input: impl Input + 'd, n_input: impl Input + 'd) -> Self {
         Self {
             reference: Reference::INTERNAL,
             gain: Gain::GAIN1_6,
             resistor: Resistor::BYPASS,
             time: Time::_10US,
-            p_channel: p_input.map_into(),
-            n_channel: Some(n_input.map_into()),
+            p_channel: p_input.degrade_saadc(),
+            n_channel: Some(n_input.degrade_saadc()),
         }
     }
 }
@@ -137,57 +129,47 @@ pub enum CallbackResult {
 
 /// One-shot and continuous SAADC.
 pub struct Saadc<'d, const N: usize> {
-    _p: PeripheralRef<'d, peripherals::SAADC>,
+    _p: Peri<'d, peripherals::SAADC>,
 }
 
 impl<'d, const N: usize> Saadc<'d, N> {
     /// Create a new SAADC driver.
     pub fn new(
-        saadc: impl Peripheral<P = peripherals::SAADC> + 'd,
+        saadc: Peri<'d, peripherals::SAADC>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::SAADC, InterruptHandler> + 'd,
         config: Config,
         channel_configs: [ChannelConfig; N],
     ) -> Self {
-        into_ref!(saadc);
-
-        let r = unsafe { &*SAADC::ptr() };
+        let r = pac::SAADC;
 
         let Config { resolution, oversample } = config;
 
         // Configure channels
-        r.enable.write(|w| w.enable().enabled());
-        r.resolution.write(|w| w.val().variant(resolution.into()));
-        r.oversample.write(|w| w.oversample().variant(oversample.into()));
+        r.enable().write(|w| w.set_enable(true));
+        r.resolution().write(|w| w.set_val(resolution.into()));
+        r.oversample().write(|w| w.set_oversample(oversample.into()));
 
         for (i, cc) in channel_configs.iter().enumerate() {
-            r.ch[i].pselp.write(|w| w.pselp().variant(cc.p_channel.channel()));
+            r.ch(i).pselp().write(|w| w.set_pselp(cc.p_channel.channel()));
             if let Some(n_channel) = &cc.n_channel {
-                r.ch[i]
-                    .pseln
-                    .write(|w| unsafe { w.pseln().bits(n_channel.channel() as u8) });
+                r.ch(i).pseln().write(|w| w.set_pseln(n_channel.channel()));
             }
-            r.ch[i].config.write(|w| {
-                w.refsel().variant(cc.reference.into());
-                w.gain().variant(cc.gain.into());
-                w.tacq().variant(cc.time.into());
-                if cc.n_channel.is_none() {
-                    w.mode().se();
-                } else {
-                    w.mode().diff();
-                }
-                w.resp().variant(cc.resistor.into());
-                w.resn().bypass();
-                if !matches!(oversample, Oversample::BYPASS) {
-                    w.burst().enabled();
-                } else {
-                    w.burst().disabled();
-                }
-                w
+            r.ch(i).config().write(|w| {
+                w.set_refsel(cc.reference.into());
+                w.set_gain(cc.gain.into());
+                w.set_tacq(cc.time.into());
+                w.set_mode(match cc.n_channel {
+                    None => vals::ConfigMode::SE,
+                    Some(_) => vals::ConfigMode::DIFF,
+                });
+                w.set_resp(cc.resistor.into());
+                w.set_resn(vals::Resn::BYPASS);
+                w.set_burst(!matches!(oversample, Oversample::BYPASS));
             });
         }
 
         // Disable all events interrupts
-        r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
+        r.intenclr().write(|w| w.0 = 0x003F_FFFF);
 
         interrupt::SAADC.unpend();
         unsafe { interrupt::SAADC.enable() };
@@ -195,8 +177,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
         Self { _p: saadc }
     }
 
-    fn regs() -> &'static saadc::RegisterBlock {
-        unsafe { &*SAADC::ptr() }
+    fn regs() -> pac::saadc::Saadc {
+        pac::SAADC
     }
 
     /// Perform SAADC calibration. Completes when done.
@@ -204,13 +186,13 @@ impl<'d, const N: usize> Saadc<'d, N> {
         let r = Self::regs();
 
         // Reset and enable the end event
-        r.events_calibratedone.reset();
-        r.intenset.write(|w| w.calibratedone().set());
+        r.events_calibratedone().write_value(0);
+        r.intenset().write(|w| w.set_calibratedone(true));
 
         // Order is important
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_calibrateoffset.write(|w| unsafe { w.bits(1) });
+        r.tasks_calibrateoffset().write_value(1);
 
         // Wait for 'calibratedone' event.
         poll_fn(|cx| {
@@ -218,8 +200,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
             WAKER.register(cx.waker());
 
-            if r.events_calibratedone.read().bits() != 0 {
-                r.events_calibratedone.reset();
+            if r.events_calibratedone().read() != 0 {
+                r.events_calibratedone().write_value(0);
                 return Poll::Ready(());
             }
 
@@ -239,19 +221,19 @@ impl<'d, const N: usize> Saadc<'d, N> {
         let r = Self::regs();
 
         // Set up the DMA
-        r.result.ptr.write(|w| unsafe { w.ptr().bits(buf.as_mut_ptr() as u32) });
-        r.result.maxcnt.write(|w| unsafe { w.maxcnt().bits(N as _) });
+        r.result().ptr().write_value(buf.as_mut_ptr() as u32);
+        r.result().maxcnt().write(|w| w.set_maxcnt(N as _));
 
         // Reset and enable the end event
-        r.events_end.reset();
-        r.intenset.write(|w| w.end().set());
+        r.events_end().write_value(0);
+        r.intenset().write(|w| w.set_end(true));
 
         // Don't reorder the ADC start event before the previous writes. Hopefully self
         // wouldn't happen anyway.
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
-        r.tasks_sample.write(|w| unsafe { w.bits(1) });
+        r.tasks_start().write_value(1);
+        r.tasks_sample().write_value(1);
 
         // Wait for 'end' event.
         poll_fn(|cx| {
@@ -259,8 +241,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
             WAKER.register(cx.waker());
 
-            if r.events_end.read().bits() != 0 {
-                r.events_end.reset();
+            if r.events_end().read() != 0 {
+                r.events_end().write_value(0);
                 return Poll::Ready(());
             }
 
@@ -296,9 +278,9 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
     pub async fn run_task_sampler<F, T: TimerInstance, const N0: usize>(
         &mut self,
-        timer: &mut T,
-        ppi_ch1: &mut impl ConfigurableChannel,
-        ppi_ch2: &mut impl ConfigurableChannel,
+        timer: Peri<'_, T>,
+        ppi_ch1: Peri<'_, impl ConfigurableChannel>,
+        ppi_ch2: Peri<'_, impl ConfigurableChannel>,
         frequency: Frequency,
         sample_counter: u32,
         bufs: &mut [[[i16; N]; N0]; 2],
@@ -311,8 +293,11 @@ impl<'d, const N: usize> Saadc<'d, N> {
         // We want the task start to effectively short with the last one ending so
         // we don't miss any samples. It'd be great for the SAADC to offer a SHORTS
         // register instead, but it doesn't, so we must use PPI.
-        let mut start_ppi =
-            Ppi::new_one_to_one(ppi_ch1, Event::from_reg(&r.events_end), Task::from_reg(&r.tasks_start));
+        let mut start_ppi = Ppi::new_one_to_one(
+            ppi_ch1,
+            Event::from_reg(r.events_end()),
+            Task::from_reg(r.tasks_start()),
+        );
         start_ppi.enable();
 
         let timer = Timer::new(timer);
@@ -322,7 +307,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         let timer_cc = timer.cc(0);
 
-        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer_cc.event_compare(), Task::from_reg(&r.tasks_sample));
+        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer_cc.event_compare(), Task::from_reg(r.tasks_sample()));
 
         timer.start();
 
@@ -355,43 +340,37 @@ impl<'d, const N: usize> Saadc<'d, N> {
         // Establish mode and sample rate
         match sample_rate_divisor {
             Some(sr) => {
-                r.samplerate.write(|w| unsafe {
-                    w.cc().bits(sr);
-                    w.mode().timers();
-                    w
+                r.samplerate().write(|w| {
+                    w.set_cc(sr);
+                    w.set_mode(vals::SamplerateMode::TIMERS);
                 });
-                r.tasks_sample.write(|w| unsafe { w.bits(1) }); // Need to kick-start the internal timer
+                r.tasks_sample().write_value(1); // Need to kick-start the internal timer
             }
-            None => r.samplerate.write(|w| unsafe {
-                w.cc().bits(0);
-                w.mode().task();
-                w
+            None => r.samplerate().write(|w| {
+                w.set_cc(0);
+                w.set_mode(vals::SamplerateMode::TASK);
             }),
         }
 
         // Set up the initial DMA
-        r.result
-            .ptr
-            .write(|w| unsafe { w.ptr().bits(bufs[0].as_mut_ptr() as u32) });
-        r.result.maxcnt.write(|w| unsafe { w.maxcnt().bits((N0 * N) as _) });
+        r.result().ptr().write_value(bufs[0].as_mut_ptr() as u32);
+        r.result().maxcnt().write(|w| w.set_maxcnt((N0 * N) as _));
 
         // Reset and enable the events
-        r.events_end.reset();
-        r.events_started.reset();
-        r.intenset.write(|w| {
-            w.end().set();
-            w.started().set();
-            w
+        r.events_end().write_value(0);
+        r.events_started().write_value(0);
+        r.intenset().write(|w| {
+            w.set_end(true);
+            w.set_started(true);
         });
 
         // Don't reorder the ADC start event before the previous writes. Hopefully self
         // wouldn't happen anyway.
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_start.write(|w| unsafe { w.bits(1) });
+        r.tasks_start().write_value(1);
 
         let mut inited = false;
-
         let mut current_buffer = 0;
 
         // Wait for events and complete when the sampler indicates it has had enough.
@@ -400,11 +379,11 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
             WAKER.register(cx.waker());
 
-            if r.events_end.read().bits() != 0 {
+            if r.events_end().read() != 0 {
                 compiler_fence(Ordering::SeqCst);
 
-                r.events_end.reset();
-                r.intenset.write(|w| w.end().set());
+                r.events_end().write_value(0);
+                r.intenset().write(|w| w.set_end(true));
 
                 match callback(&bufs[current_buffer]) {
                     CallbackResult::Continue => {
@@ -417,9 +396,9 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 }
             }
 
-            if r.events_started.read().bits() != 0 {
-                r.events_started.reset();
-                r.intenset.write(|w| w.started().set());
+            if r.events_started().read() != 0 {
+                r.events_started().write_value(0);
+                r.intenset().write(|w| w.set_started(true));
 
                 if !inited {
                     init();
@@ -427,9 +406,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 }
 
                 let next_buffer = 1 - current_buffer;
-                r.result
-                    .ptr
-                    .write(|w| unsafe { w.ptr().bits(bufs[next_buffer].as_mut_ptr() as u32) });
+                r.result().ptr().write_value(bufs[next_buffer].as_mut_ptr() as u32);
             }
 
             Poll::Pending
@@ -447,11 +424,11 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         compiler_fence(Ordering::SeqCst);
 
-        r.events_stopped.reset();
-        r.tasks_stop.write(|w| unsafe { w.bits(1) });
+        r.events_stopped().write_value(0);
+        r.tasks_stop().write_value(1);
 
-        while r.events_stopped.read().bits() == 0 {}
-        r.events_stopped.reset();
+        while r.events_stopped().read() == 0 {}
+        r.events_stopped().write_value(0);
     }
 }
 
@@ -481,21 +458,25 @@ impl<'d> Saadc<'d, 1> {
 impl<'d, const N: usize> Drop for Saadc<'d, N> {
     fn drop(&mut self) {
         let r = Self::regs();
-        r.enable.write(|w| w.enable().disabled());
+        r.enable().write(|w| w.set_enable(false));
+        for i in 0..N {
+            r.ch(i).pselp().write(|w| w.set_pselp(InputChannel::NC));
+            r.ch(i).pseln().write(|w| w.set_pseln(InputChannel::NC));
+        }
     }
 }
 
-impl From<Gain> for GAIN_A {
+impl From<Gain> for vals::Gain {
     fn from(gain: Gain) -> Self {
         match gain {
-            Gain::GAIN1_6 => GAIN_A::GAIN1_6,
-            Gain::GAIN1_5 => GAIN_A::GAIN1_5,
-            Gain::GAIN1_4 => GAIN_A::GAIN1_4,
-            Gain::GAIN1_3 => GAIN_A::GAIN1_3,
-            Gain::GAIN1_2 => GAIN_A::GAIN1_2,
-            Gain::GAIN1 => GAIN_A::GAIN1,
-            Gain::GAIN2 => GAIN_A::GAIN2,
-            Gain::GAIN4 => GAIN_A::GAIN4,
+            Gain::GAIN1_6 => vals::Gain::GAIN1_6,
+            Gain::GAIN1_5 => vals::Gain::GAIN1_5,
+            Gain::GAIN1_4 => vals::Gain::GAIN1_4,
+            Gain::GAIN1_3 => vals::Gain::GAIN1_3,
+            Gain::GAIN1_2 => vals::Gain::GAIN1_2,
+            Gain::GAIN1 => vals::Gain::GAIN1,
+            Gain::GAIN2 => vals::Gain::GAIN2,
+            Gain::GAIN4 => vals::Gain::GAIN4,
         }
     }
 }
@@ -522,11 +503,11 @@ pub enum Gain {
     GAIN4 = 7,
 }
 
-impl From<Reference> for REFSEL_A {
+impl From<Reference> for vals::Refsel {
     fn from(reference: Reference) -> Self {
         match reference {
-            Reference::INTERNAL => REFSEL_A::INTERNAL,
-            Reference::VDD1_4 => REFSEL_A::VDD1_4,
+            Reference::INTERNAL => vals::Refsel::INTERNAL,
+            Reference::VDD1_4 => vals::Refsel::VDD1_4,
         }
     }
 }
@@ -541,13 +522,13 @@ pub enum Reference {
     VDD1_4 = 1,
 }
 
-impl From<Resistor> for RESP_A {
+impl From<Resistor> for vals::Resp {
     fn from(resistor: Resistor) -> Self {
         match resistor {
-            Resistor::BYPASS => RESP_A::BYPASS,
-            Resistor::PULLDOWN => RESP_A::PULLDOWN,
-            Resistor::PULLUP => RESP_A::PULLUP,
-            Resistor::VDD1_2 => RESP_A::VDD1_2,
+            Resistor::BYPASS => vals::Resp::BYPASS,
+            Resistor::PULLDOWN => vals::Resp::PULLDOWN,
+            Resistor::PULLUP => vals::Resp::PULLUP,
+            Resistor::VDD1_2 => vals::Resp::VDD1_2,
         }
     }
 }
@@ -566,15 +547,15 @@ pub enum Resistor {
     VDD1_2 = 3,
 }
 
-impl From<Time> for TACQ_A {
+impl From<Time> for vals::Tacq {
     fn from(time: Time) -> Self {
         match time {
-            Time::_3US => TACQ_A::_3US,
-            Time::_5US => TACQ_A::_5US,
-            Time::_10US => TACQ_A::_10US,
-            Time::_15US => TACQ_A::_15US,
-            Time::_20US => TACQ_A::_20US,
-            Time::_40US => TACQ_A::_40US,
+            Time::_3US => vals::Tacq::_3US,
+            Time::_5US => vals::Tacq::_5US,
+            Time::_10US => vals::Tacq::_10US,
+            Time::_15US => vals::Tacq::_15US,
+            Time::_20US => vals::Tacq::_20US,
+            Time::_40US => vals::Tacq::_40US,
         }
     }
 }
@@ -597,18 +578,18 @@ pub enum Time {
     _40US = 5,
 }
 
-impl From<Oversample> for OVERSAMPLE_A {
+impl From<Oversample> for vals::Oversample {
     fn from(oversample: Oversample) -> Self {
         match oversample {
-            Oversample::BYPASS => OVERSAMPLE_A::BYPASS,
-            Oversample::OVER2X => OVERSAMPLE_A::OVER2X,
-            Oversample::OVER4X => OVERSAMPLE_A::OVER4X,
-            Oversample::OVER8X => OVERSAMPLE_A::OVER8X,
-            Oversample::OVER16X => OVERSAMPLE_A::OVER16X,
-            Oversample::OVER32X => OVERSAMPLE_A::OVER32X,
-            Oversample::OVER64X => OVERSAMPLE_A::OVER64X,
-            Oversample::OVER128X => OVERSAMPLE_A::OVER128X,
-            Oversample::OVER256X => OVERSAMPLE_A::OVER256X,
+            Oversample::BYPASS => vals::Oversample::BYPASS,
+            Oversample::OVER2X => vals::Oversample::OVER2X,
+            Oversample::OVER4X => vals::Oversample::OVER4X,
+            Oversample::OVER8X => vals::Oversample::OVER8X,
+            Oversample::OVER16X => vals::Oversample::OVER16X,
+            Oversample::OVER32X => vals::Oversample::OVER32X,
+            Oversample::OVER64X => vals::Oversample::OVER64X,
+            Oversample::OVER128X => vals::Oversample::OVER128X,
+            Oversample::OVER256X => vals::Oversample::OVER256X,
         }
     }
 }
@@ -637,13 +618,13 @@ pub enum Oversample {
     OVER256X = 8,
 }
 
-impl From<Resolution> for VAL_A {
+impl From<Resolution> for vals::Val {
     fn from(resolution: Resolution) -> Self {
         match resolution {
-            Resolution::_8BIT => VAL_A::_8BIT,
-            Resolution::_10BIT => VAL_A::_10BIT,
-            Resolution::_12BIT => VAL_A::_12BIT,
-            Resolution::_14BIT => VAL_A::_14BIT,
+            Resolution::_8BIT => vals::Val::_8BIT,
+            Resolution::_10BIT => vals::Val::_10BIT,
+            Resolution::_12BIT => vals::Val::_12BIT,
+            Resolution::_14BIT => vals::Val::_14BIT,
         }
     }
 }
@@ -668,14 +649,18 @@ pub(crate) trait SealedInput {
 
 /// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
 #[allow(private_bounds)]
-pub trait Input: SealedInput + Into<AnyInput> + Peripheral<P = Self> + Sized + 'static {
+pub trait Input: SealedInput + Sized {
     /// Convert this SAADC input to a type-erased `AnyInput`.
     ///
     /// This allows using several inputs  in situations that might require
     /// them to be the same type, like putting them in an array.
-    fn degrade_saadc(self) -> AnyInput {
+    fn degrade_saadc<'a>(self) -> AnyInput<'a>
+    where
+        Self: 'a,
+    {
         AnyInput {
             channel: self.channel(),
+            _phantom: core::marker::PhantomData,
         }
     }
 }
@@ -684,23 +669,36 @@ pub trait Input: SealedInput + Into<AnyInput> + Peripheral<P = Self> + Sized + '
 ///
 /// This allows using several inputs  in situations that might require
 /// them to be the same type, like putting them in an array.
-pub struct AnyInput {
+pub struct AnyInput<'a> {
     channel: InputChannel,
+    _phantom: PhantomData<&'a ()>,
 }
 
-impl_peripheral!(AnyInput);
+impl<'a> AnyInput<'a> {
+    /// Reborrow into a "child" AnyInput.
+    ///
+    /// `self` will stay borrowed until the child AnyInput is dropped.
+    pub fn reborrow(&mut self) -> AnyInput<'_> {
+        // safety: we're returning the clone inside a new Peripheral that borrows
+        // self, so user code can't use both at the same time.
+        Self {
+            channel: self.channel,
+            _phantom: PhantomData,
+        }
+    }
+}
 
-impl SealedInput for AnyInput {
+impl SealedInput for AnyInput<'_> {
     fn channel(&self) -> InputChannel {
         self.channel
     }
 }
 
-impl Input for AnyInput {}
+impl Input for AnyInput<'_> {}
 
 macro_rules! impl_saadc_input {
     ($pin:ident, $ch:ident) => {
-        impl_saadc_input!(@local, crate::peripherals::$pin, $ch);
+        impl_saadc_input!(@local, crate::Peri<'_, crate::peripherals::$pin>, $ch);
     };
     (@local, $pin:ty, $ch:ident) => {
         impl crate::saadc::SealedInput for $pin {
@@ -709,12 +707,6 @@ macro_rules! impl_saadc_input {
             }
         }
         impl crate::saadc::Input for $pin {}
-
-        impl From<$pin> for crate::saadc::AnyInput {
-            fn from(val: $pin) -> Self {
-                crate::saadc::Input::degrade_saadc(val)
-            }
-        }
     };
 }
 
@@ -726,7 +718,7 @@ impl_peripheral!(VddInput);
 #[cfg(not(feature = "_nrf91"))]
 impl_saadc_input!(@local, VddInput, VDD);
 #[cfg(feature = "_nrf91")]
-impl_saadc_input!(@local, VddInput, VDDGPIO);
+impl_saadc_input!(@local, VddInput, VDD_GPIO);
 
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the
 /// VDDH / 5 voltage.

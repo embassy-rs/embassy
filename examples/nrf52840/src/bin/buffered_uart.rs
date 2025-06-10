@@ -9,7 +9,7 @@ use embedded_io_async::Write;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    UARTE0_UART0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;
+    UARTE0 => buffered_uarte::InterruptHandler<peripherals::UARTE0>;
 });
 
 #[embassy_executor::main]
@@ -28,9 +28,9 @@ async fn main(_spawner: Spawner) {
         p.PPI_CH0,
         p.PPI_CH1,
         p.PPI_GROUP0,
-        Irqs,
         p.P0_08,
         p.P0_06,
+        Irqs,
         config,
         &mut rx_buffer,
         &mut tx_buffer,

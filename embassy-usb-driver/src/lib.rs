@@ -395,3 +395,12 @@ pub enum EndpointError {
     /// The endpoint is disabled.
     Disabled,
 }
+
+impl embedded_io_async::Error for EndpointError {
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        match self {
+            Self::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
+            Self::Disabled => embedded_io_async::ErrorKind::NotConnected,
+        }
+    }
+}

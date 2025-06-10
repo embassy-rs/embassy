@@ -4,12 +4,12 @@ mod traits;
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::Peri;
 pub use traits::Instance;
 
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::rcc;
 use crate::time::Hertz;
-use crate::{rcc, Peripheral};
 
 /// HRTIM burst controller instance.
 pub struct BurstController<T: Instance> {
@@ -62,13 +62,13 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {}
 
 /// HRTIM PWM pin.
 pub struct PwmPin<'d, T, C> {
-    _pin: PeripheralRef<'d, AnyPin>,
+    _pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
 /// HRTIM complementary PWM pin.
 pub struct ComplementaryPwmPin<'d, T, C> {
-    _pin: PeripheralRef<'d, AnyPin>,
+    _pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -76,8 +76,7 @@ macro_rules! advanced_channel_impl {
     ($new_chx:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
         impl<'d, T: Instance> PwmPin<'d, T, $channel<T>> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(
@@ -86,7 +85,7 @@ macro_rules! advanced_channel_impl {
                     );
                 });
                 PwmPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
@@ -94,8 +93,7 @@ macro_rules! advanced_channel_impl {
 
         impl<'d, T: Instance> ComplementaryPwmPin<'d, T, $channel<T>> {
             #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $complementary_pin_trait<T>> + 'd) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx(pin: Peri<'d, impl $complementary_pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(
@@ -104,7 +102,7 @@ macro_rules! advanced_channel_impl {
                     );
                 });
                 ComplementaryPwmPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
@@ -129,7 +127,7 @@ advanced_channel_impl!(new_chf, ChF, 5, ChannelFPin, ChannelFComplementaryPin);
 
 /// Struct used to divide a high resolution timer into multiple channels
 pub struct AdvancedPwm<'d, T: Instance> {
-    _inner: PeripheralRef<'d, T>,
+    _inner: Peri<'d, T>,
     /// Master instance.
     pub master: Master<T>,
     /// Burst controller.
@@ -154,7 +152,7 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
     ///
     /// This splits the HRTIM into its constituent parts, which you can then use individually.
     pub fn new(
-        tim: impl Peripheral<P = T> + 'd,
+        tim: Peri<'d, T>,
         _cha: Option<PwmPin<'d, T, ChA<T>>>,
         _chan: Option<ComplementaryPwmPin<'d, T, ChA<T>>>,
         _chb: Option<PwmPin<'d, T, ChB<T>>>,
@@ -171,9 +169,7 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
         Self::new_inner(tim)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(tim);
-
+    fn new_inner(tim: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         #[cfg(stm32f334)]
@@ -236,8 +232,6 @@ pub struct BridgeConverter<T: Instance, C: AdvancedChannel<T>> {
 impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
     /// Create a new HRTIM bridge converter driver.
     pub fn new(_channel: C, frequency: Hertz) -> Self {
-        use crate::pac::hrtim::vals::{Activeeffect, Inactiveeffect};
-
         T::set_channel_frequency(C::raw(), frequency);
 
         // Always enable preload
@@ -258,28 +252,16 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
         // Therefore, software-implemented dead time must be used when setting the duty cycles
 
         // Set output 1 to active on a period event
-        T::regs()
-            .tim(C::raw())
-            .setr(0)
-            .modify(|w| w.set_per(Activeeffect::SETACTIVE));
+        T::regs().tim(C::raw()).setr(0).modify(|w| w.set_per(true));
 
         // Set output 1 to inactive on a compare 1 event
-        T::regs()
-            .tim(C::raw())
-            .rstr(0)
-            .modify(|w| w.set_cmp(0, Inactiveeffect::SETINACTIVE));
+        T::regs().tim(C::raw()).rstr(0).modify(|w| w.set_cmp(0, true));
 
         // Set output 2 to active on a compare 2 event
-        T::regs()
-            .tim(C::raw())
-            .setr(1)
-            .modify(|w| w.set_cmp(1, Activeeffect::SETACTIVE));
+        T::regs().tim(C::raw()).setr(1).modify(|w| w.set_cmp(1, true));
 
         // Set output 2 to inactive on a compare 3 event
-        T::regs()
-            .tim(C::raw())
-            .rstr(1)
-            .modify(|w| w.set_cmp(2, Inactiveeffect::SETINACTIVE));
+        T::regs().tim(C::raw()).rstr(1).modify(|w| w.set_cmp(2, true));
 
         Self {
             timer: PhantomData,

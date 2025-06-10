@@ -2,13 +2,11 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
-
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peripheral};
+use crate::{interrupt, rcc, Peri};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -42,7 +40,7 @@ impl<T: Instance> super::SealedAdcChannel<T> for Vref {
 impl Vref {
     /// The value that vref would be if vdda was at 3300mv
     pub fn value(&self) -> u16 {
-        crate::pac::VREFINTCAL.data().read().value()
+        crate::pac::VREFINTCAL.data().read()
     }
 }
 
@@ -56,12 +54,10 @@ impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
 
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
-        adc: impl Peripheral<P = T> + 'd,
+        adc: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         use crate::pac::adc::vals;
-
-        into_ref!(adc);
 
         rcc::enable_and_reset::<T>();
 

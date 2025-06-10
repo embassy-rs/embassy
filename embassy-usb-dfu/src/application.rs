@@ -1,10 +1,8 @@
-use core::marker::PhantomData;
-
 use embassy_boot::BlockingFirmwareState;
 use embassy_time::{Duration, Instant};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
 use embassy_usb::driver::Driver;
-use embassy_usb::{Builder, Handler};
+use embassy_usb::{Builder, FunctionBuilder, Handler};
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::consts::{
@@ -13,31 +11,47 @@ use crate::consts::{
 };
 use crate::Reset;
 
+/// Generic interface for a system that can signal to the bootloader that USB DFU mode is needed on the next boot.
+///
+/// By default this trait is implemented for `BlockingFirmwareState<'d, STATE>` but you could also implement this generic
+/// interface yourself instead in more complex situations. This could for instance be when you cannot hand ownership of a
+/// `BlockingFirmwareState` instance over directly to the DFU `Control` instance and need to use a more complex mechanism.
+pub trait DfuMarker {
+    /// Signal to the bootloader that DFU mode should be used on the next boot.
+    fn mark_dfu(&mut self);
+}
+
+impl<'d, STATE: NorFlash> DfuMarker for BlockingFirmwareState<'d, STATE> {
+    fn mark_dfu(&mut self) {
+        self.mark_dfu().expect("Failed to mark DFU mode in bootloader")
+    }
+}
+
 /// Internal state for the DFU class
-pub struct Control<'d, STATE: NorFlash, RST: Reset> {
-    firmware_state: BlockingFirmwareState<'d, STATE>,
+pub struct Control<MARK: DfuMarker, RST: Reset> {
+    dfu_marker: MARK,
     attrs: DfuAttributes,
     state: State,
     timeout: Option<Duration>,
     detach_start: Option<Instant>,
-    _rst: PhantomData<RST>,
+    reset: RST,
 }
 
-impl<'d, STATE: NorFlash, RST: Reset> Control<'d, STATE, RST> {
+impl<MARK: DfuMarker, RST: Reset> Control<MARK, RST> {
     /// Create a new DFU instance to expose a DFU interface.
-    pub fn new(firmware_state: BlockingFirmwareState<'d, STATE>, attrs: DfuAttributes) -> Self {
+    pub fn new(dfu_marker: MARK, attrs: DfuAttributes, reset: RST) -> Self {
         Control {
-            firmware_state,
+            dfu_marker,
             attrs,
             state: State::AppIdle,
             detach_start: None,
             timeout: None,
-            _rst: PhantomData,
+            reset,
         }
     }
 }
 
-impl<'d, STATE: NorFlash, RST: Reset> Handler for Control<'d, STATE, RST> {
+impl<MARK: DfuMarker, RST: Reset> Handler for Control<MARK, RST> {
     fn reset(&mut self) {
         if let Some(start) = self.detach_start {
             let delta = Instant::now() - start;
@@ -48,10 +62,8 @@ impl<'d, STATE: NorFlash, RST: Reset> Handler for Control<'d, STATE, RST> {
                 timeout.as_millis()
             );
             if delta < timeout {
-                self.firmware_state
-                    .mark_dfu()
-                    .expect("Failed to mark DFU mode in bootloader");
-                RST::sys_reset()
+                self.dfu_marker.mark_dfu();
+                self.reset.sys_reset()
             }
         }
     }
@@ -69,10 +81,15 @@ impl<'d, STATE: NorFlash, RST: Reset> Handler for Control<'d, STATE, RST> {
 
         match Request::try_from(req.request) {
             Ok(Request::Detach) => {
-                trace!("Received DETACH, awaiting USB reset");
                 self.detach_start = Some(Instant::now());
                 self.timeout = Some(Duration::from_millis(req.value as u64));
                 self.state = State::AppDetach;
+                if self.attrs.contains(DfuAttributes::WILL_DETACH) {
+                    trace!("Received DETACH, performing reset");
+                    self.reset();
+                } else {
+                    trace!("Received DETACH, awaiting USB reset");
+                }
                 Some(OutResponse::Accepted)
             }
             _ => None,
@@ -109,12 +126,18 @@ impl<'d, STATE: NorFlash, RST: Reset> Handler for Control<'d, STATE, RST> {
 /// it should expose a DFU device, and a software reset will be issued.
 ///
 /// To apply USB DFU updates, the bootloader must be capable of recognizing the DFU magic and exposing a device to handle the full DFU transaction with the host.
-pub fn usb_dfu<'d, D: Driver<'d>, STATE: NorFlash, RST: Reset>(
+pub fn usb_dfu<'d, D: Driver<'d>, MARK: DfuMarker, RST: Reset>(
     builder: &mut Builder<'d, D>,
-    handler: &'d mut Control<'d, STATE, RST>,
+    handler: &'d mut Control<MARK, RST>,
     timeout: Duration,
+    func_modifier: impl Fn(&mut FunctionBuilder<'_, 'd, D>),
 ) {
     let mut func = builder.function(0x00, 0x00, 0x00);
+
+    // Here we give users the opportunity to add their own function level MSOS headers for instance.
+    // This is useful when DFU functionality is part of a composite USB device.
+    func_modifier(&mut func);
+
     let mut iface = func.interface();
     let mut alt = iface.alt_setting(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_RT, None);
     let timeout = timeout.as_millis() as u16;

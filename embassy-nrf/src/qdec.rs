@@ -6,16 +6,18 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, Peripheral};
+use crate::pac::gpio::vals as gpiovals;
+use crate::pac::qdec::vals;
+use crate::{interrupt, pac};
 
 /// Quadrature decoder driver.
 pub struct Qdec<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 /// QDEC config
@@ -52,7 +54,7 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        T::regs().intenclr.write(|w| w.reportrdy().clear());
+        T::regs().intenclr().write(|w| w.set_reportrdy(true));
         T::state().waker.wake();
     }
 }
@@ -60,87 +62,90 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 impl<'d, T: Instance> Qdec<'d, T> {
     /// Create a new QDEC.
     pub fn new(
-        qdec: impl Peripheral<P = T> + 'd,
+        qdec: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        a: impl Peripheral<P = impl GpioPin> + 'd,
-        b: impl Peripheral<P = impl GpioPin> + 'd,
+        a: Peri<'d, impl GpioPin>,
+        b: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(qdec, a, b);
-        Self::new_inner(qdec, a.map_into(), b.map_into(), None, config)
+        Self::new_inner(qdec, a.into(), b.into(), None, config)
     }
 
     /// Create a new QDEC, with a pin for LED output.
     pub fn new_with_led(
-        qdec: impl Peripheral<P = T> + 'd,
+        qdec: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        a: impl Peripheral<P = impl GpioPin> + 'd,
-        b: impl Peripheral<P = impl GpioPin> + 'd,
-        led: impl Peripheral<P = impl GpioPin> + 'd,
+        a: Peri<'d, impl GpioPin>,
+        b: Peri<'d, impl GpioPin>,
+        led: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(qdec, a, b, led);
-        Self::new_inner(qdec, a.map_into(), b.map_into(), Some(led.map_into()), config)
+        Self::new_inner(qdec, a.into(), b.into(), Some(led.into()), config)
     }
 
     fn new_inner(
-        p: PeripheralRef<'d, T>,
-        a: PeripheralRef<'d, AnyPin>,
-        b: PeripheralRef<'d, AnyPin>,
-        led: Option<PeripheralRef<'d, AnyPin>>,
+        p: Peri<'d, T>,
+        a: Peri<'d, AnyPin>,
+        b: Peri<'d, AnyPin>,
+        led: Option<Peri<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         let r = T::regs();
 
         // Select pins.
-        a.conf().write(|w| w.input().connect().pull().pullup());
-        b.conf().write(|w| w.input().connect().pull().pullup());
-        r.psel.a.write(|w| unsafe { w.bits(a.psel_bits()) });
-        r.psel.b.write(|w| unsafe { w.bits(b.psel_bits()) });
+        a.conf().write(|w| {
+            w.set_input(gpiovals::Input::CONNECT);
+            w.set_pull(gpiovals::Pull::PULLUP);
+        });
+        b.conf().write(|w| {
+            w.set_input(gpiovals::Input::CONNECT);
+            w.set_pull(gpiovals::Pull::PULLUP);
+        });
+        r.psel().a().write_value(a.psel_bits());
+        r.psel().b().write_value(b.psel_bits());
         if let Some(led_pin) = &led {
-            led_pin.conf().write(|w| w.dir().output());
-            r.psel.led.write(|w| unsafe { w.bits(led_pin.psel_bits()) });
+            led_pin.conf().write(|w| w.set_dir(gpiovals::Dir::OUTPUT));
+            r.psel().led().write_value(led_pin.psel_bits());
         }
 
         // Enables/disable input debounce filters
-        r.dbfen.write(|w| match config.debounce {
-            true => w.dbfen().enabled(),
-            false => w.dbfen().disabled(),
+        r.dbfen().write(|w| match config.debounce {
+            true => w.set_dbfen(true),
+            false => w.set_dbfen(false),
         });
 
         // Set LED output pin polarity
-        r.ledpol.write(|w| match config.led_polarity {
-            LedPolarity::ActiveHigh => w.ledpol().active_high(),
-            LedPolarity::ActiveLow => w.ledpol().active_low(),
+        r.ledpol().write(|w| match config.led_polarity {
+            LedPolarity::ActiveHigh => w.set_ledpol(vals::Ledpol::ACTIVE_HIGH),
+            LedPolarity::ActiveLow => w.set_ledpol(vals::Ledpol::ACTIVE_LOW),
         });
 
         // Set time period the LED is switched ON prior to sampling (0..511 us).
-        r.ledpre
-            .write(|w| unsafe { w.ledpre().bits(config.led_pre_usecs.min(511)) });
+        r.ledpre().write(|w| w.set_ledpre(config.led_pre_usecs.min(511)));
 
         // Set sample period
-        r.sampleper.write(|w| match config.period {
-            SamplePeriod::_128us => w.sampleper()._128us(),
-            SamplePeriod::_256us => w.sampleper()._256us(),
-            SamplePeriod::_512us => w.sampleper()._512us(),
-            SamplePeriod::_1024us => w.sampleper()._1024us(),
-            SamplePeriod::_2048us => w.sampleper()._2048us(),
-            SamplePeriod::_4096us => w.sampleper()._4096us(),
-            SamplePeriod::_8192us => w.sampleper()._8192us(),
-            SamplePeriod::_16384us => w.sampleper()._16384us(),
-            SamplePeriod::_32ms => w.sampleper()._32ms(),
-            SamplePeriod::_65ms => w.sampleper()._65ms(),
-            SamplePeriod::_131ms => w.sampleper()._131ms(),
+        r.sampleper().write(|w| match config.period {
+            SamplePeriod::_128us => w.set_sampleper(vals::Sampleper::_128US),
+            SamplePeriod::_256us => w.set_sampleper(vals::Sampleper::_256US),
+            SamplePeriod::_512us => w.set_sampleper(vals::Sampleper::_512US),
+            SamplePeriod::_1024us => w.set_sampleper(vals::Sampleper::_1024US),
+            SamplePeriod::_2048us => w.set_sampleper(vals::Sampleper::_2048US),
+            SamplePeriod::_4096us => w.set_sampleper(vals::Sampleper::_4096US),
+            SamplePeriod::_8192us => w.set_sampleper(vals::Sampleper::_8192US),
+            SamplePeriod::_16384us => w.set_sampleper(vals::Sampleper::_16384US),
+            SamplePeriod::_32ms => w.set_sampleper(vals::Sampleper::_32MS),
+            SamplePeriod::_65ms => w.set_sampleper(vals::Sampleper::_65MS),
+            SamplePeriod::_131ms => w.set_sampleper(vals::Sampleper::_131MS),
         });
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
         // Enable peripheral
-        r.enable.write(|w| w.enable().set_bit());
+        r.enable().write(|w| w.set_enable(true));
 
         // Start sampling
-        unsafe { r.tasks_start.write(|w| w.bits(1)) };
+        r.tasks_start().write_value(1);
 
         Self { _p: p }
     }
@@ -169,16 +174,16 @@ impl<'d, T: Instance> Qdec<'d, T> {
     /// ```
     pub async fn read(&mut self) -> i16 {
         let t = T::regs();
-        t.intenset.write(|w| w.reportrdy().set());
-        unsafe { t.tasks_readclracc.write(|w| w.bits(1)) };
+        t.intenset().write(|w| w.set_reportrdy(true));
+        t.tasks_readclracc().write_value(1);
 
         poll_fn(|cx| {
             T::state().waker.register(cx.waker());
-            if t.events_reportrdy.read().bits() == 0 {
+            if t.events_reportrdy().read() == 0 {
                 Poll::Pending
             } else {
-                t.events_reportrdy.reset();
-                let acc = t.accread.read().bits();
+                t.events_reportrdy().write_value(0);
+                let acc = t.accread().read();
                 Poll::Ready(acc as i16)
             }
         })
@@ -259,13 +264,13 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static crate::pac::qdec::RegisterBlock;
+    fn regs() -> pac::qdec::Qdec;
     fn state() -> &'static State;
 }
 
 /// qdec peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -273,8 +278,8 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
 macro_rules! impl_qdec {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::qdec::SealedInstance for peripherals::$type {
-            fn regs() -> &'static crate::pac::qdec::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> pac::qdec::Qdec {
+                pac::$pac_type
             }
             fn state() -> &'static crate::qdec::State {
                 static STATE: crate::qdec::State = crate::qdec::State::new();
