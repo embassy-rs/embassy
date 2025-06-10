@@ -184,8 +184,13 @@ impl Spawner {
 
 /// Extension trait adding tracing capabilities to the Spawner
 ///
-/// This trait provides an additional method to spawn tasks with an associated name,
-/// which can be useful for debugging and tracing purposes.
+/// This trait provides additional methods to spawn tasks with tracing controls.
+///
+/// **Default workflow** (`rtos-trace` feature): All tasks are traced by default.
+/// You can use `spawn_no_trace()` methods to exclude specific tasks.
+///
+/// **Selective workflow** (`rtos-trace-selective` feature): No tasks are traced by default.
+/// You must use `spawn_with_trace()` methods to include specific tasks.
 pub trait SpawnerTraceExt {
     /// Spawns a new task with a specified name.
     ///
@@ -196,6 +201,50 @@ pub trait SpawnerTraceExt {
     /// # Returns
     /// Result indicating whether the spawn was successful
     fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError>;
+
+    /// Spawns a new task and explicitly enables it for tracing.
+    ///
+    /// **In default mode** (`rtos-trace`): This behaves the same as `spawn()` since all tasks are traced.
+    /// **In selective mode** (`rtos-trace-selective`): Only tasks spawned with this method will be traced.
+    ///
+    /// # Arguments
+    /// * `token` - Token representing the task to spawn
+    ///
+    /// # Returns
+    /// Result indicating whether the spawn was successful
+    fn spawn_with_trace<S>(&self, token: SpawnToken<S>) -> Result<(), SpawnError>;
+
+    /// Spawns a new task with a name and explicitly enables it for tracing.
+    ///
+    /// # Arguments
+    /// * `name` - Static string name to associate with the task
+    /// * `token` - Token representing the task to spawn
+    ///
+    /// # Returns
+    /// Result indicating whether the spawn was successful
+    fn spawn_named_with_trace<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError>;
+
+    /// Spawns a new task and excludes it from tracing.
+    ///
+    /// **In default mode** (`rtos-trace`): Use this to exclude specific tasks from tracing.
+    /// **In selective mode** (`rtos-trace-selective`): This behaves the same as `spawn()` since tasks are excluded by default.
+    ///
+    /// # Arguments
+    /// * `token` - Token representing the task to spawn
+    ///
+    /// # Returns
+    /// Result indicating whether the spawn was successful
+    fn spawn_no_trace<S>(&self, token: SpawnToken<S>) -> Result<(), SpawnError>;
+
+    /// Spawns a new task with a name but excludes it from tracing.
+    ///
+    /// # Arguments
+    /// * `name` - Static string name to associate with the task
+    /// * `token` - Token representing the task to spawn
+    ///
+    /// # Returns
+    /// Result indicating whether the spawn was successful
+    fn spawn_named_no_trace<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError>;
 }
 
 /// Implementation of the SpawnerTraceExt trait for Spawner when trace is enabled
@@ -212,6 +261,87 @@ impl SpawnerTraceExt for Spawner {
                 let task_id = task.as_ptr() as u32;
                 task.set_id(task_id);
 
+                // In selective mode, tasks are excluded by default (must use spawn_named_with_trace)
+                // In default mode, all tasks are traced
+                #[cfg(feature = "rtos-trace-selective")]
+                task.set_trace_excluded(true);
+                #[cfg(not(feature = "rtos-trace-selective"))]
+                task.set_trace_excluded(false);
+
+                unsafe { self.executor.spawn(task) };
+                Ok(())
+            }
+            None => Err(SpawnError::Busy),
+        }
+    }
+
+    fn spawn_with_trace<S>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        let task = token.raw_task;
+        core::mem::forget(token);
+
+        match task {
+            Some(task) => {
+                // Explicitly enable tracing for this task
+                task.set_trace_excluded(false);
+                let task_id = task.as_ptr() as u32;
+                task.set_id(task_id);
+
+                unsafe { self.executor.spawn(task) };
+                Ok(())
+            }
+            None => Err(SpawnError::Busy),
+        }
+    }
+
+    fn spawn_named_with_trace<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        let task = token.raw_task;
+        core::mem::forget(token);
+
+        match task {
+            Some(task) => {
+                // Set the name and explicitly enable tracing
+                task.set_name(Some(name));
+                let task_id = task.as_ptr() as u32;
+                task.set_id(task_id);
+                task.set_trace_excluded(false);
+
+                unsafe { self.executor.spawn(task) };
+                Ok(())
+            }
+            None => Err(SpawnError::Busy),
+        }
+    }
+
+    fn spawn_no_trace<S>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        let task = token.raw_task;
+        core::mem::forget(token);
+
+        match task {
+            Some(task) => {
+                // Explicitly exclude this task from tracing
+                task.set_trace_excluded(true);
+                let task_id = task.as_ptr() as u32;
+                task.set_id(task_id);
+
+                unsafe { self.executor.spawn(task) };
+                Ok(())
+            }
+            None => Err(SpawnError::Busy),
+        }
+    }
+
+    fn spawn_named_no_trace<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        let task = token.raw_task;
+        core::mem::forget(token);
+
+        match task {
+            Some(task) => {
+                // Set the name but exclude from tracing
+                task.set_name(Some(name));
+                let task_id = task.as_ptr() as u32;
+                task.set_id(task_id);
+                task.set_trace_excluded(true);
+
                 unsafe { self.executor.spawn(task) };
                 Ok(())
             }
@@ -224,6 +354,26 @@ impl SpawnerTraceExt for Spawner {
 #[cfg(not(feature = "trace"))]
 impl SpawnerTraceExt for Spawner {
     fn spawn_named<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        // When trace is disabled, just forward to regular spawn and ignore the name
+        self.spawn(token)
+    }
+
+    fn spawn_with_trace<S>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        // When trace is disabled, just forward to regular spawn
+        self.spawn(token)
+    }
+
+    fn spawn_named_with_trace<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        // When trace is disabled, just forward to regular spawn and ignore the name
+        self.spawn(token)
+    }
+
+    fn spawn_no_trace<S>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
+        // When trace is disabled, just forward to regular spawn
+        self.spawn(token)
+    }
+
+    fn spawn_named_no_trace<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
         // When trace is disabled, just forward to regular spawn and ignore the name
         self.spawn(token)
     }

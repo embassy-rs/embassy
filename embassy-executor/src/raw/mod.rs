@@ -94,6 +94,8 @@ pub(crate) struct TaskHeader {
     #[cfg(feature = "trace")]
     pub(crate) id: u32,
     #[cfg(feature = "trace")]
+    pub(crate) trace_excluded: bool,
+    #[cfg(feature = "trace")]
     all_tasks_next: AtomicPtr<TaskHeader>,
 }
 
@@ -194,6 +196,8 @@ impl<F: Future + 'static> TaskStorage<F> {
                 name: None,
                 #[cfg(feature = "trace")]
                 id: 0,
+                #[cfg(feature = "trace")]
+                trace_excluded: cfg!(feature = "rtos-trace-selective"),
                 #[cfg(feature = "trace")]
                 all_tasks_next: AtomicPtr::new(core::ptr::null_mut()),
             },
