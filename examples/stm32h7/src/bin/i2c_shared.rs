@@ -33,7 +33,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn temperature(mut i2c: I2cDevice<'static, NoopRawMutex, I2c<'static, Async>>) {
+async fn temperature(mut i2c: I2cDevice<'static, NoopRawMutex, I2c<'static, Async, i2c::Master>>) {
     let mut data = [0u8; 2];
 
     loop {
@@ -50,7 +50,7 @@ async fn temperature(mut i2c: I2cDevice<'static, NoopRawMutex, I2c<'static, Asyn
 }
 
 #[embassy_executor::task]
-async fn humidity(mut i2c: I2cDevice<'static, NoopRawMutex, I2c<'static, Async>>) {
+async fn humidity(mut i2c: I2cDevice<'static, NoopRawMutex, I2c<'static, Async, i2c::Master>>) {
     let mut data = [0u8; 6];
 
     loop {
