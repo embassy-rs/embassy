@@ -95,8 +95,10 @@ executor-thread = []
 executor-interrupt = []
 ## Enable tracing support (adds some overhead)
 trace = []
-## Enable support for rtos-trace framework
+## Enable support for rtos-trace framework (named tasks only by default)
 rtos-trace = ["dep:rtos-trace", "trace", "dep:embassy-time-driver"]
+## Include all tasks in tracing (not just the named ones)
+rtos-trace-all-tasks = ["rtos-trace"]
 
 #! ### Timer Item Payload Size
 #! Sets the size of the payload for timer items, allowing integrated timer implementors to store

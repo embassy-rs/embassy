@@ -141,7 +141,6 @@ impl TaskTracker {
             }
         }
     }
-
     /// Performs an operation on each task in the tracker
     ///
     /// This method traverses the entire list of tasks and calls the provided
@@ -204,6 +203,23 @@ impl TaskRefTrace for TaskRef {
             let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
             (*header_ptr).id = id;
         }
+    }
+}
+
+/// Helper function to determine if a task should be traced
+///
+/// When `rtos-trace-all-tasks` is enabled, all tasks are traced regardless of whether they have names.
+#[inline]
+fn should_trace_task(task: &TaskRef) -> bool {
+    #[cfg(feature = "rtos-trace-all-tasks")]
+    {
+        let _ = task; // Suppress unused parameter warning
+        true // Trace all tasks when rtos-trace-all-tasks feature is enabled
+    }
+ 
+    #[cfg(not(feature = "rtos-trace-all-tasks"))]
+    {
+        task.name().is_some() // Default: only trace named tasks
     }
 }
 
@@ -283,10 +299,10 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
     }
 
     #[cfg(feature = "rtos-trace")]
-    rtos_trace::trace::task_new(task.as_ptr() as u32);
-
-    #[cfg(feature = "rtos-trace")]
-    TASK_TRACKER.add(*task);
+    if should_trace_task(task) {
+        rtos_trace::trace::task_new(task.as_ptr() as u32);
+        TASK_TRACKER.add(*task);
+    }
 }
 
 #[inline]
@@ -304,7 +320,9 @@ pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: &TaskRef) {
         _embassy_trace_task_ready_begin(executor as *const _ as u32, task.as_ptr() as u32)
     }
     #[cfg(feature = "rtos-trace")]
-    rtos_trace::trace::task_ready_begin(task.as_ptr() as u32);
+    if should_trace_task(task) {
+        rtos_trace::trace::task_ready_begin(task.as_ptr() as u32);
+    }
 }
 
 #[inline]
@@ -314,7 +332,9 @@ pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: &TaskRef) {
         _embassy_trace_task_exec_begin(executor as *const _ as u32, task.as_ptr() as u32)
     }
     #[cfg(feature = "rtos-trace")]
-    rtos_trace::trace::task_exec_begin(task.as_ptr() as u32);
+    if should_trace_task(task) {
+        rtos_trace::trace::task_exec_begin(task.as_ptr() as u32);
+    }
 }
 
 #[inline]
@@ -324,7 +344,9 @@ pub(crate) fn task_exec_end(executor: &SyncExecutor, task: &TaskRef) {
         _embassy_trace_task_exec_end(executor as *const _ as u32, task.as_ptr() as u32)
     }
     #[cfg(feature = "rtos-trace")]
-    rtos_trace::trace::task_exec_end();
+    if should_trace_task(task) {
+        rtos_trace::trace::task_exec_end();
+    }
 }
 
 #[inline]
@@ -384,14 +406,17 @@ where
 impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
     fn task_list() {
         with_all_active_tasks(|task| {
-            let name = task.name().unwrap_or("unnamed task\0");
-            let info = rtos_trace::TaskInfo {
-                name,
-                priority: 0,
-                stack_base: 0,
-                stack_size: 0,
-            };
-            rtos_trace::trace::task_send_info(task.id(), info);
+            // Only send task info for tasks that should be traced
+            if should_trace_task(&task) {
+                let name = task.name().unwrap_or("unnamed task\0");
+                let info = rtos_trace::TaskInfo {
+                    name,
+                    priority: 0,
+                    stack_base: 0,
+                    stack_size: 0,
+                };
+                rtos_trace::trace::task_send_info(task.id(), info);
+            }
         });
     }
     fn time() -> u64 {
