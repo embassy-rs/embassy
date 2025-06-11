@@ -1,4 +1,8 @@
 //! Controller Area Network (CAN)
+//!
+//! ## Examples
+//!
+//! - [STM32F4](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/can.rs)
 #![macro_use]
 
 #[cfg_attr(can_bxcan, path = "bxcan/mod.rs")]
