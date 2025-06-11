@@ -333,11 +333,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 
     /// Enable/disable autoreload preload.
     pub fn set_autoreload_preload(&self, enable: bool) {
-        let regs = self.regs_core();
-        regs.cr1().modify(|r| r.set_arpe(enable));
-
-        // Generate an Update Request for the change to take effect
-        regs.egr().write(|r| r.set_ug(true));
+        self.regs_core().cr1().modify(|r| r.set_arpe(enable));
     }
 
     /// Get the timer frequency.
@@ -569,14 +565,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.regs_gp16()
             .ccmr_output(raw_channel / 2)
             .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
-    }
-
-    /// Set output compare preload enable
-    pub fn set_output_compare_preload_enable(&self, channel: Channel, enable: bool) {
-        let raw_channel: usize = channel.index();
-        self.regs_gp16()
-            .ccmr_output(raw_channel / 2)
-            .modify(|w| w.set_ocpe(raw_channel % 2, enable));
     }
 
     /// Set output polarity.

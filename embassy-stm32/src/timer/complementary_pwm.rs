@@ -88,17 +88,9 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
                 this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
                 this.inner.set_output_compare_preload(channel, true);
             });
+        this.inner.set_autoreload_preload(true);
 
         this
-    }
-
-    /// Enable/disable autoreload preload.
-    pub fn set_autoreload_preload(&self, enable: bool) {
-        self.inner.set_output_compare_preload_enable(Channel::Ch1, enable);
-        self.inner.set_output_compare_preload_enable(Channel::Ch2, enable);
-        self.inner.set_output_compare_preload_enable(Channel::Ch3, enable);
-        self.inner.set_output_compare_preload_enable(Channel::Ch4, enable);
-        self.inner.set_autoreload_preload(enable);
     }
 
     /// Set Master Slave Mode 2
