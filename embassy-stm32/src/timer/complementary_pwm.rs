@@ -175,7 +175,11 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 
     fn get_max_duty(&self) -> Self::Duty {
-        self.inner.get_max_compare_value() as u16 + 1
+        if self.inner.get_counting_mode().is_center_aligned() {
+            self.inner.get_max_compare_value() as u16
+        } else {
+            self.inner.get_max_compare_value() as u16 + 1
+        }
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
