@@ -132,7 +132,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
     pub fn get_max_duty(&self) -> u16 {
-        self.inner.get_max_compare_value() as u16 + 1
+        if self.inner.get_counting_mode().is_center_aligned() {
+            self.inner.get_max_compare_value() as u16
+        } else {
+            self.inner.get_max_compare_value() as u16 + 1
+        }
     }
 
     /// Set the duty for a given channel.
@@ -182,7 +186,11 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 
     fn get_max_duty(&self) -> Self::Duty {
-        self.inner.get_max_compare_value() as u16 + 1
+        if self.inner.get_counting_mode().is_center_aligned() {
+            self.inner.get_max_compare_value() as u16
+        } else {
+            self.inner.get_max_compare_value() as u16 + 1
+        }
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
