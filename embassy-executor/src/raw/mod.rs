@@ -7,8 +7,6 @@
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
 //! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_executor_macros::task) macro, which are fully safe.
 
-#[cfg_attr(target_has_atomic = "ptr", path = "run_queue_atomics.rs")]
-#[cfg_attr(not(target_has_atomic = "ptr"), path = "run_queue_critical_section.rs")]
 mod run_queue;
 
 #[cfg_attr(all(cortex_m, target_has_atomic = "32"), path = "state_atomics_arm.rs")]
@@ -23,6 +21,9 @@ pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
+#[cfg(feature = "edf-scheduler")]
+mod deadline;
+
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem;
@@ -33,6 +34,8 @@ use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll};
 
+#[cfg(feature = "edf-scheduler")]
+pub use deadline::Deadline;
 #[cfg(feature = "arch-avr")]
 use portable_atomic::AtomicPtr;
 
@@ -84,6 +87,12 @@ use super::SpawnToken;
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
+
+    /// Earliest Deadline First scheduler Deadline. This field should not be accessed
+    /// outside the context of the task itself as it being polled by the executor.
+    #[cfg(feature = "edf-scheduler")]
+    pub(crate) deadline: SyncUnsafeCell<u64>,
+
     pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
@@ -185,6 +194,10 @@ impl<F: Future + 'static> TaskStorage<F> {
             raw: TaskHeader {
                 state: State::new(),
                 run_queue_item: RunQueueItem::new(),
+                // NOTE: The deadline is set to zero to allow the initializer to reside in `.bss`. This
+                // will be lazily initalized in `initialize_impl`
+                #[cfg(feature = "edf-scheduler")]
+                deadline: SyncUnsafeCell::new(0u64),
                 executor: AtomicPtr::new(core::ptr::null_mut()),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
@@ -282,6 +295,11 @@ impl<F: Future + 'static> AvailableTask<F> {
         unsafe {
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
+
+            // By default, deadlines are set to the maximum value, so that any task WITH
+            // a set deadline will ALWAYS be scheduled BEFORE a task WITHOUT a set deadline
+            #[cfg(feature = "edf-scheduler")]
+            self.task.raw.deadline.set(deadline::Deadline::UNSET_DEADLINE_TICKS);
 
             let task = TaskRef::new(self.task);
 
