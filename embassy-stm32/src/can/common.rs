@@ -113,23 +113,20 @@ pub type BufferedCanReceiver = BufferedReceiver<'static, Envelope>;
 /// call the reference counting function. Like this, the reference counting function does not
 /// need to be called manually for each type.
 pub(crate) struct InfoRef {
-    //adjust_reference_counter: fn(InternalOperation),
     info: &'static super::Info,
 }
 impl InfoRef {
     pub(crate) fn new(info: &'static super::Info) -> Self {
-        info.adjust_reference_counter(InternalOperation::NotifyReceiverCreated);
-        info.adjust_reference_counter(InternalOperation::NotifySenderCreated);
+        info.adjust_reference_counter(RefCountOp::NotifyReceiverCreated);
+        info.adjust_reference_counter(RefCountOp::NotifySenderCreated);
         Self { info }
     }
 }
 
 impl Drop for InfoRef {
     fn drop(&mut self) {
-        self.info
-            .adjust_reference_counter(InternalOperation::NotifyReceiverDestroyed);
-        self.info
-            .adjust_reference_counter(InternalOperation::NotifySenderDestroyed);
+        self.info.adjust_reference_counter(RefCountOp::NotifyReceiverDestroyed);
+        self.info.adjust_reference_counter(RefCountOp::NotifySenderDestroyed);
     }
 }
 
@@ -145,21 +142,19 @@ impl core::ops::Deref for InfoRef {
 /// counting for Tx only types.
 /// See InfoRef for further doc.
 pub(crate) struct TxInfoRef {
-    //adjust_reference_counter: fn(InternalOperation),
     info: &'static super::Info,
 }
 
 impl TxInfoRef {
     pub(crate) fn new(info: &'static super::Info) -> Self {
-        info.adjust_reference_counter(InternalOperation::NotifySenderCreated);
+        info.adjust_reference_counter(RefCountOp::NotifySenderCreated);
         Self { info }
     }
 }
 
 impl Drop for TxInfoRef {
     fn drop(&mut self) {
-        self.info
-            .adjust_reference_counter(InternalOperation::NotifySenderDestroyed);
+        self.info.adjust_reference_counter(RefCountOp::NotifySenderDestroyed);
     }
 }
 
@@ -180,15 +175,14 @@ pub(crate) struct RxInfoRef {
 
 impl RxInfoRef {
     pub(crate) fn new(info: &'static super::Info) -> Self {
-        info.adjust_reference_counter(InternalOperation::NotifyReceiverCreated);
+        info.adjust_reference_counter(RefCountOp::NotifyReceiverCreated);
         Self { info }
     }
 }
 
 impl Drop for RxInfoRef {
     fn drop(&mut self) {
-        self.info
-            .adjust_reference_counter(InternalOperation::NotifyReceiverDestroyed);
+        self.info.adjust_reference_counter(RefCountOp::NotifyReceiverDestroyed);
     }
 }
 

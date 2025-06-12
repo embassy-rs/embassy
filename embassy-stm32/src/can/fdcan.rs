@@ -890,23 +890,23 @@ pub(crate) struct Info {
 }
 
 impl Info {
-    pub(crate) fn adjust_reference_counter(&self, val: InternalOperation) {
+    pub(crate) fn adjust_reference_counter(&self, val: RefCountOp) {
         self.state.lock(|s| {
             let mut mut_state = s.borrow_mut();
             match val {
-                InternalOperation::NotifySenderCreated => {
+                RefCountOp::NotifySenderCreated => {
                     mut_state.sender_instance_count += 1;
                 }
-                InternalOperation::NotifySenderDestroyed => {
+                RefCountOp::NotifySenderDestroyed => {
                     mut_state.sender_instance_count -= 1;
                     if 0 == mut_state.sender_instance_count {
                         (*mut_state).tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
                     }
                 }
-                InternalOperation::NotifyReceiverCreated => {
+                RefCountOp::NotifyReceiverCreated => {
                     mut_state.receiver_instance_count += 1;
                 }
-                InternalOperation::NotifyReceiverDestroyed => {
+                RefCountOp::NotifyReceiverDestroyed => {
                     mut_state.receiver_instance_count -= 1;
                     if 0 == mut_state.receiver_instance_count {
                         (*mut_state).rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
