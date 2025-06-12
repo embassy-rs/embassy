@@ -213,14 +213,22 @@ impl TaskRefTrace for TaskRef {
     }
 
     fn is_trace_excluded(&self) -> bool {
-        self.header().trace_excluded
+        #[cfg(feature = "trace-mode-selective")]
+        {
+            self.header().trace_excluded
+        }
+        #[cfg(not(feature = "trace-mode-selective"))]
+        false
     }
 
     fn set_trace_excluded(&self, excluded: bool) {
+        #[cfg(feature = "trace-mode-selective")]
         unsafe {
             let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
             (*header_ptr).trace_excluded = excluded;
         }
+        #[cfg(not(feature = "trace-mode-selective"))]
+        let _ = excluded;
     }
 }
 
