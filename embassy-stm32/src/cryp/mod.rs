@@ -1817,7 +1817,6 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         let num_words = blocks.len() / 4;
         let src_ptr: *const [u8] = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
         let options = TransferOptions {
-            #[cfg(not(gpdma))]
             priority: crate::dma::Priority::High,
             ..Default::default()
         };
@@ -1839,7 +1838,6 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         let num_words = blocks.len();
         let src_ptr: *const [u32] = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
         let options = TransferOptions {
-            #[cfg(not(gpdma))]
             priority: crate::dma::Priority::High,
             ..Default::default()
         };
@@ -1860,7 +1858,6 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         let num_words = blocks.len() / 4;
         let dst_ptr = ptr::slice_from_raw_parts_mut(blocks.as_mut_ptr().cast(), num_words);
         let options = TransferOptions {
-            #[cfg(not(gpdma))]
             priority: crate::dma::Priority::VeryHigh,
             ..Default::default()
         };
