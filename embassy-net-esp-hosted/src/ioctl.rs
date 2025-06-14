@@ -98,12 +98,18 @@ impl Shared {
             trace!("ioctl resp bytes: {:02x}", Bytes(response));
 
             // TODO fix this
-            (unsafe { &mut *buf }[..response.len()]).copy_from_slice(response);
+            let buf_ref = unsafe { &mut *buf };
+            if buf_ref.len() >= response.len() {
+                buf_ref[..response.len()].copy_from_slice(response);
+                this.ioctl = IoctlState::Done {
+                    resp_len: response.len(),
+                };
+                this.control_waker.wake();
+            } else {
+                warn!("IOCTL Response buffer too small");
+            }
 
-            this.ioctl = IoctlState::Done {
-                resp_len: response.len(),
-            };
-            this.control_waker.wake();
+
         } else {
             warn!("IOCTL Response but no pending Ioctl");
         }

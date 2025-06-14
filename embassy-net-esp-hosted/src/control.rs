@@ -89,13 +89,14 @@ pub struct ScanResult {
 }
 
 macro_rules! ioctl {
-    ($self:ident, $req_variant:ident, $resp_variant:ident, $req:ident, $resp:ident) => {
+    ($self:ident, $req_variant:ident, $resp_variant:ident, $req:ident, $resp:ident, $size:literal) => {
         let mut msg = proto::CtrlMsg {
             msg_id: proto::CtrlMsgId::$req_variant as _,
             msg_type: proto::CtrlMsgType::Req as _,
             payload: Some(proto::CtrlMsgPayload::$req_variant($req)),
         };
-        $self.ioctl(&mut msg).await?;
+        let mut buf = [0u8;$size];
+        $self.ioctl(&mut msg, &mut buf).await?;
         #[allow(unused_mut)]
         let Some(proto::CtrlMsgPayload::$resp_variant(mut $resp)) = msg.payload
         else {
@@ -134,7 +135,7 @@ impl<'a> Control<'a> {
     /// Get the current station status.
     pub async fn get_sta_status(&mut self) -> Result<StaStatus, Error> {
         let req = proto::CtrlMsgReqGetApConfig {};
-        ioctl!(self, ReqGetApConfig, RespGetApConfig, req, resp);
+        ioctl!(self, ReqGetApConfig, RespGetApConfig, req, resp, 128);
         trim_nulls(&mut resp.ssid);
         Ok(StaStatus {
             ssid: resp.ssid,
@@ -148,7 +149,7 @@ impl<'a> Control<'a> {
     /// Get the current access point status.
     pub async fn get_ap_status(&mut self) -> Result<ApStatus, Error> {
         let req = proto::CtrlMsgReqGetSoftApConfig {};
-        ioctl!(self, ReqGetSoftApConfig, RespGetSoftapConfig, req, resp);
+        ioctl!(self, ReqGetSoftApConfig, RespGetSoftapConfig, req, resp, 128);
         trim_nulls(&mut resp.ssid);
         Ok(ApStatus {
             ssid: resp.ssid,
@@ -170,7 +171,7 @@ impl<'a> Control<'a> {
             listen_interval: 3,
             is_wpa3_supported: true,
         };
-        ioctl!(self, ReqConnectAp, RespConnectAp, req, resp);
+        ioctl!(self, ReqConnectAp, RespConnectAp, req, resp, 128);
         self.state_ch.set_link_state(LinkState::Up);
         Ok(())
     }
@@ -178,7 +179,7 @@ impl<'a> Control<'a> {
     /// Disconnect from any currently connected network.
     pub async fn disconnect(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqGetStatus {};
-        ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp);
+        ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp, 128);
         self.state_ch.set_link_state(LinkState::Down);
         Ok(())
     }
@@ -186,7 +187,7 @@ impl<'a> Control<'a> {
     /// Set the interface to AP mode
     pub async fn set_ap_mode(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqSetMode { mode: Ap as u32 };
-        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
+        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp, 128);
         self.shared.set_is_ap(true);
         Ok(())
     }
@@ -194,7 +195,7 @@ impl<'a> Control<'a> {
     /// Set the interface to Sta mode
     pub async fn set_sta_mode(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqSetMode { mode: Sta as u32 };
-        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
+        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp, 128);
         self.shared.set_is_ap(false);
         Ok(())
     }
@@ -210,21 +211,21 @@ impl<'a> Control<'a> {
             ssid_hidden: ap_config.hidden,
             bw: ap_config.bandwidth as u32,
         };
-        ioctl!(self, ReqStartSoftAp, RespStartSoftAp, req, resp);
+        ioctl!(self, ReqStartSoftAp, RespStartSoftAp, req, resp, 128);
         Ok(())
     }
 
     /// Stop AP
     pub async fn stop_ap(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqGetStatus {};
-        ioctl!(self, ReqStopSoftAp, RespStopSoftAp, req, resp);
+        ioctl!(self, ReqStopSoftAp, RespStopSoftAp, req, resp, 128);
         Ok(())
     }
 
     /// Get AP Scan List
     pub async fn get_scan_network_list(&mut self) -> Result<ScanResult, Error> {
         let req = proto::CtrlMsgReqScanResult {};
-        ioctl!(self, ReqGetApScanList, RespScanApList, req, resp);
+        ioctl!(self, ReqGetApScanList, RespScanApList, req, resp, 1600);
         Ok(ScanResult {
             count: resp.count,
             entries: resp.entries,
@@ -236,31 +237,28 @@ impl<'a> Control<'a> {
         let req = proto::CtrlMsgReqGetMacAddress {
             mode: WifiMode::Sta as _,
         };
-        ioctl!(self, ReqGetMacAddress, RespGetMacAddress, req, resp);
+        ioctl!(self, ReqGetMacAddress, RespGetMacAddress, req, resp, 128);
         parse_mac(&resp.mac)
     }
 
     /// duration in seconds, clamped to [10, 3600]
     async fn set_heartbeat(&mut self, duration: u32) -> Result<(), Error> {
         let req = proto::CtrlMsgReqConfigHeartbeat { enable: true, duration };
-        ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp);
+        ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp, 128);
         Ok(())
     }
 
     async fn set_wifi_mode(&mut self, mode: u32) -> Result<(), Error> {
         let req = proto::CtrlMsgReqSetMode { mode };
-        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
+        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp, 128);
 
         Ok(())
     }
 
-    async fn ioctl(&mut self, msg: &mut CtrlMsg) -> Result<(), Error> {
+    async fn ioctl(&mut self, msg: &mut CtrlMsg, buf: &mut [u8]) -> Result<(), Error> {
         debug!("ioctl req: {:?}", &msg);
 
-        //Network scan result is 67 bytes max of 16 can be returned
-        let mut buf = [0u8; 1072];
-
-        let req_len = noproto::write(msg, &mut buf).map_err(|_| {
+        let req_len = noproto::write(msg, buf).map_err(|_| {
             warn!("failed to serialize control request");
             Error::Internal
         })?;
@@ -281,7 +279,7 @@ impl<'a> Control<'a> {
 
         let ioctl = CancelOnDrop(self.shared);
 
-        let resp_len = ioctl.0.ioctl(&mut buf, req_len).await;
+        let resp_len = ioctl.0.ioctl(buf, req_len).await;
 
         ioctl.defuse();
 
