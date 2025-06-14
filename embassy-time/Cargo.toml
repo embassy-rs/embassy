@@ -45,7 +45,7 @@ defmt-timestamp-uptime-tus = ["defmt"]
 ## Create a `MockDriver` that can be manually advanced for testing purposes.
 mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for `std` environments.
-std = ["tick-hz-1_000_000", "critical-section/std", "dep:embassy-time-queue-utils"]
+std = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for WASM.
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 
@@ -274,6 +274,8 @@ tick-hz-128_000_000 = ["embassy-time-driver/tick-hz-128_000_000"]
 tick-hz-130_000_000 = ["embassy-time-driver/tick-hz-130_000_000"]
 ## 131.072MHz Tick Rate
 tick-hz-131_072_000 = ["embassy-time-driver/tick-hz-131_072_000"]
+## 133.0MHz Tick Rate
+tick-hz-133_000_000 = ["embassy-time-driver/tick-hz-133_000_000"]
 ## 140.0MHz Tick Rate
 tick-hz-140_000_000 = ["embassy-time-driver/tick-hz-140_000_000"]
 ## 144.0MHz Tick Rate
@@ -418,7 +420,7 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver" }
 embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true}
 
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }

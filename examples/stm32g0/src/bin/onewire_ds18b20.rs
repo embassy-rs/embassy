@@ -8,7 +8,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{
-    BufferedUartRx, BufferedUartTx, Config, ConfigError, HalfDuplexConfig, RingBufferedUartRx, UartTx,
+    BufferedUartRx, BufferedUartTx, Config, ConfigError, OutputConfig, RingBufferedUartRx, UartTx,
 };
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 use embassy_time::{Duration, Timer};
@@ -21,16 +21,18 @@ fn create_onewire(p: embassy_stm32::Peripherals) -> OneWire<UartTx<'static, Asyn
         USART1 => usart::InterruptHandler<peripherals::USART1>;
     });
 
+    let mut config = Config::default();
+    config.tx_config = OutputConfig::OpenDrain;
+
     let usart = Uart::new_half_duplex(
         p.USART1,
         p.PA9,
         Irqs,
         p.DMA1_CH1,
         p.DMA1_CH2,
-        Config::default(),
+        config,
         // Enable readback so we can read sensor pulling data low while transmission is in progress
         usart::HalfDuplexReadback::Readback,
-        HalfDuplexConfig::OpenDrainExternal,
     )
     .unwrap();
 
@@ -50,6 +52,8 @@ fn create_onewire(p: embassy_stm32::Peripherals) -> OneWire<BufferedUartTx<'stat
     });
 
     const BUFFER_SIZE: usize = 16;
+    let mut config = Confi::default();
+    config.tx_config = OutputConfig::OpenDrain;
     let tx_buf: &mut [u8; BUFFER_SIZE] = singleton!(TX_BUF: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE]).unwrap();
     let rx_buf: &mut [u8; BUFFER_SIZE] = singleton!(RX_BUF: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE]).unwrap();
     let usart = BufferedUart::new_half_duplex(
@@ -58,10 +62,9 @@ fn create_onewire(p: embassy_stm32::Peripherals) -> OneWire<BufferedUartTx<'stat
         Irqs,
         tx_buf,
         rx_buf,
-        Config::default(),
+        config,
         // Enable readback so we can read sensor pulling data low while transmission is in progress
         usart::HalfDuplexReadback::Readback,
-        HalfDuplexConfig::OpenDrainExternal,
     )
     .unwrap();
     let (tx, rx) = usart.split();

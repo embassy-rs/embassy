@@ -18,10 +18,10 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 
 use crate::pac::common::{Reg, RW, W};
-use crate::{peripherals, Peripheral};
+use crate::peripherals;
 
 #[cfg_attr(feature = "_dppi", path = "dppi.rs")]
 #[cfg_attr(feature = "_ppi", path = "ppi.rs")]
@@ -30,7 +30,7 @@ pub(crate) use _version::*;
 
 /// PPI channel driver.
 pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> {
-    ch: PeripheralRef<'d, C>,
+    ch: Peri<'d, C>,
     #[cfg(feature = "_dppi")]
     events: [Event<'d>; EVENT_COUNT],
     #[cfg(feature = "_dppi")]
@@ -39,16 +39,14 @@ pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize
 
 /// PPI channel group driver.
 pub struct PpiGroup<'d, G: Group> {
-    g: PeripheralRef<'d, G>,
+    g: Peri<'d, G>,
 }
 
 impl<'d, G: Group> PpiGroup<'d, G> {
     /// Create a new PPI group driver.
     ///
     /// The group is initialized as containing no channels.
-    pub fn new(g: impl Peripheral<P = G> + 'd) -> Self {
-        into_ref!(g);
-
+    pub fn new(g: Peri<'d, G>) -> Self {
         let r = regs();
         let n = g.number();
         r.chg(n).write(|_| ());
@@ -210,34 +208,22 @@ pub(crate) trait SealedGroup {}
 
 /// Interface for PPI channels.
 #[allow(private_bounds)]
-pub trait Channel: SealedChannel + Peripheral<P = Self> + Sized + 'static {
+pub trait Channel: SealedChannel + PeripheralType + Sized + 'static {
     /// Returns the number of the channel
     fn number(&self) -> usize;
 }
 
 /// Interface for PPI channels that can be configured.
-pub trait ConfigurableChannel: Channel + Into<AnyConfigurableChannel> {
-    /// Convert into a type erased configurable channel.
-    fn degrade(self) -> AnyConfigurableChannel;
-}
+pub trait ConfigurableChannel: Channel + Into<AnyConfigurableChannel> {}
 
 /// Interface for PPI channels that cannot be configured.
-pub trait StaticChannel: Channel + Into<AnyStaticChannel> {
-    /// Convert into a type erased static channel.
-    fn degrade(self) -> AnyStaticChannel;
-}
+pub trait StaticChannel: Channel + Into<AnyStaticChannel> {}
 
 /// Interface for a group of PPI channels.
 #[allow(private_bounds)]
-pub trait Group: SealedGroup + Peripheral<P = Self> + Into<AnyGroup> + Sized + 'static {
+pub trait Group: SealedGroup + PeripheralType + Into<AnyGroup> + Sized + 'static {
     /// Returns the number of the group.
     fn number(&self) -> usize;
-    /// Convert into a type erased group.
-    fn degrade(self) -> AnyGroup {
-        AnyGroup {
-            number: self.number() as u8,
-        }
-    }
 }
 
 // ======================
@@ -255,11 +241,7 @@ impl Channel for AnyStaticChannel {
         self.number as usize
     }
 }
-impl StaticChannel for AnyStaticChannel {
-    fn degrade(self) -> AnyStaticChannel {
-        self
-    }
-}
+impl StaticChannel for AnyStaticChannel {}
 
 /// The any configurable channel can represent any configurable channel at runtime.
 /// This can be used to have fewer generic parameters in some places.
@@ -273,11 +255,7 @@ impl Channel for AnyConfigurableChannel {
         self.number as usize
     }
 }
-impl ConfigurableChannel for AnyConfigurableChannel {
-    fn degrade(self) -> AnyConfigurableChannel {
-        self
-    }
-}
+impl ConfigurableChannel for AnyConfigurableChannel {}
 
 #[cfg(not(feature = "_nrf51"))]
 macro_rules! impl_ppi_channel {
@@ -291,35 +269,23 @@ macro_rules! impl_ppi_channel {
     };
     ($type:ident, $number:expr => static) => {
         impl_ppi_channel!($type, $number);
-        impl crate::ppi::StaticChannel for peripherals::$type {
-            fn degrade(self) -> crate::ppi::AnyStaticChannel {
-                use crate::ppi::Channel;
-                crate::ppi::AnyStaticChannel {
-                    number: self.number() as u8,
-                }
-            }
-        }
-
+        impl crate::ppi::StaticChannel for peripherals::$type {}
         impl From<peripherals::$type> for crate::ppi::AnyStaticChannel {
             fn from(val: peripherals::$type) -> Self {
-                crate::ppi::StaticChannel::degrade(val)
+                Self {
+                    number: crate::ppi::Channel::number(&val) as u8,
+                }
             }
         }
     };
     ($type:ident, $number:expr => configurable) => {
         impl_ppi_channel!($type, $number);
-        impl crate::ppi::ConfigurableChannel for peripherals::$type {
-            fn degrade(self) -> crate::ppi::AnyConfigurableChannel {
-                use crate::ppi::Channel;
-                crate::ppi::AnyConfigurableChannel {
-                    number: self.number() as u8,
-                }
-            }
-        }
-
+        impl crate::ppi::ConfigurableChannel for peripherals::$type {}
         impl From<peripherals::$type> for crate::ppi::AnyConfigurableChannel {
             fn from(val: peripherals::$type) -> Self {
-                crate::ppi::ConfigurableChannel::degrade(val)
+                Self {
+                    number: crate::ppi::Channel::number(&val) as u8,
+                }
             }
         }
     };
@@ -351,7 +317,9 @@ macro_rules! impl_group {
 
         impl From<peripherals::$type> for crate::ppi::AnyGroup {
             fn from(val: peripherals::$type) -> Self {
-                crate::ppi::Group::degrade(val)
+                Self {
+                    number: crate::ppi::Group::number(&val) as u8,
+                }
             }
         }
     };

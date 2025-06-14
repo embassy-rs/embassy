@@ -1,4 +1,4 @@
-//! This example shows how to use the RP2040 ADC with DMA, both single- and multichannel reads.
+//! This example shows how to use the RP235x ADC with DMA, both single- and multichannel reads.
 //! For multichannel, the samples are interleaved in the buffer:
 //! `[ch1, ch2, ch3, ch4, ch1, ch2, ch3, ch4, ...]`
 #![no_std]
@@ -38,13 +38,13 @@ async fn main(_spawner: Spawner) {
         // Read 100 samples from a single channel
         let mut buf = [0_u16; BLOCK_SIZE];
         let div = 479; // 100kHz sample rate (48Mhz / 100kHz - 1)
-        adc.read_many(&mut pin, &mut buf, div, &mut dma).await.unwrap();
+        adc.read_many(&mut pin, &mut buf, div, dma.reborrow()).await.unwrap();
         info!("single: {:?} ...etc", buf[..8]);
 
         // Read 100 samples from 4 channels interleaved
         let mut buf = [0_u16; { BLOCK_SIZE * NUM_CHANNELS }];
         let div = 119; // 100kHz sample rate (48Mhz / 100kHz * 4ch - 1)
-        adc.read_many_multichannel(&mut pins, &mut buf, div, &mut dma)
+        adc.read_many_multichannel(&mut pins, &mut buf, div, dma.reborrow())
             .await
             .unwrap();
         info!("multi:  {:?} ...etc", buf[..NUM_CHANNELS * 2]);

@@ -20,6 +20,11 @@ Async USB device stack for embedded devices in Rust.
 To add `embassy-usb` support for new hardware (i.e. a new MCU chip), you have to write a driver that implements
 the [`embassy-usb-driver`](https://crates.io/crates/embassy-usb-driver) traits.
 
+Before writing a new driver, you can first verify whether the chip uses a common USB IP. Several widely used USB IPs already have implementations available, such as:
+
+- **Synopsys OTG (dwc2)**: Available at [embassy-usb-synopsys-otg](https://crates.io/crates/embassy-usb-synopsys-otg). This IP is used by vendors like STMicroelectronics, Espressif, and others.
+- **Musbmhdrc (musb)**: Available at [musb](https://crates.io/crates/musb). This IP is used by vendors like TI, MediaTek, Puya, and others.
+
 Driver crates should depend only on `embassy-usb-driver`, not on the main `embassy-usb` crate.
 This allows existing drivers to continue working for newer `embassy-usb` major versions, without needing an update, if the driver
 trait has not had breaking changes.

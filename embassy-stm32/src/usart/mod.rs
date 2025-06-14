@@ -9,20 +9,15 @@ use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::PeripheralRef;
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::future::{select, Either};
 
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{self, AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
-#[allow(unused_imports)]
-#[cfg(not(any(usart_v1, usart_v2)))]
-use crate::pac::usart::regs::Isr as Sr;
-#[cfg(any(usart_v1, usart_v2))]
-use crate::pac::usart::regs::Sr;
 #[cfg(not(any(usart_v1, usart_v2)))]
 use crate::pac::usart::Lpuart as Regs;
 #[cfg(any(usart_v1, usart_v2))]
@@ -30,7 +25,7 @@ use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::Peri;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -138,6 +133,30 @@ pub enum HalfDuplexReadback {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Half duplex IO mode
+pub enum OutputConfig {
+    /// Push pull allows for faster baudrates, no internal pullup
+    PushPull,
+    /// Open drain output (external pull up needed)
+    OpenDrain,
+    #[cfg(not(gpio_v1))]
+    /// Open drain output with internal pull up resistor
+    OpenDrainPullUp,
+}
+
+impl OutputConfig {
+    const fn af_type(self) -> AfType {
+        match self {
+            OutputConfig::PushPull => AfType::output(OutputType::PushPull, Speed::Medium),
+            OutputConfig::OpenDrain => AfType::output(OutputType::OpenDrain, Speed::Medium),
+            #[cfg(not(gpio_v1))]
+            OutputConfig::OpenDrainPullUp => AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Duplex mode
 pub enum Duplex {
     /// Full duplex
@@ -208,6 +227,18 @@ pub struct Config {
     /// Set the pull configuration for the RX pin.
     pub rx_pull: Pull,
 
+    /// Set the pull configuration for the CTS pin.
+    pub cts_pull: Pull,
+
+    /// Set the pin configuration for the TX pin.
+    pub tx_config: OutputConfig,
+
+    /// Set the pin configuration for the RTS pin.
+    pub rts_config: OutputConfig,
+
+    /// Set the pin configuration for the DE pin.
+    pub de_config: OutputConfig,
+
     // private: set by new_half_duplex, not by the user.
     duplex: Duplex,
 }
@@ -218,13 +249,13 @@ impl Config {
         if self.swap_rx_tx {
             return AfType::input(self.rx_pull);
         };
-        AfType::output(OutputType::PushPull, Speed::Medium)
+        self.tx_config.af_type()
     }
 
     fn rx_af(&self) -> AfType {
         #[cfg(any(usart_v3, usart_v4))]
         if self.swap_rx_tx {
-            return AfType::output(OutputType::PushPull, Speed::Medium);
+            return self.tx_config.af_type();
         };
         AfType::input(self.rx_pull)
     }
@@ -248,31 +279,11 @@ impl Default for Config {
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
             rx_pull: Pull::None,
+            cts_pull: Pull::None,
+            tx_config: OutputConfig::PushPull,
+            rts_config: OutputConfig::PushPull,
+            de_config: OutputConfig::PushPull,
             duplex: Duplex::Full,
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Half duplex IO mode
-pub enum HalfDuplexConfig {
-    /// Push pull allows for faster baudrates, may require series resistor
-    PushPull,
-    /// Open drain output using external pull up resistor
-    OpenDrainExternal,
-    #[cfg(not(gpio_v1))]
-    /// Open drain output using internal pull up resistor
-    OpenDrainInternal,
-}
-
-impl HalfDuplexConfig {
-    fn af_type(self) -> gpio::AfType {
-        match self {
-            HalfDuplexConfig::PushPull => AfType::output(OutputType::PushPull, Speed::Medium),
-            HalfDuplexConfig::OpenDrainExternal => AfType::output(OutputType::OpenDrain, Speed::Medium),
-            #[cfg(not(gpio_v1))]
-            HalfDuplexConfig::OpenDrainInternal => AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up),
         }
     }
 }
@@ -348,9 +359,9 @@ pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    tx: Option<PeripheralRef<'d, AnyPin>>,
-    cts: Option<PeripheralRef<'d, AnyPin>>,
-    de: Option<PeripheralRef<'d, AnyPin>>,
+    tx: Option<Peri<'d, AnyPin>>,
+    cts: Option<Peri<'d, AnyPin>>,
+    de: Option<Peri<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     duplex: Duplex,
     _phantom: PhantomData<M>,
@@ -398,12 +409,12 @@ pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<PeripheralRef<'d, AnyPin>>,
-    rts: Option<PeripheralRef<'d, AnyPin>>,
+    rx: Option<Peri<'d, AnyPin>>,
+    rts: Option<Peri<'d, AnyPin>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     detect_previous_overrun: bool,
     #[cfg(any(usart_v1, usart_v2))]
-    buffered_sr: stm32_metapac::usart::regs::Sr,
+    buffered_sr: regs::Sr,
     _phantom: PhantomData<M>,
 }
 
@@ -419,32 +430,26 @@ impl<'d, M: Mode> SetConfig for UartRx<'d, M> {
 impl<'d> UartTx<'d, Async> {
     /// Useful if you only want Uart Tx. It saves 1 pin and consumes a little less power.
     pub fn new<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            None,
-            new_dma!(tx_dma),
-            config,
-        )
+        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, new_dma!(tx_dma), config)
     }
 
     /// Create a new tx-only UART with a clear-to-send pin
     pub fn new_with_cts<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             new_dma!(tx_dma),
             config,
         )
@@ -478,30 +483,24 @@ impl<'d> UartTx<'d, Blocking> {
     ///
     /// Useful if you only want Uart Tx. It saves 1 pin and consumes a little less power.
     pub fn new_blocking<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            None,
-            None,
-            config,
-        )
+        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, None, config)
     }
 
     /// Create a new blocking tx-only UART with a clear-to-send pin
     pub fn new_blocking_with_cts<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(config.rx_pull)),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             config,
         )
@@ -510,9 +509,9 @@ impl<'d> UartTx<'d, Blocking> {
 
 impl<'d, M: Mode> UartTx<'d, M> {
     fn new_inner<T: Instance>(
-        _peri: impl Peripheral<P = T> + 'd,
-        tx: Option<PeripheralRef<'d, AnyPin>>,
-        cts: Option<PeripheralRef<'d, AnyPin>>,
+        _peri: Peri<'d, T>,
+        tx: Option<Peri<'d, AnyPin>>,
+        cts: Option<Peri<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -650,34 +649,28 @@ impl<'d> UartRx<'d, Async> {
     ///
     /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
     pub fn new<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        rx: Peri<'d, impl RxPin<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(
-            peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            None,
-            new_dma!(rx_dma),
-            config,
-        )
+        Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, new_dma!(rx_dma), config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
     pub fn new_with_rts<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        rx: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
             new_dma!(rx_dma),
             config,
         )
@@ -716,7 +709,6 @@ impl<'d> UartRx<'d, Async> {
 
         // make sure USART state is restored to neutral state when this future is dropped
         let on_drop = OnDrop::new(move || {
-            // defmt::trace!("Clear all USART interrupts and DMA Read Request");
             // clear all interrupts and DMA Rx Request
             r.cr1().modify(|w| {
                 // disable RXNE interrupt
@@ -908,24 +900,24 @@ impl<'d> UartRx<'d, Blocking> {
     ///
     /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
     pub fn new_blocking<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, AfType::input(config.rx_pull)), None, None, config)
+        Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, None, config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
     pub fn new_blocking_with_rts<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
             None,
             config,
         )
@@ -934,9 +926,9 @@ impl<'d> UartRx<'d, Blocking> {
 
 impl<'d, M: Mode> UartRx<'d, M> {
     fn new_inner<T: Instance>(
-        _peri: impl Peripheral<P = T> + 'd,
-        rx: Option<PeripheralRef<'d, AnyPin>>,
-        rts: Option<PeripheralRef<'d, AnyPin>>,
+        _peri: Peri<'d, T>,
+        rx: Option<Peri<'d, AnyPin>>,
+        rts: Option<Peri<'d, AnyPin>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -950,7 +942,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
             rx_dma,
             detect_previous_overrun: config.detect_previous_overrun,
             #[cfg(any(usart_v1, usart_v2))]
-            buffered_sr: stm32_metapac::usart::regs::Sr(0),
+            buffered_sr: regs::Sr(0),
         };
         this.enable_and_configure(&config)?;
         Ok(this)
@@ -1104,12 +1096,12 @@ fn drop_tx_rx(info: &Info, state: &State) {
 impl<'d> Uart<'d, Async> {
     /// Create a new bidirectional UART
     pub fn new<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1127,22 +1119,22 @@ impl<'d> Uart<'d, Async> {
 
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
     pub fn new_with_rtscts<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        rts: Peri<'d, impl RtsPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             new_dma!(tx_dma),
             new_dma!(rx_dma),
@@ -1153,13 +1145,13 @@ impl<'d> Uart<'d, Async> {
     #[cfg(not(any(usart_v1, usart_v2)))]
     /// Create a new bidirectional UART with a driver-enable pin
     pub fn new_with_de<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        de: impl Peripheral<P = impl DePin<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        de: Peri<'d, impl DePin<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1168,7 +1160,7 @@ impl<'d> Uart<'d, Async> {
             new_pin!(tx, config.tx_af()),
             None,
             None,
-            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(de, config.de_config.af_type()),
             new_dma!(tx_dma),
             new_dma!(rx_dma),
             config,
@@ -1188,14 +1180,13 @@ impl<'d> Uart<'d, Async> {
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[doc(alias("HDSEL"))]
     pub fn new_half_duplex<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         #[cfg(not(any(usart_v1, usart_v2)))]
         {
@@ -1206,7 +1197,7 @@ impl<'d> Uart<'d, Async> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, half_duplex.af_type()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             None,
@@ -1228,14 +1219,13 @@ impl<'d> Uart<'d, Async> {
     #[cfg(not(any(usart_v1, usart_v2)))]
     #[doc(alias("HDSEL"))]
     pub fn new_half_duplex_on_rx<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         config.swap_rx_tx = true;
         config.duplex = Duplex::Half(readback);
@@ -1244,7 +1234,7 @@ impl<'d> Uart<'d, Async> {
             peri,
             None,
             None,
-            new_pin!(rx, half_duplex.af_type()),
+            new_pin!(rx, config.rx_af()),
             None,
             None,
             new_dma!(tx_dma),
@@ -1277,9 +1267,9 @@ impl<'d> Uart<'d, Async> {
 impl<'d> Uart<'d, Blocking> {
     /// Create a new blocking bidirectional UART.
     pub fn new_blocking<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1297,19 +1287,19 @@ impl<'d> Uart<'d, Blocking> {
 
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
     pub fn new_blocking_with_rtscts<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             None,
             None,
@@ -1320,10 +1310,10 @@ impl<'d> Uart<'d, Blocking> {
     #[cfg(not(any(usart_v1, usart_v2)))]
     /// Create a new bidirectional UART with a driver-enable pin
     pub fn new_blocking_with_de<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        de: impl Peripheral<P = impl DePin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
+        de: Peri<'d, impl DePin<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1332,7 +1322,7 @@ impl<'d> Uart<'d, Blocking> {
             new_pin!(tx, config.tx_af()),
             None,
             None,
-            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(de, config.de_config.af_type()),
             None,
             None,
             config,
@@ -1351,11 +1341,10 @@ impl<'d> Uart<'d, Blocking> {
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[doc(alias("HDSEL"))]
     pub fn new_blocking_half_duplex<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         #[cfg(not(any(usart_v1, usart_v2)))]
         {
@@ -1366,7 +1355,7 @@ impl<'d> Uart<'d, Blocking> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, half_duplex.af_type()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             None,
@@ -1388,11 +1377,10 @@ impl<'d> Uart<'d, Blocking> {
     #[cfg(not(any(usart_v1, usart_v2)))]
     #[doc(alias("HDSEL"))]
     pub fn new_blocking_half_duplex_on_rx<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         config.swap_rx_tx = true;
         config.duplex = Duplex::Half(readback);
@@ -1401,7 +1389,7 @@ impl<'d> Uart<'d, Blocking> {
             peri,
             None,
             None,
-            new_pin!(rx, half_duplex.af_type()),
+            new_pin!(rx, config.rx_af()),
             None,
             None,
             None,
@@ -1413,12 +1401,12 @@ impl<'d> Uart<'d, Blocking> {
 
 impl<'d, M: Mode> Uart<'d, M> {
     fn new_inner<T: Instance>(
-        _peri: impl Peripheral<P = T> + 'd,
-        rx: Option<PeripheralRef<'d, AnyPin>>,
-        tx: Option<PeripheralRef<'d, AnyPin>>,
-        rts: Option<PeripheralRef<'d, AnyPin>>,
-        cts: Option<PeripheralRef<'d, AnyPin>>,
-        de: Option<PeripheralRef<'d, AnyPin>>,
+        _peri: Peri<'d, T>,
+        rx: Option<Peri<'d, AnyPin>>,
+        tx: Option<Peri<'d, AnyPin>>,
+        rts: Option<Peri<'d, AnyPin>>,
+        cts: Option<Peri<'d, AnyPin>>,
+        de: Option<Peri<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -1449,7 +1437,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 rx_dma,
                 detect_previous_overrun: config.detect_previous_overrun,
                 #[cfg(any(usart_v1, usart_v2))]
-                buffered_sr: stm32_metapac::usart::regs::Sr(0),
+                buffered_sr: regs::Sr(0),
             },
         };
         this.enable_and_configure(&config)?;
@@ -2050,7 +2038,7 @@ pub(crate) trait SealedInstance: crate::rcc::RccPeripheral {
 
 /// USART peripheral instance trait.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

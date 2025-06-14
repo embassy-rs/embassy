@@ -3,9 +3,15 @@
 //! This HAL implements a basic watchdog timer with 1..=8 handles.
 //! Once the watchdog has been started, it cannot be stopped.
 
+#![macro_use]
+
+use core::hint::unreachable_unchecked;
+
+use embassy_hal_internal::PeripheralType;
+
 use crate::pac::wdt::vals;
 pub use crate::pac::wdt::vals::{Halt as HaltConfig, Sleep as SleepConfig};
-use crate::peripherals;
+use crate::{interrupt, pac, peripherals, Peri};
 
 const MIN_TICKS: u32 = 15;
 
@@ -28,12 +34,12 @@ pub struct Config {
 impl Config {
     /// Create a config structure from the current configuration of the WDT
     /// peripheral.
-    pub fn try_new(_wdt: &peripherals::WDT) -> Option<Self> {
-        let r = crate::pac::WDT;
+    pub fn try_new<T: Instance>(_wdt: &Peri<'_, T>) -> Option<Self> {
+        let r = T::REGS;
 
-        #[cfg(not(feature = "_nrf91"))]
+        #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340")))]
         let runstatus = r.runstatus().read().runstatus();
-        #[cfg(feature = "_nrf91")]
+        #[cfg(any(feature = "_nrf91", feature = "_nrf5340"))]
         let runstatus = r.runstatus().read().runstatuswdt();
 
         if runstatus {
@@ -60,11 +66,11 @@ impl Default for Config {
 }
 
 /// Watchdog driver.
-pub struct Watchdog {
-    _private: (),
+pub struct Watchdog<T: Instance> {
+    _wdt: Peri<'static, T>,
 }
 
-impl Watchdog {
+impl<T: Instance> Watchdog<T> {
     /// Try to create a new watchdog driver.
     ///
     /// This function will return an error if the watchdog is already active
@@ -74,19 +80,19 @@ impl Watchdog {
     /// `N` must be between 1 and 8, inclusive.
     #[inline]
     pub fn try_new<const N: usize>(
-        wdt: peripherals::WDT,
+        wdt: Peri<'static, T>,
         config: Config,
-    ) -> Result<(Self, [WatchdogHandle; N]), peripherals::WDT> {
+    ) -> Result<(Self, [WatchdogHandle; N]), Peri<'static, T>> {
         assert!(N >= 1 && N <= 8);
 
-        let r = crate::pac::WDT;
+        let r = T::REGS;
 
         let crv = config.timeout_ticks.max(MIN_TICKS);
         let rren = crate::pac::wdt::regs::Rren((1u32 << N) - 1);
 
-        #[cfg(not(feature = "_nrf91"))]
+        #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340")))]
         let runstatus = r.runstatus().read().runstatus();
-        #[cfg(feature = "_nrf91")]
+        #[cfg(any(feature = "_nrf91", feature = "_nrf5340"))]
         let runstatus = r.runstatus().read().runstatuswdt();
 
         if runstatus {
@@ -110,11 +116,11 @@ impl Watchdog {
             r.tasks_start().write_value(1);
         }
 
-        let this = Self { _private: () };
+        let this = Self { _wdt: wdt };
 
         let mut handles = [const { WatchdogHandle { index: 0 } }; N];
         for i in 0..N {
-            handles[i] = WatchdogHandle { index: i as u8 };
+            handles[i] = unsafe { WatchdogHandle::steal::<T>(i as u8) };
             handles[i].pet();
         }
 
@@ -129,7 +135,7 @@ impl Watchdog {
     /// interrupt has been enabled.
     #[inline(always)]
     pub fn enable_interrupt(&mut self) {
-        crate::pac::WDT.intenset().write(|w| w.set_timeout(true));
+        T::REGS.intenset().write(|w| w.set_timeout(true));
     }
 
     /// Disable the watchdog interrupt.
@@ -137,7 +143,7 @@ impl Watchdog {
     /// NOTE: This has no effect on the reset caused by the Watchdog.
     #[inline(always)]
     pub fn disable_interrupt(&mut self) {
-        crate::pac::WDT.intenclr().write(|w| w.set_timeout(true));
+        T::REGS.intenclr().write(|w| w.set_timeout(true));
     }
 
     /// Is the watchdog still awaiting pets from any handle?
@@ -146,7 +152,7 @@ impl Watchdog {
     /// handles to prevent a reset this time period.
     #[inline(always)]
     pub fn awaiting_pets(&self) -> bool {
-        let r = crate::pac::WDT;
+        let r = T::REGS;
         let enabled = r.rren().read().0;
         let status = r.reqstatus().read().0;
         (status & enabled) == 0
@@ -159,6 +165,22 @@ pub struct WatchdogHandle {
 }
 
 impl WatchdogHandle {
+    fn regs(&self) -> pac::wdt::Wdt {
+        match self.index / 8 {
+            #[cfg(not(feature = "_multi_wdt"))]
+            peripherals::WDT::INDEX => peripherals::WDT::REGS,
+            #[cfg(feature = "_multi_wdt")]
+            peripherals::WDT0::INDEX => peripherals::WDT0::REGS,
+            #[cfg(feature = "_multi_wdt")]
+            peripherals::WDT1::INDEX => peripherals::WDT1::REGS,
+            _ => unsafe { unreachable_unchecked() },
+        }
+    }
+
+    fn rr_index(&self) -> usize {
+        usize::from(self.index % 8)
+    }
+
     /// Pet the watchdog.
     ///
     /// This function pets the given watchdog handle.
@@ -167,14 +189,14 @@ impl WatchdogHandle {
     /// prevent a reset from occurring.
     #[inline]
     pub fn pet(&mut self) {
-        let r = crate::pac::WDT;
-        r.rr(self.index as usize).write(|w| w.set_rr(vals::Rr::RELOAD));
+        let r = self.regs();
+        r.rr(self.rr_index()).write(|w| w.set_rr(vals::Rr::RELOAD));
     }
 
     /// Has this handle been pet within the current window?
     pub fn is_pet(&self) -> bool {
-        let r = crate::pac::WDT;
-        !r.reqstatus().read().rr(self.index as usize)
+        let r = self.regs();
+        !r.reqstatus().read().rr(self.rr_index())
     }
 
     /// Steal a watchdog handle by index.
@@ -182,7 +204,33 @@ impl WatchdogHandle {
     /// # Safety
     /// Watchdog must be initialized and `index` must be between `0` and `N-1`
     /// where `N` is the handle count when initializing.
-    pub unsafe fn steal(index: u8) -> Self {
-        Self { index }
+    pub unsafe fn steal<T: Instance>(index: u8) -> Self {
+        Self {
+            index: T::INDEX * 8 + index,
+        }
     }
+}
+
+pub(crate) trait SealedInstance {
+    const REGS: pac::wdt::Wdt;
+    const INDEX: u8;
+}
+
+/// WDT instance.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+    /// Interrupt for this peripheral.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+macro_rules! impl_wdt {
+    ($type:ident, $pac_type:ident, $irq:ident, $index:literal) => {
+        impl crate::wdt::SealedInstance for peripherals::$type {
+            const REGS: pac::wdt::Wdt = pac::$pac_type;
+            const INDEX: u8 = $index;
+        }
+        impl crate::wdt::Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
 }

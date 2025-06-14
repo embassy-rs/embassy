@@ -7,14 +7,14 @@ use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
 use embassy_stm32::timer::{self, Channel};
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{bind_interrupts, peripherals, Peri};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 /// Connect PB2 and PB10 with a 1k Ohm resistor
 
 #[embassy_executor::task]
-async fn blinky(led: peripherals::PB2) {
+async fn blinky(led: Peri<'static, peripherals::PB2>) {
     let mut led = Output::new(led, Level::High, Speed::Low);
 
     loop {

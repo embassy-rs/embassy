@@ -19,7 +19,7 @@ use core::sync::atomic::{compiler_fence, AtomicU8, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
@@ -32,7 +32,7 @@ use crate::pac::uarte::vals;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::util::slice_in_ram_or;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// UARTE config.
 #[derive(Clone)]
@@ -141,56 +141,54 @@ pub struct Uarte<'d, T: Instance> {
 ///
 /// This can be obtained via [`Uarte::split`], or created directly.
 pub struct UarteTx<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 /// Receiver part of the UARTE driver.
 ///
 /// This can be obtained via [`Uarte::split`], or created directly.
 pub struct UarteRx<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Uarte<'d, T> {
     /// Create a new UARTE without hardware flow control
     pub fn new(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: Peri<'d, T>,
+        rxd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl GpioPin>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rxd: impl Peripheral<P = impl GpioPin> + 'd,
-        txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(uarte, rxd, txd);
-        Self::new_inner(uarte, rxd.map_into(), txd.map_into(), None, None, config)
+        Self::new_inner(uarte, rxd.into(), txd.into(), None, None, config)
     }
 
     /// Create a new UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: Peri<'d, T>,
+        rxd: Peri<'d, impl GpioPin>,
+        txd: Peri<'d, impl GpioPin>,
+        cts: Peri<'d, impl GpioPin>,
+        rts: Peri<'d, impl GpioPin>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rxd: impl Peripheral<P = impl GpioPin> + 'd,
-        txd: impl Peripheral<P = impl GpioPin> + 'd,
-        cts: impl Peripheral<P = impl GpioPin> + 'd,
-        rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(uarte, rxd, txd, cts, rts);
         Self::new_inner(
             uarte,
-            rxd.map_into(),
-            txd.map_into(),
-            Some(cts.map_into()),
-            Some(rts.map_into()),
+            rxd.into(),
+            txd.into(),
+            Some(cts.into()),
+            Some(rts.into()),
             config,
         )
     }
 
     fn new_inner(
-        uarte: PeripheralRef<'d, T>,
-        rxd: PeripheralRef<'d, AnyPin>,
-        txd: PeripheralRef<'d, AnyPin>,
-        cts: Option<PeripheralRef<'d, AnyPin>>,
-        rts: Option<PeripheralRef<'d, AnyPin>>,
+        uarte: Peri<'d, T>,
+        rxd: Peri<'d, AnyPin>,
+        txd: Peri<'d, AnyPin>,
+        cts: Option<Peri<'d, AnyPin>>,
+        rts: Option<Peri<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         let r = T::regs();
@@ -239,9 +237,9 @@ impl<'d, T: Instance> Uarte<'d, T> {
     /// This is useful to concurrently transmit and receive from independent tasks.
     pub fn split_with_idle<U: TimerInstance>(
         self,
-        timer: impl Peripheral<P = U> + 'd,
-        ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
-        ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        timer: Peri<'d, U>,
+        ppi_ch1: Peri<'d, impl ConfigurableChannel + 'd>,
+        ppi_ch2: Peri<'d, impl ConfigurableChannel + 'd>,
     ) -> (UarteTx<'d, T>, UarteRxWithIdle<'d, T, U>) {
         (self.tx, self.rx.with_idle(timer, ppi_ch1, ppi_ch2))
     }
@@ -283,11 +281,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 }
 
-pub(crate) fn configure_tx_pins(
-    r: pac::uarte::Uarte,
-    txd: PeripheralRef<'_, AnyPin>,
-    cts: Option<PeripheralRef<'_, AnyPin>>,
-) {
+pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts: Option<Peri<'_, AnyPin>>) {
     txd.set_high();
     txd.conf().write(|w| {
         w.set_dir(gpiovals::Dir::OUTPUT);
@@ -306,11 +300,7 @@ pub(crate) fn configure_tx_pins(
     r.psel().cts().write_value(cts.psel_bits());
 }
 
-pub(crate) fn configure_rx_pins(
-    r: pac::uarte::Uarte,
-    rxd: PeripheralRef<'_, AnyPin>,
-    rts: Option<PeripheralRef<'_, AnyPin>>,
-) {
+pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, rxd: Peri<'_, AnyPin>, rts: Option<Peri<'_, AnyPin>>) {
     rxd.conf().write(|w| {
         w.set_dir(gpiovals::Dir::INPUT);
         w.set_input(gpiovals::Input::CONNECT);
@@ -356,33 +346,26 @@ pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_cont
 impl<'d, T: Instance> UarteTx<'d, T> {
     /// Create a new tx-only UARTE without hardware flow control
     pub fn new(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        txd: impl Peripheral<P = impl GpioPin> + 'd,
+        txd: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte, txd);
-        Self::new_inner(uarte, txd.map_into(), None, config)
+        Self::new_inner(uarte, txd.into(), None, config)
     }
 
     /// Create a new tx-only UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        txd: impl Peripheral<P = impl GpioPin> + 'd,
-        cts: impl Peripheral<P = impl GpioPin> + 'd,
+        txd: Peri<'d, impl GpioPin>,
+        cts: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte, txd, cts);
-        Self::new_inner(uarte, txd.map_into(), Some(cts.map_into()), config)
+        Self::new_inner(uarte, txd.into(), Some(cts.into()), config)
     }
 
-    fn new_inner(
-        uarte: PeripheralRef<'d, T>,
-        txd: PeripheralRef<'d, AnyPin>,
-        cts: Option<PeripheralRef<'d, AnyPin>>,
-        config: Config,
-    ) -> Self {
+    fn new_inner(uarte: Peri<'d, T>, txd: Peri<'d, AnyPin>, cts: Option<Peri<'d, AnyPin>>, config: Config) -> Self {
         let r = T::regs();
 
         configure(r, config, cts.is_some());
@@ -539,25 +522,23 @@ impl<'a, T: Instance> Drop for UarteTx<'a, T> {
 impl<'d, T: Instance> UarteRx<'d, T> {
     /// Create a new rx-only UARTE without hardware flow control
     pub fn new(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rxd: impl Peripheral<P = impl GpioPin> + 'd,
+        rxd: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte, rxd);
-        Self::new_inner(uarte, rxd.map_into(), None, config)
+        Self::new_inner(uarte, rxd.into(), None, config)
     }
 
     /// Create a new rx-only UARTE with hardware flow control (RTS/CTS)
     pub fn new_with_rtscts(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rxd: impl Peripheral<P = impl GpioPin> + 'd,
-        rts: impl Peripheral<P = impl GpioPin> + 'd,
+        rxd: Peri<'d, impl GpioPin>,
+        rts: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte, rxd, rts);
-        Self::new_inner(uarte, rxd.map_into(), Some(rts.map_into()), config)
+        Self::new_inner(uarte, rxd.into(), Some(rts.into()), config)
     }
 
     /// Check for errors and clear the error register if an error occured.
@@ -568,12 +549,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         ErrorSource::from_bits_truncate(err_bits.0).check()
     }
 
-    fn new_inner(
-        uarte: PeripheralRef<'d, T>,
-        rxd: PeripheralRef<'d, AnyPin>,
-        rts: Option<PeripheralRef<'d, AnyPin>>,
-        config: Config,
-    ) -> Self {
+    fn new_inner(uarte: Peri<'d, T>, rxd: Peri<'d, AnyPin>, rts: Option<Peri<'d, AnyPin>>, config: Config) -> Self {
         let r = T::regs();
 
         configure(r, config, rts.is_some());
@@ -592,13 +568,11 @@ impl<'d, T: Instance> UarteRx<'d, T> {
     /// Upgrade to an instance that supports idle line detection.
     pub fn with_idle<U: TimerInstance>(
         self,
-        timer: impl Peripheral<P = U> + 'd,
-        ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
-        ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        timer: Peri<'d, U>,
+        ppi_ch1: Peri<'d, impl ConfigurableChannel + 'd>,
+        ppi_ch2: Peri<'d, impl ConfigurableChannel + 'd>,
     ) -> UarteRxWithIdle<'d, T, U> {
         let timer = Timer::new(timer);
-
-        into_ref!(ppi_ch1, ppi_ch2);
 
         let r = T::regs();
 
@@ -617,7 +591,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         timer.cc(0).short_compare_stop();
 
         let mut ppi_ch1 = Ppi::new_one_to_two(
-            ppi_ch1.map_into(),
+            ppi_ch1.into(),
             Event::from_reg(r.events_rxdrdy()),
             timer.task_clear(),
             timer.task_start(),
@@ -625,7 +599,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         ppi_ch1.enable();
 
         let mut ppi_ch2 = Ppi::new_one_to_one(
-            ppi_ch2.map_into(),
+            ppi_ch2.into(),
             timer.cc(0).event_compare(),
             Task::from_reg(r.tasks_stoprx()),
         );
@@ -992,7 +966,7 @@ pub(crate) trait SealedInstance {
 
 /// UARTE peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

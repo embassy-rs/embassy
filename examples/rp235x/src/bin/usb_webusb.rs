@@ -1,4 +1,4 @@
-//! This example shows how to use USB (Universal Serial Bus) in the RP2040 chip.
+//! This example shows how to use USB (Universal Serial Bus) in the RP235x chip.
 //!
 //! This creates a WebUSB capable device that echoes data back to the host.
 //!
@@ -50,12 +50,6 @@ async fn main(_spawner: Spawner) {
     config.serial_number = Some("12345678");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
-
-    // Required for windows compatibility.
-    // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
-    config.device_class = 0xff;
-    config.device_sub_class = 0x00;
-    config.device_protocol = 0x00;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.

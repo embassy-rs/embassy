@@ -5,7 +5,7 @@ use core::pin::Pin;
 use core::sync::atomic::{fence, Ordering};
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::word::{Word, WordSize};
@@ -109,13 +109,13 @@ impl AnyChannel {
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: PeripheralRef<'a, AnyChannel>,
+    channel: Peri<'a, AnyChannel>,
 }
 
 impl<'a> Transfer<'a> {
     /// Create a new read DMA transfer (peripheral to memory).
     pub unsafe fn new_read<W: Word>(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         request: Request,
         peri_addr: *mut W,
         buf: &'a mut [W],
@@ -126,16 +126,14 @@ impl<'a> Transfer<'a> {
 
     /// Create a new read DMA transfer (peripheral to memory), using raw pointers.
     pub unsafe fn new_read_raw<W: Word>(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         request: Request,
         peri_addr: *mut W,
         buf: *mut [W],
         options: TransferOptions,
     ) -> Self {
-        into_ref!(channel);
-
         Self::new_inner(
-            channel.map_into(),
+            channel.into(),
             request,
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
@@ -150,7 +148,7 @@ impl<'a> Transfer<'a> {
 
     /// Create a new write DMA transfer (memory to peripheral).
     pub unsafe fn new_write<MW: Word, PW: Word>(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         request: Request,
         buf: &'a [MW],
         peri_addr: *mut PW,
@@ -161,16 +159,14 @@ impl<'a> Transfer<'a> {
 
     /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
     pub unsafe fn new_write_raw<MW: Word, PW: Word>(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         request: Request,
         buf: *const [MW],
         peri_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
-        into_ref!(channel);
-
         Self::new_inner(
-            channel.map_into(),
+            channel.into(),
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
@@ -185,17 +181,15 @@ impl<'a> Transfer<'a> {
 
     /// Create a new write DMA transfer (memory to peripheral), writing the same value repeatedly.
     pub unsafe fn new_write_repeated<MW: Word, PW: Word>(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         request: Request,
         repeated: &'a MW,
         count: usize,
         peri_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
-        into_ref!(channel);
-
         Self::new_inner(
-            channel.map_into(),
+            channel.into(),
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
@@ -209,7 +203,7 @@ impl<'a> Transfer<'a> {
     }
 
     unsafe fn new_inner(
-        channel: PeripheralRef<'a, AnyChannel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         dir: Dir,
         peri_addr: *const u32,

@@ -97,14 +97,14 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub const fn new() -> Self {
         Self {
             msis: Some(Msirange::RANGE_4MHZ),
             msik: Some(Msirange::RANGE_4MHZ),
             hse: None,
             hsi: false,
-            hsi48: Some(Default::default()),
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
             pll1: None,
             pll2: None,
             pll3: None,
@@ -114,9 +114,15 @@ impl Default for Config {
             apb2_pre: APBPrescaler::DIV1,
             apb3_pre: APBPrescaler::DIV1,
             voltage_range: VoltageScale::RANGE1,
-            ls: Default::default(),
-            mux: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -175,7 +181,7 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_msikrange(range);
             w.set_msirgsel(Msirgsel::ICSCR1);
         });
-        RCC.cr().write(|w| {
+        RCC.cr().modify(|w| {
             w.set_msikon(true);
         });
         while !RCC.cr().read().msikrdy() {}
@@ -183,7 +189,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let hsi = config.hsi.then(|| {
-        RCC.cr().write(|w| w.set_hsion(true));
+        RCC.cr().modify(|w| w.set_hsion(true));
         while !RCC.cr().read().hsirdy() {}
 
         HSI_FREQ
@@ -201,7 +207,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
 
         // Enable HSE, and wait for it to stabilize
-        RCC.cr().write(|w| {
+        RCC.cr().modify(|w| {
             w.set_hseon(true);
             w.set_hsebyp(hse.mode != HseMode::Oscillator);
             w.set_hseext(match hse.mode {
@@ -315,7 +321,7 @@ pub(crate) unsafe fn init(config: Config) {
             Hertz(24_000_000) => Usbrefcksel::MHZ24,
             Hertz(26_000_000) => Usbrefcksel::MHZ26,
             Hertz(32_000_000) => Usbrefcksel::MHZ32,
-            _ => panic!("cannot select OTG_HS reference clock with source frequency of {} Hz, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+            _ => panic!("cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
         },
         None => Usbrefcksel::MHZ24,
     };
@@ -345,10 +351,8 @@ pub(crate) unsafe fn init(config: Config) {
         lse: lse,
         lsi: lsi,
         hse: hse,
-        hse_div_2: hse.map(|clk| clk / 2u32),
         hsi: hsi,
         pll1_p: pll1.p,
-        pll1_p_div_2: pll1.p.map(|clk| clk / 2u32),
         pll1_q: pll1.q,
         pll1_r: pll1.r,
         pll2_p: pll2.p,
@@ -363,9 +367,7 @@ pub(crate) unsafe fn init(config: Config) {
 
         // TODO
         audioclk: None,
-        hsi48_div_2: None,
         shsi: None,
-        shsi_div_2: None,
     );
 }
 

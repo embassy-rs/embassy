@@ -124,7 +124,7 @@ struct NetState {
 
 impl State {
     /// Create new driver state holder.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             ioctl_state: IoctlState::new(),
             net: NetState {

@@ -14,6 +14,7 @@ use core::mem;
 
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
+use embassy_rp::bootsel::is_bootsel_pressed;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::i2s::{PioI2sOut, PioI2sOutProgram};
@@ -26,7 +27,6 @@ bind_interrupts!(struct Irqs {
 
 const SAMPLE_RATE: u32 = 48_000;
 const BIT_DEPTH: u32 = 16;
-const CHANNELS: u32 = 2;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -49,7 +49,6 @@ async fn main(_spawner: Spawner) {
         left_right_clock_pin,
         SAMPLE_RATE,
         BIT_DEPTH,
-        CHANNELS,
         &program,
     );
 
@@ -70,7 +69,11 @@ async fn main(_spawner: Spawner) {
         let dma_future = i2s.write(front_buffer);
 
         // fade in audio when bootsel is pressed
-        let fade_target = if p.BOOTSEL.is_pressed() { i32::MAX } else { 0 };
+        let fade_target = if is_bootsel_pressed(p.BOOTSEL.reborrow()) {
+            i32::MAX
+        } else {
+            0
+        };
 
         // fill back buffer with fresh audio samples before awaiting the dma future
         for s in back_buffer.iter_mut() {

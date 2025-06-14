@@ -6,7 +6,7 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use stm32_metapac::ltdc::regs::Dccr;
 use stm32_metapac::ltdc::vals::{Bf1, Bf2, Cfuif, Clif, Crrif, Cterrif, Pf, Vbr};
@@ -14,7 +14,7 @@ use stm32_metapac::ltdc::vals::{Bf1, Bf2, Cfuif, Clif, Crrif, Cterrif, Pf, Vbr};
 use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
-use crate::{peripherals, rcc, Peripheral};
+use crate::{peripherals, rcc, Peri};
 
 static LTDC_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -83,7 +83,7 @@ pub enum PolarityActive {
 
 /// LTDC driver.
 pub struct Ltdc<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
+    _peri: Peri<'d, T>,
 }
 
 /// LTDC interrupt handler.
@@ -178,47 +178,45 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 impl<'d, T: Instance> Ltdc<'d, T> {
     // Create a new LTDC driver without specifying color and control pins. This is typically used if you want to drive a display though a DsiHost
     /// Note: Full-Duplex modes are not supported at this time
-    pub fn new(peri: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new(peri: Peri<'d, T>) -> Self {
         Self::setup_clocks();
-        into_ref!(peri);
         Self { _peri: peri }
     }
 
     /// Create a new LTDC driver. 8 pins per color channel for blue, green and red
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_pins(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        clk: impl Peripheral<P = impl ClkPin<T>> + 'd,
-        hsync: impl Peripheral<P = impl HsyncPin<T>> + 'd,
-        vsync: impl Peripheral<P = impl VsyncPin<T>> + 'd,
-        b0: impl Peripheral<P = impl B0Pin<T>> + 'd,
-        b1: impl Peripheral<P = impl B1Pin<T>> + 'd,
-        b2: impl Peripheral<P = impl B2Pin<T>> + 'd,
-        b3: impl Peripheral<P = impl B3Pin<T>> + 'd,
-        b4: impl Peripheral<P = impl B4Pin<T>> + 'd,
-        b5: impl Peripheral<P = impl B5Pin<T>> + 'd,
-        b6: impl Peripheral<P = impl B6Pin<T>> + 'd,
-        b7: impl Peripheral<P = impl B7Pin<T>> + 'd,
-        g0: impl Peripheral<P = impl G0Pin<T>> + 'd,
-        g1: impl Peripheral<P = impl G1Pin<T>> + 'd,
-        g2: impl Peripheral<P = impl G2Pin<T>> + 'd,
-        g3: impl Peripheral<P = impl G3Pin<T>> + 'd,
-        g4: impl Peripheral<P = impl G4Pin<T>> + 'd,
-        g5: impl Peripheral<P = impl G5Pin<T>> + 'd,
-        g6: impl Peripheral<P = impl G6Pin<T>> + 'd,
-        g7: impl Peripheral<P = impl G7Pin<T>> + 'd,
-        r0: impl Peripheral<P = impl R0Pin<T>> + 'd,
-        r1: impl Peripheral<P = impl R1Pin<T>> + 'd,
-        r2: impl Peripheral<P = impl R2Pin<T>> + 'd,
-        r3: impl Peripheral<P = impl R3Pin<T>> + 'd,
-        r4: impl Peripheral<P = impl R4Pin<T>> + 'd,
-        r5: impl Peripheral<P = impl R5Pin<T>> + 'd,
-        r6: impl Peripheral<P = impl R6Pin<T>> + 'd,
-        r7: impl Peripheral<P = impl R7Pin<T>> + 'd,
+        clk: Peri<'d, impl ClkPin<T>>,
+        hsync: Peri<'d, impl HsyncPin<T>>,
+        vsync: Peri<'d, impl VsyncPin<T>>,
+        b0: Peri<'d, impl B0Pin<T>>,
+        b1: Peri<'d, impl B1Pin<T>>,
+        b2: Peri<'d, impl B2Pin<T>>,
+        b3: Peri<'d, impl B3Pin<T>>,
+        b4: Peri<'d, impl B4Pin<T>>,
+        b5: Peri<'d, impl B5Pin<T>>,
+        b6: Peri<'d, impl B6Pin<T>>,
+        b7: Peri<'d, impl B7Pin<T>>,
+        g0: Peri<'d, impl G0Pin<T>>,
+        g1: Peri<'d, impl G1Pin<T>>,
+        g2: Peri<'d, impl G2Pin<T>>,
+        g3: Peri<'d, impl G3Pin<T>>,
+        g4: Peri<'d, impl G4Pin<T>>,
+        g5: Peri<'d, impl G5Pin<T>>,
+        g6: Peri<'d, impl G6Pin<T>>,
+        g7: Peri<'d, impl G7Pin<T>>,
+        r0: Peri<'d, impl R0Pin<T>>,
+        r1: Peri<'d, impl R1Pin<T>>,
+        r2: Peri<'d, impl R2Pin<T>>,
+        r3: Peri<'d, impl R3Pin<T>>,
+        r4: Peri<'d, impl R4Pin<T>>,
+        r5: Peri<'d, impl R5Pin<T>>,
+        r6: Peri<'d, impl R6Pin<T>>,
+        r7: Peri<'d, impl R7Pin<T>>,
     ) -> Self {
         Self::setup_clocks();
-        into_ref!(peri);
         new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         new_pin!(hsync, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         new_pin!(vsync, AfType::output(OutputType::PushPull, Speed::VeryHigh));
@@ -529,7 +527,7 @@ trait SealedInstance: crate::rcc::SealedRccPeripheral {
 
 /// LTDC instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + crate::rcc::RccPeripheral + 'static + Send {
     /// Interrupt for this LTDC instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

@@ -3,12 +3,11 @@ use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
 use pac::i2c;
 
 use crate::i2c::{set_up_i2c_pin, AbortReason, Instance, InterruptHandler, SclPin, SdaPin, FIFO_SIZE};
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{pac, Peripheral};
+use crate::{pac, Peri};
 
 /// I2C error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -87,14 +86,12 @@ pub struct I2cSlave<'d, T: Instance> {
 impl<'d, T: Instance> I2cSlave<'d, T> {
     /// Create a new instance.
     pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        _peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(_peri, scl, sda);
-
         assert!(config.addr != 0);
 
         // Configure SCL & SDA pins
@@ -162,7 +159,8 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     }
 
     /// Calls `f` to check if we are ready or not.
-    /// If not, `g` is called once the waker is set (to eg enable the required interrupts).
+    /// If not, `g` is called once(to eg enable the required interrupts).
+    /// The waker will always be registered prior to calling `f`.
     #[inline(always)]
     async fn wait_on<F, U, G>(&mut self, mut f: F, mut g: G) -> U
     where
@@ -170,10 +168,11 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         G: FnMut(&mut Self),
     {
         future::poll_fn(|cx| {
+            // Register prior to checking the condition
+            T::waker().register(cx.waker());
             let r = f(self);
 
             if r.is_pending() {
-                T::waker().register(cx.waker());
                 g(self);
             }
 

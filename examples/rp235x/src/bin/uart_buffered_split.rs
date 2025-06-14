@@ -1,4 +1,4 @@
-//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP2040 chip.
+//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP235x chip.
 //!
 //! No specific hardware is specified in this example. If you connect pin 0 and 1 you should get the same data back.
 //! The Raspberry Pi Debug Probe (https://www.raspberrypi.com/products/debug-probe/) could be used
@@ -30,7 +30,7 @@ async fn main(spawner: Spawner) {
     let tx_buf = &mut TX_BUF.init([0; 16])[..];
     static RX_BUF: StaticCell<[u8; 16]> = StaticCell::new();
     let rx_buf = &mut RX_BUF.init([0; 16])[..];
-    let uart = BufferedUart::new(uart, Irqs, tx_pin, rx_pin, tx_buf, rx_buf, Config::default());
+    let uart = BufferedUart::new(uart, tx_pin, rx_pin, Irqs, tx_buf, rx_buf, Config::default());
     let (mut tx, rx) = uart.split();
 
     unwrap!(spawner.spawn(reader(rx)));
@@ -48,7 +48,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: BufferedUartRx<'static, UART0>) {
+async fn reader(mut rx: BufferedUartRx) {
     info!("Reading...");
     loop {
         let mut buf = [0; 31];

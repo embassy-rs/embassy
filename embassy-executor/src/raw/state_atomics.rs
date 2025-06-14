@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Token(());
@@ -11,18 +11,18 @@ pub(crate) fn locked<R>(f: impl FnOnce(Token) -> R) -> R {
 }
 
 /// Task is spawned (has a future)
-pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
+pub(crate) const STATE_SPAWNED: u8 = 1 << 0;
 /// Task is in the executor run queue
-pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
+pub(crate) const STATE_RUN_QUEUED: u8 = 1 << 1;
 
 pub(crate) struct State {
-    state: AtomicU32,
+    state: AtomicU8,
 }
 
 impl State {
     pub const fn new() -> State {
         Self {
-            state: AtomicU32::new(0),
+            state: AtomicU8::new(0),
         }
     }
 

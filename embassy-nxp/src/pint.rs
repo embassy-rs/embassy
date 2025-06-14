@@ -5,12 +5,12 @@ use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
 use critical_section::Mutex;
-use embassy_hal_internal::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{self, AnyPin, Level, SealedPin};
 use crate::pac::interrupt;
 use crate::pac_utils::*;
+use crate::Peri;
 
 struct PinInterrupt {
     assigned: bool,
@@ -107,14 +107,14 @@ pub(crate) fn init() {
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'d> {
     #[allow(dead_code)]
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
     interrupt_number: usize,
 }
 
 impl<'d> InputFuture<'d> {
     /// Create a new input future. Returns None if all interrupts are in use.
-    fn new(pin: impl Peripheral<P = impl gpio::Pin> + 'd, interrupt_on: InterruptOn) -> Option<Self> {
-        let pin = pin.into_ref().map_into();
+    fn new(pin: Peri<'d, impl gpio::Pin>, interrupt_on: InterruptOn) -> Option<Self> {
+        let pin = pin.into();
         let interrupt_number = next_available_interrupt()?;
 
         // Clear interrupt, just in case
@@ -344,35 +344,35 @@ impl gpio::Flex<'_> {
     /// Wait for a falling or rising edge on the pin. You can have at most 8 pins waiting. If you
     /// try to wait for more than 8 pins, this function will return `None`.
     pub async fn wait_for_any_edge(&mut self) -> Option<()> {
-        InputFuture::new(&mut self.pin, InterruptOn::Edge(Edge::Both))?.await;
+        InputFuture::new(self.pin.reborrow(), InterruptOn::Edge(Edge::Both))?.await;
         Some(())
     }
 
     /// Wait for a falling edge on the pin. You can have at most 8 pins waiting. If you try to wait
     /// for more than 8 pins, this function will return `None`.
     pub async fn wait_for_falling_edge(&mut self) -> Option<()> {
-        InputFuture::new(&mut self.pin, InterruptOn::Edge(Edge::Falling))?.await;
+        InputFuture::new(self.pin.reborrow(), InterruptOn::Edge(Edge::Falling))?.await;
         Some(())
     }
 
     /// Wait for a rising edge on the pin. You can have at most 8 pins waiting. If you try to wait
     /// for more than 8 pins, this function will return `None`.
     pub async fn wait_for_rising_edge(&mut self) -> Option<()> {
-        InputFuture::new(&mut self.pin, InterruptOn::Edge(Edge::Rising))?.await;
+        InputFuture::new(self.pin.reborrow(), InterruptOn::Edge(Edge::Rising))?.await;
         Some(())
     }
 
     /// Wait for a low level on the pin. You can have at most 8 pins waiting. If you try to wait for
     /// more than 8 pins, this function will return `None`.
     pub async fn wait_for_low(&mut self) -> Option<()> {
-        InputFuture::new(&mut self.pin, InterruptOn::Level(Level::Low))?.await;
+        InputFuture::new(self.pin.reborrow(), InterruptOn::Level(Level::Low))?.await;
         Some(())
     }
 
     /// Wait for a high level on the pin. You can have at most 8 pins waiting. If you try to wait for
     /// more than 8 pins, this function will return `None`.
     pub async fn wait_for_high(&mut self) -> Option<()> {
-        InputFuture::new(&mut self.pin, InterruptOn::Level(Level::High))?.await;
+        InputFuture::new(self.pin.reborrow(), InterruptOn::Level(Level::High))?.await;
         Some(())
     }
 }

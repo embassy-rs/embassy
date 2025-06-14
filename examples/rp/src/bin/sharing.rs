@@ -27,11 +27,10 @@ use embassy_rp::{bind_interrupts, interrupt};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::{blocking_mutex, mutex};
 use embassy_time::{Duration, Ticker};
-use rand::RngCore;
 use static_cell::{ConstStaticCell, StaticCell};
 use {defmt_rtt as _, panic_probe as _};
 
-type UartAsyncMutex = mutex::Mutex<CriticalSectionRawMutex, UartTx<'static, UART0, uart::Async>>;
+type UartAsyncMutex = mutex::Mutex<CriticalSectionRawMutex, UartTx<'static, uart::Async>>;
 
 struct MyType {
     inner: u32,

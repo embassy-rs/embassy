@@ -1,10 +1,11 @@
 //! Watchdog Timer (IWDG, WWDG)
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_hal_internal::PeripheralType;
 use stm32_metapac::iwdg::vals::{Key, Pr};
 
 use crate::rcc::LSI_FREQ;
+use crate::Peri;
 
 /// Independent watchdog (IWDG) driver.
 pub struct IndependentWatchdog<'d, T: Instance> {
@@ -29,9 +30,7 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
     ///
     /// [Self] has to be started with [Self::unleash()].
     /// Once timer expires, MCU will be reset. To prevent this, timer must be reloaded by repeatedly calling [Self::pet()] within timeout interval.
-    pub fn new(_instance: impl Peripheral<P = T> + 'd, timeout_us: u32) -> Self {
-        into_ref!(_instance);
-
+    pub fn new(_instance: Peri<'d, T>, timeout_us: u32) -> Self {
         // Find lowest prescaler value, which makes watchdog period longer or equal to timeout.
         // This iterates from 4 (2^2) to 256 (2^8).
         let psc_power = unwrap!((2..=8).find(|psc_power| {
@@ -86,7 +85,7 @@ trait SealedInstance {
 
 /// IWDG instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance {}
+pub trait Instance: SealedInstance + PeripheralType {}
 
 foreach_peripheral!(
     (iwdg, $inst:ident) => {

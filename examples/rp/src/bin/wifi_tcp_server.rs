@@ -20,7 +20,6 @@ use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
-use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -28,8 +27,8 @@ bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
 
-const WIFI_NETWORK: &str = "LadronDeWifi";
-const WIFI_PASSWORD: &str = "MBfcaedHmyRFE4kaQ1O5SsY8";
+const WIFI_NETWORK: &str = "ssid"; // change to your network SSID
+const WIFI_PASSWORD: &str = "pwd"; // change to your network password
 
 #[embassy_executor::task]
 async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {

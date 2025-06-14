@@ -25,13 +25,13 @@ use crate::time::Hertz;
     ),
     path = "v2.rs"
 )]
-#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5), path = "v3.rs")]
+#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5, rtc_v3h7rs), path = "v3.rs")]
 mod _version;
 #[allow(unused_imports)]
 pub use _version::*;
-use embassy_hal_internal::Peripheral;
 
 use crate::peripherals::RTC;
+use crate::Peri;
 
 /// Errors that can occur on methods on [RtcClock]
 #[non_exhaustive]
@@ -151,7 +151,7 @@ pub enum RtcCalibrationCyclePeriod {
 
 impl Rtc {
     /// Create a new RTC instance.
-    pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
+    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 

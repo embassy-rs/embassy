@@ -5,13 +5,13 @@ use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::i2c;
 
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals};
 
 /// I2C error abort reason
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -83,28 +83,25 @@ pub struct I2c<'d, T: Instance, M: Mode> {
 impl<'d, T: Instance> I2c<'d, T, Blocking> {
     /// Create a new driver instance in blocking mode.
     pub fn new_blocking(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(scl, sda);
-        Self::new_inner(peri, scl.map_into(), sda.map_into(), config)
+        Self::new_inner(peri, scl.into(), sda.into(), config)
     }
 }
 
 impl<'d, T: Instance> I2c<'d, T, Async> {
     /// Create a new driver instance in async mode.
     pub fn new_async(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(scl, sda);
-
-        let i2c = Self::new_inner(peri, scl.map_into(), sda.map_into(), config);
+        let i2c = Self::new_inner(peri, scl.into(), sda.into(), config);
 
         let r = T::regs();
 
@@ -117,17 +114,19 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
     }
 
     /// Calls `f` to check if we are ready or not.
-    /// If not, `g` is called once the waker is set (to eg enable the required interrupts).
+    /// If not, `g` is called once(to eg enable the required interrupts).
+    /// The waker will always be registered prior to calling `f`.
     async fn wait_on<F, U, G>(&mut self, mut f: F, mut g: G) -> U
     where
         F: FnMut(&mut Self) -> Poll<U>,
         G: FnMut(&mut Self),
     {
         future::poll_fn(|cx| {
+            // Register prior to checking the condition
+            T::waker().register(cx.waker());
             let r = f(self);
 
             if r.is_pending() {
-                T::waker().register(cx.waker());
                 g(self);
             }
             r
@@ -378,14 +377,7 @@ where
 }
 
 impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
-    fn new_inner(
-        _peri: impl Peripheral<P = T> + 'd,
-        scl: PeripheralRef<'d, AnyPin>,
-        sda: PeripheralRef<'d, AnyPin>,
-        config: Config,
-    ) -> Self {
-        into_ref!(_peri);
-
+    fn new_inner(_peri: Peri<'d, T>, scl: Peri<'d, AnyPin>, sda: Peri<'d, AnyPin>, config: Config) -> Self {
         let reset = T::reset();
         crate::reset::reset(reset);
         crate::reset::unreset_wait(reset);
@@ -804,7 +796,7 @@ impl_mode!(Async);
 
 /// I2C instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance {
+pub trait Instance: SealedInstance + PeripheralType {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

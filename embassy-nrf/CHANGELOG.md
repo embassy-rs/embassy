@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - bugfix: nrf twim return errors in async\_wait instead of waiting indefinitely
 - bugfix: fix missing setting input as disconnected.
+- changed: Modify Uarte and BufferedUarte initialization to take pins before interrupts ([#3983](https://github.com/embassy-rs/embassy/pull/3983))
+
 
 ## 0.3.0 - 2025-01-06
 

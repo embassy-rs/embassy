@@ -5,16 +5,16 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-embassy-sync = { version = "0.6.2", path = "../../../../embassy-sync" }
-embassy-executor = { version = "0.7.0", path = "../../../../embassy-executor", features = ["task-arena-size-16384", "arch-cortex-m", "executor-thread", "arch-cortex-m", "executor-thread"] }
+embassy-sync = { version = "0.7.0", path = "../../../../embassy-sync" }
+embassy-executor = { version = "0.7.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.4.0", path = "../../../../embassy-time", features = [] }
 embassy-rp = { version = "0.4.0", path = "../../../../embassy-rp", features = ["time-driver", "rp2040"] }
 embassy-boot-rp = { version = "0.5.0", path = "../../../../embassy-boot-rp", features = [] }
 embassy-embedded-hal = { version = "0.3.0", path = "../../../../embassy-embedded-hal" }
 
-defmt = "0.3"
-defmt-rtt = "0.4"
-panic-probe = { version = "0.3", features = ["print-defmt"], optional = true }
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
+panic-probe = { version = "1.0.0", features = ["print-defmt"], optional = true }
 panic-reset = { version = "0.1.1", optional = true }
 embedded-hal = { version = "0.2.6" }
 

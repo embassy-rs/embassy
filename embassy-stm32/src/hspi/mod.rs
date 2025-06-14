@@ -13,18 +13,19 @@ pub mod enums;
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::{GetConfig, SetConfig};
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 pub use enums::*;
 
 use crate::dma::{word, ChannelAndRequest};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::hspi::Hspi as Regs;
+use crate::peripherals;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
 
 /// HSPI driver config.
-#[derive(Clone, Copy, defmt::Format)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Fifo threshold used by the peripheral to generate the interrupt indicating data
     /// or space is available in the FIFO
@@ -162,27 +163,27 @@ pub enum HspiError {
 
 /// HSPI driver.
 pub struct Hspi<'d, T: Instance, M: PeriMode> {
-    _peri: PeripheralRef<'d, T>,
-    sck: Option<PeripheralRef<'d, AnyPin>>,
-    d0: Option<PeripheralRef<'d, AnyPin>>,
-    d1: Option<PeripheralRef<'d, AnyPin>>,
-    d2: Option<PeripheralRef<'d, AnyPin>>,
-    d3: Option<PeripheralRef<'d, AnyPin>>,
-    d4: Option<PeripheralRef<'d, AnyPin>>,
-    d5: Option<PeripheralRef<'d, AnyPin>>,
-    d6: Option<PeripheralRef<'d, AnyPin>>,
-    d7: Option<PeripheralRef<'d, AnyPin>>,
-    d8: Option<PeripheralRef<'d, AnyPin>>,
-    d9: Option<PeripheralRef<'d, AnyPin>>,
-    d10: Option<PeripheralRef<'d, AnyPin>>,
-    d11: Option<PeripheralRef<'d, AnyPin>>,
-    d12: Option<PeripheralRef<'d, AnyPin>>,
-    d13: Option<PeripheralRef<'d, AnyPin>>,
-    d14: Option<PeripheralRef<'d, AnyPin>>,
-    d15: Option<PeripheralRef<'d, AnyPin>>,
-    nss: Option<PeripheralRef<'d, AnyPin>>,
-    dqs0: Option<PeripheralRef<'d, AnyPin>>,
-    dqs1: Option<PeripheralRef<'d, AnyPin>>,
+    _peri: Peri<'d, T>,
+    sck: Option<Peri<'d, AnyPin>>,
+    d0: Option<Peri<'d, AnyPin>>,
+    d1: Option<Peri<'d, AnyPin>>,
+    d2: Option<Peri<'d, AnyPin>>,
+    d3: Option<Peri<'d, AnyPin>>,
+    d4: Option<Peri<'d, AnyPin>>,
+    d5: Option<Peri<'d, AnyPin>>,
+    d6: Option<Peri<'d, AnyPin>>,
+    d7: Option<Peri<'d, AnyPin>>,
+    d8: Option<Peri<'d, AnyPin>>,
+    d9: Option<Peri<'d, AnyPin>>,
+    d10: Option<Peri<'d, AnyPin>>,
+    d11: Option<Peri<'d, AnyPin>>,
+    d12: Option<Peri<'d, AnyPin>>,
+    d13: Option<Peri<'d, AnyPin>>,
+    d14: Option<Peri<'d, AnyPin>>,
+    d15: Option<Peri<'d, AnyPin>>,
+    nss: Option<Peri<'d, AnyPin>>,
+    dqs0: Option<Peri<'d, AnyPin>>,
+    dqs1: Option<Peri<'d, AnyPin>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -246,34 +247,32 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
     }
 
     fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: Option<PeripheralRef<'d, AnyPin>>,
-        d1: Option<PeripheralRef<'d, AnyPin>>,
-        d2: Option<PeripheralRef<'d, AnyPin>>,
-        d3: Option<PeripheralRef<'d, AnyPin>>,
-        d4: Option<PeripheralRef<'d, AnyPin>>,
-        d5: Option<PeripheralRef<'d, AnyPin>>,
-        d6: Option<PeripheralRef<'d, AnyPin>>,
-        d7: Option<PeripheralRef<'d, AnyPin>>,
-        d8: Option<PeripheralRef<'d, AnyPin>>,
-        d9: Option<PeripheralRef<'d, AnyPin>>,
-        d10: Option<PeripheralRef<'d, AnyPin>>,
-        d11: Option<PeripheralRef<'d, AnyPin>>,
-        d12: Option<PeripheralRef<'d, AnyPin>>,
-        d13: Option<PeripheralRef<'d, AnyPin>>,
-        d14: Option<PeripheralRef<'d, AnyPin>>,
-        d15: Option<PeripheralRef<'d, AnyPin>>,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        nss: Option<PeripheralRef<'d, AnyPin>>,
-        dqs0: Option<PeripheralRef<'d, AnyPin>>,
-        dqs1: Option<PeripheralRef<'d, AnyPin>>,
+        peri: Peri<'d, T>,
+        d0: Option<Peri<'d, AnyPin>>,
+        d1: Option<Peri<'d, AnyPin>>,
+        d2: Option<Peri<'d, AnyPin>>,
+        d3: Option<Peri<'d, AnyPin>>,
+        d4: Option<Peri<'d, AnyPin>>,
+        d5: Option<Peri<'d, AnyPin>>,
+        d6: Option<Peri<'d, AnyPin>>,
+        d7: Option<Peri<'d, AnyPin>>,
+        d8: Option<Peri<'d, AnyPin>>,
+        d9: Option<Peri<'d, AnyPin>>,
+        d10: Option<Peri<'d, AnyPin>>,
+        d11: Option<Peri<'d, AnyPin>>,
+        d12: Option<Peri<'d, AnyPin>>,
+        d13: Option<Peri<'d, AnyPin>>,
+        d14: Option<Peri<'d, AnyPin>>,
+        d15: Option<Peri<'d, AnyPin>>,
+        sck: Option<Peri<'d, AnyPin>>,
+        nss: Option<Peri<'d, AnyPin>>,
+        dqs0: Option<Peri<'d, AnyPin>>,
+        dqs1: Option<Peri<'d, AnyPin>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         width: HspiWidth,
         dual_memory_mode: bool,
     ) -> Self {
-        into_ref!(peri);
-
         // System configuration
         rcc::enable_and_reset::<T>();
 
@@ -578,11 +577,11 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
 impl<'d, T: Instance> Hspi<'d, T, Blocking> {
     /// Create new blocking HSPI driver for single spi external chip
     pub fn new_blocking_singlespi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -619,18 +618,18 @@ impl<'d, T: Instance> Hspi<'d, T, Blocking> {
 
     /// Create new blocking HSPI driver for octospi external chip
     pub fn new_blocking_octospi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dqs0: impl Peripheral<P = impl DQS0Pin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dqs0: Peri<'d, impl DQS0Pin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -669,12 +668,12 @@ impl<'d, T: Instance> Hspi<'d, T, Blocking> {
 impl<'d, T: Instance> Hspi<'d, T, Async> {
     /// Create new HSPI driver for a single spi external chip
     pub fn new_singlespi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl HspiDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dma: Peri<'d, impl HspiDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -711,19 +710,19 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
 
     /// Create new HSPI driver for octospi external chip
     pub fn new_octospi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dqs0: impl Peripheral<P = impl DQS0Pin<T>> + 'd,
-        dma: impl Peripheral<P = impl HspiDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dqs0: Peri<'d, impl DQS0Pin<T>>,
+        dma: Peri<'d, impl HspiDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -942,7 +941,7 @@ pub(crate) trait SealedInstance {
 
 /// HSPI instance trait.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(NckPin, Instance);

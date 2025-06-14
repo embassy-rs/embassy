@@ -21,10 +21,10 @@ async fn main(_spawner: Spawner) {
     config.baudrate = uarte::Baudrate::BAUD9600;
 
     let uarte = Uarte::new(
-        &mut peri!(p, UART0),
+        peri!(p, UART0).reborrow(),
+        peri!(p, PIN_A).reborrow(),
+        peri!(p, PIN_B).reborrow(),
         irqs!(UART0),
-        &mut peri!(p, PIN_A),
-        &mut peri!(p, PIN_B),
         config.clone(),
     );
     let (mut tx, mut rx) = uarte.split();

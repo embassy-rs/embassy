@@ -1,4 +1,4 @@
-//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP2040 chip.
+//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP235x chip.
 //!
 //! Test TX-only and RX-only on two different UARTs. You need to connect GPIO0 to GPIO5 for
 //! this to work
@@ -39,7 +39,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: UartRx<'static, UART1, Async>) {
+async fn reader(mut rx: UartRx<'static, Async>) {
     info!("Reading...");
     loop {
         // read a total of 4 transmissions (32 / 8) and then print the result

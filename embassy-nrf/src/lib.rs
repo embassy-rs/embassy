@@ -88,6 +88,8 @@ pub mod gpiote;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
+#[cfg(feature = "_nrf5340")]
+pub mod ipc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "nrf52832",
@@ -147,7 +149,7 @@ pub mod spim;
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
 #[cfg(not(feature = "_nrf54l"))] // TODO
-#[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
+#[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod timer;
@@ -169,7 +171,6 @@ pub mod uarte;
 ))]
 pub mod usb;
 #[cfg(not(feature = "_nrf54l"))] // TODO
-#[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
@@ -199,9 +200,12 @@ mod chip;
 /// ```rust,ignore
 /// use embassy_nrf::{bind_interrupts, spim, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the SPIM3 interrupt.
+///     struct Irqs {
+///         SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
+///     }
+/// );
 /// ```
 ///
 /// Example of how to bind multiple interrupts in a single macro invocation:
@@ -218,7 +222,7 @@ mod chip;
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident {
         $(
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
@@ -228,6 +232,7 @@ macro_rules! bind_interrupts {
         )*
     }) => {
         #[derive(Copy, Clone)]
+        $(#[$attr])*
         $vis struct $name;
 
         $(
@@ -263,7 +268,7 @@ pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
 pub use chip::{peripherals, Peripherals, EASY_DMA_SIZE};
-pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::{Peri, PeripheralType};
 
 pub use crate::chip::interrupt;
 #[cfg(feature = "rt")]
@@ -338,7 +343,7 @@ pub mod config {
         /// 3.0 V
         _3V0 = 4,
         /// 3.3 V
-        _3v3 = 5,
+        _3V3 = 5,
         //ERASED = 7, means 1.8V
     }
 
@@ -370,7 +375,7 @@ pub mod config {
         /// 3.0 V
         _3V0 = 4,
         /// 3.3 V
-        _3v3 = 5,
+        _3V3 = 5,
         //ERASED = 7, means 1.8V
     }
 
@@ -1033,4 +1038,28 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     peripherals
+}
+
+/// Operating modes for peripherals.
+pub mod mode {
+    trait SealedMode {}
+
+    /// Operating mode for a peripheral.
+    #[allow(private_bounds)]
+    pub trait Mode: SealedMode {}
+
+    macro_rules! impl_mode {
+        ($name:ident) => {
+            impl SealedMode for $name {}
+            impl Mode for $name {}
+        };
+    }
+
+    /// Blocking mode.
+    pub struct Blocking;
+    /// Async mode.
+    pub struct Async;
+
+    impl_mode!(Blocking);
+    impl_mode!(Async);
 }

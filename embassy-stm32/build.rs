@@ -50,6 +50,44 @@ fn main() {
     }
 
     // ========
+    // Select the memory variant to use
+    let memory = {
+        let single_bank_selected = env::var("CARGO_FEATURE_SINGLE_BANK").is_ok();
+        let dual_bank_selected = env::var("CARGO_FEATURE_DUAL_BANK").is_ok();
+
+        let single_bank_memory = METADATA.memory.iter().find(|mem| {
+            mem.iter().any(|region| region.name.contains("BANK_1"))
+                && !mem.iter().any(|region| region.name.contains("BANK_2"))
+        });
+
+        let dual_bank_memory = METADATA.memory.iter().find(|mem| {
+            mem.iter().any(|region| region.name.contains("BANK_1"))
+                && mem.iter().any(|region| region.name.contains("BANK_2"))
+        });
+
+        cfgs.set(
+            "bank_setup_configurable",
+            single_bank_memory.is_some() && dual_bank_memory.is_some(),
+        );
+
+        match (single_bank_selected, dual_bank_selected) {
+            (true, true) => panic!("Both 'single-bank' and 'dual-bank' features enabled"),
+            (true, false) => {
+                single_bank_memory.expect("The 'single-bank' feature is not supported on this dual bank chip")
+            }
+            (false, true) => {
+                dual_bank_memory.expect("The 'dual-bank' feature is not supported on this single bank chip")
+            }
+            (false, false) => {
+                if METADATA.memory.len() != 1 {
+                    panic!("Chip supports single and dual bank configuration. No Cargo feature to select one is enabled. Use the 'single-bank' or 'dual-bank' feature to make your selection")
+                }
+                METADATA.memory[0]
+            }
+        }
+    };
+
+    // ========
     // Generate singletons
 
     let mut singletons: Vec<String> = Vec::new();
@@ -62,7 +100,13 @@ fn main() {
     // generate one singleton per peripheral (with many exceptions...)
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" || r.kind == "otg" || r.kind == "octospi" {
+            if r.kind == "adccommon"
+                || r.kind == "sai"
+                || r.kind == "ucpd"
+                || r.kind == "otg"
+                || r.kind == "octospi"
+                || r.kind == "xspi"
+            {
                 // TODO: should we emit this for all peripherals? if so, we will need a list of all
                 // possible peripherals across all chips, so that we can declare the configs
                 // (replacing the hard-coded list of `peri_*` cfgs below)
@@ -116,6 +160,7 @@ fn main() {
         "peri_usb_otg_fs",
         "peri_usb_otg_hs",
         "peri_octospi2",
+        "peri_xspi2",
     ]);
     cfgs.declare_all(&["mco", "mco1", "mco2"]);
 
@@ -283,8 +328,7 @@ fn main() {
     // ========
     // Generate FLASH regions
     let mut flash_regions = TokenStream::new();
-    let flash_memory_regions: Vec<_> = METADATA
-        .memory
+    let flash_memory_regions: Vec<_> = memory
         .iter()
         .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
         .collect();
@@ -296,6 +340,8 @@ fn main() {
                 "Bank1"
             } else if region.name.starts_with("BANK_2") {
                 "Bank2"
+            } else if region.name == "OTP" {
+                "Otp"
             } else {
                 continue;
             }
@@ -322,7 +368,7 @@ fn main() {
         let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
         flash_regions.extend(quote! {
             #[cfg(flash)]
-            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
+            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
         });
     }
 
@@ -354,7 +400,7 @@ fn main() {
 
         #[cfg(flash)]
         impl<'d, MODE> FlashLayout<'d, MODE> {
-            pub(crate) fn new(p: embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
+            pub(crate) fn new(p: embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>) -> Self {
                 Self {
                     #(#inits),*,
                     _mode: core::marker::PhantomData,
@@ -480,9 +526,39 @@ fn main() {
     }
 
     impl<'a> ClockGen<'a> {
+        fn parse_mul_div(name: &str) -> (&str, Frac) {
+            if name == "hse_div_rtcpre" {
+                return (name, Frac { num: 1, denom: 1 });
+            }
+
+            if let Some(i) = name.find("_div_") {
+                let n = &name[..i];
+                let val: u32 = name[i + 5..].parse().unwrap();
+                (n, Frac { num: 1, denom: val })
+            } else if let Some(i) = name.find("_mul_") {
+                let n = &name[..i];
+                let val: u32 = name[i + 5..].parse().unwrap();
+                (n, Frac { num: val, denom: 1 })
+            } else {
+                (name, Frac { num: 1, denom: 1 })
+            }
+        }
+
         fn gen_clock(&mut self, peripheral: &str, name: &str) -> TokenStream {
-            let clock_name = format_ident!("{}", name.to_ascii_lowercase());
-            self.clock_names.insert(name.to_ascii_lowercase());
+            let name = name.to_ascii_lowercase();
+            let (name, frac) = Self::parse_mul_div(&name);
+            let clock_name = format_ident!("{}", name);
+            self.clock_names.insert(name.to_string());
+
+            let mut muldiv = quote!();
+            if frac.num != 1 {
+                let val = frac.num;
+                muldiv.extend(quote!(* #val));
+            }
+            if frac.denom != 1 {
+                let val = frac.denom;
+                muldiv.extend(quote!(/ #val));
+            }
             quote!(unsafe {
                 unwrap!(
                     crate::rcc::get_freqs().#clock_name.to_hertz(),
@@ -491,6 +567,7 @@ fn main() {
                     #peripheral,
                     #name
                 )
+                #muldiv
             })
         }
 
@@ -607,6 +684,8 @@ fn main() {
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
             };
 
+            let bus_clock_frequency = clock_gen.gen_clock(p.name, &rcc.bus_clock);
+
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
             let stop_mode = match rcc.stop_mode {
@@ -619,6 +698,9 @@ fn main() {
                 impl crate::rcc::SealedRccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
+                    }
+                    fn bus_frequency() -> crate::time::Hertz {
+                        #bus_clock_frequency
                     }
 
                     const RCC_INFO: crate::rcc::RccInfo = unsafe {
@@ -1047,7 +1129,7 @@ fn main() {
         (("sdmmc", "D4"), quote!(crate::sdmmc::D4Pin)),
         (("sdmmc", "D5"), quote!(crate::sdmmc::D5Pin)),
         (("sdmmc", "D6"), quote!(crate::sdmmc::D6Pin)),
-        (("sdmmc", "D6"), quote!(crate::sdmmc::D7Pin)),
+        (("sdmmc", "D7"), quote!(crate::sdmmc::D7Pin)),
         (("sdmmc", "D8"), quote!(crate::sdmmc::D8Pin)),
         (("quadspi", "BK1_IO0"), quote!(crate::qspi::BK1D0Pin)),
         (("quadspi", "BK1_IO1"), quote!(crate::qspi::BK1D1Pin)),
@@ -1096,6 +1178,72 @@ fn main() {
         (("octospim", "P2_NCS"), quote!(crate::ospi::NSSPin)),
         (("octospim", "P2_CLK"), quote!(crate::ospi::SckPin)),
         (("octospim", "P2_NCLK"), quote!(crate::ospi::NckPin)),
+        (("xspi", "IO0"), quote!(crate::xspi::D0Pin)),
+        (("xspi", "IO1"), quote!(crate::xspi::D1Pin)),
+        (("xspi", "IO2"), quote!(crate::xspi::D2Pin)),
+        (("xspi", "IO3"), quote!(crate::xspi::D3Pin)),
+        (("xspi", "IO4"), quote!(crate::xspi::D4Pin)),
+        (("xspi", "IO5"), quote!(crate::xspi::D5Pin)),
+        (("xspi", "IO6"), quote!(crate::xspi::D6Pin)),
+        (("xspi", "IO7"), quote!(crate::xspi::D7Pin)),
+        (("xspi", "IO8"), quote!(crate::xspi::D8Pin)),
+        (("xspi", "IO9"), quote!(crate::xspi::D9Pin)),
+        (("xspi", "IO10"), quote!(crate::xspi::D10Pin)),
+        (("xspi", "IO11"), quote!(crate::xspi::D11Pin)),
+        (("xspi", "IO12"), quote!(crate::xspi::D12Pin)),
+        (("xspi", "IO13"), quote!(crate::xspi::D13Pin)),
+        (("xspi", "IO14"), quote!(crate::xspi::D14Pin)),
+        (("xspi", "IO15"), quote!(crate::xspi::D15Pin)),
+        (("xspi", "DQS0"), quote!(crate::xspi::DQS0Pin)),
+        (("xspi", "DQS1"), quote!(crate::xspi::DQS1Pin)),
+        (("xspi", "NCS1"), quote!(crate::xspi::NCSPin)),
+        (("xspi", "NCS2"), quote!(crate::xspi::NCSPin)),
+        (("xspi", "CLK"), quote!(crate::xspi::CLKPin)),
+        (("xspi", "NCLK"), quote!(crate::xspi::NCLKPin)),
+        (("xspim", "P1_IO0"), quote!(crate::xspi::D0Pin)),
+        (("xspim", "P1_IO1"), quote!(crate::xspi::D1Pin)),
+        (("xspim", "P1_IO2"), quote!(crate::xspi::D2Pin)),
+        (("xspim", "P1_IO3"), quote!(crate::xspi::D3Pin)),
+        (("xspim", "P1_IO4"), quote!(crate::xspi::D4Pin)),
+        (("xspim", "P1_IO5"), quote!(crate::xspi::D5Pin)),
+        (("xspim", "P1_IO6"), quote!(crate::xspi::D6Pin)),
+        (("xspim", "P1_IO7"), quote!(crate::xspi::D7Pin)),
+        (("xspim", "P1_IO8"), quote!(crate::xspi::D8Pin)),
+        (("xspim", "P1_IO9"), quote!(crate::xspi::D9Pin)),
+        (("xspim", "P1_IO10"), quote!(crate::xspi::D10Pin)),
+        (("xspim", "P1_IO11"), quote!(crate::xspi::D11Pin)),
+        (("xspim", "P1_IO12"), quote!(crate::xspi::D12Pin)),
+        (("xspim", "P1_IO13"), quote!(crate::xspi::D13Pin)),
+        (("xspim", "P1_IO14"), quote!(crate::xspi::D14Pin)),
+        (("xspim", "P1_IO15"), quote!(crate::xspi::D15Pin)),
+        (("xspim", "P1_DQS0"), quote!(crate::xspi::DQS0Pin)),
+        (("xspim", "P1_DQS1"), quote!(crate::xspi::DQS1Pin)),
+        (("xspim", "P1_NCS1"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P1_NCS2"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P1_CLK"), quote!(crate::xspi::CLKPin)),
+        (("xspim", "P1_NCLK"), quote!(crate::xspi::NCLKPin)),
+        (("xspim", "P2_IO0"), quote!(crate::xspi::D0Pin)),
+        (("xspim", "P2_IO1"), quote!(crate::xspi::D1Pin)),
+        (("xspim", "P2_IO2"), quote!(crate::xspi::D2Pin)),
+        (("xspim", "P2_IO3"), quote!(crate::xspi::D3Pin)),
+        (("xspim", "P2_IO4"), quote!(crate::xspi::D4Pin)),
+        (("xspim", "P2_IO5"), quote!(crate::xspi::D5Pin)),
+        (("xspim", "P2_IO6"), quote!(crate::xspi::D6Pin)),
+        (("xspim", "P2_IO7"), quote!(crate::xspi::D7Pin)),
+        (("xspim", "P2_IO8"), quote!(crate::xspi::D8Pin)),
+        (("xspim", "P2_IO9"), quote!(crate::xspi::D9Pin)),
+        (("xspim", "P2_IO10"), quote!(crate::xspi::D10Pin)),
+        (("xspim", "P2_IO11"), quote!(crate::xspi::D11Pin)),
+        (("xspim", "P2_IO12"), quote!(crate::xspi::D12Pin)),
+        (("xspim", "P2_IO13"), quote!(crate::xspi::D13Pin)),
+        (("xspim", "P2_IO14"), quote!(crate::xspi::D14Pin)),
+        (("xspim", "P2_IO15"), quote!(crate::xspi::D15Pin)),
+        (("xspim", "P2_DQS0"), quote!(crate::xspi::DQS0Pin)),
+        (("xspim", "P2_DQS1"), quote!(crate::xspi::DQS1Pin)),
+        (("xspim", "P2_NCS1"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P2_NCS2"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P2_CLK"), quote!(crate::xspi::CLKPin)),
+        (("xspim", "P2_NCLK"), quote!(crate::xspi::NCLKPin)),
         (("hspi", "IO0"), quote!(crate::hspi::D0Pin)),
         (("hspi", "IO1"), quote!(crate::hspi::D1Pin)),
         (("hspi", "IO2"), quote!(crate::hspi::D2Pin)),
@@ -1149,6 +1297,8 @@ fn main() {
         (("tsc", "G8_IO2"), quote!(crate::tsc::G8IO2Pin)),
         (("tsc", "G8_IO3"), quote!(crate::tsc::G8IO3Pin)),
         (("tsc", "G8_IO4"), quote!(crate::tsc::G8IO4Pin)),
+        (("dac", "OUT1"), quote!(crate::dac::DacPin<Ch1>)),
+        (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
     ].into();
 
     for p in METADATA.peripherals {
@@ -1184,6 +1334,29 @@ fn main() {
                             });
                         }
                         peri = format_ident!("{}", "OCTOSPI1");
+                    }
+
+                    // XSPIM  is special
+                    if p.name == "XSPIM" {
+                        if pin.signal.starts_with("P1") {
+                            peri = format_ident!("{}", "XSPI1");
+                        } else if pin.signal.starts_with("P2") {
+                            peri = format_ident!("{}", "XSPI2");
+                        } else {
+                            panic! {"malformed XSPIM pin: {:?}", pin}
+                        }
+                    }
+
+                    // XSPI NCS pin to CSSEL mapping
+                    if pin.signal.ends_with("NCS1") {
+                        g.extend(quote! {
+                            sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 0);
+                        })
+                    }
+                    if pin.signal.ends_with("NCS2") {
+                        g.extend(quote! {
+                            sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 1);
+                        })
                     }
 
                     g.extend(quote! {
@@ -1238,6 +1411,18 @@ fn main() {
                         g.extend(quote! {
                             impl_opamp_vp_pin!( #peri, #pin_name, #ch);
                         })
+                    } else if pin.signal.starts_with("VINM") {
+                        // Impl NonInvertingPin for the VINM* signals ( VINM0, VINM1, etc)
+                        // STM32G4
+                        let peri = format_ident!("{}", p.name);
+                        let pin_name = format_ident!("{}", pin.pin);
+                        let ch: Result<u8, _> = pin.signal.strip_prefix("VINM").unwrap().parse();
+
+                        if let Ok(ch) = ch {
+                            g.extend(quote! {
+                                impl_opamp_vn_pin!( #peri, #pin_name, #ch);
+                            })
+                        }
                     } else if pin.signal == "VOUT" {
                         // Impl OutputPin for the VOUT pin
                         let peri = format_ident!("{}", p.name);
@@ -1246,17 +1431,6 @@ fn main() {
                             impl_opamp_vout_pin!( #peri, #pin_name );
                         })
                     }
-                }
-
-                // DAC is special
-                if regs.kind == "dac" {
-                    let peri = format_ident!("{}", p.name);
-                    let pin_name = format_ident!("{}", pin.pin);
-                    let ch: u8 = pin.signal.strip_prefix("OUT").unwrap().parse().unwrap();
-
-                    g.extend(quote! {
-                    impl_dac_pin!( #peri, #pin_name, #ch);
-                    })
                 }
 
                 if regs.kind == "spdifrx" {
@@ -1302,8 +1476,8 @@ fn main() {
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
         (("octospi", "OCTOSPI1"), quote!(crate::ospi::OctoDma)),
         (("hspi", "HSPI1"), quote!(crate::hspi::HspiDma)),
-        (("dac", "CH1"), quote!(crate::dac::DacDma1)),
-        (("dac", "CH2"), quote!(crate::dac::DacDma2)),
+        (("dac", "CH1"), quote!(crate::dac::Dma<Ch1>)),
+        (("dac", "CH2"), quote!(crate::dac::Dma<Ch2>)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
         (("hash", "IN"), quote!(crate::hash::Dma)),
         (("cryp", "IN"), quote!(crate::cryp::DmaIn)),
@@ -1321,6 +1495,13 @@ fn main() {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
     } else {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
+    }
+
+    if chip_name.starts_with("stm32g4") {
+        let line_number = chip_name.chars().skip(8).next().unwrap();
+        if line_number == '3' || line_number == '4' {
+            signals.insert(("adc", "ADC5"), quote!(crate::adc::RxDma));
+        }
     }
 
     for p in METADATA.peripherals {
@@ -1393,29 +1574,6 @@ fn main() {
                 e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
                 _ => false,
             }
-        }
-
-        #[derive(Copy, Clone, Debug)]
-        struct Frac {
-            num: u32,
-            denom: u32,
-        }
-
-        impl Frac {
-            fn simplify(self) -> Self {
-                let d = gcd(self.num, self.denom);
-                Self {
-                    num: self.num / d,
-                    denom: self.denom / d,
-                }
-            }
-        }
-
-        fn gcd(a: u32, b: u32) -> u32 {
-            if b == 0 {
-                return a;
-            }
-            gcd(b, a % b)
         }
 
         fn parse_num(n: &str) -> Result<Frac, ()> {
@@ -1500,8 +1658,7 @@ fn main() {
     let mut pins_table: Vec<Vec<String>> = Vec::new();
     let mut adc_table: Vec<Vec<String>> = Vec::new();
 
-    for m in METADATA
-        .memory
+    for m in memory
         .iter()
         .filter(|m| m.kind == MemoryRegionKind::Flash && m.settings.is_some())
     {
@@ -1739,8 +1896,7 @@ fn main() {
     // ========
     // Generate flash constants
 
-    let flash_regions: Vec<&MemoryRegion> = METADATA
-        .memory
+    let flash_regions: Vec<&MemoryRegion> = memory
         .iter()
         .filter(|x| x.kind == MemoryRegionKind::Flash && x.name.starts_with("BANK_"))
         .collect();
@@ -1765,6 +1921,48 @@ fn main() {
         pub const FLASH_SIZE: usize = #total_flash_size;
         pub const WRITE_SIZE: usize = #write_size;
     ));
+
+    // ========
+    // Generate EEPROM constants
+
+    cfgs.declare("eeprom");
+
+    let eeprom_memory_regions: Vec<&MemoryRegion> =
+        memory.iter().filter(|x| x.kind == MemoryRegionKind::Eeprom).collect();
+
+    if !eeprom_memory_regions.is_empty() {
+        cfgs.enable("eeprom");
+
+        let mut sorted_eeprom_regions = eeprom_memory_regions.clone();
+        sorted_eeprom_regions.sort_by_key(|r| r.address);
+
+        let first_eeprom_address = sorted_eeprom_regions[0].address;
+        let mut total_eeprom_size = 0;
+        let mut current_expected_address = first_eeprom_address;
+
+        for region in sorted_eeprom_regions.iter() {
+            if region.address != current_expected_address {
+                // For STM32L0 and STM32L1, EEPROM regions (if multiple) are expected to be contiguous.
+                // If they are not, this indicates an issue with the chip metadata or an unsupported configuration.
+                panic!(
+                    "EEPROM regions for chip {} are not contiguous, which is unexpected for L0/L1 series. \
+                    First region: '{}' at {:#X}. Found next non-contiguous region: '{}' at {:#X}. \
+                    Please verify chip metadata. Embassy currently assumes contiguous EEPROM for these series.",
+                    chip_name, sorted_eeprom_regions[0].name, first_eeprom_address, region.name, region.address
+                );
+            }
+            total_eeprom_size += region.size;
+            current_expected_address += region.size;
+        }
+
+        let eeprom_base_usize = first_eeprom_address as usize;
+        let total_eeprom_size_usize = total_eeprom_size as usize;
+
+        g.extend(quote! {
+            pub const EEPROM_BASE: usize = #eeprom_base_usize;
+            pub const EEPROM_SIZE: usize = #total_eeprom_size_usize;
+        });
+    }
 
     // ========
     // Generate macro-tables
@@ -1865,7 +2063,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     if cfg!(feature = "memory-x") {
-        gen_memory_x(out_dir);
+        gen_memory_x(memory, out_dir);
         println!("cargo:rustc-link-search={}", out_dir.display());
     }
 }
@@ -1954,11 +2152,11 @@ fn rustfmt(path: impl AsRef<Path>) {
     }
 }
 
-fn gen_memory_x(out_dir: &Path) {
+fn gen_memory_x(memory: &[MemoryRegion], out_dir: &Path) {
     let mut memory_x = String::new();
 
-    let flash = get_memory_range(MemoryRegionKind::Flash);
-    let ram = get_memory_range(MemoryRegionKind::Ram);
+    let flash = get_memory_range(memory, MemoryRegionKind::Flash);
+    let ram = get_memory_range(memory, MemoryRegionKind::Ram);
 
     write!(memory_x, "MEMORY\n{{\n").unwrap();
     writeln!(
@@ -1982,12 +2180,8 @@ fn gen_memory_x(out_dir: &Path) {
     std::fs::write(out_dir.join("memory.x"), memory_x.as_bytes()).unwrap();
 }
 
-fn get_memory_range(kind: MemoryRegionKind) -> (u32, u32, String) {
-    let mut mems: Vec<_> = METADATA
-        .memory
-        .iter()
-        .filter(|m| m.kind == kind && m.size != 0)
-        .collect();
+fn get_memory_range(memory: &[MemoryRegion], kind: MemoryRegionKind) -> (u32, u32, String) {
+    let mut mems: Vec<_> = memory.iter().filter(|m| m.kind == kind && m.size != 0).collect();
     mems.sort_by_key(|m| m.address);
 
     let mut start = u32::MAX;
@@ -2027,4 +2221,27 @@ fn mem_filter(chip: &str, region: &str) -> bool {
     }
 
     true
+}
+
+#[derive(Copy, Clone, Debug)]
+struct Frac {
+    num: u32,
+    denom: u32,
+}
+
+impl Frac {
+    fn simplify(self) -> Self {
+        let d = gcd(self.num, self.denom);
+        Self {
+            num: self.num / d,
+            denom: self.denom / d,
+        }
+    }
+}
+
+fn gcd(a: u32, b: u32) -> u32 {
+    if b == 0 {
+        return a;
+    }
+    gcd(b, a % b)
 }

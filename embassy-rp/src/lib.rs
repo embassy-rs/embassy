@@ -41,6 +41,8 @@ pub mod rom_data;
 #[cfg(feature = "rp2040")]
 pub mod rtc;
 pub mod spi;
+mod spinlock;
+pub mod spinlock_mutex;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
 #[cfg(feature = "_rp235x")]
@@ -54,7 +56,7 @@ pub mod pio;
 pub(crate) mod relocate;
 
 // Reexports
-pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use rp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
@@ -158,15 +160,18 @@ embassy_hal_internal::interrupt_mod!(
 /// ```rust,ignore
 /// use embassy_rp::{bind_interrupts, usb, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the USB Interrupts.
+///     struct Irqs {
+///         USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
+///     }
+/// );
 /// ```
 ///
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident {
         $(
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
@@ -176,6 +181,7 @@ macro_rules! bind_interrupts {
         )*
     }) => {
         #[derive(Copy, Clone)]
+        $(#[$attr])*
         $vis struct $name;
 
         $(

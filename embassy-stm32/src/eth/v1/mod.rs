@@ -6,7 +6,7 @@ mod tx_desc;
 use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::Peri;
 use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf};
 
 pub(crate) use self::rx_desc::{RDes, RDesRing};
@@ -15,6 +15,7 @@ use super::*;
 #[cfg(eth_v1a)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
+use crate::interrupt;
 use crate::interrupt::InterruptExt;
 #[cfg(eth_v1a)]
 use crate::pac::AFIO;
@@ -22,7 +23,6 @@ use crate::pac::AFIO;
 use crate::pac::SYSCFG;
 use crate::pac::{ETH, RCC};
 use crate::rcc::SealedRccPeripheral;
-use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler {}
@@ -47,14 +47,20 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
 
 /// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: Phy> {
-    _peri: PeripheralRef<'d, T>,
+    _peri: Peri<'d, T>,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
 
-    pins: [PeripheralRef<'d, AnyPin>; 9],
+    pins: Pins<'d>,
     pub(crate) phy: P,
     pub(crate) station_management: EthernetStationManagement<T>,
     pub(crate) mac_addr: [u8; 6],
+}
+
+/// Pins of ethernet driver.
+enum Pins<'d> {
+    Rmii([Peri<'d, AnyPin>; 9]),
+    Mii([Peri<'d, AnyPin>; 14]),
 }
 
 #[cfg(eth_v1a)]
@@ -95,22 +101,20 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// safety: the returned instance is not leak-safe
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
-        peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
-        ref_clk: impl Peripheral<P = impl RefClkPin<T>> + 'd,
-        mdio: impl Peripheral<P = impl MDIOPin<T>> + 'd,
-        mdc: impl Peripheral<P = impl MDCPin<T>> + 'd,
-        crs: impl Peripheral<P = impl CRSPin<T>> + 'd,
-        rx_d0: impl Peripheral<P = impl RXD0Pin<T>> + 'd,
-        rx_d1: impl Peripheral<P = impl RXD1Pin<T>> + 'd,
-        tx_d0: impl Peripheral<P = impl TXD0Pin<T>> + 'd,
-        tx_d1: impl Peripheral<P = impl TXD1Pin<T>> + 'd,
-        tx_en: impl Peripheral<P = impl TXEnPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
+        ref_clk: Peri<'d, impl RefClkPin<T>>,
+        mdio: Peri<'d, impl MDIOPin<T>>,
+        mdc: Peri<'d, impl MDCPin<T>>,
+        crs: Peri<'d, impl CRSPin<T>>,
+        rx_d0: Peri<'d, impl RXD0Pin<T>>,
+        rx_d1: Peri<'d, impl RXD1Pin<T>>,
+        tx_d0: Peri<'d, impl TXD0Pin<T>>,
+        tx_d1: Peri<'d, impl TXD1Pin<T>>,
+        tx_en: Peri<'d, impl TXEnPin<T>>,
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        into_ref!(peri, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
-
         // Enable the necessary Clocks
         #[cfg(eth_v1a)]
         critical_section::with(|_| {
@@ -148,6 +152,29 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         #[cfg(any(eth_v1b, eth_v1c))]
         config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
+        let pins = Pins::Rmii([
+            ref_clk.into(),
+            mdio.into(),
+            mdc.into(),
+            crs.into(),
+            rx_d0.into(),
+            rx_d1.into(),
+            tx_d0.into(),
+            tx_d1.into(),
+            tx_en.into(),
+        ]);
+
+        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
+    }
+
+    fn new_inner<const TX: usize, const RX: usize>(
+        queue: &'d mut PacketQueue<TX, RX>,
+        peri: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
+        pins: Pins<'d>,
+        phy: P,
+        mac_addr: [u8; 6],
+    ) -> Self {
         let dma = T::regs().ethernet_dma();
         let mac = T::regs().ethernet_mac();
 
@@ -212,18 +239,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             }
         };
 
-        let pins = [
-            ref_clk.map_into(),
-            mdio.map_into(),
-            mdc.map_into(),
-            crs.map_into(),
-            rx_d0.map_into(),
-            rx_d1.map_into(),
-            tx_d0.map_into(),
-            tx_d1.map_into(),
-            tx_en.map_into(),
-        ];
-
         let mut this = Self {
             _peri: peri,
             pins,
@@ -268,6 +283,87 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         unsafe { interrupt::ETH.enable() };
 
         this
+    }
+
+    /// Create a new MII ethernet driver using 14 pins.
+    pub fn new_mii<const TX: usize, const RX: usize>(
+        queue: &'d mut PacketQueue<TX, RX>,
+        peri: Peri<'d, T>,
+        irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
+        rx_clk: Peri<'d, impl RXClkPin<T>>,
+        tx_clk: Peri<'d, impl TXClkPin<T>>,
+        mdio: Peri<'d, impl MDIOPin<T>>,
+        mdc: Peri<'d, impl MDCPin<T>>,
+        rxdv: Peri<'d, impl RXDVPin<T>>,
+        rx_d0: Peri<'d, impl RXD0Pin<T>>,
+        rx_d1: Peri<'d, impl RXD1Pin<T>>,
+        rx_d2: Peri<'d, impl RXD2Pin<T>>,
+        rx_d3: Peri<'d, impl RXD3Pin<T>>,
+        tx_d0: Peri<'d, impl TXD0Pin<T>>,
+        tx_d1: Peri<'d, impl TXD1Pin<T>>,
+        tx_d2: Peri<'d, impl TXD2Pin<T>>,
+        tx_d3: Peri<'d, impl TXD3Pin<T>>,
+        tx_en: Peri<'d, impl TXEnPin<T>>,
+        phy: P,
+        mac_addr: [u8; 6],
+    ) -> Self {
+        // TODO: Handle optional signals like CRS, MII_COL, RX_ER?
+
+        // Enable the necessary Clocks
+        #[cfg(eth_v1a)]
+        critical_section::with(|_| {
+            RCC.apb2enr().modify(|w| w.set_afioen(true));
+
+            // Select MII (Media Independent Interface)
+            // Must be done prior to enabling peripheral clock
+            AFIO.mapr().modify(|w| w.set_mii_rmii_sel(false));
+
+            RCC.ahbenr().modify(|w| {
+                w.set_ethen(true);
+                w.set_ethtxen(true);
+                w.set_ethrxen(true);
+            });
+        });
+
+        #[cfg(any(eth_v1b, eth_v1c))]
+        critical_section::with(|_| {
+            RCC.ahb1enr().modify(|w| {
+                w.set_ethen(true);
+                w.set_ethtxen(true);
+                w.set_ethrxen(true);
+            });
+
+            // MII (Media Independent Interface)
+            SYSCFG.pmc().modify(|w| w.set_mii_rmii_sel(false));
+        });
+
+        #[cfg(eth_v1a)]
+        {
+            config_in_pins!(rx_clk, tx_clk, rx_d0, rx_d1, rx_d2, rx_d3, rxdv);
+            config_af_pins!(mdio, mdc, tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
+        }
+
+        #[cfg(any(eth_v1b, eth_v1c))]
+        config_pins!(rx_clk, tx_clk, mdio, mdc, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
+
+        let pins = Pins::Mii([
+            rx_clk.into(),
+            tx_clk.into(),
+            mdio.into(),
+            mdc.into(),
+            rxdv.into(),
+            rx_d0.into(),
+            rx_d1.into(),
+            rx_d2.into(),
+            rx_d3.into(),
+            tx_d0.into(),
+            tx_d1.into(),
+            tx_d2.into(),
+            tx_d3.into(),
+            tx_en.into(),
+        ]);
+
+        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
     }
 }
 
@@ -324,7 +420,10 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
         dma.dmaomr().modify(|w| w.set_sr(DmaomrSr::STOPPED));
 
         critical_section::with(|_| {
-            for pin in self.pins.iter_mut() {
+            for pin in match self.pins {
+                Pins::Rmii(ref mut pins) => pins.iter_mut(),
+                Pins::Mii(ref mut pins) => pins.iter_mut(),
+            } {
                 pin.set_as_disconnected();
             }
         })

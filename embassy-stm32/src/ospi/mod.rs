@@ -8,7 +8,7 @@ pub mod enums;
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::{GetConfig, SetConfig};
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 pub use enums::*;
 use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
@@ -19,7 +19,7 @@ use crate::pac::octospi::{vals, Octospi as Regs};
 #[cfg(octospim_v1)]
 use crate::pac::octospim::Octospim;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
+use crate::{peripherals, Peri};
 
 /// OPSI driver config.
 #[derive(Clone, Copy)]
@@ -160,18 +160,18 @@ pub enum OspiError {
 
 /// OSPI driver.
 pub struct Ospi<'d, T: Instance, M: PeriMode> {
-    _peri: PeripheralRef<'d, T>,
-    sck: Option<PeripheralRef<'d, AnyPin>>,
-    d0: Option<PeripheralRef<'d, AnyPin>>,
-    d1: Option<PeripheralRef<'d, AnyPin>>,
-    d2: Option<PeripheralRef<'d, AnyPin>>,
-    d3: Option<PeripheralRef<'d, AnyPin>>,
-    d4: Option<PeripheralRef<'d, AnyPin>>,
-    d5: Option<PeripheralRef<'d, AnyPin>>,
-    d6: Option<PeripheralRef<'d, AnyPin>>,
-    d7: Option<PeripheralRef<'d, AnyPin>>,
-    nss: Option<PeripheralRef<'d, AnyPin>>,
-    dqs: Option<PeripheralRef<'d, AnyPin>>,
+    _peri: Peri<'d, T>,
+    sck: Option<Peri<'d, AnyPin>>,
+    d0: Option<Peri<'d, AnyPin>>,
+    d1: Option<Peri<'d, AnyPin>>,
+    d2: Option<Peri<'d, AnyPin>>,
+    d3: Option<Peri<'d, AnyPin>>,
+    d4: Option<Peri<'d, AnyPin>>,
+    d5: Option<Peri<'d, AnyPin>>,
+    d6: Option<Peri<'d, AnyPin>>,
+    d7: Option<Peri<'d, AnyPin>>,
+    nss: Option<Peri<'d, AnyPin>>,
+    dqs: Option<Peri<'d, AnyPin>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -245,25 +245,23 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
     }
 
     fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: Option<PeripheralRef<'d, AnyPin>>,
-        d1: Option<PeripheralRef<'d, AnyPin>>,
-        d2: Option<PeripheralRef<'d, AnyPin>>,
-        d3: Option<PeripheralRef<'d, AnyPin>>,
-        d4: Option<PeripheralRef<'d, AnyPin>>,
-        d5: Option<PeripheralRef<'d, AnyPin>>,
-        d6: Option<PeripheralRef<'d, AnyPin>>,
-        d7: Option<PeripheralRef<'d, AnyPin>>,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        nss: Option<PeripheralRef<'d, AnyPin>>,
-        dqs: Option<PeripheralRef<'d, AnyPin>>,
+        peri: Peri<'d, T>,
+        d0: Option<Peri<'d, AnyPin>>,
+        d1: Option<Peri<'d, AnyPin>>,
+        d2: Option<Peri<'d, AnyPin>>,
+        d3: Option<Peri<'d, AnyPin>>,
+        d4: Option<Peri<'d, AnyPin>>,
+        d5: Option<Peri<'d, AnyPin>>,
+        d6: Option<Peri<'d, AnyPin>>,
+        d7: Option<Peri<'d, AnyPin>>,
+        sck: Option<Peri<'d, AnyPin>>,
+        nss: Option<Peri<'d, AnyPin>>,
+        dqs: Option<Peri<'d, AnyPin>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         width: OspiWidth,
         dual_quad: bool,
     ) -> Self {
-        into_ref!(peri);
-
         #[cfg(octospim_v1)]
         {
             // RCC for octospim should be enabled before writing register
@@ -372,7 +370,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         });
 
         T::REGS.cr().modify(|w| {
-            w.set_fthres(vals::Threshold(config.fifo_threshold.into()));
+            w.set_fthres(vals::Threshold::from_bits(config.fifo_threshold.into()));
         });
 
         // Wait for busy flag to clear
@@ -643,7 +641,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         });
 
         T::REGS.cr().modify(|w| {
-            w.set_fthres(vals::Threshold(config.fifo_threshold.into()));
+            w.set_fthres(vals::Threshold::from_bits(config.fifo_threshold.into()));
         });
 
         // Wait for busy flag to clear
@@ -685,11 +683,11 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     /// Create new blocking OSPI driver for a single spi external chip
     pub fn new_blocking_singlespi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -717,11 +715,11 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
 
     /// Create new blocking OSPI driver for a dualspi external chip
     pub fn new_blocking_dualspi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -749,13 +747,13 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
 
     /// Create new blocking OSPI driver for a quadspi external chip
     pub fn new_blocking_quadspi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -783,17 +781,17 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
 
     /// Create new blocking OSPI driver for two quadspi external chips
     pub fn new_blocking_dualquadspi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -821,17 +819,17 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
 
     /// Create new blocking OSPI driver for octospi external chips
     pub fn new_blocking_octospi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -861,12 +859,12 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
 impl<'d, T: Instance> Ospi<'d, T, Async> {
     /// Create new blocking OSPI driver for a single spi external chip
     pub fn new_singlespi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl OctoDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dma: Peri<'d, impl OctoDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -894,12 +892,12 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
 
     /// Create new blocking OSPI driver for a dualspi external chip
     pub fn new_dualspi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl OctoDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dma: Peri<'d, impl OctoDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -927,14 +925,14 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
 
     /// Create new blocking OSPI driver for a quadspi external chip
     pub fn new_quadspi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl OctoDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dma: Peri<'d, impl OctoDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -962,18 +960,18 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
 
     /// Create new blocking OSPI driver for two quadspi external chips
     pub fn new_dualquadspi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl OctoDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dma: Peri<'d, impl OctoDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1001,18 +999,18 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
 
     /// Create new blocking OSPI driver for octospi external chips
     pub fn new_octospi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl OctoDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dma: Peri<'d, impl OctoDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1221,12 +1219,12 @@ pub(crate) trait SealedInstance {
 /// OSPI instance trait.
 #[cfg(octospim_v1)]
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral + SealedOctospimInstance {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + SealedOctospimInstance {}
 
 /// OSPI instance trait.
 #[cfg(not(octospim_v1))]
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(NckPin, Instance);

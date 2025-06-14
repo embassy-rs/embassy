@@ -16,6 +16,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{self, PIN_20, PIN_21};
+use embassy_rp::Peri;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -38,7 +39,11 @@ async fn main(spawner: Spawner) {
 
 // 1) Assigning a resource to a task by passing parts of the peripherals.
 #[embassy_executor::task]
-async fn double_blinky_manually_assigned(_spawner: Spawner, pin_20: PIN_20, pin_21: PIN_21) {
+async fn double_blinky_manually_assigned(
+    _spawner: Spawner,
+    pin_20: Peri<'static, PIN_20>,
+    pin_21: Peri<'static, PIN_21>,
+) {
     let mut led_20 = Output::new(pin_20, Level::Low);
     let mut led_21 = Output::new(pin_21, Level::High);
 
