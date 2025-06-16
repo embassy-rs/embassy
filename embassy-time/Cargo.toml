@@ -427,7 +427,7 @@ embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 
-futures-util = { version = "0.3.17", default-features = false }
+futures-core = { version = "0.3.31", default-features = false }
 critical-section = "1.1"
 cfg-if = "1.0.0"
 
