@@ -443,7 +443,7 @@ where
     }
 }
 
-impl<'ch, M, T, const N: usize> futures_util::Stream for Receiver<'ch, M, T, N>
+impl<'ch, M, T, const N: usize> futures_core::Stream for Receiver<'ch, M, T, N>
 where
     M: RawMutex,
 {
@@ -962,7 +962,7 @@ where
     }
 }
 
-impl<M, T, const N: usize> futures_util::Stream for Channel<M, T, N>
+impl<M, T, const N: usize> futures_core::Stream for Channel<M, T, N>
 where
     M: RawMutex,
 {
