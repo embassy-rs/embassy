@@ -5,7 +5,7 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Msirange, Msirange as MSIRange, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
-use crate::pac::rcc::vals::{Hseext, Msirgsel, Pllmboost, Pllrge};
+use crate::pac::rcc::vals::{Hseext, Msipllsel, Msirgsel, Pllmboost, Pllrge};
 #[cfg(all(peri_usb_otg_hs))]
 pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};
@@ -131,7 +131,18 @@ pub(crate) unsafe fn init(config: Config) {
     PWR.vosr().modify(|w| w.set_vos(config.voltage_range));
     while !PWR.vosr().read().vosrdy() {}
 
-    let msis = config.msis.map(|range| {
+    let lse_calibration_freq = match config.ls.lse {
+        Some(lse_config) => {
+            if lse_config.peripherals_clocked && (31_000..=34_000).contains(&lse_config.frequency.0) {
+                Some(lse_config.frequency)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
+    let mut msis = config.msis.map(|range| {
         // Check MSI output per RM0456 § 11.4.10
         match config.voltage_range {
             VoltageScale::RANGE4 => {
@@ -184,8 +195,25 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| {
             w.set_msikon(true);
         });
+        if lse_calibration_freq.is_some() {
+            // Enable the MSIK auto-calibration feature
+            RCC.cr().modify(|w| w.set_msipllsel(Msipllsel::MSIK));
+            RCC.cr().modify(|w| w.set_msipllen(true));
+        }
         while !RCC.cr().read().msikrdy() {}
-        msirange_to_hertz(range)
+        if let Some(freq) = lse_calibration_freq {
+            // Estimate frequency based on it being a fixed fractional multiple of LSE
+            let base = msirange_to_hertz(range).0;
+            let multiplier = (base + 8096) / 16384;
+            let msik_freq = Hertz(freq.0 * multiplier / 2);
+            if config.msis == config.msik {
+                // If MSIS and MSIK are the same range both will be auto calibrated to the same frequency
+                msis = Some(msik_freq)
+            }
+            msik_freq
+        } else {
+            msirange_to_hertz(range)
+        }
     });
 
     let hsi = config.hsi.then(|| {
