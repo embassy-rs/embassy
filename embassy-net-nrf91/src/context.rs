@@ -102,6 +102,7 @@ impl<'a> Control<'a> {
     ///
     /// After configuring, invoke [`enable()`] to activate the configuration.
     pub async fn configure(&self, config: &Config<'_>) -> Result<(), Error> {
+        trace!("configure modem");
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
 
@@ -158,19 +159,21 @@ impl<'a> Control<'a> {
         trace!("Attach to the PDN");
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
-        let op = CommandBuilder::create_set(&mut cmd, true)
+        let op: &[u8] = CommandBuilder::create_set(&mut cmd, true)
             .named("+CGATT")
             .with_int_parameter(1)
             .finish()
             .map_err(|_| Error::BufferTooSmall)?;
+        trace!("attach pdn command {}", op);
         let n = self.control.at_command(op, &mut buf).await;
+        trace!("attach pdn buf {}", &buf[..n]);
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
         Ok(())
     }
 
     /// Read current connectivity status for modem.
     pub async fn detach(&self) -> Result<(), Error> {
-        trace!("detach");
+        trace!("detach modem");
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
         let op = CommandBuilder::create_set(&mut cmd, true)
@@ -184,6 +187,7 @@ impl<'a> Control<'a> {
     }
 
     async fn attached(&self) -> Result<bool, Error> {
+        trace!("check attached");
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
 
@@ -203,6 +207,7 @@ impl<'a> Control<'a> {
 
     /// Read current connectivity status for modem.
     pub async fn status(&self) -> Result<Status, Error> {
+        trace!("read status for modem");
         let mut cmd: [u8; 256] = [0; 256];
         let mut buf: [u8; 256] = [0; 256];
 
@@ -300,6 +305,7 @@ impl<'a> Control<'a> {
     }
 
     async fn wait_attached(&self) -> Result<Status, Error> {
+        trace!("waiting for attached");
         // Poll every second, up to 60 seconds, then error out
         const POLL_INTERVAL: Duration = Duration::from_secs(1);
         const MAX_TIMEOUT: Duration = Duration::from_secs(60);
@@ -311,6 +317,7 @@ impl<'a> Control<'a> {
                 break;
             }
             if elapsed >= MAX_TIMEOUT {
+                trace!("error Attach timeout");
                 return Err(Error::AttachTimeout);
             }
             Timer::after(POLL_INTERVAL).await;
@@ -318,6 +325,7 @@ impl<'a> Control<'a> {
         }
 
         // Now that we know it's attached, get full status
+        trace!("get full status");
         let status = self.status().await?;
         Ok(status)
     }
@@ -366,7 +374,10 @@ impl<'a> Control<'a> {
 
     /// Run a control loop for this context, ensuring that reaattach is handled.
     pub async fn run<F: Fn(&Status)>(&self, reattach: F) -> Result<(), Error> {
-        self.enable().await?;
+        match self.enable().await {
+            Ok(_)=> trace!("control run enabled"),
+            Err(e)=> trace!("control run errored {}", e)
+        };
         let status = self.wait_attached().await?;
         let mut fd = self.control.open_raw_socket().await;
         reattach(&status);
