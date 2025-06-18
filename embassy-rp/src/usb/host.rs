@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
-use embassy_hal_internal::Peripheral;
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver,
@@ -35,7 +35,7 @@ pub struct Driver<'d, T: Instance> {
 
 impl<'d, T: Instance> Driver<'d, T> {
     /// Create a new USB driver.
-    pub fn new(_usb: impl Peripheral<P = T> + 'd, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
+    pub fn new(_usb: impl PeripheralType + 'd, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         let regs = T::regs();
         unsafe {
             // FIXME(magic):
