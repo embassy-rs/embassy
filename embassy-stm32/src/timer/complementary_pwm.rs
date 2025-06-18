@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use stm32_metapac::timer::vals::Ckd;
+pub use stm32_metapac::timer::vals::{Ckd, Mms2};
 
 use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::{Ch1, Ch2, Ch3, Ch4, PwmPin};
@@ -90,6 +90,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
             });
 
         this
+    }
+
+    /// Set Master Slave Mode 2
+    pub fn set_mms2(&mut self, mms2: Mms2) {
+        self.inner.set_mms2_selection(mms2);
     }
 
     /// Enable the given channel.
