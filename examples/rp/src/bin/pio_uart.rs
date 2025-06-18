@@ -16,14 +16,13 @@ use embassy_futures::join::{join, join3};
 use embassy_rp::peripherals::{PIO0, USB};
 use embassy_rp::pio_programs::uart::{PioUartRx, PioUartRxProgram, PioUartTx, PioUartTxProgram};
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
-use embassy_rp::{bind_interrupts, pio};
+use embassy_rp::{bind_interrupts, pio, PeripheralType};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use embedded_io_async::{Read, Write};
-use embassy_rp::PeripheralType;
 use {defmt_rtt as _, panic_probe as _};
 
 //use crate::uart::PioUart;
