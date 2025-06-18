@@ -23,6 +23,7 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use embedded_io_async::{Read, Write};
+use embassy_rp::PeripheralType;
 use {defmt_rtt as _, panic_probe as _};
 
 //use crate::uart::PioUart;
@@ -133,7 +134,7 @@ impl From<EndpointError> for Disconnected {
 }
 
 /// Read from the USB and write it to the UART TX pipe
-async fn usb_read<'d, T: Instance + 'd>(
+async fn usb_read<'d, T: Instance + PeripheralType + 'd>(
     usb_rx: &mut Receiver<'d, Driver<'d, T>>,
     uart_pipe_writer: &mut embassy_sync::pipe::Writer<'_, NoopRawMutex, 20>,
 ) -> Result<(), Disconnected> {
@@ -147,7 +148,7 @@ async fn usb_read<'d, T: Instance + 'd>(
 }
 
 /// Read from the USB TX pipe and write it to the USB
-async fn usb_write<'d, T: Instance + 'd>(
+async fn usb_write<'d, T: Instance + PeripheralType + 'd>(
     usb_tx: &mut Sender<'d, Driver<'d, T>>,
     usb_pipe_reader: &mut embassy_sync::pipe::Reader<'_, NoopRawMutex, 20>,
 ) -> Result<(), Disconnected> {

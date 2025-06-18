@@ -13,7 +13,7 @@ use embassy_usb_driver::{
 
 use super::{Dir, In, Instance, Out};
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, peripherals, Peri, RegExt};
+use crate::{interrupt, pac, Peri, RegExt};
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
@@ -74,14 +74,14 @@ impl EndpointData {
 }
 
 /// RP2040 USB driver handle.
-pub struct Driver<'d, T: Instance> {
+pub struct Driver<'d, T: Instance + PeripheralType> {
     phantom: PhantomData<&'d mut T>,
     ep_in: [EndpointData; EP_COUNT],
     ep_out: [EndpointData; EP_COUNT],
     ep_mem_free: u16, // first free address in EP mem, in bytes.
 }
 
-impl<'d, T: Instance> Driver<'d, T> {
+impl<'d, T: Instance + PeripheralType> Driver<'d, T> {
     /// Create a new USB driver.
     pub fn new(_usb: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         T::Interrupt::unpend();
@@ -265,7 +265,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
+impl<'d, T: Instance + PeripheralType> driver::Driver<'d> for Driver<'d, T> {
     type EndpointOut = Endpoint<'d, T, Out>;
     type EndpointIn = Endpoint<'d, T, In>;
     type ControlPipe = ControlPipe<'d, T>;

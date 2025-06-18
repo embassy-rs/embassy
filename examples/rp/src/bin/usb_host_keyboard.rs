@@ -18,11 +18,11 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    // Initialise Peripherals
+    // Initialize Peripherals
     let p = embassy_rp::init(Default::default());
 
     // Create the driver, from the HAL.
-    let mut usbhost = embassy_rp::usb::host::Driver::new(p.USB, Irqs);
+    let mut usbhost = embassy_rp::usb::host::Driver::new(*p.USB, Irqs);
 
     debug!("Detecting device");
     // Wait for root-port to detect device
