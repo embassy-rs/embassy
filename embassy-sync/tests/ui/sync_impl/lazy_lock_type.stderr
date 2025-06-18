@@ -1,0 +1,9 @@
+error[E0277]: `*mut u8` cannot be shared between threads safely
+ --> tests/ui/sync_impl/lazy_lock_type.rs:4:16
+  |
+4 | static GLOBAL: LazyLock<*mut u8> = LazyLock::new(|| core::ptr::null_mut());
+  |                ^^^^^^^^^^^^^^^^^ `*mut u8` cannot be shared between threads safely
+  |
+  = help: the trait `Sync` is not implemented for `*mut u8`
+  = note: required for `embassy_sync::lazy_lock::LazyLock<*mut u8>` to implement `Sync`
+  = note: shared static variables must have a type that implements `Sync`
