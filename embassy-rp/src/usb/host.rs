@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
-use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver,
