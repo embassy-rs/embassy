@@ -95,7 +95,7 @@ impl<I: Instance> interrupt::typelevel::Handler<I::Interrupt> for USBHostInterru
 
             let index = istr.ep_id() as usize;
             let mut epr = invariant(regs.epr(index).read());
-            // Toggle endponit to disabled
+            // Toggle endpoint to disabled
             epr.set_stat_rx(epr.stat_rx());
             epr.set_stat_tx(epr.stat_tx());
             regs.epr(index).write_value(epr);
@@ -354,7 +354,7 @@ impl<'d, I: Instance> UsbHost<'d, I> {
             BUS_WAKER.register(cx.waker());
 
             if !istr.dcon_stat() {
-                // device has dosconnected
+                // device has disconnected
                 Poll::Ready(DeviceEvent::Disconnected)
             } else {
                 Poll::Pending
