@@ -42,7 +42,7 @@ pub struct OnceLock<T> {
     data: Cell<MaybeUninit<T>>,
 }
 
-unsafe impl<T> Sync for OnceLock<T> {}
+unsafe impl<T> Sync for OnceLock<T> where T: Sync {}
 
 impl<T> OnceLock<T> {
     /// Create a new uninitialized `OnceLock`.
