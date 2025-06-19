@@ -5,7 +5,6 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb_driver::host::{
@@ -14,12 +13,13 @@ use embassy_usb_driver::host::{
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{Reg, RW};
 use stm32_metapac::usb::regs::Epr;
+use embassy_hal_internal::PeripheralType;
 
 use super::{DmPin, DpPin, Instance};
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
-use crate::{interrupt, Peripheral};
+use crate::interrupt;
 
 /// The number of registers is 8, allowing up to 16 mono-
 /// directional/single-buffer or up to 7 double-buffer endpoints in any combination. For
@@ -95,7 +95,7 @@ impl<I: Instance> interrupt::typelevel::Handler<I::Interrupt> for USBHostInterru
 
             let index = istr.ep_id() as usize;
             let mut epr = invariant(regs.epr(index).read());
-            // Toggle endponit to disabled
+            // Toggle endpoint to disabled
             epr.set_stat_rx(epr.stat_rx());
             epr.set_stat_tx(epr.stat_tx());
             regs.epr(index).write_value(epr);
@@ -242,13 +242,11 @@ pub struct UsbHost<'d, I: Instance> {
 impl<'d, I: Instance> UsbHost<'d, I> {
     /// Create a new USB driver.
     pub fn new(
-        _usb: impl Peripheral<P = I> + 'd,
+        _usb: impl PeripheralType + 'd,
         _irq: impl interrupt::typelevel::Binding<I::Interrupt, USBHostInterruptHandler<I>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<I>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<I>> + 'd,
+        dp: impl PeripheralType + DpPin<I> + 'd,
+        dm: impl PeripheralType + DmPin<I> + 'd,
     ) -> Self {
-        into_ref!(dp, dm);
-
         super::super::common_init::<I>();
 
         let regs = I::regs();
@@ -356,7 +354,7 @@ impl<'d, I: Instance> UsbHost<'d, I> {
             BUS_WAKER.register(cx.waker());
 
             if !istr.dcon_stat() {
-                // device has dosconnected
+                // device has disconnected
                 Poll::Ready(DeviceEvent::Disconnected)
             } else {
                 Poll::Pending
