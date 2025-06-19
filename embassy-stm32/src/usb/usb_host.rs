@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb_driver::host::{
@@ -13,13 +14,12 @@ use embassy_usb_driver::host::{
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{Reg, RW};
 use stm32_metapac::usb::regs::Epr;
-use embassy_hal_internal::PeripheralType;
 
 use super::{DmPin, DpPin, Instance};
+use crate::interrupt;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
-use crate::interrupt;
 
 /// The number of registers is 8, allowing up to 16 mono-
 /// directional/single-buffer or up to 7 double-buffer endpoints in any combination. For
