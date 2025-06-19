@@ -751,7 +751,6 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         Self::wait_idle();
         Self::clear_interrupt_flags();
 
-        regs.dtimer().write(|w| w.set_datatime(config.data_transfer_timeout));
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
         #[cfg(sdmmc_v1)]
@@ -789,8 +788,6 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         Self::wait_idle();
         Self::clear_interrupt_flags();
 
-        regs.dtimer()
-            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
         #[cfg(sdmmc_v1)]
@@ -1349,6 +1346,8 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             #[cfg(sdmmc_v1)]
             w.set_bypass(_bypass);
         });
+        regs.dtimer()
+            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
 
         regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
         Self::cmd(common_cmd::idle(), false)?;
