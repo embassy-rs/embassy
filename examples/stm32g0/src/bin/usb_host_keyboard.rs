@@ -113,7 +113,7 @@ async fn main(_spawner: Spawner) {
     debug!("TCPP03-M20 Value 1: {:02X}", read_buf[0]);
 
     // Create the driver, from the HAL.
-    let mut usbhost = UsbHost::new(p.USB, Irqs, p.PA12, p.PA11);
+    let mut usbhost = UsbHost::new(*p.USB, Irqs, *p.PA12, *p.PA11);
 
     // info!("Start USB driver");
     usbhost.start();
