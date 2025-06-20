@@ -3,7 +3,7 @@
 use embassy_hal_internal::PeripheralType;
 
 use crate::pac;
-use crate::rcc::RccPeripheral;
+use crate::rcc::{self, RccPeripheral};
 // TODO: This code works for all HSEM implemenations except for the STM32WBA52/4/5xx MCUs.
 // Those MCUs have a different HSEM implementation (Secure semaphore lock support,
 // Privileged / unprivileged semaphore lock support, Semaphore lock protection via semaphore attribute),
@@ -80,6 +80,8 @@ pub struct HardwareSemaphore<'d, T: Instance> {
 impl<'d, T: Instance> HardwareSemaphore<'d, T> {
     /// Creates a new HardwareSemaphore instance.
     pub fn new(peripheral: Peri<'d, T>) -> Self {
+        rcc::enable_and_reset::<T>();
+
         HardwareSemaphore { _peri: peripheral }
     }
 
