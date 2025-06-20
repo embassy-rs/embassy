@@ -46,7 +46,7 @@ pub enum CoreId {
 #[inline(always)]
 pub fn get_current_coreid() -> CoreId {
     let cpuid = unsafe { cortex_m::peripheral::CPUID::PTR.read_volatile().base.read() };
-    match cpuid & 0x000000F0 {
+    match (cpuid & 0x000000F0) >> 4 {
         #[cfg(any(stm32wb, stm32wl))]
         0x0 => CoreId::Core1,
 
