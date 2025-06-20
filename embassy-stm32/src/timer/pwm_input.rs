@@ -8,7 +8,7 @@ use crate::Peri;
 
 /// PWM Input driver.
 ///
-/// Only works with CH1 and CH2
+/// Only works with CH1 or CH2
 /// Note: Not all timer peripherals are supported
 /// Double check your chips reference manual
 pub struct PwmInput<'d, T: GeneralInstance4Channel> {
