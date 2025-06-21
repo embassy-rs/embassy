@@ -24,22 +24,21 @@ pub(crate) struct FdBufferedTxInner {
 /// Sender that can be used for sending CAN frames.
 pub struct BufferedSender<'ch, FRAME> {
     pub(crate) tx_buf: embassy_sync::channel::SendDynamicSender<'ch, FRAME>,
-    pub(crate) waker: fn(),
-    pub(crate) internal_operation: fn(InternalOperation),
+    pub(crate) info: TxInfoRef,
 }
 
 impl<'ch, FRAME> BufferedSender<'ch, FRAME> {
     /// Async write frame to TX buffer.
     pub fn try_write(&mut self, frame: FRAME) -> Result<(), embassy_sync::channel::TrySendError<FRAME>> {
         self.tx_buf.try_send(frame)?;
-        (self.waker)();
+        (self.info.tx_waker)();
         Ok(())
     }
 
     /// Async write frame to TX buffer.
     pub async fn write(&mut self, frame: FRAME) {
         self.tx_buf.send(frame).await;
-        (self.waker)();
+        (self.info.tx_waker)();
     }
 
     /// Allows a poll_fn to poll until the channel is ready to write
@@ -50,18 +49,10 @@ impl<'ch, FRAME> BufferedSender<'ch, FRAME> {
 
 impl<'ch, FRAME> Clone for BufferedSender<'ch, FRAME> {
     fn clone(&self) -> Self {
-        (self.internal_operation)(InternalOperation::NotifySenderCreated);
         Self {
             tx_buf: self.tx_buf,
-            waker: self.waker,
-            internal_operation: self.internal_operation,
+            info: TxInfoRef::new(&self.info),
         }
-    }
-}
-
-impl<'ch, FRAME> Drop for BufferedSender<'ch, FRAME> {
-    fn drop(&mut self) {
-        (self.internal_operation)(InternalOperation::NotifySenderDestroyed);
     }
 }
 
@@ -71,7 +62,7 @@ pub type BufferedCanSender = BufferedSender<'static, Frame>;
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
 pub struct BufferedReceiver<'ch, ENVELOPE> {
     pub(crate) rx_buf: embassy_sync::channel::SendDynamicReceiver<'ch, Result<ENVELOPE, BusError>>,
-    pub(crate) internal_operation: fn(InternalOperation),
+    pub(crate) info: RxInfoRef,
 }
 
 impl<'ch, ENVELOPE> BufferedReceiver<'ch, ENVELOPE> {
@@ -106,19 +97,99 @@ impl<'ch, ENVELOPE> BufferedReceiver<'ch, ENVELOPE> {
 
 impl<'ch, ENVELOPE> Clone for BufferedReceiver<'ch, ENVELOPE> {
     fn clone(&self) -> Self {
-        (self.internal_operation)(InternalOperation::NotifyReceiverCreated);
         Self {
             rx_buf: self.rx_buf,
-            internal_operation: self.internal_operation,
+            info: RxInfoRef::new(&self.info),
         }
-    }
-}
-
-impl<'ch, ENVELOPE> Drop for BufferedReceiver<'ch, ENVELOPE> {
-    fn drop(&mut self) {
-        (self.internal_operation)(InternalOperation::NotifyReceiverDestroyed);
     }
 }
 
 /// A BufferedCanReceiver for Classic CAN frames.
 pub type BufferedCanReceiver = BufferedReceiver<'static, Envelope>;
+
+/// Provides a reference to the driver internals and implements RAII for the internal reference
+/// counting. Each type that can operate on the driver should contain either InfoRef
+/// or the similar TxInfoRef or RxInfoRef. The new method and the Drop impl will automatically
+/// call the reference counting function. Like this, the reference counting function does not
+/// need to be called manually for each type.
+pub(crate) struct InfoRef {
+    info: &'static super::Info,
+}
+impl InfoRef {
+    pub(crate) fn new(info: &'static super::Info) -> Self {
+        info.adjust_reference_counter(RefCountOp::NotifyReceiverCreated);
+        info.adjust_reference_counter(RefCountOp::NotifySenderCreated);
+        Self { info }
+    }
+}
+
+impl Drop for InfoRef {
+    fn drop(&mut self) {
+        self.info.adjust_reference_counter(RefCountOp::NotifyReceiverDestroyed);
+        self.info.adjust_reference_counter(RefCountOp::NotifySenderDestroyed);
+    }
+}
+
+impl core::ops::Deref for InfoRef {
+    type Target = &'static super::Info;
+
+    fn deref(&self) -> &Self::Target {
+        &self.info
+    }
+}
+
+/// Provides a reference to the driver internals and implements RAII for the internal reference
+/// counting for Tx only types.
+/// See InfoRef for further doc.
+pub(crate) struct TxInfoRef {
+    info: &'static super::Info,
+}
+
+impl TxInfoRef {
+    pub(crate) fn new(info: &'static super::Info) -> Self {
+        info.adjust_reference_counter(RefCountOp::NotifySenderCreated);
+        Self { info }
+    }
+}
+
+impl Drop for TxInfoRef {
+    fn drop(&mut self) {
+        self.info.adjust_reference_counter(RefCountOp::NotifySenderDestroyed);
+    }
+}
+
+impl core::ops::Deref for TxInfoRef {
+    type Target = &'static super::Info;
+
+    fn deref(&self) -> &Self::Target {
+        &self.info
+    }
+}
+
+/// Provides a reference to the driver internals and implements RAII for the internal reference
+/// counting for Rx only types.
+/// See InfoRef for further doc.
+pub(crate) struct RxInfoRef {
+    info: &'static super::Info,
+}
+
+impl RxInfoRef {
+    pub(crate) fn new(info: &'static super::Info) -> Self {
+        info.adjust_reference_counter(RefCountOp::NotifyReceiverCreated);
+        Self { info }
+    }
+}
+
+impl Drop for RxInfoRef {
+    fn drop(&mut self) {
+        self.info.adjust_reference_counter(RefCountOp::NotifyReceiverDestroyed);
+    }
+}
+
+impl core::ops::Deref for RxInfoRef {
+    type Target = &'static super::Info;
+
+    fn deref(&self) -> &Self::Target {
+        &self.info
+    }
+}
