@@ -51,7 +51,11 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         .embassy_executor
         .unwrap_or(Expr::Verbatim(TokenStream::from_str("::embassy_executor").unwrap()));
 
-    if f.sig.asyncness.is_none() {
+    let returns_impl_trait = match &f.sig.output {
+        ReturnType::Type(_, ty) => matches!(**ty, Type::ImplTrait(_)),
+        _ => false,
+    };
+    if f.sig.asyncness.is_none() && !returns_impl_trait {
         error(&mut errors, &f.sig, "task functions must be async");
     }
     if !f.sig.generics.params.is_empty() {
@@ -66,17 +70,19 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     if !f.sig.variadic.is_none() {
         error(&mut errors, &f.sig, "task functions must not be variadic");
     }
-    match &f.sig.output {
-        ReturnType::Default => {}
-        ReturnType::Type(_, ty) => match &**ty {
-            Type::Tuple(tuple) if tuple.elems.is_empty() => {}
-            Type::Never(_) => {}
-            _ => error(
-                &mut errors,
-                &f.sig,
-                "task functions must either not return a value, return `()` or return `!`",
-            ),
-        },
+    if f.sig.asyncness.is_some() {
+        match &f.sig.output {
+            ReturnType::Default => {}
+            ReturnType::Type(_, ty) => match &**ty {
+                Type::Tuple(tuple) if tuple.elems.is_empty() => {}
+                Type::Never(_) => {}
+                _ => error(
+                    &mut errors,
+                    &f.sig,
+                    "task functions must either not return a value, return `()` or return `!`",
+                ),
+            },
+        }
     }
 
     let mut args = Vec::new();
@@ -128,12 +134,12 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     #[cfg(feature = "nightly")]
     let mut task_outer_body = quote! {
         trait _EmbassyInternalTaskTrait {
-            type Fut: ::core::future::Future + 'static;
+            type Fut: ::core::future::Future<Output: #embassy_executor::_export::TaskReturnValue> + 'static;
             fn construct(#fargs) -> Self::Fut;
         }
 
         impl _EmbassyInternalTaskTrait for () {
-            type Fut = impl core::future::Future + 'static;
+            type Fut = impl core::future::Future<Output: #embassy_executor::_export::TaskReturnValue> + 'static;
             fn construct(#fargs) -> Self::Fut {
                 #task_inner_ident(#(#full_args,)*)
             }
