@@ -5,6 +5,7 @@
 :toc-placement: left
 :toclevels: 2
 :imagesdir: images
+:source-highlighter: rouge
 
 # Embassy Book
 
