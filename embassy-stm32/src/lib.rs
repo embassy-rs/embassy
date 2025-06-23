@@ -178,7 +178,7 @@ pub use crate::_generated::interrupt;
 macro_rules! bind_interrupts {
     ($(#[$outer:meta])* $vis:vis struct $name:ident {
         $(
-            $(#[$inner:meta])*
+            $(#[doc = $doc:literal])*
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
                 $(#[cfg($cond_handler:meta)])?
@@ -194,7 +194,7 @@ macro_rules! bind_interrupts {
             #[allow(non_snake_case)]
             #[no_mangle]
             $(#[cfg($cond_irq)])?
-            $(#[$inner])*
+            $(#[doc = $doc])*
             unsafe extern "C" fn $irq() {
                 $(
                     $(#[cfg($cond_handler)])?
