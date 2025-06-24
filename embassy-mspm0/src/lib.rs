@@ -13,6 +13,7 @@ pub(crate) mod fmt;
 // This must be declared early as well for
 mod macros;
 
+pub mod dma;
 pub mod gpio;
 pub mod timer;
 pub mod uart;
@@ -59,22 +60,106 @@ pub(crate) use mspm0_metapac as pac;
 
 pub use crate::_generated::interrupt;
 
+/// Macro to bind interrupts to handlers.
+///
+/// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
+/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// prove at compile-time that the right interrupts have been bound.
+///
+/// Example of how to bind one interrupt:
+///
+/// ```rust,ignore
+/// use embassy_nrf::{bind_interrupts, spim, peripherals};
+///
+/// bind_interrupts!(
+///     /// Binds the SPIM3 interrupt.
+///     struct Irqs {
+///         SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
+///     }
+/// );
+/// ```
+///
+/// Example of how to bind multiple interrupts in a single macro invocation:
+///
+/// ```rust,ignore
+/// use embassy_nrf::{bind_interrupts, spim, twim, peripherals};
+///
+/// bind_interrupts!(struct Irqs {
+///     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
+///     TWISPI0 => twim::InterruptHandler<peripherals::TWISPI0>;
+/// });
+/// ```
+
+// developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
+#[macro_export]
+macro_rules! bind_interrupts {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident {
+        $(
+            $(#[cfg($cond_irq:meta)])?
+            $irq:ident => $(
+                $(#[cfg($cond_handler:meta)])?
+                $handler:ty
+            ),*;
+        )*
+    }) => {
+        #[derive(Copy, Clone)]
+        $(#[$attr])*
+        $vis struct $name;
+
+        $(
+            #[allow(non_snake_case)]
+            #[no_mangle]
+            $(#[cfg($cond_irq)])?
+            unsafe extern "C" fn $irq() {
+                $(
+                    $(#[cfg($cond_handler)])?
+                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+
+                )*
+            }
+
+            $(#[cfg($cond_irq)])?
+            $crate::bind_interrupts!(@inner
+                $(
+                    $(#[cfg($cond_handler)])?
+                    unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
+                )*
+            );
+        )*
+    };
+    (@inner $($t:tt)*) => {
+        $($t)*
+    }
+}
+
 /// `embassy-mspm0` global configuration.
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct Config {
-    // TODO
+    // TODO: OSC configuration.
+    /// The size of DMA block transfer burst.
+    ///
+    /// If this is set to a value
+    pub dma_burst_size: dma::BurstSize,
+
+    /// Whether the DMA channels are used in a fixed priority or a round robin fashion.
+    ///
+    /// If [`false`], the DMA priorities are fixed.
+    ///
+    /// If [`true`], after a channel finishes a transfer it becomes the lowest priority.
+    pub dma_round_robin: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            // TODO
+            dma_burst_size: dma::BurstSize::Complete,
+            dma_round_robin: false,
         }
     }
 }
 
-pub fn init(_config: Config) -> Peripherals {
+pub fn init(config: Config) -> Peripherals {
     critical_section::with(|cs| {
         let peripherals = Peripherals::take_with_cs(cs);
 
@@ -112,9 +197,33 @@ pub fn init(_config: Config) -> Peripherals {
             crate::interrupt::typelevel::GPIOA::enable();
         }
 
+        // SAFETY: Peripherals::take_with_cs will only be run once or panic.
+        unsafe { dma::init(cs, config.dma_burst_size, config.dma_round_robin) };
+
         #[cfg(feature = "_time-driver")]
         time_driver::init(cs);
 
         peripherals
     })
+}
+
+pub(crate) mod sealed {
+    #[allow(dead_code)]
+    pub trait Sealed {}
+}
+
+struct BitIter(u32);
+
+impl Iterator for BitIter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.trailing_zeros() {
+            32 => None,
+            b => {
+                self.0 &= !(1 << b);
+                Some(b)
+            }
+        }
+    }
 }
