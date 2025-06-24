@@ -6,6 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [features]
 mspm0g3507 = [ "embassy-mspm0/mspm0g3507pm" ]
+mspm0g3519 = [ "embassy-mspm0/mspm0g3519pz" ]
 
 [dependencies]
 teleprobe-meta = "1.1"
