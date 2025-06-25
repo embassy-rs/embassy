@@ -1402,31 +1402,24 @@ fn main() {
                 }
 
                 if regs.kind == "opamp" {
-                    if pin.signal.starts_with("VP") {
-                        // Impl NonInvertingPin for the VP* signals (VP0, VP1, VP2, etc)
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
-                        let ch: u8 = pin.signal.strip_prefix("VP").unwrap().parse().unwrap();
-
-                        g.extend(quote! {
-                            impl_opamp_vp_pin!( #peri, #pin_name, #ch);
-                        })
-                    } else if pin.signal.starts_with("VINM") {
-                        // Impl NonInvertingPin for the VINM* signals ( VINM0, VINM1, etc)
-                        // STM32G4
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
-                        let ch: Result<u8, _> = pin.signal.strip_prefix("VINM").unwrap().parse();
-
-                        if let Ok(ch) = ch {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    if let Some(ch_str) = pin.signal.strip_prefix("VINP") {
+                        // Impl NonInvertingPin for VINP0, VINP1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
+                            g.extend(quote! {
+                                impl_opamp_vp_pin!( #peri, #pin_name, #ch );
+                            });
+                        }
+                    } else if let Some(ch_str) = pin.signal.strip_prefix("VINM") {
+                        // Impl InvertingPin for VINM0, VINM1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
                             g.extend(quote! {
                                 impl_opamp_vn_pin!( #peri, #pin_name, #ch);
-                            })
+                            });
                         }
                     } else if pin.signal == "VOUT" {
                         // Impl OutputPin for the VOUT pin
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
                         g.extend(quote! {
                             impl_opamp_vout_pin!( #peri, #pin_name );
                         })
