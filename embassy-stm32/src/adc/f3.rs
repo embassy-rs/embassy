@@ -232,8 +232,7 @@ impl<'d, A: IsAdc12, B: IsAdc12> SharedAdc<'d, A, B> {
         adc_a: Peri<'d, A>,
         adc_b: Peri<'d, B>,
         _irq: impl interrupt::typelevel::Binding<A::Interrupt, SharedInterruptHandler<A, B>> + 'd,
-    ) -> Self
-    {
+    ) -> Self {
         let a = Adc::new_unbound(adc_a);
         let b = Adc::new_unbound(adc_b);
 
@@ -242,9 +241,6 @@ impl<'d, A: IsAdc12, B: IsAdc12> SharedAdc<'d, A, B> {
             A::Interrupt::enable();
         }
 
-        Self {
-            a,
-            b,
-        }
+        Self { a, b }
     }
 }
