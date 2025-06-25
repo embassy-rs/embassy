@@ -1,7 +1,8 @@
 #![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
+#![cfg_attr(feature = "nightly", feature(never_type))]
 
 use std::boxed::Box;
-use std::future::poll_fn;
+use std::future::{poll_fn, Future};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 
@@ -56,6 +57,39 @@ fn executor_task() {
     #[task]
     async fn task1(trace: Trace) {
         trace.push("poll task1")
+    }
+
+    #[task]
+    async fn task2() -> ! {
+        panic!()
+    }
+
+    let (executor, trace) = setup();
+    executor.spawner().spawn(task1(trace.clone())).unwrap();
+
+    unsafe { executor.poll() };
+    unsafe { executor.poll() };
+
+    assert_eq!(
+        trace.get(),
+        &[
+            "pend",       // spawning a task pends the executor
+            "poll task1", // poll only once.
+        ]
+    )
+}
+
+#[test]
+fn executor_task_rpit() {
+    #[task]
+    fn task1(trace: Trace) -> impl Future<Output = ()> {
+        async move { trace.push("poll task1") }
+    }
+
+    #[cfg(feature = "nightly")]
+    #[task]
+    fn task2() -> impl Future<Output = !> {
+        async { panic!() }
     }
 
     let (executor, trace) = setup();

@@ -30,7 +30,7 @@ The Embassy project maintains HALs for select hardware, but you can still use HA
 * link:https://docs.embassy.dev/embassy-nrf/[embassy-nrf], for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
 * link:https://docs.embassy.dev/embassy-rp/[embassy-rp], for the Raspberry Pi RP2040 as well as RP235x microcontroller.
 * link:https://docs.embassy.dev/embassy-mspm0/[embassy-mspm0], for the Texas Instruments MSPM0 microcontrollers.
-* link:https://github.com/esp-rs[esp-rs], for the Espressif Systems ESP32 series of chips.
+* link:https://github.com/esp-rs/esp-hal[esp-hal], for the Espressif Systems ESP32 series of chips.
 * link:https://github.com/ch32-rs/ch32-hal[ch32-hal], for the WCH 32-bit RISC-V(CH32V) series of chips.
 * link:https://github.com/AlexCharlton/mpfs-hal[mpfs-hal], for the Microchip PolarFire SoC.
 * link:https://github.com/py32-rs/py32-hal[py32-hal], for the Puya Semiconductor PY32 series of chips.
