@@ -1,7 +1,7 @@
 //! PWM Input driver.
 
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
-use super::{Ch1, Ch2, GeneralInstance4Channel, Channel, TimerPin};
+use super::{Ch1, Ch2, Channel, GeneralInstance4Channel, TimerPin};
 use crate::gpio::{AfType, Pull};
 use crate::time::Hertz;
 use crate::Peri;
