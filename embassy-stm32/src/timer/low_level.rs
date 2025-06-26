@@ -503,7 +503,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Set input capture filter.
-    pub fn set_input_capture_filter(&self, channel: TimerChannel, icf: vals::FilterValue) {
+    pub fn set_input_capture_filter(&self, channel: Channel, icf: vals::FilterValue) {
         let raw_channel = channel.index();
         self.regs_gp16()
             .ccmr_input(raw_channel / 2)
@@ -511,22 +511,22 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Clear input interrupt.
-    pub fn clear_input_interrupt(&self, channel: TimerChannel) {
+    pub fn clear_input_interrupt(&self, channel: Channel) {
         self.regs_gp16().sr().modify(|r| r.set_ccif(channel.index(), false));
     }
 
     /// Get input interrupt.
-    pub fn get_input_interrupt(&self, channel: TimerChannel) -> bool {
+    pub fn get_input_interrupt(&self, channel: Channel) -> bool {
         self.regs_gp16().sr().read().ccif(channel.index())
     }
 
     /// Enable input interrupt.
-    pub fn enable_input_interrupt(&self, channel: TimerChannel, enable: bool) {
+    pub fn enable_input_interrupt(&self, channel: Channel, enable: bool) {
         self.regs_gp16().dier().modify(|r| r.set_ccie(channel.index(), enable));
     }
 
     /// Set input capture prescaler.
-    pub fn set_input_capture_prescaler(&self, channel: TimerChannel, factor: u8) {
+    pub fn set_input_capture_prescaler(&self, channel: Channel, factor: u8) {
         let raw_channel = channel.index();
         self.regs_gp16()
             .ccmr_input(raw_channel / 2)
@@ -534,7 +534,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Set input TI selection.
-    pub fn set_input_ti_selection(&self, channel: TimerChannel, tisel: InputTISelection) {
+    pub fn set_input_ti_selection(&self, channel: Channel, tisel: InputTISelection) {
         let raw_channel = channel.index();
         self.regs_gp16()
             .ccmr_input(raw_channel / 2)
@@ -542,7 +542,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Set input capture mode.
-    pub fn set_input_capture_mode(&self, channel: TimerChannel, mode: InputCaptureMode) {
+    pub fn set_input_capture_mode(&self, channel: Channel, mode: InputCaptureMode) {
         self.regs_gp16().ccer().modify(|r| match mode {
             InputCaptureMode::Rising => {
                 r.set_ccnp(channel.index(), false);
@@ -560,7 +560,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Set output compare mode.
-    pub fn set_output_compare_mode(&self, channel: TimerChannel, mode: OutputCompareMode) {
+    pub fn set_output_compare_mode(&self, channel: Channel, mode: OutputCompareMode) {
         let raw_channel: usize = channel.index();
         self.regs_gp16()
             .ccmr_output(raw_channel / 2)
@@ -568,24 +568,24 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Set output polarity.
-    pub fn set_output_polarity(&self, channel: TimerChannel, polarity: OutputPolarity) {
+    pub fn set_output_polarity(&self, channel: Channel, polarity: OutputPolarity) {
         self.regs_gp16()
             .ccer()
             .modify(|w| w.set_ccp(channel.index(), polarity.into()));
     }
 
     /// Enable/disable a channel.
-    pub fn enable_channel(&self, channel: TimerChannel, enable: bool) {
+    pub fn enable_channel(&self, channel: Channel, enable: bool) {
         self.regs_gp16().ccer().modify(|w| w.set_cce(channel.index(), enable));
     }
 
     /// Get enable/disable state of a channel
-    pub fn get_channel_enable_state(&self, channel: TimerChannel) -> bool {
+    pub fn get_channel_enable_state(&self, channel: Channel) -> bool {
         self.regs_gp16().ccer().read().cce(channel.index())
     }
 
     /// Set compare value for a channel.
-    pub fn set_compare_value(&self, channel: TimerChannel, value: u32) {
+    pub fn set_compare_value(&self, channel: Channel, value: u32) {
         match T::BITS {
             TimerBits::Bits16 => {
                 let value = unwrap!(u16::try_from(value));
@@ -599,7 +599,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Get compare value for a channel.
-    pub fn get_compare_value(&self, channel: TimerChannel) -> u32 {
+    pub fn get_compare_value(&self, channel: Channel) -> u32 {
         match T::BITS {
             TimerBits::Bits16 => self.regs_gp16().ccr(channel.index()).read().ccr() as u32,
             #[cfg(not(stm32l0))]
@@ -608,12 +608,12 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Get capture value for a channel.
-    pub fn get_capture_value(&self, channel: TimerChannel) -> u32 {
+    pub fn get_capture_value(&self, channel: Channel) -> u32 {
         self.get_compare_value(channel)
     }
 
     /// Set output compare preload.
-    pub fn set_output_compare_preload(&self, channel: TimerChannel, preload: bool) {
+    pub fn set_output_compare_preload(&self, channel: Channel, preload: bool) {
         let channel_index = channel.index();
         self.regs_gp16()
             .ccmr_output(channel_index / 2)
@@ -631,12 +631,12 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Get capture compare DMA enable state
-    pub fn get_cc_dma_enable_state(&self, channel: TimerChannel) -> bool {
+    pub fn get_cc_dma_enable_state(&self, channel: Channel) -> bool {
         self.regs_gp16().dier().read().ccde(channel.index())
     }
 
     /// Set capture compare DMA enable state
-    pub fn set_cc_dma_enable_state(&self, channel: TimerChannel, ccde: bool) {
+    pub fn set_cc_dma_enable_state(&self, channel: Channel, ccde: bool) {
         self.regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
     }
 
@@ -713,14 +713,14 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
     }
 
     /// Set complementary output polarity.
-    pub fn set_complementary_output_polarity(&self, channel: TimerChannel, polarity: OutputPolarity) {
+    pub fn set_complementary_output_polarity(&self, channel: Channel, polarity: OutputPolarity) {
         self.regs_advanced()
             .ccer()
             .modify(|w| w.set_ccnp(channel.index(), polarity.into()));
     }
 
     /// Enable/disable a complementary channel.
-    pub fn enable_complementary_channel(&self, channel: TimerChannel, enable: bool) {
+    pub fn enable_complementary_channel(&self, channel: Channel, enable: bool) {
         self.regs_advanced()
             .ccer()
             .modify(|w| w.set_ccne(channel.index(), enable));

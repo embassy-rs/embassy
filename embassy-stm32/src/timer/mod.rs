@@ -19,7 +19,7 @@ use crate::rcc::RccPeripheral;
 
 /// Timer channel.
 #[derive(Clone, Copy)]
-pub enum TimerChannel {
+pub enum Channel {
     /// Channel 1.
     Ch1,
     /// Channel 2.
@@ -30,14 +30,14 @@ pub enum TimerChannel {
     Ch4,
 }
 
-impl TimerChannel {
+impl Channel {
     /// Get the channel index (0..3)
     pub fn index(&self) -> usize {
         match self {
-            TimerChannel::Ch1 => 0,
-            TimerChannel::Ch2 => 1,
-            TimerChannel::Ch3 => 2,
-            TimerChannel::Ch4 => 3,
+            Channel::Ch1 => 0,
+            Channel::Ch2 => 1,
+            Channel::Ch3 => 2,
+            Channel::Ch4 => 3,
         }
     }
 }
@@ -53,33 +53,33 @@ pub enum Ch4 {}
 
 /// Timer channel trait.
 #[allow(private_bounds)]
-pub trait Channel: SealedChannel {
+pub trait TimerChannel: SealedTimerChannel {
     /// The runtime channel.
-    const CHANNEL: TimerChannel;
+    const CHANNEL: Channel;
 }
 
-trait SealedChannel {}
+trait SealedTimerChannel {}
 
-impl Channel for Ch1 {
-    const CHANNEL: TimerChannel = TimerChannel::Ch1;
+impl TimerChannel for Ch1 {
+    const CHANNEL: Channel = Channel::Ch1;
 }
 
-impl Channel for Ch2 {
-    const CHANNEL: TimerChannel = TimerChannel::Ch2;
+impl TimerChannel for Ch2 {
+    const CHANNEL: Channel = Channel::Ch2;
 }
 
-impl Channel for Ch3 {
-    const CHANNEL: TimerChannel = TimerChannel::Ch3;
+impl TimerChannel for Ch3 {
+    const CHANNEL: Channel = Channel::Ch3;
 }
 
-impl Channel for Ch4 {
-    const CHANNEL: TimerChannel = TimerChannel::Ch4;
+impl TimerChannel for Ch4 {
+    const CHANNEL: Channel = Channel::Ch4;
 }
 
-impl SealedChannel for Ch1 {}
-impl SealedChannel for Ch2 {}
-impl SealedChannel for Ch3 {}
-impl SealedChannel for Ch4 {}
+impl SealedTimerChannel for Ch1 {}
+impl SealedTimerChannel for Ch2 {}
+impl SealedTimerChannel for Ch3 {}
+impl SealedTimerChannel for Ch4 {}
 
 /// Timer break input.
 #[derive(Clone, Copy)]
@@ -223,10 +223,10 @@ pub trait AdvancedInstance2Channel: BasicInstance + GeneralInstance2Channel + Ad
 /// Advanced 16-bit timer with 4 channels instance.
 pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {}
 
-pin_trait!(TimerPin, GeneralInstance4Channel, Channel);
+pin_trait!(TimerPin, GeneralInstance4Channel, TimerChannel);
 pin_trait!(ExternalTriggerPin, GeneralInstance4Channel);
 
-pin_trait!(TimerComplementaryPin, AdvancedInstance4Channel, Channel);
+pin_trait!(TimerComplementaryPin, AdvancedInstance4Channel, TimerChannel);
 
 pin_trait!(BreakInputPin, AdvancedInstance4Channel, BreakInput);
 
@@ -236,7 +236,7 @@ pin_trait!(BreakInputComparator2Pin, AdvancedInstance4Channel, BreakInput);
 // Update Event trigger DMA for every timer
 dma_trait!(UpDma, BasicInstance);
 
-dma_trait!(Dma, GeneralInstance4Channel, Channel);
+dma_trait!(Dma, GeneralInstance4Channel, TimerChannel);
 
 #[allow(unused)]
 macro_rules! impl_core_timer {

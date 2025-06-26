@@ -1,14 +1,14 @@
 //! PWM Input driver.
 
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
-use super::{Ch1, Ch2, GeneralInstance4Channel, TimerChannel, TimerPin};
+use super::{Ch1, Ch2, GeneralInstance4Channel, Channel, TimerPin};
 use crate::gpio::{AfType, Pull};
 use crate::time::Hertz;
 use crate::Peri;
 
 /// PWM Input driver.
 pub struct PwmInput<'d, T: GeneralInstance4Channel> {
-    channel: TimerChannel,
+    channel: Channel,
     inner: Timer<'d, T>,
 }
 
@@ -17,17 +17,17 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     pub fn new(tim: Peri<'d, T>, pin: Peri<'d, impl TimerPin<T, Ch1>>, pull: Pull, freq: Hertz) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
 
-        Self::new_inner(tim, freq, TimerChannel::Ch1, TimerChannel::Ch2)
+        Self::new_inner(tim, freq, Channel::Ch1, Channel::Ch2)
     }
 
     /// Create a new PWM input driver.
     pub fn new_alt(tim: Peri<'d, T>, pin: Peri<'d, impl TimerPin<T, Ch2>>, pull: Pull, freq: Hertz) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
 
-        Self::new_inner(tim, freq, TimerChannel::Ch2, TimerChannel::Ch1)
+        Self::new_inner(tim, freq, Channel::Ch2, Channel::Ch1)
     }
 
-    fn new_inner(tim: Peri<'d, T>, freq: Hertz, ch1: TimerChannel, ch2: TimerChannel) -> Self {
+    fn new_inner(tim: Peri<'d, T>, freq: Hertz, ch1: Channel, ch2: Channel) -> Self {
         let mut inner = Timer::new(tim);
 
         inner.set_counting_mode(CountingMode::EdgeAlignedUp);
@@ -44,8 +44,8 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         inner.set_input_capture_mode(ch2, InputCaptureMode::Falling);
 
         inner.set_trigger_source(match ch1 {
-            TimerChannel::Ch1 => TriggerSource::TI1FP1,
-            TimerChannel::Ch2 => TriggerSource::TI2FP2,
+            Channel::Ch1 => TriggerSource::TI1FP1,
+            Channel::Ch2 => TriggerSource::TI2FP2,
             _ => panic!("Invalid channel for PWM input"),
         });
 
@@ -58,19 +58,19 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
     /// Enable the given channel.
     pub fn enable(&mut self) {
-        self.inner.enable_channel(TimerChannel::Ch1, true);
-        self.inner.enable_channel(TimerChannel::Ch2, true);
+        self.inner.enable_channel(Channel::Ch1, true);
+        self.inner.enable_channel(Channel::Ch2, true);
     }
 
     /// Disable the given channel.
     pub fn disable(&mut self) {
-        self.inner.enable_channel(TimerChannel::Ch1, false);
-        self.inner.enable_channel(TimerChannel::Ch2, false);
+        self.inner.enable_channel(Channel::Ch1, false);
+        self.inner.enable_channel(Channel::Ch2, false);
     }
 
     /// Check whether given channel is enabled
     pub fn is_enabled(&self) -> bool {
-        self.inner.get_channel_enable_state(TimerChannel::Ch1)
+        self.inner.get_channel_enable_state(Channel::Ch1)
     }
 
     /// Get the period tick count
@@ -81,8 +81,8 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     /// Get the pulse width tick count
     pub fn get_width_ticks(&self) -> u32 {
         self.inner.get_capture_value(match self.channel {
-            TimerChannel::Ch1 => TimerChannel::Ch2,
-            TimerChannel::Ch2 => TimerChannel::Ch1,
+            Channel::Ch1 => Channel::Ch2,
+            Channel::Ch2 => Channel::Ch1,
             _ => panic!("Invalid channel for PWM input"),
         })
     }

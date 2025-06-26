@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
-use super::{Ch1, Ch2, Ch3, Ch4, GeneralInstance4Channel, TimerBits, TimerChannel, TimerPin};
+use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerBits, TimerChannel, TimerPin};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
@@ -34,46 +34,37 @@ pub struct PwmPinConfig {
     pub pull: Pull,
 }
 
-macro_rules! channel_impl {
-    ($new_chx:ident, $new_chx_with_config:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: GeneralInstance4Channel> PwmPin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T, $channel>>, output_type: OutputType) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
-                });
-                PwmPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
-
-            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with config.")]
-            pub fn $new_chx_with_config(pin: Peri<'d, impl $pin_trait<T, $channel>>, pin_config: PwmPinConfig) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    pin.set_as_af(
-                        pin.af_num(),
-                        #[cfg(gpio_v1)]
-                        AfType::output(pin_config.output_type, pin_config.speed),
-                        #[cfg(gpio_v2)]
-                        AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
-                    );
-                });
-                PwmPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
+impl<'d, T: GeneralInstance4Channel, C: TimerChannel> PwmPin<'d, T, C> {
+    /// Create a new PWM pin instance.
+    pub fn new(pin: Peri<'d, impl TimerPin<T, C>>, output_type: OutputType) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
+        });
+        PwmPin {
+            _pin: pin.into(),
+            phantom: PhantomData,
         }
-    };
-}
+    }
 
-channel_impl!(new_ch1, new_ch1_with_config, Ch1, TimerPin);
-channel_impl!(new_ch2, new_ch2_with_config, Ch2, TimerPin);
-channel_impl!(new_ch3, new_ch3_with_config, Ch3, TimerPin);
-channel_impl!(new_ch4, new_ch4_with_config, Ch4, TimerPin);
+    /// Create a new PWM pin instance with config.
+    pub fn new_with_config(pin: Peri<'d, impl TimerPin<T, C>>, pin_config: PwmPinConfig) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            pin.set_as_af(
+                pin.af_num(),
+                #[cfg(gpio_v1)]
+                AfType::output(pin_config.output_type, pin_config.speed),
+                #[cfg(gpio_v2)]
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
+            );
+        });
+        PwmPin {
+            _pin: pin.into(),
+            phantom: PhantomData,
+        }
+    }
+}
 
 /// A single channel of a pwm, obtained from [`SimplePwm::split`],
 /// [`SimplePwm::channel`], [`SimplePwm::ch1`], etc.
@@ -82,7 +73,7 @@ channel_impl!(new_ch4, new_ch4_with_config, Ch4, TimerPin);
 /// the frequency configuration is shared with all four channels.
 pub struct SimplePwmChannel<'d, T: GeneralInstance4Channel> {
     timer: ManuallyDrop<Timer<'d, T>>,
-    channel: TimerChannel,
+    channel: Channel,
 }
 
 // TODO: check for RMW races
@@ -207,18 +198,13 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
         this.inner.start();
 
-        [
-            TimerChannel::Ch1,
-            TimerChannel::Ch2,
-            TimerChannel::Ch3,
-            TimerChannel::Ch4,
-        ]
-        .iter()
-        .for_each(|&channel| {
-            this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
 
-            this.inner.set_output_compare_preload(channel, true);
-        });
+                this.inner.set_output_compare_preload(channel, true);
+            });
 
         this
     }
@@ -226,7 +212,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Get a single channel
     ///
     /// If you need to use multiple channels, use [`Self::split`].
-    pub fn channel(&mut self, channel: TimerChannel) -> SimplePwmChannel<'_, T> {
+    pub fn channel(&mut self, channel: Channel) -> SimplePwmChannel<'_, T> {
         SimplePwmChannel {
             timer: unsafe { self.inner.clone_unchecked() },
             channel,
@@ -239,7 +225,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch1(&mut self) -> SimplePwmChannel<'_, T> {
-        self.channel(TimerChannel::Ch1)
+        self.channel(Channel::Ch1)
     }
 
     /// Channel 2
@@ -248,7 +234,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch2(&mut self) -> SimplePwmChannel<'_, T> {
-        self.channel(TimerChannel::Ch2)
+        self.channel(Channel::Ch2)
     }
 
     /// Channel 3
@@ -257,7 +243,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch3(&mut self) -> SimplePwmChannel<'_, T> {
-        self.channel(TimerChannel::Ch3)
+        self.channel(Channel::Ch3)
     }
 
     /// Channel 4
@@ -266,7 +252,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch4(&mut self) -> SimplePwmChannel<'_, T> {
-        self.channel(TimerChannel::Ch4)
+        self.channel(Channel::Ch4)
     }
 
     /// Splits a [`SimplePwm`] into four pwm channels.
@@ -288,10 +274,10 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         };
 
         SimplePwmChannels {
-            ch1: ch(TimerChannel::Ch1),
-            ch2: ch(TimerChannel::Ch2),
-            ch3: ch(TimerChannel::Ch3),
-            ch4: ch(TimerChannel::Ch4),
+            ch1: ch(Channel::Ch1),
+            ch2: ch(Channel::Ch2),
+            ch3: ch(Channel::Ch3),
+            ch4: ch(Channel::Ch4),
         }
     }
 
@@ -322,7 +308,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: TimerChannel, duty: &[u16]) {
+    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
 
@@ -405,8 +391,8 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     pub async fn waveform_up_multi_channel(
         &mut self,
         dma: Peri<'_, impl super::UpDma<T>>,
-        starting_channel: TimerChannel,
-        ending_channel: TimerChannel,
+        starting_channel: Channel,
+        ending_channel: Channel,
         duty: &[u16],
     ) {
         let cr1_addr = self.inner.regs_gp16().cr1().as_ptr() as u32;
@@ -462,106 +448,97 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     }
 }
 
-macro_rules! impl_waveform_chx {
-    ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
-        impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
-            /// Generate a sequence of PWM waveform
-            pub async fn $fn_name(&mut self, dma: Peri<'_, impl super::$dma_ch<T, $cc_ch>>, duty: &[u16]) {
-                use crate::pac::timer::vals::Ccds;
+impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
+    /// Generate a sequence of PWM waveform
+    pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
+        use crate::pac::timer::vals::Ccds;
 
-                #[allow(clippy::let_unit_value)] // eg. stm32f334
-                let req = dma.request();
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
 
-                let cc_channel = TimerChannel::$cc_ch;
+        let cc_channel = C::CHANNEL;
 
-                let original_duty_state = self.channel(cc_channel).current_duty_cycle();
-                let original_enable_state = self.channel(cc_channel).is_enabled();
-                let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ON_UPDATE;
-                let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
+        let original_duty_state = self.channel(cc_channel).current_duty_cycle();
+        let original_enable_state = self.channel(cc_channel).is_enabled();
+        let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ON_UPDATE;
+        let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
 
-                // redirect CC DMA request onto Update Event
-                if !original_cc_dma_on_update {
-                    self.inner.set_cc_dma_selection(Ccds::ON_UPDATE)
-                }
-
-                if !original_cc_dma_enabled {
-                    self.inner.set_cc_dma_enable_state(cc_channel, true);
-                }
-
-                if !original_enable_state {
-                    self.channel(cc_channel).enable();
-                }
-
-                unsafe {
-                    #[cfg(not(any(bdma, gpdma)))]
-                    use crate::dma::{Burst, FifoThreshold};
-                    use crate::dma::{Transfer, TransferOptions};
-
-                    let dma_transfer_option = TransferOptions {
-                        #[cfg(not(any(bdma, gpdma)))]
-                        fifo_threshold: Some(FifoThreshold::Full),
-                        #[cfg(not(any(bdma, gpdma)))]
-                        mburst: Burst::Incr8,
-                        ..Default::default()
-                    };
-
-                    match self.inner.bits() {
-                        TimerBits::Bits16 => {
-                            Transfer::new_write(
-                                dma,
-                                req,
-                                duty,
-                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u16,
-                                dma_transfer_option,
-                            )
-                            .await
-                        }
-                        #[cfg(not(any(stm32l0)))]
-                        TimerBits::Bits32 => {
-                            #[cfg(not(any(bdma, gpdma)))]
-                            panic!("unsupported timer bits");
-
-                            #[cfg(any(bdma, gpdma))]
-                            Transfer::new_write(
-                                dma,
-                                req,
-                                duty,
-                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u32,
-                                dma_transfer_option,
-                            )
-                            .await
-                        }
-                    };
-                };
-
-                // restore output compare state
-                if !original_enable_state {
-                    self.channel(cc_channel).disable();
-                }
-
-                self.channel(cc_channel).set_duty_cycle(original_duty_state);
-
-                // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
-                // this can almost always trigger a DMA FIFO error.
-                //
-                // optional TODO:
-                // clean FEIF after disable UDE
-                if !original_cc_dma_enabled {
-                    self.inner.set_cc_dma_enable_state(cc_channel, false);
-                }
-
-                if !original_cc_dma_on_update {
-                    self.inner.set_cc_dma_selection(Ccds::ON_COMPARE)
-                }
-            }
+        // redirect CC DMA request onto Update Event
+        if !original_cc_dma_on_update {
+            self.inner.set_cc_dma_selection(Ccds::ON_UPDATE)
         }
-    };
-}
 
-impl_waveform_chx!(waveform_ch1, Dma, Ch1);
-impl_waveform_chx!(waveform_ch2, Dma, Ch2);
-impl_waveform_chx!(waveform_ch3, Dma, Ch3);
-impl_waveform_chx!(waveform_ch4, Dma, Ch4);
+        if !original_cc_dma_enabled {
+            self.inner.set_cc_dma_enable_state(cc_channel, true);
+        }
+
+        if !original_enable_state {
+            self.channel(cc_channel).enable();
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            match self.inner.bits() {
+                TimerBits::Bits16 => {
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u16,
+                        dma_transfer_option,
+                    )
+                    .await
+                }
+                #[cfg(not(any(stm32l0)))]
+                TimerBits::Bits32 => {
+                    #[cfg(not(any(bdma, gpdma)))]
+                    panic!("unsupported timer bits");
+
+                    #[cfg(any(bdma, gpdma))]
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u32,
+                        dma_transfer_option,
+                    )
+                    .await
+                }
+            };
+        };
+
+        // restore output compare state
+        if !original_enable_state {
+            self.channel(cc_channel).disable();
+        }
+
+        self.channel(cc_channel).set_duty_cycle(original_duty_state);
+
+        // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
+        // this can almost always trigger a DMA FIFO error.
+        //
+        // optional TODO:
+        // clean FEIF after disable UDE
+        if !original_cc_dma_enabled {
+            self.inner.set_cc_dma_enable_state(cc_channel, false);
+        }
+
+        if !original_cc_dma_on_update {
+            self.inner.set_cc_dma_selection(Ccds::ON_COMPARE)
+        }
+    }
+}
 
 impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::ErrorType for SimplePwmChannel<'d, T> {
     type Error = core::convert::Infallible;
@@ -599,7 +576,7 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::SetDutyCycle for Simpl
 }
 
 impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
-    type Channel = TimerChannel;
+    type Channel = Channel;
     type Time = Hertz;
     type Duty = u32;
 

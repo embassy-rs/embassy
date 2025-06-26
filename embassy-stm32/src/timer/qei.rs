@@ -8,7 +8,7 @@ use super::low_level::Timer;
 pub use super::{Ch1, Ch2};
 use super::{GeneralInstance4Channel, TimerPin};
 use crate::gpio::{AfType, AnyPin, Pull};
-use crate::timer::Channel;
+use crate::timer::TimerChannel;
 use crate::Peri;
 
 /// Counting direction
@@ -39,7 +39,7 @@ impl<'d, T: GeneralInstance4Channel, C: QeiChannel> QeiPin<'d, T, C> {
     }
 }
 
-trait SealedQeiChannel: Channel {}
+trait SealedQeiChannel: TimerChannel {}
 
 /// Marker trait for a timer channel eligible for use with QEI.
 #[expect(private_bounds)]

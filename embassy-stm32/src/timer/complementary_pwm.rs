@@ -6,11 +6,11 @@ use stm32_metapac::timer::vals::Ckd;
 
 use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
-use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, TimerChannel, TimerComplementaryPin};
+use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::timer::low_level::OutputCompareMode;
-use crate::timer::Channel;
+use crate::timer::TimerChannel;
 use crate::Peri;
 
 /// Complementary PWM pin wrapper.
@@ -21,7 +21,7 @@ pub struct ComplementaryPwmPin<'d, T, C> {
     phantom: PhantomData<(T, C)>,
 }
 
-impl<'d, T: AdvancedInstance4Channel, C: Channel> ComplementaryPwmPin<'d, T, C> {
+impl<'d, T: AdvancedInstance4Channel, C: TimerChannel> ComplementaryPwmPin<'d, T, C> {
     /// Create a new  complementary PWM pin instance.
     pub fn new(pin: Peri<'d, impl TimerComplementaryPin<T, C>>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
@@ -71,29 +71,24 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
         this.inner.enable_outputs();
 
-        [
-            TimerChannel::Ch1,
-            TimerChannel::Ch2,
-            TimerChannel::Ch3,
-            TimerChannel::Ch4,
-        ]
-        .iter()
-        .for_each(|&channel| {
-            this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
-            this.inner.set_output_compare_preload(channel, true);
-        });
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
+                this.inner.set_output_compare_preload(channel, true);
+            });
 
         this
     }
 
     /// Enable the given channel.
-    pub fn enable(&mut self, channel: TimerChannel) {
+    pub fn enable(&mut self, channel: Channel) {
         self.inner.enable_channel(channel, true);
         self.inner.enable_complementary_channel(channel, true);
     }
 
     /// Disable the given channel.
-    pub fn disable(&mut self, channel: TimerChannel) {
+    pub fn disable(&mut self, channel: Channel) {
         self.inner.enable_complementary_channel(channel, false);
         self.inner.enable_channel(channel, false);
     }
@@ -121,13 +116,13 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
-    pub fn set_duty(&mut self, channel: TimerChannel, duty: u16) {
+    pub fn set_duty(&mut self, channel: Channel, duty: u16) {
         assert!(duty <= self.get_max_duty());
         self.inner.set_compare_value(channel, duty as _)
     }
 
     /// Set the output polarity for a given channel.
-    pub fn set_polarity(&mut self, channel: TimerChannel, polarity: OutputPolarity) {
+    pub fn set_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
         self.inner.set_output_polarity(channel, polarity);
         self.inner.set_complementary_output_polarity(channel, polarity);
     }
@@ -142,7 +137,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 }
 
 impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<'d, T> {
-    type Channel = TimerChannel;
+    type Channel = Channel;
     type Time = Hertz;
     type Duty = u16;
 
