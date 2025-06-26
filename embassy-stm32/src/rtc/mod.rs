@@ -25,7 +25,7 @@ use crate::time::Hertz;
     ),
     path = "v2.rs"
 )]
-#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5, rtc_v3h7rs), path = "v3.rs")]
+#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5, rtc_v3h7rs, rtc_v3c0), path = "v3.rs")]
 mod _version;
 #[allow(unused_imports)]
 pub use _version::*;
