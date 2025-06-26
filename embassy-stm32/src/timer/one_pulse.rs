@@ -9,9 +9,7 @@ use core::task::{Context, Poll};
 use super::low_level::{
     CountingMode, FilterValue, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource,
 };
-use super::{
-    CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, ExternalTriggerPin, GeneralInstance4Channel,
-};
+use super::{CaptureCompareInterruptHandler, ExternalTriggerPin, GeneralInstance4Channel, TimerChannel, TimerPin};
 pub use super::{Ch1, Ch2};
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
@@ -48,24 +46,40 @@ pub struct TriggerPin<'d, T, C> {
     phantom: PhantomData<(T, C)>,
 }
 
-macro_rules! channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " trigger pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>, pull: Pull) -> Self {
-                pin.set_as_af(pin.af_num(), AfType::input(pull));
-                TriggerPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
+// TODO: Generify trigger inputs
+
+impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ch1> {
+    /// "Create a new Ch1 trigger pin instance.
+    pub fn new_ch1(pin: Peri<'d, impl TimerPin<T, Ch1>>, pull: Pull) -> Self {
+        pin.set_as_af(pin.af_num(), AfType::input(pull));
+        TriggerPin {
+            _pin: pin.into(),
+            phantom: PhantomData,
         }
-    };
+    }
 }
 
-channel_impl!(new_ch1, Ch1, Channel1Pin);
-channel_impl!(new_ch2, Ch2, Channel2Pin);
-channel_impl!(new_ext, Ext, ExternalTriggerPin);
+impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ch2> {
+    /// "Create a new Ch2 trigger pin instance.
+    pub fn new_ch2(pin: Peri<'d, impl TimerPin<T, Ch2>>, pull: Pull) -> Self {
+        pin.set_as_af(pin.af_num(), AfType::input(pull));
+        TriggerPin {
+            _pin: pin.into(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
+    /// "Create a new EXT trigger pin instance.
+    pub fn new_ext(pin: Peri<'d, impl ExternalTriggerPin<T>>, pull: Pull) -> Self {
+        pin.set_as_af(pin.af_num(), AfType::input(pull));
+        TriggerPin {
+            _pin: pin.into(),
+            phantom: PhantomData,
+        }
+    }
+}
 
 /// One pulse driver.
 ///
@@ -91,9 +105,9 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
 
         this.inner.set_trigger_source(TriggerSource::TI1F_ED);
         this.inner
-            .set_input_ti_selection(Channel::Ch1, InputTISelection::Normal);
+            .set_input_ti_selection(TimerChannel::Ch1, InputTISelection::Normal);
         this.inner
-            .set_input_capture_filter(Channel::Ch1, FilterValue::NO_FILTER);
+            .set_input_capture_filter(TimerChannel::Ch1, FilterValue::NO_FILTER);
         this.new_inner(freq, pulse_end, counting_mode);
 
         this
@@ -116,10 +130,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
 
         this.inner.set_trigger_source(TriggerSource::TI1FP1);
         this.inner
-            .set_input_ti_selection(Channel::Ch1, InputTISelection::Normal);
+            .set_input_ti_selection(TimerChannel::Ch1, InputTISelection::Normal);
         this.inner
-            .set_input_capture_filter(Channel::Ch1, FilterValue::NO_FILTER);
-        this.inner.set_input_capture_mode(Channel::Ch1, capture_mode);
+            .set_input_capture_filter(TimerChannel::Ch1, FilterValue::NO_FILTER);
+        this.inner.set_input_capture_mode(TimerChannel::Ch1, capture_mode);
         this.new_inner(freq, pulse_end, counting_mode);
 
         this
@@ -142,10 +156,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
 
         this.inner.set_trigger_source(TriggerSource::TI2FP2);
         this.inner
-            .set_input_ti_selection(Channel::Ch2, InputTISelection::Normal);
+            .set_input_ti_selection(TimerChannel::Ch2, InputTISelection::Normal);
         this.inner
-            .set_input_capture_filter(Channel::Ch2, FilterValue::NO_FILTER);
-        this.inner.set_input_capture_mode(Channel::Ch2, capture_mode);
+            .set_input_capture_filter(TimerChannel::Ch2, FilterValue::NO_FILTER);
+        this.inner.set_input_capture_mode(TimerChannel::Ch2, capture_mode);
         this.new_inner(freq, pulse_end, counting_mode);
 
         this
@@ -217,7 +231,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     /// Get a single channel
     ///
     /// If you need to use multiple channels, use [`Self::split`].
-    pub fn channel(&mut self, channel: Channel) -> OnePulseChannel<'_, T> {
+    pub fn channel(&mut self, channel: TimerChannel) -> OnePulseChannel<'_, T> {
         OnePulseChannel {
             inner: unsafe { self.inner.clone_unchecked() },
             channel,
@@ -230,7 +244,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch1(&mut self) -> OnePulseChannel<'_, T> {
-        self.channel(Channel::Ch1)
+        self.channel(TimerChannel::Ch1)
     }
 
     /// Channel 2
@@ -239,7 +253,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch2(&mut self) -> OnePulseChannel<'_, T> {
-        self.channel(Channel::Ch2)
+        self.channel(TimerChannel::Ch2)
     }
 
     /// Channel 3
@@ -248,7 +262,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch3(&mut self) -> OnePulseChannel<'_, T> {
-        self.channel(Channel::Ch3)
+        self.channel(TimerChannel::Ch3)
     }
 
     /// Channel 4
@@ -257,7 +271,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch4(&mut self) -> OnePulseChannel<'_, T> {
-        self.channel(Channel::Ch4)
+        self.channel(TimerChannel::Ch4)
     }
 
     /// Splits a [`OnePulse`] into four output channels.
@@ -276,10 +290,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         };
 
         OnePulseChannels {
-            ch1: ch(Channel::Ch1),
-            ch2: ch(Channel::Ch2),
-            ch3: ch(Channel::Ch3),
-            ch4: ch(Channel::Ch4),
+            ch1: ch(TimerChannel::Ch1),
+            ch2: ch(TimerChannel::Ch2),
+            ch3: ch(TimerChannel::Ch3),
+            ch4: ch(TimerChannel::Ch4),
         }
     }
 }
@@ -303,7 +317,7 @@ pub struct OnePulseChannels<'d, T: GeneralInstance4Channel> {
 /// configuration is shared with all four channels.
 pub struct OnePulseChannel<'d, T: GeneralInstance4Channel> {
     inner: ManuallyDrop<Timer<'d, T>>,
-    channel: Channel,
+    channel: TimerChannel,
 }
 
 impl<'d, T: GeneralInstance4Channel> OnePulseChannel<'d, T> {
@@ -350,7 +364,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulseChannel<'d, T> {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct OnePulseFuture<T: GeneralInstance4Channel> {
-    channel: Channel,
+    channel: TimerChannel,
     phantom: PhantomData<T>,
 }
 

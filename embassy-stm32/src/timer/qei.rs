@@ -6,7 +6,7 @@ use stm32_metapac::timer::vals;
 
 use super::low_level::Timer;
 pub use super::{Ch1, Ch2};
-use super::{Channel1Pin, Channel2Pin, GeneralInstance4Channel};
+use super::{GeneralInstance4Channel, TimerPin};
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::Peri;
 
@@ -24,11 +24,13 @@ pub struct QeiPin<'d, T, Channel> {
     phantom: PhantomData<(T, Channel)>,
 }
 
+// TODO: generify QEI channels
+
 macro_rules! channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, T: GeneralInstance4Channel> QeiPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " QEI pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
+            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T, $channel>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(pin.af_num(), AfType::input(Pull::None));
@@ -42,8 +44,8 @@ macro_rules! channel_impl {
     };
 }
 
-channel_impl!(new_ch1, Ch1, Channel1Pin);
-channel_impl!(new_ch2, Ch2, Channel2Pin);
+channel_impl!(new_ch1, Ch1, TimerPin);
+channel_impl!(new_ch2, Ch2, TimerPin);
 
 /// Quadrature decoder driver.
 pub struct Qei<'d, T: GeneralInstance4Channel> {

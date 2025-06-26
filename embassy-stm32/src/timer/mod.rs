@@ -19,7 +19,7 @@ use crate::rcc::RccPeripheral;
 
 /// Timer channel.
 #[derive(Clone, Copy)]
-pub enum Channel {
+pub enum TimerChannel {
     /// Channel 1.
     Ch1,
     /// Channel 2.
@@ -30,14 +30,14 @@ pub enum Channel {
     Ch4,
 }
 
-impl Channel {
+impl TimerChannel {
     /// Get the channel index (0..3)
     pub fn index(&self) -> usize {
         match self {
-            Channel::Ch1 => 0,
-            Channel::Ch2 => 1,
-            Channel::Ch3 => 2,
-            Channel::Ch4 => 3,
+            TimerChannel::Ch1 => 0,
+            TimerChannel::Ch2 => 1,
+            TimerChannel::Ch3 => 2,
+            TimerChannel::Ch4 => 3,
         }
     }
 }
@@ -50,6 +50,80 @@ pub enum Ch2 {}
 pub enum Ch3 {}
 /// Channel 4 marker type.
 pub enum Ch4 {}
+
+/// Timer channel trait.
+#[allow(private_bounds)]
+pub trait Channel: SealedChannel {
+    /// The runtime channel.
+    const CHANNEL: TimerChannel;
+}
+
+trait SealedChannel {}
+
+impl Channel for Ch1 {
+    const CHANNEL: TimerChannel = TimerChannel::Ch1;
+}
+
+impl Channel for Ch2 {
+    const CHANNEL: TimerChannel = TimerChannel::Ch2;
+}
+
+impl Channel for Ch3 {
+    const CHANNEL: TimerChannel = TimerChannel::Ch3;
+}
+
+impl Channel for Ch4 {
+    const CHANNEL: TimerChannel = TimerChannel::Ch4;
+}
+
+impl SealedChannel for Ch1 {}
+impl SealedChannel for Ch2 {}
+impl SealedChannel for Ch3 {}
+impl SealedChannel for Ch4 {}
+
+/// Timer break input.
+#[derive(Clone, Copy)]
+pub enum BkIn {
+    /// Break input 1.
+    BkIn1,
+    /// Break input 2.
+    BkIn2,
+}
+
+impl BkIn {
+    /// Get the channel index (0..3)
+    pub fn index(&self) -> usize {
+        match self {
+            BkIn::BkIn1 => 0,
+            BkIn::BkIn2 => 1,
+        }
+    }
+}
+
+/// Break input 1 marker type.
+pub enum BkIn1 {}
+/// Break input 2 marker type.
+pub enum BkIn2 {}
+
+/// Timer channel trait.
+#[allow(private_bounds)]
+pub trait BreakInput: SealedBreakInput {
+    /// The runtim timer channel.
+    const INPUT: BkIn;
+}
+
+trait SealedBreakInput {}
+
+impl BreakInput for BkIn1 {
+    const INPUT: BkIn = BkIn::BkIn1;
+}
+
+impl BreakInput for BkIn2 {
+    const INPUT: BkIn = BkIn::BkIn2;
+}
+
+impl SealedBreakInput for BkIn1 {}
+impl SealedBreakInput for BkIn2 {}
 
 /// Amount of bits of a timer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -149,33 +223,20 @@ pub trait AdvancedInstance2Channel: BasicInstance + GeneralInstance2Channel + Ad
 /// Advanced 16-bit timer with 4 channels instance.
 pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {}
 
-pin_trait!(Channel1Pin, GeneralInstance4Channel);
-pin_trait!(Channel2Pin, GeneralInstance4Channel);
-pin_trait!(Channel3Pin, GeneralInstance4Channel);
-pin_trait!(Channel4Pin, GeneralInstance4Channel);
+pin_trait!(TimerPin, GeneralInstance4Channel, Channel);
 pin_trait!(ExternalTriggerPin, GeneralInstance4Channel);
 
-pin_trait!(Channel1ComplementaryPin, AdvancedInstance4Channel);
-pin_trait!(Channel2ComplementaryPin, AdvancedInstance4Channel);
-pin_trait!(Channel3ComplementaryPin, AdvancedInstance4Channel);
-pin_trait!(Channel4ComplementaryPin, AdvancedInstance4Channel);
+pin_trait!(TimerComplementaryPin, AdvancedInstance4Channel, Channel);
 
-pin_trait!(BreakInputPin, AdvancedInstance4Channel);
-pin_trait!(BreakInput2Pin, AdvancedInstance4Channel);
+pin_trait!(BreakInputPin, AdvancedInstance4Channel, BreakInput);
 
-pin_trait!(BreakInputComparator1Pin, AdvancedInstance4Channel);
-pin_trait!(BreakInputComparator2Pin, AdvancedInstance4Channel);
-
-pin_trait!(BreakInput2Comparator1Pin, AdvancedInstance4Channel);
-pin_trait!(BreakInput2Comparator2Pin, AdvancedInstance4Channel);
+pin_trait!(BreakInputComparator1Pin, AdvancedInstance4Channel, BreakInput);
+pin_trait!(BreakInputComparator2Pin, AdvancedInstance4Channel, BreakInput);
 
 // Update Event trigger DMA for every timer
 dma_trait!(UpDma, BasicInstance);
 
-dma_trait!(Ch1Dma, GeneralInstance4Channel);
-dma_trait!(Ch2Dma, GeneralInstance4Channel);
-dma_trait!(Ch3Dma, GeneralInstance4Channel);
-dma_trait!(Ch4Dma, GeneralInstance4Channel);
+dma_trait!(Dma, GeneralInstance4Channel, Channel);
 
 #[allow(unused)]
 macro_rules! impl_core_timer {

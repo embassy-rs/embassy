@@ -4,21 +4,12 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
-use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, TimerBits};
+use super::{Ch1, Ch2, Ch3, Ch4, GeneralInstance4Channel, TimerBits, TimerChannel, TimerPin};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
 use crate::Peri;
-
-/// Channel 1 marker type.
-pub enum Ch1 {}
-/// Channel 2 marker type.
-pub enum Ch2 {}
-/// Channel 3 marker type.
-pub enum Ch3 {}
-/// Channel 4 marker type.
-pub enum Ch4 {}
 
 /// PWM pin wrapper.
 ///
@@ -47,7 +38,7 @@ macro_rules! channel_impl {
     ($new_chx:ident, $new_chx_with_config:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, T: GeneralInstance4Channel> PwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>, output_type: OutputType) -> Self {
+            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T, $channel>>, output_type: OutputType) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
@@ -59,7 +50,7 @@ macro_rules! channel_impl {
             }
 
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with config.")]
-            pub fn $new_chx_with_config(pin: Peri<'d, impl $pin_trait<T>>, pin_config: PwmPinConfig) -> Self {
+            pub fn $new_chx_with_config(pin: Peri<'d, impl $pin_trait<T, $channel>>, pin_config: PwmPinConfig) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(
@@ -79,10 +70,10 @@ macro_rules! channel_impl {
     };
 }
 
-channel_impl!(new_ch1, new_ch1_with_config, Ch1, Channel1Pin);
-channel_impl!(new_ch2, new_ch2_with_config, Ch2, Channel2Pin);
-channel_impl!(new_ch3, new_ch3_with_config, Ch3, Channel3Pin);
-channel_impl!(new_ch4, new_ch4_with_config, Ch4, Channel4Pin);
+channel_impl!(new_ch1, new_ch1_with_config, Ch1, TimerPin);
+channel_impl!(new_ch2, new_ch2_with_config, Ch2, TimerPin);
+channel_impl!(new_ch3, new_ch3_with_config, Ch3, TimerPin);
+channel_impl!(new_ch4, new_ch4_with_config, Ch4, TimerPin);
 
 /// A single channel of a pwm, obtained from [`SimplePwm::split`],
 /// [`SimplePwm::channel`], [`SimplePwm::ch1`], etc.
@@ -91,7 +82,7 @@ channel_impl!(new_ch4, new_ch4_with_config, Ch4, Channel4Pin);
 /// the frequency configuration is shared with all four channels.
 pub struct SimplePwmChannel<'d, T: GeneralInstance4Channel> {
     timer: ManuallyDrop<Timer<'d, T>>,
-    channel: Channel,
+    channel: TimerChannel,
 }
 
 // TODO: check for RMW races
@@ -216,13 +207,18 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
         this.inner.start();
 
-        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
-            .iter()
-            .for_each(|&channel| {
-                this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
+        [
+            TimerChannel::Ch1,
+            TimerChannel::Ch2,
+            TimerChannel::Ch3,
+            TimerChannel::Ch4,
+        ]
+        .iter()
+        .for_each(|&channel| {
+            this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
 
-                this.inner.set_output_compare_preload(channel, true);
-            });
+            this.inner.set_output_compare_preload(channel, true);
+        });
 
         this
     }
@@ -230,7 +226,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Get a single channel
     ///
     /// If you need to use multiple channels, use [`Self::split`].
-    pub fn channel(&mut self, channel: Channel) -> SimplePwmChannel<'_, T> {
+    pub fn channel(&mut self, channel: TimerChannel) -> SimplePwmChannel<'_, T> {
         SimplePwmChannel {
             timer: unsafe { self.inner.clone_unchecked() },
             channel,
@@ -243,7 +239,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch1(&mut self) -> SimplePwmChannel<'_, T> {
-        self.channel(Channel::Ch1)
+        self.channel(TimerChannel::Ch1)
     }
 
     /// Channel 2
@@ -252,7 +248,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch2(&mut self) -> SimplePwmChannel<'_, T> {
-        self.channel(Channel::Ch2)
+        self.channel(TimerChannel::Ch2)
     }
 
     /// Channel 3
@@ -261,7 +257,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch3(&mut self) -> SimplePwmChannel<'_, T> {
-        self.channel(Channel::Ch3)
+        self.channel(TimerChannel::Ch3)
     }
 
     /// Channel 4
@@ -270,7 +266,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// If you need to use multiple channels, use [`Self::split`].
     pub fn ch4(&mut self) -> SimplePwmChannel<'_, T> {
-        self.channel(Channel::Ch4)
+        self.channel(TimerChannel::Ch4)
     }
 
     /// Splits a [`SimplePwm`] into four pwm channels.
@@ -292,10 +288,10 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         };
 
         SimplePwmChannels {
-            ch1: ch(Channel::Ch1),
-            ch2: ch(Channel::Ch2),
-            ch3: ch(Channel::Ch3),
-            ch4: ch(Channel::Ch4),
+            ch1: ch(TimerChannel::Ch1),
+            ch2: ch(TimerChannel::Ch2),
+            ch3: ch(TimerChannel::Ch3),
+            ch4: ch(TimerChannel::Ch4),
         }
     }
 
@@ -326,7 +322,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
+    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: TimerChannel, duty: &[u16]) {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
 
@@ -409,8 +405,8 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     pub async fn waveform_up_multi_channel(
         &mut self,
         dma: Peri<'_, impl super::UpDma<T>>,
-        starting_channel: Channel,
-        ending_channel: Channel,
+        starting_channel: TimerChannel,
+        ending_channel: TimerChannel,
         duty: &[u16],
     ) {
         let cr1_addr = self.inner.regs_gp16().cr1().as_ptr() as u32;
@@ -470,13 +466,13 @@ macro_rules! impl_waveform_chx {
     ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
         impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             /// Generate a sequence of PWM waveform
-            pub async fn $fn_name(&mut self, dma: Peri<'_, impl super::$dma_ch<T>>, duty: &[u16]) {
+            pub async fn $fn_name(&mut self, dma: Peri<'_, impl super::$dma_ch<T, $cc_ch>>, duty: &[u16]) {
                 use crate::pac::timer::vals::Ccds;
 
                 #[allow(clippy::let_unit_value)] // eg. stm32f334
                 let req = dma.request();
 
-                let cc_channel = Channel::$cc_ch;
+                let cc_channel = TimerChannel::$cc_ch;
 
                 let original_duty_state = self.channel(cc_channel).current_duty_cycle();
                 let original_enable_state = self.channel(cc_channel).is_enabled();
@@ -562,10 +558,10 @@ macro_rules! impl_waveform_chx {
     };
 }
 
-impl_waveform_chx!(waveform_ch1, Ch1Dma, Ch1);
-impl_waveform_chx!(waveform_ch2, Ch2Dma, Ch2);
-impl_waveform_chx!(waveform_ch3, Ch3Dma, Ch3);
-impl_waveform_chx!(waveform_ch4, Ch4Dma, Ch4);
+impl_waveform_chx!(waveform_ch1, Dma, Ch1);
+impl_waveform_chx!(waveform_ch2, Dma, Ch2);
+impl_waveform_chx!(waveform_ch3, Dma, Ch3);
+impl_waveform_chx!(waveform_ch4, Dma, Ch4);
 
 impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::ErrorType for SimplePwmChannel<'d, T> {
     type Error = core::convert::Infallible;
@@ -603,7 +599,7 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::SetDutyCycle for Simpl
 }
 
 impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
-    type Channel = Channel;
+    type Channel = TimerChannel;
     type Time = Hertz;
     type Duty = u32;
 
