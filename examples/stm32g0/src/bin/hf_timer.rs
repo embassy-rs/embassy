@@ -37,8 +37,8 @@ async fn main(_spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
-    let ch1 = PwmPin::new_ch1(p.PA8, OutputType::PushPull);
-    let ch1n = ComplementaryPwmPin::new_ch1(p.PA7, OutputType::PushPull);
+    let ch1 = PwmPin::new(p.PA8, OutputType::PushPull);
+    let ch1n = ComplementaryPwmPin::new(p.PA7, OutputType::PushPull);
 
     let mut pwm = ComplementaryPwm::new(
         p.TIM1,
