@@ -57,9 +57,9 @@ portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
 embedded-sdmmc = "0.7.0"
 
-[profile.release]
+[profile.dev]
 debug = 2
 
-[profile.dev]
+[profile.release]
 lto = true
 opt-level = "z"
