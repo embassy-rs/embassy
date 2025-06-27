@@ -223,13 +223,13 @@ impl<'d> Flex<'d> {
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
-        !self.is_low()
+        self.pin.block().din31_0().read().dio(self.pin.bit_index())
     }
 
     /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&self) -> bool {
-        self.pin.block().din31_0().read().dio(self.pin.bit_index())
+        !self.is_high()
     }
 
     /// Returns current pin level
@@ -271,22 +271,22 @@ impl<'d> Flex<'d> {
         }
     }
 
-    /// Get the current pin input level.
+    /// Get the current pin output level.
     #[inline]
     pub fn get_output_level(&self) -> Level {
-        self.is_high().into()
+        self.is_set_high().into()
     }
 
     /// Is the output level high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        !self.is_set_low()
+        self.pin.block().dout31_0().read().dio(self.pin.bit_index())
     }
 
     /// Is the output level low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        (self.pin.block().dout31_0().read().0 & self.pin.bit_index() as u32) == 0
+        !self.is_set_high()
     }
 
     /// Wait until the pin is high. If it is already high, return immediately.
