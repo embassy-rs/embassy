@@ -246,6 +246,7 @@ cargo batch \
     --- build --release --manifest-path examples/stm32h5/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32h5 \
     --- build --release --manifest-path examples/stm32h7/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h7 \
     --- build --release --manifest-path examples/stm32h7b0/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h7b0 \
+    --- build --release --manifest-path examples/stm32h723/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h723 \
     --- build --release --manifest-path examples/stm32h735/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h735 \
     --- build --release --manifest-path examples/stm32h755cm4/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h755cm4 \
     --- build --release --manifest-path examples/stm32h755cm7/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h755cm7 \
