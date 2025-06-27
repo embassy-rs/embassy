@@ -58,11 +58,5 @@ rand = { version = "0.9.0", default-features = false }
 embedded-sdmmc = "0.7.0"
 
 [profile.release]
-debug = 2
-lto = true
-opt-level = 'z'
-
-[profile.dev]
-debug = 2
-lto = true
-opt-level = "z"
+# Enable generation of debug symbols even on release builds
+debug = true
