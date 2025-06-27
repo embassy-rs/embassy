@@ -25,10 +25,10 @@ const DMA_BUFFER_LENGTH: usize = HALF_DMA_BUFFER_LENGTH * 2; //  2 half-blocks
 
 // DMA buffers must be in special regions. Refer https://embassy.dev/book/#_stm32_bdma_only_working_out_of_some_ram_regions
 #[unsafe(link_section = ".sram1")]
-static mut SPDIFRX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+static SPDIFRX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
 
 #[unsafe(link_section = ".sram4")]
-static mut SAI_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+static SAI_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
