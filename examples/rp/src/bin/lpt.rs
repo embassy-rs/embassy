@@ -30,7 +30,7 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use epd_waveshare::{epd3in7::*, prelude::*};
 use heapless::String;
 use panic_probe as _;
-use reqwless::client::HttpClient;
+use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use reqwless::request::Method;
 use serde::Deserialize;
 use serde_json_core::de::from_slice;
@@ -365,13 +365,6 @@ async fn main(spawner: Spawner) {
     stack.wait_config_up().await;
     info!("Stack is up!");
 
-    // Create the HTTP client and DNS client
-    info!("Creating HTTP client and DNS client...");
-    let client_state = TcpClientState::<1, 8192, 8192>::new();
-    let tcp_client = TcpClient::new(stack, &client_state);
-    let dns_client = DnsSocket::new(stack);
-    let mut http_client = HttpClient::new(&tcp_client, &dns_client);
-
     // define the URL for the TFL API request
     const TFL_API_PRIMARY_KEY: &'static str = env!("TFL_API_PRIMARY_KEY");
     const TFL_STOPCODE_PARAM: &'static str = env!("TFL_STOPCODE_PARAM");
@@ -379,6 +372,18 @@ async fn main(spawner: Spawner) {
         formatcp!("http://192.168.1.119:8080/StopPoint/{TFL_STOPCODE_PARAM}/Arrivals?api_key={TFL_API_PRIMARY_KEY}");
 
     loop {
+        // Create the HTTP client and DNS client
+        let mut rx_buffer: [u8; 8192] = [0u8; 8192];
+        let mut tls_read_buffer = [0; 16640];
+        let mut tls_write_buffer = [0; 16640];
+
+        let client_state = TcpClientState::<1, 1024, 1024>::new();
+        let tcp_client = TcpClient::new(stack, &client_state);
+        let dns_client = DnsSocket::new(stack);
+        let tls_config = TlsConfig::new(seed, &mut tls_read_buffer, &mut tls_write_buffer, TlsVerify::None);
+
+        let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns_client, tls_config);
+
         // Sleep for a while before the starting requests
         // This also gives other tasks a chance to initialise and run
         info!("Waiting for 5 seconds before making the request...");
@@ -389,8 +394,7 @@ async fn main(spawner: Spawner) {
 
         match http_client.request(Method::GET, &url).await {
             Ok(mut request) => {
-                let mut api_response_buffer: [u8; 8192] = [0u8; 8192];
-                match request.send(&mut api_response_buffer).await {
+                match request.send(&mut rx_buffer).await {
                     Ok(response) => match response.body().read_to_end().await {
                         Ok(b) => {
                             if let Some(prediction) = extract_first_json_object(&b) {
