@@ -1090,7 +1090,9 @@ pub(crate) fn init(gpio: gpio::Gpio) {
 
 #[cfg(feature = "rt")]
 fn irq_handler(gpio: gpio::Gpio, wakers: &[AtomicWaker; 32]) {
+    use crate::BitIter;
     // Only consider pins which have interrupts unmasked.
+
     let bits = gpio.cpu_int().mis().read().0;
 
     for i in BitIter(bits) {
@@ -1100,22 +1102,6 @@ fn irq_handler(gpio: gpio::Gpio, wakers: &[AtomicWaker; 32]) {
         gpio.cpu_int().imask().modify(|w| {
             w.set_dio(i as usize, false);
         });
-    }
-}
-
-struct BitIter(u32);
-
-impl Iterator for BitIter {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.trailing_zeros() {
-            32 => None,
-            b => {
-                self.0 &= !(1 << b);
-                Some(b)
-            }
-        }
     }
 }
 
