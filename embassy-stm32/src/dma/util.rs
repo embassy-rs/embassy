@@ -20,10 +20,10 @@ impl<'d> ChannelAndRequest<'d> {
         Transfer::new_read(self.channel.reborrow(), self.request, peri_addr, buf, options)
     }
 
-    pub unsafe fn read_raw<'a, W: Word>(
+    pub unsafe fn read_raw<'a, MW: Word, PW: Word>(
         &'a mut self,
-        peri_addr: *mut W,
-        buf: *mut [W],
+        peri_addr: *mut PW,
+        buf: *mut [MW],
         options: TransferOptions,
     ) -> Transfer<'a> {
         Transfer::new_read_raw(self.channel.reborrow(), self.request, peri_addr, buf, options)
