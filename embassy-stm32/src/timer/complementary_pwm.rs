@@ -93,6 +93,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         this
     }
 
+    /// Set Master Output Enable
+    pub fn set_master_output_enable(&mut self, enable: bool) {
+        self.inner.set_moe(enable);
+    }
+
     /// Set Master Slave Mode 2
     pub fn set_mms2(&mut self, mms2: Mms2) {
         self.inner.set_mms2_selection(mms2);
