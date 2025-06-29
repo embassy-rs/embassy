@@ -725,4 +725,14 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
             .ccer()
             .modify(|w| w.set_ccne(channel.index(), enable));
     }
+
+    /// Set master mode selection 2
+    pub fn set_mms2_selection(&self, mms2: vals::Mms2) {
+        self.regs_advanced().cr2().modify(|w| w.set_mms2(mms2));
+    }
+
+    /// Set repetition counter
+    pub fn set_repetition_counter(&self, val: u16) {
+        self.regs_advanced().rcr().modify(|w| w.set_rep(val));
+    }
 }

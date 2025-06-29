@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use stm32_metapac::timer::vals::Ckd;
+pub use stm32_metapac::timer::vals::{Ckd, Mms2};
 
 use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::{Ch1, Ch2, Ch3, Ch4, PwmPin};
@@ -88,19 +88,19 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
                 this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
                 this.inner.set_output_compare_preload(channel, true);
             });
+        this.inner.set_autoreload_preload(true);
 
         this
     }
 
-    /// Enable interrupts or disable interrupts.
-    pub fn enable_interrupt(&mut self, enable: bool) {
-        self.inner.enable_update_interrupt(enable);
+    /// Set Master Slave Mode 2
+    pub fn set_mms2(&mut self, mms2: Mms2) {
+        self.inner.set_mms2_selection(mms2);
     }
 
-    /// Clear update interrupt.
-    /// Returns whether the update interrupt flag was set.
-    pub fn clear_update_interrupt(&mut self) -> bool {
-        self.inner.clear_update_interrupt()
+    /// Set Repetition Counter
+    pub fn set_repetition_counter(&mut self, val: u16) {
+        self.inner.set_repetition_counter(val);
     }
 
     /// Enable the given channel.
@@ -132,7 +132,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
     pub fn get_max_duty(&self) -> u16 {
-        self.inner.get_max_compare_value() as u16 + 1
+        if self.inner.get_counting_mode().is_center_aligned() {
+            self.inner.get_max_compare_value() as u16
+        } else {
+            self.inner.get_max_compare_value() as u16 + 1
+        }
     }
 
     /// Set the duty for a given channel.
@@ -182,7 +186,11 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 
     fn get_max_duty(&self) -> Self::Duty {
-        self.inner.get_max_compare_value() as u16 + 1
+        if self.inner.get_counting_mode().is_center_aligned() {
+            self.inner.get_max_compare_value() as u16
+        } else {
+            self.inner.get_max_compare_value() as u16 + 1
+        }
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {

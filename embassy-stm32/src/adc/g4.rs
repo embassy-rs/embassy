@@ -3,9 +3,10 @@
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 #[allow(unused)]
 #[cfg(stm32g4)]
-use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
-use pac::adccommon::vals::Presc;
-use stm32_metapac::adc::vals::{Adstp, Dmacfg, Dmaen};
+pub use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
+pub use pac::adccommon::vals::Presc;
+pub use stm32_metapac::adc::vals::{Adstp, Dmacfg, Dmaen};
+pub use stm32_metapac::adccommon::vals::Dual;
 
 use super::{blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime};
 use crate::adc::SealedAdcChannel;
@@ -33,6 +34,8 @@ const TEMP_CHANNEL: u8 = 16;
 const VREF_CHANNEL: u8 = 19;
 #[cfg(stm32h7)]
 const TEMP_CHANNEL: u8 = 18;
+
+const NR_INJECTED_RANKS: usize = 4;
 
 // TODO this should be 14 for H7a/b/35
 const VBAT_CHANNEL: u8 = 17;
@@ -358,7 +361,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.read_channel(channel)
     }
 
-    /// Read one or multiple ADC channels using DMA.
+    /// Read one or multiple ADC regular channels using DMA.
     ///
     /// `sequence` iterator and `readings` must have the same length.
     ///
@@ -476,6 +479,97 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr().modify(|reg| {
             reg.set_cont(false);
         });
+    }
+
+    // Dual ADC mode selection
+    pub fn configure_dual_mode(&mut self, val: Dual) {
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_dual(val);
+        })
+    }
+
+    /// Configure a sequence of injected channels
+    pub fn configure_injected_sequence<'a>(
+        &mut self,
+        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+    ) {
+        assert!(sequence.len() != 0, "Read sequence cannot be empty");
+        assert!(
+            sequence.len() <= NR_INJECTED_RANKS,
+            "Read sequence cannot be more than 4 in length"
+        );
+
+        // Ensure no conversions are ongoing and ADC is enabled.
+        Self::cancel_conversions();
+        self.enable();
+
+        // Set sequence length
+        T::regs().jsqr().modify(|w| {
+            w.set_jl(sequence.len() as u8 - 1);
+        });
+
+        // Configure channels and ranks
+        for (n, (channel, sample_time)) in sequence.enumerate() {
+            Self::configure_channel(channel, sample_time);
+
+            match n {
+                0..=3 => {
+                    T::regs().jsqr().modify(|w| {
+                        w.set_jsq(n, channel.channel());
+                    });
+                }
+                4..=8 => {
+                    T::regs().jsqr().modify(|w| {
+                        w.set_jsq(n - 4, channel.channel());
+                    });
+                }
+                9..=13 => {
+                    T::regs().jsqr().modify(|w| {
+                        w.set_jsq(n - 9, channel.channel());
+                    });
+                }
+                14..=15 => {
+                    T::regs().jsqr().modify(|w| {
+                        w.set_jsq(n - 14, channel.channel());
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        T::regs().cfgr().modify(|reg| {
+            reg.set_discen(false);
+            reg.set_cont(false); // False for interrupt triggered measurements
+            reg.set_dmacfg(Dmacfg::ONE_SHOT);
+            reg.set_dmaen(Dmaen::DISABLE);
+        });
+
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_jadstart(true);
+        });
+    }
+
+    /// Set external trigger for injected conversion sequence
+    pub fn set_injected_conversion_trigger(&mut self, trigger: u8, edge: Exten) {
+        T::regs().jsqr().modify(|r| {
+            r.set_jextsel(trigger); // ADC group injected external trigger source
+            r.set_jexten(edge); // ADC group injected external trigger polarity
+        });
+        T::regs().ier().modify(|r| r.set_jeosie(true)); // group injected end of sequence conversions interrupt
+    }
+
+    /// Read sampled data from all injected ADC injected ranks
+    /// Clear the JEOS flag to allow a new injected sequence
+    pub fn clear_injected_eos(&mut self) -> [u16; NR_INJECTED_RANKS] {
+        let mut data = [0u16; NR_INJECTED_RANKS];
+        for i in 0..NR_INJECTED_RANKS {
+            data[i] = T::regs().jdr(i).read().jdata();
+        }
+
+        // Clear JEOS by writing 1
+        T::regs().isr().modify(|r| r.set_jeos(true));
+        data
     }
 
     fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
