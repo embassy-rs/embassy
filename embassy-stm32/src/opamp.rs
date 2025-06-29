@@ -4,6 +4,8 @@
 use embassy_hal_internal::PeripheralType;
 
 use crate::pac::opamp::vals::*;
+#[cfg(not(any(stm32g4, stm32f3)))]
+use crate::rcc::RccInfo;
 use crate::Peri;
 
 /// Performs a busy-wait delay for a specified number of microseconds.
@@ -68,6 +70,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     ///
     /// Does not enable the opamp, but does set the speed mode on some families.
     pub fn new(opamp: Peri<'d, T>, #[cfg(opamp_v5)] speed: OpAmpSpeed) -> Self {
+        #[cfg(not(any(stm32g4, stm32f3)))]
+        T::info().rcc.enable_and_reset();
         #[cfg(opamp_v5)]
         T::regs().csr().modify(|w| {
             w.set_opahsm(speed == OpAmpSpeed::HighSpeed);
@@ -452,6 +456,13 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     }
 }
 
+#[cfg(not(any(stm32g4, stm32f3)))]
+impl<'d, T: Instance> Drop for OpAmp<'d, T> {
+    fn drop(&mut self) {
+        T::info().rcc.disable();
+    }
+}
+
 impl<'d, T: Instance> Drop for OpAmpOutput<'d, T> {
     fn drop(&mut self) {
         T::regs().csr().modify(|w| {
@@ -469,7 +480,14 @@ impl<'d, T: Instance> Drop for OpAmpInternalOutput<'d, T> {
     }
 }
 
+#[cfg(not(any(stm32g4, stm32f3)))]
+pub(crate) struct Info {
+    rcc: RccInfo,
+}
+
 pub(crate) trait SealedInstance {
+    #[cfg(not(any(stm32g4, stm32f3)))]
+    fn info() -> &'static Info;
     fn regs() -> crate::pac::opamp::Opamp;
 }
 
@@ -600,6 +618,15 @@ foreach_peripheral!(
 foreach_peripheral! {
     (opamp, $inst:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
+            // G4 and F3 use SYSCFGEN, which is always enabled
+            #[cfg(not(any(stm32g4, stm32f3)))]
+            fn info() -> &'static Info {
+                use crate::rcc::SealedRccPeripheral;
+                static INFO: Info = Info {
+                    rcc: crate::peripherals::$inst::RCC_INFO,
+                };
+                &INFO
+            }
             fn regs() -> crate::pac::opamp::Opamp {
                 crate::pac::$inst
             }
