@@ -8,9 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::ringbuffer::Error as RingbufferError;
 pub use crate::dma::word;
-#[cfg(not(gpdma))]
-use crate::dma::ReadableRingBuffer;
-use crate::dma::{Channel, TransferOptions};
+use crate::dma::{Channel, ReadableRingBuffer, TransferOptions};
 use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::spdifrx::Spdifrx as Regs;
@@ -58,7 +56,6 @@ macro_rules! impl_spdifrx_pin {
 /// Ring-buffered SPDIFRX driver.
 ///
 /// Data is read by DMAs and stored in a ring buffer.
-#[cfg(not(gpdma))]
 pub struct Spdifrx<'d, T: Instance> {
     _peri: Peri<'d, T>,
     spdifrx_in: Option<Peri<'d, AnyPin>>,
@@ -118,7 +115,6 @@ impl Default for Config {
     }
 }
 
-#[cfg(not(gpdma))]
 impl<'d, T: Instance> Spdifrx<'d, T> {
     fn dma_opts() -> TransferOptions {
         TransferOptions {
@@ -236,7 +232,6 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
     }
 }
 
-#[cfg(not(gpdma))]
 impl<'d, T: Instance> Drop for Spdifrx<'d, T> {
     fn drop(&mut self) {
         T::info().regs.cr().modify(|cr| cr.set_spdifen(0x00));
