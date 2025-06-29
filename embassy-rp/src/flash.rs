@@ -482,7 +482,11 @@ mod ram_helpers {
     /// # Safety
     ///
     /// `boot2` must contain a valid 2nd stage boot loader which can be called to re-initialize XIP mode
-    unsafe fn flash_function_pointers_with_boot2(erase: bool, write: bool, boot2: &[u32; 64]) -> FlashFunctionPointers {
+    unsafe fn flash_function_pointers_with_boot2(
+        erase: bool,
+        write: bool,
+        boot2: &[u32; 64],
+    ) -> FlashFunctionPointers<'_> {
         let boot2_fn_ptr = (boot2 as *const u32 as *const u8).offset(1);
         let boot2_fn: unsafe extern "C" fn() -> () = core::mem::transmute(boot2_fn_ptr);
         FlashFunctionPointers {

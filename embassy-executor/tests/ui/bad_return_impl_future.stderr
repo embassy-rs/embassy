@@ -77,6 +77,22 @@ error[E0277]: task futures must resolve to `()` or `!`
   |    ^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Future<Output = u32> {__task_task}`
   |
   = note: use `async fn` or change the return type to `impl Future<Output = ()>`
+note: required by a bound in `__task_pool_get`
+ --> tests/ui/bad_return_impl_future.rs:4:1
+  |
+4 | #[embassy_executor::task]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `__task_pool_get`
+  = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: task futures must resolve to `()` or `!`
+ --> tests/ui/bad_return_impl_future.rs:5:4
+  |
+4 | #[embassy_executor::task]
+  | ------------------------- required by a bound introduced by this call
+5 | fn task() -> impl Future<Output = u32> {
+  |    ^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Future<Output = u32> {__task_task}`
+  |
+  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
 note: required by a bound in `task_pool_new`
  --> src/lib.rs
   |
@@ -101,20 +117,4 @@ note: required by a bound in `task_pool_new`
   |     where
   |         F: TaskFn<Args, Fut = Fut>,
   |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `task_pool_new`
-  = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
-
-error[E0277]: task futures must resolve to `()` or `!`
- --> tests/ui/bad_return_impl_future.rs:5:4
-  |
-4 | #[embassy_executor::task]
-  | ------------------------- required by a bound introduced by this call
-5 | fn task() -> impl Future<Output = u32> {
-  |    ^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Future<Output = u32> {__task_task}`
-  |
-  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
-note: required by a bound in `__task_pool_get`
- --> tests/ui/bad_return_impl_future.rs:4:1
-  |
-4 | #[embassy_executor::task]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `__task_pool_get`
   = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)

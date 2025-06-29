@@ -39,7 +39,7 @@ pub struct RelocatedProgram<'a, const PROGRAM_SIZE: usize> {
 }
 
 impl<'a, const PROGRAM_SIZE: usize> RelocatedProgram<'a, PROGRAM_SIZE> {
-    pub fn new_with_origin(program: &Program<PROGRAM_SIZE>, origin: u8) -> RelocatedProgram<PROGRAM_SIZE> {
+    pub fn new_with_origin(program: &Program<PROGRAM_SIZE>, origin: u8) -> RelocatedProgram<'_, PROGRAM_SIZE> {
         RelocatedProgram { program, origin }
     }
 

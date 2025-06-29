@@ -115,22 +115,22 @@ impl R {
 impl W {
     #[doc = "Bits 0:10 - SFID2"]
     #[inline(always)]
-    pub fn sfid2(&mut self) -> SFID2_W {
+    pub fn sfid2(&mut self) -> SFID2_W<'_> {
         SFID2_W { w: self }
     }
     #[doc = "Bits 16:26 - SFID1"]
     #[inline(always)]
-    pub fn sfid1(&mut self) -> SFID1_W {
+    pub fn sfid1(&mut self) -> SFID1_W<'_> {
         SFID1_W { w: self }
     }
     #[doc = "Bits 27:29 - SFEC"]
     #[inline(always)]
-    pub fn sfec(&mut self) -> SFEC_W {
+    pub fn sfec(&mut self) -> SFEC_W<'_> {
         SFEC_W { w: self }
     }
     #[doc = "Bits 30:31 - SFT"]
     #[inline(always)]
-    pub fn sft(&mut self) -> SFT_W {
+    pub fn sft(&mut self) -> SFT_W<'_> {
         SFT_W { w: self }
     }
 }
