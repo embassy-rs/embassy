@@ -1,4 +1,8 @@
 //! Secure Digital / MultiMedia Card (SDMMC)
+//!
+//! ## Examples
+//!
+//! - [STM32F4](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/sdmmc.rs)
 #![macro_use]
 
 use core::default::Default;
