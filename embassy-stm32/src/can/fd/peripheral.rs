@@ -113,12 +113,17 @@ impl Registers {
     }
 
     pub fn curr_error(&self) -> Option<BusError> {
-        let err = { self.regs.psr().read() };
+        let err = self.regs.psr().read();
+        let ir = self.regs.ir().read();
         if err.bo() {
+            // TODO: This error probably needs to be handled differently since the CAN module goes to init when it occurs.
+            // The IR register is cleared in the ISR for this as well so we can't check it here.
             return Some(BusError::BusOff);
-        } else if err.ep() {
+        } else if err.ep() && ir.ep() {
+            self.regs.ir().modify(|w| w.set_ep(true));
             return Some(BusError::BusPassive);
-        } else if err.ew() {
+        } else if err.ew() && ir.ew() {
+            self.regs.ir().modify(|w| w.set_ew(true));
             return Some(BusError::BusWarning);
         } else {
             cfg_if! {
