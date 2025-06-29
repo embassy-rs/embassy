@@ -344,6 +344,9 @@ impl AnyChannel {
         peripheral_size: WordSize,
         options: TransferOptions,
     ) {
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::SeqCst);
+
         let info = self.info();
         #[cfg(feature = "_dual-core")]
         {
@@ -361,9 +364,6 @@ impl AnyChannel {
             DmaInfo::Dma(r) => {
                 let state: &ChannelState = &STATE[self.id as usize];
                 let ch = r.st(info.num);
-
-                // "Preceding reads and writes cannot be moved past subsequent writes."
-                fence(Ordering::SeqCst);
 
                 state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
