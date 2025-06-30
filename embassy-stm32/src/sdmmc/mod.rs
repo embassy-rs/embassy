@@ -225,8 +225,7 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
         return Ok((true, 0, ker_ck));
     }
 
-    // `ker_ck / sdmmc_ck` rounded up
-    let clk_div = match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
+    let clk_div = match ker_ck.0.div_ceil(sdmmc_ck) {
         0 | 1 => Ok(0),
         x @ 2..=258 => Ok((x - 2) as u8),
         _ => Err(Error::BadClock),
@@ -244,12 +243,11 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
 /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
 #[cfg(sdmmc_v2)]
 fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
-    // `ker_ck / sdmmc_ck` rounded up
-    match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
+    match ker_ck.0.div_ceil(sdmmc_ck) {
         0 | 1 => Ok((false, 0, ker_ck)),
         x @ 2..=2046 => {
             // SDMMC_CK frequency = SDMMCCLK / [CLKDIV * 2]
-            let clk_div = ((x + 1) / 2) as u16;
+            let clk_div = x.div_ceil(2) as u16;
             let clk = Hertz(ker_ck.0 / (clk_div as u32 * 2));
 
             Ok((false, clk_div, clk))
