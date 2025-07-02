@@ -57,10 +57,8 @@ avr-device = { version = "0.7.0", optional = true }
 
 
 [dependencies.cordyceps]
-# version = "0.3.3"
-# todo: update after https://github.com/hawkw/mycelium/pull/537 is merged
-git = "https://github.com/hawkw/mycelium"
-rev = "e21f9756e7d787a023f2ef1bc7f2159cc7dd26e0"
+version = "0.3.4"
+features = ["no-cache-pad"]
 
 # Note: this is ONLY a dependency when the target does NOT have atomics
 [target.'cfg(not(target_has_atomic="ptr"))'.dependencies.mutex]
