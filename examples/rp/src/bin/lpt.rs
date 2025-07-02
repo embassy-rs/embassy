@@ -40,62 +40,49 @@ bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
 
-const TFL_API_FIELD_SHORT_STR_SIZE: usize = 16;
-const TFL_API_FIELD_STR_SIZE: usize = 32;
-const TFL_API_FIELD_LONG_STR_SIZE: usize = 48;
+const TFL_API_FIELD_SHORT_STR_SIZE: usize = 32;
+const TFL_API_FIELD_STR_SIZE: usize = 64;
+const TFL_API_FIELD_LONG_STR_SIZE: usize = 128;
 
-// #[derive(Deserialize, Debug, Format)]
-// #[serde(rename_all = "camelCase")]
-// struct TflApiPredictionTiming {
-//     #[serde(rename = "$type")]
-//     _type: String<TFL_API_FIELD_LONG_STR_SIZE>,
-//     countdown_server_adjustment: String<TFL_API_FIELD_STR_SIZE>,
-//     source: String<TFL_API_FIELD_STR_SIZE>,
-//     insert: String<TFL_API_FIELD_STR_SIZE>,
-//     read: String<TFL_API_FIELD_STR_SIZE>,
-//     sent: String<TFL_API_FIELD_STR_SIZE>,
-//     received: String<TFL_API_FIELD_STR_SIZE>,
-// }
+#[derive(Deserialize, Debug, Format)]
+#[serde(rename_all = "camelCase")]
+struct TflApiPredictionTiming {
+    #[serde(rename = "$type")]
+    _type: String<TFL_API_FIELD_LONG_STR_SIZE>,
+    countdown_server_adjustment: String<TFL_API_FIELD_STR_SIZE>,
+    source: String<TFL_API_FIELD_STR_SIZE>,
+    insert: String<TFL_API_FIELD_STR_SIZE>,
+    read: String<TFL_API_FIELD_STR_SIZE>,
+    sent: String<TFL_API_FIELD_STR_SIZE>,
+    received: String<TFL_API_FIELD_STR_SIZE>,
+}
 
 #[derive(Deserialize, Debug, Format)]
 #[serde(rename_all = "camelCase")]
 struct TflApiPreciction {
-    // #[serde(rename = "$type")]
-    // _type: String<TFL_API_FIELD_LONG_STR_SIZE>,
-    // id: String<TFL_API_FIELD_STR_SIZE>,
-    // operation_type: u8,
-    // vehicle_id: String<TFL_API_FIELD_STR_SIZE>,
-    // naptan_id: String<TFL_API_FIELD_STR_SIZE>,
+    #[serde(rename = "$type")]
+    _type: String<TFL_API_FIELD_LONG_STR_SIZE>,
+    id: String<TFL_API_FIELD_STR_SIZE>,
+    operation_type: u8,
+    vehicle_id: String<TFL_API_FIELD_STR_SIZE>,
+    naptan_id: String<TFL_API_FIELD_STR_SIZE>,
     station_name: String<TFL_API_FIELD_STR_SIZE>,
-    // line_id: String<TFL_API_FIELD_STR_SIZE>,
+    line_id: String<TFL_API_FIELD_STR_SIZE>,
     line_name: String<TFL_API_FIELD_STR_SIZE>,
     platform_name: String<TFL_API_FIELD_STR_SIZE>,
     direction: String<TFL_API_FIELD_SHORT_STR_SIZE>,
-    // bearing: String<TFL_API_FIELD_STR_SIZE>,
-    // destination_naptan_id: String<TFL_API_FIELD_STR_SIZE>,
+    bearing: String<TFL_API_FIELD_STR_SIZE>,
+    destination_naptan_id: String<TFL_API_FIELD_STR_SIZE>,
     destination_name: String<TFL_API_FIELD_STR_SIZE>,
-    // timestamp: String<TFL_API_FIELD_STR_SIZE>,
-    // time_to_station: u32,
+    timestamp: String<TFL_API_FIELD_STR_SIZE>,
+    time_to_station: u32,
     current_location: String<TFL_API_FIELD_LONG_STR_SIZE>,
-    // towards: String<TFL_API_FIELD_STR_SIZE>,
+    towards: String<TFL_API_FIELD_STR_SIZE>,
     expected_arrival: String<TFL_API_FIELD_STR_SIZE>,
-    // time_to_live: String<TFL_API_FIELD_STR_SIZE>,
-    // mode_name: String<TFL_API_FIELD_STR_SIZE>,
-    // timing: TflApiPredictionTiming,
+    time_to_live: String<TFL_API_FIELD_STR_SIZE>,
+    mode_name: String<TFL_API_FIELD_STR_SIZE>,
+    timing: TflApiPredictionTiming,
 }
-
-// fn print_hex_chunks(data: &[u8]) {
-//     const CHUNK_SIZE: usize = 64;
-//     info!("Hexdump:");
-//     let mut s: String<256> = String::new();
-//     for chunk in data.chunks(CHUNK_SIZE) {
-//         s.clear();
-//         for b in chunk {
-//             let _ = write!(s, "{:02x} ", b);
-//         }
-//         info!("{}", s);
-//     }
-// }
 
 #[embassy_executor::task(pool_size = 1)]
 async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
@@ -143,7 +130,7 @@ fn display_text(text: &str) -> Display3in7 {
     // Draw text on the buffer
     Text::with_alignment(
         text,
-        display.bounding_box().top_left + Point::new(0, 15),
+        display.bounding_box().top_left + Point::new(10, 25),
         MonoTextStyle::new(&FONT_10X20, Color::Black),
         Alignment::Left,
     )
@@ -283,7 +270,7 @@ async fn update_display_with_predictions(r: DisplayResources) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p: embassy_rp::Peripherals = embassy_rp::init(Default::default());
+    let peripherals: embassy_rp::Peripherals = embassy_rp::init(Default::default());
 
     let fw = include_bytes!("../../../../cyw43-firmware/43439A0.bin");
     let clm = include_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
@@ -295,22 +282,22 @@ async fn main(spawner: Spawner) {
     // let clm = unsafe { core::slice::from_raw_parts(0x10140000 as *const u8, 4752) };
 
     // Spawn the task to update the display with predictions
-    let r = split_resources!(p);
+    let r = split_resources!(peripherals);
     unwrap!(spawner.spawn(update_display_with_predictions(r.display_resources)));
 
     // Setup the CYW43 Wifi chip
-    let pwr = Output::new(p.PIN_23, Level::Low);
-    let cs = Output::new(p.PIN_25, Level::High);
-    let mut pio = Pio::new(p.PIO0, Irqs);
+    let pwr = Output::new(peripherals.PIN_23, Level::Low);
+    let cs = Output::new(peripherals.PIN_25, Level::High);
+    let mut pio = Pio::new(peripherals.PIO0, Irqs);
     let spi = PioSpi::new(
         &mut pio.common,
         pio.sm0,
         DEFAULT_CLOCK_DIVIDER,
         pio.irq0,
         cs,
-        p.PIN_24,
-        p.PIN_29,
-        p.DMA_CH0,
+        peripherals.PIN_24,
+        peripherals.PIN_29,
+        peripherals.DMA_CH0,
     );
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
@@ -387,7 +374,8 @@ async fn main(spawner: Spawner) {
         // Sleep for a while before the starting requests
         // This also gives other tasks a chance to initialise and run
         info!("Waiting for 5 seconds before making the request...");
-        Timer::after_secs(5).await;
+        let query_delay_secs: u64 = option_env!("QUERY_DELAY").and_then(|s| s.parse().ok()).unwrap_or(30);
+        Timer::after_secs(query_delay_secs).await;
 
         // Make the HTTP request to the TFL API
         info!("connecting to {}", &url);
@@ -396,20 +384,33 @@ async fn main(spawner: Spawner) {
             Ok(mut request) => {
                 match request.send(&mut rx_buffer).await {
                     Ok(response) => match response.body().read_to_end().await {
-                        Ok(b) => {
-                            if let Some(prediction) = extract_first_json_object(&b) {
-                                match from_slice::<TflApiPreciction>(&prediction) {
-                                    Ok((p, _used)) => {
-                                        info!("Sending preduction to display task data channel");
-                                        DISPLAY_TASK_DATA_CHANNEL.send(p).await;
-                                        info!("Sent body to display task data channel");
+                        Ok(mut body) => {
+                            let mut searching = true;
+                            while searching {
+                                if let Some(json_object) = extract_first_json_object(&body) {
+                                    match from_slice::<TflApiPreciction>(&json_object) {
+                                        Ok((prediction, used)) => {
+                                            if prediction.direction == "outbound" {
+                                                info!("Used {} bytes from the response body", used);
+                                                searching = false;
+                                                info!("Sending preduction to display task data channel");
+                                                DISPLAY_TASK_DATA_CHANNEL.send(prediction).await;
+                                                info!("Sent body to display task data channel");
+                                            } else {
+                                                body = &mut body[used..];
+                                            }
+                                        }
+                                        Err(e) => {
+                                            // error!("Failed to deserialise JSON object {?} {}", e, prediction);
+                                            error!("Failed to deserialise JSON: {}", e);
+                                            error!("JSON: {}", str::from_utf8(json_object).unwrap_or("Invalid UTF-8"));
+                                            searching = false;
+                                        }
                                     }
-                                    Err(_) => {
-                                        error!("Failed to deserialise JSON object {}", prediction);
-                                    }
+                                } else {
+                                    error!("Could not extract JSON object from body");
+                                    searching = false;
                                 }
-                            } else {
-                                error!("Could not extract JSON object from body");
                             }
                         }
                         Err(_) => {
