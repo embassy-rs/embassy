@@ -368,8 +368,8 @@ async fn main(spawner: Spawner) {
     // define the URL for the TFL API request
     const TFL_API_PRIMARY_KEY: &'static str = env!("TFL_API_PRIMARY_KEY");
     const TFL_STOPCODE_PARAM: &'static str = env!("TFL_STOPCODE_PARAM");
-    let url =
-        formatcp!("http://192.168.1.119:8080/StopPoint/{TFL_STOPCODE_PARAM}/Arrivals?api_key={TFL_API_PRIMARY_KEY}");
+    const HTTP_PROXY: &'static str = env!("HTTP_PROXY");
+    let url = formatcp!("{HTTP_PROXY}/StopPoint/{TFL_STOPCODE_PARAM}/Arrivals?api_key={TFL_API_PRIMARY_KEY}");
 
     loop {
         // Create the HTTP client and DNS client
