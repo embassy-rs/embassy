@@ -5,14 +5,12 @@ use core::marker::PhantomData;
 use stm32_metapac::timer::vals::Ckd;
 
 use super::low_level::{CountingMode, OutputPolarity, Timer};
-use super::simple_pwm::{Ch1, Ch2, Ch3, Ch4, PwmPin};
-use super::{
-    AdvancedInstance4Channel, Channel, Channel1ComplementaryPin, Channel2ComplementaryPin, Channel3ComplementaryPin,
-    Channel4ComplementaryPin,
-};
+use super::simple_pwm::PwmPin;
+use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::timer::low_level::OutputCompareMode;
+use crate::timer::TimerChannel;
 use crate::Peri;
 
 /// Complementary PWM pin wrapper.
@@ -23,31 +21,22 @@ pub struct ComplementaryPwmPin<'d, T, C> {
     phantom: PhantomData<(T, C)>,
 }
 
-macro_rules! complementary_channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: AdvancedInstance4Channel> ComplementaryPwmPin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>, output_type: OutputType) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    pin.set_as_af(
-                        pin.af_num(),
-                        crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh),
-                    );
-                });
-                ComplementaryPwmPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
+impl<'d, T: AdvancedInstance4Channel, C: TimerChannel> ComplementaryPwmPin<'d, T, C> {
+    /// Create a new  complementary PWM pin instance.
+    pub fn new(pin: Peri<'d, impl TimerComplementaryPin<T, C>>, output_type: OutputType) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            pin.set_as_af(
+                pin.af_num(),
+                crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh),
+            );
+        });
+        ComplementaryPwmPin {
+            _pin: pin.into(),
+            phantom: PhantomData,
         }
-    };
+    }
 }
-
-complementary_channel_impl!(new_ch1, Ch1, Channel1ComplementaryPin);
-complementary_channel_impl!(new_ch2, Ch2, Channel2ComplementaryPin);
-complementary_channel_impl!(new_ch3, Ch3, Channel3ComplementaryPin);
-complementary_channel_impl!(new_ch4, Ch4, Channel4ComplementaryPin);
 
 /// PWM driver with support for standard and complementary outputs.
 pub struct ComplementaryPwm<'d, T: AdvancedInstance4Channel> {

@@ -7,9 +7,9 @@
 
 use defmt::{info, trace};
 use embassy_executor::Spawner;
-use embassy_futures::select::{self, select, Either};
+use embassy_futures::select::{select, Either};
 use embassy_stm32::spdifrx::{self, Spdifrx};
-use embassy_stm32::{bind_interrupts, peripherals, sai};
+use embassy_stm32::{bind_interrupts, peripherals, sai, Peri};
 use grounded::uninit::GroundedArrayCell;
 use hal::sai::*;
 use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
@@ -25,10 +25,10 @@ const DMA_BUFFER_LENGTH: usize = HALF_DMA_BUFFER_LENGTH * 2; //  2 half-blocks
 
 // DMA buffers must be in special regions. Refer https://embassy.dev/book/#_stm32_bdma_only_working_out_of_some_ram_regions
 #[unsafe(link_section = ".sram1")]
-static mut SPDIFRX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+static SPDIFRX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
 
 #[unsafe(link_section = ".sram4")]
-static mut SAI_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+static SAI_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -144,9 +144,9 @@ async fn main(_spawner: Spawner) {
 ///
 /// Used (again) after dropping the SPDIFRX instance, in case of errors (e.g. source disconnect).
 fn new_spdif_receiver<'d>(
-    spdifrx: &'d mut peripherals::SPDIFRX1,
-    input_pin: &'d mut peripherals::PD7,
-    dma: &'d mut peripherals::DMA2_CH7,
+    spdifrx: Peri<'d, peripherals::SPDIFRX1>,
+    input_pin: Peri<'d, peripherals::PD7>,
+    dma: Peri<'d, peripherals::DMA2_CH7>,
     buf: &'d mut [u32],
 ) -> Spdifrx<'d, peripherals::SPDIFRX1> {
     Spdifrx::new(spdifrx, Irqs, spdifrx::Config::default(), input_pin, dma, buf)
@@ -156,11 +156,11 @@ fn new_spdif_receiver<'d>(
 ///
 /// Used (again) after dropping the SAI4 instance, in case of errors (e.g. buffer overrun).
 fn new_sai_transmitter<'d>(
-    sai: &'d mut peripherals::SAI4,
-    sck: &'d mut peripherals::PD13,
-    sd: &'d mut peripherals::PC1,
-    fs: &'d mut peripherals::PD12,
-    dma: &'d mut peripherals::BDMA_CH0,
+    sai: Peri<'d, peripherals::SAI4>,
+    sck: Peri<'d, peripherals::PD13>,
+    sd: Peri<'d, peripherals::PC1>,
+    fs: Peri<'d, peripherals::PD12>,
+    dma: Peri<'d, peripherals::BDMA_CH0>,
     buf: &'d mut [u32],
 ) -> Sai<'d, peripherals::SAI4, u32> {
     let mut sai_config = hal::sai::Config::default();

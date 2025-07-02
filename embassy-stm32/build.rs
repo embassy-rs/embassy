@@ -1090,21 +1090,21 @@ fn main() {
         (("fmc", "CLK"), quote!(crate::fmc::ClkPin)),
         (("fmc", "BA0"), quote!(crate::fmc::BA0Pin)),
         (("fmc", "BA1"), quote!(crate::fmc::BA1Pin)),
-        (("timer", "CH1"), quote!(crate::timer::Channel1Pin)),
-        (("timer", "CH1N"), quote!(crate::timer::Channel1ComplementaryPin)),
-        (("timer", "CH2"), quote!(crate::timer::Channel2Pin)),
-        (("timer", "CH2N"), quote!(crate::timer::Channel2ComplementaryPin)),
-        (("timer", "CH3"), quote!(crate::timer::Channel3Pin)),
-        (("timer", "CH3N"), quote!(crate::timer::Channel3ComplementaryPin)),
-        (("timer", "CH4"), quote!(crate::timer::Channel4Pin)),
-        (("timer", "CH4N"), quote!(crate::timer::Channel4ComplementaryPin)),
+        (("timer", "CH1"), quote!(crate::timer::TimerPin<Ch1>)),
+        (("timer", "CH1N"), quote!(crate::timer::TimerComplementaryPin<Ch1>)),
+        (("timer", "CH2"), quote!(crate::timer::TimerPin<Ch2>)),
+        (("timer", "CH2N"), quote!(crate::timer::TimerComplementaryPin<Ch2>)),
+        (("timer", "CH3"), quote!(crate::timer::TimerPin<Ch3>)),
+        (("timer", "CH3N"), quote!(crate::timer::TimerComplementaryPin<Ch3>)),
+        (("timer", "CH4"), quote!(crate::timer::TimerPin<Ch4>)),
+        (("timer", "CH4N"), quote!(crate::timer::TimerComplementaryPin<Ch4>)),
         (("timer", "ETR"), quote!(crate::timer::ExternalTriggerPin)),
-        (("timer", "BKIN"), quote!(crate::timer::BreakInputPin)),
-        (("timer", "BKIN_COMP1"), quote!(crate::timer::BreakInputComparator1Pin)),
-        (("timer", "BKIN_COMP2"), quote!(crate::timer::BreakInputComparator2Pin)),
-        (("timer", "BKIN2"), quote!(crate::timer::BreakInput2Pin)),
-        (("timer", "BKIN2_COMP1"), quote!(crate::timer::BreakInput2Comparator1Pin)),
-        (("timer", "BKIN2_COMP2"), quote!(crate::timer::BreakInput2Comparator2Pin)),
+        (("timer", "BKIN"), quote!(crate::timer::BreakInputPin<BkIn1>)),
+        (("timer", "BKIN_COMP1"), quote!(crate::timer::BreakInputComparator1Pin<BkIn1>)),
+        (("timer", "BKIN_COMP2"), quote!(crate::timer::BreakInputComparator2Pin<BkIn1>)),
+        (("timer", "BKIN2"), quote!(crate::timer::BreakInputPin<BkIn2>)),
+        (("timer", "BKIN2_COMP1"), quote!(crate::timer::BreakInputComparator1Pin<BkIn2>)),
+        (("timer", "BKIN2_COMP2"), quote!(crate::timer::BreakInputComparator2Pin<BkIn2>)),
         (("hrtim", "CHA1"), quote!(crate::hrtim::ChannelAPin)),
         (("hrtim", "CHA2"), quote!(crate::hrtim::ChannelAComplementaryPin)),
         (("hrtim", "CHB1"), quote!(crate::hrtim::ChannelBPin)),
@@ -1402,31 +1402,24 @@ fn main() {
                 }
 
                 if regs.kind == "opamp" {
-                    if pin.signal.starts_with("VP") {
-                        // Impl NonInvertingPin for the VP* signals (VP0, VP1, VP2, etc)
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
-                        let ch: u8 = pin.signal.strip_prefix("VP").unwrap().parse().unwrap();
-
-                        g.extend(quote! {
-                            impl_opamp_vp_pin!( #peri, #pin_name, #ch);
-                        })
-                    } else if pin.signal.starts_with("VINM") {
-                        // Impl NonInvertingPin for the VINM* signals ( VINM0, VINM1, etc)
-                        // STM32G4
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
-                        let ch: Result<u8, _> = pin.signal.strip_prefix("VINM").unwrap().parse();
-
-                        if let Ok(ch) = ch {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    if let Some(ch_str) = pin.signal.strip_prefix("VINP") {
+                        // Impl NonInvertingPin for VINP0, VINP1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
+                            g.extend(quote! {
+                                impl_opamp_vp_pin!( #peri, #pin_name, #ch );
+                            });
+                        }
+                    } else if let Some(ch_str) = pin.signal.strip_prefix("VINM") {
+                        // Impl InvertingPin for VINM0, VINM1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
                             g.extend(quote! {
                                 impl_opamp_vn_pin!( #peri, #pin_name, #ch);
-                            })
+                            });
                         }
                     } else if pin.signal == "VOUT" {
                         // Impl OutputPin for the VOUT pin
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
                         g.extend(quote! {
                             impl_opamp_vout_pin!( #peri, #pin_name );
                         })
@@ -1482,10 +1475,10 @@ fn main() {
         (("hash", "IN"), quote!(crate::hash::Dma)),
         (("cryp", "IN"), quote!(crate::cryp::DmaIn)),
         (("cryp", "OUT"), quote!(crate::cryp::DmaOut)),
-        (("timer", "CH1"), quote!(crate::timer::Ch1Dma)),
-        (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
-        (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
-        (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
+        (("timer", "CH1"), quote!(crate::timer::Dma<Ch1>)),
+        (("timer", "CH2"), quote!(crate::timer::Dma<Ch2>)),
+        (("timer", "CH3"), quote!(crate::timer::Dma<Ch3>)),
+        (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
     ]

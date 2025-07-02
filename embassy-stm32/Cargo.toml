@@ -81,7 +81,7 @@ futures-util = { version = "0.3.30", default-features = false }
 sdio-host = "0.9.0"
 critical-section = "1.1"
 #stm32-metapac = { version = "16" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-27ef8fba3483187e852eaf3796d827259f61e8ec" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0069be7389d0378d826003304d72a13008f3ebce" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -110,7 +110,7 @@ proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
 #stm32-metapac = { version = "16", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-27ef8fba3483187e852eaf3796d827259f61e8ec", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0069be7389d0378d826003304d72a13008f3ebce", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -1634,6 +1634,24 @@ stm32wba55he = [ "stm32-metapac/stm32wba55he" ]
 stm32wba55hg = [ "stm32-metapac/stm32wba55hg" ]
 stm32wba55ue = [ "stm32-metapac/stm32wba55ue" ]
 stm32wba55ug = [ "stm32-metapac/stm32wba55ug" ]
+stm32wba62cg = [ "stm32-metapac/stm32wba62cg" ]
+stm32wba62ci = [ "stm32-metapac/stm32wba62ci" ]
+stm32wba62mg = [ "stm32-metapac/stm32wba62mg" ]
+stm32wba62mi = [ "stm32-metapac/stm32wba62mi" ]
+stm32wba62pg = [ "stm32-metapac/stm32wba62pg" ]
+stm32wba62pi = [ "stm32-metapac/stm32wba62pi" ]
+stm32wba63cg = [ "stm32-metapac/stm32wba63cg" ]
+stm32wba63ci = [ "stm32-metapac/stm32wba63ci" ]
+stm32wba64cg = [ "stm32-metapac/stm32wba64cg" ]
+stm32wba64ci = [ "stm32-metapac/stm32wba64ci" ]
+stm32wba65cg = [ "stm32-metapac/stm32wba65cg" ]
+stm32wba65ci = [ "stm32-metapac/stm32wba65ci" ]
+stm32wba65mg = [ "stm32-metapac/stm32wba65mg" ]
+stm32wba65mi = [ "stm32-metapac/stm32wba65mi" ]
+stm32wba65pg = [ "stm32-metapac/stm32wba65pg" ]
+stm32wba65pi = [ "stm32-metapac/stm32wba65pi" ]
+stm32wba65rg = [ "stm32-metapac/stm32wba65rg" ]
+stm32wba65ri = [ "stm32-metapac/stm32wba65ri" ]
 stm32wl54cc-cm4 = [ "stm32-metapac/stm32wl54cc-cm4", "_dual-core", "_core-cm4" ]
 stm32wl54cc-cm0p = [ "stm32-metapac/stm32wl54cc-cm0p", "_dual-core", "_core-cm0p" ]
 stm32wl54jc-cm4 = [ "stm32-metapac/stm32wl54jc-cm4", "_dual-core", "_core-cm4" ]
