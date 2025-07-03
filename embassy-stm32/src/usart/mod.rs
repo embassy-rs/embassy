@@ -550,6 +550,20 @@ impl<'d, M: Mode> UartTx<'d, M> {
         reconfigure(self.info, self.kernel_clock, config)
     }
 
+    /// Write a single u8 if there is tx empty, otherwise return WouldBlock
+    pub(crate) fn nb_write(&mut self, byte: u8) -> Result<(), nb::Error<Error>> {
+        let r = self.info.regs;
+        let sr = sr(r).read();
+        if sr.txe() {
+            unsafe {
+                tdr(r).write_volatile(byte);
+            }
+            Ok(())
+        } else {
+            Err(nb::Error::WouldBlock)
+        }
+    }
+
     /// Perform a blocking UART write
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
@@ -1864,7 +1878,7 @@ impl<'d, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, M> {
 
 impl<'d, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, M> {
     fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map_err(nb::Error::Other)
+        self.nb_write(char)
     }
 
     fn flush(&mut self) -> nb::Result<(), Self::Error> {
