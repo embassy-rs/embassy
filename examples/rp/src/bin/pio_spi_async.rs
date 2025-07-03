@@ -9,13 +9,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::{
-    bind_interrupts,
-    peripherals::PIO0,
-    pio,
-    pio_programs::spi::{Config, PioSpiProgram, Spi},
-    spi::Phase,
-};
+use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio_programs::spi::{Config, PioSpiProgram, Spi};
+use embassy_rp::spi::Phase;
+use embassy_rp::{bind_interrupts, pio};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -32,7 +29,7 @@ async fn main(_spawner: Spawner) {
     // use them together regardless
     let mosi = p.PIN_6; // SPI0 SCLK
     let miso = p.PIN_7; // SPI0 MOSI
-    let clk = p.PIN_8;  // SPI1 MISO
+    let clk = p.PIN_8; // SPI1 MISO
 
     let pio::Pio { mut common, sm0, .. } = pio::Pio::new(p.PIO0, Irqs);
 

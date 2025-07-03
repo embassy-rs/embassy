@@ -5,24 +5,23 @@ use core::marker::PhantomData;
 use embassy_futures::join::join;
 use embassy_hal_internal::Peri;
 use embedded_hal_02::spi::{Phase, Polarity};
-use fixed::{traits::ToFixed, types::extra::U8};
+use fixed::traits::ToFixed;
+use fixed::types::extra::U8;
 
-use crate::{
-    clocks::clk_sys_freq,
-    dma::{AnyChannel, Channel},
-    gpio::Level,
-    pio::{Common, Direction, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine},
-    spi::{Async, Blocking, Mode},
-};
+use crate::clocks::clk_sys_freq;
+use crate::dma::{AnyChannel, Channel};
+use crate::gpio::Level;
+use crate::pio::{Common, Direction, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine};
+use crate::spi::{Async, Blocking, Mode};
 
 /// This struct represents a uart tx program loaded into pio instruction memory.
-pub struct PioSpiProgram<'d, PIO: crate::pio::Instance> {
+pub struct PioSpiProgram<'d, PIO: Instance> {
     prg: LoadedProgram<'d, PIO>,
 }
 
-impl<'d, PIO: crate::pio::Instance> PioSpiProgram<'d, PIO> {
+impl<'d, PIO: Instance> PioSpiProgram<'d, PIO> {
     /// Load the spi program into the given pio
-    pub fn new(common: &mut crate::pio::Common<'d, PIO>, phase: Phase) -> Self {
+    pub fn new(common: &mut Common<'d, PIO>, phase: Phase) -> Self {
         // These PIO programs are taken straight from the datasheet (3.6.1 in
         // RP2040 datasheet, 11.6.1 in RP2350 datasheet)
 
