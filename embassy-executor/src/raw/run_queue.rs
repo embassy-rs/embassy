@@ -151,12 +151,12 @@ fn run_dequeue(taskref: &TaskRef) {
 }
 
 /// A wrapper type that acts like TransferStack by wrapping a normal Stack in a CS mutex
-#[cfg(not(target_has_atomic="ptr"))]
+#[cfg(not(target_has_atomic = "ptr"))]
 struct MutexTransferStack<T: Linked<cordyceps::stack::Links<T>>> {
     inner: mutex::BlockingMutex<mutex::raw_impls::cs::CriticalSectionRawMutex, cordyceps::Stack<T>>,
 }
 
-#[cfg(not(target_has_atomic="ptr"))]
+#[cfg(not(target_has_atomic = "ptr"))]
 impl<T: Linked<cordyceps::stack::Links<T>>> MutexTransferStack<T> {
     const fn new() -> Self {
         Self {
@@ -173,8 +173,6 @@ impl<T: Linked<cordyceps::stack::Links<T>>> MutexTransferStack<T> {
     }
 
     fn take_all(&self) -> cordyceps::Stack<T> {
-        self.inner.with_lock(|stack| {
-            stack.take_all()
-        })
+        self.inner.with_lock(|stack| stack.take_all())
     }
 }
