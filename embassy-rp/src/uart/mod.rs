@@ -544,7 +544,7 @@ impl<'d> UartRx<'d, Async> {
     /// * If you expect a message of 20 bytes + line break, and provide a 21-byte buffer:
     ///     * The first call to `read_to_break()` will return `Ok(20)`.
     ///     * The next call to `read_to_break()` will work as expected
-    /// 
+    ///
     /// **NOTE**: In the UART context, a line break refers to a break condition (the line being held low for
     /// for longer than a single character), not an ASCII line break.
     pub async fn read_to_break_with_count(
