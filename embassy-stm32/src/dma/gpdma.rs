@@ -125,11 +125,11 @@ impl<'a> Transfer<'a> {
     }
 
     /// Create a new read DMA transfer (peripheral to memory), using raw pointers.
-    pub unsafe fn new_read_raw<W: Word>(
+    pub unsafe fn new_read_raw<MW: Word, PW: Word>(
         channel: Peri<'a, impl Channel>,
         request: Request,
-        peri_addr: *mut W,
-        buf: *mut [W],
+        peri_addr: *mut PW,
+        buf: *mut [MW],
         options: TransferOptions,
     ) -> Self {
         Self::new_inner(
@@ -137,11 +137,11 @@ impl<'a> Transfer<'a> {
             request,
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
-            buf as *mut W as *mut u32,
+            buf as *mut MW as *mut u32,
             buf.len(),
             true,
-            W::size(),
-            W::size(),
+            PW::size(),
+            MW::size(),
             options,
         )
     }
