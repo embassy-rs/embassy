@@ -9,13 +9,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::{
-    bind_interrupts,
-    peripherals::PIO0,
-    pio,
-    pio_programs::spi::{Config, PioSpiProgram, Spi},
-    spi::Phase,
-};
+use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio_programs::spi::{Config, PioSpiProgram, Spi};
+use embassy_rp::spi::Phase;
+use embassy_rp::{bind_interrupts, pio};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
