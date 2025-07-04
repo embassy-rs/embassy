@@ -67,6 +67,7 @@ fn generate_code() {
     g.extend(generate_peripheral_instances());
     g.extend(generate_pin_trait_impls());
     g.extend(generate_groups());
+    g.extend(generate_dma_channel_count());
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
@@ -207,6 +208,12 @@ fn generate_groups() -> TokenStream {
             }
         }
     }
+}
+
+fn generate_dma_channel_count() -> TokenStream {
+    let count = METADATA.dma_channels.len();
+
+    quote! { pub const DMA_CHANNELS: usize = #count; }
 }
 
 #[derive(Debug, Clone)]
@@ -543,8 +550,6 @@ fn generate_peripheral_instances() -> TokenStream {
     for peripheral in METADATA.peripherals {
         let peri = format_ident!("{}", peripheral.name);
 
-        // Will be filled in when uart implementation is finished
-        let _ = peri;
         let tokens = match peripheral.kind {
             "uart" => Some(quote! { impl_uart_instance!(#peri); }),
             _ => None,
@@ -552,6 +557,18 @@ fn generate_peripheral_instances() -> TokenStream {
 
         if let Some(tokens) = tokens {
             impls.push(tokens);
+        }
+    }
+
+    // DMA channels
+    for dma_channel in METADATA.dma_channels.iter() {
+        let peri = format_ident!("DMA_CH{}", dma_channel.number);
+        let num = dma_channel.number;
+
+        if dma_channel.full {
+            impls.push(quote! { impl_full_dma_channel!(#peri, #num); });
+        } else {
+            impls.push(quote! { impl_dma_channel!(#peri, #num); });
         }
     }
 
