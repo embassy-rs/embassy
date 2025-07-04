@@ -1,0 +1,39 @@
+[package]
+name = "embassy-net-nrf-802154"
+version = "0.1.0"
+edition = "2021"
+description = "embassy-net driver for nrf52 802.15.4 radio"
+keywords = ["embedded", "802.15.4", "embassy-net", "embedded-hal-async"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-net-nrf-802154"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-nrf-802154-v$VERSION/embassy-net-nrf-802154/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-nrf-802154/src/"
+features = ["defmt","nrf52840"]
+target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["defmt","nrf52840"]
+
+[dependencies]
+embassy-time = { version = "0.4.0", path = "../embassy-time" }
+embassy-futures = { version = "0.1.1", path = "../embassy-futures"}
+embassy-net-driver-channel = { version = "0.3.0", path = "../embassy-net-driver-channel"}
+
+embassy-nrf = { version = "0.3.1", path = "../embassy-nrf"}
+
+[features]
+defmt = ["embassy-time/defmt", "embassy-futures/defmt", "embassy-net-driver-channel/defmt", "embassy-nrf/defmt"]
+
+nrf51 = ["embassy-nrf/nrf51"]
+
+nrf52805 = ["embassy-nrf/nrf52805"]
+nrf52810 = ["embassy-nrf/nrf52810"]
+nrf52811 = ["embassy-nrf/nrf52811"]
+nrf52820 = ["embassy-nrf/nrf52820"]
+nrf52832 = ["embassy-nrf/nrf52832"]
+nrf52833 = ["embassy-nrf/nrf52833"]
+nrf52840 = ["embassy-nrf/nrf52840"]
