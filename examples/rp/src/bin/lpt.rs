@@ -27,15 +27,16 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Delay, Timer};
 use embedded_graphics::{
-    mono_font::{ascii::FONT_10X20, MonoTextStyle},
+    mono_font::MonoTextStyle,
     prelude::*,
     primitives::PrimitiveStyle,
-    text::{Alignment, Text},
+    text::{Alignment, LineHeight, Text, TextStyleBuilder},
 };
 use embedded_hal_bus::spi::ExclusiveDevice;
 use epd_waveshare::{epd3in7::*, prelude::*};
 use heapless::String;
 use panic_probe as _;
+use profont::*;
 use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use reqwless::request::Method;
 use serde::Deserialize;
@@ -110,25 +111,6 @@ assign_resources! {
         pin_11: PIN_11,
         pin_10: PIN_10,
     }
-}
-
-// Use embedded-graphics to create a bitmap to show text
-fn display_text(display: &mut Display3in7, text: &str) {
-    // Change the background from the default black to white
-    let _ = display
-        .bounding_box()
-        .into_styled(PrimitiveStyle::with_fill(Color::White))
-        .draw(display);
-
-    // Draw text on the buffer
-    Text::with_alignment(
-        text,
-        display.bounding_box().top_left + Point::new(10, 25),
-        MonoTextStyle::new(&FONT_10X20, Color::Black),
-        Alignment::Left,
-    )
-    .draw(display)
-    .unwrap();
 }
 
 fn insert_linebreaks_inplace<const N: usize>(s: &mut heapless::String<N>, max_line_len: usize) {
@@ -215,7 +197,7 @@ async fn update_display_with_predictions(r: DisplayResources) {
     display_config.phase = spi::Phase::CaptureOnFirstTransition;
     display_config.polarity = spi::Polarity::IdleLow;
 
-    let spi_bus = Spi::new_blocking_txonly(r.spi1, pin_spi_sclk, pin_spi_mosi, display_config.clone());
+    let spi_bus = Spi::new_blocking_txonly(r.spi1, pin_spi_sclk, pin_spi_mosi, display_config);
     let mut spi_device = ExclusiveDevice::new(spi_bus, pin_cs, Delay);
 
     // // Setup the EPD driver and create a display buffer to draw on, specific for this ePaper
@@ -234,10 +216,15 @@ async fn update_display_with_predictions(r: DisplayResources) {
         .into_styled(PrimitiveStyle::with_fill(Color::White))
         .draw(&mut display);
 
-    let _ = display.clear(Color::White);
+    display.clear(Color::White).ok();
 
     // Render splash drawing
-    display_text(&mut display, "its3mile/london-pi-tube");
+    let character_style = MonoTextStyle::new(&PROFONT_24_POINT, Color::Black);
+    let text_style = TextStyleBuilder::new().alignment(Alignment::Center).build();
+    let position = display.bounding_box().center();
+    Text::with_text_style("its3mile/london-pi-tube", position, character_style, text_style)
+        .draw(&mut display)
+        .expect("Failed create text in display buffer");
 
     epd_driver
         .update_and_display_frame(&mut spi_device, &mut display.buffer(), &mut Delay)
@@ -256,7 +243,7 @@ async fn update_display_with_predictions(r: DisplayResources) {
         if (prediction.time_to_station as f32 / 60.0) < 1.0 {
             let _ = write!(
                 &mut message,
-                "{}\n{} Line\n{}\nTo: {}\nArriving in less than a minute\nCurrently {}",
+                "{}\n{} Line {}\nTo: {}\nArriving in less than a minute\nCurrently {}",
                 prediction.station_name,
                 prediction.line_name,
                 prediction.platform_name,
@@ -267,7 +254,7 @@ async fn update_display_with_predictions(r: DisplayResources) {
             let minutes_to_station = prediction.time_to_station / 60;
             let _ = write!(
                 &mut message,
-                "{}\n{} Line\n{}\nTo: {}\nArriving in {} minutes\nCurrently {}",
+                "{}\n{} Line {}\nTo: {}\nArriving in {} minutes\nCurrently {}",
                 prediction.station_name,
                 prediction.line_name,
                 prediction.platform_name,
@@ -278,8 +265,17 @@ async fn update_display_with_predictions(r: DisplayResources) {
         }
 
         info!("Display: Updating display with text: {}", message);
-        insert_linebreaks_inplace(&mut message, 47); // where 48 is display width in pixels / 10px per char
-        display_text(&mut display, &message.as_str());
+        display.clear(Color::White).ok();
+        insert_linebreaks_inplace(&mut message, 40);
+        let character_style = MonoTextStyle::new(&PROFONT_18_POINT, Color::Black);
+        let text_style = TextStyleBuilder::new()
+            .alignment(Alignment::Left)
+            .line_height(LineHeight::Percent(125))
+            .build();
+        let position = display.bounding_box().top_left + Point::new(10, 25);
+        Text::with_text_style(&message, position, character_style, text_style)
+            .draw(&mut display)
+            .expect("Failed create text in display buffer");
         epd_driver
             .update_and_display_frame(&mut spi_device, &mut display.buffer(), &mut Delay)
             .expect("Failed to update display with prediction");
