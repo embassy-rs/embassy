@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - Added new metadata API for tasks
+- Named main task when rtos-trace feature is enabled.
 
 ## 0.9.0 - 2025-08-26
 
