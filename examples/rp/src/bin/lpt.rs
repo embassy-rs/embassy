@@ -395,51 +395,59 @@ async fn main(spawner: Spawner) {
         // Make the HTTP request to the TFL API
         info!("connecting to {}", &url);
 
-        match http_client.request(Method::GET, &url).await {
-            Ok(mut request) => {
-                match request.send(&mut rx_buffer).await {
-                    Ok(response) => match response.body().read_to_end().await {
-                        Ok(mut body) => {
-                            let mut searching = true;
-                            while searching {
-                                if let Some(json_object) = extract_first_json_object(&body) {
-                                    match from_slice::<TflApiPreciction>(&json_object) {
-                                        Ok((prediction, used)) => {
-                                            if prediction.direction == "outbound" {
-                                                info!("Used {} bytes from the response body", used);
-                                                searching = false;
-                                                info!("Sending preduction to display task data channel");
-                                                DISPLAY_TASK_DATA_CHANNEL.send(prediction).await;
-                                                info!("Sent body to display task data channel");
-                                            } else {
-                                                body = &mut body[used..];
-                                            }
-                                        }
-                                        Err(e) => {
-                                            // error!("Failed to deserialise JSON object {?} {}", e, prediction);
-                                            error!("Failed to deserialise JSON: {}", e);
-                                            error!("JSON: {}", str::from_utf8(json_object).unwrap_or("Invalid UTF-8"));
-                                            searching = false;
-                                        }
-                                    }
-                                } else {
-                                    error!("Could not extract JSON object from body");
-                                    searching = false;
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            error!("Failed to read response body");
-                        }
-                    },
-                    Err(e) => {
-                        error!("Failed to send HTTP request: {}", e);
-                    }
-                };
-            }
+        // 1. Make HTTP request
+        let mut request = match http_client.request(Method::GET, &url).await {
+            Ok(req) => req,
             Err(e) => {
                 error!("Failed to make HTTP request: {}", e);
+                continue;
             }
         };
+
+        // 2. Send HTTP request
+        let response = match request.send(&mut rx_buffer).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                error!("Failed to send HTTP request: {}", e);
+                continue;
+            }
+        };
+
+        // 3. Read response body
+        let mut body = match response.body().read_to_end().await {
+            Ok(body) => body,
+            Err(_) => {
+                error!("Failed to read response body");
+                continue;
+            }
+        };
+
+        // 4. Process JSON objects in body
+        let mut searching = true;
+        while searching {
+            if let Some(json_object) = extract_first_json_object(&body) {
+                match from_slice::<TflApiPreciction>(&json_object) {
+                    Ok((prediction, used)) => {
+                        if prediction.direction == "outbound" {
+                            info!("Used {} bytes from the response body", used);
+                            searching = false;
+                            info!("Sending preduction to display task data channel");
+                            DISPLAY_TASK_DATA_CHANNEL.send(prediction).await;
+                            info!("Sent body to display task data channel");
+                        } else {
+                            body = &mut body[used..];
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to deserialise JSON: {}", e);
+                        error!("JSON: {}", str::from_utf8(json_object).unwrap_or("Invalid UTF-8"));
+                        searching = false;
+                    }
+                }
+            } else {
+                error!("Could not extract JSON object from body");
+                searching = false;
+            }
+        }
     }
 }
