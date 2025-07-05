@@ -247,17 +247,30 @@ async fn update_display_with_predictions(r: DisplayResources) {
         let mut message: String<
             { TFL_API_FIELD_SHORT_STR_SIZE + 5 * TFL_API_FIELD_STR_SIZE + TFL_API_FIELD_LONG_STR_SIZE },
         > = String::new();
-        let _ = write!(
-            &mut message,
-            "{}\n{} Line\n{} ({})\nTo: {}\nETA: {}\nCurrently {}",
-            prediction.station_name,
-            prediction.line_name,
-            prediction.platform_name,
-            prediction.direction,
-            prediction.destination_name,
-            prediction.expected_arrival,
-            prediction.current_location
-        );
+        if (prediction.time_to_station as f32 / 60.0) < 1.0 {
+            let _ = write!(
+                &mut message,
+                "{}\n{} Line\n{}\nTo: {}\nArriving in less than a minute\nCurrently {}",
+                prediction.station_name,
+                prediction.line_name,
+                prediction.platform_name,
+                prediction.destination_name,
+                prediction.current_location
+            );
+        } else {
+            let minutes_to_station = prediction.time_to_station / 60;
+            let _ = write!(
+                &mut message,
+                "{}\n{} Line\n{}\nTo: {}\nArriving in {} minutes\nCurrently {}",
+                prediction.station_name,
+                prediction.line_name,
+                prediction.platform_name,
+                prediction.destination_name,
+                minutes_to_station,
+                prediction.current_location
+            );
+        }
+
         info!("Display: Updating display with text: {}", message);
         insert_linebreaks_inplace(&mut message, 47); // where 48 is display width in pixels / 10px per char
         let text = display_text(&message.as_str());
