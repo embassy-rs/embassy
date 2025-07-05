@@ -7,8 +7,7 @@
 use defmt::info;
 use embassy_stm32::mode;
 use embassy_stm32::qspi::enums::{
-    AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, MemorySize, QspiWidth, 
-    SampleShifting
+    AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, MemorySize, QspiWidth, SampleShifting,
 };
 use embassy_stm32::qspi::{self, Instance, TransferConfig};
 pub struct FlashMemory<I: Instance> {
