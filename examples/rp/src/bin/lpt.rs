@@ -26,6 +26,12 @@ use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Delay, Timer};
+use embedded_graphics::{
+    mono_font::{ascii::FONT_10X20, MonoTextStyle},
+    prelude::*,
+    primitives::PrimitiveStyle,
+    text::{Alignment, Text},
+};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use epd_waveshare::{epd3in7::*, prelude::*};
 use heapless::String;
@@ -107,25 +113,12 @@ assign_resources! {
 }
 
 // Use embedded-graphics to create a bitmap to show text
-fn display_text(text: &str) -> Display3in7 {
-    use embedded_graphics::{
-        mono_font::{ascii::FONT_10X20, MonoTextStyle},
-        prelude::*,
-        primitives::PrimitiveStyle,
-        text::{Alignment, Text},
-    };
-
-    // Create a Display buffer to draw on, specific for this ePaper
-    let mut display = Display3in7::default();
-
-    // Landscape mode, USB plug to the right
-    display.set_rotation(DisplayRotation::Rotate270);
-
+fn display_text(display: &mut Display3in7, text: &str) {
     // Change the background from the default black to white
     let _ = display
         .bounding_box()
         .into_styled(PrimitiveStyle::with_fill(Color::White))
-        .draw(&mut display);
+        .draw(display);
 
     // Draw text on the buffer
     Text::with_alignment(
@@ -134,9 +127,8 @@ fn display_text(text: &str) -> Display3in7 {
         MonoTextStyle::new(&FONT_10X20, Color::Black),
         Alignment::Left,
     )
-    .draw(&mut display)
+    .draw(display)
     .unwrap();
-    display
 }
 
 fn insert_linebreaks_inplace<const N: usize>(s: &mut heapless::String<N>, max_line_len: usize) {
@@ -230,11 +222,25 @@ async fn update_display_with_predictions(r: DisplayResources) {
     let mut epd_driver = EPD3in7::new(&mut spi_device, pin_busy, pin_data_cmd, pin_reset, &mut Delay, None)
         .expect("Display: eink initalize error"); // Force unwrap, as there is nothing that can be done if this errors out
 
+    // Create a Display buffer to draw on, specific for this ePaper
+    let mut display = Display3in7::default();
+
+    // Landscape mode, USB plug to the right
+    display.set_rotation(DisplayRotation::Rotate270);
+
+    // Change the background from the default black to white
+    let _ = display
+        .bounding_box()
+        .into_styled(PrimitiveStyle::with_fill(Color::White))
+        .draw(&mut display);
+
+    let _ = display.clear(Color::White);
+
     // Render splash drawing
-    let splash = display_text("its3mile/london-pi-tube");
+    display_text(&mut display, "its3mile/london-pi-tube");
 
     epd_driver
-        .update_and_display_frame(&mut spi_device, splash.buffer(), &mut Delay)
+        .update_and_display_frame(&mut spi_device, &mut display.buffer(), &mut Delay)
         .expect("Display: Failed to update display with splash");
 
     info!("Display: Display is up!");
@@ -273,9 +279,9 @@ async fn update_display_with_predictions(r: DisplayResources) {
 
         info!("Display: Updating display with text: {}", message);
         insert_linebreaks_inplace(&mut message, 47); // where 48 is display width in pixels / 10px per char
-        let text = display_text(&message.as_str());
+        display_text(&mut display, &message.as_str());
         epd_driver
-            .update_and_display_frame(&mut spi_device, text.buffer(), &mut Delay)
+            .update_and_display_frame(&mut spi_device, &mut display.buffer(), &mut Delay)
             .expect("Failed to update display with prediction");
         info!("Display: Display updated with prediction...going to sleep");
     }
