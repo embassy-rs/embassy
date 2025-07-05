@@ -331,3 +331,19 @@ impl From<DummyCycles> for u8 {
         }
     }
 }
+
+#[allow(missing_docs)]
+#[derive(Copy, Clone)]
+pub enum SampleShifting {
+    None,
+    HalfCycle,
+}
+
+impl From<SampleShifting> for bool {
+    fn from(value: SampleShifting) -> Self {
+        match value {
+            SampleShifting::None => false,
+            SampleShifting::HalfCycle => true,
+        }
+    }
+}

@@ -272,6 +272,7 @@ async fn main(_spawner: Spawner) -> ! {
         prescaler: 16,
         cs_high_time: ChipSelectHighTime::_1Cycle,
         fifo_threshold: FIFOThresholdLevel::_16Bytes,
+        sample_shifting: SampleShifting::None,
     };
     let driver = Qspi::new_blocking_bank1(p.QUADSPI, p.PD11, p.PD12, p.PE2, p.PD13, p.PB2, p.PB10, config);
     let mut flash = FlashMemory::new(driver);

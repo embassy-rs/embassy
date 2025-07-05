@@ -58,6 +58,8 @@ pub struct Config {
     pub fifo_threshold: FIFOThresholdLevel,
     /// Minimum number of cycles that chip select must be high between issued commands
     pub cs_high_time: ChipSelectHighTime,
+    /// Shift sampling point of input data (none, or half-cycle)
+    pub sample_shifting: SampleShifting,
 }
 
 impl Default for Config {
@@ -68,6 +70,7 @@ impl Default for Config {
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
             cs_high_time: ChipSelectHighTime::_5Cycle,
+            sample_shifting: SampleShifting::None,
         }
     }
 }
@@ -120,7 +123,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         T::REGS.cr().modify(|w| {
             w.set_en(true);
             //w.set_tcen(false);
-            w.set_sshift(false);
+            w.set_sshift(config.sample_shifting.into());
             w.set_fthres(config.fifo_threshold.into());
             w.set_prescaler(config.prescaler);
             w.set_fsel(fsel.into());

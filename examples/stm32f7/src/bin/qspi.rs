@@ -279,6 +279,7 @@ async fn main(_spawner: Spawner) -> ! {
         prescaler: 16,
         cs_high_time: ChipSelectHighTime::_1Cycle,
         fifo_threshold: FIFOThresholdLevel::_16Bytes,
+        sample_shifting: SampleShifting::None,
     };
     let driver = Qspi::new_bank1(
         p.QUADSPI, p.PF8, p.PF9, p.PE2, p.PF6, p.PF10, p.PB10, p.DMA2_CH7, config,
