@@ -70,7 +70,7 @@ impl Default for Config {
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
             cs_high_time: ChipSelectHighTime::_5Cycle,
-            sample_shifting: SampleShifting::None
+            sample_shifting: SampleShifting::None,
         }
     }
 }
