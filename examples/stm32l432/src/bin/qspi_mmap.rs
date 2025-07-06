@@ -7,7 +7,7 @@
 use defmt::info;
 use embassy_stm32::mode;
 use embassy_stm32::qspi::enums::{
-    AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, MemorySize, QspiWidth,
+    AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, MemorySize, QspiWidth, SampleShifting,
 };
 use embassy_stm32::qspi::{self, Instance, TransferConfig};
 pub struct FlashMemory<I: Instance> {
@@ -252,6 +252,7 @@ async fn main(_spawner: Spawner) {
         prescaler: 200,
         cs_high_time: ChipSelectHighTime::_1Cycle,
         fifo_threshold: FIFOThresholdLevel::_16Bytes,
+        sample_shifting: SampleShifting::None,
     };
     let driver = qspi::Qspi::new_bank1(p.QUADSPI, p.PB1, p.PB0, p.PA7, p.PA6, p.PA3, p.PA2, p.DMA2_CH7, config);
     let mut flash = FlashMemory::new(driver);
