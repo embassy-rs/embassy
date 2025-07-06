@@ -513,6 +513,7 @@ async fn main(spawner: Spawner) {
                 }
             } else {
                 error!("Could not extract JSON object from body");
+                error!("UTF8: {}", str::from_utf8(body).unwrap_or("Invalid UTF-8"));
                 continue;
             }
         }
