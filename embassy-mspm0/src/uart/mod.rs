@@ -1,8 +1,11 @@
 #![macro_use]
 
+mod buffered;
+
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 
+pub use buffered::*;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::PeripheralType;
 
@@ -128,8 +131,8 @@ pub struct Config {
     // pub manchester: bool,
 
     // TODO: majority voting
-
-    // TODO: fifo level select - need power domain info in metapac
+    /// If true: the built-in FIFO is enabled.
+    pub fifo_enable: bool,
 
     // TODO: glitch suppression
     /// If true: invert TX pin signal values (V<sub>DD</sub> = 0/mark, Gnd = 1/idle).
@@ -169,6 +172,7 @@ impl Default for Config {
             msb_order: BitOrder::LsbFirst,
             loop_back_enable: false,
             // manchester: false,
+            fifo_enable: false,
             invert_tx: false,
             invert_rx: false,
             invert_rts: false,
@@ -185,7 +189,7 @@ impl Default for Config {
 ///
 /// ### Notes on [`embedded_io::Read`]
 ///
-/// `embedded_io::Read` requires guarantees that the base [`UartRx`] cannot provide.
+/// [`embedded_io::Read`] requires guarantees that the base [`UartRx`] cannot provide.
 ///
 /// See [`UartRx`] for more details, and see [`BufferedUart`] and [`RingBufferedUartRx`]
 /// as alternatives that do provide the necessary guarantees for `embedded_io::Read`.
@@ -199,8 +203,7 @@ impl<'d, M: Mode> SetConfig for Uart<'d, M> {
     type ConfigError = ConfigError;
 
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        self.tx.set_config(config)?;
-        self.rx.set_config(config)
+        self.set_config(config)
     }
 }
 
@@ -236,6 +239,12 @@ impl core::fmt::Display for Error {
 
 impl core::error::Error for Error {}
 
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
+}
+
 /// Rx-only UART Driver.
 ///
 /// Can be obtained from [`Uart::split`], or can be constructed independently,
@@ -260,7 +269,7 @@ impl<'d, M: Mode> SetConfig for UartRx<'d, M> {
 impl<'d> UartRx<'d, Blocking> {
     /// Create a new rx-only UART with no hardware flow control.
     ///
-    /// Useful if you only want Uart Rx. It saves 1 pin .
+    /// Useful if you only want Uart Rx. It saves 1 pin.
     pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -286,19 +295,6 @@ impl<'d> UartRx<'d, Blocking> {
 }
 
 impl<'d, M: Mode> UartRx<'d, M> {
-    /// Reconfigure the driver
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        if let Some(ref rx) = self.rx {
-            rx.update_pf(config.rx_pf());
-        }
-
-        if let Some(ref rts) = self.rts {
-            rts.update_pf(config.rts_pf());
-        }
-
-        reconfigure(self.info, self.state, config)
-    }
-
     /// Perform a blocking read into `buffer`
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         let r = self.info.regs;
@@ -313,6 +309,19 @@ impl<'d, M: Mode> UartRx<'d, M> {
         }
 
         Ok(())
+    }
+
+    /// Reconfigure the driver
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        if let Some(ref rx) = self.rx {
+            rx.update_pf(config.rx_pf());
+        }
+
+        if let Some(ref rts) = self.rts {
+            rts.update_pf(config.rts_pf());
+        }
+
+        reconfigure(self.info, self.state, config)
     }
 
     /// Set baudrate
@@ -378,19 +387,6 @@ impl<'d> UartTx<'d, Blocking> {
 }
 
 impl<'d, M: Mode> UartTx<'d, M> {
-    /// Reconfigure the driver
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        if let Some(ref tx) = self.tx {
-            tx.update_pf(config.tx_pf());
-        }
-
-        if let Some(ref cts) = self.cts {
-            cts.update_pf(config.cts_pf());
-        }
-
-        reconfigure(self.info, self.state, config)
-    }
-
     /// Perform a blocking UART write
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
@@ -425,6 +421,24 @@ impl<'d, M: Mode> UartTx<'d, M> {
         r.lcrh().modify(|w| {
             w.set_brk(true);
         });
+    }
+
+    /// Check if UART is busy.
+    pub fn busy(&self) -> bool {
+        busy(self.info.regs)
+    }
+
+    /// Reconfigure the driver
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        if let Some(ref tx) = self.tx {
+            tx.update_pf(config.tx_pf());
+        }
+
+        if let Some(ref cts) = self.cts {
+            cts.update_pf(config.cts_pf());
+        }
+
+        reconfigure(self.info, self.state, config)
     }
 
     /// Set baudrate
@@ -489,6 +503,11 @@ impl<'d, M: Mode> Uart<'d, M> {
         self.tx.blocking_flush()
     }
 
+    /// Check if UART is busy.
+    pub fn busy(&self) -> bool {
+        self.tx.busy()
+    }
+
     /// Perform a blocking read into `buffer`
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
@@ -506,6 +525,12 @@ impl<'d, M: Mode> Uart<'d, M> {
     /// transmitting and receiving.
     pub fn split_ref(&mut self) -> (&mut UartTx<'d, M>, &mut UartRx<'d, M>) {
         (&mut self.tx, &mut self.rx)
+    }
+
+    /// Reconfigure the driver
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        self.tx.set_config(config)?;
+        self.rx.set_config(config)
     }
 
     /// Send break character
@@ -557,8 +582,16 @@ pub(crate) struct Info {
 }
 
 pub(crate) struct State {
-    /// The clock rate of the UART. This might be configured.
-    pub(crate) clock: AtomicU32,
+    /// The clock rate of the UART in Hz.
+    clock: AtomicU32,
+}
+
+impl State {
+    pub const fn new() -> Self {
+        Self {
+            clock: AtomicU32::new(0),
+        }
+    }
 }
 
 impl<'d, M: Mode> UartRx<'d, M> {
@@ -746,7 +779,8 @@ fn configure(
 
     info.regs.ctl0().modify(|w| {
         w.set_lbe(config.loop_back_enable);
-        w.set_rxe(enable_rx);
+        // Errata UART_ERR_02, must set RXE to allow use of EOT.
+        w.set_rxe(enable_rx | enable_tx);
         w.set_txe(enable_tx);
         // RXD_OUT_EN and TXD_OUT_EN?
         w.set_menc(false);
@@ -754,11 +788,16 @@ fn configure(
         w.set_rtsen(enable_rts);
         w.set_ctsen(enable_cts);
         // oversampling is set later
-        // TODO: config
-        w.set_fen(false);
+        w.set_fen(config.fifo_enable);
         // TODO: config
         w.set_majvote(false);
         w.set_msbfirst(matches!(config.msb_order, BitOrder::MsbFirst));
+    });
+
+    info.regs.ifls().modify(|w| {
+        // TODO: Need power domain info for other options.
+        w.set_txiflsel(vals::Iflssel::AT_LEAST_ONE);
+        w.set_rxiflsel(vals::Iflssel::AT_LEAST_ONE);
     });
 
     info.regs.lcrh().modify(|w| {
@@ -1021,9 +1060,29 @@ fn read_with_error(r: Regs) -> Result<u8, Error> {
     Ok(rx.data())
 }
 
+/// This function assumes CTL0.ENABLE is set (for errata cases).
+fn busy(r: Regs) -> bool {
+    // Errata UART_ERR_08
+    if cfg!(any(
+        mspm0g151x, mspm0g351x, mspm0l110x, mspm0l130x, mspm0l134x, mspm0c110x,
+    )) {
+        let stat = r.stat().read();
+        // "Poll TXFIFO status and the CTL0.ENABLE register bit to identify BUSY status."
+        !stat.txfe()
+    } else {
+        r.stat().read().busy()
+    }
+}
+
+// TODO: Implement when dma uart is implemented.
+fn dma_enabled(_r: Regs) -> bool {
+    false
+}
+
 pub(crate) trait SealedInstance {
     fn info() -> &'static Info;
     fn state() -> &'static State;
+    fn buffered_state() -> &'static BufferedState;
 }
 
 macro_rules! impl_uart_instance {
@@ -1041,12 +1100,16 @@ macro_rules! impl_uart_instance {
             }
 
             fn state() -> &'static crate::uart::State {
-                use crate::interrupt::typelevel::Interrupt;
                 use crate::uart::State;
 
-                static STATE: State = State {
-                    clock: core::sync::atomic::AtomicU32::new(0),
-                };
+                static STATE: State = State::new();
+                &STATE
+            }
+
+            fn buffered_state() -> &'static crate::uart::BufferedState {
+                use crate::uart::BufferedState;
+
+                static STATE: BufferedState = BufferedState::new();
                 &STATE
             }
         }
