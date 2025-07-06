@@ -26,11 +26,13 @@ use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Delay, Timer};
+use embedded_graphics::mono_font::MonoTextStyleBuilder;
+use embedded_graphics::text::Baseline;
 use embedded_graphics::{
     mono_font::MonoTextStyle,
     prelude::*,
     primitives::PrimitiveStyle,
-    text::{Alignment, LineHeight, Text, TextStyleBuilder},
+    text::{Alignment, Text, TextStyleBuilder},
 };
 use embedded_hal_bus::spi::ExclusiveDevice;
 use epd_waveshare::{epd3in7::*, prelude::*};
@@ -177,6 +179,19 @@ fn extract_first_json_object(body: &[u8]) -> Option<&[u8]> {
     }
 }
 
+fn first_two_words(s: &str) -> &str {
+    let mut space_count = 0;
+    for (i, c) in s.char_indices() {
+        if c == ' ' {
+            space_count += 1;
+            if space_count == 2 {
+                return &s[..i];
+            }
+        }
+    }
+    s
+}
+
 static DISPLAY_TASK_DATA_CHANNEL: Channel<ThreadModeRawMutex, TflApiPreciction, 1> = Channel::new();
 
 #[embassy_executor::task(pool_size = 1)]
@@ -234,52 +249,110 @@ async fn update_display_with_predictions(r: DisplayResources) {
 
     loop {
         info!("Display: waiting for data on channel");
-        let prediction = DISPLAY_TASK_DATA_CHANNEL.receive().await;
+        let mut prediction = DISPLAY_TASK_DATA_CHANNEL.receive().await;
         info!("Display: received data on channel");
-        // Prepare the display message
-        let mut message: String<
-            { TFL_API_FIELD_SHORT_STR_SIZE + 5 * TFL_API_FIELD_STR_SIZE + TFL_API_FIELD_LONG_STR_SIZE },
-        > = String::new();
-        if (prediction.time_to_station as f32 / 60.0) < 1.0 {
-            let _ = write!(
-                &mut message,
-                "{}\n{} Line {}\nTo: {}\nArriving in less than a minute\nCurrently {}",
-                prediction.station_name,
-                prediction.line_name,
-                prediction.platform_name,
-                prediction.destination_name,
-                prediction.current_location
-            );
-        } else {
-            let minutes_to_station = prediction.time_to_station / 60;
-            let _ = write!(
-                &mut message,
-                "{}\n{} Line {}\nTo: {}\nArriving in {} minutes\nCurrently {}",
-                prediction.station_name,
-                prediction.line_name,
-                prediction.platform_name,
-                prediction.destination_name,
-                minutes_to_station,
-                prediction.current_location
-            );
-        }
 
-        info!("Display: Updating display with text: {}", message);
+        // Prepare the display message
+        // Clear the display
         display.clear(Color::White).ok();
-        insert_linebreaks_inplace(&mut message, 40);
-        let character_style = MonoTextStyle::new(&PROFONT_18_POINT, Color::Black);
+
+        // Line
+        prediction
+            .line_name
+            .push_str(" Line\n")
+            .expect("Failed to format line name");
+        let character_style = MonoTextStyle::new(&PROFONT_14_POINT, Color::Black);
+        let text_style = TextStyleBuilder::new().alignment(Alignment::Left).build();
+        let position = display.bounding_box().top_left + Point::new(10, 25);
+        let next = Text::with_text_style(&prediction.line_name, position, character_style, text_style)
+            .draw(&mut display)
+            .expect("Failed create line name text in display buffer");
+
+        // Station
+        prediction
+            .station_name
+            .push_str("\n")
+            .expect("Failed to format station name");
+        let next = Text::with_text_style(&prediction.station_name, next, character_style, text_style)
+            .draw(&mut display)
+            .expect("Failed create station name text in display buffer");
+
+        // Platform
+        let _ = Text::with_text_style(&prediction.platform_name, next, character_style, text_style)
+            .draw(&mut display)
+            .expect("Failed create platform name text in display buffer");
+
+        // Destination
+        let destination_name = first_two_words(&prediction.destination_name);
+        let character_style = MonoTextStyleBuilder::new()
+            .font(&PROFONT_24_POINT)
+            .text_color(Color::Black)
+            .background_color(Color::White)
+            .build();
+        let position = display.bounding_box().top_left + Point::new(10, display.size().height as i32 / 2);
         let text_style = TextStyleBuilder::new()
             .alignment(Alignment::Left)
-            .line_height(LineHeight::Percent(125))
+            .baseline(Baseline::Middle)
             .build();
-        let position = display.bounding_box().top_left + Point::new(10, 25);
-        Text::with_text_style(&message, position, character_style, text_style)
+        let _ = Text::with_text_style(&destination_name, position, character_style, text_style)
             .draw(&mut display)
             .expect("Failed create text in display buffer");
+
+        // Time to station
+        let mut time_to_station = String::<16>::new();
+        if (prediction.time_to_station as f32 / 60.0) < 1.0 {
+            let _ = write!(&mut time_to_station, "< 1 min");
+        } else if (prediction.time_to_station as f32 / 60.0) < 2.0 {
+            let _ = write!(&mut time_to_station, "< 2 mins");
+        } else {
+            let _ = write!(&mut time_to_station, "{} mins", prediction.time_to_station / 60);
+        }
+        let character_style = MonoTextStyleBuilder::new()
+            .font(&PROFONT_24_POINT)
+            .text_color(Color::Black)
+            .background_color(Color::White)
+            .build();
+        let position = display.bounding_box().top_left
+            + Point::new(
+                (display.size().width - display.size().width / 10) as i32,
+                display.size().height as i32 / 2,
+            );
+        let text_style = TextStyleBuilder::new()
+            .alignment(Alignment::Right)
+            .baseline(Baseline::Middle)
+            .build();
+        let _ = Text::with_text_style(&time_to_station, position, character_style, text_style)
+            .draw(&mut display)
+            .expect("Failed create text in display buffer");
+
+        // Current location
+        let mut current_location = String::<TFL_API_FIELD_LONG_STR_SIZE>::new();
+        current_location
+            .push_str("Current Location: ")
+            .expect("Failed to format current location");
+        current_location
+            .push_str(prediction.current_location.as_str())
+            .expect("Failed to format current location");
+        insert_linebreaks_inplace(
+            &mut current_location,
+            ((display.size().width / PROFONT_14_POINT.character_size.width) - 2) as usize,
+        );
+        let character_style = MonoTextStyle::new(&PROFONT_14_POINT, Color::Black);
+        let position = display.bounding_box().top_left
+            + Point::new(
+                10,
+                ((display.size().height / 2) + PROFONT_14_POINT.character_size.height * 2) as i32,
+            );
+        let text_style = TextStyleBuilder::new().alignment(Alignment::Left).build();
+        let _ = Text::with_text_style(&current_location, position, character_style, text_style)
+            .draw(&mut display)
+            .expect("Failed create text in display buffer");
+
+        // Perform display update
         epd_driver
             .update_and_display_frame(&mut spi_device, &mut display.buffer(), &mut Delay)
             .expect("Failed to update display with prediction");
-        info!("Display: Display updated with prediction...going to sleep");
+        info!("Display: Display updated with prediction");
     }
 }
 
@@ -386,12 +459,6 @@ async fn main(spawner: Spawner) {
 
         let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns_client, tls_config);
 
-        // Sleep for a while before the starting requests
-        // This also gives other tasks a chance to initialise and run
-        info!("Waiting for 5 seconds before making the request...");
-        let query_delay_secs: u64 = option_env!("QUERY_DELAY").and_then(|s| s.parse().ok()).unwrap_or(30);
-        Timer::after_secs(query_delay_secs).await;
-
         // Make the HTTP request to the TFL API
         info!("connecting to {}", &url);
 
@@ -428,7 +495,7 @@ async fn main(spawner: Spawner) {
             if let Some(json_object) = extract_first_json_object(&body) {
                 match from_slice::<TflApiPreciction>(&json_object) {
                     Ok((prediction, used)) => {
-                        if prediction.direction == "outbound" {
+                        if prediction.platform_name.contains("Platform 1") {
                             info!("Used {} bytes from the response body", used);
                             searching = false;
                             info!("Sending preduction to display task data channel");
@@ -441,13 +508,18 @@ async fn main(spawner: Spawner) {
                     Err(e) => {
                         error!("Failed to deserialise JSON: {}", e);
                         error!("JSON: {}", str::from_utf8(json_object).unwrap_or("Invalid UTF-8"));
-                        searching = false;
+                        continue;
                     }
                 }
             } else {
                 error!("Could not extract JSON object from body");
-                searching = false;
+                continue;
             }
         }
+
+        // Sleep for a while before the starting requests
+        let query_delay_secs: u64 = option_env!("QUERY_DELAY").and_then(|s| s.parse().ok()).unwrap_or(30);
+        info!("Waiting for {} seconds before making the request...", query_delay_secs);
+        Timer::after_secs(query_delay_secs).await;
     }
 }
