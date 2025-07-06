@@ -146,6 +146,11 @@ _test = []
 ## program and other details.
 binary-info = ["rt", "dep:rp-binary-info", "rp-binary-info?/binary-info"]
 
+## Inject function for handling FIFO messages.
+## If this feature is enabled, a foreign function
+## `fn handle_fifo(u32) -> bool` must be implemented.
+fifo-handler = []
+
 [dependencies]
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
