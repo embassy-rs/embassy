@@ -1,0 +1,36 @@
+[package]
+edition = "2024"
+name = "embassy-bench"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+
+[features]
+_nrf = ["dep:embassy-nrf"]
+nrf52832 = ["_nrf", "embassy-nrf/nrf52832"]
+_rp = ["dep:embassy-rp"]
+rp2040 = ["_rp", "embassy-rp/rp2040", "portable-atomic/unsafe-assume-single-core"]
+
+[dependencies]
+teleprobe-meta = "1"
+
+embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
+#embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt",  "defmt-timestamp-uptime"] }
+embassy-nrf = { version = "0.3.1", path = "../../embassy-nrf", features = ["defmt", "unstable-pac"], optional = true }
+embassy-rp = { version = "0.4.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac"], optional = true }
+#embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = ["stm32f429zi", "unstable-pac"] }
+static_cell = { version = "2" }
+portable-atomic = { version = "1.5.1" }
+
+defmt = "1"
+defmt-rtt = "1"
+
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+panic-probe = { version = "1", features = ["print-defmt"] }
+
+[profile.release]
+codegen-units = 1
+debug = 2
+incremental = false
+lto = "fat"
+opt-level = 's'

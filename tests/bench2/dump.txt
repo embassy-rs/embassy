@@ -1,0 +1,330 @@
+
+target/thumbv6m-none-eabi/release/selfwake:	file format elf32-littlearm
+architecture: arm
+start address: 0x008040c1
+
+Program Header:
+    LOAD off    0x00000114 vaddr 0x00804000 paddr 0x00804000 align 2**2
+         filesz 0x000000c0 memsz 0x000000c0 flags r--
+    LOAD off    0x000001d4 vaddr 0x008040c0 paddr 0x008040c0 align 2**2
+         filesz 0x000014e4 memsz 0x000014e4 flags r-x
+    LOAD off    0x000016b8 vaddr 0x008055a4 paddr 0x008055a4 align 2**2
+         filesz 0x00000040 memsz 0x00000040 flags r--
+    LOAD off    0x000016f8 vaddr 0x20000000 paddr 0x008055e4 align 2**2
+         filesz 0x000000f8 memsz 0x000000f8 flags rwx
+    LOAD off    0x00001800 vaddr 0x008056e0 paddr 0x008056e0 align 2**5
+         filesz 0x00000100 memsz 0x00000100 flags r--
+    LOAD off    0x00001900 vaddr 0x200000f8 paddr 0x200000f8 align 2**3
+         filesz 0x00000000 memsz 0x0000058c flags rw-
+   STACK off    0x00000000 vaddr 0x00000000 paddr 0x00000000 align 2**64
+         filesz 0x00000000 memsz 0x00000000 flags rw-
+
+Dynamic Section:
+
+Sections:
+Idx Name              Size     VMA      LMA      Type
+  0                   00000000 00000000 00000000 
+  1 .vector_table     000000c0 00804000 00804000 DATA
+  2 .text             000014e4 008040c0 008040c0 TEXT
+  3 .rodata           00000040 008055a4 008055a4 DATA
+  4 .data             000000f8 20000000 008055e4 TEXT
+  5 .gnu.sgstubs      00000000 008056e0 008056e0 DATA
+  6 .boot2            00000100 008056e0 008056e0 DATA
+  7 .bss              0000018c 200000f8 200000f8 BSS
+  8 .uninit           00000400 20000284 20000284 BSS
+  9 .defmt            0000001f 00000000 00000000 
+ 10 .teleprobe.target 0000000f 00000000 00000000 
+ 11 .debug_loc        0006476c 00000000 00000000 DEBUG
+ 12 .debug_abbrev     00000f71 00000000 00000000 DEBUG
+ 13 .debug_info       0006d098 00000000 00000000 DEBUG
+ 14 .debug_aranges    00003750 00000000 00000000 DEBUG
+ 15 .debug_ranges     0000df28 00000000 00000000 DEBUG
+ 16 .debug_str        0005c49a 00000000 00000000 DEBUG
+ 17 .comment          00000093 00000000 00000000 
+ 18 .ARM.attributes   00000032 00000000 00000000 
+ 19 .debug_frame      000088bc 00000000 00000000 DEBUG
+ 20 .debug_line       0002047b 00000000 00000000 DEBUG
+ 21 .debug_pubnames   000001e9 00000000 00000000 DEBUG
+ 22 .debug_pubtypes   00000047 00000000 00000000 DEBUG
+ 23 .symtab           00001160 00000000 00000000 
+ 24 .shstrtab         00000116 00000000 00000000 
+ 25 .strtab           000021f3 00000000 00000000 
+
+SYMBOL TABLE:
+00000000 l    df *ABS*	00000000 selfwake.d2a1491033565257-cgu.0
+008040c0 l       .text	00000000 $t
+008040fc l     F .text	0000002c _ZN11static_cell19StaticCell$LT$T$GT$4init17h7c1e64d83d9810e7E
+008040fc l       .text	00000000 $t
+00804124 l       .text	00000000 $d
+200000fc l     O .bss	0000000c _ZN8selfwake8EXECUTOR17haa66f7f01ec2a645E
+00804128 l     F .text	00000018 _ZN16embassy_executor3raw20TaskStorage$LT$F$GT$4poll17ha5742b12b867c355E
+00804128 l       .text	00000000 $t
+00804758 l     F .text	00000038 _ZN16embassy_executor3raw5waker4wake17hd5ef521bf9ebbad4E
+0080413c l       .text	00000000 $d
+200000f8 l     O .bss	00000004 _ZN8selfwake7COUNTER17h27580a8a3f350d4aE.0
+00804140 l     F .text	000000ec _ZN16embassy_executor4arch6thread8Executor3run17h4ec40f7363125b6fE
+00804140 l       .text	00000000 $t
+00804380 l     F .text	0000001e _ZN5defmt6export18acquire_and_header17h03bb0228bc61d484E
+0080422c l     F .text	00000038 _ZN5defmt6export3fmt17h2b8388996321c607E
+00804214 l       .text	00000000 $d
+20000108 l     O .bss	00000020 _ZN8selfwake5TASK117h6e58d43dfbb0d205E
+0080422c l       .text	00000000 $t
+0080425c l       .text	00000000 $d
+00804264 l       .text	00000000 $t
+0080426c l     F .text	0000004c _ZN8selfwake21__cortex_m_rt_SysTick17h24236d0e41c655e1E
+0080426c l       .text	00000000 $t
+008042ac l       .text	00000000 $d
+008042b8 l       .text	00000000 $t
+008042c0 l     F .text	0000008c _ZN8selfwake18__cortex_m_rt_main17h45287db4ea1c6399E
+008042c0 l       .text	00000000 $t
+0080439e l     F .text	00000022 _ZN5defmt6export26acquire_header_and_release17hdf4af965ef4f258dE
+008047b8 l     F .text	00000794 _ZN10embassy_rp4init17h6ebce45d8475443dE
+0080432c l       .text	00000000 $d
+0080559c l       .text	00000000 $t
+0080434c l       .text	00000000 $t
+00804352 l       .text	00000000 $t
+00804358 l     F .text	00000028 _ZN5defmt6export3fmt17h8846410ec877f30bE
+00804358 l       .text	00000000 $t
+0080437c l       .text	00000000 $d
+00804380 l       .text	00000000 $t
+0080439e l       .text	00000000 $t
+008043c0 l       .text	00000000 $t
+008043c8 l     F .text	00000080 _ZN9defmt_rtt7channel7Channel14blocking_write17hb09828a5e684d067E
+008043c8 l       .text	00000000 $t
+00804444 l       .text	00000000 $d
+00804448 l     F .text	00000060 _ZN9defmt_rtt7channel7Channel17nonblocking_write17h7cdf482120c8905eE
+00804448 l       .text	00000000 $t
+008044a4 l       .text	00000000 $d
+008044a8 l       .text	00000000 $t
+00804508 l       .text	00000000 $d
+20000128 l     O .bss	00000001 _ZN9defmt_rtt11RTT_ENCODER17h8ec5c8cfbd5b8f8dE.0
+20000129 l     O .bss	00000001 _ZN9defmt_rtt11RTT_ENCODER17h8ec5c8cfbd5b8f8dE.1
+2000012a l     O .bss	00000001 _ZN9defmt_rtt11RTT_ENCODER17h8ec5c8cfbd5b8f8dE.2
+00804520 l       .text	00000000 $t
+008045e8 l       .text	00000000 $d
+2000012b l     O .bss	00000001 _ZN9defmt_rtt11RTT_ENCODER17h8ec5c8cfbd5b8f8dE.3
+2000012c l     O .bss	00000001 _ZN9defmt_rtt11RTT_ENCODER17h8ec5c8cfbd5b8f8dE.4
+00804604 l       .text	00000000 $t
+00804744 l       .text	00000000 $d
+00804758 l       .text	00000000 $t
+00804790 l     F .text	00000028 _ZN5defmt6export3fmt17hae1065228b342e26E
+00804790 l       .text	00000000 $t
+008047b4 l       .text	00000000 $d
+008047b8 l       .text	00000000 $t
+008048e0 l       .text	00000000 $d
+00804920 l       .text	00000000 $t
+00804bb0 l       .text	00000000 $d
+00804bc8 l       .text	00000000 $t
+00804bd0 l       .text	00000000 $d
+00804be8 l       .text	00000000 $t
+00804c64 l       .text	00000000 $d
+00804c78 l       .text	00000000 $t
+00804c80 l       .text	00000000 $d
+00804c88 l       .text	00000000 $t
+00804cc0 l       .text	00000000 $d
+00804cd4 l       .text	00000000 $t
+00804cdc l       .text	00000000 $d
+00804ce0 l       .text	00000000 $t
+00804d24 l       .text	00000000 $d
+00804d38 l       .text	00000000 $t
+00804d40 l       .text	00000000 $d
+00804d48 l       .text	00000000 $t
+00804d98 l       .text	00000000 $d
+00804da8 l       .text	00000000 $t
+00804db0 l       .text	00000000 $d
+00804dd0 l       .text	00000000 $t
+00804ec8 l       .text	00000000 $d
+00804f4c l       .text	00000000 $t
+00804f80 l       .text	00000000 $d
+20000000 l       .data	00000000 $t
+20000078 l       .data	00000000 $d
+00804f84 l       .text	00000000 $t
+00805048 l     F .text	00000048 _ZN12embassy_sync9waitqueue12atomic_waker11AtomicWaker4wake17hcd9a75f166539e69E
+00804fdc l       .text	00000000 $d
+20000190 l     O .bss	000000f0 _ZN10embassy_rp4gpio12BANK0_WAKERS17h42c3799dcda4af8fE
+00804fe8 l       .text	00000000 $t
+00805038 l       .text	00000000 $d
+20000130 l     O .bss	00000060 _ZN10embassy_rp3dma14CHANNEL_WAKERS17he3ce5ebf86be1cacE
+00805048 l       .text	00000000 $t
+20000084 l     O .data	00000006 _ZN9defmt_rtt4NAME17h7c5fb06db94f4ce6E
+20000284 l     O .uninit	00000400 _ZN9defmt_rtt6BUFFER17h8f67a2c3afc785d0E
+008040e8 l       .text	00000000 $d
+00000000 l    df *ABS*	00000000 lib.f2c86790-cgu.0
+00805090 l       .text	00000000 $t.0
+00805094 l       .text	00000000 $t.3
+00805098 l       .text	00000000 $t.4
+0080509c l       .text	00000000 $t.5
+008050a6 l       .text	00000000 $t.11
+008050aa l       .text	00000000 $t.12
+008050b0 l       .text	00000000 $t.15
+008050b4 l       .text	00000000 $t.17
+00000000 l    df *ABS*	00000000 compiler_builtins.8c78515909dea94-cgu.0
+008050b8 l       .text	00000000 $t
+008050c8 l       .text	00000000 $t
+008050dc l       .text	00000000 $t
+00805126 l       .text	00000000 $t
+00805152 l     F .text	000001f2 _ZN17compiler_builtins3int19specialized_div_rem11u64_div_rem17h026707fea71ac2e1E
+00805152 l       .text	00000000 $t
+00805344 l     F .text	000000a8 _ZN17compiler_builtins3int19specialized_div_rem11u32_div_rem17h8682a0cd936c55d5E
+00805344 l       .text	00000000 $t
+008053ec l       .text	00000000 $t
+008053f6 l       .text	00000000 $t
+00805400 l       .text	00000000 $t
+0080540a l       .text	00000000 $t
+0080541c l       .text	00000000 $t
+00805448 l       .text	00000000 $t
+00805592 l       .text	00000000 $t
+00805400 l     F .text	0000000a .hidden __aeabi_uidiv
+00805592 l     F .text	0000000a .hidden __aeabi_memcpy
+008053ec l     F .text	0000000a .hidden __aeabi_lmul
+0080540a l     F .text	00000012 .hidden __udivmodsi4
+0080541c l     F .text	0000002c .hidden __udivmoddi4
+008053f6 l     F .text	0000000a .hidden __aeabi_llsl
+008050dc l     F .text	0000004a .hidden _ZN17compiler_builtins3int3mul3Mul3mul17hb6598216681dd723E
+00805126 l     F .text	0000002c .hidden _ZN17compiler_builtins3int5shift4Ashl4ashl17hfa6f392cbb1bc788E
+00805448 l     F .text	0000014a .hidden _ZN17compiler_builtins3mem6memcpy17ha9f96bfff9c3e02fE
+200000bc l     F .data	0000000c __Thumbv6MABSLongThunk___wfe
+200000bc l       .data	00000000 $t
+200000c4 l       .data	00000000 $d
+200000c8 l     F .data	0000000c __Thumbv6MABSLongThunk___cpsid
+200000c8 l       .data	00000000 $t
+200000d0 l       .data	00000000 $d
+200000d4 l     F .data	0000000c __Thumbv6MABSLongThunk___nop
+200000d4 l       .data	00000000 $t
+200000dc l       .data	00000000 $d
+200000e0 l     F .data	0000000c __Thumbv6MABSLongThunk___sev
+200000e0 l       .data	00000000 $t
+200000e8 l       .data	00000000 $d
+200000ec l     F .data	0000000c __Thumbv6MABSLongThunk___cpsie
+200000ec l       .data	00000000 $t
+200000f4 l       .data	00000000 $d
+00804004 g     O .vector_table	00000004 __RESET_VECTOR
+008040c0 g     F .text	00000028 Reset
+00804008 g     O .vector_table	00000038 __EXCEPTIONS
+0080434c g     F .text	00000000 DefaultHandler
+00804040 g     O .vector_table	00000080 __INTERRUPTS
+008044a8 g     F .text	00000078 _defmt_acquire
+00804520 g     F .text	000000e4 _defmt_release
+00804352 g     F .text	00000006 __defmt_default_timestamp
+00804f4c g     F .text	00000038 __pre_init
+008042b8 g     F .text	00000008 main
+008050aa g     F .text	00000006 __primask_r
+00805094 g     F .text	00000004 __cpsid
+00805098 g     F .text	00000004 __cpsie
+008043c0 g     F .text	00000000 _defmt_panic
+00000005 g     O .defmt	00000001 {"package":"embassy-bench","tag":"defmt_error","data":"panicked at 'unwrap failed: spawner.spawn(TASK1.spawn(| | Task1 {{}}))'\nerror: `{:?}`","disambiguator":"6993429055962041101","crate_name":"selfwake"}
+00804604 g     F .text	00000154 _defmt_write
+00000002 g     O .defmt	00000001 {"package":"defmt","tag":"defmt_prim","data":"{=__internal_FormatSequence}","disambiguator":"12901538965749632422","crate_name":"defmt"}
+0000001d g     O .defmt	00000001 {"package":"embassy-executor","tag":"defmt_write","data":"Busy - Too many instances of this task are already running. Check the `pool_size` attribute of the task.","disambiguator":"17141521042735389674","crate_name":"embassy_executor"}
+00804264 g     F .text	00000008 SysTick
+00805090 g     F .text	00000004 __bkpt
+00000003 g     O .defmt	00000001 {"package":"embassy-bench","tag":"defmt_info","data":"Test OK, count={=u32}, cycles={=u32}","disambiguator":"18330179371905751882","crate_name":"selfwake"}
+00000004 g     O .defmt	00000001 {"package":"embassy-bench","tag":"defmt_info","data":"Hello World!","disambiguator":"10961723500791852395","crate_name":"selfwake"}
+0080559c g     F .text	00000006 HardFault_
+0080434c g     F .text	00000006 DefaultHandler_
+00804352 g     F .text	00000006 DefaultPreInit
+00000001 g     O .defmt	00000001 {"package":"defmt","tag":"defmt_prim","data":"{=usize}","disambiguator":"5508678152672316438","crate_name":"defmt"}
+00804352 g     F .text	00000000 _defmt_timestamp
+008043c0 g     F .text	00000006 __defmt_default_panic
+2000008c g     O .data	00000030 _SEGGER_RTT
+0000001e g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_derived","data":"PllLockTimedOut|InvalidPllParameters|UnexpectedCoreVoltageRead","disambiguator":"9415255957102731219","crate_name":"embassy_rp"}
+0080509c g     F .text	0000000a __delay
+20000280 g     O .bss	00000001 _EMBASSY_DEVICE_PERIPHERALS
+008050c8  w    F .text	00000014 __aeabi_uldivmod
+00000006 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'Failed to configure PLL_SYS: {:?}'","disambiguator":"6450197097979118824","crate_name":"embassy_rp"}
+00000012 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: config.fbdiv >= 16 && config.fbdiv <= 320'","disambiguator":"3615486169974207774","crate_name":"embassy_rp"}
+00000013 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: config.post_div1 >= 1 && config.post_div1 <= 7'","disambiguator":"123572644382635081","crate_name":"embassy_rp"}
+00000014 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: config.post_div2 >= 1 && config.post_div2 <= 7'","disambiguator":"2021769823417716017","crate_name":"embassy_rp"}
+00000016 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: config.refdiv >= 1 && config.refdiv <= 63'","disambiguator":"7467123828619778999","crate_name":"embassy_rp"}
+00000017 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: ref_freq >= 5_000_000 && ref_freq <= 800_000_000'","disambiguator":"13281118278630297012","crate_name":"embassy_rp"}
+00000018 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000'","disambiguator":"12236170274704918416","crate_name":"embassy_rp"}
+00000007 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'Failed to configure PLL_USB: {:?}'","disambiguator":"13344661980499943833","crate_name":"embassy_rp"}
+00000015 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: config.post_div2 <= config.post_div1'","disambiguator":"16998876069025865428","crate_name":"embassy_rp"}
+00000008 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: div >= 1 && div <= 4'","disambiguator":"105889988688045174","crate_name":"embassy_rp"}
+0000000b g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: peri_freq != 0'","disambiguator":"1599683710465612953","crate_name":"embassy_rp"}
+0000000d g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: conf.div >= 1 && conf.div <= 4'","disambiguator":"4894632734363604408","crate_name":"embassy_rp"}
+0000000c g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: usb_freq != 0'","disambiguator":"8134705358910690244","crate_name":"embassy_rp"}
+0000000f g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: conf.div >= 1 && conf.div <= 4'","disambiguator":"10712894876715504621","crate_name":"embassy_rp"}
+0000000e g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: adc_in_freq != 0'","disambiguator":"12812804414864352445","crate_name":"embassy_rp"}
+00000011 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: config.sys_clk.div_int <= 0x1000000'","disambiguator":"3356295606072384518","crate_name":"embassy_rp"}
+00000010 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: rtc_in_freq != 0'","disambiguator":"16649551081164654905","crate_name":"embassy_rp"}
+0000000a g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: clk_sys_freq != 0'","disambiguator":"12578451139193982085","crate_name":"embassy_rp"}
+00000009 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'assertion failed: clk_ref_freq != 0'","disambiguator":"15229123669709846305","crate_name":"embassy_rp"}
+00000019 g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'init called more than once!'","disambiguator":"2083061559700626169","crate_name":"embassy_rp"}
+20000000 g     F .data	00000084 SIO_IRQ_PROC1
+008050b4 g     F .text	00000004 __wfe
+008050a6 g     F .text	00000004 __nop
+008050b0 g     F .text	00000004 __sev
+00804f84 g     F .text	00000064 IO_IRQ_BANK0
+00804fe8 g     F .text	00000060 DMA_IRQ_0
+0000001a g     O .defmt	00000001 {"package":"embassy-rp","tag":"defmt_error","data":"panicked at 'DMA: error on DMA_0 channel {}'","disambiguator":"12552382530178160349","crate_name":"embassy_rp"}
+00000000 g     O .teleprobe.target	0000000f _TELEPROBE_TARGET
+0080434c g     F .text	00000000 NonMaskableInt
+0080559c g     F .text	00000000 HardFault
+0080434c g     F .text	00000000 SVCall
+0080434c g     F .text	00000000 PendSV
+0000001b g     O .defmt	00000001 _defmt_version_ = 4
+0000001c g     O .defmt	00000001 _defmt_encoding_ = rzcobs
+008056e0 g     O .boot2	00000100 _ZN10embassy_rp5BOOT217hd29af3da7cd730ffE
+0080434c g     F .text	00000000 TIMER_IRQ_0
+0080434c g     F .text	00000000 TIMER_IRQ_1
+0080434c g     F .text	00000000 TIMER_IRQ_2
+0080434c g     F .text	00000000 TIMER_IRQ_3
+0080434c g     F .text	00000000 PWM_IRQ_WRAP
+0080434c g     F .text	00000000 USBCTRL_IRQ
+0080434c g     F .text	00000000 XIP_IRQ
+0080434c g     F .text	00000000 PIO0_IRQ_0
+0080434c g     F .text	00000000 PIO0_IRQ_1
+0080434c g     F .text	00000000 PIO1_IRQ_0
+0080434c g     F .text	00000000 PIO1_IRQ_1
+0080434c g     F .text	00000000 DMA_IRQ_1
+0080434c g     F .text	00000000 IO_IRQ_QSPI
+0080434c g     F .text	00000000 SIO_IRQ_PROC0
+0080434c g     F .text	00000000 CLOCKS_IRQ
+0080434c g     F .text	00000000 SPI0_IRQ
+0080434c g     F .text	00000000 SPI1_IRQ
+0080434c g     F .text	00000000 UART0_IRQ
+0080434c g     F .text	00000000 UART1_IRQ
+0080434c g     F .text	00000000 ADC_IRQ_FIFO
+0080434c g     F .text	00000000 I2C0_IRQ
+0080434c g     F .text	00000000 I2C1_IRQ
+0080434c g     F .text	00000000 RTC_IRQ
+0080434c g     F .text	00000000 SWI_IRQ_0
+0080434c g     F .text	00000000 SWI_IRQ_1
+0080434c g     F .text	00000000 SWI_IRQ_2
+0080434c g     F .text	00000000 SWI_IRQ_3
+0080434c g     F .text	00000000 SWI_IRQ_4
+0080434c g     F .text	00000000 SWI_IRQ_5
+200000f8 g       .bss	00000000 __sbss
+20000284 g       .bss	00000000 __ebss
+20000000 g       .data	00000000 __sdata
+200000f8 g       .data	00000000 __edata
+008055e4 g       *ABS*	00000000 __sidata
+008050b8  w    F .text	00000010 __aeabi_uidivmod
+20004000 g       *ABS*	00000000 _stack_start
+008040c0 g       .vector_table	00000000 _stext
+20000684 g       .uninit	00000000 __sheap
+20000684 g       .uninit	00000000 _stack_end
+00804008 g       .vector_table	00000000 __exceptions
+00804040 g       .vector_table	00000000 __eexceptions
+0000001f g       .defmt	00000000 __DEFMT_MARKER_END
+20000684 g       .uninit	00000000 __euninit
+20004000 g       *ABS*	00000000 _ram_end
+00804000 g       .vector_table	00000000 __vector_table
+008040c0 g       .text	00000000 __stext
+008055a4 g       .text	00000000 __etext
+008055a4 g       .rodata	00000000 __srodata
+008055e4 g       .rodata	00000000 __erodata
+008056e0 g       .gnu.sgstubs	00000000 __veneer_base
+008057e0 g       .boot2	00000000 __veneer_limit
+20000284 g       .uninit	00000000 __suninit
+00000003 g       .defmt	00000000 __DEFMT_MARKER_TRACE_START
+00000003 g       .defmt	00000000 __DEFMT_MARKER_TRACE_END
+00000003 g       .defmt	00000000 __DEFMT_MARKER_DEBUG_START
+00000003 g       .defmt	00000000 __DEFMT_MARKER_DEBUG_END
+00000003 g       .defmt	00000000 __DEFMT_MARKER_INFO_START
+00000005 g       .defmt	00000000 __DEFMT_MARKER_INFO_END
+00000005 g       .defmt	00000000 __DEFMT_MARKER_WARN_START
+00000005 g       .defmt	00000000 __DEFMT_MARKER_WARN_END
+00000005 g       .defmt	00000000 __DEFMT_MARKER_ERROR_START
+0000001b g       .defmt	00000000 __DEFMT_MARKER_ERROR_END
