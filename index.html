@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>London Pi Tube</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        html {
+            font-size: 18px;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'IBM Plex Sans', serif;
+            background: #fff;
+            color: #222;
+        }
+
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 2rem 1.5rem 4rem 1.5rem;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5em;
+            text-align: center;
+        }
+
+        h2 {
+            font-size: 1.5rem;
+            margin-top: 2.5em;
+            margin-bottom: 0.5em;
+            color: #535353;
+        }
+
+        h3 {
+            font-size: 1.2rem;
+            margin-top: 2.5em;
+            margin-bottom: 0.5em;
+            color: #535353;
+        }
+
+        .reference ol li {
+            text-align: left;
+            font-style: italic;
+            font-size: 0.9em;
+            color: #888;
+        }
+
+        .reference a {
+            text-decoration: underline;
+            color: inherit;
+        }
+
+        .reference a:visited {
+            color: inherit;
+        }
+
+        .reference a:hover,
+        .reference a:focus {
+            color: #003366;
+        }
+
+        p {
+            line-height: 1.7;
+            margin: 1.2em 0;
+            text-align: justify;
+        }
+
+        figure {
+            text-align: center;
+        }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+
+        figcaption {
+            font-size: 0.95em;
+            color: #666;
+            margin-top: 0.5em;
+        }
+
+        @media (max-width: 800px) {
+            .container {
+                padding: 1rem 0.5rem 2rem 0.5rem;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 2em 0;
+            font-size: 1em;
+            background: #fff;
+        }
+
+        td,
+        th {
+            text-align: left;
+            padding: 0.6em 1em;
+        }
+
+        tbody tr:nth-child(odd) {
+            background: #f3f3f3;
+        }
+
+        tbody tr:nth-child(even) {
+            background: #e9e9e9;
+        }
+
+        th {
+            background: #e0e0e0;
+            font-weight: bold;
+        }
+
+        .banner {
+            width: 100%;
+            background: #2052bb;
+            color: #fff;
+            padding: 1.2em 0;
+            text-align: center;
+            font-size: 1.3rem;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        .inline {
+            align-items: baseline;
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="banner">
+        <h1>London Pi Tube</h1>
+    </div>
+    <div class="container">
+        <div class="reference">
+            <p>This is a simple web page to demonstrate the use of <a
+                    href="https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#picow-technical-specification">Raspberry
+                    Pi Pico W</a> with <a href="https://www.waveshare.com/wiki/Pico-ePaper-3.7">
+                    Waveshare Pico-ePaper 3.7" E-ink Display</a> to display the when the next train to the office
+                is.
+            </p>
+        </div>
+        <div>
+            <h2>Raspberry Pi Pico W</h2>
+            <p>Raspberry Pi Pico is a low-cost, high-performance microcontroller board with flexible digital interfaces.
+            </p>
+            <figure>
+                <img src="images/picow-pinout.svg">
+                <figcaption>Figure 1: Raspberry Pi Pico W Pinout.</figcaption>
+            </figure>
+            <p>Key features include:</p>
+            <ul>
+                <li>RP2040 microcontroller chip designed by Raspberry Pi in the United Kingdom</li>
+                <li>Dual-core Arm Cortex M0+ processor, flexible clock running up to 133 MHz</li>
+                <li>264KB of SRAM, and 2MB of on-board flash memory</li>
+                <li>USB 1.1 with device and host support</li>
+                <li>Low-power sleep and dormant modes</li>
+                <li>Drag-and-drop programming using mass storage over USB</li>
+                <li>26 × multi-function GPIO pins</li>
+                <li>2 × SPI, 2 × I2C, 2 × UART, 3 × 12-bit ADC, 16 × controllable PWM channels</li>
+                <li>Accurate clock and timer on-chip</li>
+                <li>Temperature sensor</li>
+                <li>Accelerated floating-point libraries on-chip</li>
+                <li>8 × Programmable I/O (PIO) state machines for custom peripheral support</li>
+            </ul>
+            <p>Raspberry Pi Pico W adds on-board single-band 2.4GHz wireless interfaces (802.11n) using the Infineon
+                CYW43439 while retaining the Pico form factor. The on-board 2.4GHz wireless interface has the following
+                features:</p>
+            <ul>
+                <li>Wireless (802.11n), single-band (2.4 GHz)</li>
+                <li>WPA3</li>
+                <li>Soft access point supporting up to four clients</li>
+                <li>
+                    Bluetooth 5.2
+                    <div class="ulist">
+                        <ul>
+                            <li>Support for Bluetooth LE Central and Peripheral roles</li>
+                            <li>Support for Bluetooth Classic</li>
+                        </ul>
+                    </div>
+                </li>
+            </ul>
+            <div class="reference">
+                <ol>
+                    <li>
+                        <a
+                            href="https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#picow-technical-specification">
+                            https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#picow-technical-specification</a>
+                    </li>
+                </ol>
+            </div>
+        </div>
+        <div>
+            <h2>Waveshare Pico-ePaper 3.7" E-ink Display</h2>
+            <figure>
+                <img src="images/pico-epaper-3in7-front.jpg">
+                <figcaption>Figure 2: Waveshare Pico-ePaper 3.7" E-ink Display (front)</figcaption>
+            </figure>
+            <figure>
+                <img src="images/pico-epaper-3in7-back.jpg">
+                <figcaption>Figure 3: Waveshare Pico-ePaper 3.7" E-ink Display (back)</figcaption>
+            </figure>
+            <figure>
+                <figcaption>Table 1: Waveshare Pico-ePaper 3.7" E-ink Display pinout</figcaption>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Pin Name</th>
+                            <th>Pin Description</th>
+                        </tr>
+                    <tbody>
+                        <tr>
+                            <td>VCC</td>
+                            <td>3.3V/5V</td>
+                        </tr>
+                        <tr>
+                            <td>GND</td>
+                            <td>Ground</td>
+                        </tr>
+                        <tr>
+                            <td>DIN</td>
+                            <td>SPI MOSI pin</td>
+                        </tr>
+                        <tr>
+                            <td>CLK</td>
+                            <td>SPI SCK pin</td>
+                        </tr>
+                        <tr>
+                            <td>CS</td>
+                            <td>SPI chip selection, low active</td>
+                        </tr>
+                        <tr>
+                            <td>DC</td>
+                            <td>Data / Command selection (high for data, low for command)</td>
+                        </tr>
+                        <tr>
+                            <td>RST</td>
+                            <td>External reset, low active</td>
+                        </tr>
+                        <tr>
+                            <td>BUSY</td>
+                            <td>Busy status output</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </figure>
+            <p>Key features include:</p>
+            <ul>
+                <li>3.7" E-ink display with 480x280 resolution</li>
+                <li>>170° Viewing angle</li>
+                <li>Black and white colour</li>
+                <li>Four greyscale levels</li>
+                <li>No backlight, keeps displaying last content for a long time even when power down</li>
+                <li>Ultra low power consumption, basically power is only required for refreshing</li>
+                <li>SPI interface, requires minimal IO pins</li>
+                <li>Onboard voltage translator, compatible with 3.3V / 5V MCUs</li>
+                <li>Comes with development resources and manual (Raspberry Pi Pico C/C++ and MicroPython examples)</li>
+            </ul>
+            <div class="reference">
+                <ol>
+                    <li><a href="https://www.waveshare.com/wiki/Pico-ePaper-3.7">
+                            https://www.waveshare.com/wiki/Pico-ePaper-3.7</a></li>
+                    <li><a
+                            href="https://www.waveshare.com/pico-epaper-3.7.htm">https://www.waveshare.com/pico-epaper-3.7.htm</a>
+                    </li>
+                    <li>
+                        <a href="https://thepihut.com/products/3-7-e-paper-e-ink-display-for-raspberry-pi-pico-480x280">
+                            https://thepihut.com/products/3-7-e-paper-e-ink-display-for-raspberry-pi-pico-480x280</a>
+                    </li>
+                </ol>
+            </div>
+        </div>
+        <div>
+            <h2>Wiring Schedule</h2>
+            <figure>
+                <figcaption>Table 2: Raspberry Pi Pico W to Waveshare Pico-ePaper 3.7" E-ink Display Wiring Schedule
+                </figcaption>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Raspberry Pi Pico W</th>
+                            <th>Waveshare Pico-ePaper 3.7" E-ink Display</th>
+                        </tr>
+                    <tbody>
+                        <tr>
+                            <td>VCC</td>
+                            <td>VSYS</td>
+                        </tr>
+                        <tr>
+                            <td>GND</td>
+                            <td>GND</td>
+                        </tr>
+                        <tr>
+                            <td>DIN</td>
+                            <td>GP11</td>
+                        </tr>
+                        <tr>
+                            <td>CLK</td>
+                            <td>GP10</td>
+                        </tr>
+                        <tr>
+                            <td>CS</td>
+                            <td>GP09</td>
+                        </tr>
+                        <tr>
+                            <td>DC</td>
+                            <td>GP08</td>
+                        </tr>
+                        <tr>
+                            <td>RST</td>
+                            <td>GP12</td>
+                        </tr>
+                        <tr>
+                            <td>BUSY</td>
+                            <td>GP13</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </figure>
+            <figure>
+                <img src="images/wiring-schedule.png">
+                <figcaption>Figure 4: Breadboard Schematic of Raspberry Pi Pico W and Waveshare Pico-ePaper 3.7" E-ink
+                    Display (driver only)</figcaption>
+            </figure>
+        </div>
+        <div>
+            <h2>SPI Communication</h2>
+            <h3>Sending and Receiving Data</h3>
+            <figure>
+                <span class="inline">
+                    <img src="images/one-way-spi-communication.png">
+                    <img src="images/two-way-spi-communication.png">
+                </span>
+                <figcaption>Figure 5: SPI Communication Diagram</figcaption>
+            </figure>
+            <p>SPI (Serial Peripheral Interface) is a synchronous serial communication protocol used for short-distance
+                communication, primarily in embedded systems. It allows a controller device to communicate with one or
+                more
+                peripheral devices using a full-duplex communication method. SPI is widely used for connecting
+                microcontrollers to various peripherals such as sensors, displays, and memory devices.
+            </p>
+            <p>It's a "synchronous" data bus, which means that it uses separate lines for data and a "clock" that keeps
+                both sides in perfect sync. The clock is an oscillating signal that tells the receiver exactly when to
+                sample the bits on the data line. This could be the rising (low to high) or falling (high to low) edge
+                of the clock signal. When the receiver detects that edge, it will immediately look at the data line to
+                read the next bit. Because the clock is sent along with the data, specifying the speed isn't important,
+                although devices will have a top speed at which they can operate.
+            </p>
+            <h3>Chip Select and Multiple Peripherals</h3>
+            <figure>
+                <span class="inline">
+                    <img src="images/chip-selection-spi-communication.png">
+                    <img src="images/multiple-peripherals-spi-communication.png">
+                </span>
+                <figcaption>Figure 5: SPI Communication Diagram</figcaption>
+            </figure>
+
+            <div class="reference">
+                <ol>
+                    <li><a
+                            href="https://learn.sparkfun.com/tutorials/serial-peripheral-interface-spi/all">https://learn.sparkfun.com/tutorials/serial-peripheral-interface-spi/all</a>
+                    </li>
+            </div>
+        </div>
+</body>
+
+</html>

@@ -215,7 +215,7 @@ async fn update_display_with_predictions(r: DisplayResources) {
     let spi_bus = Spi::new_blocking_txonly(r.spi1, pin_spi_sclk, pin_spi_mosi, display_config);
     let mut spi_device = ExclusiveDevice::new(spi_bus, pin_cs, Delay);
 
-    // // Setup the EPD driver and create a display buffer to draw on, specific for this ePaper
+    // Setup the EPD driver and create a display buffer to draw on, specific for this ePaper
     let mut epd_driver = EPD3in7::new(&mut spi_device, pin_busy, pin_data_cmd, pin_reset, &mut Delay, None)
         .expect("Display: eink initalize error"); // Force unwrap, as there is nothing that can be done if this errors out
 
