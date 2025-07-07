@@ -22,5 +22,11 @@ rt = ["lpc55-pac?/rt"]
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt"]
 
+## Reexport the PAC for the currently enabled chip at `embassy_nxp::pac` (unstable)
+unstable-pac = []
+# This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.
+# If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
+# There are no plans to make this stable.
+
 #! ### Chip selection features
 lpc55 = ["lpc55-pac"]
