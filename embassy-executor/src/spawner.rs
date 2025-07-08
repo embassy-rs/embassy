@@ -122,10 +122,26 @@ impl Spawner {
     /// This function is `async` just to get access to the current async
     /// context. It returns instantly, it does not block/yield.
     ///
+    /// Using this method is discouraged due to it being unsafe. Consider the following
+    /// alternatives instead:
+    ///
+    /// - Pass the initial `Spawner` as an argument to tasks. Note that it's `Copy`, so you can
+    ///   make as many copies of it as you want.
+    /// - Use `SendSpawner::for_current_executor()` instead, which is safe but can only be used
+    ///   if task arguments are `Send`.
+    ///
+    /// The only case where using this method is absolutely required is obtaining the `Spawner`
+    /// for an `InterruptExecutor`.
+    ///
+    /// # Safety
+    ///
+    /// You must only execute this with an async `Context` created by the Embassy executor.
+    /// You must not execute it with manually-created `Context`s.
+    ///
     /// # Panics
     ///
     /// Panics if the current executor is not an Embassy executor.
-    pub fn for_current_executor() -> impl Future<Output = Self> {
+    pub unsafe fn for_current_executor() -> impl Future<Output = Self> {
         poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
             let executor = unsafe {
