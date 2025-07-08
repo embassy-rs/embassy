@@ -17,7 +17,7 @@ mod run_queue;
 mod state;
 
 pub mod timer_queue;
-#[cfg(feature = "trace")]
+#[cfg(feature = "_any_trace")]
 pub mod trace;
 pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
@@ -89,9 +89,9 @@ pub(crate) struct TaskHeader {
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
-    #[cfg(feature = "trace")]
+    #[cfg(feature = "_any_trace")]
     pub(crate) name: Option<&'static str>,
-    #[cfg(feature = "trace")]
+    #[cfg(feature = "rtos-trace")]
     all_tasks_next: AtomicPtr<TaskHeader>,
 }
 
@@ -194,9 +194,9 @@ impl<F: Future + 'static> TaskStorage<F> {
                 poll_fn: SyncUnsafeCell::new(None),
 
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
-                #[cfg(feature = "trace")]
+                #[cfg(feature = "_any_trace")]
                 name: None,
-                #[cfg(feature = "trace")]
+                #[cfg(feature = "rtos-trace")]
                 all_tasks_next: AtomicPtr::new(core::ptr::null_mut()),
             },
             future: UninitCell::uninit(),
@@ -232,7 +232,7 @@ impl<F: Future + 'static> TaskStorage<F> {
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
-                #[cfg(feature = "trace")]
+                #[cfg(feature = "_any_trace")]
                 let exec_ptr: *const SyncExecutor = this.raw.executor.load(Ordering::Relaxed);
 
                 // As the future has finished and this function will not be called
@@ -247,7 +247,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // after we're done with it.
                 this.raw.state.despawn();
 
-                #[cfg(feature = "trace")]
+                #[cfg(feature = "_any_trace")]
                 trace::task_end(exec_ptr, &p);
             }
             Poll::Pending => {}
@@ -420,7 +420,7 @@ impl SyncExecutor {
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
     unsafe fn enqueue(&self, task: TaskRef, l: state::Token) {
-        #[cfg(feature = "trace")]
+        #[cfg(feature = "_any_trace")]
         trace::task_ready_begin(self, &task);
 
         if self.run_queue.enqueue(task, l) {
@@ -433,7 +433,7 @@ impl SyncExecutor {
             .executor
             .store((self as *const Self).cast_mut(), Ordering::Relaxed);
 
-        #[cfg(feature = "trace")]
+        #[cfg(feature = "_any_trace")]
         trace::task_new(self, &task);
 
         state::locked(|l| {
@@ -445,23 +445,23 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
-        #[cfg(feature = "trace")]
+        #[cfg(feature = "_any_trace")]
         trace::poll_start(self);
 
         self.run_queue.dequeue_all(|p| {
             let task = p.header();
 
-            #[cfg(feature = "trace")]
+            #[cfg(feature = "_any_trace")]
             trace::task_exec_begin(self, &p);
 
             // Run the task
             task.poll_fn.get().unwrap_unchecked()(p);
 
-            #[cfg(feature = "trace")]
+            #[cfg(feature = "_any_trace")]
             trace::task_exec_end(self, &p);
         });
 
-        #[cfg(feature = "trace")]
+        #[cfg(feature = "_any_trace")]
         trace::executor_idle(self)
     }
 }
