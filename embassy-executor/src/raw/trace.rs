@@ -95,17 +95,20 @@ use crate::spawner::{SpawnError, SpawnToken, Spawner};
 /// This static provides access to the global task tracker which maintains
 /// a list of all tasks in the system. It's automatically updated by the
 /// task lifecycle hooks in the trace module.
-pub static TASK_TRACKER: TaskTracker = TaskTracker::new();
+#[cfg(feature = "rtos-trace")]
+pub(crate) static TASK_TRACKER: TaskTracker = TaskTracker::new();
 
 /// A thread-safe tracker for all tasks in the system
 ///
 /// This struct uses an intrusive linked list approach to track all tasks
 /// without additional memory allocations. It maintains a global list of
 /// tasks that can be traversed to find all currently existing tasks.
-pub struct TaskTracker {
+#[cfg(feature = "rtos-trace")]
+pub(crate) struct TaskTracker {
     head: AtomicPtr<TaskHeader>,
 }
 
+#[cfg(feature = "rtos-trace")]
 impl TaskTracker {
     /// Creates a new empty task tracker
     ///
@@ -191,7 +194,7 @@ impl TaskRefTrace for TaskRef {
     }
 }
 
-#[cfg(not(feature = "rtos-trace"))]
+#[cfg(feature = "trace")]
 extern "Rust" {
     /// This callback is called when the executor begins polling. This will always
     /// be paired with a later call to `_embassy_trace_executor_idle`.
@@ -253,7 +256,7 @@ extern "Rust" {
 
 #[inline]
 pub(crate) fn poll_start(executor: &SyncExecutor) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_poll_start(executor as *const _ as u32)
     }
@@ -261,7 +264,7 @@ pub(crate) fn poll_start(executor: &SyncExecutor) {
 
 #[inline]
 pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_new(executor as *const _ as u32, task.as_ptr() as u32)
     }
@@ -285,7 +288,7 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_end(executor as u32, task.as_ptr() as u32)
     }
@@ -293,7 +296,7 @@ pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_ready_begin(executor as *const _ as u32, task.as_ptr() as u32)
     }
@@ -303,7 +306,7 @@ pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_exec_begin(executor as *const _ as u32, task.as_ptr() as u32)
     }
@@ -313,7 +316,7 @@ pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_exec_end(executor: &SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_exec_end(executor as *const _ as u32, task.as_ptr() as u32)
     }
@@ -323,7 +326,7 @@ pub(crate) fn task_exec_end(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn executor_idle(executor: &SyncExecutor) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_executor_idle(executor as *const _ as u32)
     }
@@ -339,6 +342,7 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
 ///
 /// # Returns
 /// An iterator that yields `TaskRef` items for each task
+#[cfg(feature = "rtos-trace")]
 fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
     struct TaskIterator<'a> {
         tracker: &'a TaskTracker,
@@ -367,6 +371,7 @@ fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
 }
 
 /// Perform an action on each active task
+#[cfg(feature = "rtos-trace")]
 fn with_all_active_tasks<F>(f: F)
 where
     F: FnMut(TaskRef),
