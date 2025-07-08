@@ -109,6 +109,11 @@ arch-avr = ["_arch", "dep:portable-atomic", "dep:avr-device"]
 ## spin (architecture agnostic; never sleeps)
 arch-spin = ["_arch"]
 
+#! ### Metadata
+
+## Enable the `name` field in task metadata.
+metadata-name = []
+
 #! ### Executor
 
 ## Enable the thread-mode executor (using WFE/SEV in Cortex-M, WFI in other embedded archs)
@@ -118,7 +123,7 @@ executor-interrupt = []
 ## Enable tracing hooks
 trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
-rtos-trace = ["dep:rtos-trace", "_any_trace", "dep:embassy-time-driver"]
+rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "dep:embassy-time-driver"]
 _any_trace = []
 
 #! ### Timer Item Payload Size

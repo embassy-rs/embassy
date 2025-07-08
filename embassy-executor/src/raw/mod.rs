@@ -41,6 +41,7 @@ use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
+use crate::Metadata;
 
 #[no_mangle]
 extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
@@ -94,8 +95,9 @@ pub(crate) struct TaskHeader {
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
     pub(crate) timer_queue_item: TimerQueueItem,
-    #[cfg(feature = "_any_trace")]
-    pub(crate) name: Option<&'static str>,
+
+    pub(crate) metadata: Metadata,
+
     #[cfg(feature = "rtos-trace")]
     all_tasks_next: AtomicPtr<TaskHeader>,
 }
@@ -125,6 +127,10 @@ impl TaskRef {
 
     pub(crate) fn header(self) -> &'static TaskHeader {
         unsafe { self.ptr.as_ref() }
+    }
+
+    pub(crate) fn metadata(self) -> &'static Metadata {
+        unsafe { &self.ptr.as_ref().metadata }
     }
 
     /// Returns a reference to the executor that the task is currently running on.
@@ -193,8 +199,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 poll_fn: SyncUnsafeCell::new(None),
 
                 timer_queue_item: TimerQueueItem::new(),
-                #[cfg(feature = "_any_trace")]
-                name: None,
+                metadata: Metadata::new(),
                 #[cfg(feature = "rtos-trace")]
                 all_tasks_next: AtomicPtr::new(core::ptr::null_mut()),
             },
@@ -281,6 +286,7 @@ impl<F: Future + 'static> AvailableTask<F> {
 
     fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
         unsafe {
+            self.task.raw.metadata.reset();
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
 
