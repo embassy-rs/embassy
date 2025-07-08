@@ -97,8 +97,6 @@ pub(crate) struct TaskHeader {
     #[cfg(feature = "trace")]
     pub(crate) name: Option<&'static str>,
     #[cfg(feature = "trace")]
-    pub(crate) id: u32,
-    #[cfg(feature = "trace")]
     all_tasks_next: AtomicPtr<TaskHeader>,
 }
 
@@ -148,6 +146,12 @@ impl TaskRef {
     pub(crate) fn as_ptr(self) -> *const TaskHeader {
         self.ptr.as_ptr()
     }
+
+    /// Returns the task ID.
+    /// This can be used in combination with rtos-trace to match task names with IDs
+    pub fn id(&self) -> u32 {
+        self.as_ptr() as u32
+    }
 }
 
 /// Raw storage in which a task can be spawned.
@@ -191,8 +195,6 @@ impl<F: Future + 'static> TaskStorage<F> {
                 timer_queue_item: TimerQueueItem::new(),
                 #[cfg(feature = "trace")]
                 name: None,
-                #[cfg(feature = "trace")]
-                id: 0,
                 #[cfg(feature = "trace")]
                 all_tasks_next: AtomicPtr::new(core::ptr::null_mut()),
             },
