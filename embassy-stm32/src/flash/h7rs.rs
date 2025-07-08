@@ -1,17 +1,17 @@
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
-use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
+// pub(crate) const fn is_default_layout() -> bool {
+//     true
+// }
 
-pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
+// pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
+//     &FLASH_REGIONS
+// }
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.cr().modify(|w| w.set_lock(true));
@@ -69,14 +69,15 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     unwrap!(res)
 }
 
-pub(crate) unsafe fn blocking_erase_sector(_sector: &FlashSector) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     let bank = pac::FLASH;
     bank.cr().modify(|w| {
         w.set_ser(true);
-        #[cfg(flash_h7)]
-        w.set_snb(sector.index_in_bank);
-        #[cfg(flash_h7ab)]
         w.set_ssn(sector.index_in_bank);
+        // #[cfg(flash_h7)]
+        // w.set_snb(sector.index_in_bank);
+        // #[cfg(flash_h7ab)]
+        // w.set_ssn(sector.index_in_bank);
     });
 
     bank.cr().modify(|w| {
