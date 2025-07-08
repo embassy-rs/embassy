@@ -23,39 +23,28 @@ use crate::Metadata;
 /// Once you've invoked a task function and obtained a SpawnToken, you *must* spawn it.
 #[must_use = "Calling a task function does nothing on its own. You must spawn the returned SpawnToken, typically with Spawner::spawn()"]
 pub struct SpawnToken<S> {
-    pub(crate) raw_task: Option<raw::TaskRef>,
+    pub(crate) raw_task: raw::TaskRef,
     phantom: PhantomData<*mut S>,
 }
 
 impl<S> SpawnToken<S> {
     pub(crate) unsafe fn new(raw_task: raw::TaskRef) -> Self {
         Self {
-            raw_task: Some(raw_task),
+            raw_task,
             phantom: PhantomData,
         }
     }
 
-    /// Return a SpawnToken that represents a failed spawn.
-    pub fn new_failed() -> Self {
-        Self {
-            raw_task: None,
-            phantom: PhantomData,
-        }
-    }
-
-    /// Returns the task ID if available, otherwise 0
+    /// Returns the task ID.
     /// This can be used in combination with rtos-trace to match task names with IDs
     pub fn id(&self) -> u32 {
-        match self.raw_task {
-            None => 0,
-            Some(t) => t.id(),
-        }
+        self.raw_task.id()
     }
 
     /// Get the metadata for this task. You can use this to set metadata fields
     /// prior to spawning it.
     pub fn metadata(&self) -> &Metadata {
-        self.raw_task.unwrap().metadata()
+        self.raw_task.metadata()
     }
 }
 
@@ -164,30 +153,10 @@ impl Spawner {
     /// Spawn a task into an executor.
     ///
     /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy_executor::task]`).
-    pub fn spawn<S>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
+    pub fn spawn<S>(&self, token: SpawnToken<S>) {
         let task = token.raw_task;
         mem::forget(token);
-
-        match task {
-            Some(task) => {
-                unsafe { self.executor.spawn(task) };
-                Ok(())
-            }
-            None => Err(SpawnError::Busy),
-        }
-    }
-
-    // Used by the `embassy_executor_macros::main!` macro to throw an error when spawn
-    // fails. This is here to allow conditional use of `defmt::unwrap!`
-    // without introducing a `defmt` feature in the `embassy_executor_macros` package,
-    // which would require use of `-Z namespaced-features`.
-    /// Spawn a task into an executor, panicking on failure.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the spawning fails.
-    pub fn must_spawn<S>(&self, token: SpawnToken<S>) {
-        unwrap!(self.spawn(token));
+        unsafe { self.executor.spawn(task) }
     }
 
     /// Convert this Spawner to a SendSpawner. This allows you to send the
@@ -245,25 +214,9 @@ impl SendSpawner {
     /// Spawn a task into an executor.
     ///
     /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy_executor::task]`).
-    pub fn spawn<S: Send>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
+    pub fn spawn<S: Send>(&self, token: SpawnToken<S>) {
         let header = token.raw_task;
         mem::forget(token);
-
-        match header {
-            Some(header) => {
-                unsafe { self.executor.spawn(header) };
-                Ok(())
-            }
-            None => Err(SpawnError::Busy),
-        }
-    }
-
-    /// Spawn a task into an executor, panicking on failure.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the spawning fails.
-    pub fn must_spawn<S: Send>(&self, token: SpawnToken<S>) {
-        unwrap!(self.spawn(token));
+        unsafe { self.executor.spawn(header) }
     }
 }
