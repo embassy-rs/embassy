@@ -41,7 +41,7 @@ use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
-use crate::Metadata;
+use crate::{Metadata, SpawnError};
 
 #[no_mangle]
 extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
@@ -219,11 +219,11 @@ impl<F: Future + 'static> TaskStorage<F> {
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
         let task = AvailableTask::claim(self);
         match task {
-            Some(task) => task.initialize(future),
-            None => SpawnToken::new_failed(),
+            Some(task) => Ok(task.initialize(future)),
+            None => Err(SpawnError::Busy),
         }
     }
 
@@ -352,10 +352,10 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
         }
     }
 
-    fn spawn_impl<T>(&'static self, future: impl FnOnce() -> F) -> SpawnToken<T> {
+    fn spawn_impl<T>(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<T>, SpawnError> {
         match self.pool.iter().find_map(AvailableTask::claim) {
-            Some(task) => task.initialize_impl::<T>(future),
-            None => SpawnToken::new_failed(),
+            Some(task) => Ok(task.initialize_impl::<T>(future)),
+            None => Err(SpawnError::Busy),
         }
     }
 
@@ -366,7 +366,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// This will loop over the pool and spawn the task in the first storage that
     /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
     /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
         self.spawn_impl::<F>(future)
     }
 
@@ -379,7 +379,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
     /// is an `async fn`, NOT a hand-written `Future`.
     #[doc(hidden)]
-    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
+    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> Result<SpawnToken<impl Sized>, SpawnError>
     where
         FutFn: FnOnce() -> F,
     {

@@ -45,6 +45,6 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let channel = CHANNEL.init(Channel::new());
 
-    unwrap!(spawner.spawn(send_task(channel.sender())));
-    unwrap!(spawner.spawn(recv_task(p.P0_13.into(), channel.receiver())));
+    spawner.spawn(unwrap!(send_task(channel.sender())));
+    spawner.spawn(unwrap!(recv_task(p.P0_13.into(), channel.receiver())));
 }
