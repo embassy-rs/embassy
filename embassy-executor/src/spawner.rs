@@ -5,8 +5,7 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use super::raw;
-#[cfg(feature = "trace")]
-use crate::raw::trace::TaskRefTrace;
+use crate::Metadata;
 
 /// Token to spawn a newly-created task in an executor.
 ///
@@ -36,6 +35,14 @@ impl<S> SpawnToken<S> {
         }
     }
 
+    /// Return a SpawnToken that represents a failed spawn.
+    pub fn new_failed() -> Self {
+        Self {
+            raw_task: None,
+            phantom: PhantomData,
+        }
+    }
+
     /// Returns the task ID if available, otherwise 0
     /// This can be used in combination with rtos-trace to match task names with IDs
     pub fn id(&self) -> u32 {
@@ -45,12 +52,10 @@ impl<S> SpawnToken<S> {
         }
     }
 
-    /// Return a SpawnToken that represents a failed spawn.
-    pub fn new_failed() -> Self {
-        Self {
-            raw_task: None,
-            phantom: PhantomData,
-        }
+    /// Get the metadata for this task. You can use this to set metadata fields
+    /// prior to spawning it.
+    pub fn metadata(&self) -> &Metadata {
+        self.raw_task.unwrap().metadata()
     }
 }
 
@@ -195,51 +200,6 @@ impl Spawner {
     /// Return the unique ID of this Spawner's Executor.
     pub fn executor_id(&self) -> usize {
         self.executor.id()
-    }
-}
-
-/// Extension trait adding tracing capabilities to the Spawner
-///
-/// This trait provides an additional method to spawn tasks with an associated name,
-/// which can be useful for debugging and tracing purposes.
-pub trait SpawnerTraceExt {
-    /// Spawns a new task with a specified name.
-    ///
-    /// # Arguments
-    /// * `name` - Static string name to associate with the task
-    /// * `token` - Token representing the task to spawn
-    ///
-    /// # Returns
-    /// Result indicating whether the spawn was successful
-    fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError>;
-}
-
-/// Implementation of the SpawnerTraceExt trait for Spawner when trace is enabled
-#[cfg(feature = "trace")]
-impl SpawnerTraceExt for Spawner {
-    fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
-        let task = token.raw_task;
-        core::mem::forget(token);
-
-        match task {
-            Some(task) => {
-                // Set the name when trace is enabled
-                task.set_name(Some(name));
-
-                unsafe { self.executor.spawn(task) };
-                Ok(())
-            }
-            None => Err(SpawnError::Busy),
-        }
-    }
-}
-
-/// Implementation of the SpawnerTraceExt trait for Spawner when trace is disabled
-#[cfg(not(feature = "trace"))]
-impl SpawnerTraceExt for Spawner {
-    fn spawn_named<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
-        // When trace is disabled, just forward to regular spawn and ignore the name
-        self.spawn(token)
     }
 }
 

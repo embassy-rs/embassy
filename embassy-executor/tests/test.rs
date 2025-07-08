@@ -317,3 +317,34 @@ fn executor_task_cfg_args() {
         let (_, _, _) = (a, b, c);
     }
 }
+
+#[cfg(feature = "metadata-name")]
+#[test]
+fn task_metadata() {
+    #[task]
+    async fn task1(expected_name: Option<&'static str>) {
+        use embassy_executor::Metadata;
+        assert_eq!(Metadata::for_current_task().await.name(), expected_name);
+    }
+
+    // check no task name
+    let (executor, _) = setup();
+    executor.spawner().spawn(task1(None)).unwrap();
+    unsafe { executor.poll() };
+
+    // check setting task name
+    let token = task1(Some("foo"));
+    token.metadata().set_name("foo");
+    executor.spawner().spawn(token).unwrap();
+    unsafe { executor.poll() };
+
+    let token = task1(Some("bar"));
+    token.metadata().set_name("bar");
+    executor.spawner().spawn(token).unwrap();
+    unsafe { executor.poll() };
+
+    // check name is cleared if the task pool slot is recycled.
+    let (executor, _) = setup();
+    executor.spawner().spawn(task1(None)).unwrap();
+    unsafe { executor.poll() };
+}
