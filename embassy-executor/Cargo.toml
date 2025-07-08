@@ -115,7 +115,8 @@ arch-spin = ["_arch"]
 executor-thread = []
 ## Enable the interrupt-mode executor (available in Cortex-M only)
 executor-interrupt = []
-## Enable tracing support (adds some overhead)
-trace = []
+## Enable tracing hooks
+trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
-rtos-trace = ["dep:rtos-trace", "trace", "dep:embassy-time-driver"]
+rtos-trace = ["dep:rtos-trace", "_any_trace", "dep:embassy-time-driver"]
+_any_trace = []
