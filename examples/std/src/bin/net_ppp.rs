@@ -102,8 +102,8 @@ async fn main_task(spawner: Spawner) {
     );
 
     // Launch network task
-    spawner.spawn(net_task(net_runner)).unwrap();
-    spawner.spawn(ppp_task(stack, runner, port)).unwrap();
+    spawner.spawn(net_task(net_runner).unwrap());
+    spawner.spawn(ppp_task(stack, runner, port).unwrap());
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
@@ -160,6 +160,6 @@ fn main() {
 
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(main_task(spawner)).unwrap();
+        spawner.spawn(main_task(spawner).unwrap());
     });
 }

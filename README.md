@@ -80,7 +80,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
     // Spawned tasks run in the background, concurrently.
-    spawner.spawn(blink(p.P0_13.into())).unwrap();
+    spawner.spawn(blink(p.P0_13.into()).unwrap());
 
     let mut button = Input::new(p.P0_11, Pull::Up);
     loop {
