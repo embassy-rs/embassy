@@ -168,32 +168,6 @@ impl TaskTracker {
     }
 }
 
-/// Extension trait for `TaskRef` that provides tracing functionality.
-///
-/// This trait is only available when the `trace` feature is enabled.
-/// It extends `TaskRef` with methods for accessing and modifying task identifiers
-/// and names, which are useful for debugging, logging, and performance analysis.
-pub trait TaskRefTrace {
-    /// Get the name for a task
-    fn name(&self) -> Option<&'static str>;
-
-    /// Set the name for a task
-    fn set_name(&self, name: Option<&'static str>);
-}
-
-impl TaskRefTrace for TaskRef {
-    fn name(&self) -> Option<&'static str> {
-        self.header().name
-    }
-
-    fn set_name(&self, name: Option<&'static str>) {
-        unsafe {
-            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
-            (*header_ptr).name = name;
-        }
-    }
-}
-
 #[cfg(feature = "trace")]
 extern "Rust" {
     /// This callback is called when the executor begins polling. This will always
@@ -383,9 +357,8 @@ where
 impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
     fn task_list() {
         with_all_active_tasks(|task| {
-            let name = task.name().unwrap_or("unnamed task\0");
             let info = rtos_trace::TaskInfo {
-                name,
+                name: task.metadata().name().unwrap_or("unnamed task\0"),
                 priority: 0,
                 stack_base: 0,
                 stack_size: 0,
