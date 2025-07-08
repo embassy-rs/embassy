@@ -131,6 +131,12 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         ));
     }
 
+    let spawn = if returns_impl_trait {
+        quote!(spawn)
+    } else {
+        quote!(_spawn_async_fn)
+    };
+
     #[cfg(feature = "nightly")]
     let mut task_outer_body = quote! {
         trait _EmbassyInternalTaskTrait {
@@ -147,7 +153,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
 
         const POOL_SIZE: usize = #pool_size;
         static POOL: #embassy_executor::raw::TaskPool<<() as _EmbassyInternalTaskTrait>::Fut, POOL_SIZE> = #embassy_executor::raw::TaskPool::new();
-        unsafe { POOL._spawn_async_fn(move || <() as _EmbassyInternalTaskTrait>::construct(#(#full_args,)*)) }
+        unsafe { POOL.#spawn(move || <() as _EmbassyInternalTaskTrait>::construct(#(#full_args,)*)) }
     };
     #[cfg(not(feature = "nightly"))]
     let mut task_outer_body = quote! {
@@ -164,7 +170,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
             {#embassy_executor::_export::task_pool_size::<_, _, _, POOL_SIZE>(#task_inner_ident)},
             {#embassy_executor::_export::task_pool_align::<_, _, _, POOL_SIZE>(#task_inner_ident)},
         > = unsafe { ::core::mem::transmute(#embassy_executor::_export::task_pool_new::<_, _, _, POOL_SIZE>(#task_inner_ident)) };
-        unsafe { __task_pool_get(#task_inner_ident)._spawn_async_fn(move || #task_inner_ident(#(#full_args,)*)) }
+        unsafe { __task_pool_get(#task_inner_ident).#spawn(move || #task_inner_ident(#(#full_args,)*)) }
     };
 
     let task_outer_attrs = task_inner.attrs.clone();

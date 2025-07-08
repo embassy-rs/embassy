@@ -91,14 +91,14 @@ error[E0277]: `impl Send` is not a future
   | ^^^^^^^^^^^^^^^^^^^^^^^^^ `impl Send` is not a future
   |
   = help: the trait `Future` is not implemented for `impl Send`
-note: required by a bound in `TaskPool::<F, N>::_spawn_async_fn`
+note: required by a bound in `TaskPool::<F, N>::spawn`
  --> src/raw/mod.rs
   |
   | impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
-  |         ^^^^^^ required by this bound in `TaskPool::<F, N>::_spawn_async_fn`
+  |         ^^^^^^ required by this bound in `TaskPool::<F, N>::spawn`
 ...
-  |     pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
-  |                   --------------- required by a bound in this associated function
+  |     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+  |            ----- required by a bound in this associated function
   = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: task futures must resolve to `()` or `!`
