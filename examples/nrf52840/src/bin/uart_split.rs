@@ -30,7 +30,7 @@ async fn main(spawner: Spawner) {
 
     // Spawn a task responsible purely for reading
 
-    unwrap!(spawner.spawn(reader(rx)));
+    spawner.spawn(unwrap!(reader(rx)));
 
     // Message must be in SRAM
     {

@@ -37,7 +37,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    unwrap!(spawner.spawn(blinky(p.PC13)));
+    spawner.spawn(unwrap!(blinky(p.PC13)));
 
     let ch3 = CapturePin::new(p.PA2, Pull::None);
     let mut ic = InputCapture::new(p.TIM2, None, None, Some(ch3), None, Irqs, khz(1000), Default::default());

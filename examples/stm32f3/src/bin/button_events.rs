@@ -113,8 +113,8 @@ async fn main(spawner: Spawner) {
     ];
     let leds = Leds::new(leds);
 
-    spawner.spawn(button_waiter(button)).unwrap();
-    spawner.spawn(led_blinker(leds)).unwrap();
+    spawner.spawn(button_waiter(button).unwrap());
+    spawner.spawn(led_blinker(leds).unwrap());
 }
 
 #[embassy_executor::task]
