@@ -84,6 +84,7 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
+#[cfg(feature = "rtos-trace")]
 use rtos_trace::TaskInfo;
 
 use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
@@ -175,12 +176,6 @@ pub trait TaskRefTrace {
 
     /// Set the name for a task
     fn set_name(&self, name: Option<&'static str>);
-
-    /// Get the ID for a task
-    fn id(&self) -> u32;
-
-    /// Set the ID for a task
-    fn set_id(&self, id: u32);
 }
 
 impl TaskRefTrace for TaskRef {
@@ -192,17 +187,6 @@ impl TaskRefTrace for TaskRef {
         unsafe {
             let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
             (*header_ptr).name = name;
-        }
-    }
-
-    fn id(&self) -> u32 {
-        self.header().id
-    }
-
-    fn set_id(&self, id: u32) {
-        unsafe {
-            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
-            (*header_ptr).id = id;
         }
     }
 }

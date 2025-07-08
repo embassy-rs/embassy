@@ -36,12 +36,12 @@ impl<S> SpawnToken<S> {
         }
     }
 
-    /// Returns the task id if available, otherwise 0
-    /// This can be used in combination with rtos-trace to match task names with id's
+    /// Returns the task ID if available, otherwise 0
+    /// This can be used in combination with rtos-trace to match task names with IDs
     pub fn id(&self) -> u32 {
         match self.raw_task {
             None => 0,
-            Some(t) => t.as_ptr() as u32,
+            Some(t) => t.id(),
         }
     }
 
@@ -223,10 +223,8 @@ impl SpawnerTraceExt for Spawner {
 
         match task {
             Some(task) => {
-                // Set the name and ID when trace is enabled
+                // Set the name when trace is enabled
                 task.set_name(Some(name));
-                let task_id = task.as_ptr() as u32;
-                task.set_id(task_id);
 
                 unsafe { self.executor.spawn(task) };
                 Ok(())
