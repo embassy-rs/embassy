@@ -128,7 +128,7 @@ impl TaskTracker {
     /// # Arguments
     /// * `task` - The task reference to add to the tracker
     pub fn add(&self, task: TaskRef) {
-        let task_ptr = task.as_ptr() as *mut TaskHeader;
+        let task_ptr = task.as_ptr();
 
         loop {
             let current_head = self.head.load(Ordering::Acquire);
@@ -138,7 +138,7 @@ impl TaskTracker {
 
             if self
                 .head
-                .compare_exchange(current_head, task_ptr, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange(current_head, task_ptr.cast_mut(), Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
                 break;
