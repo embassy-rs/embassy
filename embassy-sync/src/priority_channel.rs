@@ -473,7 +473,7 @@ where
 /// received from the channel.
 ///
 /// Sent data may be reordered based on their priority within the channel.
-/// For example, in a [Max][PriorityChannel]
+/// For example, in a [`Max`] [`PriorityChannel`]
 /// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be received as `[3, 2, 1]`.
 pub struct PriorityChannel<M, T, K, const N: usize>
 where
