@@ -1,26 +1,24 @@
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
+use stm32_metapac::flash::regs::Keyr;
+
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
-
-// pub(crate) const fn is_default_layout() -> bool {
-//     true
-// }
-
-// pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
-//     &FLASH_REGIONS
-// }
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.cr().modify(|w| w.set_lock(true));
 }
 
 pub(crate) unsafe fn unlock() {
-    if pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write_value(stm32_metapac::flash::regs::Keyr(0x4567_0123));
-        pac::FLASH.keyr().write_value(stm32_metapac::flash::regs::Keyr(0xCDEF_89AB));
+    let bank = pac::FLASH;
+
+    // Unlock Sequence
+    if bank.cr().read().lock() {
+        bank.keyr().write_value(Keyr(0x4567_0123));
+        bank.keyr().write_value(Keyr(0xCDEF_89AB));
+        assert!(!bank.cr().read().lock());
     }
 }
 
@@ -36,8 +34,6 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 
     bank.cr().write(|w| {
         w.set_pg(true);
-        #[cfg(flash_h7)]
-        w.set_psize(2); // 32 bits at once
     });
     cortex_m::asm::isb();
     cortex_m::asm::dsb();
@@ -50,11 +46,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
         address += val.len() as u32;
 
         res = Some(blocking_wait_ready());
-        // bank.sr().modify(|w| {
-        //     if w.eop() {
-        //         w.set_eop(true);
-        //     }
-        // });
+
         if unwrap!(res).is_err() {
             break;
         }
@@ -74,10 +66,6 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     bank.cr().modify(|w| {
         w.set_ser(true);
         w.set_ssn(sector.index_in_bank);
-        // #[cfg(flash_h7)]
-        // w.set_snb(sector.index_in_bank);
-        // #[cfg(flash_h7ab)]
-        // w.set_ssn(sector.index_in_bank);
     });
 
     bank.cr().modify(|w| {
