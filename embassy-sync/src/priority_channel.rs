@@ -1,7 +1,7 @@
 //! A queue for sending values between asynchronous tasks.
 //!
 //! Similar to a [`Channel`](crate::channel::Channel), however [`PriorityChannel`] sifts higher priority items to the front of the queue.
-//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [Kind] parameter of the channel.
+//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`] parameter of the channel.
 
 use core::cell::RefCell;
 use core::future::Future;
