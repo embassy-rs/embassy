@@ -16,6 +16,9 @@ use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::Peri;
 
+mod slave;
+pub use slave::{Config as ConfigSlave, SpiSlave};
+
 /// SPI error.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -988,18 +991,43 @@ fn check_error_flags(sr: regs::Sr, ovr: bool) -> Result<(), Error> {
     Ok(())
 }
 
+fn tx_ready(regs: Regs, ovr: bool) -> Result<bool, Error> {
+    let sr = regs.sr().read();
+
+    check_error_flags(sr, ovr)?;
+
+    #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+    if sr.txe() {
+        return Ok(true);
+    }
+    #[cfg(any(spi_v3, spi_v4, spi_v5))]
+    if sr.txp() {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn rx_ready(regs: Regs) -> Result<bool, Error> {
+    let sr = regs.sr().read();
+
+    check_error_flags(sr, true)?;
+
+    #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+    if sr.rxne() {
+        return Ok(true);
+    }
+    #[cfg(any(spi_v3, spi_v4, spi_v5))]
+    if sr.rxp() {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 fn spin_until_tx_ready(regs: Regs, ovr: bool) -> Result<(), Error> {
     loop {
-        let sr = regs.sr().read();
-
-        check_error_flags(sr, ovr)?;
-
-        #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
-        if sr.txe() {
-            return Ok(());
-        }
-        #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        if sr.txp() {
+        if tx_ready(regs, ovr)? {
             return Ok(());
         }
     }
@@ -1007,16 +1035,7 @@ fn spin_until_tx_ready(regs: Regs, ovr: bool) -> Result<(), Error> {
 
 fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     loop {
-        let sr = regs.sr().read();
-
-        check_error_flags(sr, true)?;
-
-        #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
-        if sr.rxne() {
-            return Ok(());
-        }
-        #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        if sr.rxp() {
+        if rx_ready(regs)? {
             return Ok(());
         }
     }
