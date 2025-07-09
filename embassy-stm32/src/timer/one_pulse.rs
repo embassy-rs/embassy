@@ -183,7 +183,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     /// as an output.
     pub fn new_ch2(
         tim: Peri<'d, T>,
-        _pin: TriggerPin<'d, T, Ch1>,
+        _pin: TriggerPin<'d, T, Ch2>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
         pulse_end: u32,
