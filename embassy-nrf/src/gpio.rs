@@ -292,7 +292,7 @@ pub(crate) fn convert_drive(w: &mut pac::gpio::regs::PinCnf, drive: OutputDrive)
         }
 
         w.set_drive0(convert(drive.low));
-        w.set_drive0(convert(drive.high));
+        w.set_drive1(convert(drive.high));
     }
 }
 
