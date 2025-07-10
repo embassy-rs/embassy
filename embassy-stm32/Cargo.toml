@@ -82,7 +82,7 @@ sdio-host = "0.9.0"
 critical-section = "1.1"
 #stm32-metapac = { version = "16" }
 #stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-4a964af03b298de30ff9f84fcfa890bcab4ce609" }
-stm32-metapac = { path = "../../stm32-data/build/stm32-metapac" }
+stm32-metapac = { git = "https://github.com/lucimobility/stm32-data-generated.git", rev = "a311c8da32ffddc58299a92b080945b15e998e6d" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -112,7 +112,8 @@ quote = "1.0.15"
 
 #stm32-metapac = { version = "16", default-features = false, features = ["metadata"]}
 #stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-4a964af03b298de30ff9f84fcfa890bcab4ce609", default-features = false, features = ["metadata"] }
-stm32-metapac = { path = "../../stm32-data/build/stm32-metapac", default-features = false, features = ["metadata"] }
+#stm32-metapac = { path = "../../stm32-data/build/stm32-metapac", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/lucimobility/stm32-data-generated.git", rev = "a311c8da32ffddc58299a92b080945b15e998e6d", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
