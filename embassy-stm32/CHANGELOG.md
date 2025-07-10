@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Added RTC low-power support for STM32WLEx ([#4716](https://github.com/embassy-rs/embassy/pull/4716))
 - fix: Correct STM32WBA VREFBUFTRIM values
 - low_power: remove stop_with rtc and initialize in init if low-power feature enabled.
+- feat: stm32/spi: added support for slave mode ([#4388](https://github.com/embassy-rs/embassy/pull/4388))
 
 ## 0.4.0 - 2025-08-26
 
