@@ -225,6 +225,9 @@ pub trait Endpoint {
 
     /// Wait for the endpoint to be enabled.
     async fn wait_enabled(&mut self);
+
+    /// Check if the endpoint is enabled.
+    fn is_enabled(&self) -> bool;
 }
 
 /// OUT Endpoint trait.
