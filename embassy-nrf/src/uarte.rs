@@ -25,8 +25,11 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+#[cfg(feature = "_nrf54l")]
+use crate::compat_nrf54l::*;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits, SealedPin as _, DISCONNECTED};
 use crate::interrupt::typelevel::Interrupt;
+#[cfg(not(feature = "_nrf54l"))]
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::uarte::vals;
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
@@ -323,6 +326,10 @@ pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_cont
     r.config().write(|w| {
         w.set_hwfc(hardware_flow_control);
         w.set_parity(config.parity);
+        #[cfg(feature = "_nrf54l")]
+        w.set_framesize(vals::Framesize::_8BIT);
+        #[cfg(feature = "_nrf54l")]
+        w.set_frametimeout(true);
     });
     r.baudrate().write(|w| w.set_baudrate(config.baudrate));
 

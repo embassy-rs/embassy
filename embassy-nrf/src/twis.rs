@@ -14,8 +14,11 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+#[cfg(feature = "_nrf54l")]
+use crate::compat_nrf54l::*;
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::typelevel::Interrupt;
+#[cfg(not(feature = "_nrf54l"))]
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::twis::vals;
 use crate::util::slice_in_ram_or;
