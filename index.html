@@ -145,8 +145,7 @@
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&display=swap"
-        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,100..700;1,100..700&display=swap" rel="stylesheet">
 </head>
 
 <body>
@@ -155,8 +154,7 @@
     </div>
     <div class="container">
         <div class="reference">
-            <p>This is a simple web page to demonstrate the use of <a
-                    href="https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#picow-technical-specification">Raspberry
+            <p>This is a simple web page to demonstrate the use of <a href="https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#picow-technical-specification">Raspberry
                     Pi Pico W</a> with <a href="https://www.waveshare.com/wiki/Pico-ePaper-3.7">
                     Waveshare Pico-ePaper 3.7" E-ink Display</a> to display the when the next train to the office
                 is.
@@ -205,8 +203,7 @@
             <div class="reference">
                 <ol>
                     <li>
-                        <a
-                            href="https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#picow-technical-specification">
+                        <a href="https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#picow-technical-specification">
                             https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#picow-technical-specification</a>
                     </li>
                 </ol>
@@ -241,14 +238,14 @@
                         </tr>
                         <tr>
                             <td>DIN</td>
-                            <td>SPI MOSI pin</td>
+                            <td>SPI MOSI/POCI pin</td>
                         </tr>
                         <tr>
                             <td>CLK</td>
                             <td>SPI SCK pin</td>
                         </tr>
                         <tr>
-                            <td>CS</td>
+                            <td>SS/CS</td>
                             <td>SPI chip selection, low active</td>
                         </tr>
                         <tr>
@@ -282,8 +279,7 @@
                 <ol>
                     <li><a href="https://www.waveshare.com/wiki/Pico-ePaper-3.7">
                             https://www.waveshare.com/wiki/Pico-ePaper-3.7</a></li>
-                    <li><a
-                            href="https://www.waveshare.com/pico-epaper-3.7.htm">https://www.waveshare.com/pico-epaper-3.7.htm</a>
+                    <li><a href="https://www.waveshare.com/pico-epaper-3.7.htm">https://www.waveshare.com/pico-epaper-3.7.htm</a>
                     </li>
                     <li>
                         <a href="https://thepihut.com/products/3-7-e-paper-e-ink-display-for-raspberry-pi-pico-480x280">
@@ -376,13 +372,19 @@
                 </span>
                 <figcaption>Figure 5: SPI Communication Diagram</figcaption>
             </figure>
-
+            <p>SPI Bus? SPI device? What's the difference?</p>
+            <p>The SPI bus is the communication pathway - or channel that allows data to be transferred between devices. Hense, many SPI devices (peripherals) can use the SPI bus to communicate with the Rapsberry Pi Pico (controller). The Infineon CYW43439 (802.11n wireless) chip also uses SPI for communication. Thankfully, the Raspberry Pi Pico W has two SPI busses available, so in this case both the display and the wireless peripherals can communicate at the same time.</p>
+            <p>How does the bus know where to send the data if I have multiple devices?</p>
+            <p>There are a couple of ways that electronics handle serial communication. The SPI bus requires a chip select pin to be connected between the controller and peripheral, with it being held low for the duration of the communication. Multiple peripherals can share the same but, so long as there are enough output pins on the controller to allow for selection.</p>
             <div class="reference">
                 <ol>
-                    <li><a
-                            href="https://learn.sparkfun.com/tutorials/serial-peripheral-interface-spi/all">https://learn.sparkfun.com/tutorials/serial-peripheral-interface-spi/all</a>
+                    <li><a href="https://learn.sparkfun.com/tutorials/serial-peripheral-interface-spi/all">https://learn.sparkfun.com/tutorials/serial-peripheral-interface-spi/all</a>
                     </li>
             </div>
+        </div>
+        <div>
+            <h2>Flashing to the Raspberry Pi Pico W</h2>
+            <p>todo!</p>
         </div>
 </body>
 
