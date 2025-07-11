@@ -283,7 +283,17 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
     }
 
     #[cfg(feature = "rtos-trace")]
-    rtos_trace::trace::task_new(task.as_ptr() as u32);
+    {
+        rtos_trace::trace::task_new(task.as_ptr() as u32);
+        let name = task.name().unwrap_or("unnamed task\0");
+        let info = rtos_trace::TaskInfo {
+            name,
+            priority: 0,
+            stack_base: 0,
+            stack_size: 0,
+        };
+        rtos_trace::trace::task_send_info(task.id(), info);
+    }
 
     #[cfg(feature = "rtos-trace")]
     TASK_TRACKER.add(*task);
