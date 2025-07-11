@@ -50,7 +50,7 @@ async fn main(spawner: Spawner) {
 
     // blink the led on another task
     let led = Output::new(p.PD2, Level::High, Speed::Low);
-    unwrap!(spawner.spawn(led_task(led)));
+    spawner.spawn(unwrap!(led_task(led)));
 
     // numbers from STM32U5G9J-DK2.ioc
     const RK050HR18H_HSYNC: u16 = 5; // Horizontal synchronization

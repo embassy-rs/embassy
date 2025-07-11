@@ -97,7 +97,7 @@ note: required by a bound in `TaskPool::<F, N>::spawn`
   | impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
   |         ^^^^^^ required by this bound in `TaskPool::<F, N>::spawn`
 ...
-  |     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+  |     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
   |            ----- required by a bound in this associated function
   = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
 
