@@ -1,3 +1,0 @@
-[profile.release]
-# Allows defmt to display log locations even in release
-debug = true

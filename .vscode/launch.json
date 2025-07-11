@@ -12,7 +12,7 @@
             "chip": "RP2040",
             "coreConfigs": [
                 {
-                    "programBinary": "${workspaceFolder}/examples/rp/target/thumbv6m-none-eabi/debug/${fileBasenameNoExtension}",
+                    "programBinary": "${workspaceFolder}/target/thumbv6m-none-eabi/debug/london-pi-tube",
                     "coreIndex": 0,
                     "rttEnabled": true,
                     "rttChannelFormats": [
@@ -43,7 +43,7 @@
             "chip": "RP2040",
             "coreConfigs": [
                 {
-                    "programBinary": "${workspaceFolder}/examples/rp/target/thumbv6m-none-eabi/release/${fileBasenameNoExtension}",
+                    "programBinary": "${workspaceFolder}/target/thumbv6m-none-eabi/release/london-pi-tube",
                     "coreIndex": 0,
                     "rttEnabled": true,
                     "rttChannelFormats": [

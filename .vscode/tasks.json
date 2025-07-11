@@ -6,7 +6,7 @@
         {
             "label": "cargo debug build",
             "type": "shell",
-            "command": "cargo build --bin ${fileBasenameNoExtension}",
+            "command": "cargo build",
             "problemMatcher": [
                 "$rustc"
             ],
@@ -15,7 +15,7 @@
                 "isDefault": true
             },
             "options": {
-                "cwd": "${workspaceFolder}/examples/rp",
+                "cwd": "${workspaceFolder}",
                 "env": {
                     "RUST_BACKTRACE": "1",
                     "RUST_LOG": "debug",
@@ -31,7 +31,7 @@
         {
             "label": "cargo release build",
             "type": "shell",
-            "command": "cargo build --release --bin ${fileBasenameNoExtension}",
+            "command": "cargo build --release",
             "problemMatcher": [
                 "$rustc"
             ],
@@ -40,7 +40,7 @@
                 "isDefault": false
             },
             "options": {
-                "cwd": "${workspaceFolder}/examples/rp",
+                "cwd": "${workspaceFolder}",
                 "env": {
                     "RUST_LOG": "info",
                     "TFL_API_PRIMARY_KEY": "bd11812ad43b4e3194c6b90c75f0c837",

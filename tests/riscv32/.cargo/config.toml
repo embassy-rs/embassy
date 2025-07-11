@@ -1,5 +1,0 @@
-[target.riscv32imac-unknown-none-elf]
-runner = "true"
-
-[build]
-target = "riscv32imac-unknown-none-elf"
