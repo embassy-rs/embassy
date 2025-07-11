@@ -1490,6 +1490,10 @@ fn main() {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
+    if chip_name.starts_with("stm32wba") {
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
+    }
+
     if chip_name.starts_with("stm32g4") {
         let line_number = chip_name.chars().skip(8).next().unwrap();
         if line_number == '3' || line_number == '4' {
