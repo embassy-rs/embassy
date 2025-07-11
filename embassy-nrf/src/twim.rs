@@ -17,8 +17,11 @@ use embedded_hal_1::i2c::Operation;
 pub use pac::twim::vals::Frequency;
 
 use crate::chip::EASY_DMA_SIZE;
+#[cfg(feature = "_nrf54l")]
+use crate::compat_nrf54l::*;
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::typelevel::Interrupt;
+#[cfg(not(feature = "_nrf54l"))]
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::twim::vals;
 use crate::util::slice_in_ram;

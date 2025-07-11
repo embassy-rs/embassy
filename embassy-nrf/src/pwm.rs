@@ -6,7 +6,10 @@ use core::sync::atomic::{compiler_fence, Ordering};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
+#[cfg(feature = "_nrf54l")]
+use crate::compat_nrf54l::*;
 use crate::gpio::{convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, DISCONNECTED};
+#[cfg(not(feature = "_nrf54l"))]
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pwm::vals;
 use crate::ppi::{Event, Task};
@@ -50,6 +53,11 @@ pub enum Error {
 const MAX_SEQUENCE_LEN: usize = 32767;
 /// The used pwm clock frequency
 pub const PWM_CLK_HZ: u32 = 16_000_000;
+
+#[cfg(feature = "_nrf54l")]
+const CNT_UNIT: u32 = 2;
+#[cfg(not(feature = "_nrf54l"))]
+const CNT_UNIT: u32 = 1;
 
 impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Create a new 1-channel PWM
@@ -464,12 +472,14 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
         r.seq(0).refresh().write(|w| w.0 = sequence0.config.refresh);
         r.seq(0).enddelay().write(|w| w.0 = sequence0.config.end_delay);
         r.seq(0).ptr().write_value(sequence0.words.as_ptr() as u32);
-        r.seq(0).cnt().write(|w| w.0 = sequence0.words.len() as u32);
+        r.seq(0).cnt().write(|w| w.0 = sequence0.words.len() as u32 * CNT_UNIT);
 
         r.seq(1).refresh().write(|w| w.0 = alt_sequence.config.refresh);
         r.seq(1).enddelay().write(|w| w.0 = alt_sequence.config.end_delay);
         r.seq(1).ptr().write_value(alt_sequence.words.as_ptr() as u32);
-        r.seq(1).cnt().write(|w| w.0 = alt_sequence.words.len() as u32);
+        r.seq(1)
+            .cnt()
+            .write(|w| w.0 = alt_sequence.words.len() as u32 * CNT_UNIT);
 
         r.enable().write(|w| w.set_enable(true));
 
@@ -672,7 +682,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.enable().write(|w| w.set_enable(true));
 
         r.seq(0).ptr().write_value((pwm.duty).as_ptr() as u32);
-        r.seq(0).cnt().write(|w| w.0 = 4);
+        r.seq(0).cnt().write(|w| w.0 = 4 * CNT_UNIT);
         r.seq(0).refresh().write(|w| w.0 = 0);
         r.seq(0).enddelay().write(|w| w.0 = 0);
 

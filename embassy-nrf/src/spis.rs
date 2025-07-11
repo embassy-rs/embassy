@@ -13,8 +13,11 @@ pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MO
 pub use pac::spis::vals::Order as BitOrder;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+#[cfg(feature = "_nrf54l")]
+use crate::compat_nrf54l::*;
 use crate::gpio::{self, convert_drive, AnyPin, OutputDrive, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
+#[cfg(not(feature = "_nrf54l"))]
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spis::vals;
 use crate::util::slice_in_ram_or;
