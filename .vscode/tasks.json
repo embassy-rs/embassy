@@ -1,0 +1,55 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cargo debug build",
+            "type": "shell",
+            "command": "cargo build --bin ${fileBasenameNoExtension}",
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/examples/rp",
+                "env": {
+                    "RUST_BACKTRACE": "1",
+                    "RUST_LOG": "debug",
+                    "TFL_API_PRIMARY_KEY": "bd11812ad43b4e3194c6b90c75f0c837",
+                    "TFL_STOPCODE_PARAM": "940GZZLUEPY",
+                    "WIFI_NETWORK": "PLUSNET-RQACR8",
+                    "WIFI_PASSWORD": "6xRuTvaqUTD9e7",
+                    "HTTP_PROXY": "http://192.168.1.253:8080",
+                    "QUERY_DELAY": "5",
+                }
+            },
+        },
+        {
+            "label": "cargo release build",
+            "type": "shell",
+            "command": "cargo build --release --bin ${fileBasenameNoExtension}",
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/examples/rp",
+                "env": {
+                    "RUST_LOG": "info",
+                    "TFL_API_PRIMARY_KEY": "bd11812ad43b4e3194c6b90c75f0c837",
+                    "TFL_STOPCODE_PARAM": "940GZZLUEPY",
+                    "WIFI_NETWORK": "PLUSNET-RQACR8",
+                    "WIFI_PASSWORD": "6xRuTvaqUTD9e7",
+                    "HTTP_PROXY": "http://192.168.1.253:8080",
+                }
+            },
+        }
+    ],
+}

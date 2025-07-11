@@ -1,0 +1,67 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "preLaunchTask": "${defaultBuildTask}",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Debug: london-pi-tube",
+            "flashingConfig": {
+                "flashingEnabled": true,
+            },
+            "chip": "RP2040",
+            "coreConfigs": [
+                {
+                    "programBinary": "${workspaceFolder}/examples/rp/target/thumbv6m-none-eabi/debug/${fileBasenameNoExtension}",
+                    "coreIndex": 0,
+                    "rttEnabled": true,
+                    "rttChannelFormats": [
+                        {
+                            "channelNumber": 0,
+                            // Format RTT data as String data
+                            "dataFormat": "String",
+                            // Include host-side timestamps for every line of data transferred from the target RTT output
+                            "showTimestamps": true
+                        },
+                        {
+                            "channelNumber": 1,
+                            // Treat data as raw binary data, and do not format in any way
+                            "dataFormat": "BinaryLE"
+                        }
+                    ]
+                }
+            ],
+        },
+        {
+            "preLaunchTask": "cargo release build",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "Release: london-pi-tube",
+            "flashingConfig": {
+                "flashingEnabled": true,
+            },
+            "chip": "RP2040",
+            "coreConfigs": [
+                {
+                    "programBinary": "${workspaceFolder}/examples/rp/target/thumbv6m-none-eabi/release/${fileBasenameNoExtension}",
+                    "coreIndex": 0,
+                    "rttEnabled": true,
+                    "rttChannelFormats": [
+                        {
+                            "channelNumber": 0,
+                            // Format RTT data as String data
+                            "dataFormat": "String",
+                            // Include host-side timestamps for every line of data transferred from the target RTT output
+                            "showTimestamps": true
+                        },
+                        {
+                            "channelNumber": 1,
+                            // Treat data as raw binary data, and do not format in any way
+                            "dataFormat": "BinaryLE"
+                        }
+                    ]
+                }
+            ],
+        }
+    ]
+}
