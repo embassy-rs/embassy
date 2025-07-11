@@ -5,6 +5,7 @@
 	"recommendations": [
 		"rust-lang.rust-analyzer",
 		"tamasfe.even-better-toml",
+		"probe-rs.probe-rs-debugger",
 	],
 	// List of extensions recommended by VS Code that should not be recommended for users of this workspace.
 	"unwantedRecommendations": []
