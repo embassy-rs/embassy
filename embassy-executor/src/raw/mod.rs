@@ -568,8 +568,13 @@ impl Executor {
     }
 
     /// Get a unique ID for this Executor.
+    ///
+    /// Two executors are the same if and only if their IDs are the same.
     pub fn id(&'static self) -> usize {
-        &self.inner as *const SyncExecutor as usize
+        // Pinning is required to be sure the executor stays at the same address, which is directly
+        // used to build the ID. This is required to be able to conclude from different executors
+        // IDs that they indeed originate from different executors.
+        &Pin::static_ref(self).inner as *const SyncExecutor as usize
     }
 }
 
