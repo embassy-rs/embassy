@@ -1,0 +1,5 @@
+error: `impl Trait` is not allowed in task arguments. It is syntax sugar for generics, and tasks can't be generic.
+ --> tests/ui/impl_trait.rs:4:18
+  |
+4 | async fn foo(_x: impl Sized) {}
+  |                  ^^^^^^^^^^

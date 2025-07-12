@@ -1,0 +1,46 @@
+[package]
+name = "embassy-sync"
+version = "0.7.0"
+edition = "2021"
+description = "no-std, no-alloc synchronization primitives with async support"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-sync"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+categories = [
+    "embedded",
+    "no-std",
+    "concurrency",
+    "asynchronous",
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-sync-v$VERSION/embassy-sync/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/src/"
+target = "thumbv7em-none-eabi"
+
+[features]
+std = []
+turbowakers = []
+
+[dependencies]
+defmt = { version = "1.0.1", optional = true }
+log = { version = "0.4.14", optional = true }
+
+futures-sink = { version = "0.3", default-features = false, features = [] }
+futures-core = { version = "0.3.31", default-features = false }
+critical-section = "1.1"
+heapless = "0.8"
+cfg-if = "1.0.0"
+embedded-io-async = { version = "0.6.1" }
+
+[dev-dependencies]
+futures-executor = { version = "0.3.17", features = [ "thread-pool" ] }
+futures-test = "0.3.17"
+futures-timer = "3.0.2"
+futures-util = { version = "0.3.17", features = [ "channel", "sink" ] }
+
+# Enable critical-section implementation for std, for tests
+critical-section = { version = "1.1", features = ["std"] }
+static_cell = { version = "2" }
+trybuild = "1.0.105"

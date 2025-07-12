@@ -1,0 +1,15 @@
+MEMORY 
+{
+    RAM_SHARED (xrw)           : ORIGIN = 0x20030000, LENGTH = 10K
+}
+
+/*
+ * Scatter the mailbox interface memory sections in shared memory
+ */
+SECTIONS
+{
+    TL_REF_TABLE                     (NOLOAD) : { *(TL_REF_TABLE) } >RAM_SHARED
+
+    MB_MEM1 (NOLOAD)                          : { *(MB_MEM1) } >RAM_SHARED
+    MB_MEM2 (NOLOAD)                          : { _sMB_MEM2 = . ; *(MB_MEM2) ; _eMB_MEM2 = . ; } >RAM_SHARED
+}

@@ -2,6 +2,7 @@
 #![no_main]
 #![allow(async_fn_in_trait)]
 
+use assign_resources::assign_resources;
 use const_format::formatcp;
 use core::fmt::Write;
 use core::str;
@@ -14,12 +15,13 @@ use embassy_net::dns::DnsSocket;
 use embassy_net::tcp::client::{TcpClient, TcpClientState};
 use embassy_net::{Config, StackResources};
 use embassy_rp::bind_interrupts;
+use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::spi;
 use embassy_rp::spi::Spi;
-use embassy_rp::{peripherals, PeripheralRef}; // As Peri for assign_resources macro (designed for stm32 not rp)
+use embassy_rp::{peripherals, Peri};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Delay, Timer};
@@ -36,8 +38,6 @@ use epd_waveshare::{epd3in7::*, prelude::*};
 use heapless::String;
 use panic_probe as _;
 use profont::*;
-use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
 use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use reqwless::request::Method;
 use serde::Deserialize;
@@ -100,55 +100,6 @@ async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'stat
 #[embassy_executor::task(pool_size = 1)]
 async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'static>>) -> ! {
     runner.run().await
-}
-
-#[macro_export]
-macro_rules! assign_resources {
-    {
-        $(
-            $(#[$outer:meta])*
-            $group_name:ident : $group_struct:ident {
-                $(
-                    $(#[$inner:meta])*
-                    $resource_name:ident : $resource_field:ident $(=$resource_alias:ident)?),*
-                $(,)?
-            }
-            $(,)?
-        )+
-    } => {
-        #[allow(dead_code,non_snake_case,missing_docs)]
-        pub struct AssignedResources {
-            $(pub $group_name : $group_struct),*
-        }
-        $(
-            #[allow(dead_code,non_snake_case)]
-            $(#[$outer])*
-            pub struct $group_struct {
-                $(
-                    $(#[$inner])*
-                    pub $resource_name: PeripheralRef<'static, peripherals::$resource_field>
-                ),*
-            }
-        )+
-
-
-        $($($(
-            #[allow(missing_docs)]
-            pub type $resource_alias = PeripheralRef<'static, peripherals::$resource_field>;
-        )?)*)*
-
-        #[macro_export]
-        /// `split_resources!` macro
-        macro_rules! split_resources (
-            ($p:ident) => {
-                AssignedResources {
-                    $($group_name: $group_struct {
-                        $($resource_name: PeripheralRef::new($p.$resource_field)),*
-                    }),*
-                }
-            }
-        );
-    }
 }
 
 assign_resources! {
@@ -449,8 +400,8 @@ async fn main(spawner: Spawner) {
     let config = Config::dhcpv4(Default::default());
 
     // Generate random seed
-    let mut rng = SmallRng::seed_from_u64(0x12345678);
-    let seed = rng.random::<u64>();
+    let mut rng: RoscRng = RoscRng;
+    let seed = rng.next_u64();
 
     // Init network stack
     static RESOURCES: StaticCell<StackResources<5>> = StaticCell::new();

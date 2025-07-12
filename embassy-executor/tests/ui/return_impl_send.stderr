@@ -1,0 +1,137 @@
+error[E0277]: task futures must resolve to `()` or `!`
+ --> tests/ui/return_impl_send.rs:4:4
+  |
+3 | #[embassy_executor::task]
+  | ------------------------- required by a bound introduced by this call
+4 | fn task() -> impl Send {}
+  |    ^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Send {__task_task}`
+  |
+  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
+note: required by a bound in `task_pool_size`
+ --> src/lib.rs
+  |
+  |     pub const fn task_pool_size<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
+  |                  -------------- required by a bound in this function
+  |     where
+  |         F: TaskFn<Args, Fut = Fut>,
+  |                         ^^^^^^^^^ required by this bound in `task_pool_size`
+
+error[E0277]: task futures must resolve to `()` or `!`
+ --> tests/ui/return_impl_send.rs:3:1
+  |
+3 | #[embassy_executor::task]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Send {__task_task}`
+  |
+  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
+note: required by a bound in `task_pool_size`
+ --> src/lib.rs
+  |
+  |     pub const fn task_pool_size<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
+  |                  -------------- required by a bound in this function
+  |     where
+  |         F: TaskFn<Args, Fut = Fut>,
+  |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `task_pool_size`
+  = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: task futures must resolve to `()` or `!`
+ --> tests/ui/return_impl_send.rs:4:4
+  |
+3 | #[embassy_executor::task]
+  | ------------------------- required by a bound introduced by this call
+4 | fn task() -> impl Send {}
+  |    ^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Send {__task_task}`
+  |
+  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
+note: required by a bound in `task_pool_align`
+ --> src/lib.rs
+  |
+  |     pub const fn task_pool_align<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
+  |                  --------------- required by a bound in this function
+  |     where
+  |         F: TaskFn<Args, Fut = Fut>,
+  |                         ^^^^^^^^^ required by this bound in `task_pool_align`
+
+error[E0277]: task futures must resolve to `()` or `!`
+ --> tests/ui/return_impl_send.rs:3:1
+  |
+3 | #[embassy_executor::task]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Send {__task_task}`
+  |
+  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
+note: required by a bound in `task_pool_align`
+ --> src/lib.rs
+  |
+  |     pub const fn task_pool_align<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> usize
+  |                  --------------- required by a bound in this function
+  |     where
+  |         F: TaskFn<Args, Fut = Fut>,
+  |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `task_pool_align`
+  = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: task futures must resolve to `()` or `!`
+ --> tests/ui/return_impl_send.rs:4:4
+  |
+3 | #[embassy_executor::task]
+  | ------------------------- required by a bound introduced by this call
+4 | fn task() -> impl Send {}
+  |    ^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Send {__task_task}`
+  |
+  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
+note: required by a bound in `__task_pool_get`
+ --> tests/ui/return_impl_send.rs:3:1
+  |
+3 | #[embassy_executor::task]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `__task_pool_get`
+  = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `impl Send` is not a future
+ --> tests/ui/return_impl_send.rs:3:1
+  |
+3 | #[embassy_executor::task]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ `impl Send` is not a future
+  |
+  = help: the trait `Future` is not implemented for `impl Send`
+note: required by a bound in `TaskPool::<F, N>::spawn`
+ --> src/raw/mod.rs
+  |
+  | impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
+  |         ^^^^^^ required by this bound in `TaskPool::<F, N>::spawn`
+...
+  |     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+  |            ----- required by a bound in this associated function
+  = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: task futures must resolve to `()` or `!`
+ --> tests/ui/return_impl_send.rs:4:4
+  |
+3 | #[embassy_executor::task]
+  | ------------------------- required by a bound introduced by this call
+4 | fn task() -> impl Send {}
+  |    ^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Send {__task_task}`
+  |
+  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
+note: required by a bound in `task_pool_new`
+ --> src/lib.rs
+  |
+  |     pub const fn task_pool_new<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> TaskPool<Fut, POOL_SIZE>
+  |                  ------------- required by a bound in this function
+  |     where
+  |         F: TaskFn<Args, Fut = Fut>,
+  |                         ^^^^^^^^^ required by this bound in `task_pool_new`
+
+error[E0277]: task futures must resolve to `()` or `!`
+ --> tests/ui/return_impl_send.rs:3:1
+  |
+3 | #[embassy_executor::task]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `TaskFn<_>` is not implemented for fn item `fn() -> impl Send {__task_task}`
+  |
+  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
+note: required by a bound in `task_pool_new`
+ --> src/lib.rs
+  |
+  |     pub const fn task_pool_new<F, Args, Fut, const POOL_SIZE: usize>(_: F) -> TaskPool<Fut, POOL_SIZE>
+  |                  ------------- required by a bound in this function
+  |     where
+  |         F: TaskFn<Args, Fut = Fut>,
+  |            ^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `task_pool_new`
+  = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)

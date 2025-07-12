@@ -1,0 +1,13 @@
+error: task functions must not have `self` arguments
+ --> tests/ui/self.rs:6:15
+  |
+6 | async fn task(self) {}
+  |               ^^^^
+
+error: `self` parameter is only allowed in associated functions
+ --> tests/ui/self.rs:6:15
+  |
+6 | async fn task(self) {}
+  |               ^^^^ not semantically valid as function parameter
+  |
+  = note: associated functions are those in `impl` or `trait` definitions
