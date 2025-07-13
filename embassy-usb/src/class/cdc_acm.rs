@@ -501,7 +501,7 @@ impl<'d, D: Driver<'d>> BufferedReceiver<'d, D> {
     fn read_from_buffer(&mut self, buf: &mut [u8]) -> usize {
         let available = &self.buffer[self.start..self.end];
         let len = core::cmp::min(available.len(), buf.len());
-        buf[..len].copy_from_slice(&self.buffer[..len]);
+        buf[..len].copy_from_slice(&available[..len]);
         self.start += len;
         len
     }
