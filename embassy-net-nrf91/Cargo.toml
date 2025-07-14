@@ -33,7 +33,7 @@ at-commands = "0.5.4"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-nrf91-v$VERSION/embassy-net-nrf91/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-nrf91/src/"
 target = "thumbv7em-none-eabi"
-features = ["defmt"]
+features = ["defmt", "nrf-pac/nrf9160"]
 
 [package.metadata.docs.rs]
 features = ["defmt"]
