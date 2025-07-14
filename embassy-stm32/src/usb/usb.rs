@@ -362,6 +362,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     fn alloc_endpoint<D: Dir>(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
@@ -373,25 +374,56 @@ impl<'d, T: Instance> Driver<'d, T> {
             D::dir()
         );
 
-        let index = self.alloc.iter_mut().enumerate().find(|(i, ep)| {
-            if *i == 0 && ep_type != EndpointType::Control {
-                return false; // reserved for control pipe
+        let index = if let Some(addr) = ep_addr {
+            // Use the specified endpoint address
+            let requested_index = addr.index();
+            if requested_index >= EP_COUNT {
+                return Err(EndpointAllocError);
             }
+            if requested_index == 0 && ep_type != EndpointType::Control {
+                return Err(EndpointAllocError); // EP0 is reserved for control
+            }
+
+            let ep = &self.alloc[requested_index];
             let used = ep.used_out || ep.used_in;
             if used && (ep.ep_type == EndpointType::Isochronous) {
                 // Isochronous endpoints are always double-buffered.
                 // Their corresponding endpoint/channel registers are forced to be unidirectional.
                 // Do not reuse this index.
-                // FIXME: Bulk endpoints can be double buffered, but are not in the current implementation.
-                return false;
+                return Err(EndpointAllocError);
             }
 
             let used_dir = match D::dir() {
                 Direction::Out => ep.used_out,
                 Direction::In => ep.used_in,
             };
-            !used || (ep.ep_type == ep_type && !used_dir)
-        });
+            if used && (ep.ep_type != ep_type || used_dir) {
+                return Err(EndpointAllocError);
+            }
+
+            Some((requested_index, &mut self.alloc[requested_index]))
+        } else {
+            // Find any available endpoint
+            self.alloc.iter_mut().enumerate().find(|(i, ep)| {
+                if *i == 0 && ep_type != EndpointType::Control {
+                    return false; // reserved for control pipe
+                }
+                let used = ep.used_out || ep.used_in;
+                if used && (ep.ep_type == EndpointType::Isochronous) {
+                    // Isochronous endpoints are always double-buffered.
+                    // Their corresponding endpoint/channel registers are forced to be unidirectional.
+                    // Do not reuse this index.
+                    // FIXME: Bulk endpoints can be double buffered, but are not in the current implementation.
+                    return false;
+                }
+
+                let used_dir = match D::dir() {
+                    Direction::Out => ep.used_out,
+                    Direction::In => ep.used_in,
+                };
+                !used || (ep.ep_type == ep_type && !used_dir)
+            })
+        };
 
         let (index, ep) = match index {
             Some(x) => x,
@@ -479,27 +511,29 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         let ep_out = self
-            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
+            .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
             .unwrap();
         let ep_in = self
-            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
+            .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
             .unwrap();
         assert_eq!(ep_out.info.addr.index(), 0);
         assert_eq!(ep_in.info.addr.index(), 0);
