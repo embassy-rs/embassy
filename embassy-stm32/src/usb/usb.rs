@@ -359,6 +359,34 @@ impl<'d, T: Instance> Driver<'d, T> {
         addr
     }
 
+    fn is_endpoint_available<D: Dir>(&self, index: usize, ep_type: EndpointType) -> bool {
+        if index == 0 && ep_type != EndpointType::Control {
+            return false; // EP0 is reserved for control
+        }
+
+        let ep = match self.alloc.get(index) {
+            Some(ep) => ep,
+            None => return false,
+        };
+
+        let used = ep.used_out || ep.used_in;
+
+        if used && ep.ep_type == EndpointType::Isochronous {
+            // Isochronous endpoints are always double-buffered.
+            // Their corresponding endpoint/channel registers are forced to be unidirectional.
+            // Do not reuse this index.
+            // FIXME: Bulk endpoints can be double buffered, but are not in the current implementation.
+            return false;
+        }
+
+        let used_dir = match D::dir() {
+            Direction::Out => ep.used_out,
+            Direction::In => ep.used_in,
+        };
+
+        !used || (ep.ep_type == ep_type && !used_dir)
+    }
+
     fn alloc_endpoint<D: Dir>(
         &mut self,
         ep_type: EndpointType,
@@ -376,57 +404,15 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let index = if let Some(addr) = ep_addr {
             // Use the specified endpoint address
-            let requested_index = addr.index();
-            if requested_index >= EP_COUNT {
-                return Err(EndpointAllocError);
-            }
-            if requested_index == 0 && ep_type != EndpointType::Control {
-                return Err(EndpointAllocError); // EP0 is reserved for control
-            }
-
-            let ep = &self.alloc[requested_index];
-            let used = ep.used_out || ep.used_in;
-            if used && (ep.ep_type == EndpointType::Isochronous) {
-                // Isochronous endpoints are always double-buffered.
-                // Their corresponding endpoint/channel registers are forced to be unidirectional.
-                // Do not reuse this index.
-                return Err(EndpointAllocError);
-            }
-
-            let used_dir = match D::dir() {
-                Direction::Out => ep.used_out,
-                Direction::In => ep.used_in,
-            };
-            if used && (ep.ep_type != ep_type || used_dir) {
-                return Err(EndpointAllocError);
-            }
-
-            Some((requested_index, &mut self.alloc[requested_index]))
+            self.is_endpoint_available::<D>(addr.index(), ep_type)
+                .then_some(addr.index())
         } else {
             // Find any available endpoint
-            self.alloc.iter_mut().enumerate().find(|(i, ep)| {
-                if *i == 0 && ep_type != EndpointType::Control {
-                    return false; // reserved for control pipe
-                }
-                let used = ep.used_out || ep.used_in;
-                if used && (ep.ep_type == EndpointType::Isochronous) {
-                    // Isochronous endpoints are always double-buffered.
-                    // Their corresponding endpoint/channel registers are forced to be unidirectional.
-                    // Do not reuse this index.
-                    // FIXME: Bulk endpoints can be double buffered, but are not in the current implementation.
-                    return false;
-                }
-
-                let used_dir = match D::dir() {
-                    Direction::Out => ep.used_out,
-                    Direction::In => ep.used_in,
-                };
-                !used || (ep.ep_type == ep_type && !used_dir)
-            })
+            (0..self.alloc.len()).find(|&i| self.is_endpoint_available::<D>(i, ep_type))
         };
 
         let (index, ep) = match index {
-            Some(x) => x,
+            Some(i) => (i, &mut self.alloc[i]),
             None => return Err(EndpointAllocError),
         };
 
