@@ -50,12 +50,16 @@ embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
 embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
 embassy-net-driver-channel = { version = "0.3.0", path = "../embassy-net-driver-channel" }
+embassy-time = { version = "0.4.0", path="../embassy-time" }
 
 defmt = { version = "1", optional = true }
 log = { version = "0.4.14", optional = true }
 heapless = "0.8"
 embedded-io-async = "0.6.1"
+bitflags = "2.6.0"
 
 # for HID
 usbd-hid = { version = "0.8.1", optional = true }
 ssmarshal = { version = "1.0", default-features = false, optional = true }
+zerocopy = { version = "0.8.2", features = ["derive"] }
+bit_field = "0.10.2"
