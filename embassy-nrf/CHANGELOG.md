@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.4.1 - 2025-07-14
+
 - changed: nrf52833: configure internal LDO
 - changed: nrf5340: add more options to clock config
 - bugfix: clean the SAADC's register while dropping
