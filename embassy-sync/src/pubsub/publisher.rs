@@ -75,7 +75,7 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Pub<'a, PSB, T> {
         self.channel.is_full()
     }
 
-    /// Create a [`futures::Sink`] adapter for this publisher.
+    /// Create a [`futures_sink::Sink`] adapter for this publisher.
     #[inline]
     pub const fn sink(&self) -> PubSink<'a, '_, PSB, T> {
         PubSink { publ: self, fut: None }

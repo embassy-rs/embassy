@@ -152,7 +152,7 @@ where
 
 impl<'p, M, const N: usize> Unpin for ReadFuture<'p, M, N> where M: RawMutex {}
 
-/// Future returned by [`Pipe::fill_buf`] and  [`Reader::fill_buf`].
+/// Future returned by [`Reader::fill_buf`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct FillBufFuture<'p, M, const N: usize>
 where
@@ -587,7 +587,7 @@ where
     }
 }
 
-/// Write-only access to a [`DynamicPipe`].
+/// Write-only access to the dynamic pipe.
 pub struct DynamicWriter<'p> {
     pipe: &'p dyn DynamicPipe,
 }
@@ -657,7 +657,7 @@ where
     }
 }
 
-/// Read-only access to a [`DynamicPipe`].
+/// Read-only access to a dynamic pipe.
 pub struct DynamicReader<'p> {
     pipe: &'p dyn DynamicPipe,
 }
@@ -742,7 +742,7 @@ where
     }
 }
 
-/// Future returned by [`DynamicPipe::fill_buf`] and  [`DynamicReader::fill_buf`].
+/// Future returned by [`DynamicReader::fill_buf`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct DynamicFillBufFuture<'p> {
     pipe: Option<&'p dyn DynamicPipe>,
