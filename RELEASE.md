@@ -10,7 +10,6 @@ When releasing a crate, keep in mind that you may need to recursively release de
 
   ```sh
   cargo binstall cargo-release
-```
 
 ## Crate release
 
