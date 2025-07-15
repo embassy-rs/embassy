@@ -176,9 +176,9 @@ impl<T: Linked<cordyceps::stack::Links<T>>> MutexTransferStack<T> {
         // like `take_all`) that could ever allow for re-entrant aliasing. Therefore, the
         // presence of the critical section is sufficient to guarantee exclusive access to
         // the `inner` field for the purposes of this function.
-        let mut guard = unsafe { &mut *self.inner.borrow(token).get() };
-        let is_empty = guard.is_empty();
-        guard.push(item);
+        let inner = unsafe { &mut *self.inner.borrow(token).get() };
+        let is_empty = inner.is_empty();
+        inner.push(item);
         is_empty
     }
 
@@ -190,8 +190,8 @@ impl<T: Linked<cordyceps::stack::Links<T>>> MutexTransferStack<T> {
             // like `push_was_empty`) that could ever allow for re-entrant aliasing. Therefore, the
             // presence of the critical section is sufficient to guarantee exclusive access to
             // the `inner` field for the purposes of this function.
-            let mut guard = unsafe { &mut *self.inner.borrow(cs).get() };
-            guard.take_all()
+            let inner = unsafe { &mut *self.inner.borrow(cs).get() };
+            inner.take_all()
         })
     }
 }
