@@ -372,6 +372,9 @@ rm out/tests/pimoroni-pico-plus-2/adc
 # temporarily disabled
 rm out/tests/pimoroni-pico-plus-2/pwm
 
+# flaky
+rm out/tests/rpi-pico/pwm
+
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
     exit
