@@ -70,8 +70,12 @@ impl RunQueue {
     ///
     /// `item` must NOT be already enqueued in any queue.
     #[inline(always)]
-    pub(crate) unsafe fn enqueue(&self, task: TaskRef, _: super::state::Token) -> bool {
-        self.stack.push_was_empty(task)
+    pub(crate) unsafe fn enqueue(&self, task: TaskRef, _tok: super::state::Token) -> bool {
+        self.stack.push_was_empty(
+            task,
+            #[cfg(not(target_has_atomic = "ptr"))]
+            _tok,
+        )
     }
 
     /// # Standard atomic runqueue
@@ -153,26 +157,28 @@ fn run_dequeue(taskref: &TaskRef) {
 /// A wrapper type that acts like TransferStack by wrapping a normal Stack in a CS mutex
 #[cfg(not(target_has_atomic = "ptr"))]
 struct MutexTransferStack<T: Linked<cordyceps::stack::Links<T>>> {
-    inner: mutex::BlockingMutex<mutex::raw_impls::cs::CriticalSectionRawMutex, cordyceps::Stack<T>>,
+    inner: critical_section::Mutex<core::cell::RefCell<cordyceps::Stack<T>>>,
 }
 
 #[cfg(not(target_has_atomic = "ptr"))]
 impl<T: Linked<cordyceps::stack::Links<T>>> MutexTransferStack<T> {
     const fn new() -> Self {
         Self {
-            inner: mutex::BlockingMutex::new(cordyceps::Stack::new()),
+            inner: critical_section::Mutex::new(core::cell::RefCell::new(cordyceps::Stack::new())),
         }
     }
 
-    fn push_was_empty(&self, item: T::Handle) -> bool {
-        self.inner.with_lock(|stack| {
-            let is_empty = stack.is_empty();
-            stack.push(item);
-            is_empty
-        })
+    fn push_was_empty(&self, item: T::Handle, token: super::state::Token) -> bool {
+        let mut guard = self.inner.borrow_ref_mut(token);
+        let is_empty = guard.is_empty();
+        guard.push(item);
+        is_empty
     }
 
     fn take_all(&self) -> cordyceps::Stack<T> {
-        self.inner.with_lock(|stack| stack.take_all())
+        critical_section::with(|cs| {
+            let mut guard = self.inner.borrow_ref_mut(cs);
+            guard.take_all()
+        })
     }
 }
