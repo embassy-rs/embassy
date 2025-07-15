@@ -104,11 +104,9 @@ impl RunQueue {
     /// runqueue are both empty, at which point this function will return.
     #[cfg(feature = "edf-scheduler")]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
-        // SAFETY: `deadline` can only be set through the `Deadline` interface, which
-        // only allows access to this value while the given task is being polled.
-        // This acts as mutual exclusion for access.
-        let mut sorted =
-            SortedList::<TaskHeader>::new_with_cmp(|lhs, rhs| unsafe { lhs.deadline.get().cmp(&rhs.deadline.get()) });
+        let mut sorted = SortedList::<TaskHeader>::new_with_cmp(|lhs, rhs| {
+            lhs.deadline.instant_ticks().cmp(&rhs.deadline.instant_ticks())
+        });
 
         loop {
             // For each loop, grab any newly pended items

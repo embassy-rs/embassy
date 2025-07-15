@@ -91,7 +91,7 @@ pub(crate) struct TaskHeader {
     /// Earliest Deadline First scheduler Deadline. This field should not be accessed
     /// outside the context of the task itself as it being polled by the executor.
     #[cfg(feature = "edf-scheduler")]
-    pub(crate) deadline: SyncUnsafeCell<u64>,
+    pub(crate) deadline: Deadline,
 
     pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
@@ -197,7 +197,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // NOTE: The deadline is set to zero to allow the initializer to reside in `.bss`. This
                 // will be lazily initalized in `initialize_impl`
                 #[cfg(feature = "edf-scheduler")]
-                deadline: SyncUnsafeCell::new(0u64),
+                deadline: Deadline::new_unset(),
                 executor: AtomicPtr::new(core::ptr::null_mut()),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
