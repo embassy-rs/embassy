@@ -4,7 +4,11 @@ use core::task::Poll;
 
 /// A type for interacting with the deadline of the current task
 ///
-/// Requires the `edf-scheduler` feature
+/// Requires the `edf-scheduler` feature.
+///
+/// Note: Interacting with the deadline should be done locally in a task.
+/// In theory you could try to set or read the deadline from another task,
+/// but that will result in weird (though not unsound) behavior.
 pub struct Deadline {
     instant_ticks_hi: AtomicU32,
     instant_ticks_lo: AtomicU32,
