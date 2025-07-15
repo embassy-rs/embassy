@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.4.0 - 2025-07-15
+
 - bump embassy-sync to 0.7.0
 - bump bt-hci to 0.3.0
 - make State::new const fn
