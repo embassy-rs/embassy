@@ -1,15 +1,41 @@
 use core::future::{poll_fn, Future};
+use core::sync::atomic::{AtomicU32, Ordering};
 use core::task::Poll;
 
 /// A type for interacting with the deadline of the current task
 ///
 /// Requires the `edf-scheduler` feature
 pub struct Deadline {
-    /// Deadline value in ticks, same time base and ticks as `embassy-time`
-    pub instant_ticks: u64,
+    instant_ticks_hi: AtomicU32,
+    instant_ticks_lo: AtomicU32,
 }
 
 impl Deadline {
+    pub(crate) const fn new(instant_ticks: u64) -> Self {
+        Self {
+            instant_ticks_hi: AtomicU32::new((instant_ticks >> 32) as u32),
+            instant_ticks_lo: AtomicU32::new(instant_ticks as u32),
+        }
+    }
+
+    pub(crate) const fn new_unset() -> Self {
+        Self::new(Self::UNSET_DEADLINE_TICKS)
+    }
+
+    pub(crate) fn set(&self, instant_ticks: u64) {
+        self.instant_ticks_hi
+            .store((instant_ticks >> 32) as u32, Ordering::Relaxed);
+        self.instant_ticks_lo.store(instant_ticks as u32, Ordering::Relaxed);
+    }
+
+    /// Deadline value in ticks, same time base and ticks as `embassy-time`
+    pub fn instant_ticks(&self) -> u64 {
+        let hi = self.instant_ticks_hi.load(Ordering::Relaxed) as u64;
+        let lo = self.instant_ticks_lo.load(Ordering::Relaxed) as u64;
+
+        (hi << 32) | lo
+    }
+
     /// Sentinel value representing an "unset" deadline, which has lower priority
     /// than any other set deadline value
     pub const UNSET_DEADLINE_TICKS: u64 = u64::MAX;
@@ -17,7 +43,7 @@ impl Deadline {
     /// Does the given Deadline represent an "unset" deadline?
     #[inline]
     pub fn is_unset(&self) -> bool {
-        self.instant_ticks == Self::UNSET_DEADLINE_TICKS
+        self.instant_ticks() == Self::UNSET_DEADLINE_TICKS
     }
 
     /// Set the current task's deadline at exactly `instant_ticks`
@@ -32,11 +58,7 @@ impl Deadline {
     pub fn set_current_task_deadline(instant_ticks: u64) -> impl Future<Output = ()> {
         poll_fn(move |cx| {
             let task = super::task_from_waker(cx.waker());
-            // SAFETY: A task can only modify its own deadline, while the task is being
-            // polled, meaning that there cannot be concurrent access to the deadline.
-            unsafe {
-                task.header().deadline.set(instant_ticks);
-            }
+            task.header().deadline.set(instant_ticks);
             Poll::Ready(())
         })
     }
@@ -61,14 +83,9 @@ impl Deadline {
             // reasons later.
             let deadline = now.saturating_add(duration_ticks);
 
-            // SAFETY: A task can only modify its own deadline, while the task is being
-            // polled, meaning that there cannot be concurrent access to the deadline.
-            unsafe {
-                task.header().deadline.set(deadline);
-            }
-            Poll::Ready(Deadline {
-                instant_ticks: deadline,
-            })
+            task.header().deadline.set(deadline);
+
+            Poll::Ready(Deadline::new(deadline))
         })
     }
 
@@ -90,24 +107,18 @@ impl Deadline {
         poll_fn(move |cx| {
             let task = super::task_from_waker(cx.waker());
 
-            // SAFETY: A task can only modify its own deadline, while the task is being
-            // polled, meaning that there cannot be concurrent access to the deadline.
-            unsafe {
-                // Get the last value
-                let last = task.header().deadline.get();
+            // Get the last value
+            let last = task.header().deadline.instant_ticks();
 
-                // Since ticks is a u64, saturating add is PROBABLY overly cautious, leave
-                // it for now, we can probably make this wrapping_add for performance
-                // reasons later.
-                let deadline = last.saturating_add(increment_ticks);
+            // Since ticks is a u64, saturating add is PROBABLY overly cautious, leave
+            // it for now, we can probably make this wrapping_add for performance
+            // reasons later.
+            let deadline = last.saturating_add(increment_ticks);
 
-                // Store the new value
-                task.header().deadline.set(deadline);
+            // Store the new value
+            task.header().deadline.set(deadline);
 
-                Poll::Ready(Deadline {
-                    instant_ticks: deadline,
-                })
-            }
+            Poll::Ready(Deadline::new(deadline))
         })
     }
 
@@ -119,12 +130,8 @@ impl Deadline {
         poll_fn(move |cx| {
             let task = super::task_from_waker(cx.waker());
 
-            // SAFETY: A task can only modify its own deadline, while the task is being
-            // polled, meaning that there cannot be concurrent access to the deadline.
-            let deadline = unsafe { task.header().deadline.get() };
-            Poll::Ready(Self {
-                instant_ticks: deadline,
-            })
+            let deadline = task.header().deadline.instant_ticks();
+            Poll::Ready(Self::new(deadline))
         })
     }
 
@@ -137,20 +144,12 @@ impl Deadline {
         poll_fn(move |cx| {
             let task = super::task_from_waker(cx.waker());
 
-            // SAFETY: A task can only modify its own deadline, while the task is being
-            // polled, meaning that there cannot be concurrent access to the deadline.
-            let deadline = unsafe {
-                // get the old value
-                let d = task.header().deadline.get();
-                // Store the default value
-                task.header().deadline.set(Self::UNSET_DEADLINE_TICKS);
-                // return the old value
-                d
-            };
+            // get the old value
+            let deadline = task.header().deadline.instant_ticks();
+            // Store the default value
+            task.header().deadline.set(Self::UNSET_DEADLINE_TICKS);
 
-            Poll::Ready(Self {
-                instant_ticks: deadline,
-            })
+            Poll::Ready(Self::new(deadline))
         })
     }
 }
