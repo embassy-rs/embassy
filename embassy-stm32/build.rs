@@ -1557,11 +1557,21 @@ fn main() {
                             let register = format_ident!("{}", remap_info.register.to_lowercase());
                             let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
 
-                            let value = if remap_info.value.contains("true") || remap_info.value.contains("false") {
-                                let value = format_ident!("{}", remap_info.value);
-                                quote!(#value)
+                            let field_metadata = METADATA
+                                .peripherals
+                                .iter()
+                                .filter(|p| p.name.eq_ignore_ascii_case(remap_info.peripheral))
+                                .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+                                .filter(|f| f.name.eq_ignore_ascii_case(remap_info.register))
+                                .flat_map(|f| f.fields.iter())
+                                .find(|f| f.name.eq_ignore_ascii_case(remap_info.field))
+                                .unwrap();
+
+                            let value = if field_metadata.bit_size == 1 {
+                                let bool_value = format_ident!("{}", remap_info.value > 0);
+                                quote!(#bool_value)
                             } else {
-                                let value = remap_info.value.parse::<u8>().unwrap();
+                                let value = remap_info.value;
                                 quote!(#value.into())
                             };
 
