@@ -81,10 +81,6 @@ avr-device = { version = "0.7.0", optional = true }
 version = "0.3.4"
 features = ["no-cache-pad"]
 
-# Note: this is ONLY a dependency when the target does NOT have atomics
-[target.'cfg(not(target_has_atomic="ptr"))'.dependencies.mutex]
-version = "1.0"
-
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
 trybuild = "1.0"
