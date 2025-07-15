@@ -157,19 +157,26 @@ fn run_dequeue(taskref: &TaskRef) {
 /// A wrapper type that acts like TransferStack by wrapping a normal Stack in a CS mutex
 #[cfg(not(target_has_atomic = "ptr"))]
 struct MutexTransferStack<T: Linked<cordyceps::stack::Links<T>>> {
-    inner: critical_section::Mutex<core::cell::RefCell<cordyceps::Stack<T>>>,
+    inner: critical_section::Mutex<core::cell::UnsafeCell<cordyceps::Stack<T>>>,
 }
 
 #[cfg(not(target_has_atomic = "ptr"))]
 impl<T: Linked<cordyceps::stack::Links<T>>> MutexTransferStack<T> {
     const fn new() -> Self {
         Self {
-            inner: critical_section::Mutex::new(core::cell::RefCell::new(cordyceps::Stack::new())),
+            inner: critical_section::Mutex::new(core::cell::UnsafeCell::new(cordyceps::Stack::new())),
         }
     }
 
+    /// Push an item to the transfer stack, returning whether the stack was previously empty
     fn push_was_empty(&self, item: T::Handle, token: super::state::Token) -> bool {
-        let mut guard = self.inner.borrow_ref_mut(token);
+        /// SAFETY: The critical-section mutex guarantees that there is no *concurrent* access
+        /// for the lifetime of the token, but does NOT protect against re-entrant access.
+        /// However, we never *return* the reference, nor do we recurse (or call another method
+        /// like `take_all`) that could ever allow for re-entrant aliasing. Therefore, the
+        /// presence of the critical section is sufficient to guarantee exclusive access to
+        /// the `inner` field for the purposes of this function
+        let mut guard = unsafe { &mut *self.inner.borrow(token).get() };
         let is_empty = guard.is_empty();
         guard.push(item);
         is_empty
@@ -177,7 +184,13 @@ impl<T: Linked<cordyceps::stack::Links<T>>> MutexTransferStack<T> {
 
     fn take_all(&self) -> cordyceps::Stack<T> {
         critical_section::with(|cs| {
-            let mut guard = self.inner.borrow_ref_mut(cs);
+            /// SAFETY: The critical-section mutex guarantees that there is no *concurrent* access
+            /// for the lifetime of the token, but does NOT protect against re-entrant access.
+            /// However, we never *return* the reference, nor do we recurse (or call another method
+            /// like `push_was_empty`) that could ever allow for re-entrant aliasing. Therefore, the
+            /// presence of the critical section is sufficient to guarantee exclusive access to
+            /// the `inner` field for the purposes of this function
+            let mut guard = unsafe { &mut *self.inner.borrow(cs).get() };
             guard.take_all()
         })
     }
