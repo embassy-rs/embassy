@@ -1,4 +1,10 @@
 //! Universal Synchronous/Asynchronous Receiver Transmitter (USART, UART, LPUART)
+//!
+//! ## Examples
+//!
+//! - [STM32F4 USART](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/usart.rs)
+//! - [STM32F4 USART Buffered](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/usart_buffered.rs)
+//! - [STM32F4 USART DMA](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/usart_dma.rs)
 #![macro_use]
 #![warn(missing_docs)]
 
