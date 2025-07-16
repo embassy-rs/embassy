@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reduce `UsbDevice` builder logs to `trace` ([#4130](https://github.com/embassy-rs/embassy/pull/4130))
 - Implement `embedded-io-async` traits for USB CDC ACM ([#4176](https://github.com/embassy-rs/embassy/pull/4176))
 - Update `embassy-sync` to v0.7.0
+- Fix CDC ACM BufferedReceiver buffer calculation
 
 ## 0.4.0 - 2025-01-15
 
