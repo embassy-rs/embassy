@@ -527,7 +527,7 @@ foreach_interrupt!(
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(stm32u5)] {
+                } else if #[cfg(any(stm32u5, stm32wba))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
                 } else {
