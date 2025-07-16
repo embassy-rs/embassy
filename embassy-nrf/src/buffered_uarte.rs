@@ -12,7 +12,7 @@ use core::cmp::min;
 use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{compiler_fence, AtomicBool, AtomicPtr, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
@@ -39,7 +39,6 @@ pub(crate) struct State {
     rx_started_count: AtomicU8,
     rx_ended_count: AtomicU8,
     rx_ppi_ch: AtomicU8,
-    rx_ppi_regs: AtomicPtr<()>,
 }
 
 /// UART error.
@@ -61,7 +60,6 @@ impl State {
             rx_started_count: AtomicU8::new(0),
             rx_ended_count: AtomicU8::new(0),
             rx_ppi_ch: AtomicU8::new(0),
-            rx_ppi_regs: AtomicPtr::new(core::ptr::null_mut()),
         }
     }
 }
@@ -119,18 +117,11 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                     r.rxd().ptr().write_value(ptr as u32);
                     r.rxd().maxcnt().write(|w| w.set_maxcnt(half_len as _));
 
-                    #[cfg(feature = "_ppi")]
-                    type Ppic = pac::ppi::Ppi;
-                    #[cfg(feature = "_dppi")]
-                    type Ppic = pac::dppic::Dppic;
-
                     let chn = s.rx_ppi_ch.load(Ordering::Relaxed);
-                    let regs_ptr = s.rx_ppi_regs.load(Ordering::Relaxed);
-                    let regs = Ppic::from_ptr(regs_ptr);
 
                     // Enable endrx -> startrx PPI channel.
                     // From this point on, if endrx happens, startrx is automatically fired.
-                    regs.chenset().write(|w| w.0 = 1 << chn);
+                    ppi::regs(()).chenset().write(|w| w.0 = 1 << chn);
 
                     // It is possible that endrx happened BEFORE enabling the PPI. In this case
                     // the PPI channel doesn't trigger, and we'd hang. We have to detect this
@@ -154,7 +145,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
 
                     // Check if the PPI channel is still enabled. The PPI channel disables itself
                     // when it fires, so if it's still enabled it hasn't fired.
-                    let ppi_ch_enabled = regs.chen().read().ch(chn as _);
+                    let ppi_ch_enabled = ppi::regs(()).chen().read().ch(chn as _);
 
                     // if rxend happened, and the ppi channel hasn't fired yet, the rxend got missed.
                     // this condition also naturally matches if `!started`, needed to kickstart the DMA.
@@ -162,7 +153,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                         //trace!("manually starting.");
 
                         // disable the ppi ch, it's of no use anymore.
-                        regs.chenclr().write(|w| w.set_ch(chn as _, true));
+                        ppi::regs(()).chenclr().write(|w| w.set_ch(chn as _, true));
 
                         // manually start
                         r.tasks_startrx().write_value(1);
@@ -693,9 +684,6 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         ppi_ch1.enable();
 
         s.rx_ppi_ch.store(ppi_ch2.number() as u8, Ordering::Relaxed);
-        s.rx_ppi_regs
-            .store(ppi::regs(ppi_ch2.inst()).as_ptr(), Ordering::Relaxed);
-
         let mut ppi_group = PpiGroup::new(ppi_group);
         let mut ppi_ch2 = Ppi::new_one_to_two(
             ppi_ch2,
