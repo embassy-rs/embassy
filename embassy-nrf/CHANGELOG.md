@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- changed: update to latest embassy-usb-driver
+
 ## 0.4.1 - 2025-07-14
 
 - changed: nrf52833: configure internal LDO

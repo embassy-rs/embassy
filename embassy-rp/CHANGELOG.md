@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- update to latest embassy-usb-driver
+
 ## 0.5.0 - 2025-07-15
 
 - Fix wrong `funcsel` on RP2350 gpout/gpin ([#3975](https://github.com/embassy-rs/embassy/pull/3975))
