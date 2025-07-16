@@ -234,8 +234,19 @@ impl<'a> ConfigurationDescriptor<'a> {
 
     /// Iterate over all interface descriptors of this Configuration
     pub fn iter_interface(&self) -> InterfaceIterator<'_> {
+        let first_interface_offset = self
+            .iter_descriptors()
+            .find_map(|(offset, bytes)| {
+                if bytes[1] == descriptor_type::INTERFACE {
+                    Some(offset)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+
         InterfaceIterator {
-            offset: 0,
+            offset: first_interface_offset,
             cfg_desc: self,
         }
     }
@@ -263,6 +274,9 @@ impl<'a> Iterator for RawDescriptorIterator<'a> {
         let pre_offset = self.offset;
         let len = self.buf[pre_offset] as usize;
         self.offset += len;
+        if self.offset > self.buf.len() {
+            return None;
+        }
         Some((pre_offset, &self.buf[pre_offset..self.offset]))
     }
 }
@@ -461,7 +475,8 @@ mod test {
         // The first endpoint descriptor is extended with 2 bytes such as seen in the MIDI 2.0
         // bRefresh, bSynchAddress (those two bytes are set to 99 in the test bytes below to make them easy to identify).
         let desc_bytes = [
-            9, 2, 68, 0, 2, 1, 0, 160, 101, // Configuration descriptor
+            9, 2, 76, 0, 2, 1, 0, 160, 101, // Configuration descriptor
+            8, 11, 0, 1, 3, 0, 0, 0, // Interface Association Descriptor (to be ignored)
             9, 4, 0, 0, 1, 3, 1, 1, 0, // Interface 0
             9, 33, 16, 1, 0, 1, 34, 63, 0, // HID Descriptor
             9, 5, 129, 3, 8, 0, 1, 99, 99, // Endpoint 1 (extended for MIDI 2.0)
