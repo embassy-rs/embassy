@@ -651,7 +651,7 @@ pub fn send_break(regs: &Regs) {
 /// In case of readback, keep Receiver enabled
 fn half_duplex_set_rx_tx_before_write(r: &Regs, enable_readback: bool) {
     let mut cr1 = r.cr1().read();
-    if r.cr3().read().hdsel() && !cr1.te() {
+    if r.cr3().read().hdsel() {
         cr1.set_te(true);
         cr1.set_re(enable_readback);
         r.cr1().write_value(cr1);
