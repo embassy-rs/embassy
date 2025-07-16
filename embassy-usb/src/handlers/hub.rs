@@ -130,7 +130,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
                 // Get status
                 let (status, change) = self.get_port_status(port as u8).await?;
                 debug!(
-                    "HUB {}: port {} status: {} change: {}",
+                    "HUB {}: port {} status: {:?} change: {:?}",
                     self.device_address, port, status, change
                 );
 
@@ -150,7 +150,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
                             let speed: Speed = status.into();
 
                             debug!(
-                                "HUB {}: Device connected to port {} with {} speed",
+                                "HUB {}: Device connected to port {} with {:?} speed",
                                 self.device_address, port, speed
                             );
 
