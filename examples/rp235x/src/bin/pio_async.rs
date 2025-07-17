@@ -125,7 +125,7 @@ async fn main(spawner: Spawner) {
     setup_pio_task_sm0(&mut common, &mut sm0, p.PIN_0);
     setup_pio_task_sm1(&mut common, &mut sm1);
     setup_pio_task_sm2(&mut common, &mut sm2);
-    spawner.spawn(pio_task_sm0(sm0)).unwrap();
-    spawner.spawn(pio_task_sm1(sm1)).unwrap();
-    spawner.spawn(pio_task_sm2(irq3, sm2)).unwrap();
+    spawner.spawn(pio_task_sm0(sm0).unwrap());
+    spawner.spawn(pio_task_sm1(sm1).unwrap());
+    spawner.spawn(pio_task_sm2(irq3, sm2).unwrap());
 }

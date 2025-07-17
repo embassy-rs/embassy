@@ -52,8 +52,8 @@ async fn main(spawner: Spawner) {
     let channel = CHANNEL.init(Channel::new(buf));
     let (sender, receiver) = channel.split();
 
-    spawner.must_spawn(consumer(receiver));
-    spawner.must_spawn(producer(sender, adc_parts));
+    spawner.spawn(consumer(receiver).unwrap());
+    spawner.spawn(producer(sender, adc_parts).unwrap());
 
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {

@@ -17,5 +17,5 @@ async fn main(spawner: Spawner) {
         .format_timestamp_nanos()
         .init();
 
-    spawner.spawn(run()).unwrap();
+    spawner.spawn(run().unwrap());
 }
