@@ -545,10 +545,12 @@ mod g4 {
         const CHANNEL: u8 = 17;
     }
 
+    #[cfg(peri_adc3_common)]
     impl VrefChannel for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 18;
     }
 
+    #[cfg(peri_adc3_common)]
     impl VBatChannel for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 17;
     }
