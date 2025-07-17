@@ -61,10 +61,10 @@ impl<'d, D: Driver<'d>> CmsisDapV2Class<'d, D> {
         ));
         let mut interface = function.interface();
         let mut alt = interface.alt_setting(0xFF, 0, 0, Some(iface_string));
-        let read_ep = alt.endpoint_bulk_out(max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
         let trace_ep = if trace {
-            Some(alt.endpoint_bulk_in(max_packet_size))
+            Some(alt.endpoint_bulk_in(None, max_packet_size))
         } else {
             None
         };

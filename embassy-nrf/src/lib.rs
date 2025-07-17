@@ -586,6 +586,8 @@ mod consts {
     pub const UICR_APPROTECT: *mut u32 = 0x00FF8000 as *mut u32;
     pub const UICR_SECUREAPPROTECT: *mut u32 = 0x00FF802C as *mut u32;
     pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+    #[cfg(feature = "_nrf9120")]
+    pub const APPROTECT_DISABLED: u32 = 0x50FA50FA;
 }
 
 #[cfg(feature = "_nrf5340-app")]
@@ -768,6 +770,28 @@ pub fn init(config: config::Config) -> Peripherals {
             }
 
             // nothing to do on the nrf9160, debug is allowed by default.
+
+            // nrf9151, nrf9161 use the new-style approtect that requires writing a register.
+            #[cfg(feature = "nrf9120-s")]
+            unsafe {
+                let p = pac::APPROTECT_S;
+
+                let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                needs_reset |= res == WriteResult::Written;
+                p.approtect()
+                    .disable()
+                    .write(|w| w.set_disable(pac::approtect::vals::ApprotectDisableDisable::SW_UNPROTECTED));
+
+                let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_DISABLED);
+                needs_reset |= res == WriteResult::Written;
+                p.secureapprotect()
+                    .disable()
+                    .write(|w| w.set_disable(pac::approtect::vals::SecureapprotectDisableDisable::SW_UNPROTECTED));
+
+                // TODO: maybe add workaround for this errata
+                // It uses extra power, not sure how to let the user choose.
+                // https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev1/page/ERR/nRF9151/Rev1/latest/anomaly_151_36.html#anomaly_151_36
+            }
         }
         config::Debug::Disallowed => {
             // TODO: Handle nRF54L
@@ -782,6 +806,13 @@ pub fn init(config: config::Config) -> Peripherals {
                 {
                     let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_ENABLED);
                     needs_reset |= res == WriteResult::Written;
+                }
+
+                #[cfg(feature = "nrf9120-s")]
+                {
+                    let p = pac::APPROTECT_S;
+                    p.approtect().forceprotect().write(|w| w.set_forceprotect(true));
+                    p.secureapprotect().forceprotect().write(|w| w.set_forceprotect(true));
                 }
             }
         }

@@ -125,8 +125,8 @@ impl<'d, D: Driver<'d>> WebEndpoints<'d, D> {
         let mut iface = func.interface();
         let mut alt = iface.alt_setting(0xff, 0x00, 0x00, None);
 
-        let write_ep = alt.endpoint_bulk_in(config.max_packet_size);
-        let read_ep = alt.endpoint_bulk_out(config.max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, config.max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
 
         WebEndpoints { write_ep, read_ep }
     }

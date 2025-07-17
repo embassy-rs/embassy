@@ -231,19 +231,23 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.inner.alloc_endpoint_in(ep_type, max_packet_size, interval_ms)
+        self.inner
+            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.inner.alloc_endpoint_out(ep_type, max_packet_size, interval_ms)
+        self.inner
+            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -538,7 +542,7 @@ foreach_interrupt!(
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(any(stm32wba, stm32u5))] {
+                } else if #[cfg(any(stm32u5, stm32wba))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
                 } else {

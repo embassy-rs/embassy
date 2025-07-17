@@ -87,6 +87,8 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
 
         r.cr1().modify(|w| {
             w.set_tcie(false);
+            // Reenable receiver for half-duplex if it was disabled
+            w.set_re(true);
         });
 
         state.tx_done.store(true, Ordering::Release);
