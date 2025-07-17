@@ -5,7 +5,7 @@
 #![no_std]
 #![no_main]
 
-use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
+use cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
@@ -58,7 +58,9 @@ async fn main(spawner: Spawner) {
     let spi = PioSpi::new(
         &mut pio.common,
         pio.sm0,
-        DEFAULT_CLOCK_DIVIDER,
+        // SPI communication won't work if the speed is too high, so we use a divider larger than `DEFAULT_CLOCK_DIVIDER`.
+        // See: https://github.com/embassy-rs/embassy/issues/3960.
+        RM2_CLOCK_DIVIDER,
         pio.irq0,
         cs,
         p.PIN_24,
