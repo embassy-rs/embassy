@@ -79,6 +79,7 @@ impl EnumerationInfo {
         };
 
         let mut index = None;
+        let mut cfg_len = 0;
         for i in 0..self.device_desc.num_configurations {
             let cfg_desc_short = channel
                 .request_descriptor::<ConfigurationDescriptor, { ConfigurationDescriptor::SIZE }>(i, false)
@@ -89,6 +90,7 @@ impl EnumerationInfo {
                     return Err(HostError::InsufficientMemory);
                 }
 
+                cfg_len = cfg_desc_short.total_len as usize;
                 index.replace(i);
                 break;
             }
@@ -98,8 +100,10 @@ impl EnumerationInfo {
             "Active Configuration not found on device, bad device?",
         ))?;
 
+        let dest_buffer = &mut cfg_desc_buf[0..cfg_len];
+
         channel
-            .request_descriptor_bytes(ConfigurationDescriptor::DESC_TYPE, index, cfg_desc_buf)
+            .request_descriptor_bytes(ConfigurationDescriptor::DESC_TYPE, index, dest_buffer)
             .await?;
 
         let cfg_desc =
