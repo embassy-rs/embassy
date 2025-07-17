@@ -1553,14 +1553,13 @@ fn main() {
 
                         let mut remap = quote!();
                         for remap_info in ch.remap {
-                            let peripheral = format_ident!("{}", remap_info.peripheral);
                             let register = format_ident!("{}", remap_info.register.to_lowercase());
                             let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
 
                             let field_metadata = METADATA
                                 .peripherals
                                 .iter()
-                                .filter(|p| p.name.eq_ignore_ascii_case(remap_info.peripheral))
+                                .filter(|p| p.name == "SYSCFG")
                                 .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
                                 .filter(|f| f.name.eq_ignore_ascii_case(remap_info.register))
                                 .flat_map(|f| f.fields.iter())
@@ -1575,7 +1574,7 @@ fn main() {
                                 quote!(#value.into())
                             };
 
-                            remap.extend(quote!(crate::pac::#peripheral.#register().modify(|w| w.#setter(#value));));
+                            remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
                         }
 
                         let channel = format_ident!("{}", channel);
