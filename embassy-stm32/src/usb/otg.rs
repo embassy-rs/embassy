@@ -105,7 +105,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         config: Config,
     ) -> Self {
         // For STM32U5 High speed pins need to be left in analog mode
-        #[cfg(not(all(stm32u5, peri_usb_otg_hs)))]
+        #[cfg(not(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs))))]
         {
             _dp.set_as_af(_dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             _dm.set_as_af(_dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
@@ -327,6 +327,20 @@ impl<'d, T: Instance> Bus<'d, T> {
             });
         }
 
+        #[cfg(all(stm32wba, peri_usb_otg_hs))]
+        {
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
+            });
+
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb2enr().modify(|w| {
+                    w.set_usb_otg_hsen(true);
+                    w.set_otghsphyen(true);
+                });
+            });
+        }
+
         let r = T::regs();
         let core_id = r.cid().read().0;
         trace!("Core id {:08x}", core_id);
@@ -468,6 +482,7 @@ foreach_interrupt!(
                     stm32f7,
                     stm32l4,
                     stm32u5,
+                    stm32wba,
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 320;
                     const ENDPOINT_COUNT: usize = 6;
@@ -477,7 +492,7 @@ foreach_interrupt!(
                 } else if #[cfg(any(stm32h7, stm32h7rs))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(stm32u5)] {
+                } else if #[cfg(any(stm32wba, stm32u5))] {
                     const FIFO_DEPTH_WORDS: u16 = 320;
                     const ENDPOINT_COUNT: usize = 6;
                 } else {
