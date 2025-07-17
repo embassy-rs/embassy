@@ -1551,9 +1551,35 @@ fn main() {
                             quote!(())
                         };
 
+                        let mut remap = quote!();
+                        for remap_info in ch.remap {
+                            let register = format_ident!("{}", remap_info.register.to_lowercase());
+                            let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
+
+                            let field_metadata = METADATA
+                                .peripherals
+                                .iter()
+                                .filter(|p| p.name == "SYSCFG")
+                                .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+                                .filter(|f| f.name.eq_ignore_ascii_case(remap_info.register))
+                                .flat_map(|f| f.fields.iter())
+                                .find(|f| f.name.eq_ignore_ascii_case(remap_info.field))
+                                .unwrap();
+
+                            let value = if field_metadata.bit_size == 1 {
+                                let bool_value = format_ident!("{}", remap_info.value > 0);
+                                quote!(#bool_value)
+                            } else {
+                                let value = remap_info.value;
+                                quote!(#value.into())
+                            };
+
+                            remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
+                        }
+
                         let channel = format_ident!("{}", channel);
                         g.extend(quote! {
-                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                            dma_trait_impl!(#tr, #peri, #channel, #request, {#remap});
                         });
                     }
                 }
