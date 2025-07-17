@@ -105,7 +105,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         config: Config,
     ) -> Self {
         // For STM32U5 High speed pins need to be left in analog mode
-        #[cfg(not(any(all(stm32u5, peri_usb_otg_hs),all(stm32wba, peri_usb_otg_hs))))]
+        #[cfg(not(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs))))]
         {
             _dp.set_as_af(_dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             _dm.set_as_af(_dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
