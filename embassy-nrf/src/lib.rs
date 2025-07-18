@@ -584,6 +584,8 @@ pub mod config {
 #[allow(unused)]
 mod consts {
     pub const UICR_APPROTECT: *mut u32 = 0x00FF8000 as *mut u32;
+    pub const UICR_HFXOSRC: *mut u32 = 0x00FF801C as *mut u32;
+    pub const UICR_HFXOCNT: *mut u32 = 0x00FF8020 as *mut u32;
     pub const UICR_SECUREAPPROTECT: *mut u32 = 0x00FF802C as *mut u32;
     pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
     #[cfg(feature = "_nrf9120")]
@@ -650,13 +652,18 @@ unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteRe
         return WriteResult::Failed;
     }
 
-    let nvmc = pac::NVMC;
-    nvmc.config().write(|w| w.set_wen(pac::nvmc::vals::Wen::WEN));
-    while !nvmc.ready().read().ready() {}
-    address.write_volatile(value | !mask);
-    while !nvmc.ready().read().ready() {}
-    nvmc.config().write(|_| {});
-    while !nvmc.ready().read().ready() {}
+    // Nrf9151 errata 7, need to disable interrups + use DSB https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev2/page/ERR/nRF9151/Rev2/latest/anomaly_151_7.html
+    cortex_m::interrupt::free(|_cs| {
+        let nvmc = pac::NVMC;
+
+        nvmc.config().write(|w| w.set_wen(pac::nvmc::vals::Wen::WEN));
+        while !nvmc.ready().read().ready() {}
+        address.write_volatile(value | !mask);
+        cortex_m::asm::dsb();
+        while !nvmc.ready().read().ready() {}
+        nvmc.config().write(|_| {});
+        while !nvmc.ready().read().ready() {}
+    });
 
     WriteResult::Written
 }
@@ -673,6 +680,28 @@ pub fn init(config: config::Config) -> Peripherals {
 
     #[allow(unused_mut)]
     let mut needs_reset = false;
+
+    // Workaround used in the nrf mdk: file system_nrf91.c , function SystemInit(), after `#if !defined(NRF_SKIP_UICR_HFXO_WORKAROUND)`
+    #[cfg(all(feature = "_nrf91", feature = "_s"))]
+    {
+        let uicr = pac::UICR_S;
+        let hfxocnt = uicr.hfxocnt().read().hfxocnt().to_bits();
+        let hfxosrc = uicr.hfxosrc().read().hfxosrc().to_bits();
+
+        if hfxosrc == 1 {
+            unsafe {
+                let _ = uicr_write(consts::UICR_HFXOSRC, 0);
+            }
+            needs_reset = true;
+        }
+
+        if hfxocnt == 255 {
+            unsafe {
+                let _ = uicr_write(consts::UICR_HFXOCNT, 32);
+            }
+            needs_reset = true;
+        }
+    }
 
     // Setup debug protection.
     #[cfg(not(feature = "_nrf51"))]
