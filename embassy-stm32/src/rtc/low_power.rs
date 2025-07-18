@@ -66,7 +66,7 @@ pub(crate) enum WakeupPrescaler {
 }
 
 #[cfg(any(
-    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0
+    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba
 ))]
 impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     fn from(val: WakeupPrescaler) -> Self {
@@ -82,7 +82,7 @@ impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
 }
 
 #[cfg(any(
-    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0
+    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba
 ))]
 impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
@@ -227,7 +227,7 @@ impl Rtc {
         <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
         unsafe { <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::enable() };
 
-        #[cfg(not(any(stm32u5, stm32u0)))]
+        #[cfg(not(any(stm32u5, stm32u0, stm32wba)))]
         {
             use crate::pac::EXTI;
             EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
@@ -246,6 +246,12 @@ impl Rtc {
             use crate::pac::RCC;
             RCC.srdamr().modify(|w| w.set_rtcapbamen(true));
             RCC.apb3smenr().modify(|w| w.set_rtcapbsmen(true));
+        }
+        #[cfg(stm32wba)]
+        {
+            use crate::pac::RCC;
+            // RCC.srdamr().modify(|w| w.set_rtcapbamen(true));
+            RCC.apb7smenr().modify(|w| w.set_rtcapbsmen(true));
         }
     }
 }
