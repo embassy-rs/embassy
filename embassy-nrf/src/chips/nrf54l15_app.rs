@@ -199,11 +199,69 @@ pub mod pac {
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
 pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
-//pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
+pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 //pub const FLASH_SIZE: usize = 1024 * 1024;
 
 embassy_hal_internal::peripherals! {
+    // PPI
+    PPI00_CH0,
+    PPI00_CH1,
+    PPI00_CH2,
+    PPI00_CH3,
+    PPI00_CH4,
+    PPI00_CH5,
+    PPI00_CH6,
+    PPI00_CH7,
+
+    PPI20_CH0,
+    PPI20_CH1,
+    PPI20_CH2,
+    PPI20_CH3,
+    PPI20_CH4,
+    PPI20_CH5,
+    PPI20_CH6,
+    PPI20_CH7,
+    PPI20_CH8,
+    PPI20_CH9,
+    PPI20_CH10,
+    PPI20_CH11,
+    PPI20_CH12,
+    PPI20_CH13,
+    PPI20_CH14,
+    PPI20_CH15,
+
+    PPI30_CH0,
+    PPI30_CH1,
+    PPI30_CH2,
+    PPI30_CH3,
+
+    PPI00_GROUP0,
+    PPI00_GROUP1,
+
+    PPI20_GROUP0,
+    PPI20_GROUP1,
+    PPI20_GROUP2,
+    PPI20_GROUP3,
+    PPI20_GROUP4,
+    PPI20_GROUP5,
+
+    PPI30_GROUP0,
+    PPI30_GROUP1,
+
+    // Timer, CPU domain
+    TIMER00,
+
+    // Timer, RADIO domain
+    // TIMER10, // Kept for the SDC
+
+    // Timers, PERI domain
+    TIMER20,
+    TIMER21,
+    TIMER22,
+    TIMER23,
+    TIMER24,
+
     // GPIO port 0
     P0_00,
     P0_01,
@@ -245,6 +303,35 @@ embassy_hal_internal::peripherals! {
     P2_08,
     P2_09,
     P2_10,
+
+    // TWI/SPI
+    TWISPI20,
+    TWISPI21,
+    TWISPI22,
+    TWISPI30,
+
+    // PWM
+    PWM20,
+    PWM21,
+    PWM22,
+
+    // SAADC
+    SAADC,
+
+    // GPIOTE
+    GPIOTE20_CH0,
+    GPIOTE20_CH1,
+    GPIOTE20_CH2,
+    GPIOTE20_CH3,
+    GPIOTE20_CH4,
+    GPIOTE20_CH5,
+    GPIOTE20_CH6,
+    GPIOTE20_CH7,
+
+    GPIOTE30_CH0,
+    GPIOTE30_CH1,
+    GPIOTE30_CH2,
+    GPIOTE30_CH3,
 }
 
 impl_pin!(P0_00, 0, 0);
@@ -344,3 +431,103 @@ embassy_hal_internal::interrupt_mod!(
     GPIOTE30_1,
     CLOCK_POWER,
 );
+
+// DPPI00 channels
+impl_ppi_channel!(PPI00_CH0, pac::DPPIC00, 0 => configurable);
+impl_ppi_channel!(PPI00_CH1, pac::DPPIC00, 1 => configurable);
+impl_ppi_channel!(PPI00_CH2, pac::DPPIC00, 2 => configurable);
+impl_ppi_channel!(PPI00_CH3, pac::DPPIC00, 3 => configurable);
+impl_ppi_channel!(PPI00_CH4, pac::DPPIC00, 4 => configurable);
+impl_ppi_channel!(PPI00_CH5, pac::DPPIC00, 5 => configurable);
+impl_ppi_channel!(PPI00_CH6, pac::DPPIC00, 6 => configurable);
+impl_ppi_channel!(PPI00_CH7, pac::DPPIC00, 7 => configurable);
+
+// DPPI20 channels
+impl_ppi_channel!(PPI20_CH0, pac::DPPIC20, 0 => configurable);
+impl_ppi_channel!(PPI20_CH1, pac::DPPIC20, 1 => configurable);
+impl_ppi_channel!(PPI20_CH2, pac::DPPIC20, 2 => configurable);
+impl_ppi_channel!(PPI20_CH3, pac::DPPIC20, 3 => configurable);
+impl_ppi_channel!(PPI20_CH4, pac::DPPIC20, 4 => configurable);
+impl_ppi_channel!(PPI20_CH5, pac::DPPIC20, 5 => configurable);
+impl_ppi_channel!(PPI20_CH6, pac::DPPIC20, 6 => configurable);
+impl_ppi_channel!(PPI20_CH7, pac::DPPIC20, 7 => configurable);
+impl_ppi_channel!(PPI20_CH8, pac::DPPIC20, 8 => configurable);
+impl_ppi_channel!(PPI20_CH9, pac::DPPIC20, 9 => configurable);
+impl_ppi_channel!(PPI20_CH10, pac::DPPIC20, 10 => configurable);
+impl_ppi_channel!(PPI20_CH11, pac::DPPIC20, 11 => configurable);
+impl_ppi_channel!(PPI20_CH12, pac::DPPIC20, 12 => configurable);
+impl_ppi_channel!(PPI20_CH13, pac::DPPIC20, 13 => configurable);
+impl_ppi_channel!(PPI20_CH14, pac::DPPIC20, 14 => configurable);
+impl_ppi_channel!(PPI20_CH15, pac::DPPIC20, 15 => configurable);
+
+// DPPI30 channels
+impl_ppi_channel!(PPI30_CH0, pac::DPPIC30, 0 => configurable);
+impl_ppi_channel!(PPI30_CH1, pac::DPPIC30, 1 => configurable);
+impl_ppi_channel!(PPI30_CH2, pac::DPPIC30, 2 => configurable);
+impl_ppi_channel!(PPI30_CH3, pac::DPPIC30, 3 => configurable);
+
+// DPPI00 groups
+impl_ppi_group!(PPI00_GROUP0, pac::DPPIC00, 0);
+impl_ppi_group!(PPI00_GROUP1, pac::DPPIC00, 1);
+
+// DPPI20 groups
+impl_ppi_group!(PPI20_GROUP0, pac::DPPIC20, 0);
+impl_ppi_group!(PPI20_GROUP1, pac::DPPIC20, 1);
+impl_ppi_group!(PPI20_GROUP2, pac::DPPIC20, 2);
+impl_ppi_group!(PPI20_GROUP3, pac::DPPIC20, 3);
+impl_ppi_group!(PPI20_GROUP4, pac::DPPIC20, 4);
+impl_ppi_group!(PPI20_GROUP5, pac::DPPIC20, 5);
+
+// DPPI30 groups
+impl_ppi_group!(PPI30_GROUP0, pac::DPPIC30, 0);
+impl_ppi_group!(PPI30_GROUP1, pac::DPPIC30, 1);
+
+// DoNot_impl_ppi_channel!(PPI10_CH0, pac::DPPIC10, 0 => static); // dedicated for radio
+// DoNot_impl_ppi_group!(PPI10_GROUP0, pac::DPPIC10, 0); // dedicated for radio
+
+impl_timer!(TIMER00, TIMER00, TIMER00);
+// DoNot_impl_timer!(TIMER10, TIMER10, TIMER10); // dedicated for radio.
+impl_timer!(TIMER20, TIMER20, TIMER20);
+impl_timer!(TIMER21, TIMER21, TIMER21);
+impl_timer!(TIMER22, TIMER22, TIMER22);
+impl_timer!(TIMER23, TIMER23, TIMER23);
+impl_timer!(TIMER24, TIMER24, TIMER24);
+
+impl_twim!(TWISPI20, TWIM20, SERIAL20);
+impl_twim!(TWISPI21, TWIM21, SERIAL21);
+impl_twim!(TWISPI22, TWIM22, SERIAL22);
+impl_twim!(TWISPI30, TWIM30, SERIAL30);
+
+impl_twis!(TWISPI20, TWIS20, SERIAL20);
+impl_twis!(TWISPI21, TWIS21, SERIAL21);
+impl_twis!(TWISPI22, TWIS22, SERIAL22);
+impl_twis!(TWISPI30, TWIS30, SERIAL30);
+
+impl_spim!(TWISPI20, SPIM20, SERIAL20);
+impl_spim!(TWISPI21, SPIM21, SERIAL21);
+impl_spim!(TWISPI22, SPIM22, SERIAL22);
+impl_spim!(TWISPI30, SPIM30, SERIAL30);
+
+impl_spis!(TWISPI20, SPIS20, SERIAL20);
+impl_spis!(TWISPI21, SPIS21, SERIAL21);
+impl_spis!(TWISPI22, SPIS22, SERIAL22);
+impl_spis!(TWISPI30, SPIS30, SERIAL30);
+
+impl_uarte!(TWISPI20, UARTE20, SERIAL20);
+impl_uarte!(TWISPI21, UARTE21, SERIAL21);
+impl_uarte!(TWISPI22, UARTE22, SERIAL22);
+impl_uarte!(TWISPI30, UARTE30, SERIAL30);
+
+impl_pwm!(PWM20, PWM20, PWM20);
+impl_pwm!(PWM21, PWM21, PWM21);
+impl_pwm!(PWM22, PWM22, PWM22);
+
+// NB: SAADC uses "pin" abstraction, not "AIN"
+impl_saadc_input!(P1_04, 1, 4);
+impl_saadc_input!(P1_05, 1, 5);
+impl_saadc_input!(P1_06, 1, 6);
+impl_saadc_input!(P1_07, 1, 7);
+impl_saadc_input!(P1_11, 1, 11);
+impl_saadc_input!(P1_12, 1, 12);
+impl_saadc_input!(P1_13, 1, 13);
+impl_saadc_input!(P1_14, 1, 14);

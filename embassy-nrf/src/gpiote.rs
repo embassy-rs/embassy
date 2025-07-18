@@ -6,10 +6,11 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
+use extend::ext;
 
 use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::InterruptExt;
-#[cfg(not(feature = "_nrf51"))]
+#[cfg(not(any(feature = "_nrf51", all(feature = "_nrf54l", feature = "_ns"))))]
 use crate::pac::gpio::vals::Detectmode;
 use crate::pac::gpio::vals::Sense;
 use crate::pac::gpiote::vals::{Mode, Outinit, Polarity};
@@ -18,19 +19,104 @@ use crate::{interrupt, pac, peripherals};
 
 #[cfg(feature = "_nrf51")]
 /// Amount of GPIOTE channels in the chip.
+const CHANNEL_COUNT: usize = 4 /*of P0*/ + 8 /*of P1*/;
+#[cfg(feature = "_nrf54l")]
+/// Amount of GPIOTE channels in the chip.
 const CHANNEL_COUNT: usize = 4;
-#[cfg(not(feature = "_nrf51"))]
+#[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
 /// Amount of GPIOTE channels in the chip.
 const CHANNEL_COUNT: usize = 8;
 
 #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
 const PIN_COUNT: usize = 48;
-#[cfg(not(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
+#[cfg(feature = "_nrf54l")]
+const PIN_COUNT: usize = 5 /*of P0*/ + 15 /*of P1*/;
+#[cfg(not(any(
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf5340",
+    feature = "_nrf54l"
+)))]
 const PIN_COUNT: usize = 32;
 
 #[allow(clippy::declare_interior_mutable_const)]
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [const { AtomicWaker::new() }; CHANNEL_COUNT];
 static PORT_WAKERS: [AtomicWaker; PIN_COUNT] = [const { AtomicWaker::new() }; PIN_COUNT];
+
+#[cfg(feature = "_nrf54l")]
+#[derive(Copy, Clone)]
+/// GPIOTE instance
+pub enum GpioteInstance {
+    /// GPIOTE_20 instance (GPIO port 1)
+    Gpiote20,
+    /// GPIOTE_30 instance (GPIO port 0)
+    Gpiote30,
+}
+
+trait GpioteWakerResolver {
+    fn channel_waker(&self, ch: usize) -> &'static AtomicWaker;
+    fn port_waker(&self, pin: usize) -> &'static AtomicWaker;
+    fn channel_count(&self) -> usize;
+}
+
+#[cfg(feature = "_nrf54l")]
+type GpioteInstanceType = GpioteInstance;
+
+#[cfg(feature = "_nrf54l")]
+impl From<&AnyPin> for GpioteInstance {
+    fn from(pin: &AnyPin) -> Self {
+        match pin.pin_port() {
+            0..=31 => GpioteInstance::Gpiote30,
+            32..=63 => GpioteInstance::Gpiote20,
+            _ => panic!("Invalid pin_port"),
+        }
+    }
+}
+
+#[cfg(feature = "_nrf54l")]
+impl GpioteWakerResolver for GpioteInstance {
+    fn channel_waker(&self, ch: usize) -> &'static AtomicWaker {
+        match self {
+            GpioteInstance::Gpiote20 => &CHANNEL_WAKERS[ch + 4],
+            GpioteInstance::Gpiote30 => &CHANNEL_WAKERS[ch + 0],
+        }
+    }
+    fn port_waker(&self, pin: usize) -> &'static AtomicWaker {
+        match self {
+            GpioteInstance::Gpiote20 => &PORT_WAKERS[pin + 5],
+            GpioteInstance::Gpiote30 => &PORT_WAKERS[pin + 0],
+        }
+    }
+    fn channel_count(&self) -> usize {
+        match self {
+            GpioteInstance::Gpiote20 => 8,
+            GpioteInstance::Gpiote30 => 4,
+        }
+    }
+}
+
+#[cfg(not(feature = "_nrf54l"))]
+type GpioteInstanceType = ();
+
+#[cfg(not(feature = "_nrf54l"))]
+impl From<&AnyPin> for () {
+    fn from(_pin: &AnyPin) -> Self {
+        ()
+    }
+}
+
+#[cfg(not(feature = "_nrf54l"))]
+impl GpioteWakerResolver for () {
+    fn channel_waker(&self, ch: usize) -> &'static AtomicWaker {
+        &CHANNEL_WAKERS[ch]
+    }
+    fn port_waker(&self, pin: usize) -> &'static AtomicWaker {
+        &PORT_WAKERS[pin]
+    }
+    fn channel_count(&self) -> usize {
+        CHANNEL_COUNT
+    }
+}
 
 /// Polarity for listening to events for GPIOTE input channels.
 pub enum InputChannelPolarity {
@@ -54,12 +140,72 @@ pub enum OutputChannelPolarity {
     Toggle,
 }
 
-fn regs() -> pac::gpiote::Gpiote {
+#[ext]
+impl pac::gpiote::Gpiote {
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    fn intenset_compat(&self) -> pac::common::Reg<pac::gpiote::regs::Int, pac::common::RW> {
+        self.intenset(0)
+    }
+    #[cfg(all(feature = "_nrf54l", feature = "_ns"))]
+    fn intenset_compat(&self) -> pac::common::Reg<pac::gpiote::regs::Int, pac::common::RW> {
+        self.intenset(1)
+    }
+    #[cfg(not(feature = "_nrf54l"))]
+    fn intenset_compat(&self) -> pac::common::Reg<pac::gpiote::regs::Int, pac::common::RW> {
+        self.intenset()
+    }
+
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    fn intenclr_compat(&self) -> pac::common::Reg<pac::gpiote::regs::Int, pac::common::RW> {
+        self.intenclr(0)
+    }
+    #[cfg(all(feature = "_nrf54l", feature = "_ns"))]
+    fn intenclr_compat(&self) -> pac::common::Reg<pac::gpiote::regs::Int, pac::common::RW> {
+        self.intenclr(1)
+    }
+    #[cfg(not(feature = "_nrf54l"))]
+    fn intenclr_compat(&self) -> pac::common::Reg<pac::gpiote::regs::Int, pac::common::RW> {
+        self.intenclr()
+    }
+
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    fn events_port_compat(&self) -> pac::common::Reg<u32, pac::common::RW> {
+        self.events_port(0).secure()
+    }
+    #[cfg(all(feature = "_nrf54l", feature = "_ns"))]
+    fn events_port_compat(&self) -> pac::common::Reg<u32, pac::common::RW> {
+        self.events_port(0).nonsecure()
+    }
+    #[cfg(not(feature = "_nrf54l"))]
+    fn events_port_compat(&self) -> pac::common::Reg<u32, pac::common::RW> {
+        self.events_port()
+    }
+}
+
+#[cfg(feature = "_nrf54l")]
+#[ext]
+impl pac::gpiote::regs::Int {
+    #[cfg(feature = "_s")]
+    fn set_port(&mut self, val: bool) {
+        self.set_port0secure(val)
+    }
+    #[cfg(feature = "_ns")]
+    fn set_port(&mut self, val: bool) {
+        self.set_port0nonsecure(val)
+    }
+}
+
+fn regs(_inst: GpioteInstanceType) -> pac::gpiote::Gpiote {
     cfg_if::cfg_if! {
         if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s", feature="nrf9120-s"))] {
             pac::GPIOTE0
         } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns", feature="nrf9120-ns"))] {
             pac::GPIOTE1
+        } else if #[cfg(feature="_nrf54l")] {
+            match _inst {
+                GpioteInstance::Gpiote20 => pac::GPIOTE20,
+                GpioteInstance::Gpiote30 => pac::GPIOTE30,
+            }
         } else {
             pac::GPIOTE
         }
@@ -68,11 +214,23 @@ fn regs() -> pac::gpiote::Gpiote {
 
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     // no latched GPIO detect in nrf51.
-    #[cfg(not(feature = "_nrf51"))]
+    // in the nrf54l-ns, the detectmode register is inaccessible
+    #[cfg(not(any(feature = "_nrf51", all(feature = "_nrf54l", feature = "_ns"))))]
     {
-        #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
+        #[cfg(any(
+            feature = "nrf52833",
+            feature = "nrf52840",
+            feature = "_nrf5340",
+            feature = "_nrf54l"
+        ))]
         let ports = &[pac::P0, pac::P1];
-        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
+        #[cfg(not(any(
+            feature = "_nrf51",
+            feature = "nrf52833",
+            feature = "nrf52840",
+            feature = "_nrf5340",
+            feature = "_nrf54l"
+        )))]
         let ports = &[pac::P0];
 
         for &p in ports {
@@ -85,62 +243,114 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
 
     // Enable interrupts
     #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s", feature = "nrf9120-s"))]
-    let irq = interrupt::GPIOTE0;
+    let irqs = &[interrupt::GPIOTE0];
     #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns", feature = "nrf9120-ns"))]
-    let irq = interrupt::GPIOTE1;
+    let irqs = &[interrupt::GPIOTE1];
     #[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "nrf5340-net"))]
-    let irq = interrupt::GPIOTE;
+    let irqs = &[interrupt::GPIOTE];
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    let irqs = &[interrupt::GPIOTE20_0, interrupt::GPIOTE30_0];
+    #[cfg(all(feature = "_nrf54l", feature = "_ns"))]
+    let irqs = &[interrupt::GPIOTE20_1, interrupt::GPIOTE30_1];
 
-    irq.unpend();
-    irq.set_priority(irq_prio);
-    unsafe { irq.enable() };
+    for &irq in irqs {
+        irq.unpend();
+        irq.set_priority(irq_prio);
+        unsafe { irq.enable() };
+    }
 
-    let g = regs();
-    g.intenset().write(|w| w.set_port(true));
+    #[cfg(not(feature = "_nrf54l"))]
+    let instances = &[()];
+    #[cfg(feature = "_nrf54l")]
+    let instances = &[GpioteInstance::Gpiote20, GpioteInstance::Gpiote30];
+
+    for &inst in instances {
+        let g = regs(inst);
+        g.intenset_compat().write(|w| w.set_port(true));
+    }
 }
 
 #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s", feature = "nrf9120-s"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE0() {
-    unsafe { handle_gpiote_interrupt() };
+    unsafe { handle_gpiote_interrupt(()) };
 }
 
 #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns", feature = "nrf9120-ns"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE1() {
-    unsafe { handle_gpiote_interrupt() };
+    unsafe { handle_gpiote_interrupt(()) };
 }
 
 #[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "nrf5340-net"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE() {
-    unsafe { handle_gpiote_interrupt() };
+    unsafe { handle_gpiote_interrupt(()) };
 }
 
-unsafe fn handle_gpiote_interrupt() {
-    let g = regs();
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE20_0() {
+    unsafe { handle_gpiote_interrupt(GpioteInstance::Gpiote20) };
+}
 
-    for i in 0..CHANNEL_COUNT {
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE30_0() {
+    unsafe { handle_gpiote_interrupt(GpioteInstance::Gpiote30) };
+}
+
+#[cfg(all(feature = "_nrf54l", feature = "_ns"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE20_1() {
+    unsafe { handle_gpiote_interrupt(GpioteInstance::Gpiote20) };
+}
+
+#[cfg(all(feature = "_nrf54l", feature = "_ns"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE30_1() {
+    unsafe { handle_gpiote_interrupt(GpioteInstance::Gpiote30) };
+}
+
+unsafe fn handle_gpiote_interrupt(inst: GpioteInstanceType) {
+    let g = regs(inst);
+
+    for i in 0..inst.channel_count() {
         if g.events_in(i).read() != 0 {
-            g.intenclr().write(|w| w.0 = 1 << i);
-            CHANNEL_WAKERS[i].wake();
+            g.intenclr_compat().write(|w| w.0 = 1 << i);
+            inst.channel_waker(i).wake();
         }
     }
 
-    if g.events_port().read() != 0 {
-        g.events_port().write_value(0);
+    if g.events_port_compat().read() != 0 {
+        g.events_port_compat().write_value(0);
 
         #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
         let ports = &[pac::P0, pac::P1];
-        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
+        #[cfg(not(any(
+            feature = "_nrf51",
+            feature = "nrf52833",
+            feature = "nrf52840",
+            feature = "_nrf5340",
+            feature = "_nrf54l"
+        )))]
         let ports = &[pac::P0];
         #[cfg(feature = "_nrf51")]
         let ports = &[pac::GPIO];
+        #[cfg(feature = "_nrf54l")]
+        let ports = match inst {
+            GpioteInstanceType::Gpiote30 => &[pac::P0],
+            GpioteInstanceType::Gpiote20 => &[pac::P1],
+        };
 
-        #[cfg(feature = "_nrf51")]
+        #[cfg(any(feature = "_nrf51", all(feature = "_nrf54l", feature = "_ns")))]
         for (port, &p) in ports.iter().enumerate() {
             let inp = p.in_().read();
             for pin in 0..32 {
@@ -151,28 +361,28 @@ unsafe fn handle_gpiote_interrupt() {
                 };
 
                 if fired {
-                    PORT_WAKERS[port * 32 + pin as usize].wake();
+                    inst.port_waker(port * 32 + pin as usize).wake();
                     p.pin_cnf(pin as usize).modify(|w| w.set_sense(Sense::DISABLED));
                 }
             }
         }
 
-        #[cfg(not(feature = "_nrf51"))]
+        #[cfg(not(any(feature = "_nrf51", all(feature = "_nrf54l", feature = "_ns"))))]
         for (port, &p) in ports.iter().enumerate() {
             let bits = p.latch().read().0;
             for pin in BitIter(bits) {
                 p.pin_cnf(pin as usize).modify(|w| w.set_sense(Sense::DISABLED));
-                PORT_WAKERS[port * 32 + pin as usize].wake();
+                inst.port_waker(port * 32 + pin as usize).wake();
             }
             p.latch().write(|w| w.0 = bits);
         }
     }
 }
 
-#[cfg(not(feature = "_nrf51"))]
+#[cfg(not(any(feature = "_nrf51", all(feature = "_nrf54l", feature = "_ns"))))]
 struct BitIter(u32);
 
-#[cfg(not(feature = "_nrf51"))]
+#[cfg(not(any(feature = "_nrf51", all(feature = "_nrf54l", feature = "_ns"))))]
 impl Iterator for BitIter {
     type Item = u32;
 
@@ -195,17 +405,17 @@ pub struct InputChannel<'d> {
 
 impl<'d> Drop for InputChannel<'d> {
     fn drop(&mut self) {
-        let g = regs();
+        let g = regs(self.ch.inst());
         let num = self.ch.number();
         g.config(num).write(|w| w.set_mode(Mode::DISABLED));
-        g.intenclr().write(|w| w.0 = 1 << num);
+        g.intenclr_compat().write(|w| w.0 = 1 << num);
     }
 }
 
 impl<'d> InputChannel<'d> {
     /// Create a new GPIOTE input channel driver.
     pub fn new(ch: Peri<'d, impl Channel>, pin: Input<'d>, polarity: InputChannelPolarity) -> Self {
-        let g = regs();
+        let g = regs(ch.inst());
         let num = ch.number();
 
         g.config(num).write(|w| {
@@ -231,15 +441,16 @@ impl<'d> InputChannel<'d> {
 
     /// Asynchronously wait for an event in this channel.
     pub async fn wait(&self) {
-        let g = regs();
+        let inst = self.ch.inst();
+        let g = regs(inst);
         let num = self.ch.number();
 
         // Enable interrupt
         g.events_in(num).write_value(0);
-        g.intenset().write(|w| w.0 = 1 << num);
+        g.intenset_compat().write(|w| w.0 = 1 << num);
 
         poll_fn(|cx| {
-            CHANNEL_WAKERS[num].register(cx.waker());
+            inst.channel_waker(num).register(cx.waker());
 
             if g.events_in(num).read() != 0 {
                 Poll::Ready(())
@@ -252,7 +463,7 @@ impl<'d> InputChannel<'d> {
 
     /// Returns the IN event, for use with PPI.
     pub fn event_in(&self) -> Event<'d> {
-        let g = regs();
+        let g = regs(self.ch.inst());
         Event::from_reg(g.events_in(self.ch.number()))
     }
 }
@@ -265,17 +476,17 @@ pub struct OutputChannel<'d> {
 
 impl<'d> Drop for OutputChannel<'d> {
     fn drop(&mut self) {
-        let g = regs();
+        let g = regs(self.ch.inst());
         let num = self.ch.number();
         g.config(num).write(|w| w.set_mode(Mode::DISABLED));
-        g.intenclr().write(|w| w.0 = 1 << num);
+        g.intenclr_compat().write(|w| w.0 = 1 << num);
     }
 }
 
 impl<'d> OutputChannel<'d> {
     /// Create a new GPIOTE output channel driver.
     pub fn new(ch: Peri<'d, impl Channel>, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
-        let g = regs();
+        let g = regs(ch.inst());
         let num = ch.number();
 
         g.config(num).write(|w| {
@@ -305,41 +516,41 @@ impl<'d> OutputChannel<'d> {
 
     /// Triggers the OUT task (does the action as configured with task_out_polarity, defaults to Toggle).
     pub fn out(&self) {
-        let g = regs();
+        let g = regs(self.ch.inst());
         g.tasks_out(self.ch.number()).write_value(1);
     }
 
     /// Triggers the SET task (set associated pin high).
     #[cfg(not(feature = "_nrf51"))]
     pub fn set(&self) {
-        let g = regs();
+        let g = regs(self.ch.inst());
         g.tasks_set(self.ch.number()).write_value(1);
     }
 
     /// Triggers the CLEAR task (set associated pin low).
     #[cfg(not(feature = "_nrf51"))]
     pub fn clear(&self) {
-        let g = regs();
+        let g = regs(self.ch.inst());
         g.tasks_clr(self.ch.number()).write_value(1);
     }
 
     /// Returns the OUT task, for use with PPI.
     pub fn task_out(&self) -> Task<'d> {
-        let g = regs();
+        let g = regs(self.ch.inst());
         Task::from_reg(g.tasks_out(self.ch.number()))
     }
 
     /// Returns the CLR task, for use with PPI.
     #[cfg(not(feature = "_nrf51"))]
     pub fn task_clr(&self) -> Task<'d> {
-        let g = regs();
+        let g = regs(self.ch.inst());
         Task::from_reg(g.tasks_clr(self.ch.number()))
     }
 
     /// Returns the SET task, for use with PPI.
     #[cfg(not(feature = "_nrf51"))]
     pub fn task_set(&self) -> Task<'d> {
-        let g = regs();
+        let g = regs(self.ch.inst());
         Task::from_reg(g.tasks_set(self.ch.number()))
     }
 }
@@ -369,9 +580,11 @@ impl<'a> Future for PortInputFuture<'a> {
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        PORT_WAKERS[self.pin.pin_port() as usize].register(cx.waker());
+        let pin: &AnyPin = &self.pin;
+        let inst: GpioteInstanceType = pin.into();
+        inst.port_waker(pin._pin() as usize).register(cx.waker());
 
-        if self.pin.conf().read().sense() == Sense::DISABLED {
+        if pin.conf().read().sense() == Sense::DISABLED {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -453,6 +666,8 @@ trait SealedChannel {}
 pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Get the channel number.
     fn number(&self) -> usize;
+    /// Get the controller instance id.
+    fn inst(&self) -> GpioteInstanceType;
 }
 
 /// Type-erased channel.
@@ -463,6 +678,7 @@ pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + '
 /// them to be the same type, like putting them in an array.
 pub struct AnyChannel {
     number: u8,
+    inst: GpioteInstanceType,
 }
 impl_peripheral!(AnyChannel);
 impl SealedChannel for AnyChannel {}
@@ -470,14 +686,20 @@ impl Channel for AnyChannel {
     fn number(&self) -> usize {
         self.number as usize
     }
+    fn inst(&self) -> GpioteInstanceType {
+        self.inst
+    }
 }
 
 macro_rules! impl_channel {
-    ($type:ident, $number:expr) => {
+    ($type:ident, $inst:expr, $number:expr) => {
         impl SealedChannel for peripherals::$type {}
         impl Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number as usize
+            }
+            fn inst(&self) -> GpioteInstanceType {
+                $inst
             }
         }
 
@@ -485,24 +707,59 @@ macro_rules! impl_channel {
             fn from(val: peripherals::$type) -> Self {
                 Self {
                     number: val.number() as u8,
+                    inst: val.inst(),
                 }
             }
         }
     };
 }
 
-impl_channel!(GPIOTE_CH0, 0);
-impl_channel!(GPIOTE_CH1, 1);
-impl_channel!(GPIOTE_CH2, 2);
-impl_channel!(GPIOTE_CH3, 3);
+#[cfg(not(feature = "_nrf54l"))]
+impl_channel!(GPIOTE_CH0, (), 0);
+#[cfg(not(feature = "_nrf54l"))]
+impl_channel!(GPIOTE_CH1, (), 1);
+#[cfg(not(feature = "_nrf54l"))]
+impl_channel!(GPIOTE_CH2, (), 2);
+#[cfg(not(feature = "_nrf54l"))]
+impl_channel!(GPIOTE_CH3, (), 3);
 #[cfg(not(feature = "_nrf51"))]
-impl_channel!(GPIOTE_CH4, 4);
+#[cfg(not(feature = "_nrf54l"))]
+impl_channel!(GPIOTE_CH4, (), 4);
 #[cfg(not(feature = "_nrf51"))]
-impl_channel!(GPIOTE_CH5, 5);
+#[cfg(not(feature = "_nrf54l"))]
+impl_channel!(GPIOTE_CH5, (), 5);
 #[cfg(not(feature = "_nrf51"))]
-impl_channel!(GPIOTE_CH6, 6);
+#[cfg(not(feature = "_nrf54l"))]
+impl_channel!(GPIOTE_CH6, (), 6);
 #[cfg(not(feature = "_nrf51"))]
-impl_channel!(GPIOTE_CH7, 7);
+#[cfg(not(feature = "_nrf54l"))]
+impl_channel!(GPIOTE_CH7, (), 7);
+
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE20_CH0, GpioteInstance::Gpiote20, 0);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE20_CH1, GpioteInstance::Gpiote20, 1);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE20_CH2, GpioteInstance::Gpiote20, 2);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE20_CH3, GpioteInstance::Gpiote20, 3);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE20_CH4, GpioteInstance::Gpiote20, 4);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE20_CH5, GpioteInstance::Gpiote20, 5);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE20_CH6, GpioteInstance::Gpiote20, 6);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE20_CH7, GpioteInstance::Gpiote20, 7);
+
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE30_CH0, GpioteInstance::Gpiote30, 0);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE30_CH1, GpioteInstance::Gpiote30, 1);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE30_CH2, GpioteInstance::Gpiote30, 2);
+#[cfg(feature = "_nrf54l")]
+impl_channel!(GPIOTE30_CH3, GpioteInstance::Gpiote30, 3);
 
 // ====================
 
