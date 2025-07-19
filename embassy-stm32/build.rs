@@ -505,6 +505,13 @@ fn main() {
                 field: "CLK48SEL",
             },
         );
+        clock_gen.chained_muxes.insert(
+            "RFWKP",
+            &PeripheralRccRegister {
+                register: "CSR",
+                field: "RFWKPSEL",
+            },
+        );
     }
     if chip_name.starts_with("stm32f7") {
         clock_gen.chained_muxes.insert(
