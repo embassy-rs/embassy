@@ -42,7 +42,6 @@ async fn main(_spawner: Spawner) {
         miso,
         p.DMA_CH0,
         p.DMA_CH1,
-        &program,
         Config::default(),
     );
 
