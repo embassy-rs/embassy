@@ -10,8 +10,8 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio_programs::spi::{Config, PioSpiProgram, Spi};
-use embassy_rp::spi::Phase;
+use embassy_rp::pio_programs::spi::Spi;
+use embassy_rp::spi::Config;
 use embassy_rp::{bind_interrupts, pio};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -25,16 +25,13 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Hello World!");
 
-    // These pins are routed to differnet hardware SPI peripherals, but we can
+    // These pins are routed to different hardware SPI peripherals, but we can
     // use them together regardless
     let mosi = p.PIN_6; // SPI0 SCLK
     let miso = p.PIN_7; // SPI0 MOSI
     let clk = p.PIN_8; // SPI1 MISO
 
     let pio::Pio { mut common, sm0, .. } = pio::Pio::new(p.PIO0, Irqs);
-
-    // The PIO program must be configured with the clock phase
-    let program = PioSpiProgram::new(&mut common, Phase::CaptureOnFirstTransition);
 
     // Construct an SPI driver backed by a PIO state machine
     let mut spi = Spi::new(
@@ -46,7 +43,6 @@ async fn main(_spawner: Spawner) {
         p.DMA_CH0,
         p.DMA_CH1,
         &program,
-        // Only the frequency and polarity are set here
         Config::default(),
     );
 
