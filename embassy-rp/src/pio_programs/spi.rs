@@ -11,12 +11,13 @@ use fixed::types::extra::U8;
 use crate::clocks::clk_sys_freq;
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::Level;
-use crate::pio::{Common, Direction, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine};
-use crate::spi::{Async, Blocking, Mode};
+use crate::pio::{Common, Direction, Instance, LoadedProgram, Pin, PioPin, ShiftDirection, StateMachine};
+use crate::spi::{Async, Blocking, Config, Mode};
 
-/// This struct represents a uart tx program loaded into pio instruction memory.
-pub struct PioSpiProgram<'d, PIO: Instance> {
+/// This struct represents an SPI program loaded into pio instruction memory.
+struct PioSpiProgram<'d, PIO: Instance> {
     prg: LoadedProgram<'d, PIO>,
+    phase: Phase,
 }
 
 impl<'d, PIO: Instance> PioSpiProgram<'d, PIO> {
@@ -30,11 +31,11 @@ impl<'d, PIO: Instance> PioSpiProgram<'d, PIO> {
         // - MOSI is OUT pin 0
         // - MISO is IN pin 0
         //
-        // Autopush and autopull must be enabled, and the serial frame size is set by
+        // Auto-push and auto-pull must be enabled, and the serial frame size is set by
         // configuring the push/pull threshold. Shift left/right is fine, but you must
         // justify the data yourself. This is done most conveniently for frame sizes of
         // 8 or 16 bits by using the narrow store replication and narrow load byte
-        // picking behaviour of RP2040's IO fabric.
+        // picking behavior of RP2040's IO fabric.
 
         let prg = match phase {
             Phase::CaptureOnFirstTransition => {
@@ -60,9 +61,9 @@ impl<'d, PIO: Instance> PioSpiProgram<'d, PIO> {
                         ; Clock phase = 1: data transitions on the leading edge of each SCK pulse, and
                         ; is captured on the trailing edge.
 
-                        out x, 1    side 0     ; Stall here on empty (keep SCK deasserted)
+                        out x, 1    side 0     ; Stall here on empty (keep SCK de-asserted)
                         mov pins, x side 1 [1] ; Output data, assert SCK (mov pins uses OUT mapping)
-                        in pins, 1  side 0     ; Input data, deassert SCK
+                        in pins, 1  side 0     ; Input data, de-assert SCK
                     "#
                 );
 
@@ -70,7 +71,7 @@ impl<'d, PIO: Instance> PioSpiProgram<'d, PIO> {
             }
         };
 
-        Self { prg }
+        Self { prg, phase }
     }
 }
 
@@ -83,33 +84,17 @@ pub enum Error {
 }
 
 /// PIO based Spi driver.
-///
-/// This driver is less flexible than the hardware backed one. Configuration can
-/// not be changed at runtime.
+/// Unlike other PIO programs, the PIO SPI driver owns and holds a reference to
+/// the PIO memory it uses. This is so that it can be reconfigured at runtime if
+/// desired.
 pub struct Spi<'d, PIO: Instance, const SM: usize, M: Mode> {
     sm: StateMachine<'d, PIO, SM>,
+    cfg: crate::pio::Config<'d, PIO>,
+    program: Option<PioSpiProgram<'d, PIO>>,
+    clk_pin: Pin<'d, PIO>,
     tx_dma: Option<Peri<'d, AnyChannel>>,
     rx_dma: Option<Peri<'d, AnyChannel>>,
     phantom: PhantomData<M>,
-}
-
-/// PIO SPI configuration.
-#[non_exhaustive]
-#[derive(Clone)]
-pub struct Config {
-    /// Frequency (Hz).
-    pub frequency: u32,
-    /// Polarity.
-    pub polarity: Polarity,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            frequency: 1_000_000,
-            polarity: Polarity::IdleLow,
-        }
-    }
 }
 
 impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
@@ -122,9 +107,10 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         miso_pin: Peri<'d, impl PioPin>,
         tx_dma: Option<Peri<'d, AnyChannel>>,
         rx_dma: Option<Peri<'d, AnyChannel>>,
-        program: &PioSpiProgram<'d, PIO>,
         config: Config,
     ) -> Self {
+        let program = PioSpiProgram::new(pio, config.phase);
+
         let mut clk_pin = pio.make_pio_pin(clk_pin);
         let mosi_pin = pio.make_pio_pin(mosi_pin);
         let miso_pin = pio.make_pio_pin(miso_pin);
@@ -153,15 +139,16 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         cfg.shift_out.direction = ShiftDirection::Left;
         cfg.shift_out.threshold = 8;
 
-        let sys_freq = clk_sys_freq().to_fixed::<fixed::FixedU64<U8>>();
-        let target_freq = (config.frequency * 4).to_fixed::<fixed::FixedU64<U8>>();
-        cfg.clock_divider = (sys_freq / target_freq).to_fixed();
+        cfg.clock_divider = calculate_clock_divider(config.frequency);
 
         sm.set_config(&cfg);
         sm.set_enable(true);
 
         Self {
             sm,
+            program: Some(program),
+            cfg,
+            clk_pin,
             tx_dma,
             rx_dma,
             phantom: PhantomData,
@@ -242,6 +229,63 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
 
         Ok(())
     }
+
+    /// Set SPI frequency.
+    pub fn set_frequency(&mut self, freq: u32) {
+        self.sm.set_enable(false);
+
+        let divider = calculate_clock_divider(freq);
+
+        // save into the config for later but dont use sm.set_config() since
+        // that operation is relatively more expensive than just setting the
+        // clock divider
+        self.cfg.clock_divider = divider;
+        self.sm.set_clock_divider(divider);
+
+        self.sm.set_enable(true);
+    }
+
+    /// Set SPI config.
+    ///
+    /// This operation will panic if the PIO program needs to be reloaded and
+    /// there is insufficient room. This is unlikely since the programs for each
+    /// phase only differ in size by a single instruction.
+    pub fn set_config(&mut self, pio: &mut Common<'d, PIO>, config: &Config) {
+        self.sm.set_enable(false);
+
+        self.cfg.clock_divider = calculate_clock_divider(config.frequency);
+
+        if let Polarity::IdleHigh = config.polarity {
+            self.clk_pin.set_output_inversion(true);
+        } else {
+            self.clk_pin.set_output_inversion(false);
+        }
+
+        if self.program.as_ref().unwrap().phase != config.phase {
+            let old_program = self.program.take().unwrap();
+
+            // SAFETY: the state machine is disabled while this happens
+            unsafe { pio.free_instr(old_program.prg.used_memory) };
+
+            let new_program = PioSpiProgram::new(pio, config.phase);
+
+            self.cfg.use_program(&new_program.prg, &[&self.clk_pin]);
+            self.program = Some(new_program);
+        }
+
+        self.sm.set_config(&self.cfg);
+        self.sm.restart();
+
+        self.sm.set_enable(true);
+    }
+}
+
+fn calculate_clock_divider(frequency_hz: u32) -> fixed::FixedU32<U8> {
+    // we multiply by 4 since each clock period is equal to 4 instructions
+
+    let sys_freq = clk_sys_freq().to_fixed::<fixed::FixedU64<U8>>();
+    let target_freq = (frequency_hz * 4).to_fixed::<fixed::FixedU64<U8>>();
+    (sys_freq / target_freq).to_fixed()
 }
 
 impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Blocking> {
@@ -252,10 +296,9 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Blocking> {
         clk: Peri<'d, impl PioPin>,
         mosi: Peri<'d, impl PioPin>,
         miso: Peri<'d, impl PioPin>,
-        program: &PioSpiProgram<'d, PIO>,
         config: Config,
     ) -> Self {
-        Self::new_inner(pio, sm, clk, mosi, miso, None, None, program, config)
+        Self::new_inner(pio, sm, clk, mosi, miso, None, None, config)
     }
 }
 
@@ -270,7 +313,6 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
         miso: Peri<'d, impl PioPin>,
         tx_dma: Peri<'d, impl Channel>,
         rx_dma: Peri<'d, impl Channel>,
-        program: &PioSpiProgram<'d, PIO>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -281,7 +323,6 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
             miso,
             Some(tx_dma.into()),
             Some(rx_dma.into()),
-            program,
             config,
         )
     }
