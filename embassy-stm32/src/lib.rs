@@ -196,11 +196,13 @@ macro_rules! bind_interrupts {
             $(#[cfg($cond_irq)])?
             $(#[doc = $doc])*
             unsafe extern "C" fn $irq() {
-                $(
-                    $(#[cfg($cond_handler)])?
-                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                unsafe {
+                    $(
+                        $(#[cfg($cond_handler)])?
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
 
-                )*
+                    )*
+                }
             }
 
             $(#[cfg($cond_irq)])?
