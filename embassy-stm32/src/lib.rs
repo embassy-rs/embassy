@@ -242,12 +242,12 @@ pub struct Config {
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
 
-    /// On low-power boards (eg. `stm32l4`, `stm32l5` and `stm32u5`),
+    /// On low-power boards (eg. `stm32l4`, `stm32l5`, `stm32wba` and `stm32u5`),
     /// some GPIO pins are powered by an auxiliary, independent power supply (`VDDIO2`),
     /// which needs to be enabled before these pins can be used.
     ///
     /// May increase power consumption. Defaults to true.
-    #[cfg(any(stm32l4, stm32l5, stm32u5))]
+    #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
     pub enable_independent_io_supply: bool,
 
     /// On the U5 series all analog peripherals are powered by a separate supply.
@@ -291,7 +291,7 @@ impl Default for Config {
             rcc: Default::default(),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
-            #[cfg(any(stm32l4, stm32l5, stm32u5))]
+            #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
             enable_independent_io_supply: true,
             #[cfg(stm32u5)]
             enable_independent_analog_supply: true,
@@ -538,6 +538,13 @@ fn init_hw(config: Config) -> Peripherals {
                 // through the PVME2 bit, but it looks like this isn't required,
                 // and CubeMX itself skips this step.
                 w.set_iosv(config.enable_independent_io_supply);
+            });
+        }
+        #[cfg(stm32wba)]
+        {
+            use crate::pac::pwr::vals;
+            crate::pac::PWR.svmcr().modify(|w| {
+                w.set_io2sv(vals::Io2sv::B_0X1);
             });
         }
         #[cfg(stm32u5)]
