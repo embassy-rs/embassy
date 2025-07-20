@@ -1,5 +1,7 @@
 use cfg_if::cfg_if;
 use pac::adc::vals::Dmacfg;
+#[cfg(adc_v3)]
+use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
@@ -468,6 +470,23 @@ impl<'d, T: Instance> Adc<'d, T> {
     #[cfg(any(adc_g0, adc_u0))]
     pub fn oversampling_enable(&mut self, enable: bool) {
         T::regs().cfgr2().modify(|reg| reg.set_ovse(enable));
+    }
+
+    #[cfg(adc_v3)]
+    pub fn enable_regular_oversampling_mode(&mut self, mode: Rovsm, trig_mode: Trovs, enable: bool) {
+        T::regs().cfgr2().modify(|reg| reg.set_trovs(trig_mode));
+        T::regs().cfgr2().modify(|reg| reg.set_rovsm(mode));
+        T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
+    }
+
+    #[cfg(adc_v3)]
+    pub fn set_oversampling_ratio(&mut self, ratio: OversamplingRatio) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovsr(ratio));
+    }
+
+    #[cfg(adc_v3)]
+    pub fn set_oversampling_shift(&mut self, shift: OversamplingShift) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovss(shift));
     }
 
     fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
