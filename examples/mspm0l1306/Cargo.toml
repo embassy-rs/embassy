@@ -19,3 +19,7 @@ panic-semihosting = "0.6.0"
 
 [profile.release]
 debug = 2
+
+[profile.dev]
+debug = 2
+opt-level = 2
