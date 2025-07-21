@@ -10,6 +10,7 @@ critical-section = "1.1.2"
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
 embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
 defmt = { version = "1", optional = true }
+log = { version = "0.4.27", optional = true }
 
 ## Chip dependencies
 lpc55-pac = { version = "0.5.0", optional = true }
@@ -21,7 +22,6 @@ rt = ["lpc55-pac?/rt"]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt"]
-
 ## Reexport the PAC for the currently enabled chip at `embassy_nxp::pac` (unstable)
 unstable-pac = []
 # This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.
