@@ -192,8 +192,12 @@ pub(crate) unsafe fn init(config: Config) {
         lse: None,
     );
 
-    RCC.ccipr()
-        .modify(|w| w.set_adc1sel(stm32_metapac::rcc::vals::Adcsel::SYS));
+    #[cfg(not(any(stm32c071)))]
+    let r = RCC.ccipr();
+    #[cfg(any(stm32c071))]
+    let r = RCC.ccipr1();
+
+    r.modify(|w| w.set_adc1sel(stm32_metapac::rcc::vals::Adcsel::SYS));
 }
 
 mod max {
