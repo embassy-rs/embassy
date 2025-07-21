@@ -17,7 +17,8 @@ use crate::Peri;
 ///
 /// This wraps a pin to make it usable with PWM.
 pub struct ComplementaryPwmPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
+    #[allow(unused)]
+    pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -32,7 +33,7 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel> ComplementaryPwmPin<'d, T
             );
         });
         ComplementaryPwmPin {
-            _pin: pin.into(),
+            pin: pin.into(),
             phantom: PhantomData,
         }
     }
@@ -54,20 +55,31 @@ pub enum IdlePolarity {
 
 impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Create a new complementary PWM driver.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, unused)]
     pub fn new(
         tim: Peri<'d, T>,
-        _ch1: Option<PwmPin<'d, T, Ch1>>,
-        _ch1n: Option<ComplementaryPwmPin<'d, T, Ch1>>,
-        _ch2: Option<PwmPin<'d, T, Ch2>>,
-        _ch2n: Option<ComplementaryPwmPin<'d, T, Ch2>>,
-        _ch3: Option<PwmPin<'d, T, Ch3>>,
-        _ch3n: Option<ComplementaryPwmPin<'d, T, Ch3>>,
-        _ch4: Option<PwmPin<'d, T, Ch4>>,
-        _ch4n: Option<ComplementaryPwmPin<'d, T, Ch4>>,
+        ch1: Option<PwmPin<'d, T, Ch1>>,
+        ch1n: Option<ComplementaryPwmPin<'d, T, Ch1>>,
+        ch2: Option<PwmPin<'d, T, Ch2>>,
+        ch2n: Option<ComplementaryPwmPin<'d, T, Ch2>>,
+        ch3: Option<PwmPin<'d, T, Ch3>>,
+        ch3n: Option<ComplementaryPwmPin<'d, T, Ch3>>,
+        ch4: Option<PwmPin<'d, T, Ch4>>,
+        ch4n: Option<ComplementaryPwmPin<'d, T, Ch4>>,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
+        #[cfg(afio)]
+        super::set_afio::<T>(&[
+            ch1.map(|p| p.pin),
+            ch1n.map(|p| p.pin),
+            ch2.map(|p| p.pin),
+            ch2n.map(|p| p.pin),
+            ch3.map(|p| p.pin),
+            ch3n.map(|p| p.pin),
+            ch4.map(|p| p.pin),
+            ch4n.map(|p| p.pin),
+        ]);
         Self::new_inner(tim, freq, counting_mode)
     }
 

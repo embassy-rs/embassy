@@ -1391,9 +1391,60 @@ fn main() {
                         })
                     }
 
-                    g.extend(quote! {
-                        pin_trait_impl!(#tr, #peri, #pin_name, #af);
-                    })
+                    let pin_trait_impl = p
+                        .afio
+                        .as_ref()
+                        .and_then(|afio| {
+                            if p.name.starts_with("TIM") {
+                                // timers are handled by timer_afio_impl!()
+                                return None;
+                            }
+
+                            let values = afio
+                                .values
+                                .iter()
+                                .filter(|v| v.pins.contains(&pin.pin))
+                                .map(|v| v.value)
+                                .collect::<Vec<_>>();
+
+                            if values.is_empty() {
+                                None
+                            } else {
+                                let setter = format_ident!("set_{}", afio.field.to_lowercase());
+                                let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
+                                    let values = values.iter().map(|&v| v > 0);
+                                    quote!(AfioRemapBool, [#(#values),*])
+                                } else {
+                                    quote!(AfioRemap, [#(#values),*])
+                                };
+
+                                Some(quote! {
+                                    pin_trait_afio_impl!(#tr, #peri, #pin_name, {#setter, #type_and_values});
+                                })
+                            }
+                        })
+                        .unwrap_or_else(|| {
+                            let peripherals_with_afio = [
+                                "CAN",
+                                "CEC",
+                                "ETH",
+                                "I2C",
+                                "SPI",
+                                "SUBGHZSPI",
+                                "USART",
+                                "UART",
+                                "LPUART",
+                            ];
+                            let af_or_not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
+                                quote!(0, crate::gpio::AfioRemapNotApplicable)
+                            } else {
+                                quote!(#af)
+                            };
+
+                            quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af_or_not_applicable);)
+                        });
+
+                    g.extend(pin_trait_impl);
                 }
 
                 // ADC is special
@@ -1588,17 +1639,7 @@ fn main() {
                             let register = format_ident!("{}", remap_info.register.to_lowercase());
                             let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
 
-                            let field_metadata = METADATA
-                                .peripherals
-                                .iter()
-                                .filter(|p| p.name == "SYSCFG")
-                                .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
-                                .filter(|f| f.name.eq_ignore_ascii_case(remap_info.register))
-                                .flat_map(|f| f.fields.iter())
-                                .find(|f| f.name.eq_ignore_ascii_case(remap_info.field))
-                                .unwrap();
-
-                            let value = if field_metadata.bit_size == 1 {
+                            let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
                                 let bool_value = format_ident!("{}", remap_info.value > 0);
                                 quote!(#bool_value)
                             } else {
@@ -1927,6 +1968,48 @@ fn main() {
     g.extend(quote! {
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
     });
+
+    // ========
+    // Generate timer AFIO impls
+
+    for p in METADATA.peripherals {
+        if p.name.starts_with("TIM") {
+            let pname = format_ident!("{}", p.name);
+            let afio = if let Some(afio) = &p.afio {
+                let register = format_ident!("{}", afio.register.to_lowercase());
+                let setter = format_ident!("set_{}", afio.field.to_lowercase());
+
+                let swj_cfg = if afio.register == "MAPR" {
+                    quote!(w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);)
+                } else {
+                    quote!()
+                };
+                let bool_eval = if is_bool_field("AFIO", &afio.register, &afio.field) {
+                    quote!(> 0)
+                } else {
+                    quote!()
+                };
+
+                let values = afio.values.iter().map(|v| {
+                    let mapr_value = v.value;
+                    let pin = v.pins.iter().map(|p| {
+                        let port_num = p.chars().nth(1).unwrap() as u8 - b'A';
+                        let pin_num = p[2..].parse::<u8>().unwrap();
+                        port_num * 16 + pin_num
+                    });
+                    quote!(#mapr_value, [#(#pin),*])
+                });
+
+                quote! {
+                    , |v| crate::pac::AFIO.#register().modify(|w| { #swj_cfg w.#setter(v #bool_eval); }), #({#values}),*
+                }
+            } else {
+                quote!()
+            };
+
+            g.extend(quote!(timer_afio_impl!(#pname #afio);));
+        }
+    }
 
     // ========
     // Generate gpio_block() function
@@ -2299,4 +2382,18 @@ fn gcd(a: u32, b: u32) -> u32 {
         return a;
     }
     gcd(b, a % b)
+}
+
+fn is_bool_field(peripheral: &str, register: &str, field: &str) -> bool {
+    let field_metadata = METADATA
+        .peripherals
+        .iter()
+        .filter(|p| p.name == peripheral)
+        .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+        .filter(|f| f.name.eq_ignore_ascii_case(register))
+        .flat_map(|f| f.fields.iter())
+        .find(|f| f.name.eq_ignore_ascii_case(field))
+        .unwrap();
+
+    field_metadata.bit_size == 1
 }

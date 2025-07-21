@@ -710,6 +710,17 @@ fn get_pull(pin_port: u8) -> Pull {
     };
 }
 
+#[cfg(afio)]
+/// Holds the AFIO remap value for a peripheral's pin
+pub struct AfioRemap<const V: u8>;
+
+#[cfg(afio)]
+/// Holds the AFIO remap value for a peripheral's pin
+pub struct AfioRemapBool<const V: bool>;
+
+/// Placeholder for a peripheral's pin which cannot be remapped via AFIO.
+pub struct AfioRemapNotApplicable;
+
 pub(crate) trait SealedPin {
     fn pin_port(&self) -> u8;
 
