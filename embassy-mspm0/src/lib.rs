@@ -15,6 +15,7 @@ mod macros;
 
 pub mod dma;
 pub mod gpio;
+pub mod i2c;
 pub mod timer;
 pub mod uart;
 
@@ -177,6 +178,10 @@ pub fn init(config: Config) -> Peripherals {
         // TODO: Optional?
         pac::SYSCTL.genclken().modify(|w| {
             w.set_mfpclken(true);
+        });
+
+        pac::SYSCTL.sysosccfg().modify(|w| {
+            w.set_freq(pac::sysctl::vals::SysosccfgFreq::SYSOSCBASE);
         });
 
         pac::SYSCTL.borthreshold().modify(|w| {
