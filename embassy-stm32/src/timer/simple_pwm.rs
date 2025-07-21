@@ -40,6 +40,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel> PwmPin<'d, T, C> {
         critical_section::with(|_| {
             pin.set_low();
             pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
+            pin.afio_remap();
         });
         PwmPin {
             _pin: pin.into(),
@@ -58,6 +59,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel> PwmPin<'d, T, C> {
                 #[cfg(gpio_v2)]
                 AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
             );
+            pin.afio_remap();
         });
         PwmPin {
             _pin: pin.into(),

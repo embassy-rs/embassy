@@ -26,11 +26,12 @@ pub struct QeiPin<'d, T, Channel> {
 }
 
 impl<'d, T: GeneralInstance4Channel, C: QeiChannel> QeiPin<'d, T, C> {
-    /// Create a new  QEI pin instance.
+    /// Create a new QEI pin instance.
     pub fn new(pin: Peri<'d, impl TimerPin<T, C>>) -> Self {
         critical_section::with(|_| {
             pin.set_low();
             pin.set_as_af(pin.af_num(), AfType::input(Pull::None));
+            pin.afio_remap();
         });
         QeiPin {
             _pin: pin.into(),
