@@ -186,7 +186,10 @@ pub(crate) unsafe fn init(config: Config) {
         hsiker: hsiker,
         hse: hse,
         rtc: rtc,
-
+        
+        #[cfg(any(stm32c071))]
+        hsi48: hsi,
+        
         // TODO
         lsi: None,
         lse: None,
