@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
     config.rcc.sys = Sysclk::HSE;
     // route HSE into the USB‐OTG‐HS block
     config.rcc.mux.otghssel = mux::Otghssel::HSE;
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.sys = Sysclk::HSE;
     config.rcc.voltage_scale = VoltageScale::RANGE1;
 
     let p = embassy_stm32::init(config);
