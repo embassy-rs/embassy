@@ -18,9 +18,5 @@ defmt-rtt = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 panic-semihosting = "0.6.0"
 
-[features]
-## To test all-logs mode
-log-to-defmt = ["embassy-nxp/log-to-defmt"]
-
 [profile.release]
 debug = 2

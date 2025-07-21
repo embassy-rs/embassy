@@ -3,6 +3,7 @@
 pub mod gpio;
 #[cfg(feature = "lpc55")]
 pub mod pint;
+
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
 #[cfg_attr(feature = "lpc55", path = "chips/lpc55.rs")]
 mod chip;
@@ -24,10 +25,8 @@ pub fn init(_config: config::Config) -> Peripherals {
     {
         gpio::init();
         pint::init();
-        #[cfg(feature = "log-to-defmt")]
-        log_to_defmt::setup();
-        log::info!("Initialization complete");
     }
+
     crate::Peripherals::take()
 }
 
