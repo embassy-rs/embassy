@@ -101,6 +101,8 @@ pub(crate) fn init() {
         crate::pac::NVIC::unmask(crate::pac::Interrupt::PIN_INT6);
         crate::pac::NVIC::unmask(crate::pac::Interrupt::PIN_INT7);
     };
+
+    info!("Pin interrupts initialized");
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]

@@ -1,5 +1,6 @@
 #![no_std]
 
+pub mod fmt;
 pub mod gpio;
 #[cfg(feature = "lpc55")]
 pub mod pint;
