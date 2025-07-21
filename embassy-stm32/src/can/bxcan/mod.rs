@@ -195,6 +195,7 @@ impl<'d> Can<'d> {
         let regs = &T::info().regs;
 
         rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
+        rx.afio_remap();
         tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         rcc::enable_and_reset::<T>();
