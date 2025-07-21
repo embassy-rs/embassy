@@ -552,6 +552,7 @@ fn generate_peripheral_instances() -> TokenStream {
 
         let tokens = match peripheral.kind {
             "uart" => Some(quote! { impl_uart_instance!(#peri); }),
+            "i2c" => Some(quote! { impl_i2c_instance!(#peri); }),
             _ => None,
         };
 
@@ -598,6 +599,9 @@ fn generate_pin_trait_impls() -> TokenStream {
                 ("uart", "RX") => Some(quote! { impl_uart_rx_pin!(#peri, #pin_name, #pf); }),
                 ("uart", "CTS") => Some(quote! { impl_uart_cts_pin!(#peri, #pin_name, #pf); }),
                 ("uart", "RTS") => Some(quote! { impl_uart_rts_pin!(#peri, #pin_name, #pf); }),
+                ("i2c", "SDA") => Some(quote! { impl_i2c_sda_pin!(#peri, #pin_name, #pf); }),
+                ("i2c", "SCL") => Some(quote! { impl_i2c_scl_pin!(#peri, #pin_name, #pf); }),
+
                 _ => None,
             };
 

@@ -35,6 +35,7 @@ embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", fe
 embassy-embedded-hal = { version = "0.3.1", path = "../embassy-embedded-hal", default-features = false }
 embassy-executor = { version = "0.7.0", path = "../embassy-executor", optional = true }
 
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 
