@@ -12,11 +12,11 @@ use nxp_pac::iomuxc::vals::Pus;
 
 use crate::chip::{mux_address, pad_address};
 use crate::pac::common::{Reg, RW};
+use crate::pac::gpio::Gpio;
 #[cfg(feature = "rt")]
 use crate::pac::interrupt;
 use crate::pac::iomuxc::regs::{Ctl, MuxCtl};
-#[cfg(gpio5)]
-use crate::pac::{self, gpio::Gpio};
+use crate::pac::{self};
 
 /// The GPIO pin level for pins set on "Digital" mode.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -109,6 +109,14 @@ pub enum Bank {
     /// Bank 2
     #[cfg(gpio2)]
     Gpio2,
+
+    /// Bank 3
+    #[cfg(gpio3)]
+    Gpio3,
+
+    /// Bank 4
+    #[cfg(gpio4)]
+    Gpio4,
 
     /// Bank 5
     #[cfg(gpio5)]
@@ -642,6 +650,10 @@ const GPIO_MUX_MODE: u8 = 0b101;
 static GPIO1_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
 #[cfg(gpio2)]
 static GPIO2_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
+#[cfg(gpio3)]
+static GPIO3_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
+#[cfg(gpio4)]
+static GPIO4_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
 #[cfg(gpio5)]
 static GPIO5_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
 
@@ -658,6 +670,10 @@ pub(crate) trait SealedPin: Sized {
             Bank::Gpio1 => pac::GPIO1,
             #[cfg(gpio2)]
             Bank::Gpio2 => pac::GPIO2,
+            #[cfg(gpio3)]
+            Bank::Gpio3 => pac::GPIO3,
+            #[cfg(gpio4)]
+            Bank::Gpio4 => pac::GPIO4,
             #[cfg(gpio5)]
             Bank::Gpio5 => pac::GPIO5,
         }
@@ -687,6 +703,10 @@ pub(crate) trait SealedPin: Sized {
             Bank::Gpio1 => &GPIO1_WAKERS[self.pin_number() as usize],
             #[cfg(gpio2)]
             Bank::Gpio2 => &GPIO2_WAKERS[self.pin_number() as usize],
+            #[cfg(gpio3)]
+            Bank::Gpio3 => &GPIO3_WAKERS[self.pin_number() as usize],
+            #[cfg(gpio4)]
+            Bank::Gpio4 => &GPIO4_WAKERS[self.pin_number() as usize],
             #[cfg(gpio5)]
             Bank::Gpio5 => &GPIO5_WAKERS[self.pin_number() as usize],
         }
@@ -870,25 +890,55 @@ fn irq_handler(block: Gpio, wakers: &[AtomicWaker; 32], high_bits: bool) {
     }
 }
 
-#[cfg(all(feature = "mimxrt1011", feature = "rt"))]
+#[cfg(all(any(feature = "mimxrt1011", feature = "mimxrt1062"), feature = "rt"))]
 #[interrupt]
 fn GPIO1_COMBINED_0_15() {
     irq_handler(pac::GPIO1, &GPIO1_WAKERS, false);
 }
 
-#[cfg(all(feature = "mimxrt1011", feature = "rt"))]
+#[cfg(all(any(feature = "mimxrt1011", feature = "mimxrt1062"), feature = "rt"))]
 #[interrupt]
 fn GPIO1_COMBINED_16_31() {
     irq_handler(pac::GPIO1, &GPIO1_WAKERS, true);
 }
 
-#[cfg(all(feature = "mimxrt1011", feature = "rt"))]
+#[cfg(all(any(feature = "mimxrt1011", feature = "mimxrt1062"), feature = "rt"))]
 #[interrupt]
 fn GPIO2_COMBINED_0_15() {
     irq_handler(pac::GPIO2, &GPIO2_WAKERS, false);
 }
 
-#[cfg(all(feature = "mimxrt1011", feature = "rt"))]
+#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[interrupt]
+fn GPIO2_COMBINED_16_31() {
+    irq_handler(pac::GPIO2, &GPIO2_WAKERS, true);
+}
+
+#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[interrupt]
+fn GPIO3_COMBINED_0_15() {
+    irq_handler(pac::GPIO3, &GPIO3_WAKERS, false);
+}
+
+#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[interrupt]
+fn GPIO3_COMBINED_16_31() {
+    irq_handler(pac::GPIO3, &GPIO3_WAKERS, true);
+}
+
+#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[interrupt]
+fn GPIO4_COMBINED_0_15() {
+    irq_handler(pac::GPIO4, &GPIO4_WAKERS, false);
+}
+
+#[cfg(all(feature = "mimxrt1062", feature = "rt"))]
+#[interrupt]
+fn GPIO4_COMBINED_16_31() {
+    irq_handler(pac::GPIO4, &GPIO4_WAKERS, true);
+}
+
+#[cfg(all(any(feature = "mimxrt1011", feature = "mimxrt1062"), feature = "rt"))]
 #[interrupt]
 fn GPIO5_COMBINED_0_15() {
     irq_handler(pac::GPIO5, &GPIO5_WAKERS, false);

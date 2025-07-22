@@ -14,6 +14,7 @@ mod time_driver;
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
 #[cfg_attr(feature = "lpc55", path = "chips/lpc55.rs")]
 #[cfg_attr(feature = "mimxrt1011", path = "chips/mimxrt1011.rs")]
+#[cfg_attr(feature = "mimxrt1062", path = "chips/mimxrt1062.rs")]
 mod chip;
 
 #[cfg(feature = "unstable-pac")]
