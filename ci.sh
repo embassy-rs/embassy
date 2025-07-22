@@ -181,7 +181,8 @@ cargo batch \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u073mb,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u083rc,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv8m.main-none-eabihf --features lpc55,defmt \
-    --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv7em-none-eabihf --features mimxrt1011,defmt,time-driver-pit \
+    --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv7em-none-eabihf --features mimxrt1011,rt,defmt,time-driver-pit \
+    --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv7em-none-eabihf --features mimxrt1062,rt,defmt,time-driver-pit \
     --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0c1104dgs20,defmt,time-driver-any \
     --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3507pm,defmt,time-driver-any \
     --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3519pz,defmt,time-driver-any \
@@ -266,6 +267,7 @@ cargo batch \
     --- build --release --manifest-path examples/stm32wl/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32wl \
     --- build --release --manifest-path examples/lpc55s69/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/lpc55s69 \
     --- build --release --manifest-path examples/mimxrt1011/Cargo.toml --target thumbv7em-none-eabihf --artifact-dir out/examples/mimxrt1011 \
+    --- build --release --manifest-path examples/mimxrt1062-evk/Cargo.toml --target thumbv7em-none-eabihf --artifact-dir out/examples/mimxrt1062-evk \
     --- build --release --manifest-path examples/mspm0g3507/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/mspm0g3507 \
     --- build --release --manifest-path examples/mspm0g3519/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/mspm0g3519 \
     --- build --release --manifest-path examples/mspm0l1306/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/mspm0l1306 \

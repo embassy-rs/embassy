@@ -32,10 +32,12 @@ fn main() {
     .to_ascii_lowercase();
 
     cfg_aliases! {
-        rt1xxx: { feature = "mimxrt1011" },
-        gpio1: { feature = "mimxrt1011" },
-        gpio2: { feature = "mimxrt1011" },
-        gpio5: { feature = "mimxrt1011" },
+        rt1xxx: { any(feature = "mimxrt1011", feature = "mimxrt1062") },
+        gpio1: { any(feature = "mimxrt1011", feature = "mimxrt1062") },
+        gpio2: { any(feature = "mimxrt1011", feature = "mimxrt1062") },
+        gpio3: { feature = "mimxrt1062" },
+        gpio4: { feature = "mimxrt1062" },
+        gpio5: { any(feature = "mimxrt1011", feature = "mimxrt1062") },
     }
 
     eprintln!("chip: {chip_name}");

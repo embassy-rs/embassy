@@ -37,6 +37,7 @@
     // "examples/nrf5340/Cargo.toml",
     // "examples/nrf-rtos-trace/Cargo.toml",
     // "examples/mimxrt1011/Cargo.toml",
+    // "examples/mimxrt1062-evk/Cargo.toml",
     // "examples/rp/Cargo.toml",
     // "examples/std/Cargo.toml",
     // "examples/stm32c0/Cargo.toml",
