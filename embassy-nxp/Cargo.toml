@@ -3,6 +3,16 @@ name = "embassy-nxp"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nxp-v$VERSION/embassy-nxp/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nxp/src/"
+features = ["defmt", "unstable-pac" ] # TODO: Add time-driver-any, as both lpc55 and mimxrt1xxx use different drivers.
+
+flavors = [
+    { regex_feature = "lpc55", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "mimxrt.*", target = "thumbv7em-none-eabihf" },
+]
+
 [dependencies]
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.0"
