@@ -16,6 +16,7 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::{vals, I2c as Regs};
 use crate::pac::{self};
+use crate::time::Hertz;
 use crate::Peri;
 
 /// The clock source for the I2C.
@@ -31,9 +32,6 @@ pub enum ClockSel {
     ///
     /// The MCLK runs at 4 MHz.
     MfClk,
-    // BusClk,
-    // BusClk depends on the timer's power domain.
-    // This will be implemented later.
 }
 
 /// The clock divider for the I2C.
@@ -110,15 +108,15 @@ pub enum BusSpeed {
     /// Custom mode.
     ///
     /// The custom mode frequency (in Hz) can be set manually.
-    Custom(u32),
+    Custom(Hertz),
 }
 
 impl BusSpeed {
-    fn hertz(self) -> u32 {
+    fn hertz(self) -> Hertz {
         match self {
-            Self::Standard => 100_000,
-            Self::FastMode => 400_000,
-            Self::FastModePlus => 1_000_000,
+            Self::Standard => Hertz::khz(100),
+            Self::FastMode => Hertz::khz(400),
+            Self::FastModePlus => Hertz::mhz(1),
             Self::Custom(s) => s,
         }
     }
@@ -168,7 +166,7 @@ impl Default for Config {
             invert_scl: false,
             sda_pull: Pull::None,
             scl_pull: Pull::None,
-            bus_speed: BusSpeed::FastMode,
+            bus_speed: BusSpeed::Standard,
         }
     }
 }
@@ -180,28 +178,26 @@ impl Config {
     pub fn scl_pf(&self) -> PfType {
         PfType::input(self.scl_pull, self.invert_scl)
     }
-    fn timer_period(&self, clock_speed: u32) -> u8 {
+    fn timer_period(&self) -> u8 {
         // Sets the timer period to bring the clock frequency to the selected I2C speed
-        // From the documentation: SCL_PERIOD = (1 + TPR ) * (SCL_LP + SCL_HP ) * INT_CLK_PRD where:
-        // - SCL_PRD is the SCL line period (I2C clock)
+        // From the documentation: TPR = (I2C_CLK / (I2C_FREQ * (SCL_LP + SCL_HP))) - 1 where:
+        // - I2C_FREQ is desired I2C frequency (= I2C_BASE_FREQ divided by I2C_DIV)
         // - TPR is the Timer Period register value (range of 1 to 127)
         // - SCL_LP is the SCL Low period (fixed at 6)
         // - SCL_HP is the SCL High period (fixed at 4)
-        // - CLK_PRD is the functional clock period in ns
-        let scl_period = (1.0 / self.bus_speed.hertz() as f64) * 1_000_000_000.0;
-        let clock = (clock_speed as f64) / self.clock_div.divider() as f64;
-        let clk_period = (1.0 / clock) * 1_000_000_000.0;
-        let tpr = scl_period / (10.0 * clk_period) - 1.0;
-        tpr.clamp(0.0, 255.0) as u8
+        // - I2C_CLK is functional clock frequency
+        return (((self.calculate_clock_rate() * self.clock_div.divider()) / (self.bus_speed.hertz() * 10u32)) - 1)
+            .try_into()
+            .unwrap();
     }
 
     #[cfg(any(mspm0c110x))]
-    pub fn calculate_clock_rate(&self) -> u32 {
+    pub fn calculate_clock_rate(&self) -> Hertz {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
-            ClockSel::MfClk => 4_000_000,
-            ClockSel::BusClk => 24_000_000,
+            ClockSel::MfClk => Hertz::mhz(4),
+            ClockSel::BusClk => Hertz::mhz(24),
         }
     }
 
@@ -209,24 +205,24 @@ impl Config {
         mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0l110x, mspm0l122x, mspm0l130x,
         mspm0l134x, mspm0l222x
     ))]
-    pub fn calculate_clock_rate(&self) -> u32 {
+    pub fn calculate_clock_rate(&self) -> Hertz {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
-            ClockSel::MfClk => 4_000_000,
-            ClockSel::BusClk => 32_000_000,
+            ClockSel::MfClk => Hertz::mhz(4),
+            ClockSel::BusClk => Hertz::mhz(32),
         }
     }
 
     pub fn check_clock_rate(&self) -> bool {
         // make sure source clock is ~20 faster than i2c clock
-        let clk_ratio = 20;
+        let clk_ratio = 20u8;
 
         let i2c_clk = self.bus_speed.hertz() / self.clock_div.divider();
         let src_clk = self.calculate_clock_rate();
 
         // check clock rate
-        return src_clk >= clk_ratio * i2c_clk;
+        return src_clk >= i2c_clk * clk_ratio;
     }
 }
 
@@ -380,15 +376,15 @@ impl<'d, M: Mode> I2c<'d, M> {
             .cctr()
             .write_value(i2c::regs::Cctr::default());
 
-        let clock = config.calculate_clock_rate();
-
-        self.state.clock.store(clock, Ordering::Relaxed);
+        self.state
+            .clock
+            .store(config.calculate_clock_rate().0, Ordering::Relaxed);
 
         self.info
             .regs
             .controller(0)
             .ctpr()
-            .write(|w| w.set_tpr(config.timer_period(clock)));
+            .write(|w| w.set_tpr(config.timer_period()));
 
         // Set Tx Fifo threshold, follow TI example
         self.info
@@ -1095,7 +1091,8 @@ mod tests {
         let mut config = Config::default();
         config.clock_div = ClockDiv::DivBy1;
         config.bus_speed = BusSpeed::FastMode;
-        assert!(matches!(config.timer_period(32_000_000), 7));
+        config.clock_source = ClockSel::BusClk;
+        assert!(matches!(config.timer_period(), 7));
     }
 
     #[test]
@@ -1103,7 +1100,8 @@ mod tests {
         let mut config = Config::default();
         config.clock_div = ClockDiv::DivBy2;
         config.bus_speed = BusSpeed::FastMode;
-        assert!(matches!(config.timer_period(32_000_000), 3));
+        config.clock_source = ClockSel::BusClk;
+        assert!(matches!(config.timer_period(), 3));
     }
 
     #[test]
@@ -1111,7 +1109,8 @@ mod tests {
         let mut config = Config::default();
         config.clock_div = ClockDiv::DivBy2;
         config.bus_speed = BusSpeed::Standard;
-        assert!(matches!(config.timer_period(32_000_000), 15));
+        config.clock_source = ClockSel::BusClk;
+        assert!(matches!(config.timer_period(), 15));
     }
 
     #[test]
@@ -1119,7 +1118,8 @@ mod tests {
         let mut config = Config::default();
         config.clock_div = ClockDiv::DivBy2;
         config.bus_speed = BusSpeed::Custom(100_000);
-        assert!(matches!(config.timer_period(32_000_000), 15));
+        config.clock_source = ClockSel::BusClk;
+        assert!(matches!(config.timer_period(), 15));
     }
 
     #[test]
