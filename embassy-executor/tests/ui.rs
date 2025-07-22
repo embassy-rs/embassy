@@ -32,4 +32,5 @@ fn ui() {
     t.compile_fail("tests/ui/self.rs");
     t.compile_fail("tests/ui/type_error.rs");
     t.compile_fail("tests/ui/where_clause.rs");
+    t.pass("tests/ui/task_safety_attribute.rs");
 }

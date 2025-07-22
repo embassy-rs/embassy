@@ -120,6 +120,18 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     task_inner.vis = syn::Visibility::Inherited;
     task_inner.sig.ident = task_inner_ident.clone();
 
+    // Forcefully mark the inner task as safe.
+    // SAFETY: We only ever call task_inner in functions
+    //         with the same safety preconditions as task_inner
+    task_inner.sig.unsafety = None;
+    let task_body = task_inner.body;
+    task_inner.body = quote! {
+        #[allow(unused_unsafe, reason = "Not all function bodies may require being in an unsafe block")]
+        unsafe {
+            #task_body
+        }
+    };
+
     // assemble the original input arguments,
     // including any attributes that may have
     // been applied previously
@@ -186,6 +198,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     // Copy the generics + where clause to avoid more spurious errors.
     let generics = &f.sig.generics;
     let where_clause = &f.sig.generics.where_clause;
+    let unsafety = &f.sig.unsafety;
 
     let result = quote! {
         // This is the user's task function, renamed.
@@ -196,7 +209,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         #task_inner
 
         #(#task_outer_attrs)*
-        #visibility fn #task_ident #generics (#fargs) -> #embassy_executor::SpawnToken<impl Sized> #where_clause{
+        #visibility #unsafety fn #task_ident #generics (#fargs) -> #embassy_executor::SpawnToken<impl Sized> #where_clause{
             #task_outer_body
         }
 
