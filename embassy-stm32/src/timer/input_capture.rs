@@ -25,6 +25,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel> CapturePin<'d, T, C> {
     /// Create a new capture pin instance.
     pub fn new(pin: Peri<'d, impl TimerPin<T, C>>, pull: Pull) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
+        pin.afio_remap();
         CapturePin {
             _pin: pin.into(),
             phantom: PhantomData,

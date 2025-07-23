@@ -150,6 +150,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         {
             config_in_pins!(ref_clk, rx_d0, rx_d1);
             config_af_pins!(mdio, mdc, tx_d0, tx_d1, tx_en);
+            rx_d0.afio_remap();
         }
 
         #[cfg(any(eth_v1b, eth_v1c))]
@@ -347,6 +348,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         {
             config_in_pins!(rx_clk, tx_clk, rx_d0, rx_d1, rx_d2, rx_d3, rxdv);
             config_af_pins!(mdio, mdc, tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
+            rx_d0.afio_remap();
         }
 
         #[cfg(any(eth_v1b, eth_v1c))]

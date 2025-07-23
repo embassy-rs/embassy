@@ -70,6 +70,9 @@ trait SealedTimerTriggerPin<T, S>: crate::gpio::Pin {}
 pub trait TimerTriggerPin<T, S>: SealedTimerTriggerPin<T, S> {
     /// Get the AF number needed to use this pin as a trigger source.
     fn af_num(&self) -> u8;
+
+    /// Configures AFIO_MAPR/AFIO_MAPR2 on STM32F1 to use this pin as a trigger source.
+    fn afio_remap(&self);
 }
 
 impl<T, P, C> TimerTriggerPin<T, C> for P
@@ -81,6 +84,10 @@ where
     fn af_num(&self) -> u8 {
         TimerPin::af_num(self)
     }
+
+    fn afio_remap(&self) {
+        TimerPin::afio_remap(self);
+    }
 }
 
 impl<T, P> TimerTriggerPin<T, Ext> for P
@@ -90,6 +97,10 @@ where
 {
     fn af_num(&self) -> u8 {
         ExternalTriggerPin::af_num(self)
+    }
+
+    fn afio_remap(&self) {
+        ExternalTriggerPin::afio_remap(self);
     }
 }
 
@@ -112,6 +123,7 @@ impl<'d, T: GeneralInstance4Channel, C: TriggerSource> TriggerPin<'d, T, C> {
     /// "Create a new Ch1 trigger pin instance.
     pub fn new(pin: Peri<'d, impl TimerTriggerPin<T, C>>, pull: Pull) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
+        pin.afio_remap();
         TriggerPin {
             _pin: pin.into(),
             phantom: PhantomData,
