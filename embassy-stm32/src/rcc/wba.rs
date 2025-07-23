@@ -1,6 +1,9 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr1;
-pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk, Pllsrc as PllSource };
+pub use crate::pac::rcc::vals::{
+    Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk, Pllsrc as PllSource,
+    Plldiv as PllDiv, Pllm, Plln as PllMul,
+};
 use crate::pac::rcc::vals::Pllrge;
 use crate::pac::{FLASH, RCC};
 use crate::rcc::LSI_FREQ;
@@ -29,28 +32,28 @@ pub struct Pll {
     /// The PLL pre-divider.
     ///
     /// The clock speed of the `source` divided by `m` must be between 4 and 16 MHz.
-    pub pllm: u8,
+    pub pllm: Pllm,
     /// The PLL multiplier.
     ///
     /// The multiplied clock – `source` divided by `m` times `n` – must be between 128 and 544
     /// MHz. The upper limit may be lower depending on the `Config { voltage_range }`.
-    pub mul: u8,
+    pub mul: PllMul,
     /// The divider for the P output.
     ///
     /// The P output is one of several options
     /// that can be used to feed the SAI/MDF/ADF Clock mux's.
-    pub divp: Option<u8>,
+    pub divp: Option<PllDiv>,
     /// The divider for the Q output.
     ///
     /// The Q ouput is one of severals options that can be used to feed the 48MHz clocks
     /// and the OCTOSPI clock. It may also be used on the MDF/ADF clock mux's.
-    pub divq: Option<u8>,
+    pub divq: Option<PllDiv>,
     /// The divider for the R output.
     ///
     /// When used to drive the system clock, `source` divided by `m` times `n` divided by `r`
     /// must not exceed 160 MHz. System clocks above 55 MHz require a non-default
     /// `Config { voltage_range }`.
-    pub divr: Option<u8>,
+    pub divr: Option<PllDiv>,
 
     pub frac: Option<u16>,
 }
@@ -318,10 +321,10 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
 
     let divr = RCC.pll1divr();
     divr.write(|w| {
-        w.set_plln(pll.mul as u16);
-        w.set_pllp(pll.divp.unwrap_or(1));
-        w.set_pllq(pll.divq.unwrap_or(1));
-        w.set_pllr(pll.divr.unwrap_or(1));
+        w.set_plln(pll.mul);
+        w.set_pllp(pll.divp.unwrap_or(PllDiv::DIV1));
+        w.set_pllq(pll.divq.unwrap_or(PllDiv::DIV1));
+        w.set_pllr(pll.divr.unwrap_or(PllDiv::DIV1));
         // w.set_pllfracn(pll.frac.unwrap_or(1));
     });
     RCC.pll1fracr().write(|w| {w.set_pllfracn(pll.frac.unwrap_or(1));});

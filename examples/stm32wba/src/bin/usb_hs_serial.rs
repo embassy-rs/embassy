@@ -36,11 +36,11 @@ async fn main(_spawner: Spawner) {
     // Fine-tune PLL1 dividers/multipliers
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
         source: PllSource::HSE,
-        pllm: 2,          // PLLM = 2 → HSE / 2 = 16 MHz input
-        mul: 12,          // PLLN = 12 → 16 MHz * 12 = 192 MHz VCO
-        divp: Some(2),    // PLLP = 2 → 96 MHz
-        divq: Some(2),    // PLLQ = 2 → 96 MHz
-        divr: Some(2),    // PLLR = 2 → 96 MHz
+        pllm: 2.into(),          // PLLM = 2 → HSE / 2 = 16 MHz input
+        mul: 12.into(),          // PLLN = 12 → 16 MHz * 12 = 192 MHz VCO
+        divp: Some(2.into()),    // PLLP = 2 → 96 MHz
+        divq: Some(2.into()),    // PLLQ = 2 → 96 MHz
+        divr: Some(2.into()),    // PLLR = 2 → 96 MHz
         frac: Some(4096), // Fractional part (enabled)
     });
 
