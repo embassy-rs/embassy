@@ -16,10 +16,10 @@ pub struct BootLoader<const BUFFER_SIZE: usize = PAGE_SIZE>;
 
 impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
-    pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
-        config: BootLoaderConfig<ACTIVE, DFU, STATE>,
+    pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash>(
+        config: BootLoaderConfig<ACTIVE, DFU, STATE, SAFE>,
     ) -> Self {
-        if let Ok(loader) = Self::try_prepare::<ACTIVE, DFU, STATE>(config) {
+        if let Ok(loader) = Self::try_prepare::<ACTIVE, DFU, STATE, SAFE>(config) {
             loader
         } else {
             // Use explicit panic instead of .expect() to ensure this gets routed via defmt/etc.
@@ -29,8 +29,8 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     }
 
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
-    pub fn try_prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
-        config: BootLoaderConfig<ACTIVE, DFU, STATE>,
+    pub fn try_prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash>(
+        config: BootLoaderConfig<ACTIVE, DFU, STATE, SAFE>,
     ) -> Result<Self, BootError> {
         let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
         let mut boot = embassy_boot::BootLoader::new(config);

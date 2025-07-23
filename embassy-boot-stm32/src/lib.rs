@@ -17,10 +17,10 @@ pub struct BootLoader {
 
 impl BootLoader {
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
-    pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize>(
-        config: BootLoaderConfig<ACTIVE, DFU, STATE>,
+    pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash, const BUFFER_SIZE: usize>(
+        config: BootLoaderConfig<ACTIVE, DFU, STATE, SAFE>,
     ) -> Self {
-        if let Ok(loader) = Self::try_prepare::<ACTIVE, DFU, STATE, BUFFER_SIZE>(config) {
+        if let Ok(loader) = Self::try_prepare::<ACTIVE, DFU, STATE, SAFE, BUFFER_SIZE>(config) {
             loader
         } else {
             // Use explicit panic instead of .expect() to ensure this gets routed via defmt/etc.
@@ -30,8 +30,8 @@ impl BootLoader {
     }
 
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
-    pub fn try_prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize>(
-        config: BootLoaderConfig<ACTIVE, DFU, STATE>,
+    pub fn try_prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash, const BUFFER_SIZE: usize>(
+        config: BootLoaderConfig<ACTIVE, DFU, STATE, SAFE>,
     ) -> Result<Self, BootError> {
         let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
         let mut boot = embassy_boot::BootLoader::new(config);
