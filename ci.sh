@@ -385,6 +385,9 @@ rm out/tests/pimoroni-pico-plus-2/pwm
 rm out/tests/rpi-pico/pwm
 rm out/tests/rpi-pico/cyw43-perf
 
+# tests are implemented but the HIL test farm doesn't actually have this board yet
+rm -rf out/tests/stm32c071rb
+
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
     exit
