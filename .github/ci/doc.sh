@@ -26,6 +26,7 @@ docserver-builder -i ./embassy-futures -o webroot/crates/embassy-futures/git.zup
 docserver-builder -i ./embassy-nrf -o webroot/crates/embassy-nrf/git.zup
 docserver-builder -i ./embassy-rp -o webroot/crates/embassy-rp/git.zup
 docserver-builder -i ./embassy-mspm0 -o webroot/crates/embassy-mspm0/git.zup
+docserver-builder -i ./embassy-nxp -o webroot/crates/embassy-nxp/git.zup
 docserver-builder -i ./embassy-sync -o webroot/crates/embassy-sync/git.zup
 docserver-builder -i ./cyw43 -o webroot/crates/cyw43/git.zup
 docserver-builder -i ./cyw43-pio -o webroot/crates/cyw43-pio/git.zup

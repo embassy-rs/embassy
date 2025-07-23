@@ -111,11 +111,13 @@ macro_rules! bind_interrupts {
             #[no_mangle]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
-                $(
-                    $(#[cfg($cond_handler)])?
-                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                unsafe {
+                    $(
+                        $(#[cfg($cond_handler)])?
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
 
-                )*
+                    )*
+                }
             }
 
             $(#[cfg($cond_irq)])?

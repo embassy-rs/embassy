@@ -7,6 +7,7 @@ autobins = false
 
 [features]
 stm32c031c6 = ["embassy-stm32/stm32c031c6", "cm0", "not-gpdma"]
+stm32c071rb = ["embassy-stm32/stm32c071rb", "cm0", "not-gpdma"]
 stm32f103c8 = ["embassy-stm32/stm32f103c8", "spi-v1", "not-gpdma"]
 stm32f207zg = ["embassy-stm32/stm32f207zg", "spi-v1", "chrono", "not-gpdma", "eth", "rng"]
 stm32f303ze = ["embassy-stm32/stm32f303ze", "chrono", "not-gpdma"]
