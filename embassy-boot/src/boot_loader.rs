@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{State, DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{DummySafe, State, BOOT_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -39,21 +39,27 @@ where
 ///
 /// If only a single flash is actually used, then that flash should be partitioned into three partitions before use.
 /// The easiest way to do this is to use [`BootLoaderConfig::from_linkerfile_blocking`] which will partition
-/// the provided flash according to symbols defined in the linkerfile.
-pub struct BootLoaderConfig<ACTIVE, DFU, STATE> {
+/// the provided flash according to symbols defined in the linkerfile. When the
+/// `safe` feature is enabled, a fourth partition holds a fallback firmware image
+/// that can be booted if the application requests a safe boot.
+pub struct BootLoaderConfig<ACTIVE, DFU, STATE, SAFE> {
     /// Flash type used for the active partition - the partition which will be booted from.
     pub active: ACTIVE,
     /// Flash type used for the dfu partition - the partition which will be swapped in when requested.
     pub dfu: DFU,
     /// Flash type used for the state partition.
     pub state: STATE,
+    /// Flash type used for the safe partition.
+    pub safe: SAFE,
 }
 
+#[cfg(not(feature = "safe"))]
 impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>
     BootLoaderConfig<
         BlockingPartition<'a, NoopRawMutex, ACTIVE>,
         BlockingPartition<'a, NoopRawMutex, DFU>,
         BlockingPartition<'a, NoopRawMutex, STATE>,
+        DummySafe,
     >
 {
     /// Constructs a `BootLoaderConfig` instance from flash memory and address symbols defined in the linker file.
@@ -124,13 +130,88 @@ impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>
 
             BlockingPartition::new(state_flash, start, end - start)
         };
+        let safe = DummySafe;
 
-        Self { active, dfu, state }
+        Self {
+            active,
+            dfu,
+            state,
+            safe,
+        }
+    }
+}
+
+#[cfg(feature = "safe")]
+impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash>
+    BootLoaderConfig<
+        BlockingPartition<'a, NoopRawMutex, ACTIVE>,
+        BlockingPartition<'a, NoopRawMutex, DFU>,
+        BlockingPartition<'a, NoopRawMutex, STATE>,
+        BlockingPartition<'a, NoopRawMutex, SAFE>,
+    >
+{
+    /// Constructs a `BootLoaderConfig` instance from flash memory and address symbols defined in the linker file.
+    pub fn from_linkerfile_blocking(
+        active_flash: &'a Mutex<NoopRawMutex, RefCell<ACTIVE>>,
+        dfu_flash: &'a Mutex<NoopRawMutex, RefCell<DFU>>,
+        state_flash: &'a Mutex<NoopRawMutex, RefCell<STATE>>,
+        safe_flash: &'a Mutex<NoopRawMutex, RefCell<SAFE>>,
+    ) -> Self {
+        extern "C" {
+            static __bootloader_state_start: u32;
+            static __bootloader_state_end: u32;
+            static __bootloader_active_start: u32;
+            static __bootloader_active_end: u32;
+            static __bootloader_dfu_start: u32;
+            static __bootloader_dfu_end: u32;
+            static __bootloader_safe_start: u32;
+            static __bootloader_safe_end: u32;
+        }
+
+        let active = unsafe {
+            let start = &__bootloader_active_start as *const u32 as u32;
+            let end = &__bootloader_active_end as *const u32 as u32;
+            trace!("ACTIVE: 0x{:x} - 0x{:x}", start, end);
+
+            BlockingPartition::new(active_flash, start, end - start)
+        };
+        let dfu = unsafe {
+            let start = &__bootloader_dfu_start as *const u32 as u32;
+            let end = &__bootloader_dfu_end as *const u32 as u32;
+            trace!("DFU: 0x{:x} - 0x{:x}", start, end);
+
+            BlockingPartition::new(dfu_flash, start, end - start)
+        };
+        let state = unsafe {
+            let start = &__bootloader_state_start as *const u32 as u32;
+            let end = &__bootloader_state_end as *const u32 as u32;
+            trace!("STATE: 0x{:x} - 0x{:x}", start, end);
+
+            BlockingPartition::new(state_flash, start, end - start)
+        };
+        let safe = unsafe {
+            let start = &__bootloader_safe_start as *const u32 as u32;
+            let end = &__bootloader_safe_end as *const u32 as u32;
+            trace!("SAFE: 0x{:x} - 0x{:x}", start, end);
+
+            BlockingPartition::new(safe_flash, start, end - start)
+        };
+
+        Self {
+            active,
+            dfu,
+            state,
+            safe,
+        }
     }
 }
 
 /// BootLoader works with any flash implementing embedded_storage.
-pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> {
+/// When the `safe` feature is enabled, an additional flash partition is used as
+/// a fallback image in case of boot failure. The bootloader checks the
+/// `__bootloader_safe_flag` linker symbol and the state partition for
+/// `SAFE_MAGIC` to decide whether to boot this image.
+pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE> {
     active: ACTIVE,
     dfu: DFU,
     /// The state partition has the following format:
@@ -140,9 +221,10 @@ pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> {
     /// | 1..2     | Progress validity. ERASE_VALUE means valid, !ERASE_VALUE means invalid.          |
     /// | 2..2 + N | Progress index used while swapping or reverting      
     state: STATE,
+    safe: SAFE,
 }
 
-impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, STATE> {
+impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash> BootLoader<ACTIVE, DFU, STATE, SAFE> {
     /// Get the page size which is the "unit of operation" within the bootloader.
     const PAGE_SIZE: u32 = if ACTIVE::ERASE_SIZE > DFU::ERASE_SIZE {
         ACTIVE::ERASE_SIZE as u32
@@ -154,11 +236,13 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     ///
     /// - All partitions must be aligned with the PAGE_SIZE const generic parameter.
     /// - The dfu partition must be at least PAGE_SIZE bigger than the active partition.
-    pub fn new(config: BootLoaderConfig<ACTIVE, DFU, STATE>) -> Self {
+    /// - When the `safe` feature is enabled, the `safe` partition holds a fallback image.
+    pub fn new(config: BootLoaderConfig<ACTIVE, DFU, STATE, SAFE>) -> Self {
         Self {
             active: config.active,
             dfu: config.dfu,
             state: config.state,
+            safe: config.safe,
         }
     }
 
@@ -240,6 +324,10 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
             core::assert!(Self::PAGE_SIZE % ACTIVE::ERASE_SIZE as u32 == 0);
             core::assert!(Self::PAGE_SIZE % DFU::WRITE_SIZE as u32 == 0);
             core::assert!(Self::PAGE_SIZE % DFU::ERASE_SIZE as u32 == 0);
+            if SAFE::WRITE_SIZE != 0 {
+                core::assert!(Self::PAGE_SIZE % SAFE::WRITE_SIZE as u32 == 0);
+                core::assert!(Self::PAGE_SIZE % SAFE::ERASE_SIZE as u32 == 0);
+            }
         }
 
         // Ensure we have enough progress pages to store copy progress
@@ -247,12 +335,40 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         assert!(aligned_buf.len() >= STATE::WRITE_SIZE);
         assert_eq!(0, aligned_buf.len() % ACTIVE::WRITE_SIZE);
         assert_eq!(0, aligned_buf.len() % DFU::WRITE_SIZE);
+        if SAFE::WRITE_SIZE != 0 {
+            assert_eq!(0, aligned_buf.len() % SAFE::WRITE_SIZE);
+        }
 
         // Ensure our partitions are able to handle boot operations
+        #[cfg(feature = "safe")]
+        assert_partitions(&self.active, &self.dfu, &self.state, &self.safe, Self::PAGE_SIZE);
+        #[cfg(not(feature = "safe"))]
         assert_partitions(&self.active, &self.dfu, &self.state, Self::PAGE_SIZE);
 
         // Copy contents from partition N to active
         let state = self.read_state(aligned_buf)?;
+        #[cfg(feature = "safe")]
+        if state == State::Safe {
+            self.safe(aligned_buf)?;
+            self.finalize(BOOT_MAGIC, aligned_buf)?;
+            return Ok(State::Boot);
+        }
+        #[cfg(feature = "restore")]
+        match state {
+            State::Backup => {
+                trace!("Backing up active partition");
+                self.backup(aligned_buf)?;
+                self.finalize(BOOT_MAGIC, aligned_buf)?;
+                return Ok(State::Boot);
+            }
+            State::Restore => {
+                trace!("Restoring active partition");
+                self.restore(aligned_buf)?;
+                self.finalize(BOOT_MAGIC, aligned_buf)?;
+                return Ok(State::Boot);
+            }
+            _ => {}
+        }
         if state == State::Swap {
             //
             // Check if we already swapped. If we're in the swap state, this means we should revert
@@ -403,22 +519,116 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         Ok(())
     }
 
+    #[cfg(feature = "safe")]
+    fn safe(&mut self, aligned_buf: &mut [u8]) -> Result<(), BootError> {
+        /* 1. Count number of page to copy */
+        let page_count = self.safe.capacity() as u32 / Self::PAGE_SIZE;
+
+        /* 2. loop for page_count */
+        for page_num in 0..page_count {
+            /* Calculate current offset */
+            let offset = page_num * Self::PAGE_SIZE;
+
+            /* Erase active page */
+            self.active.erase(offset, offset + Self::PAGE_SIZE)?;
+
+            /* Copy safe page to active page */
+            for offset_in_page in (0..Self::PAGE_SIZE).step_by(aligned_buf.len()) {
+                self.safe.read(offset + offset_in_page as u32, aligned_buf)?;
+                self.active.write(offset + offset_in_page as u32, aligned_buf)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "restore")]
+    fn backup(&mut self, aligned_buf: &mut [u8]) -> Result<(), BootError> {
+        /* 1. Count number of page to copy */
+        let page_count = self.active.capacity() as u32 / Self::PAGE_SIZE;
+
+        /* 2. loop for page_count */
+        for page_num in 0..page_count {
+            /* Calculate current offset */
+            let offset = page_num * Self::PAGE_SIZE;
+
+            /* Erase dfu page */
+            self.dfu.erase(offset, offset + Self::PAGE_SIZE)?;
+
+            /* Copy safe page to active page */
+            for offset_in_page in (0..Self::PAGE_SIZE).step_by(aligned_buf.len()) {
+                self.active.read(offset + offset_in_page as u32, aligned_buf)?;
+                self.dfu.write(offset + offset_in_page as u32, aligned_buf)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "restore")]
+    fn restore(&mut self, aligned_buf: &mut [u8]) -> Result<(), BootError> {
+        /* 1. Count number of page to copy */
+        let page_count = self.active.capacity() as u32 / Self::PAGE_SIZE;
+
+        /* 2. loop for page_count */
+        for page_num in 0..page_count {
+            /* Calculate current offset */
+            let offset = page_num * Self::PAGE_SIZE;
+
+            /* Erase active page */
+            self.active.erase(offset, offset + Self::PAGE_SIZE)?;
+
+            /* Copy active page to dfu page */
+            for offset_in_page in (0..Self::PAGE_SIZE).step_by(aligned_buf.len()) {
+                self.dfu.read(offset + offset_in_page as u32, aligned_buf)?;
+                self.active.write(offset + offset_in_page as u32, aligned_buf)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn finalize(&mut self, magic: u8, aligned_buf: &mut [u8]) -> Result<(), BootError> {
+        let state_word = &mut aligned_buf[..STATE::WRITE_SIZE];
+
+        // Invalidate progress
+        state_word.fill(!STATE_ERASE_VALUE);
+        self.state.write(STATE::WRITE_SIZE as u32, state_word)?;
+
+        // Clear magic and progress
+        self.state.erase(0, self.state.capacity() as u32)?;
+
+        // Set new magic
+        state_word.fill(magic);
+        self.state.write(0, state_word)?;
+        Ok(())
+    }
+
     fn read_state(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
         let state_word = &mut aligned_buf[..STATE::WRITE_SIZE];
         self.state.read(0, state_word)?;
 
-        if !state_word.iter().any(|&b| b != SWAP_MAGIC) {
-            Ok(State::Swap)
-        } else if !state_word.iter().any(|&b| b != DFU_DETACH_MAGIC) {
-            Ok(State::DfuDetach)
-        } else if !state_word.iter().any(|&b| b != REVERT_MAGIC) {
-            Ok(State::Revert)
-        } else {
-            Ok(State::Boot)
-        }
+        Ok(State::from(state_word))
     }
 }
 
+#[cfg(feature = "safe")]
+fn assert_partitions<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash>(
+    active: &ACTIVE,
+    dfu: &DFU,
+    state: &STATE,
+    safe: &SAFE,
+    page_size: u32,
+) {
+    assert_eq!(active.capacity() as u32 % page_size, 0);
+    assert_eq!(dfu.capacity() as u32 % page_size, 0);
+    // DFU partition has to be bigger than ACTIVE partition to handle swap algorithm
+    assert!(dfu.capacity() as u32 - active.capacity() as u32 >= page_size);
+    assert!(2 + 2 * (active.capacity() as u32 / page_size) <= state.capacity() as u32 / STATE::WRITE_SIZE as u32);
+    assert!(safe.capacity() == active.capacity());
+}
+
+#[cfg(not(feature = "safe"))]
 fn assert_partitions<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
     active: &ACTIVE,
     dfu: &DFU,
