@@ -132,7 +132,10 @@ impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
             StopMode::Stop1 => Lpms::STOP1,
+            #[cfg(not(stm32wba))]
             StopMode::Stop2 => Lpms::STOP2,
+            #[cfg(stm32wba)]
+            StopMode::Stop2 => Lpms::STOP1, // TODO: WBA has no STOP2?
         }
     }
 }
