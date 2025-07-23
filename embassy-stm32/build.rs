@@ -1918,9 +1918,9 @@ fn main() {
     }
 
     g.extend(quote!(
-        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {{
-            unsafe {{ crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }}
-        }}
+        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {
+            unsafe { crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }
+        }
     ));
 
     // ========
