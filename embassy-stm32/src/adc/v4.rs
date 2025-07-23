@@ -142,6 +142,7 @@ impl Prescaler {
 }
 
 /// Number of samples used for averaging.
+#[derive(Copy, Clone)]
 pub enum Averaging {
     Disabled,
     Samples2,

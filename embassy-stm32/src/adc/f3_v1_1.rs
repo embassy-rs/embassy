@@ -17,6 +17,7 @@ pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
 pub const VREF_INT: u32 = 1230;
 
+#[derive(Copy, Clone)]
 pub enum AdcPowerMode {
     AlwaysOn,
     DelayOff,
@@ -24,6 +25,7 @@ pub enum AdcPowerMode {
     DelayIdleOff,
 }
 
+#[derive(Copy, Clone)]
 pub enum Prescaler {
     Div1,
     Div2,

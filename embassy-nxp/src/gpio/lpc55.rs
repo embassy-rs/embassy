@@ -7,6 +7,7 @@ pub(crate) fn init() {
     syscon_reg()
         .ahbclkctrl0
         .modify(|_, w| w.gpio0().enable().gpio1().enable().mux().enable().iocon().enable());
+    info!("GPIO initialized");
 }
 
 /// The GPIO pin level for pins set on "Digital" mode.
