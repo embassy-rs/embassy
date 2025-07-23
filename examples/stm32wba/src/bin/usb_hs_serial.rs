@@ -5,12 +5,12 @@ use defmt::{panic, *};
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_stm32::rcc::PllSource;
+use embassy_stm32::rcc::{mux, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, Sysclk, VoltageScale};
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
-use embassy_stm32::rcc::{VoltageScale, Hse, HsePrescaler, APBPrescaler, AHBPrescaler, Sysclk, mux};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_stm32::rcc::PllSource;
 use embassy_usb::Builder;
 use panic_probe as _;
 
@@ -25,7 +25,9 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
     // External HSE (32 MHz) setup
-    config.rcc.hse = Some(Hse { prescaler: HsePrescaler::DIV1 });
+    config.rcc.hse = Some(Hse {
+        prescaler: HsePrescaler::DIV1,
+    });
 
     // route HSE into the USB‐OTG‐HS block
     config.rcc.mux.otghssel = mux::Otghssel::HSE;
@@ -33,15 +35,14 @@ async fn main(_spawner: Spawner) {
 
     // Fine-tune PLL1 dividers/multipliers
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-    source: PllSource::HSE,
-    pllm: 2,          // PLLM = 2 → HSE / 2 = 16 MHz input
-    mul: 12,            // PLLN = 12 → 16 MHz * 12 = 192 MHz VCO
-    divp: Some(2),      // PLLP = 2 → 96 MHz
-    divq: Some(2),      // PLLQ = 2 → 96 MHz
-    divr: Some(2),      // PLLR = 2 → 96 MHz
-    frac: Some(4096),   // Fractional part (enabled)
+        source: PllSource::HSE,
+        pllm: 2,          // PLLM = 2 → HSE / 2 = 16 MHz input
+        mul: 12,          // PLLN = 12 → 16 MHz * 12 = 192 MHz VCO
+        divp: Some(2),    // PLLP = 2 → 96 MHz
+        divq: Some(2),    // PLLQ = 2 → 96 MHz
+        divr: Some(2),    // PLLR = 2 → 96 MHz
+        frac: Some(4096), // Fractional part (enabled)
     });
-
 
     config.rcc.ahb_pre = AHBPrescaler::DIV1;
     config.rcc.apb1_pre = APBPrescaler::DIV1;
