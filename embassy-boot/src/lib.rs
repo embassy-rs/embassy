@@ -29,6 +29,12 @@ pub(crate) const REVERT_MAGIC: u8 = 0xC0;
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
 pub(crate) const SWAP_MAGIC: u8 = 0xF0;
 pub(crate) const DFU_DETACH_MAGIC: u8 = 0xE0;
+#[cfg(feature = "restore")]
+pub(crate) const BACKUP_MAGIC: u8 = 0xA1;
+#[cfg(feature = "restore")]
+pub(crate) const RESTORE_MAGIC: u8 = 0xB0;
+#[cfg(feature = "safe")]
+pub(crate) const SAFE_MAGIC: u8 = 0xA0;
 
 /// The state of the bootloader after running prepare.
 #[derive(PartialEq, Eq, Debug)]
@@ -40,6 +46,16 @@ pub enum State {
     Swap,
     /// Bootloader has reverted the active partition with the dfu partition and will attempt boot.
     Revert,
+    /// Bootloader is requested to boot the safe image.
+    #[cfg(feature = "safe")]
+    Safe,
+    /// Bootloader will copy the active partition to the dfu partition as a backup.
+    #[cfg(feature = "restore")]
+    /// Bootloader will copy the active partition to the dfu partition as a backup.
+    Backup,
+    /// Bootloader will copy the dfu partition to the active partition to restore.
+    #[cfg(feature = "restore")]
+    Restore,
     /// Application has received a request to reboot into DFU mode to apply an update.
     DfuDetach,
 }
@@ -50,15 +66,28 @@ where
 {
     fn from(magic: T) -> State {
         let magic = magic.as_ref();
-        if !magic.iter().any(|&b| b != SWAP_MAGIC) {
-            State::Swap
-        } else if !magic.iter().any(|&b| b != REVERT_MAGIC) {
-            State::Revert
-        } else if !magic.iter().any(|&b| b != DFU_DETACH_MAGIC) {
-            State::DfuDetach
-        } else {
-            State::Boot
+        if magic.iter().all(|&b| b == SWAP_MAGIC) {
+            return State::Swap;
         }
+        if magic.iter().all(|&b| b == REVERT_MAGIC) {
+            return State::Revert;
+        }
+        if magic.iter().all(|&b| b == DFU_DETACH_MAGIC) {
+            return State::DfuDetach;
+        }
+        #[cfg(feature = "safe")]
+        if magic.iter().all(|&b| b == SAFE_MAGIC) {
+            return State::Safe;
+        }
+        #[cfg(feature = "restore")]
+        if magic.iter().all(|&b| b == BACKUP_MAGIC) {
+            return State::Backup;
+        }
+        #[cfg(feature = "restore")]
+        if magic.iter().all(|&b| b == RESTORE_MAGIC) {
+            return State::Restore;
+        }
+        return State::Boot:
     }
 }
 
@@ -76,6 +105,80 @@ impl<const N: usize> AsMut<[u8]> for AlignedBuffer<N> {
     fn as_mut(&mut self) -> &mut [u8] {
         &mut self.0
     }
+}
+
+/// Dummy error struct for `DummySafe` struct
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Error {
+    OutOfBounds,
+}
+
+impl embedded_storage::nor_flash::NorFlashError for Error {
+    fn kind(&self) -> embedded_storage::nor_flash::NorFlashErrorKind {
+        match self {
+            Self::OutOfBounds => embedded_storage::nor_flash::NorFlashErrorKind::OutOfBounds,
+        }
+    }
+}
+
+/// Dummy struct for the `BootLoader`'s `safe_flash` parameter, used when the `safe` feature is disabled.
+pub struct DummySafe;
+
+impl embedded_storage::nor_flash::NorFlash for DummySafe {
+    const WRITE_SIZE: usize = 0;
+    const ERASE_SIZE: usize = 0;
+
+    fn erase(&mut self, _from: u32, _to: u32) -> Result<(), Self::Error> {
+        return Err(Error::OutOfBounds);
+    }
+    fn write(&mut self, _offset: u32, _bytes: &[u8]) -> Result<(), Self::Error> {
+        return Err(Error::OutOfBounds);
+    }
+}
+
+impl embedded_storage::nor_flash::ReadNorFlash for DummySafe {
+    const READ_SIZE: usize = 0;
+    fn read(&mut self, _offset: u32, _bytes: &mut [u8]) -> Result<(), Self::Error> {
+        return Err(Error::OutOfBounds);
+    }
+
+    fn capacity(&self) -> usize {
+        0
+    }
+}
+
+impl embedded_storage::nor_flash::ErrorType for DummySafe {
+    type Error = Error;
+}
+
+/// Dummy struct for the `BootLoader`'s `safe_flash` parameter, used when the `safe` feature is disabled.
+pub struct DummySafeAsync;
+
+impl embedded_storage_async::nor_flash::NorFlash for DummySafeAsync {
+    const WRITE_SIZE: usize = 0;
+    const ERASE_SIZE: usize = 0;
+
+    async fn erase(&mut self, _from: u32, _to: u32) -> Result<(), Self::Error> {
+        return Err(Error::OutOfBounds);
+    }
+    async fn write(&mut self, _offset: u32, _bytes: &[u8]) -> Result<(), Self::Error> {
+        return Err(Error::OutOfBounds);
+    }
+}
+
+impl embedded_storage_async::nor_flash::ReadNorFlash for DummySafeAsync {
+    const READ_SIZE: usize = 0;
+    async fn read(&mut self, _offset: u32, _bytes: &mut [u8]) -> Result<(), Self::Error> {
+        return Err(Error::OutOfBounds);
+    }
+
+    fn capacity(&self) -> usize {
+        0
+    }
+}
+
+impl embedded_storage_async::nor_flash::ErrorType for DummySafeAsync {
+    type Error = Error;
 }
 
 #[cfg(test)]
