@@ -216,7 +216,7 @@ pub mod _export {
     );
 
     #[allow(dead_code)]
-    trait HasOutput {
+    pub trait HasOutput {
         type Output;
     }
 
@@ -225,7 +225,7 @@ pub mod _export {
     }
 
     #[allow(dead_code)]
-    type Never = <fn() -> ! as HasOutput>::Output;
+    pub type Never = <fn() -> ! as HasOutput>::Output;
 }
 
 /// Implementation details for embassy macros.
@@ -242,7 +242,7 @@ pub mod _export {
     impl TaskReturnValue for Never {}
 
     #[allow(dead_code)]
-    trait HasOutput {
+    pub trait HasOutput {
         type Output;
     }
 
@@ -251,5 +251,5 @@ pub mod _export {
     }
 
     #[allow(dead_code)]
-    type Never = <fn() -> ! as HasOutput>::Output;
+    pub type Never = <fn() -> ! as HasOutput>::Output;
 }

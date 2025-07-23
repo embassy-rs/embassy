@@ -7,4 +7,4 @@ error[E0277]: task futures must resolve to `()` or `!`
   = note: use `async fn` or change the return type to `impl Future<Output = ()>`
   = help: the following other types implement trait `TaskReturnValue`:
             ()
-            <fn() -> ! as _export::HasOutput>::Output
+            <fn() -> ! as HasOutput>::Output

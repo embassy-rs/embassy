@@ -5,7 +5,7 @@ use darling::FromMeta;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::visit::{self, Visit};
-use syn::{Expr, ExprLit, Lit, LitInt, ReturnType, Type};
+use syn::{Expr, ExprLit, Lit, LitInt, ReturnType, Type, Visibility};
 
 use crate::util::*;
 
@@ -135,6 +135,13 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     let task_inner_future_output = match &f.sig.output {
         ReturnType::Default => quote! {-> impl ::core::future::Future<Output = ()>},
         // Special case the never type since we can't stuff it into a `impl Future<Output = !>`
+        ReturnType::Type(arrow, maybe_never)
+            if f.sig.asyncness.is_some() && matches!(**maybe_never, Type::Never(_)) =>
+        {
+            quote! {
+                #arrow impl ::core::future::Future<Output=#embassy_executor::_export::Never>
+            }
+        }
         ReturnType::Type(arrow, maybe_never) if matches!(**maybe_never, Type::Never(_)) => quote! {
             #arrow #maybe_never
         },
@@ -149,14 +156,20 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         },
     };
 
+    // We have to rename the function since it might be recursive;
+    let mut task_inner_function = f.clone();
+    let task_inner_function_ident = format_ident!("__{}_task_inner_function", task_ident);
+    task_inner_function.sig.ident = task_inner_function_ident.clone();
+    task_inner_function.vis = Visibility::Inherited;
+
     let task_inner_body = if errors.is_empty() {
         quote! {
-            #f
+            #task_inner_function
 
             // SAFETY: All the preconditions to `#task_ident` apply to
             //         all contexts `#task_inner_ident` is called in
             #unsafety {
-                #task_ident(#(#full_args,)*)
+                #task_inner_function_ident(#(#full_args,)*)
             }
         }
     } else {
