@@ -1,8 +1,16 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr1;
-pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk};
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk, Pllsrc as PllSource };
+use crate::pac::rcc::vals::Pllrge;
 use crate::pac::{FLASH, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
+
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::rcc::vals::Otghssel;
+
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
@@ -14,12 +22,48 @@ pub struct Hse {
     pub prescaler: HsePrescaler,
 }
 
+#[derive(Clone, Copy)]
+pub struct Pll {
+    /// The clock source for the PLL.
+    pub source: PllSource,
+    /// The PLL pre-divider.
+    ///
+    /// The clock speed of the `source` divided by `m` must be between 4 and 16 MHz.
+    pub pllm: u8,
+    /// The PLL multiplier.
+    ///
+    /// The multiplied clock – `source` divided by `m` times `n` – must be between 128 and 544
+    /// MHz. The upper limit may be lower depending on the `Config { voltage_range }`.
+    pub mul: u8,
+    /// The divider for the P output.
+    ///
+    /// The P output is one of several options
+    /// that can be used to feed the SAI/MDF/ADF Clock mux's.
+    pub divp: Option<u8>,
+    /// The divider for the Q output.
+    ///
+    /// The Q ouput is one of severals options that can be used to feed the 48MHz clocks
+    /// and the OCTOSPI clock. It may also be used on the MDF/ADF clock mux's.
+    pub divq: Option<u8>,
+    /// The divider for the R output.
+    ///
+    /// When used to drive the system clock, `source` divided by `m` times `n` divided by `r`
+    /// must not exceed 160 MHz. System clocks above 55 MHz require a non-default
+    /// `Config { voltage_range }`.
+    pub divr: Option<u8>,
+
+    pub frac: Option<u16>,
+}
+
 /// Clocks configuration
 #[derive(Clone, Copy)]
 pub struct Config {
     // base clock sources
     pub hsi: bool,
     pub hse: Option<Hse>,
+
+    // pll
+    pub pll1: Option<Pll>,
 
     // sysclk, buses.
     pub sys: Sysclk,
@@ -29,7 +73,8 @@ pub struct Config {
     pub apb7_pre: APBPrescaler,
 
     // low speed LSI/LSE/RTC
-    pub ls: super::LsConfig,
+    pub lsi: super::LsConfig,
+    // pub lsi2: super::LsConfig,
 
     pub voltage_scale: VoltageScale,
 
@@ -40,14 +85,16 @@ pub struct Config {
 impl Config {
     pub const fn new() -> Self {
         Config {
-            hse: None,
             hsi: true,
+            hse: None,
+            pll1: None,
             sys: Sysclk::HSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
-            ls: crate::rcc::LsConfig::new(),
+            lsi: crate::rcc::LsConfig::new(),
+            // lsi2: crate::rcc::LsConfig::new(),
             voltage_scale: VoltageScale::RANGE2,
             mux: super::mux::ClockMux::default(),
         }
@@ -81,7 +128,7 @@ pub(crate) unsafe fn init(config: Config) {
     crate::pac::PWR.vosr().write(|w| w.set_vos(config.voltage_scale));
     while !crate::pac::PWR.vosr().read().vosrdy() {}
 
-    let rtc = config.ls.init();
+    let rtc = config.lsi.init();
 
     let hsi = config.hsi.then(|| {
         hsi_enable();
@@ -99,11 +146,15 @@ pub(crate) unsafe fn init(config: Config) {
         HSE_FREQ
     });
 
+    let pll_input = PllInput {hse, hsi };
+
+    let pll1 = init_pll(config.pll1, &pll_input, config.voltage_scale);
+
     let sys_clk = match config.sys {
         Sysclk::HSE => hse.unwrap(),
         Sysclk::HSI => hsi.unwrap(),
         Sysclk::_RESERVED_1 => unreachable!(),
-        Sysclk::PLL1_R => todo!(),
+        Sysclk::PLL1_R => pll1.r.unwrap(),
     };
 
     assert!(sys_clk.0 <= 100_000_000);
@@ -157,6 +208,33 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
     });
 
+    #[cfg(all(stm32wba, peri_usb_otg_hs))]
+    let usb_refck = match config.mux.otghssel {
+        Otghssel::HSE => hse,
+        Otghssel::HSE_DIV_2 => hse.map(|hse_val| hse_val / 2u8),
+        Otghssel::PLL1_P => pll1.p,
+        Otghssel::PLL1_P_DIV_2 => pll1.p.map(|pll1p_val| pll1p_val / 2u8),
+    };
+    #[cfg(all(stm32wba, peri_usb_otg_hs))]
+    let usb_refck_sel = match usb_refck {
+        Some(clk_val) => match clk_val {
+            Hertz(16_000_000) => Usbrefcksel::MHZ16,
+            Hertz(19_200_000) => Usbrefcksel::MHZ19_2,
+            Hertz(20_000_000) => Usbrefcksel::MHZ20,
+            Hertz(24_000_000) => Usbrefcksel::MHZ24,
+            Hertz(26_000_000) => Usbrefcksel::MHZ26,
+            Hertz(32_000_000) => Usbrefcksel::MHZ32,
+            _ => panic!("cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+        },
+        None => Usbrefcksel::MHZ24,
+    };
+    #[cfg(all(stm32wba, peri_usb_otg_hs))]
+    SYSCFG.otghsphycr().modify(|w| {
+        w.set_clksel(usb_refck_sel);
+    });
+
+    let lsi = config.lsi.lsi.then_some(LSI_FREQ);
+
     config.mux.init();
 
     set_clocks!(
@@ -171,12 +249,104 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim: Some(pclk2_tim),
         rtc: rtc,
         hse: hse,
+        lsi: lsi,
         hsi: hsi,
+        pll1_p: pll1.p,
+        pll1_q: pll1.q,
+        pll1_r: pll1.r,
 
         // TODO
         lse: None,
-        lsi: None,
-        pll1_p: None,
-        pll1_q: None,
     );
+}
+
+pub(super) struct PllInput {
+    pub hsi: Option<Hertz>,
+    pub hse: Option<Hertz>,
+}
+
+#[allow(unused)]
+#[derive(Default)]
+pub(super) struct PllOutput {
+    pub p: Option<Hertz>,
+    pub q: Option<Hertz>,
+    pub r: Option<Hertz>,
+}
+
+fn pll_enable(enabled: bool) {
+    RCC.cr().modify(|w| w.set_pllon(enabled));
+    while RCC.cr().read().pllrdy() != enabled {}
+}
+
+fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) -> PllOutput {
+    // Disable PLL
+    pll_enable(false);
+
+    let Some(pll) = config else { return PllOutput::default() };
+
+    let src_freq = match pll.source {
+        PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
+        PllSource::HSE => unwrap!(input.hse),
+        PllSource::HSI => unwrap!(input.hsi),
+        PllSource::_RESERVED_1 => panic!("must not select RESERVED_1 source as DISABLE"),
+    };
+
+    // Calculate the reference clock, which is the source divided by m
+    let ref_freq = src_freq / pll.pllm;
+    // Check limits per RM0515 § 12.4.3
+    assert!(Hertz::mhz(4) <= ref_freq && ref_freq <= Hertz::mhz(16));
+
+    // Check PLL clocks per RM0515 § 12.4.5
+    let (vco_min, vco_max, out_max) = match voltage_range {
+        VoltageScale::RANGE1 => (Hertz::mhz(128), Hertz::mhz(544), Hertz::mhz(100)),
+        VoltageScale::RANGE2 => panic!("PLL is unavailable in voltage range 2"),
+    };
+
+    // Calculate the PLL VCO clock
+    let vco_freq = ref_freq * pll.mul;
+    assert!(vco_freq >= vco_min && vco_freq <= vco_max);
+
+    // Calculate output clocks.
+    let p = pll.divp.map(|div| vco_freq / div);
+    let q = pll.divq.map(|div| vco_freq / div);
+    let r = pll.divr.map(|div| vco_freq / div);
+    for freq in [p, q, r] {
+        if let Some(freq) = freq {
+            assert!(freq <= out_max);
+        }
+    }
+
+    let divr = RCC.pll1divr();
+    divr.write(|w| {
+        w.set_plln(pll.mul as u16);
+        w.set_pllp(pll.divp.unwrap_or(1));
+        w.set_pllq(pll.divq.unwrap_or(1));
+        w.set_pllr(pll.divr.unwrap_or(1));
+        // w.set_pllfracn(pll.frac.unwrap_or(1));
+    });
+    RCC.pll1fracr().write(|w| {w.set_pllfracn(pll.frac.unwrap_or(1));});
+
+    let input_range = match ref_freq.0 {
+        ..=8_000_000 => Pllrge::FREQ_4TO8MHZ,
+        _ => Pllrge::FREQ_8TO16MHZ,
+    };
+
+    macro_rules! write_fields {
+        ($w:ident) => {
+            $w.set_pllpen(pll.divp.is_some());
+            $w.set_pllqen(pll.divq.is_some());
+            $w.set_pllren(pll.divr.is_some());
+            $w.set_pllfracen(pll.frac.is_some());
+            $w.set_pllm(pll.pllm);
+            $w.set_pllsrc(pll.source);
+            $w.set_pllrge(input_range);
+        };
+    }
+
+    RCC.pll1cfgr().write(|w| {write_fields!(w);});
+
+    // Enable PLL
+    pll_enable(true);
+
+    PllOutput{ p, q, r }
 }
