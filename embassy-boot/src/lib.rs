@@ -212,10 +212,12 @@ mod tests {
 
     #[test]
     fn test_boot_state() {
+        const FIRMWARE_SIZE: usize = 12288;
         let flash = BlockingTestFlash::new(BootLoaderConfig {
-            active: MemFlash::<57344, 4096, 4>::default(),
-            dfu: MemFlash::<61440, 4096, 4>::default(),
+            active: MemFlash::<FIRMWARE_SIZE, 4096, 4>::default(),
+            dfu: MemFlash::<{ FIRMWARE_SIZE + 4096 }, 4096, 4>::default(),
             state: MemFlash::<4096, 4096, 4>::default(),
+            safe: MemFlash::<FIRMWARE_SIZE, 4096, 4>::default(),
         });
 
         flash.state().write(0, &[BOOT_MAGIC; 4]).unwrap();
@@ -224,6 +226,7 @@ mod tests {
             active: flash.active(),
             dfu: flash.dfu(),
             state: flash.state(),
+            safe: flash.safe(),
         });
 
         let mut page = [0; 4096];
@@ -233,11 +236,12 @@ mod tests {
     #[test]
     #[cfg(not(feature = "_verify"))]
     fn test_swap_state() {
-        const FIRMWARE_SIZE: usize = 57344;
+        const FIRMWARE_SIZE: usize = 12288;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
             active: MemFlash::<FIRMWARE_SIZE, 4096, 4>::default(),
-            dfu: MemFlash::<61440, 4096, 4>::default(),
+            dfu: MemFlash::<{ FIRMWARE_SIZE + 4096 }, 4096, 4>::default(),
             state: MemFlash::<4096, 4096, 4>::default(),
+            safe: MemFlash::<FIRMWARE_SIZE, 4096, 4>::default(),
         });
 
         const ORIGINAL: [u8; FIRMWARE_SIZE] = [0x55; FIRMWARE_SIZE];
@@ -266,6 +270,7 @@ mod tests {
             active: flash.active(),
             dfu: flash.dfu(),
             state: flash.state(),
+            safe: flash.safe(),
         });
 
         let mut page = [0; 1024];
@@ -307,6 +312,7 @@ mod tests {
             active: flash.active(),
             dfu: flash.dfu(),
             state: flash.state(),
+            safe: flash.safe(),
         });
         assert_eq!(State::Boot, bootloader.prepare_boot(&mut page).unwrap());
     }
@@ -316,9 +322,10 @@ mod tests {
     fn test_swap_state_active_page_biggest() {
         const FIRMWARE_SIZE: usize = 12288;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
-            active: MemFlash::<12288, 4096, 8>::random(),
-            dfu: MemFlash::<16384, 2048, 8>::random(),
+            active: MemFlash::<FIRMWARE_SIZE, 4096, 8>::random(),
+            dfu: MemFlash::<{ FIRMWARE_SIZE + 4096 }, 4096, 4>::default(),
             state: MemFlash::<2048, 128, 4>::random(),
+            safe: MemFlash::<FIRMWARE_SIZE, 4096, 8>::random(),
         });
 
         const ORIGINAL: [u8; FIRMWARE_SIZE] = [0x55; FIRMWARE_SIZE];
@@ -343,6 +350,7 @@ mod tests {
             active: flash.active(),
             dfu: flash.dfu(),
             state: flash.state(),
+            safe: flash.safe(),
         });
 
         let mut page = [0; 4096];
@@ -362,8 +370,9 @@ mod tests {
         const FIRMWARE_SIZE: usize = 12288;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
             active: MemFlash::<FIRMWARE_SIZE, 2048, 4>::random(),
-            dfu: MemFlash::<16384, 4096, 8>::random(),
+            dfu: MemFlash::<{ FIRMWARE_SIZE + 4096 }, 4096, 4>::default(),
             state: MemFlash::<2048, 128, 4>::random(),
+            safe: MemFlash::<FIRMWARE_SIZE, 2048, 4>::random(),
         });
 
         const ORIGINAL: [u8; FIRMWARE_SIZE] = [0x55; FIRMWARE_SIZE];
@@ -388,6 +397,7 @@ mod tests {
             active: flash.active(),
             dfu: flash.dfu(),
             state: flash.state(),
+            safe: flash.safe(),
         });
         let mut page = [0; 4096];
         assert_eq!(State::Swap, bootloader.prepare_boot(&mut page).unwrap());
@@ -425,6 +435,7 @@ mod tests {
             active: MemFlash::<0, 0, 0>::default(),
             dfu: MemFlash::<4096, 4096, 4>::default(),
             state: MemFlash::<4096, 4096, 4>::default(),
+            safe: MemFlash::<0, 1, 1>::default(),
         });
 
         let firmware_len = firmware.len();
@@ -450,5 +461,170 @@ mod tests {
             firmware_len as u32,
         ))
         .is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "restore")]
+    fn test_backup() {
+        const SIZE: usize = 4096 * 2;
+        let flash = AsyncTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<SIZE, 4096, 4>::default(),
+            dfu: MemFlash::<12288, 4096, 4>::default(),
+            state: MemFlash::<4096, 4096, 4>::default(),
+            safe: MemFlash::<SIZE, 4096, 4>::default(),
+        });
+
+        const ACTIVE_DATA: [u8; SIZE] = [0x11; SIZE];
+        let mut aligned = [0; 4];
+
+        block_on(flash.active().erase(0, SIZE as u32)).unwrap();
+        block_on(flash.active().write(0, &ACTIVE_DATA)).unwrap();
+
+        let mut updater = FirmwareUpdater::new(
+            FirmwareUpdaterConfig {
+                dfu: flash.dfu(),
+                state: flash.state(),
+            },
+            &mut aligned,
+        );
+        block_on(updater.mark_backup()).unwrap();
+
+        let flash = flash.into_blocking();
+        let mut bootloader = BootLoader::new(BootLoaderConfig {
+            active: flash.active(),
+            dfu: flash.dfu(),
+            state: flash.state(),
+            safe: flash.safe(),
+        });
+        let mut page = [0; 4096];
+        assert_eq!(State::Boot, bootloader.prepare_boot(&mut page).unwrap());
+
+        let mut buf = [0; SIZE];
+        flash.dfu().read(0, &mut buf).unwrap();
+        assert_eq!(ACTIVE_DATA, buf);
+    }
+
+    #[test]
+    #[cfg(feature = "restore")]
+    fn test_restore() {
+        const SIZE: usize = 4096 * 2;
+        let flash = AsyncTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<SIZE, 4096, 4>::default(),
+            dfu: MemFlash::<12288, 4096, 4>::default(),
+            state: MemFlash::<4096, 4096, 4>::default(),
+            safe: MemFlash::<SIZE, 4096, 4>::default(),
+        });
+
+        const ACTIVE_DATA: [u8; SIZE] = [0x11; SIZE];
+        const BACKUP_DATA: [u8; SIZE] = [0x22; SIZE];
+        let mut aligned = [0; 4];
+
+        block_on(flash.active().erase(0, SIZE as u32)).unwrap();
+        block_on(flash.active().write(0, &ACTIVE_DATA)).unwrap();
+        block_on(flash.dfu().erase(0, 12288u32)).unwrap();
+        block_on(flash.dfu().write(0, &BACKUP_DATA)).unwrap();
+
+        let mut updater = FirmwareUpdater::new(
+            FirmwareUpdaterConfig {
+                dfu: flash.dfu(),
+                state: flash.state(),
+            },
+            &mut aligned,
+        );
+        block_on(updater.mark_restore()).unwrap();
+
+        let flash = flash.into_blocking();
+        let mut bootloader = BootLoader::new(BootLoaderConfig {
+            active: flash.active(),
+            dfu: flash.dfu(),
+            state: flash.state(),
+            safe: flash.safe(),
+        });
+        let mut page = [0; 4096];
+        assert_eq!(State::Boot, bootloader.prepare_boot(&mut page).unwrap());
+
+        let mut buf = [0; SIZE];
+        flash.active().read(0, &mut buf).unwrap();
+        assert_eq!(BACKUP_DATA, buf);
+    }
+
+    #[test]
+    #[cfg(feature = "safe")]
+    fn test_safe_magic_trigger() {
+        /* 1. Create AsyncTestFlash */
+        let flash = AsyncTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<0x1000, 0x1000, 4>::default(),
+            dfu: MemFlash::<0x2000, 0x1000, 4>::default(),
+            state: MemFlash::<0x1000, 0x1000, 4>::default(),
+            safe: MemFlash::<0x1000, 0x1000, 4>::default(),
+        });
+        let mut aligned = [0; 4];
+
+        /* 2. Create FirmwareUpdater */
+        let mut updater = FirmwareUpdater::new(
+            FirmwareUpdaterConfig {
+                dfu: flash.dfu(),
+                state: flash.state(),
+            },
+            &mut aligned,
+        );
+
+        /* 3. Mark safe flag */
+        block_on(updater.mark_safe()).unwrap();
+
+        /* 4. Get current status */
+        let state = block_on(updater.get_state()).unwrap();
+
+        /* 5. Check if current state is safe */
+        assert_eq!(State::Safe, state);
+    }
+
+    #[test]
+    #[cfg(feature = "safe")]
+    fn test_safe_copy_function() {
+        /* 1. Create AsyncTestFlash */
+        let flash = AsyncTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<0x1000, 0x1000, 4>::default(),
+            dfu: MemFlash::<0x2000, 0x1000, 4>::default(),
+            state: MemFlash::<0x1000, 0x1000, 4>::default(),
+            safe: MemFlash::<0x1000, 0x1000, 4>::default(),
+        });
+        let mut aligned = [0; 4];
+
+        /* 2. Create FirmwareUpdater */
+        let mut updater = FirmwareUpdater::new(
+            FirmwareUpdaterConfig {
+                dfu: flash.dfu(),
+                state: flash.state(),
+            },
+            &mut aligned,
+        );
+
+        /* 3. Reset active, safe. Write data to safe */
+        const DATA_SAFE: [u8; 0x1000] = [0x10; 0x1000];
+        block_on(flash.active().erase(0, 0x1000 as u32)).unwrap();
+        block_on(flash.safe().erase(0, 0x1000 as u32)).unwrap();
+        block_on(flash.safe().write(0, &DATA_SAFE)).unwrap();
+
+        /* 4. Mark safe flag */
+        block_on(updater.mark_safe()).unwrap();
+
+        /* 5. Call prepare_boot and check if safe operation is done successfully */
+        let flash = flash.into_blocking();
+        let mut bootloader = BootLoader::new(BootLoaderConfig {
+            active: flash.active(),
+            dfu: flash.dfu(),
+            state: flash.state(),
+            safe: flash.safe(),
+        });
+        let mut page = [0; 4096];
+        assert_eq!(State::Boot, bootloader.prepare_boot(&mut page).unwrap());
+
+        // 6. read data from active area
+        let mut read_buf = [0; 0x1000];
+        flash.active().read(0, &mut read_buf).unwrap();
+
+        // 7. Compare safe data and active data
+        assert_eq!(DATA_SAFE, read_buf);
     }
 }

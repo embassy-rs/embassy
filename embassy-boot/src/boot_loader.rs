@@ -649,6 +649,7 @@ mod tests {
 
     #[test]
     #[should_panic]
+    #[cfg(not(feature = "safe"))]
     fn test_range_asserts() {
         const ACTIVE_SIZE: usize = 4194304 - 4096;
         const DFU_SIZE: usize = 4194304;
@@ -657,5 +658,20 @@ mod tests {
         static DFU: MemFlash<DFU_SIZE, 4, 4> = MemFlash::new(0xFF);
         static STATE: MemFlash<STATE_SIZE, 4, 4> = MemFlash::new(0xFF);
         assert_partitions(&ACTIVE, &DFU, &STATE, 4096);
+    }
+
+    #[test]
+    #[should_panic]
+    #[cfg(feature = "safe")]
+    fn test_range_asserts() {
+        const ACTIVE_SIZE: usize = 4194304 - 4096;
+        const DFU_SIZE: usize = 4194304;
+        const STATE_SIZE: usize = 4096;
+        const SAFE_SIZE: usize = ACTIVE_SIZE;
+        static ACTIVE: MemFlash<ACTIVE_SIZE, 4, 4> = MemFlash::new(0xFF);
+        static DFU: MemFlash<DFU_SIZE, 4, 4> = MemFlash::new(0xFF);
+        static STATE: MemFlash<STATE_SIZE, 4, 4> = MemFlash::new(0xFF);
+        static SAFE: MemFlash<SAFE_SIZE, 4, 4> = MemFlash::new(0xFF);
+        assert_partitions(&ACTIVE, &DFU, &STATE, &SAFE, 4096);
     }
 }
