@@ -1,5 +1,3 @@
-use embedded_hal_02::blocking;
-
 /// Wrapper that implements async traits using blocking implementations.
 ///
 /// This allows driver writers to depend on the async traits while still supporting embedded-hal peripheral implementations.
@@ -24,7 +22,7 @@ impl<T> BlockingAsync<T> {
 impl<T, E> embedded_hal_1::i2c::ErrorType for BlockingAsync<T>
 where
     E: embedded_hal_1::i2c::Error + 'static,
-    T: blocking::i2c::WriteRead<Error = E> + blocking::i2c::Read<Error = E> + blocking::i2c::Write<Error = E>,
+    T: embedded_hal_1::i2c::I2c<Error = E>,
 {
     type Error = E;
 }
@@ -32,7 +30,7 @@ where
 impl<T, E> embedded_hal_async::i2c::I2c for BlockingAsync<T>
 where
     E: embedded_hal_1::i2c::Error + 'static,
-    T: blocking::i2c::WriteRead<Error = E> + blocking::i2c::Read<Error = E> + blocking::i2c::Write<Error = E>,
+    T: embedded_hal_1::i2c::I2c<Error = E>,
 {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.wrapped.read(address, read)
@@ -51,9 +49,7 @@ where
         address: u8,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        let _ = address;
-        let _ = operations;
-        todo!()
+        self.wrapped.transaction(address, operations)
     }
 }
 
