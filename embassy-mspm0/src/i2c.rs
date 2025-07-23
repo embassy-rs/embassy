@@ -25,7 +25,7 @@ use crate::Peri;
 pub enum ClockSel {
     /// Use the bus clock.
     ///
-    /// By default the BusClk runs at 32 MHz.
+    /// Configurable clock.
     BusClk,
 
     /// Use the middle frequency clock.
@@ -127,8 +127,15 @@ impl BusSpeed {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Config Error
 pub enum ConfigError {
+    /// Invalid clock rate.
+    ///
     /// The clock rate could not be configured with the given conifguratoin.
     InvalidClockRate,
+
+    /// Clock source not enabled.
+    ///
+    /// The clock soure is not enabled is SYSCTL.
+    ClockSourceNotEnabled,
 }
 
 #[non_exhaustive]
@@ -136,7 +143,7 @@ pub enum ConfigError {
 /// Config
 pub struct Config {
     /// I2C clock source.
-    pub clock_source: ClockSel,
+    clock_source: ClockSel,
 
     /// I2C clock divider.
     pub clock_div: ClockDiv,
@@ -160,7 +167,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            clock_source: ClockSel::BusClk,
+            clock_source: ClockSel::MfClk,
             clock_div: ClockDiv::DivBy1,
             invert_sda: false,
             invert_scl: false,
@@ -178,7 +185,7 @@ impl Config {
     pub fn scl_pf(&self) -> PfType {
         PfType::input(self.scl_pull, self.invert_scl)
     }
-    fn timer_period(&self) -> u8 {
+    fn calculate_timer_period(&self) -> u8 {
         // Sets the timer period to bring the clock frequency to the selected I2C speed
         // From the documentation: TPR = (I2C_CLK / (I2C_FREQ * (SCL_LP + SCL_HP))) - 1 where:
         // - I2C_FREQ is desired I2C frequency (= I2C_BASE_FREQ divided by I2C_DIV)
@@ -186,13 +193,13 @@ impl Config {
         // - SCL_LP is the SCL Low period (fixed at 6)
         // - SCL_HP is the SCL High period (fixed at 4)
         // - I2C_CLK is functional clock frequency
-        return (((self.calculate_clock_rate() * self.clock_div.divider()) / (self.bus_speed.hertz() * 10u32)) - 1)
+        return (((self.calculate_clock_source() * self.clock_div.divider()) / (self.bus_speed.hertz() * 10u32)) - 1)
             .try_into()
             .unwrap();
     }
 
     #[cfg(any(mspm0c110x))]
-    pub fn calculate_clock_rate(&self) -> Hertz {
+    fn calculate_clock_source(&self) -> Hertz {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
@@ -205,7 +212,7 @@ impl Config {
         mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0l110x, mspm0l122x, mspm0l130x,
         mspm0l134x, mspm0l222x
     ))]
-    pub fn calculate_clock_rate(&self) -> Hertz {
+    fn calculate_clock_source(&self) -> Hertz {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
@@ -214,15 +221,46 @@ impl Config {
         }
     }
 
-    pub fn check_clock_rate(&self) -> bool {
+    fn check_clock_i2c(&self) -> bool {
         // make sure source clock is ~20 faster than i2c clock
         let clk_ratio = 20u8;
 
         let i2c_clk = self.bus_speed.hertz() / self.clock_div.divider();
-        let src_clk = self.calculate_clock_rate();
+        let src_clk = self.calculate_clock_source();
 
         // check clock rate
         return src_clk >= i2c_clk * clk_ratio;
+    }
+
+    fn define_clock_source(&mut self) -> bool {
+        // decide which clock source to choose based on i2c clock.
+        // If i2c speed <= 200kHz, use MfClk, otherwise use BusClk
+        if self.bus_speed.hertz() / self.clock_div.divider() > Hertz::khz(200) {
+            // TODO: check if BUSCLK enabled
+            self.clock_source = ClockSel::BusClk;
+        } else {
+            // is MFCLK enabled
+            if !pac::SYSCTL.mclkcfg().read().usemftick() {
+                return false;
+            }
+            self.clock_source = ClockSel::MfClk;
+        }
+        return true;
+    }
+
+    /// Check the config.
+    ///
+    /// Make sure that configuration is valid and enabled by the system.
+    pub fn check_config(&mut self) -> Result<(), ConfigError> {
+        if !self.define_clock_source() {
+            return Err(ConfigError::ClockSourceNotEnabled);
+        }
+
+        if !self.check_clock_i2c() {
+            return Err(ConfigError::InvalidClockRate);
+        }
+
+        Ok(())
     }
 }
 
@@ -288,7 +326,7 @@ impl<'d, M: Mode> SetConfig for I2c<'d, M> {
     type ConfigError = ConfigError;
 
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        self.set_config(config)
+        self.set_config(*config)
     }
 }
 
@@ -297,10 +335,10 @@ impl<'d> I2c<'d, Blocking> {
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
-        config: Config,
+        mut config: Config,
     ) -> Result<Self, ConfigError> {
-        if !config.check_clock_rate() {
-            return Err(ConfigError::InvalidClockRate);
+        if let Err(err) = config.check_config() {
+            return Err(err);
         }
 
         Self::new_inner(peri, scl, sda, config)
@@ -313,10 +351,10 @@ impl<'d> I2c<'d, Async> {
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        config: Config,
+        mut config: Config,
     ) -> Result<Self, ConfigError> {
-        if !config.check_clock_rate() {
-            return Err(ConfigError::InvalidClockRate);
+        if let Err(err) = config.check_config() {
+            return Err(err);
         }
 
         let i2c = Self::new_inner(peri, scl, sda, config);
@@ -330,9 +368,9 @@ impl<'d> I2c<'d, Async> {
 
 impl<'d, M: Mode> I2c<'d, M> {
     /// Reconfigure the driver
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        if !config.check_clock_rate() {
-            return Err(ConfigError::InvalidClockRate);
+    pub fn set_config(&mut self, mut config: Config) -> Result<(), ConfigError> {
+        if let Err(err) = config.check_config() {
+            return Err(err);
         }
 
         self.info.interrupt.disable();
@@ -345,7 +383,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             scl.update_pf(config.scl_pf());
         }
 
-        self.init(config)
+        self.init(&config)
     }
 
     fn init(&mut self, config: &Config) -> Result<(), ConfigError> {
@@ -370,21 +408,25 @@ impl<'d, M: Mode> I2c<'d, M> {
         });
 
         // Reset controller transfer, follow TI example
-        self.info
-            .regs
-            .controller(0)
-            .cctr()
-            .write_value(i2c::regs::Cctr::default());
+        self.info.regs.controller(0).cctr().modify(|w| {
+            w.set_burstrun(false);
+            w.set_start(false);
+            w.set_stop(false);
+            w.set_ack(false);
+            w.set_cackoen(false);
+            w.set_rd_on_txempty(false);
+            w.set_cblen(0);
+        });
 
         self.state
             .clock
-            .store(config.calculate_clock_rate().0, Ordering::Relaxed);
+            .store(config.calculate_clock_source().0, Ordering::Relaxed);
 
         self.info
             .regs
             .controller(0)
             .ctpr()
-            .write(|w| w.set_tpr(config.timer_period()));
+            .write(|w| w.set_tpr(config.calculate_timer_period()));
 
         // Set Tx Fifo threshold, follow TI example
         self.info
@@ -1087,39 +1129,39 @@ mod tests {
 
     /// These tests are based on TI's reference caluclation.
     #[test]
-    fn ti_timer_period() {
+    fn ti_calculate_timer_period() {
         let mut config = Config::default();
         config.clock_div = ClockDiv::DivBy1;
         config.bus_speed = BusSpeed::FastMode;
         config.clock_source = ClockSel::BusClk;
-        assert!(matches!(config.timer_period(), 7));
+        assert!(matches!(config.calculate_timer_period(), 7));
     }
 
     #[test]
-    fn ti_timer_period_2() {
+    fn ti_calculate_timer_period_2() {
         let mut config = Config::default();
         config.clock_div = ClockDiv::DivBy2;
         config.bus_speed = BusSpeed::FastMode;
         config.clock_source = ClockSel::BusClk;
-        assert!(matches!(config.timer_period(), 3));
+        assert!(matches!(config.calculate_timer_period(), 3));
     }
 
     #[test]
-    fn ti_timer_period_3() {
+    fn ti_calculate_timer_period_3() {
         let mut config = Config::default();
         config.clock_div = ClockDiv::DivBy2;
         config.bus_speed = BusSpeed::Standard;
         config.clock_source = ClockSel::BusClk;
-        assert!(matches!(config.timer_period(), 15));
+        assert!(matches!(config.calculate_timer_period(), 15));
     }
 
     #[test]
-    fn ti_timer_period_4() {
+    fn ti_calculate_timer_period_4() {
         let mut config = Config::default();
         config.clock_div = ClockDiv::DivBy2;
         config.bus_speed = BusSpeed::Custom(100_000);
         config.clock_source = ClockSel::BusClk;
-        assert!(matches!(config.timer_period(), 15));
+        assert!(matches!(config.calculate_timer_period(), 15));
     }
 
     #[test]
@@ -1127,7 +1169,7 @@ mod tests {
         let mut config = Config::default();
         config.clock_source = ClockSel::BusClk;
         config.bus_speed = BusSpeed::FastModePlus;
-        assert!(config.check_clock_rate());
+        assert!(config.check_clock_i2c());
     }
 
     #[test]
@@ -1135,7 +1177,7 @@ mod tests {
         let mut config = Config::default();
         config.clock_source = ClockSel::BusClk;
         config.bus_speed = BusSpeed::FastMode;
-        assert!(config.check_clock_rate());
+        assert!(config.check_clock_i2c());
     }
 
     #[test]
@@ -1143,7 +1185,7 @@ mod tests {
         let mut config = Config::default();
         config.clock_source = ClockSel::MfClk;
         config.bus_speed = BusSpeed::FastModePlus;
-        assert!(!config.check_clock_rate());
+        assert!(!config.check_clock_i2c());
     }
 
     #[test]
@@ -1151,6 +1193,6 @@ mod tests {
         let mut config = Config::default();
         config.clock_source = ClockSel::MfClk;
         config.bus_speed = BusSpeed::FastMode;
-        assert!(!config.check_clock_rate());
+        assert!(!config.check_clock_i2c());
     }
 }

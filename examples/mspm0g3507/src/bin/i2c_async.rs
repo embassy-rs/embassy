@@ -8,7 +8,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_mspm0::bind_interrupts;
-use embassy_mspm0::i2c::{BusSpeed, ClockSel, Config, I2c, InterruptHandler};
+use embassy_mspm0::i2c::{Config, I2c, InterruptHandler};
 use embassy_mspm0::peripherals::I2C1;
 use {defmt_rtt as _, panic_halt as _};
 
@@ -26,10 +26,7 @@ async fn main(_spawner: Spawner) -> ! {
     let scl = p.PB2;
     let sda = p.PB3;
 
-    let mut config = Config::default();
-    config.clock_source = ClockSel::BusClk;
-    config.bus_speed = BusSpeed::FastMode;
-    let mut i2c = unwrap!(I2c::new_async(instance, scl, sda, Irqs, config));
+    let mut i2c = unwrap!(I2c::new_async(instance, scl, sda, Irqs, Config::default()));
 
     let mut to_read = [0u8; 1];
     let to_write: u8 = 0x0F;

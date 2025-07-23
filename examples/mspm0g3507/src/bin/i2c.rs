@@ -7,7 +7,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_mspm0::i2c::{BusSpeed, ClockSel, Config, I2c};
+use embassy_mspm0::i2c::{Config, I2c};
 use {defmt_rtt as _, panic_halt as _};
 
 const ADDRESS: u8 = 0x6a;
@@ -20,10 +20,7 @@ async fn main(_spawner: Spawner) -> ! {
     let scl = p.PB2;
     let sda = p.PB3;
 
-    let mut config = Config::default();
-    config.clock_source = ClockSel::BusClk;
-    config.bus_speed = BusSpeed::FastMode;
-    let mut i2c = unwrap!(I2c::new_blocking(instance, scl, sda, config));
+    let mut i2c = unwrap!(I2c::new_blocking(instance, scl, sda, Config::default()));
 
     let mut to_read = [0u8; 1];
     let to_write: u8 = 0x0F;
