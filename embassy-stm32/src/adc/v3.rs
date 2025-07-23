@@ -266,8 +266,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// channel number and not the pin order in `sequence`.
     ///
     /// Example
-    /// ```rust,ignore
-    /// use embassy_stm32::adc::{Adc, AdcChannel}
+    /// ```rust,no_run
+    /// use embassy_stm32::adc::{Adc, AdcChannel, SampleTime}
     ///
     /// let mut adc = Adc::new(p.ADC1);
     /// let mut adc_pin0 = p.PA0.degrade_adc();
@@ -292,11 +292,112 @@ impl<'d, T: Instance> Adc<'d, T> {
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
         readings: &mut [u16],
     ) {
-        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
             sequence.len() == readings.len(),
             "Sequence length must be equal to readings length"
         );
+        self.prepare_read(sequence).await;
+
+        let request = rx_dma.request();
+        let transfer = unsafe {
+            Transfer::new_read(
+                rx_dma,
+                request,
+                T::regs().dr().as_ptr() as *mut u16,
+                readings,
+                Default::default(),
+            )
+        };
+
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        // Wait for conversion sequence to finish.
+        transfer.await;
+
+        // Ensure conversions are finished.
+        Self::cancel_conversions();
+
+        // Reset configuration.
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        T::regs().cfgr().modify(|reg| {
+            reg.set_cont(false);
+        });
+        #[cfg(any(adc_g0, adc_u0))]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_cont(false);
+        });
+    }
+
+    /// Read one or multiple ADC channels using DMA, after preparing for the read with [`Self::prepare_read`];
+    /// `sequence` iterator and `readings` must have the same length.
+    ///
+    /// Note: The order of values in `readings` is defined by the pin ADC
+    /// channel number and not the pin order in `sequence`.
+    ///
+    /// Example
+    /// ```rust,no_run
+    /// use embassy_stm32::adc::{Adc, AdcChannel, SampleTime}
+    ///
+    /// let mut adc = Adc::new(p.ADC1);
+    /// let mut adc_pin0 = p.PA0.degrade_adc();
+    /// let mut adc_pin1 = p.PA1.degrade_adc();
+    /// let mut measurements = [0u16; 2];
+    /// adc.prepare_read(
+    ///     [
+    ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
+    ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
+    ///     ]
+    /// ).await;
+    /// for _ in 0..5 {
+    ///     adc.read_without_preparing(
+    ///         p.DMA1_CH2.reborrow(),
+    ///         &mut measurements,
+    ///     ).await;
+    ///     defmt::info!("measurements: {}", measurements);
+    /// }
+    /// ```
+    pub async fn read_without_preparing(&mut self, rx_dma: Peri<'_, impl RxDma<T>>, readings: &mut [u16]) {
+        let request = rx_dma.request();
+        let transfer = unsafe {
+            Transfer::new_read(
+                rx_dma,
+                request,
+                T::regs().dr().as_ptr() as *mut u16,
+                readings,
+                Default::default(),
+            )
+        };
+
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        // Wait for conversion sequence to finish.
+        transfer.await;
+
+        // Ensure conversions are finished.
+        Self::cancel_conversions();
+    }
+
+    fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
+        // RM0492, RM0481, etc.
+        // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
+        #[cfg(any(adc_h5, adc_h7rs))]
+        if channel.channel() == 0 {
+            T::regs().or().modify(|reg| reg.set_op0(true));
+        }
+
+        // Configure channel
+        Self::set_channel_sample_time(channel.channel(), sample_time);
+    }
+
+    /// Configure the ADC peripheral with the given channels for reading with DMA
+    pub async fn prepare_read(&mut self, sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>) {
+        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
             sequence.len() <= 16,
             "Asynchronous read sequence cannot be more than 16 in length"
@@ -379,50 +480,6 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_dmacfg(Dmacfg::ONE_SHOT);
             reg.set_dmaen(true);
         });
-
-        let request = rx_dma.request();
-        let transfer = unsafe {
-            Transfer::new_read(
-                rx_dma,
-                request,
-                T::regs().dr().as_ptr() as *mut u16,
-                readings,
-                Default::default(),
-            )
-        };
-
-        // Start conversion
-        T::regs().cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        // Wait for conversion sequence to finish.
-        transfer.await;
-
-        // Ensure conversions are finished.
-        Self::cancel_conversions();
-
-        // Reset configuration.
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        T::regs().cfgr().modify(|reg| {
-            reg.set_cont(false);
-        });
-        #[cfg(any(adc_g0, adc_u0))]
-        T::regs().cfgr1().modify(|reg| {
-            reg.set_cont(false);
-        });
-    }
-
-    fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
-        // RM0492, RM0481, etc.
-        // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-        #[cfg(any(adc_h5, adc_h7rs))]
-        if channel.channel() == 0 {
-            T::regs().or().modify(|reg| reg.set_op0(true));
-        }
-
-        // Configure channel
-        Self::set_channel_sample_time(channel.channel(), sample_time);
     }
 
     fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
