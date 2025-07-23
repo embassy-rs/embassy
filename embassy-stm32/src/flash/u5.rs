@@ -93,13 +93,9 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
     let ret: Result<(), Error> = blocking_wait_ready();
     #[cfg(feature = "trustzone-secure")]
-    pac::FLASH
-        .seccr()
-        .modify(|w| w.set_per(false));
+    pac::FLASH.seccr().modify(|w| w.set_per(false));
     #[cfg(not(feature = "trustzone-secure"))]
-    pac::FLASH
-        .nscr()
-        .modify(|w| w.set_per(false));
+    pac::FLASH.nscr().modify(|w| w.set_per(false));
     clear_all_err();
     ret
 }
