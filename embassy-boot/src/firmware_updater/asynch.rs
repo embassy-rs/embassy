@@ -7,6 +7,10 @@ use embedded_storage_async::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
 use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+#[cfg(feature = "safe")]
+use crate::SAFE_MAGIC;
+#[cfg(feature = "restore")]
+use crate::{BACKUP_MAGIC, RESTORE_MAGIC};
 
 /// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
@@ -184,6 +188,26 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
         self.state.mark_dfu().await
     }
 
+    /// Mark to trigger a backup of the active partition on next boot.
+    #[cfg(feature = "restore")]
+    pub async fn mark_backup(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
+        self.state.mark_backup().await
+    }
+
+    /// Mark to trigger restore from the DFU partition on next boot.
+    #[cfg(feature = "restore")]
+    pub async fn mark_restore(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
+        self.state.mark_restore().await
+    }
+
+    /// Mark to copy firmware from safe to active.
+    #[cfg(feature = "safe")]
+    pub async fn mark_safe(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.mark_safe().await
+    }
+
     /// Mark firmware boot successful and stop rollback on reset.
     pub async fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.state.mark_booted().await
@@ -331,6 +355,24 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
     /// Mark firmware boot successful and stop rollback on reset.
     pub async fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.set_magic(BOOT_MAGIC).await
+    }
+
+    /// Mark to trigger a backup of the active partition on next boot.
+    #[cfg(feature = "restore")]
+    pub async fn mark_backup(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(BACKUP_MAGIC).await
+    }
+
+    /// Mark to trigger restore from the DFU partition on next boot.
+    #[cfg(feature = "restore")]
+    pub async fn mark_restore(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(RESTORE_MAGIC).await
+    }
+
+    /// Mark to trigger safe image recover
+    #[cfg(feature = "safe")]
+    pub async fn mark_safe(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(SAFE_MAGIC).await
     }
 
     async fn set_magic(&mut self, magic: u8) -> Result<(), FirmwareUpdaterError> {

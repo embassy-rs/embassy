@@ -7,6 +7,10 @@ use embedded_storage::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
 use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+#[cfg(feature = "safe")]
+use crate::SAFE_MAGIC;
+#[cfg(feature = "restore")]
+use crate::{BACKUP_MAGIC, RESTORE_MAGIC};
 
 /// Blocking FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
@@ -219,6 +223,26 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         self.state.mark_dfu()
     }
 
+    /// Mark to trigger a backup of the active partition on next boot.
+    #[cfg(feature = "restore")]
+    pub fn mark_backup(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted()?;
+        self.state.mark_backup()
+    }
+
+    /// Mark to trigger restore from the DFU partition on next boot.
+    #[cfg(feature = "restore")]
+    pub fn mark_restore(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted()?;
+        self.state.mark_restore()
+    }
+
+    /// Mark to copy firmware from safe to active.
+    #[cfg(feature = "safe")]
+    pub fn mark_safe(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.mark_safe()
+    }
+
     /// Mark firmware boot successful and stop rollback on reset.
     pub fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.state.mark_booted()
@@ -366,6 +390,24 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
     /// Mark firmware boot successful and stop rollback on reset.
     pub fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.set_magic(BOOT_MAGIC)
+    }
+
+    /// Mark to trigger a backup of the active partition on next boot.
+    #[cfg(feature = "restore")]
+    pub fn mark_backup(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(BACKUP_MAGIC)
+    }
+
+    /// Mark to trigger restore from the DFU partition on next boot.
+    #[cfg(feature = "restore")]
+    pub fn mark_restore(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(RESTORE_MAGIC)
+    }
+
+    /// Mark to trigger safe image recover
+    #[cfg(feature = "safe")]
+    pub fn mark_safe(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(SAFE_MAGIC)
     }
 
     fn set_magic(&mut self, magic: u8) -> Result<(), FirmwareUpdaterError> {
