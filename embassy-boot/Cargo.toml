@@ -51,3 +51,5 @@ flash-erase-zero = []
 
 #Internal features
 _verify = []
+safe = []
+restore = []

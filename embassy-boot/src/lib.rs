@@ -87,7 +87,7 @@ where
         if magic.iter().all(|&b| b == RESTORE_MAGIC) {
             return State::Restore;
         }
-        return State::Boot:
+        return State::Boot;
     }
 }
 
