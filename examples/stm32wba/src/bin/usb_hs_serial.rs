@@ -5,7 +5,7 @@ use defmt::{panic, *};
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::rcc::PllSource;
+use embassy_stm32::rcc::{PllSource, PllPreDiv, PllMul, PllDiv};
 use embassy_stm32::rcc::{mux, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, Sysclk, VoltageScale};
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
@@ -26,21 +26,18 @@ async fn main(_spawner: Spawner) {
 
     // External HSE (32 MHz) setup
     config.rcc.hse = Some(Hse {
-        prescaler: HsePrescaler::DIV1,
+        prescaler: HsePrescaler::DIV2,
     });
 
-    // route HSE into the USB‐OTG‐HS block
-    config.rcc.mux.otghssel = mux::Otghssel::HSE;
-    config.rcc.sys = Sysclk::HSE;
 
     // Fine-tune PLL1 dividers/multipliers
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
         source: PllSource::HSE,
-        pllm: 2.into(),          // PLLM = 2 → HSE / 2 = 16 MHz input
-        mul: 12.into(),          // PLLN = 12 → 16 MHz * 12 = 192 MHz VCO
-        divp: Some(2.into()),    // PLLP = 2 → 96 MHz
-        divq: Some(2.into()),    // PLLQ = 2 → 96 MHz
-        divr: Some(2.into()),    // PLLR = 2 → 96 MHz
+        prediv: PllPreDiv::DIV2,     // PLLM = 2 → HSE / 2 = 8 MHz
+        mul: PllMul::MUL60,          // PLLN = 60 → 8 MHz * 60 = 480 MHz VCO
+        divr: Some(PllDiv::DIV5),    // PLLR = 5 → 96 MHz (Sysclk)
+        divq: Some(PllDiv::DIV10),    // PLLQ = 10 → 48 MHz (USB)
+        divp: Some(PllDiv::DIV15),    // PLLP = 15 → 32 MHz (USBOTG)
         frac: Some(4096), // Fractional part (enabled)
     });
 
@@ -51,6 +48,9 @@ async fn main(_spawner: Spawner) {
 
     // voltage scale for max performance
     config.rcc.voltage_scale = VoltageScale::RANGE1;
+    // route PLL1_P into the USB‐OTG‐HS block
+    config.rcc.mux.otghssel = mux::Otghssel::PLL1_P;
+    config.rcc.sys = Sysclk::PLL1_R;
 
     let p = embassy_stm32::init(config);
 

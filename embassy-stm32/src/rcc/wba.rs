@@ -2,7 +2,7 @@ pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr1;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk, Pllsrc as PllSource,
-    Plldiv as PllDiv, Pllm, Plln as PllMul,
+    Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
 };
 use crate::pac::rcc::vals::Pllrge;
 use crate::pac::{FLASH, RCC};
@@ -32,7 +32,7 @@ pub struct Pll {
     /// The PLL pre-divider.
     ///
     /// The clock speed of the `source` divided by `m` must be between 4 and 16 MHz.
-    pub pllm: Pllm,
+    pub prediv: PllPreDiv,
     /// The PLL multiplier.
     ///
     /// The multiplied clock – `source` divided by `m` times `n` – must be between 128 and 544
@@ -287,15 +287,18 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
 
     let Some(pll) = config else { return PllOutput::default() };
 
-    let src_freq = match pll.source {
+    let pre_src_freq = match pll.source {
         PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
         PllSource::HSE => unwrap!(input.hse),
         PllSource::HSI => unwrap!(input.hsi),
         PllSource::_RESERVED_1 => panic!("must not select RESERVED_1 source as DISABLE"),
     };
 
+    let hse_div = RCC.cr().read().hsepre();
+    let src_freq = pre_src_freq / hse_div;
+
     // Calculate the reference clock, which is the source divided by m
-    let ref_freq = src_freq / pll.pllm;
+    let ref_freq = src_freq / pll.prediv;
     // Check limits per RM0515 § 12.4.3
     assert!(Hertz::mhz(4) <= ref_freq && ref_freq <= Hertz::mhz(16));
 
@@ -325,7 +328,6 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
         w.set_pllp(pll.divp.unwrap_or(PllDiv::DIV1));
         w.set_pllq(pll.divq.unwrap_or(PllDiv::DIV1));
         w.set_pllr(pll.divr.unwrap_or(PllDiv::DIV1));
-        // w.set_pllfracn(pll.frac.unwrap_or(1));
     });
     RCC.pll1fracr().write(|w| {w.set_pllfracn(pll.frac.unwrap_or(1));});
 
@@ -340,7 +342,7 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
             $w.set_pllqen(pll.divq.is_some());
             $w.set_pllren(pll.divr.is_some());
             $w.set_pllfracen(pll.frac.is_some());
-            $w.set_pllm(pll.pllm);
+            $w.set_pllm(pll.prediv);
             $w.set_pllsrc(pll.source);
             $w.set_pllrge(input_range);
         };

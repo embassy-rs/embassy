@@ -315,29 +315,41 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         #[cfg(all(stm32u5, peri_usb_otg_hs))]
         {
-            crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                w.set_en(true);
-            });
-
             critical_section::with(|_| {
                 crate::pac::RCC.ahb2enr1().modify(|w| {
                     w.set_usb_otg_hsen(true);
                     w.set_usb_otg_hs_phyen(true);
                 });
             });
+
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
+            });
         }
 
         #[cfg(all(stm32wba, peri_usb_otg_hs))]
         {
-            crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                w.set_en(true);
-            });
-
             critical_section::with(|_| {
+                crate::pac::RCC.apb7enr().modify(|w| {
+                    w.set_syscfgen(true);
+                });
                 crate::pac::RCC.ahb2enr().modify(|w| {
                     w.set_usb_otg_hsen(true);
                     w.set_usb_otg_hs_phyen(true);
                 });
+            });
+
+            // pub use crate::pac::rcc::vals::Otghssel;
+            // // select HSE
+            // crate::pac::RCC.ccipr2().modify(|w| {w.set_otghssel(Otghssel::HSE);});
+
+            crate::pac::SYSCFG.otghsphytuner2().modify(|w| {
+                w.set_compdistune(0b010);
+                w.set_sqrxtune(0b000);
+            });
+
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
             });
         }
 
