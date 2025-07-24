@@ -19,7 +19,6 @@ target = "x86_64-unknown-linux-gnu"
 
 [features]
 time = ["dep:embassy-time"]
-default = ["time"]
 
 [dependencies]
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal" }
