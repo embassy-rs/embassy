@@ -659,7 +659,7 @@ fn get_msi_calibration_fraction(range: Msirange) -> MsiFraction {
     // Exploiting the MSIx internals to make calculations compact
     let denominator = (range as u32 & 0x03) + 1;
     // Base multipliers are deduced from Table 82: MSI oscillator characteristics in data sheet
-    let numerator = [1465, 122, 94, 12][(range as u32 >> 2) as usize];
+    let numerator = [1465, 122, 94, 12][range as usize >> 2];
 
     MsiFraction::new(numerator, denominator)
 }
