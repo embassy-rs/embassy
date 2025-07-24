@@ -77,6 +77,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
                 this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
                 this.inner.set_output_compare_preload(channel, true);
             });
+        this.inner.set_autoreload_preload(true);
 
         this
     }
