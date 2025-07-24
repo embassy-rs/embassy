@@ -405,14 +405,6 @@ impl RtcDriver {
     /// Pause the timer if ready; return err if not
     pub(crate) fn pause_time(&self) -> Result<(), ()> {
         critical_section::with(|cs| {
-            // TODO The RTC timer should not be running here, so can this be removed?
-            /*
-                If the wakeup timer is currently running, then we need to stop it and
-                add the elapsed time to the current time, as this will impact the result
-                of `time_until_next_alarm`.
-            */
-            self.stop_wakeup_alarm(cs);
-
             let time_until_next_alarm = self.time_until_next_alarm(cs);
             if time_until_next_alarm < Self::MIN_STOP_PAUSE {
                 Err(())
