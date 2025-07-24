@@ -56,7 +56,7 @@ pub enum ClockDiv {
     DivBy8,
 }
 
-impl Into<vals::Ratio> for ClockDiv {
+impl ClockDiv {
     fn into(self) -> vals::Ratio {
         match self {
             Self::DivBy1 => vals::Ratio::DIV_BY_1,
@@ -69,9 +69,7 @@ impl Into<vals::Ratio> for ClockDiv {
             Self::DivBy8 => vals::Ratio::DIV_BY_8,
         }
     }
-}
 
-impl ClockDiv {
     fn divider(self) -> u32 {
         match self {
             Self::DivBy1 => 1,
