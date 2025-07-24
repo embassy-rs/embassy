@@ -555,7 +555,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash> BootLoade
             /* Erase dfu page */
             self.dfu.erase(offset, offset + Self::PAGE_SIZE)?;
 
-            /* Copy safe page to active page */
+            /* Copy active page to dfu page */
             for offset_in_page in (0..Self::PAGE_SIZE).step_by(aligned_buf.len()) {
                 self.active.read(offset + offset_in_page as u32, aligned_buf)?;
                 self.dfu.write(offset + offset_in_page as u32, aligned_buf)?;
@@ -578,7 +578,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash> BootLoade
             /* Erase active page */
             self.active.erase(offset, offset + Self::PAGE_SIZE)?;
 
-            /* Copy active page to dfu page */
+            /* Copy dfu page to active page */
             for offset_in_page in (0..Self::PAGE_SIZE).step_by(aligned_buf.len()) {
                 self.dfu.read(offset + offset_in_page as u32, aligned_buf)?;
                 self.active.write(offset + offset_in_page as u32, aligned_buf)?;
