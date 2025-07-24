@@ -36,11 +36,46 @@ impl Address {
     }
 }
 
+enum ReceiveResult {
+    DataAvailable,
+    StopReceived,
+    NewStart,
+}
+
+fn debug_print_interrupts(isr: stm32_metapac::i2c::regs::Isr) {
+    if isr.tcr() {
+        trace!("interrupt: tcr");
+    }
+    if isr.tc() {
+        trace!("interrupt: tc");
+    }
+    if isr.addr() {
+        trace!("interrupt: addr");
+    }
+    if isr.stopf() {
+        trace!("interrupt: stopf");
+    }
+    if isr.nackf() {
+        trace!("interrupt: nackf");
+    }
+    if isr.berr() {
+        trace!("interrupt: berr");
+    }
+    if isr.arlo() {
+        trace!("interrupt: arlo");
+    }
+    if isr.ovr() {
+        trace!("interrupt: ovr");
+    }
+}
+
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
     let regs = T::info().regs;
     let isr = regs.isr().read();
 
     if isr.tcr() || isr.tc() || isr.addr() || isr.stopf() || isr.nackf() || isr.berr() || isr.arlo() || isr.ovr() {
+        debug_print_interrupts(isr);
+
         T::state().waker.wake();
     }
 
@@ -193,49 +228,132 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     fn flush_txdr(&self) {
         if self.info.regs.isr().read().txis() {
-            self.info.regs.txdr().write(|w| w.set_txdata(0));
+            trace!("Flush TXDATA with zeroes");
+            self.info.regs.txdr().modify(|w| w.set_txdata(0));
         }
         if !self.info.regs.isr().read().txe() {
+            trace!("Flush TXDR");
             self.info.regs.isr().modify(|w| w.set_txe(true))
         }
     }
 
-    fn wait_txe(&self, timeout: Timeout) -> Result<(), Error> {
+    fn error_occurred(&self, isr: &i2c::regs::Isr, timeout: Timeout) -> Result<(), Error> {
+        if isr.nackf() {
+            trace!("NACK triggered.");
+            self.info.regs.icr().modify(|reg| reg.set_nackcf(true));
+            // NACK should be followed by STOP
+            if let Ok(()) = self.wait_stop(timeout) {
+                trace!("Got STOP after NACK, clearing flag.");
+                self.info.regs.icr().modify(|reg| reg.set_stopcf(true));
+            }
+            self.flush_txdr();
+            return Err(Error::Nack);
+        } else if isr.berr() {
+            trace!("BERR triggered.");
+            self.info.regs.icr().modify(|reg| reg.set_berrcf(true));
+            self.flush_txdr();
+            return Err(Error::Bus);
+        } else if isr.arlo() {
+            trace!("ARLO triggered.");
+            self.info.regs.icr().modify(|reg| reg.set_arlocf(true));
+            self.flush_txdr();
+            return Err(Error::Arbitration);
+        } else if isr.ovr() {
+            trace!("OVR triggered.");
+            self.info.regs.icr().modify(|reg| reg.set_ovrcf(true));
+            return Err(Error::Overrun);
+        }
+        return Ok(());
+    }
+
+    fn wait_txis(&self, timeout: Timeout) -> Result<(), Error> {
+        let mut first_loop = true;
+
         loop {
             let isr = self.info.regs.isr().read();
-            if isr.txe() {
+            self.error_occurred(&isr, timeout)?;
+            if isr.txis() {
+                trace!("TXIS");
                 return Ok(());
-            } else if isr.berr() {
-                self.info.regs.icr().write(|reg| reg.set_berrcf(true));
-                return Err(Error::Bus);
-            } else if isr.arlo() {
-                self.info.regs.icr().write(|reg| reg.set_arlocf(true));
-                return Err(Error::Arbitration);
-            } else if isr.nackf() {
-                self.info.regs.icr().write(|reg| reg.set_nackcf(true));
-                self.flush_txdr();
-                return Err(Error::Nack);
             }
 
+            {
+                if first_loop {
+                    trace!("Waiting for TXIS...");
+                    first_loop = false;
+                }
+            }
             timeout.check()?;
         }
     }
 
-    fn wait_rxne(&self, timeout: Timeout) -> Result<(), Error> {
+    fn wait_stop_or_err(&self, timeout: Timeout) -> Result<(), Error> {
         loop {
             let isr = self.info.regs.isr().read();
-            if isr.rxne() {
+            self.error_occurred(&isr, timeout)?;
+            if isr.stopf() {
+                trace!("STOP triggered.");
+                self.info.regs.icr().modify(|reg| reg.set_stopcf(true));
                 return Ok(());
-            } else if isr.berr() {
-                self.info.regs.icr().write(|reg| reg.set_berrcf(true));
-                return Err(Error::Bus);
-            } else if isr.arlo() {
-                self.info.regs.icr().write(|reg| reg.set_arlocf(true));
-                return Err(Error::Arbitration);
-            } else if isr.nackf() {
-                self.info.regs.icr().write(|reg| reg.set_nackcf(true));
-                self.flush_txdr();
-                return Err(Error::Nack);
+            }
+            timeout.check()?;
+        }
+    }
+    fn wait_stop(&self, timeout: Timeout) -> Result<(), Error> {
+        loop {
+            let isr = self.info.regs.isr().read();
+            if isr.stopf() {
+                trace!("STOP triggered.");
+                self.info.regs.icr().modify(|reg| reg.set_stopcf(true));
+                return Ok(());
+            }
+            timeout.check()?;
+        }
+    }
+
+    fn wait_af(&self, timeout: Timeout) -> Result<(), Error> {
+        loop {
+            let isr = self.info.regs.isr().read();
+            if isr.nackf() {
+                trace!("AF triggered.");
+                self.info.regs.icr().modify(|reg| reg.set_nackcf(true));
+                return Ok(());
+            }
+            timeout.check()?;
+        }
+    }
+
+    fn wait_rxne(&self, timeout: Timeout) -> Result<ReceiveResult, Error> {
+        let mut first_loop = true;
+
+        loop {
+            let isr = self.info.regs.isr().read();
+            self.error_occurred(&isr, timeout)?;
+            if isr.stopf() {
+                trace!("STOP when waiting for RXNE.");
+                if self.info.regs.isr().read().rxne() {
+                    trace!("Data received with STOP.");
+                    return Ok(ReceiveResult::DataAvailable);
+                }
+                trace!("STOP triggered without data.");
+                return Ok(ReceiveResult::StopReceived);
+            } else if isr.rxne() {
+                trace!("RXNE.");
+                return Ok(ReceiveResult::DataAvailable);
+            } else if isr.addr() {
+                // Another addr event received, which means START was sent again
+                // which happens when accessing memory registers (common i2c interface design)
+                // e.g. master sends: START, write 1 byte (register index), START, read N bytes (until NACK)
+                // Possible to receive this flag at the same time as rxne, so check rxne first
+                trace!("START when waiting for RXNE. Ending receive loop.");
+                // Return without clearing ADDR so `listen` can catch it
+                return Ok(ReceiveResult::NewStart);
+            }
+            {
+                if first_loop {
+                    trace!("Waiting for RXNE...");
+                    first_loop = false;
+                }
             }
 
             timeout.check()?;
@@ -245,20 +363,10 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     fn wait_tc(&self, timeout: Timeout) -> Result<(), Error> {
         loop {
             let isr = self.info.regs.isr().read();
+            self.error_occurred(&isr, timeout)?;
             if isr.tc() {
                 return Ok(());
-            } else if isr.berr() {
-                self.info.regs.icr().write(|reg| reg.set_berrcf(true));
-                return Err(Error::Bus);
-            } else if isr.arlo() {
-                self.info.regs.icr().write(|reg| reg.set_arlocf(true));
-                return Err(Error::Arbitration);
-            } else if isr.nackf() {
-                self.info.regs.icr().write(|reg| reg.set_nackcf(true));
-                self.flush_txdr();
-                return Err(Error::Nack);
             }
-
             timeout.check()?;
         }
     }
@@ -344,7 +452,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 // Wait until we are allowed to send data
                 // (START has been ACKed or last byte when
                 // through)
-                if let Err(err) = self.wait_txe(timeout) {
+                if let Err(err) = self.wait_txis(timeout) {
                     if send_stop {
                         self.master_stop();
                     }
@@ -459,7 +567,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     // Wait until we are allowed to send data
                     // (START has been ACKed or last byte when
                     // through)
-                    if let Err(err) = self.wait_txe(timeout) {
+                    if let Err(err) = self.wait_txis(timeout) {
                         self.master_stop();
                         return Err(err);
                     }
@@ -884,10 +992,11 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         // clear the address flag, will stop the clock stretching.
         // this should only be done after the dma transfer has been set up.
         info.regs.icr().modify(|reg| reg.set_addrcf(true));
+        trace!("ADDRCF cleared (ADDR interrupt enabled, clock stretching ended)");
     }
 
     // A blocking read operation
-    fn slave_read_internal(&self, read: &mut [u8], timeout: Timeout) -> Result<(), Error> {
+    fn slave_read_internal(&self, read: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
         let completed_chunks = read.len() / 255;
         let total_chunks = if completed_chunks * 255 == read.len() {
             completed_chunks
@@ -895,20 +1004,46 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             completed_chunks + 1
         };
         let last_chunk_idx = total_chunks.saturating_sub(1);
+        let total_len = read.len();
+        let mut remaining_len = total_len;
+
         for (number, chunk) in read.chunks_mut(255).enumerate() {
-            if number != 0 {
+            trace!(
+                "--- Slave RX transmission start - chunk: {}, expected (max) size: {}",
+                number,
+                chunk.len()
+            );
+            if number == 0 {
+                Self::slave_start(self.info, chunk.len(), number != last_chunk_idx);
+            } else {
                 Self::reload(self.info, chunk.len(), number != last_chunk_idx, timeout)?;
             }
 
+            let mut index = 0;
+
             for byte in chunk {
                 // Wait until we have received something
-                self.wait_rxne(timeout)?;
-
-                *byte = self.info.regs.rxdr().read().rxdata();
+                match self.wait_rxne(timeout) {
+                    Ok(ReceiveResult::StopReceived) | Ok(ReceiveResult::NewStart) => {
+                        trace!("--- Slave RX transmission end (early)");
+                        return Ok(total_len - remaining_len); // Return N bytes read
+                    }
+                    Ok(ReceiveResult::DataAvailable) => {
+                        *byte = self.info.regs.rxdr().read().rxdata();
+                        remaining_len = remaining_len.saturating_sub(1);
+                        {
+                            trace!("Slave RX data {}: {:#04x}", index, byte);
+                            index = index + 1;
+                        }
+                    }
+                    Err(e) => return Err(e),
+                };
             }
         }
+        self.wait_stop_or_err(timeout)?;
 
-        Ok(())
+        trace!("--- Slave RX transmission end");
+        Ok(total_len - remaining_len) // Return N bytes read
     }
 
     // A blocking write operation
@@ -922,19 +1057,36 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         let last_chunk_idx = total_chunks.saturating_sub(1);
 
         for (number, chunk) in write.chunks(255).enumerate() {
-            if number != 0 {
+            trace!(
+                "--- Slave TX transmission start - chunk: {}, size: {}",
+                number,
+                chunk.len()
+            );
+            if number == 0 {
+                Self::slave_start(self.info, chunk.len(), number != last_chunk_idx);
+            } else {
                 Self::reload(self.info, chunk.len(), number != last_chunk_idx, timeout)?;
             }
 
+            let mut index = 0;
+
             for byte in chunk {
                 // Wait until we are allowed to send data
-                // (START has been ACKed or last byte when
-                // through)
-                self.wait_txe(timeout)?;
+                // (START has been ACKed or last byte when through)
+                self.wait_txis(timeout)?;
 
+                {
+                    trace!("Slave TX data {}: {:#04x}", index, byte);
+                    index = index + 1;
+                }
                 self.info.regs.txdr().write(|w| w.set_txdata(*byte));
             }
         }
+        self.wait_af(timeout)?;
+        self.flush_txdr();
+        self.wait_stop_or_err(timeout)?;
+
+        trace!("--- Slave TX transmission end");
         Ok(())
     }
 
@@ -945,6 +1097,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         let state = self.state;
         self.info.regs.cr1().modify(|reg| {
             reg.set_addrie(true);
+            trace!("Enable ADDRIE");
         });
 
         poll_fn(|cx| {
@@ -953,17 +1106,24 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             if !isr.addr() {
                 Poll::Pending
             } else {
+                trace!("ADDR triggered (address match)");
                 // we do not clear the address flag here as it will be cleared by the dma read/write
                 // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
                 match isr.dir() {
-                    i2c::vals::Dir::WRITE => Poll::Ready(Ok(SlaveCommand {
-                        kind: SlaveCommandKind::Write,
-                        address: self.determine_matched_address()?,
-                    })),
-                    i2c::vals::Dir::READ => Poll::Ready(Ok(SlaveCommand {
-                        kind: SlaveCommandKind::Read,
-                        address: self.determine_matched_address()?,
-                    })),
+                    i2c::vals::Dir::WRITE => {
+                        trace!("DIR: write");
+                        Poll::Ready(Ok(SlaveCommand {
+                            kind: SlaveCommandKind::Write,
+                            address: self.determine_matched_address()?,
+                        }))
+                    }
+                    i2c::vals::Dir::READ => {
+                        trace!("DIR: read");
+                        Poll::Ready(Ok(SlaveCommand {
+                            kind: SlaveCommandKind::Read,
+                            address: self.determine_matched_address()?,
+                        }))
+                    }
                 }
             }
         })
@@ -971,7 +1131,9 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     }
 
     /// Respond to a write command.
-    pub fn blocking_respond_to_write(&self, read: &mut [u8]) -> Result<(), Error> {
+    ///
+    /// Returns total number of bytes received.
+    pub fn blocking_respond_to_write(&self, read: &mut [u8]) -> Result<usize, Error> {
         let timeout = self.timeout();
         self.slave_read_internal(read, timeout)
     }
@@ -1025,7 +1187,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 w.set_rxdmaen(false);
                 w.set_stopie(false);
                 w.set_tcie(false);
-            })
+            });
         });
 
         let total_received = poll_fn(|cx| {
