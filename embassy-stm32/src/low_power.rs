@@ -234,19 +234,6 @@ impl Executor {
                 executor.inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
-
-                // TODO Workaround to fix broken WFE/wakeup behavior: It has been observed that
-                // sometimes, WFE does not seem to enter the configured STOP mode properly.
-                // Instead, execution goes on immediately. In one test, this has been observed
-                // every other attempt. In these cases, the interrupt handler which forwards to
-                // `on_wakeup_irq` is not called, and the `time_driver.resume_time()` call is
-                // skipped. If the following `configure_pwr` call does not configure STOP mode,
-                // this may cause the following `WFE` to hang forever. It should be possible to
-                // observe how the interrupt handler is skipped by adding another `trace!` call
-                // below and inspect the logs.
-                // As a workaround, we call `on_wakeup_irq` manually here. If the interrupt
-                // handler has been called before and the `time_driver` is already running, this
-                // does nothing.
                 self.on_wakeup();
             };
         }
