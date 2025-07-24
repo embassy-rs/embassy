@@ -181,10 +181,6 @@ pub fn init(config: Config) -> Peripherals {
             w.set_mfpclken(true);
         });
 
-        pac::SYSCTL.sysosccfg().modify(|w| {
-            w.set_freq(pac::sysctl::vals::SysosccfgFreq::SYSOSCBASE);
-        });
-
         pac::SYSCTL.borthreshold().modify(|w| {
             w.set_level(0);
         });
